@@ -3137,10 +3137,10 @@ mod tests {
 
     // The owner's conversations: the one-to-ones with the architects and wf-agents' own first, then a group for each
     // work. The architect's one-to-one holds the owner's words, still waiting for it, and its asks, waiting for the
-    // owner where they were asked, beside a card for each of its matters, where it stands; what a work of the architect
-    // told the owner while it handled a matter of a work, and what the work's engineer told the owner and asked the
-    // architect, are in the work's group, with a card for each stage the work went through. Another project's are its
-    // own.
+    // owner where they were asked, beside a card for each matter it took up, where it stands; what a work of the
+    // architect told the owner while it handled a matter of a work, and what the work's engineer told the owner and
+    // asked the architect, are in the work's group, with a card for each stage the work went through. Another project's
+    // are its own.
     #[test]
     fn the_owner_s_conversations_gather_what_was_said_by_subject() {
         let s = architect_setup("talk");
@@ -3190,13 +3190,18 @@ mod tests {
         );
         assert_eq!(d.asks.iter().map(|a| a.id).collect::<Vec<_>>(), [1, 2]);
         assert!(d.design_cards.is_empty());
-        let cards: Vec<(i64, &str, Option<i64>)> = d
+        // The matter handled comes in at the round that picked it, the one held at the round of the ask that holds it;
+        // the owner's words still in the queue have no card.
+        let cards: Vec<(i64, &str, Option<i64>, i64)> = d
             .entries
             .iter()
-            .filter_map(|e| e.matter_card.as_ref())
-            .map(|m| (m.matter, m.state.as_str(), m.work))
+            .filter_map(|e| {
+                e.matter_card
+                    .as_ref()
+                    .map(|m| (m.matter, m.state.as_str(), m.work, e.at))
+            })
             .collect();
-        assert_eq!(cards, [(1, "done", Some(1)), (2, "queued", None), (3, "held", Some(1))]);
+        assert_eq!(cards, [(1, "done", Some(1), 206), (3, "held", Some(1), 209)]);
         let work = crate::conversation(s.db.conn(), &Flows::default(), &t, "work:1").unwrap();
         let said: Vec<(&str, &str, &str)> = work
             .entries
@@ -3210,6 +3215,89 @@ mod tests {
             "{said:?}"
         );
         assert!(work.entries.iter().any(|e| e.stage.is_some()), "{said:?}");
+    }
+
+    // The architect's matter cards read in the order it took the matters up, not the order they came: of three places to
+    // set straight queued at once, the one picked first and handled comes before the one picked after it and in hand,
+    // and the one never picked has no card; a matter withdrawn without being picked comes in when it was withdrawn. A
+    // place to set straight carries the place.
+    #[test]
+    fn the_matter_cards_come_in_the_order_the_architect_took_them_up() {
+        let mut s = architect_setup("taken_up");
+        let fix =
+            |kind: &str| json!({ "fix": { "kind": kind, "where": format!("#{kind}"), "wrong": "w", "steps": ["s"] } });
+        s.db.write(Actor::Engine, |tx| {
+            let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
+            run(
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'H1', 'p')",
+                &[],
+            )?;
+            for (id, kind) in [(5_i64, "missing"), (6, "dependencies"), (7, "order")] {
+                run(
+                    "INSERT INTO architect_matters (id, project, kind, detail, what, body, at)
+                     VALUES (?1, 'p', 'set_straight', ?2, 'To set straight', ?3, 500)",
+                    &[&id, &kind, &fix(kind).to_string()],
+                )?;
+            }
+            run(
+                "INSERT INTO architect_matters (id, project, kind, what, body, at) VALUES (8, 'p', 'failure', 'F', '{}', 500)",
+                &[],
+            )?;
+            let picked = |m: i64| json!({ "outcome": { "pick": { "matter": m } } }).to_string();
+            let rounds = [
+                (1_i64, "Q1", picked(6), 600),
+                (2, "H1", "{}".to_string(), 610),
+                (3, "Q0", json!({ "queue": { "verdict": "one", "matter": 5 } }).to_string(), 620),
+            ];
+            for (n, cell, output, at) in &rounds {
+                run(
+                    "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                     VALUES (5, ?1, ?2, '{}', ?3, 'next', 'c', ?4, ?4)",
+                    &[n, cell, output, at],
+                )?;
+            }
+            run("UPDATE architect_matters SET handled_work = 5, handled_round = 2 WHERE id = 6", &[])?;
+            Ok(())
+        })
+        .unwrap();
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE architect_matters SET withdrawn = 'The work ended.' WHERE id = 8",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let withdrawn: i64 = s
+            .db
+            .conn()
+            .query_row(
+                "SELECT max(at) FROM changes WHERE table_name = 'architect_matters' AND row_key = json_object('id', 8)",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let t = crate::Talks {
+            projects: vec!["p".into()],
+            own: None,
+            sets: Vec::new(),
+        };
+        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let cards: Vec<(i64, &str, i64)> = d
+            .entries
+            .iter()
+            .filter_map(|e| e.matter_card.as_ref().map(|m| (m.matter, m.state.as_str(), e.at)))
+            .filter(|c| c.0 >= 5)
+            .collect();
+        assert_eq!(
+            cards,
+            [(6, "done", 600), (5, "working", 620), (8, "withdrawn", withdrawn)]
+        );
+        let five = d
+            .entries
+            .iter()
+            .find_map(|e| e.matter_card.as_ref().filter(|m| m.matter == 5));
+        assert_eq!(five.and_then(|m| m.fix.clone()), Some(fix("missing")["fix"].clone()));
     }
 
     // An ask the owner answered is one entry of its conversation, the ask, which holds the answer: the answer is no

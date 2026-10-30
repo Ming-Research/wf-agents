@@ -357,11 +357,10 @@
   font-weight: var(--base-text-weight-semibold);
 }
 
-.talk-card-what {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* A matter's card's first line: its kind and what it asks, whole, as text that wraps, its state and links after it. */
+.talk-card-matter {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .talk-card-facts,

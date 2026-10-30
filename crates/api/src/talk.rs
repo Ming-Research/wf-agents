@@ -686,9 +686,14 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
     Ok(out)
 }
 
-/// The matter cards of a project's architect, the latest two hundred matters, each where it stands: queued, held by
-/// an ask of the owner, worked on at the cell the architect's work is at, handled with what became of it, or withdrawn
-/// with why; a matter about a work names that work, whose group holds it in full.
+/// The matter cards of a project's architect, the latest two hundred matters it took up, each where it stands: held by
+/// an ask of the owner, worked on at the cell the architect's work is at, handled with what became of it, withdrawn
+/// with why, or back in the queue; a matter about a work names that work, whose group holds it in full. A card comes
+/// into the conversation when the architect takes its matter up, at the round that picked it (a lone matter at the
+/// look at the queue, or one picked from many), and stands there while it changes, so that the cards read in the order
+/// the architect took the matters up, the one in hand last. A matter it never picked comes in when it left the queue:
+/// when it was handled without a pick (closed without a look), held by an ask, or withdrawn. One still waiting in the
+/// queue has no card: the queue under the head lists it.
 fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<ConversationEntry>> {
     let handled: HashMap<i64, Handled> = read::matters_handled(conn, project)?
         .into_iter()
@@ -716,31 +721,55 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
         }),
         None => None,
     };
-    let mut st = conn.prepare(
-        "SELECT m.id, m.kind, m.detail, m.what, m.at, m.item, m.withdrawn, m.asked, m.handled_round IS NOT NULL,
-           m.asked IS NOT NULL AND NOT EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL),
-           (SELECT w.id FROM works w WHERE w.graph = 'engineer'
-              AND w.id = coalesce(m.work, CAST(json_extract(m.body, '$.work') AS INTEGER)))
-         FROM architect_matters m WHERE m.project = ?1 ORDER BY m.id DESC LIMIT 200",
-    )?;
+    // Each matter's place in the conversation: the first round that picked it; else the round that handled it, the
+    // round of the ask that holds it, or when it was withdrawn; none while it waits in the queue untaken.
+    let mut st = conn.prepare(&format!(
+        "WITH taken AS (
+           SELECT CAST(coalesce(json_extract(r.output, '$.queue.matter'),
+                                json_extract(r.output, '$.outcome.pick.matter')) AS INTEGER) AS matter,
+                  min(coalesce(r.ended_at, r.started_at)) AS at
+           FROM rounds r JOIN works w ON w.id = r.work
+           WHERE w.graph = 'architect' AND w.project = ?1 AND r.transition IS NOT NULL AND r.cell IN {}
+           GROUP BY 1)
+         SELECT * FROM (
+           SELECT m.id, m.kind, m.detail, m.what, m.item, m.withdrawn, m.asked, m.handled_round IS NOT NULL,
+             m.asked IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL),
+             (SELECT w.id FROM works w WHERE w.graph = 'engineer'
+                AND w.id = coalesce(m.work, CAST(json_extract(m.body, '$.work') AS INTEGER))),
+             CASE WHEN m.kind = 'set_straight' THEN json_extract(m.body, '$.fix') END,
+             coalesce(t.at,
+               (SELECT coalesce(r.ended_at, r.started_at) FROM rounds r
+                WHERE r.work = m.handled_work AND r.n = m.handled_round),
+               (SELECT coalesce(r.ended_at, r.started_at) FROM owner_asks a
+                JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.id = m.asked),
+               CASE WHEN m.withdrawn IS NOT NULL THEN coalesce(
+                 (SELECT min(c.at) FROM changes c
+                  WHERE c.table_name = 'architect_matters' AND c.row_key = json_object('id', m.id)
+                    AND json_extract(c.new_row, '$.withdrawn') IS NOT NULL), m.at) END) AS shown
+           FROM architect_matters m LEFT JOIN taken t ON t.matter = m.id WHERE m.project = ?1)
+         WHERE shown IS NOT NULL ORDER BY id DESC LIMIT 200",
+        db::cells_sql("architect", &["Q0", "Q1"])
+    ))?;
     let rows = st.query_map([project], |r| {
         Ok((
             r.get::<_, i64>(0)?,
             r.get::<_, String>(1)?,
             r.get::<_, Option<String>>(2)?,
             r.get::<_, String>(3)?,
-            r.get::<_, i64>(4)?,
-            r.get::<_, Option<i64>>(5)?,
-            r.get::<_, Option<String>>(6)?,
-            r.get::<_, Option<i64>>(7)?,
+            r.get::<_, Option<i64>>(4)?,
+            r.get::<_, Option<String>>(5)?,
+            r.get::<_, Option<i64>>(6)?,
+            r.get::<_, bool>(7)?,
             r.get::<_, bool>(8)?,
-            r.get::<_, bool>(9)?,
-            r.get::<_, Option<i64>>(10)?,
+            r.get::<_, Option<i64>>(9)?,
+            r.get::<_, Option<String>>(10)?,
+            r.get::<_, i64>(11)?,
         ))
     })?;
     let mut out = Vec::new();
     for row in rows {
-        let (id, kind, detail, what, at, item, withdrawn, asked, done, held, work) = row?;
+        let (id, kind, detail, what, item, withdrawn, asked, done, held, work, fix, at) = row?;
         let now = working.as_ref().filter(|w| w.0 == id);
         let state = if done {
             "done"
@@ -768,6 +797,7 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
             handled: handled.get(&id).cloned(),
             withdrawn,
             asked,
+            fix: read::json(fix),
         };
         out.push(ConversationEntry {
             source: "matter".into(),

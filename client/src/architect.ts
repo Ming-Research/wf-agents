@@ -77,9 +77,12 @@ export function matterKind(kind: string, detail: string | null): string {
   return more !== null ? t('matter_kind_more', { kind: name, more }) : name;
 }
 
+/// What the words of a matter are made from, alike in the queue and in its card in the conversation.
+export type MatterWords = Pick<Matter, 'kind' | 'detail' | 'what' | 'fix'>;
+
 /// What a matter asks to be done, in one sentence: for a place to set straight, where it is and what is wrong there, as
 /// the check of what runs found it; for every other, what the engine wrote of it.
-export function matterSentence(m: Matter): string {
+export function matterSentence(m: MatterWords): string {
   const fix = isObj(m.fix) ? m.fix : null;
   const where = fix !== null ? str(fix.where) : '';
   if (fix === null || where === '') return m.what;
@@ -88,7 +91,7 @@ export function matterSentence(m: Matter): string {
 }
 
 /// The steps a place to set straight is to be set straight by, in order, each whole.
-export function matterSteps(m: Matter): string[] {
+export function matterSteps(m: MatterWords): string[] {
   const fix = isObj(m.fix) ? m.fix : null;
   return fix !== null && Array.isArray(fix.steps) ? fix.steps.map((x) => str(x)).filter((x) => x !== '') : [];
 }
@@ -167,7 +170,9 @@ export function outcomes(h: Handled): Outcome[] {
   if (h.reply !== null) {
     out.push({ key: 'reply', label: t('handled_reply', { work: h.reply_to ?? '' }), text: h.reply, tab: null });
   }
-  if (h.told > 0) out.push({ key: 'told', label: t('handled_told', { n: h.told }), text: '', tab: null });
+  if (h.told > 0) {
+    out.push({ key: 'told', label: t(h.told === 1 ? 'handled_told_one' : 'handled_told', { n: h.told }), text: '', tab: null });
+  }
   if (h.ask !== null) out.push({ key: 'ask', label: t('handled_ask', { id: h.ask }), text: '', tab: null });
   const changes = counted([
     [h.made, 'handled_made'],

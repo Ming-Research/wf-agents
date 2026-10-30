@@ -1,8 +1,9 @@
 // The cards the engine writes into a conversation from the flow, in the page's own voice and apart from what was said
 // (the UI spec's narrow cards): in a work's group, one for each stretch of the work at a stage, updated in place while
 // the work is there, with its result, time and cost, the design folded in the design's card and its design card to
-// rule on; in an architect's one-to-one, one for each matter, queued, worked on at a cell, handled with what became of
-// it, or withdrawn, and the policy as it took effect; in wf-agents' own, each observation, which the owner closes there.
+// rule on; in an architect's one-to-one, one for each matter the architect took up, from when it took it up, held by
+// an ask, worked on at a cell, handled with what became of it, or withdrawn, and the policy as it took effect; in
+// wf-agents' own, each observation, which the owner closes there.
 // Each leads to where its detail is: a stage to its rounds, a matter to its cell on the architect's chart or its
 // work's group.
 
@@ -20,13 +21,14 @@ import { Button, Label, Timeline } from '@primer/react';
 import { useState, type ReactNode } from 'react';
 
 import type { ConversationEntry, MatterProgress, Observation, PolicyInForce, Shown, StageCard, WorkSummary } from '../api';
-import { matterKind, outcomes } from '../architect';
+import { matterKind, matterSentence, matterSteps, outcomes, type MatterWords } from '../architect';
 import { stageFacts } from '../conversation';
 import { cost, duration, time } from '../format';
 import { postJson } from '../http';
 import { words } from '../labelled';
 import { reread } from '../live';
 import { Markdown } from '../markdown';
+import { Fold } from '../parts';
 import { architectHref, href, Link, workHref } from '../route';
 import { t, type Key } from '../text';
 import { DesignCardView } from './Decide';
@@ -155,12 +157,24 @@ const MATTER_STATES: Record<string, { key: Key; tone: 'accent' | 'success' | 'at
   withdrawn: { key: 'matter_withdrawn', tone: undefined, icon: <SkipIcon /> },
 };
 
-/// A matter of the architect's, on one or two lines: its kind and what it is; where it stands (queued, held by an ask
-/// of the owner, worked on at a cell, handled, withdrawn); a matter about a work leads to that work's group, which
-/// holds it in full; one handled says what became of it, line by line, and leads to the round that closed it; one
-/// worked on leads to its cell on the architect's chart.
+/// A matter as the owner reads it wherever it shows, in its card and in the architect's queue: its kind, small and
+/// muted, then what it asks to be done, in one sentence, whole, wrapping with the line it is in.
+export function MatterWhat({ m }: { m: MatterWords }) {
+  return (
+    <>
+      <span className="talk-card-kind">{matterKind(m.kind, m.detail)}</span> <span>{matterSentence(m)}</span>
+    </>
+  );
+}
+
+/// A matter of the architect's: its kind and what it asks, whole, with where it stands (back in the queue, held by an
+/// ask of the owner, worked on at a cell, handled, withdrawn) and its links after them; a place to set straight with
+/// the steps to take there folded under it; a matter about a work leads to that work's group, which holds it in full;
+/// one handled says what became of it, line by line, and leads to the round that closed it; one worked on leads to its
+/// cell on the architect's chart.
 export function MatterCardView({ m, project, current }: { m: MatterProgress; project: string; current: boolean }) {
   const s = MATTER_STATES[m.state] ?? MATTER_STATES.queued;
+  const steps = matterSteps(m);
   const group = m.work !== null ? href({ page: 'messages', open: `work:${m.work}` }) : null;
   const where =
     m.state === 'working' && m.cell !== null
@@ -174,23 +188,30 @@ export function MatterCardView({ m, project, current }: { m: MatterProgress; pro
       : t(s.key);
   return (
     <Card icon={s.icon} tone={s.tone} id={`matter-${m.matter}`}>
-      <div className={current ? 'talk-card-line talk-card-current' : 'talk-card-line'}>
-        <span className="talk-card-kind">{matterKind(m.kind, m.detail)}</span>
-        <span className="talk-card-what" title={m.what}>
-          {m.what}
-        </span>
-        <Label variant={s.tone === undefined ? 'secondary' : s.tone}>{label}</Label>
+      <p className={current ? 'talk-card-matter talk-card-current' : 'talk-card-matter'}>
+        <MatterWhat m={m} /> <Label variant={s.tone === undefined ? 'secondary' : s.tone}>{label}</Label>
         {group !== null ? (
-          <Link to={group} muted>
-            {t('matter_in_group', { work: m.work ?? '' })}
-          </Link>
+          <>
+            {' '}
+            <Link to={group} muted>
+              {t('matter_in_group', { work: m.work ?? '' })}
+            </Link>
+          </>
         ) : null}
         {where !== null ? (
-          <Link to={where} muted>
-            {m.state === 'working' ? t('matter_on_chart') : `R${m.handled?.work ?? ''}-${m.handled?.round ?? ''}`}
-          </Link>
+          <>
+            {' '}
+            <Link to={where} muted>
+              {m.state === 'working' ? t('matter_on_chart') : `R${m.handled?.work ?? ''}-${m.handled?.round ?? ''}`}
+            </Link>
+          </>
         ) : null}
-      </div>
+      </p>
+      {steps.length > 0 ? (
+        <Fold summary={t('matter_steps', { n: steps.length })}>
+          <Said text={steps.map((x, i) => `${i + 1}. ${x}`).join('\n')} />
+        </Fold>
+      ) : null}
       {m.state === 'withdrawn' && m.withdrawn !== null ? <p className="talk-card-note">{m.withdrawn}</p> : null}
       {m.handled !== null && group === null
         ? outcomes(m.handled).map((o) => (

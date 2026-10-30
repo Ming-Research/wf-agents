@@ -15,6 +15,7 @@ import {
   architectState,
   cardWords,
   choicesOf,
+  holdWords,
   observationsShown,
   outcomes,
   matterKind,
@@ -108,8 +109,9 @@ const observation = (id: number, extra: Partial<Observation> = {}): Observation 
 
 describe('a matter in words', () => {
   it('names its kind as what is to be done, and what more the kind says only where that helps', () => {
-    expect(matterKind('set_straight', 'off_policy')).toBe('Set straight: does not follow the policy');
-    expect(matterKind('set_straight', 'dependencies')).toBe('Set straight: dependencies');
+    expect(matterKind('set_straight', 'off_policy')).toBe('Plan fix: does not follow the policy');
+    expect(matterKind('set_straight', 'dependencies')).toBe('Plan fix: dependencies');
+    expect(holdWords('set_straight')).toBe('No new works start until the plan fixes are done');
     expect(matterKind('design_card', null)).toBe('Look at a design card');
     expect(matterKind('report', 'followup')).toBe('Go through side reports');
     expect(matterKind('report', 'fault')).toBe('Look into a fault of wf-agents');
@@ -344,6 +346,8 @@ describe("the architect's page", () => {
     expect(outcomes(handled({ why: 'Already done by #2.' })).map((o) => [o.key, o.text])).toEqual([
       ['nothing', 'Already done by #2.'],
     ]);
+    expect(outcomes(handled({ told: 1 })).map((o) => o.label)).toEqual(['Told you once']);
+    expect(outcomes(handled({ told: 3 })).map((o) => o.label)).toEqual(['Told you 3 times']);
   });
 });
 

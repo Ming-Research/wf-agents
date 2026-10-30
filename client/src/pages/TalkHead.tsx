@@ -13,7 +13,7 @@ import { Button, Label, Select } from '@primer/react';
 import { useState } from 'react';
 
 import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
-import { architectState, holdWords, matterKind, matterSentence, queueParts } from '../architect';
+import { architectState, holdWords, matterSentence, queueParts } from '../architect';
 import { course, heldName } from '../components';
 import { forwardNewChoices } from '../conversation';
 import { Control, Controls, runningWords, SessionChoice, useActions, useNewSession, useOpenStepped, waitsWords } from '../course';
@@ -22,7 +22,7 @@ import { postJson } from '../http';
 import { reread, useResource, useStatus } from '../live';
 import { architectHref, forProject, Link, navigate, workHref } from '../route';
 import { t } from '../text';
-import { stageName } from './TalkCards';
+import { MatterWhat, stageName } from './TalkCards';
 import { Halo } from '../graph/flowDraw';
 
 /// The tiers an item may be put at: those up to the highest an item may be at, in order.
@@ -287,8 +287,7 @@ function QueueList({ a }: { a: Architect }) {
     <ol className="talk-queue-list">
       {[...waiting, ...held].map((m) => (
         <li key={m.id} className={m.id === handling ? 'talk-queue-current' : undefined}>
-          <span className="talk-card-kind">{matterKind(m.kind, m.detail)}</span> <span>{matterSentence(m)}</span>{' '}
-          <span className="talk-card-facts">{time(m.at)}</span>
+          <MatterWhat m={m} /> <span className="talk-card-facts">{time(m.at)}</span>
           {m.id === handling ? (
             <>
               {' '}

@@ -1092,6 +1092,9 @@ pub struct MatterProgress {
     pub withdrawn: Option<String>,
     /// The ask of the owner that holds it, or held it.
     pub asked: Option<i64>,
+    /// For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
+    /// steps to set it straight); none for a matter of another kind.
+    pub fix: Option<Value>,
 }
 
 /// A conversation in full: its entries in time order; what waits for the owner in it, the open blockers the owner

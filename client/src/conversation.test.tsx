@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from './answer';
-import type { Conversation, ConversationDetail, ConversationEntry, JsonValue, OwnerAsk } from './api';
+import type { Conversation, ConversationDetail, ConversationEntry, Handled, JsonValue, MatterProgress, OwnerAsk } from './api';
 import { awayOf, streamOf } from './conversation';
 import { Stream } from './pages/Messages';
 
@@ -303,5 +303,70 @@ describe('answering an ask', () => {
     expect(awayOf({ top: 50, bottom: 120 }, view)).toBeNull();
     expect(awayOf({ top: 480, bottom: 900 }, view)).toBeNull();
     expect(awayOf({ top: 0, bottom: 900 }, view)).toBeNull();
+  });
+});
+
+describe('a matter card in the one-to-one with an architect', () => {
+  const handled: Handled = {
+    matter: 5,
+    kind: 'set_straight',
+    detail: 'missing',
+    what: 'To set straight, item 12: Add the test; Note it',
+    work: 9,
+    round: 12,
+    cell: 'H1',
+    at: 3,
+    reply: null,
+    reply_to: null,
+    told: 1,
+    made: 0,
+    dropped: 0,
+    collected: 0,
+    observations: [],
+    actions: [],
+    messages: [],
+    ask: null,
+    why: null,
+  };
+  const card = (extra: Partial<MatterProgress> = {}): MatterProgress => ({
+    matter: 5,
+    kind: 'set_straight',
+    detail: 'missing',
+    what: handled.what,
+    state: 'done',
+    cell: null,
+    cell_title: null,
+    architect_work: null,
+    round: null,
+    work: null,
+    item: 12,
+    handled,
+    withdrawn: null,
+    asked: null,
+    fix: { where: 'item 12', wrong: 'Its acceptance names no test.', steps: ['Add the test.', 'Note it.'] },
+    ...extra,
+  });
+  const shown = (m: MatterProgress): string =>
+    drawn(detail([entry('matter', { id: m.matter, sender: 'architect', work: null, round: null, matter: m.matter, matter_card: m })]));
+
+  it('says its kind and what it asks as the queue does, whole, the steps folded under it, and what became of it', () => {
+    const html = shown(card());
+    expect(html).toContain('Plan fix: something missing');
+    expect(html).toContain('item 12: Its acceptance names no test.');
+    expect(html).not.toContain('To set straight');
+    const fold = html.slice(html.indexOf('<details class="fold"'));
+    expect(fold).toMatch(/^<details class="fold"><summary>/);
+    expect(fold).toContain('The steps to fix it (2)');
+    expect(fold).toContain('<ol');
+    expect(fold).toContain('Add the test.');
+    expect(fold).toContain('Note it.');
+    expect(html).toContain('Told you once');
+  });
+
+  it('has no fold for a matter with no steps', () => {
+    const html = shown(card({ kind: 'owner_words', detail: 'said', what: 'Put the parser first.', fix: null, handled: null, state: 'working' }));
+    expect(html).toContain('Your words');
+    expect(html).toContain('Put the parser first.');
+    expect(html).not.toContain('<details');
   });
 });
