@@ -2950,9 +2950,9 @@ mod tests {
         assert!(d.shown.iter().all(|x| x.cell == "R1"));
     }
 
-    /// Two works of project p's architect: one over, which handled an engineer's question, and one at the owner's
-    /// reading of the study of a new policy; the matters it has not handled, a hold on new works, an item change made
-    /// and two observations, one closed.
+    /// Two works of project p's architect: one over, which handled an engineer's question, and a setting of its policy,
+    /// a work of its own as a flow version before ran it, at the owner's reading of the study of a new policy; the
+    /// matters it has not handled, a hold on new works, an item change made and two observations, one closed.
     fn architect_setup(name: &str) -> Setup {
         let mut s = setup(name);
         let queued = json!({ "inputs": [{ "from": [{ "db": "architect_queue", "by": "project" }], "value": [
@@ -3488,13 +3488,8 @@ mod tests {
         assert_eq!(a.changes[0].change["kind"], "hold");
 
         assert_eq!(a.policy, None);
-        let setting = a.setting.unwrap();
-        assert_eq!(setting.work, 3);
-        assert_eq!(
-            setting.study.map(|x| (x.round, x.value)),
-            Some((1, json!({ "intent": "i" })))
-        );
-        assert_eq!(setting.draft, None);
+        // A setting a flow version before ran as a work of its own is no setting under way.
+        assert_eq!(a.setting, None);
 
         // The check of the policy in force, in the policy's part.
         assert_eq!(a.check.as_ref().map(|x| (x.work, x.round)), Some((2, 3)));
@@ -3512,5 +3507,71 @@ mod tests {
         let seen: Vec<(i64, Option<&str>)> = a.observations.iter().map(|o| (o.id, o.closed.as_deref())).collect();
         assert_eq!(seen, [(1, None), (2, Some("outdated"))]);
         assert_eq!(a.observations[0].tags, ["perf"]);
+    }
+
+    // The new policy the architect sets is its setting's matter, open, with the latest study and the latest text with
+    // the readings of it, in whichever of the architect's works they were; a study after the text sends it back.
+    #[test]
+    fn the_policy_being_set_is_read_across_the_architect_s_works() {
+        let s = architect_setup("setting");
+        let out = |v: Value| json!({ "outcome": v, "progress": "p" }).to_string();
+        let policy = json!({ "direction": "d", "why": "w", "principles": [{ "no": 1, "text": "t" }], "signals": [] });
+        let probes = json!([{ "id": "x", "ask": "a", "principles": [1], "expect": "e" }]);
+        s.db.write(Actor::Engine, |tx| {
+            let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
+            // The check of the policy in force in work 2 (its round 3) set it again and raised the setting's matter;
+            // the setting went on in work 5 and then in work 6.
+            run(
+                "INSERT INTO architect_matters (project, kind, what, body, work, round, at)
+                 VALUES ('p', 'set_policy', 'Set a new policy', '{}', 2, 3, 500)",
+                &[],
+            )?;
+            run(
+                "INSERT INTO works (item, flow_version, graph, at, ended, project)
+                 VALUES (NULL, 1, 'architect', 'E2', 'over', 'p'), (NULL, 1, 'architect', 'P7', NULL, 'p')",
+                &[],
+            )?;
+            for (work, n, cell, output, transition) in [
+                (
+                    5_i64,
+                    1_i64,
+                    "P2",
+                    out(json!({ "study": { "intent": "i" } })),
+                    "studied",
+                ),
+                (
+                    6,
+                    1,
+                    "P4",
+                    out(json!({ "policy": policy, "probes": probes })),
+                    "written",
+                ),
+                (6, 2, "P6", out(json!({ "reading": { "direction": "d" } })), "answered"),
+            ] {
+                run(
+                    "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                     VALUES (?1, ?2, ?3, '{}', ?4, ?5, 'c', 600, 600)",
+                    &[&work, &n, &cell, &output, &transition],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()], Vec::new(), false).unwrap();
+        let setting = a.setting.unwrap();
+        assert_eq!(setting.matter, 5);
+        assert_eq!(
+            setting.study.map(|x| (x.work, x.round, x.value)),
+            Some((5, 1, json!({ "intent": "i" })))
+        );
+        let draft = setting.draft.unwrap();
+        assert_eq!((draft.work, draft.round, draft.cell.as_str()), (6, 1, "P4"));
+        assert_eq!(draft.policy, policy);
+        let readings: Vec<(i64, i64, &str)> = draft
+            .readings
+            .iter()
+            .map(|r| (r.work, r.round, r.cell.as_str()))
+            .collect();
+        assert_eq!(readings, [(6, 2, "P6")]);
     }
 }

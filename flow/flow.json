@@ -3923,22 +3923,6 @@
       "lines": [
         "architect"
       ]
-    },
-    {
-      "name": "policy_scope",
-      "desc": "What a policy governs, and what it never governs",
-      "text": [
-        "A policy governs which way the project's own work goes in the near-to-middle term, and the principles for judging what matters and what comes first.",
-        "It never governs the constitution, the owner's rulings on design cards, the decisions recorded in the design tree, the flow definition or the rules: only the owner changes these, and work that would change them is proposed to the owner. Nor does it govern any other project."
-      ],
-      "givenWith": [
-        "policy",
-        "policy_stays",
-        "draft_text",
-        "policy_text",
-        "policy_trials",
-        "P5·draft.policy"
-      ]
     }
   ],
   "flows": [
@@ -11761,6 +11745,22 @@
           "lines": [
             "architect",
             "architect_review"
+          ]
+        },
+        {
+          "name": "policy_scope",
+          "desc": "What a policy governs, and what it never governs",
+          "text": [
+            "A policy governs which way the project's own work goes in the near-to-middle term, and the principles for judging what matters and what comes first.",
+            "It never governs the constitution, the owner's rulings on design cards, the decisions recorded in the design tree, the flow definition or the rules: only the owner changes these, and work that would change them is proposed to the owner. Nor does it govern any other project."
+          ],
+          "givenWith": [
+            "policy",
+            "policy_stays",
+            "draft_text",
+            "policy_text",
+            "policy_trials",
+            "P5·draft.policy"
           ]
         }
       ],

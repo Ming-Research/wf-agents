@@ -3653,8 +3653,11 @@ fn a_new_policy_takes_effect_and_the_architect_goes_on_in_its_session() {
     quiet(&mut e);
     say(&mut e, "Is the policy still right?");
     let first = e.step(None).unwrap().work.unwrap();
+    // The owner answers once the architect's work went on with its queue to its end, so that the setting's matter is
+    // the one matter that comes back.
     assert!(
-        steps_until(&mut e, 40, |e| study_asked(e).is_some()),
+        steps_until(&mut e, 40, |e| study_asked(e).is_some()
+            && architect_work_done(e, first)),
         "{}",
         said.borrow().join("\n")
     );

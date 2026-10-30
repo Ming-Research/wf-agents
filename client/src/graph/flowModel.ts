@@ -522,8 +522,8 @@ export type Ways = { in: Set<string>; out: Set<string> };
 
 /// The rows into a cell's node and out of it, each whole as `related` follows it from the arrow at the cell: through
 /// the actions on a line, into the cell through them from every cell whose rows go there, and through the circles to
-/// and from another part and another graph. The arrows of a rule, of the interjection and to what the cell does every
-/// time are no row, and in neither. None for none.
+/// and from another part. The arrows of a rule, of the interjection and to what the cell does every time are no row,
+/// and in neither. None for none.
 export function ways(edges: ChartEdge[], node: string | null): Ways {
   const into = new Set<string>();
   const out = new Set<string>();
