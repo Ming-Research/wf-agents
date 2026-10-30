@@ -6494,7 +6494,8 @@ fn a_place_to_set_straight_is_one_matter_with_its_steps() {
     agents.insert(
         "N1",
         Box::new(|_: &Request, _: usize| {
-            let fixes = json!([{ "where": "The policy's second stage", "kind": "missing", "wrong": "No item does it.",
+            let fixes = json!([{ "where": "The policy's second stage", "items": [], "works": [], "kind": "missing",
+                                 "wrong": "No item does it.",
                                  "steps": ["Make the items lex and parse", "Rank them before #5",
                                            "Have #5 wait for parse"] }]);
             (

@@ -2201,7 +2201,7 @@
               "name": "tags",
               "title": "Tags",
               "type": "list",
-              "desc": "Its tags, from the project's set only",
+              "desc": "Its tags, at least one once the project has a set of them, from that set only",
               "item": {
                 "type": "text",
                 "desc": "A tag's name"
@@ -2509,8 +2509,28 @@
           "name": "item",
           "title": "Item",
           "type": "int",
-          "desc": "The item it is about: its number; leave it out for a place in the order or something missing",
+          "desc": "The item it is about, whose running work a pause stops: its number; leave it out for a place in the order or something missing",
           "optional": true
+        },
+        {
+          "name": "items",
+          "title": "Items concerned",
+          "type": "list",
+          "desc": "Every item it concerns, by number, its item among them: the path that sets it straight is given each in full; an empty list for something missing that no item holds yet",
+          "item": {
+            "type": "int",
+            "desc": "An item's number"
+          }
+        },
+        {
+          "name": "works",
+          "title": "Works concerned",
+          "type": "list",
+          "desc": "Every running work it concerns, by number, whose items the path is given in full too; an empty list for none",
+          "item": {
+            "type": "int",
+            "desc": "A work's number"
+          }
         },
         {
           "name": "where",
