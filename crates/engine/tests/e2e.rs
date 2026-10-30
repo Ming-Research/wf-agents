@@ -6365,22 +6365,6 @@ fn rows_at(e: &Engine, work: i64, cell: &str) -> Vec<String> {
         .collect()
 }
 
-/// The architect's messages to the owner in its one-to-one, oldest first, each with who sent it: its line.
-fn one_to_one_messages(e: &Engine) -> Vec<(String, String)> {
-    let mut st = e
-        .db
-        .conn()
-        .prepare(
-            "SELECT sender, text FROM conversation_entries WHERE conversation = 'architect:p' AND source = 'message'
-                 ORDER BY at, id",
-        )
-        .unwrap();
-    st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-        .unwrap()
-        .map(|x| x.unwrap())
-        .collect()
-}
-
 // The writing of a new policy is given the project's design goal, the owner's own words on where it goes, beside the
 // constitution, as a work of the architect is given its project's settings.
 #[test]
