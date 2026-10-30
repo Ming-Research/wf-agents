@@ -429,6 +429,9 @@ fn add_items(dir: &Path, from: u32, to: u32) {
     );
 }
 
+/// How a table writes the row of the item numbered `i`.
+type ItemRow = fn(u32) -> String;
+
 // A table with more rows than the limit ends with a last line that says how many it leaves out, which is no row of
 // it; a table that fits, at the limit too, is exactly its rows as it was. The tables are worked out by hand from the
 // items' columns, and `item list` and `queue list` print through the one function. The items are added to the one
@@ -436,7 +439,7 @@ fn add_items(dir: &Path, from: u32, to: u32) {
 #[test]
 fn a_table_over_the_row_limit_says_how_many_rows_it_leaves_out() {
     let dir = empty_database("row-limit");
-    let tables: [(&str, &str, fn(u32) -> String); 2] = [
+    let tables: [(&str, &str, ItemRow); 2] = [
         (
             "item list",
             "id\tproject\ttitle\tdeliver\tlevel\tcancelled\tqueued\tdepends_on\twork\n",
