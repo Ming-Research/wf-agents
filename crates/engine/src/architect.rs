@@ -219,6 +219,13 @@ const ENGINEER_END: &str = "E1";
 /// The most rows an input of the architect's gives of one list.
 const ROWS: usize = 200;
 
+/// The most entries [`since_last_work`] gives of each of its lists, the latest; how many earlier ones there are follows
+/// them.
+const LATEST: usize = 60;
+
+/// The most characters [`since_last_work`] gives a commit's message by: its first sentence, cut at a word.
+const COMMIT_MOST: usize = 120;
+
 /// The most matters a batch handles before its item changes are reviewed.
 const BATCH: i64 = 20;
 
@@ -3230,8 +3237,40 @@ fn group_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, Stri
     Ok(Some(json!({ "since": utc_minute(since), "said": said })))
 }
 
+/// The latest [`LATEST`] of a list given latest first, and after them how many earlier ones there are since `since`,
+/// as `and 367 earlier commits since 2026-10-23 11:35 UTC`: what [`since_last_work`] gives of each of its lists. `what`
+/// names one of them and more.
+fn latest(mut rows: Vec<Value>, what: (&str, &str), since: &str) -> Value {
+    let earlier = rows.len().saturating_sub(LATEST);
+    rows.truncate(LATEST);
+    if earlier > 0 {
+        let what = if earlier == 1 { what.0 } else { what.1 };
+        rows.push(json!(format!("and {earlier} earlier {what} since {since}")));
+    }
+    Value::Array(rows)
+}
+
+/// The commits of a `git log --format='%h %cs %s'`, the latest first, as [`since_last_work`] gives them: each by its
+/// hash, its date and its message's first sentence, cut at a word to [`COMMIT_MOST`] characters; the latest
+/// [`LATEST`], then how many earlier ones there are since `since`.
+fn commits(log: &str, since: &str) -> Value {
+    let rows: Vec<Value> = log
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| {
+            let mut parts = l.splitn(3, ' ');
+            let (hash, date) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
+            let first = flow::cut(&db::one_sentence(parts.next().unwrap_or_default()), COMMIT_MOST);
+            json!(format!("{hash} {date} {first}"))
+        })
+        .collect();
+    latest(rows, ("commit", "commits"), since)
+}
+
 /// What happened in a project since its architect's last work started; at the architect's first work, in the week
-/// before it.
+/// before it. Each list is the latest first, the latest [`LATEST`] of it, then how many earlier ones there are: a
+/// repository with long messages and many commits would otherwise fill the input, and the agent reads the rest of
+/// the history with git.
 fn since_last_work(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
     let last: Option<i64> = conn
@@ -3247,87 +3286,60 @@ fn since_last_work(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
         Some(t) => t,
         None => work_start(conn, w.id)? - 7 * 24 * HOUR,
     };
-    let p = e.config.config.projects.get(project);
-    let log = |args: &[&str]| -> Value {
-        let Some(p) = p else { return Value::Null };
-        let main = main_ref(p);
-        let mut a = vec!["log", "--format=%h %cs %s"];
-        a.extend_from_slice(args);
-        a.push(&main);
-        git::git(&p.checkout, &a)
-            .map(|t| json!(t.lines().map(str::to_string).collect::<Vec<_>>()))
-            .unwrap_or(Value::Null)
-    };
-    let after = format!("--since=@{}", since / 1000);
-    let merged = query_json(
-        conn,
-        &format!(
-            "SELECT w.item, i.title, w.pr, json_extract(r.output, '$.result.merge_commit') AS commit_merged
-             FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
-             WHERE i.project = ?1 AND r.cell IN {} AND r.transition = 'merged' AND r.ended_at > ?2
-             ORDER BY r.ended_at",
-            db::cells_sql(ENGINEER, &["M2"])
-        ),
-        &[&project, &since],
-        ROWS,
-    )?;
-    let works = query_json(
-        conn,
-        &format!(
-            "SELECT w.id AS work, w.item, i.title, w.at, w.paused, w.ended FROM works w JOIN items i ON i.id = w.item
-             WHERE i.project = ?1 AND w.graph = 'engineer'
-               AND EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.started_at > ?2)
-               AND (w.ended IS NOT NULL OR w.at IN {})
-             ORDER BY w.id",
-            db::cells_sql(ENGINEER, &[ENGINEER_END])
-        ),
-        &[&project, &since],
-        ROWS,
-    )?;
-    let main_ci = query_json(
-        conn,
-        &format!(
-            "SELECT w.item, r.transition, json_extract(r.output, '$.main.kind') AS kind, r.ended_at AS at
-             FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
-             WHERE i.project = ?1 AND r.cell IN {} AND r.ended_at > ?2 ORDER BY r.ended_at",
-            db::cells_sql(ENGINEER, &["L1"])
-        ),
-        &[&project, &since],
-        ROWS,
-    )?;
-    let owner = query_json(
-        conn,
+    let from = utc_minute(since);
+    let main = e.config.config.projects.get(project).map_or(Value::Null, |p| {
+        let after = format!("--since=@{}", since / 1000);
+        git::git(&p.checkout, &["log", "--format=%h %cs %s", after.as_str(), main_ref(p).as_str()])
+            .map_or(Value::Null, |log| commits(&log, &from))
+    });
+    // Each list whole, the latest first, of which `latest` keeps the latest.
+    let all = |q: &str| query_json(conn, q, &[&project, &since], usize::MAX);
+    let merged = all(&format!(
+        "SELECT w.item, i.title, w.pr, json_extract(r.output, '$.result.merge_commit') AS commit_merged
+         FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
+         WHERE i.project = ?1 AND r.cell IN {} AND r.transition = 'merged' AND r.ended_at > ?2
+         ORDER BY r.ended_at DESC",
+        db::cells_sql(ENGINEER, &["M2"])
+    ))?;
+    let works = all(&format!(
+        "SELECT w.id AS work, w.item, i.title, w.at, w.paused, w.ended FROM works w JOIN items i ON i.id = w.item
+         WHERE i.project = ?1 AND w.graph = 'engineer'
+           AND EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.started_at > ?2)
+           AND (w.ended IS NOT NULL OR w.at IN {})
+         ORDER BY w.id DESC",
+        db::cells_sql(ENGINEER, &[ENGINEER_END])
+    ))?;
+    let main_ci = all(&format!(
+        "SELECT w.item, r.transition, json_extract(r.output, '$.main.kind') AS kind, r.ended_at AS at
+         FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
+         WHERE i.project = ?1 AND r.cell IN {} AND r.ended_at > ?2 ORDER BY r.ended_at DESC",
+        db::cells_sql(ENGINEER, &["L1"])
+    ))?;
+    let owner = all(
         "SELECT m.id AS matter, m.what FROM architect_matters m
-         WHERE m.project = ?1 AND m.kind = 'owner_words' AND m.at > ?2 ORDER BY m.id",
-        &[&project, &since],
-        ROWS,
+         WHERE m.project = ?1 AND m.kind = 'owner_words' AND m.at > ?2 ORDER BY m.id DESC",
     )?;
-    let cards = query_json(
-        conn,
+    let cards = all(
         "SELECT c.id AS design_card, w.item, c.status FROM design_cards c JOIN works w ON w.id = c.work
          JOIN items i ON i.id = w.item
          WHERE i.project = ?1 AND c.status = 'ruled' AND EXISTS (
            SELECT 1 FROM changes x WHERE x.table_name = 'design_cards' AND x.row_key = json_object('id', c.id)
              AND x.at > ?2)
-         ORDER BY c.id",
-        &[&project, &since],
-        ROWS,
+         ORDER BY c.id DESC",
     )?;
-    let reports = query_json(
-        conn,
-        "SELECT id AS matter, what FROM architect_matters WHERE project = ?1 AND kind = 'report' AND at > ?2 ORDER BY id",
-        &[&project, &since],
-        ROWS,
+    let reports = all(
+        "SELECT id AS matter, what FROM architect_matters WHERE project = ?1 AND kind = 'report' AND at > ?2
+         ORDER BY id DESC",
     )?;
     let mut out = json!({
-        "since": utc_minute(since),
-        "main": log(&[&after]),
-        "merged": merged,
-        "works_ended": works,
-        "main_after_merges": main_ci,
-        "owner_said": owner,
-        "design_cards_ruled": cards,
-        "reports": reports,
+        "since": from,
+        "main": main,
+        "merged": latest(merged, ("merge", "merges"), &from),
+        "works_ended": latest(works, ("work", "works"), &from),
+        "main_after_merges": latest(main_ci, ("check of main", "checks of main"), &from),
+        "owner_said": latest(owner, ("thing the owner said", "things the owner said"), &from),
+        "design_cards_ruled": latest(cards, ("design card", "design cards"), &from),
+        "reports": latest(reports, ("report", "reports"), &from),
     });
     if first {
         out["first_work"] = json!(true);
@@ -4301,6 +4313,36 @@ mod tests {
             &json!({ "kind": "missing", "where": "a", "items": [] }),
             &json!({ "kind": "missing", "where": "b", "items": [] })
         ));
+    }
+
+    // The commits since the architect's last work are the latest 60, each by its message's first sentence, a long one
+    // cut at a word to 120 characters, then how many earlier ones there are.
+    #[test]
+    fn the_commits_since_the_last_work_are_the_latest_sixty_by_their_first_sentence() {
+        let long = format!("Make the {}parser faster. Then measure it", "very ".repeat(40));
+        let log = |n: usize| -> String {
+            (0..n)
+                .map(|i| {
+                    let message = if i == 0 {
+                        long.as_str()
+                    } else {
+                        "Fix the lexer. It dropped a token"
+                    };
+                    format!("{i:07x} 2026-10-{:02} {message}\n", 29 - i / 10)
+                })
+                .collect()
+        };
+        let v = commits(&log(75), "2026-10-23 11:35 UTC");
+        let rows: Vec<&str> = v.as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+        assert_eq!(rows.len(), 61, "{v}");
+        assert_eq!(rows[0], format!("0000000 2026-10-29 Make the {}very…", "very ".repeat(21)));
+        assert!(rows[0].chars().count() - "0000000 2026-10-29 ".len() <= COMMIT_MOST);
+        assert_eq!(rows[1], "0000001 2026-10-29 Fix the lexer.");
+        assert_eq!(rows[59], "000003b 2026-10-24 Fix the lexer.");
+        assert_eq!(rows[60], "and 15 earlier commits since 2026-10-23 11:35 UTC");
+        let v = commits(&log(61), "2026-10-23 11:35 UTC");
+        assert_eq!(v[60], "and 1 earlier commit since 2026-10-23 11:35 UTC");
+        assert_eq!(commits(&log(60), "x").as_array().unwrap().len(), 60);
     }
 
     #[test]
