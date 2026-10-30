@@ -6358,6 +6358,13 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
             implements[1]["conditional"]
         );
     }
+    // The fix has a row to answer, a check the full CI on the draft found red, else it would run no round.
+    e.db.write(Actor::Engine, |tx| {
+        let n: i64 = tx.query_row("SELECT max(n) + 1 FROM rounds WHERE work = ?1", [work], |r| r.get(0))?;
+        let red = json!({ "result": { "kind": "red", "checks": [{ "name": "test", "result": "red", "run": "r" }] } });
+        record_round(tx, work, n, "T2", &red, "for_engineer")
+    })
+    .unwrap();
     move_to(&mut e, work, "T6");
     e.step(None).unwrap();
     let log = said.borrow().join("\n");

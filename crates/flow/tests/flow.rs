@@ -543,10 +543,12 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
         ]
     );
     for cell in &g.cells {
+        // The fix's own row for a table with no row is an engine's case too, but of that cell alone.
         let shared: Vec<&flow::CompiledRow> = cell
             .rows
             .iter()
             .filter(|x| x.conditions.iter().any(|a| a.about_no_return()))
+            .filter(|x| x.name != flow::format::NOTHING_TO_ANSWER)
             .collect();
         if cell.kind != "agent" {
             assert!(shared.is_empty(), "{}", cell.id);
