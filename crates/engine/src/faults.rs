@@ -9,7 +9,7 @@
 
 use db::Actor;
 use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
-use flow::CompiledGraph;
+use flow::{CompiledGraph, CompiledRow};
 use serde_json::{Value, json};
 use sessions::miss::{Differs, Miss};
 
@@ -25,6 +25,11 @@ pub const FLOW_ANOMALY: &str = "flow_anomaly";
 /// The counter of the flow's rows that a flow anomaly takes.
 const FLOW_ANOMALIES: &str = "flow_anomalies";
 
+/// Whether a row counts a flow anomaly: the way on chosen at its cell did not fit the situation.
+pub fn counts_anomaly(row: &CompiledRow) -> bool {
+    row.counts.as_deref() == Some(FLOW_ANOMALIES)
+}
+
 /// Whether a work came to the cell it is at by a row that counts a flow anomaly: the latest row its rounds took.
 pub fn came_of_anomaly(conn: &Connection, work: i64, g: &CompiledGraph) -> Result<bool, String> {
     let took: Option<(String, String)> = conn
@@ -39,7 +44,7 @@ pub fn came_of_anomaly(conn: &Connection, work: i64, g: &CompiledGraph) -> Resul
     Ok(took.is_some_and(|(cell, row)| {
         g.cell(&cell)
             .and_then(|c| c.rows.iter().find(|r| r.name == row))
-            .is_some_and(|r| r.counts.as_deref() == Some(FLOW_ANOMALIES))
+            .is_some_and(counts_anomaly)
     }))
 }
 

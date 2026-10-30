@@ -40,9 +40,10 @@ pub struct Ctx {
     /// The line of the cell that called the cell the round is at, if one waits for it: the agent whose answers a cell
     /// that hands them on hands on.
     pub caller_line: Option<String>,
-    /// The row the return takes, and where it takes the work.
+    /// The row the return takes, and where it takes the work, with the title of the cell it takes it to.
     pub row: flow::CompiledRow,
     pub to: flow::Position,
+    pub to_title: String,
     /// The cells of the work's graph where a stopped task stands while its blocker is held.
     pub blockers: Option<flow::format::Blockers>,
 }

@@ -910,6 +910,7 @@ pub fn finish(
             .map(|c| crate::line_of(g, c)),
         row: row.clone(),
         to: moved.pos.clone(),
+        to_title: g.cell(&moved.pos.at).map(|c| c.title.clone()).unwrap_or_default(),
         blockers: g.blockers.clone(),
     };
     let ended = Ended {
