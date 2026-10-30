@@ -8902,12 +8902,12 @@ fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
     }
     let log = said.borrow().join("\n");
     assert_eq!(state(&e, second).map(|x| x.1).as_deref(), Some("A3"), "{log}");
-    // The second work goes to ask the owner in turn, holding no slot: the first goes on in the slot it left, before a
-    // work starts on the third item.
+    // The second work goes to ask the owner in turn, holding no slot: the first goes on in the slot it left, to choose
+    // the way on with the answer, before a work starts on the third item.
     let next = e.step(after).unwrap();
     let log = said.borrow().join("\n");
     assert_eq!(next.work, Some(a), "{log}");
-    assert_eq!(state(&e, first).map(|x| x.1).as_deref(), Some("R1"), "{log}");
+    assert_eq!(state(&e, first).map(|x| x.1).as_deref(), Some("A4"), "{log}");
     assert_eq!(state(&e, third), None, "{log}");
     assert_eq!(e.free_slots().unwrap(), 0, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);

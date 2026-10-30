@@ -1074,7 +1074,7 @@ pub fn back_to_understanding(
         .cell(UNDERSTOOD_YET)
         .cloned()
         .ok_or("the architect's graph has no cell that asks whether the session understood the project")?;
-    crate::steps::engine(e, &back, g, &at, true)
+    crate::steps::engine(e, &back, g, &at, false)
 }
 
 // What the architect told the owner.
@@ -1282,7 +1282,8 @@ fn question_kind(gathered: &[Gathered]) -> (&'static str, String) {
 /// owner handed back goes with the owner's decision to the cell that carries it out. Each time the engine takes the
 /// work's step here it works out where the question stands (the value `held`) and takes that row: the reply goes back
 /// to the cell that asked unchanged, a hand-over passes the work on, and the rest withdraw it; a row that takes the work
-/// on to hold a slot again is taken when `room` says it may ([`crate::steps::takes_slot`]).
+/// on to hold a slot again waits, in a step held to the slots (`slotted`), for its machine to have one free
+/// ([`crate::steps::no_slot`]).
 pub fn ask_architect(
     e: &mut Engine,
     w: &Work,
@@ -1290,7 +1291,7 @@ pub fn ask_architect(
     cell: &CompiledCell,
     item: &Item,
     open: Option<Round>,
-    room: bool,
+    slotted: bool,
 ) -> Result<Advance, String> {
     let conn = e.db.conn();
     let b = crate::blockers::open(conn, w.id)?
@@ -1336,7 +1337,7 @@ pub fn ask_architect(
             }
             _ => json!({}),
         };
-        if !room && crate::steps::takes_slot(g, w, &row)? {
+        if crate::steps::no_slot(e, w, g, &row, slotted)? {
             return Ok(crate::steps::waits_for_slot(w));
         }
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None, &given);

@@ -696,14 +696,14 @@ impl Engine {
             .cell(&w.pos.at)
             .cloned()
             .ok_or_else(|| format!("work {id} is at no such cell: {}", w.pos.at))?;
-        // A work that waits, which it does at no agent's cell, holds no slot: it goes on from its wait, once what it
-        // waits for came, only while its machine has a slot free, unless the owner asked for its round.
-        let room = cell.kind == "agent" || asked || w.graph != ENGINEER || !self.waiting(&w)? || self.room_for(&w)?;
+        // A work on an item that waits holds no slot: it goes on from its wait, once what it waits for came, only
+        // while its machine has a slot free, unless the owner asked for its round.
+        let slotted = !asked && w.graph == ENGINEER;
         (self.busy)(Some(id));
         let result = if cell.kind == "agent" {
             steps::agent(self, &w, &g, &cell)
         } else {
-            steps::engine(self, &w, &g, &cell, room)
+            steps::engine(self, &w, &g, &cell, slotted)
         };
         (self.busy)(None);
         match result {
@@ -822,21 +822,37 @@ impl Engine {
     }
 
     /// Whether the work stands waiting: at the owner's or the architect's cell with its question asked, or at a row
-    /// that waits.
+    /// that waits. It reads the cell where the work stands and its last round only, since every step asks it of every
+    /// work for the slots.
     pub fn waiting(&mut self, w: &Work) -> Result<bool, String> {
-        let g = self.graph_of(w)?;
-        let Some(cell) = g.cell(&w.pos.at) else {
-            return Ok(false);
+        let waits_by: Vec<String> = {
+            let g = self
+                .flow(w.flow_version)?
+                .graph(&w.graph)
+                .ok_or_else(|| format!("work {}: its flow has no graph {}", w.id, w.graph))?;
+            let Some(cell) = g.cell(&w.pos.at) else {
+                return Ok(false);
+            };
+            if matches!(cell.step.as_deref(), Some("ask_owner" | "ask_architect")) {
+                return Ok(true);
+            }
+            cell.rows.iter().filter(|r| r.waits).map(|r| r.name.clone()).collect()
         };
-        if matches!(cell.step.as_deref(), Some("ask_owner" | "ask_architect")) {
-            return Ok(true);
+        if waits_by.is_empty() {
+            return Ok(false);
         }
-        let last = work::rounds(self.db.conn(), w.id)?.pop();
-        Ok(last.is_some_and(|r| {
-            r.cell.as_deref() == Some(cell.id.as_str())
-                && r.transition
-                    .as_ref()
-                    .is_some_and(|t| cell.rows.iter().any(|x| &x.name == t && x.waits))
+        let last: Option<(Option<String>, Option<String>)> = self
+            .db
+            .conn()
+            .query_row(
+                "SELECT cell, transition FROM rounds WHERE work = ?1 ORDER BY n DESC LIMIT 1",
+                [w.id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        Ok(last.is_some_and(|(cell, transition)| {
+            cell.as_deref() == Some(w.pos.at.as_str()) && transition.is_some_and(|t| waits_by.contains(&t))
         }))
     }
 
