@@ -314,7 +314,7 @@ const messages = {
   slots_hint: "Works holding a slot (started and not waiting for someone) / the machines' slots.",
   request_failed: 'The request failed: {error}',
   dock_grip: 'Drag to set the width of the column; double-click for its own width',
-  dock_split: 'Drag to share the column between the work and what is open; double-click to share it evenly',
+  dock_split: 'Drag to share the column between the tabs and what is open; double-click to share it evenly',
   work_back: 'Back to the list of works',
   work_rounds_n: '{n} rounds',
   work_pr: 'PR #{n}',
@@ -1176,7 +1176,6 @@ const messages = {
     'The architect goes on whatever the global state: it works when a matter comes to its queue, round after round, until you pause it or pause every work.',
   arch_pause_hint:
     'The architect stops at the end of the round it is in and stays paused, whatever the global state, until you start it.',
-  panel_to_list: 'Back to {list}',
   arch_work_shown: 'Rounds from {at}',
   arch_works_hint: 'When the architect worked, what for, what it handled and what it cost: the rounds of each show on the chart',
   arch_works: 'When it worked ({n})',

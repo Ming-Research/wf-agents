@@ -5,8 +5,8 @@
 // works, which to the owner are only how it is run; what stops the project's new works from starting; and the switch
 // between the stretches it worked in (when each began, what it was for, how many matters it handled, what it cost),
 // whose rounds the chart shows. Under the line, its graph fills the window with the stretch shown placed on it as a
-// work is, and the column docked at its right holds the architect's panel, where what is open on the chart takes the
-// place of its list, with a way back to it. The panel's tabs, on one line: its rounds; the item changes its batches
+// work is, and the column docked at its right holds the architect's panel, with what is open on the chart split under
+// it, as on a work's page. The panel's tabs, on one line: its rounds; the item changes its batches
 // made; the project's observations, each leading to the conversation it is closed in; what to do next; and the policy
 // in force, as one document. Each part names the cell that wrote it, and every tab draws its blocks, sections, items
 // and rounds with the page's shared parts.
@@ -46,7 +46,7 @@ import { Labelled, words } from '../labelled';
 import { Markdown } from '../markdown';
 import { useResource, useStatus } from '../live';
 import { type ArchitectRoute, type ArchitectTab, architectHref, forProject, href, Link, navigate } from '../route';
-import { t, type Key } from '../text';
+import { t } from '../text';
 import { Block, By, CellTitles, ItemRef, type OpenRound, SubHeading } from '../parts';
 import { ChangeBlock, NextView, PolicyText } from './ArchitectViews';
 import { bringIntoView } from './Decide';
@@ -173,15 +173,6 @@ function Line({ a, shown, current, pop, setPop }: {
     </div>
   );
 }
-
-/// The name of each tab of the architect's panel.
-const TAB_NAMES: Record<ArchitectTab, Key> = {
-  changes: 'arch_tab_changes',
-  observations: 'arch_tab_observations',
-  policy: 'arch_tab_policy',
-  next: 'arch_tab_next',
-  rounds: 'rounds',
-};
 
 /// The stretches the architect worked in, newest first: when each began, what it was for, how many matters it
 /// handled, its rounds and cost; a click shows that stretch's rounds on the chart, and the one shown by default follows
@@ -474,10 +465,10 @@ function Panel({ route, a, d, g, go, onRound }: {
   );
 }
 
-/// The architect's graph filling the window, with the work shown placed on it, and the docked column: the panel in its
-/// upper half, the conversation in its lower half. A circle to or from another graph goes to that cell on the flow
-/// page, which draws every graph.
-function Chart({ route, a, shown, d, compiled, version, view, go }: {
+/// The architect's graph filling the window, with the work shown placed on it, and the docked column: the panel on top,
+/// what is open on the chart under it. A circle to or from another graph goes to that cell on the flow page, which
+/// draws every graph.
+export function Chart({ route, a, shown, d, compiled, version, view, go }: {
   route: ArchitectRoute;
   a: ArchitectRead;
   shown: ArchitectWork | null;
@@ -521,8 +512,7 @@ function Chart({ route, a, shown, d, compiled, version, view, go }: {
       round={route.work === id ? route.round : null}
       onRound={(x) => go(x !== null ? { work: id, round: x, cell: null } : { round: null })}
       renderRound={id !== null && d !== null ? (x) => <RoundView work={id} n={x} rounds={d.rounds} /> : undefined}
-      list={t(TAB_NAMES[route.tab])}
-      side={(open) => open ?? <Panel route={route} a={a} d={d} g={g} go={go} onRound={onRound} />}
+      side={<Panel route={route} a={a} d={d} g={g} go={go} onRound={onRound} />}
       onGraph={(graph, cell) =>
         navigate(href({ page: 'flow', version, project: null, ref: null, from: null, graph, cell }))
       }

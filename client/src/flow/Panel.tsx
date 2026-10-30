@@ -1,9 +1,9 @@
 // The panel of what is open on a chart, in the column docked at the chart's right: its title and who does it, a way
-// back to what it showed before, a close button (Escape closes it too), which in place of a list goes back to it. The edges that drag the column's width and
-// the share of it a work's panel takes are here too, kept in this browser.
+// back to what it showed before, a close button (Escape closes it too). The edges that drag the column's width and the
+// share of it the page's panel takes are here too, kept in this browser.
 
 import { ArrowLeftIcon, XIcon } from '@primer/octicons-react';
-import { Button, Heading, IconButton } from '@primer/react';
+import { Heading, IconButton } from '@primer/react';
 import { type PointerEvent as Press, type ReactNode, type Ref, useEffect, useRef, useState } from 'react';
 
 import { LinkButton } from '../parts';
@@ -91,14 +91,12 @@ export function Panel(props: {
   back: string | null;
   onBack: () => void;
   onClose: () => void;
-  /// When the panel takes the place of a list: the list's name, which its close says it goes back to.
-  list?: string;
   /// Bumped each time the panel shows something else, so that it starts at its top.
   shown: string;
   children: ReactNode;
   ref?: Ref<HTMLElement>;
 }) {
-  const { title, who, back, onBack, onClose, list, shown, children, ref } = props;
+  const { title, who, back, onBack, onClose, shown, children, ref } = props;
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
@@ -126,13 +124,7 @@ export function Panel(props: {
           </Heading>
           {who ? <p className="panel-who">{who}</p> : null}
         </div>
-        {list !== undefined ? (
-          <Button size="small" variant="invisible" leadingVisual={ArrowLeftIcon} onClick={onClose}>
-            {t('panel_to_list', { list })}
-          </Button>
-        ) : (
-          <IconButton size="small" variant="invisible" icon={XIcon} aria-label={t('close')} onClick={onClose} />
-        )}
+        <IconButton size="small" variant="invisible" icon={XIcon} aria-label={t('close')} onClick={onClose} />
       </div>
       <div className="panel-body" ref={body}>
         {children}
@@ -141,9 +133,10 @@ export function Panel(props: {
   );
 }
 
-/// What the panel shows, and the trail back through what it showed before. Closing it forgets the trail.
-export function useTrail<S>(same: (a: S, b: S) => boolean) {
-  const [state, setState] = useState<{ now: S | null; trail: S[] }>({ now: null, trail: [] });
+/// What the panel shows, at first `first`, and the trail back through what it showed before. Closing it forgets the
+/// trail.
+export function useTrail<S>(same: (a: S, b: S) => boolean, first: S | null = null) {
+  const [state, setState] = useState<{ now: S | null; trail: S[] }>(() => ({ now: first, trail: [] }));
   const open = (s: S, from?: S) =>
     setState((old) => {
       const trail = [...old.trail];

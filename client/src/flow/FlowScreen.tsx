@@ -1,11 +1,12 @@
 // A flow's chart filling the window under the bar, its graphs side by side, and a column docked at its right, whose
 // width drags at its left edge, sharing the width evenly with the chart at first on a work's page and the architect's.
-// On a work's page the work's panel is on top, at the column's full height, and while a cell, a rule, the
+// On those two pages the page's panel is on top, at the column's full height, and while a cell, a rule, the
 // interjection, a comparison or a round is open, its panel is in the lower part, split from the top by a divider that
-// drags; on the architect's page what is open takes the place of the panel's list, with a way back to it; on the flow
-// page that panel is alone, while something is open. The flow page, a work's page and the architect's page all show a
-// flow this way. A circle to or from another graph opens the cell it names, brought into view, where that graph is
-// drawn; on a page that does not draw it, the page shows it elsewhere.
+// drags, at the share the owner last set on either page; closing it gives the page's panel the full height again. On
+// the flow page, which has no panel of its own, what is open is alone in the column. Every page that shows a flow shows
+// it here, in this one way, so that what is opened on one shows as on the others. A circle to or from another graph
+// opens the cell it names, brought into view, where that graph is drawn; on a page that does not draw it, the page
+// shows it elsewhere.
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -72,11 +73,9 @@ export type FlowScreenProps = {
   round?: number | null;
   onRound?: (round: number | null) => void;
   renderRound?: (round: number) => ReactNode;
-  /// On a work's page: the work's panel, on top of the column. On the architect's page, given what is open on the chart
-  /// (none while nothing is), the whole column, which puts what is open in place of its list.
-  side?: ReactNode | ((open: ReactNode | null) => ReactNode);
-  /// When what is open takes the place of a list: the list's name, which the way back to it says.
-  list?: string;
+  /// On a work's page and the architect's: the page's panel, on top of the column, with what is open on the chart split
+  /// under it.
+  side?: ReactNode;
   /// Called with a cell of a graph this page does not draw, which a circle to or from another graph leads to: the
   /// page shows it where that graph is drawn.
   onGraph?: (graph: string, cell: string) => void;
@@ -84,6 +83,8 @@ export type FlowScreenProps = {
 
 const DOCK_KEY = 'wf-agents.dock-width';
 const DOCK_MIN = 320;
+/// The height of the page's panel over what is open, one for every page, so that a work's page and the architect's
+/// split alike.
 const SPLIT_KEY = 'wf-agents.dock-split';
 const SPLIT_MIN = 120;
 
@@ -171,7 +172,6 @@ export function FlowScreen(props: FlowScreenProps) {
     onRound,
     renderRound,
     side,
-    list,
     onGraph,
   } = props;
   const [width, setWidth] = useState<number | null>(() => savedSize(DOCK_KEY, DOCK_MIN));
@@ -179,7 +179,8 @@ export function FlowScreen(props: FlowScreenProps) {
   const nameOf = (n: number) => roundName(work ?? 0, n);
   const chartRef = useRef<FlowChartHandle>(null);
   const panelRef = useRef<HTMLElement>(null);
-  const trail = useTrail<Subject>(same);
+  // A round the address names is open from the page's first drawing.
+  const trail = useTrail<Subject>(same, round != null ? { kind: 'round', round } : null);
   // The node whose panel is open, in its graph, or the store.
   const [picked, setPicked] = useState<{ graph: string; node: string } | { store: string } | null>(null);
   // The tab of a cell's panel the owner chose last: going to another cell keeps it.
@@ -479,7 +480,6 @@ export function FlowScreen(props: FlowScreenProps) {
           }
         }}
         onClose={trail.close}
-        list={list}
         shown={subjectKey(now)}
       >
         <FlowContext.Provider value={panel.flow}>{panel.body}</FlowContext.Provider>
@@ -514,30 +514,18 @@ export function FlowScreen(props: FlowScreenProps) {
         {side !== undefined || shown ? (
           <aside className={side !== undefined ? 'dock dock-half' : 'dock'} style={width !== null ? { width } : undefined}>
             <Grip edge="left" min={DOCK_MIN} storage={DOCK_KEY} label={t('dock_grip')} onSize={setWidth} />
-            {typeof side === 'function' ? (
-              <div className="dock-top">{side(opened)}</div>
-            ) : (
-              <>
-                {side !== undefined ? (
-                  <div
-                    className={shown ? 'dock-top dock-top-split' : 'dock-top'}
-                    style={shown ? { height: split !== null ? split : '50%' } : undefined}
-                  >
-                    {side}
-                    {shown ? (
-                      <Grip
-                        edge="bottom"
-                        min={SPLIT_MIN}
-                        storage={SPLIT_KEY}
-                        label={t('dock_split')}
-                        onSize={setSplit}
-                      />
-                    ) : null}
-                  </div>
+            {side !== undefined ? (
+              <div
+                className={shown ? 'dock-top dock-top-split' : 'dock-top'}
+                style={shown ? { height: split !== null ? split : '50%' } : undefined}
+              >
+                {side}
+                {shown ? (
+                  <Grip edge="bottom" min={SPLIT_MIN} storage={SPLIT_KEY} label={t('dock_split')} onSize={setSplit} />
                 ) : null}
-                {opened}
-              </>
-            )}
+              </div>
+            ) : null}
+            {opened}
           </aside>
         ) : null}
       </div>

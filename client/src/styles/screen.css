@@ -1,7 +1,7 @@
 /* A view that fills the window under the bar with a chart (the flow, a work, an architect), and the column docked at
-   the chart's right: what is open on the chart as a panel (its way back, its title, who does it, its close), under a
-   work's panel on a work's page, split from it by a divider. The column's edge and the divider are drawn as Primer's
-   PageLayout draws its divider: a line that turns the accent under the pointer. */
+   the chart's right: what is open on the chart as a panel (its way back, its title, who does it, its close), under the
+   page's panel on a work's page and the architect's, split from it by a divider. The column's edge and the divider are
+   drawn as Primer's PageLayout draws its divider: a line that turns the accent under the pointer. */
 
 .app-screen {
   height: 100vh;
@@ -98,7 +98,7 @@
   width: var(--borderWidth-thick);
 }
 
-/* The divider between a work's panel and what is open, which drags its share of the column. */
+/* The divider between the page's panel and what is open, which drags its share of the column. */
 .height-grip {
   position: absolute;
   left: 0;

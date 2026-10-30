@@ -439,7 +439,7 @@ export function useHalo(w: WorkSummary | null, rounds: RoundSummary[], c: Course
   return cell;
 }
 
-function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled: Compiled; view: FlowView }) {
+export function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; compiled: Compiled; view: FlowView }) {
   const status = useStatus();
   const g = compiled.graphs.find((x) => x.name === d.work.graph);
   const v = view.graphs.find((x) => x.name === d.work.graph);
