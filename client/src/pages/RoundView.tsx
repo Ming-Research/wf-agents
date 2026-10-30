@@ -24,7 +24,7 @@ import { getJson, getText } from '../http';
 import { empty, isObj, type Obj, words } from '../labelled';
 import { useResource } from '../live';
 import { Markdown } from '../markdown';
-import { LinkButton, RoundAt, RoundLink } from '../parts';
+import { LinkButton, RoundAt, RoundLink, Thumbs } from '../parts';
 import { brief, chars, messageParts, placeSchema, shape, shareWords, type Shown, type ShownField, spent, titleOf } from '../round';
 import { t, tn } from '../text';
 import {
@@ -147,6 +147,8 @@ function addressWords(address: string, cell: CompiledCell | undefined, f: Flow |
         return t('addr_design_card', { id: rest });
       case 'ask':
         return t('addr_ask', { id: rest });
+      case 'image':
+        return t('addr_image', { id: rest });
     }
     return address;
   }
@@ -545,12 +547,15 @@ function madeBy(address: string, d: RoundDetail, rounds: RoundSummary[]): RoundS
   return [...rounds].reverse().find((r) => r.n < d.round.n && r.cell === cell);
 }
 
-/// What an agent's round was given: the inputs new this round, those already in its session, and the message as sent.
+/// What an agent's round was given: the inputs new this round, those already in its session, the message as sent, and
+/// the owner's images it named, those sent after its text and those its session held. An image is shown with the
+/// images, not among the inputs, as it is no text of the message.
 function AgentGiven({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSummary[]; f: Flow | null; cell: CompiledCell | undefined }) {
   const message = d.message ?? '';
   const parsed = parseMessage(message);
-  const sent = d.conditional.filter((c) => c.given);
-  const held = d.conditional.filter((c) => !c.given);
+  const text = d.conditional.filter((c) => !c.address.startsWith('image:'));
+  const sent = text.filter((c) => c.given);
+  const held = text.filter((c) => !c.given);
   const earlier = rounds.filter((r) => r.n < d.round.n && r.session !== null && r.session === d.round.session);
   const heldFacts =
     earlier.length === 1 ? (
@@ -625,6 +630,21 @@ function AgentGiven({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSumma
       <Part title={t('given_as_sent')} facts={charCount(chars(message))}>
         <Message text={message} />
       </Part>
+      {d.images.length > 0 ? (
+        <Part title={t('given_images')} n={d.images.length}>
+          <Rows>
+            {d.images.map((i) => (
+              <Row
+                key={i.attachment}
+                name={t('addr_image', { id: i.attachment })}
+                code={`image:${i.attachment}`}
+                facts={joined([t(i.given ? 'image_given' : 'image_held'), t('image_with', { with: i.with })])}
+              />
+            ))}
+          </Rows>
+          <Thumbs ids={d.images.map((i) => i.attachment)} />
+        </Part>
+      ) : null}
     </>
   );
 }

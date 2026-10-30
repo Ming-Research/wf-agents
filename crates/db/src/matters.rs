@@ -6,6 +6,7 @@
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::Value;
 
+use crate::attachments::{self, Image, Words};
 use crate::{Actor, Db, Error, Result, STOPPED_BY_ARCHITECT, now};
 
 /// A matter to queue for a project's architect.
@@ -89,28 +90,30 @@ pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
     Ok(true)
 }
 
-/// Says something to a project's architect, as the owner: the words come to its queue as a matter of the kind
-/// owner_words, which starts a work of it. Where it was said goes with it: in the conversation about a work, the work
-/// and its item; on an item's page, the item.
+/// Says something to a project's architect, as the owner: the words, and the images sent with them, come to its queue
+/// as a matter of the kind owner_words, which starts a work of it. Where it was said goes with it: in the conversation
+/// about a work, the work and its item; on an item's page, the item.
 pub fn say_to_architect(
     db: &mut Db,
     project: &str,
     item: Option<i64>,
     work: Option<i64>,
     text: &str,
+    images: &[Image],
 ) -> std::result::Result<String, String> {
     let text = text.trim();
-    if text.is_empty() {
+    if text.is_empty() && images.is_empty() {
         return Err("what is said to the architect says something".into());
     }
     if project.trim().is_empty() {
         return Err("what is said to an architect names its project".into());
     }
+    attachments::check(images)?;
     let m = Matter {
         project: project.to_string(),
         kind: "owner_words".into(),
         detail: Some("said".into()),
-        what: format!("The owner says: {}", one_sentence(text)),
+        what: attachments::owner_says(text, images.len()),
         body: match (work, item) {
             (Some(w), _) => serde_json::json!({ "text": text, "where": "work", "work": w }),
             (None, Some(_)) => serde_json::json!({ "text": text, "where": "item" }),
@@ -120,7 +123,11 @@ pub fn say_to_architect(
         ..Matter::default()
     };
     let id = db
-        .write(Actor::Owner, |tx| queue_matter(tx, &m))
+        .write(Actor::Owner, |tx| {
+            let id = queue_matter(tx, &m)?;
+            attachments::attach(tx, Words::Matter(id), images)?;
+            Ok(id)
+        })
         .map_err(|e| e.to_string())?;
     Ok(format!("the architect of {project} has it as matter {id}"))
 }
@@ -288,10 +295,18 @@ mod tests {
     #[test]
     fn the_owner_s_words_come_to_the_architect_s_queue() {
         let mut db = Db::in_memory().unwrap();
-        assert!(say_to_architect(&mut db, "p", None, None, "  ").is_err());
-        assert!(say_to_architect(&mut db, "", None, None, "Go on.").is_err());
+        assert!(say_to_architect(&mut db, "p", None, None, "  ", &[]).is_err());
+        assert!(say_to_architect(&mut db, "", None, None, "Go on.", &[]).is_err());
         assert_eq!(
-            say_to_architect(&mut db, "p", None, None, "Put the parser first. It blocks the rest.").unwrap(),
+            say_to_architect(
+                &mut db,
+                "p",
+                None,
+                None,
+                "Put the parser first. It blocks the rest.",
+                &[]
+            )
+            .unwrap(),
             "the architect of p has it as matter 1"
         );
         let (project, kind, what, body): (String, String, String, String) = db

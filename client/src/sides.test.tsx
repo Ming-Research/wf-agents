@@ -163,6 +163,7 @@ const detail: RoundDetail = {
   config_commit: '',
   message: 'the message',
   conditional: [],
+  images: [],
   call: null,
   level: null,
   effort: null,

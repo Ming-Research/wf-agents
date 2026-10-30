@@ -19,13 +19,20 @@
 //! session got before, under any address, or a whole new version of an input of the standard context. Such a message
 //! is not sent; it is the engine's fault, and the work is paused for the owner.
 //!
+//! The images the owner sends with words reach an agent the same way, each a conditional input of its own,
+//! `image:<id>`, which the words name: an image named in what a message gives is given after the message's text once
+//! its session lacks it, and only referred to after that, as the words are; a session started afresh or compacted is
+//! given it again with the words. The images are sent the clean way, in the message, so that no agent has to find a
+//! file or be let read one.
+//!
 //! What a session holds, giving it only what it lacks or only what changed, and the check before sending are the
 //! session manager's ([`sessions::held`], [`sessions::give`]); this module writes the message from them.
 //!
 //! Addresses: a value a round produced is `<round>·<cell>·<path>`, the round named `R<work>-<n>`, by the earliest
 //! round that produced the same content; a value the engine reads or computes for a round is `<round>·engine·<name>`,
 //! by the earliest round it was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `design_card:<id>`,
-//! `ask:<id>` (an ask of the owner), `ij:<id>`, `work:<id>` (`work:<graph>` for where an architect's line works),
+//! `ask:<id>` (an ask of the owner), `ij:<id>`, `image:<id>` (an image the owner sent), `work:<id>` (`work:<graph>` for
+//! where an architect's line works),
 //! `format:common`, `format:<cell>` and `inputs:<cell>`. A
 //! round recorded before rounds were named by their work wrote a round's address as `R<number>·...`; such an address
 //! names no round, and the engine never gives it again.
@@ -59,6 +66,22 @@ pub struct Message {
     /// What the message would give whole that its session already holds, each said with the input's address, its
     /// size and the round the session got it or its earlier version in; a message with any is not sent.
     pub repeats: Vec<String>,
+    /// The images what the message gives names, in the order named: those given after its text, and those its session
+    /// holds, which it refers to.
+    pub images: Vec<Image>,
+}
+
+/// An image the owner sent that a message names, with the words it came with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Image {
+    /// The image, by its row in `attachments`.
+    pub attachment: i64,
+    pub media_type: String,
+    pub size: i64,
+    /// The address of what the message gives that names it first: the owner's words it came with, or what holds them.
+    pub with: String,
+    /// Given after the message's text; otherwise its session holds it, and the message refers to it.
+    pub given: bool,
 }
 
 impl Message {
@@ -66,6 +89,34 @@ impl Message {
     /// only what changed was given, and for an input of the standard context the key its whole version is kept under.
     pub fn record(&self) -> Value {
         sessions::give::record(&self.conditional)
+    }
+
+    /// The images the message names, as a round records them: each by its attachment, with the address of what named
+    /// it, given after the text or referred to.
+    pub fn record_images(&self) -> Value {
+        Value::Array(
+            self.images
+                .iter()
+                .map(|i| json!({ "attachment": i.attachment, "with": i.with, "given": i.given }))
+                .collect(),
+        )
+    }
+}
+
+/// An image's size in words: KB under a megabyte, else MB.
+fn size_words(bytes: i64) -> String {
+    if bytes < 1024 * 1024 {
+        format!("{} KB", (bytes + 1023) / 1024)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+/// An image's kind in words, from its media type: PNG, JPEG, GIF, WebP.
+fn kind_words(media_type: &str) -> String {
+    match media_type {
+        "image/webp" => "WebP".to_string(),
+        other => other.trim_start_matches("image/").to_uppercase(),
     }
 }
 
@@ -151,6 +202,7 @@ impl Context<'_> {
 
     /// The conditional inputs one source of an input gave, each with its address.
     fn conditional_of(&self, m: &Giver<'_>, p: &Part) -> Vec<(String, Value)> {
+        let conn = self.e.db.conn();
         match &p.origin {
             Origin::Place { first, cell, path, .. } => {
                 vec![(m.earliest(format!("{first}·{cell}·{path}"), &p.value), p.value.clone())]
@@ -165,7 +217,22 @@ impl Context<'_> {
                         .into_iter()
                         .map(|r| (format!("design_card:{}", r["design_card"]), r))
                         .collect(),
-                    "item_asks" => rows.into_iter().map(|r| (format!("ask:{}", r["ask"]), r)).collect(),
+                    // An ask with the owner's answer names the images the answer came with.
+                    "item_asks" => rows
+                        .into_iter()
+                        .map(|mut r| {
+                            let ids = r["ask"]
+                                .as_i64()
+                                .map(|a| db::attachments::of(conn, db::attachments::Words::Ask(a)).unwrap_or_default())
+                                .unwrap_or_default();
+                            if !ids.is_empty() {
+                                r["images"] =
+                                    json!(ids.iter().map(|i| db::attachments::address(*i)).collect::<Vec<_>>());
+                            }
+                            (format!("ask:{}", r["ask"]), r)
+                        })
+                        .collect(),
+                    // What was said, ending with the line that names the images the owner sent with it.
                     "waiting_interjections" => rows
                         .into_iter()
                         .map(|r| {
@@ -174,6 +241,11 @@ impl Context<'_> {
                                 r["speaker"].as_str().unwrap_or("owner"),
                                 r["text"].as_str().unwrap_or_default()
                             );
+                            let ids = r["interjection"]
+                                .as_i64()
+                                .map(|j| db::attachments::of_interjection(conn, j).unwrap_or_default())
+                                .unwrap_or_default();
+                            let text = db::attachments::with_named(&text, &ids);
                             (format!("ij:{}", r["interjection"]), Value::String(text))
                         })
                         .collect(),
@@ -385,6 +457,7 @@ impl Context<'_> {
             conditional: Vec::new(),
             continues: Some(prev),
             repeats: Vec::new(),
+            images: Vec::new(),
         };
         if let Some((prev, reason)) = self.sent_back() {
             let text = format!(
@@ -511,6 +584,7 @@ impl Context<'_> {
             work_from.push(format!("Worktree: {a}"));
         }
         let why = self.why(&mut m, &interjections);
+        let images = self.images(&mut m);
 
         let mut out = Writer::default();
         out.line(&format!("# {} · cell {} · {}\n", self.round, c.id, c.title));
@@ -519,7 +593,8 @@ impl Context<'_> {
             out.line("");
         }
         // The project's own context comes first: its guide and its settings, then the rest in the order added.
-        let mut given: Vec<&Conditional> = m.list.iter().filter(|x| x.given).collect();
+        let shown = |x: &&Conditional| x.given && !x.address.starts_with(IMAGE);
+        let mut given: Vec<&Conditional> = m.list.iter().filter(shown).collect();
         given.sort_by_key(|x| first.iter().position(|a| *a == x.address).unwrap_or(first.len()));
         if !given.is_empty() {
             out.line("## Given\n");
@@ -528,6 +603,31 @@ impl Context<'_> {
                 out.keep(&render(&x.content));
                 out.line("");
             }
+        }
+        // The images named in what is given: each given after the text, after a line of its address, or held by the
+        // session from the round it got it in.
+        if !images.is_empty() {
+            out.line("## Images\n");
+            for i in &images {
+                let address = db::attachments::address(i.attachment);
+                let what = format!("{address} ({}, {})", kind_words(&i.media_type), size_words(i.size));
+                let had = m
+                    .list
+                    .iter()
+                    .find(|c| c.address == address)
+                    .and_then(|c| self.held.got.get(&c.hash))
+                    .map(|(r, _)| format!(", in {r}"))
+                    .unwrap_or_default();
+                out.line(&if i.given {
+                    format!(
+                        "- {what}, with {}: follows this message's text, after its address.",
+                        i.with
+                    )
+                } else {
+                    format!("- {what}, with {}: given to you before{had}.", i.with)
+                });
+            }
+            out.line("");
         }
         let mut task: Vec<&str> = c.prompt.iter().map(String::as_str).collect();
         if let Some(pb) = &c.prompt_by
@@ -571,9 +671,49 @@ impl Context<'_> {
             repeats,
             conditional: m.list,
             continues: None,
+            images,
         }
     }
+
+    /// The images what the message gives names (`image:<id>`, as the owner's words name the images sent with them),
+    /// each added as a conditional input of its own, so that it is given once its session lacks it and referred to
+    /// after that: in the order the inputs are given and each names them, each with the first that names it. An address
+    /// that names no image the owner sent is passed over.
+    fn images(&self, m: &mut Giver<'_>) -> Vec<Image> {
+        let conn = self.e.db.conn();
+        let named: Vec<(String, Vec<i64>)> = m
+            .list
+            .iter()
+            .filter(|c| c.given && !c.address.starts_with(IMAGE))
+            .map(|c| (c.address.clone(), db::attachments::named_in(&render(&c.content))))
+            .collect();
+        let mut out: Vec<Image> = Vec::new();
+        for (with, ids) in named {
+            for id in ids {
+                if out.iter().any(|i| i.attachment == id) {
+                    continue;
+                }
+                let Ok(Some(k)) = db::attachments::kept(conn, id) else {
+                    continue;
+                };
+                let content = json!({ "image": k.id, "media_type": k.media_type, "size": k.size, "sha256": k.hash });
+                let address = m.add(db::attachments::address(id), content);
+                let given = m.list.iter().any(|c| c.address == address && c.given);
+                out.push(Image {
+                    attachment: id,
+                    media_type: k.media_type,
+                    size: k.size,
+                    with: with.clone(),
+                    given,
+                });
+            }
+        }
+        out
+    }
 }
+
+/// How the address of an image the owner sent begins.
+const IMAGE: &str = "image:";
 
 /// A message as it is written, line by line, with the large parts the round's record keeps once.
 #[derive(Default)]

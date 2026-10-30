@@ -466,6 +466,92 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
+/// Reads what the interface serves at a path as bytes: its status, its headers and its body.
+fn get_bytes(port: u16, path: &str) -> (u16, String, Vec<u8>) {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    s.write_all(request.as_bytes()).unwrap();
+    let mut out = Vec::new();
+    let _ = s.read_to_end(&mut out);
+    let at = out.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = String::from_utf8_lossy(&out[..at]).into_owned();
+    let status = head.split(' ').nth(1).and_then(|c| c.parse().ok()).unwrap_or(0);
+    (status, head, out[at + 4..].to_vec())
+}
+
+// The owner sends images with words, or alone: they are kept with the words, shown with them in the conversation and
+// served by their id as they were sent, with their media type. What the owner may not send is refused, saying why: a
+// kind that is no PNG, JPEG, GIF or WebP image, bytes that are not the kind they say, an image over 5 MB, more than 10
+// to a message, and data that is not base64.
+#[test]
+fn the_owner_sends_images_with_words_and_the_page_reads_them_by_id() {
+    let s = serve("images");
+    let mut db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
+    db.write(db::Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
+            [],
+        )?;
+        tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'R1')", [])?;
+        Ok(())
+    })
+    .unwrap();
+    let png = b"\x89PNG\r\n\x1a\n a screenshot".to_vec();
+    let image = |kind: &str, bytes: &[u8]| {
+        format!(
+            r#"{{"media_type":"{kind}","data":"{}"}}"#,
+            db::attachments::base64(bytes)
+        )
+    };
+    let say = |images: Vec<String>| {
+        let body = format!(r#"{{"text":"","images":[{}]}}"#, images.join(","));
+        post(s.port, "/api/v1/works/1/say", &body, "application/json")
+    };
+    let (status, said) = say(vec![image("image/png", &png)]);
+    assert_eq!(status, 200, "{said}");
+    let id: i64 = db
+        .conn()
+        .query_row("SELECT id FROM attachments WHERE interjection = 1", [], |r| r.get(0))
+        .unwrap();
+    let (status, head, body) = get_bytes(s.port, &format!("/api/v1/attachments/{id}"));
+    assert_eq!(status, 200, "{head}");
+    assert!(head.to_lowercase().contains("content-type: image/png"), "{head}");
+    assert_eq!(body, png);
+    assert_eq!(get_bytes(s.port, "/api/v1/attachments/99").0, 404);
+    let here = format!("127.0.0.1:{}", s.port);
+    let (_, talk) = get(s.port, "/api/v1/conversation?key=work%3A1", &here, "");
+    assert!(talk.contains(&format!(r#""images":[{id}]"#)), "{talk}");
+    let refused = |images: Vec<String>, why: &str| {
+        let (status, text) = say(images);
+        assert_eq!(status, 422, "{text}");
+        assert!(text.contains(why), "{why}: {text}");
+    };
+    refused(
+        vec![image("application/pdf", b"%PDF-1.7")],
+        "only PNG, JPEG, GIF and WebP",
+    );
+    refused(vec![image("image/jpeg", &png)], "not the image/jpeg image");
+    let mut big = png.clone();
+    big.resize(5 * 1024 * 1024 + 1, 0);
+    refused(vec![image("image/png", &big)], "at most 5 MB");
+    refused(vec![image("image/png", &png); 11], "at most 10 images");
+    refused(
+        vec![r#"{"media_type":"image/png","data":"not base64!"}"#.to_string()],
+        "not given as base64",
+    );
+    let kept: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM attachments", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(kept, 1);
+    // Ten images to a message are taken.
+    let (status, said) = say(vec![image("image/png", &png); 10]);
+    assert_eq!(status, 200, "{said}");
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
 // The owner answers an ask of the owner and rules on a design card on the page, as the command line would write them;
 // what cannot be done is refused with the reason.
 #[test]

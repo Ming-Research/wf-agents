@@ -56,11 +56,12 @@ export const pickAfter = (now: string, clicked: string): string => (now === clic
 export const needsWords = (pick: string): boolean => pick === '';
 
 /// What an ask's bubble sends to answer it: the option picked and words, or the words alone, and an engineer's handed
-/// back to the architect with the words as the decision it carries out (`back`). None while it cannot be sent.
-export function askAnswer(pick: string, text: string, back: boolean): object | null {
+/// back to the architect with the words as the decision it carries out (`back`); images may go with them, or alone
+/// (`images`). None while it cannot be sent.
+export function askAnswer(pick: string, text: string, back: boolean, images = false): object | null {
   const words = text.trim();
   const answer = pick !== '' ? `${t('answer_chosen', { option: pick })}${words !== '' ? ` ${words}` : ''}` : words;
-  if (answer === '') return null;
+  if (answer === '' && !images) return null;
   return back ? { text: answer, to: 'architect' } : { text: answer };
 }
 

@@ -382,6 +382,8 @@ pub struct OwnerAsk {
     pub kinds: Vec<AskKind>,
     /// None while it waits.
     pub answer: Option<Value>,
+    /// The images the owner sent with the answer, by their ids, in order.
+    pub answer_images: Vec<i64>,
     /// When the owner was told of it, from which it waits: the engine's notice of it, or else the start of the round
     /// that put it.
     pub asked_at: i64,
@@ -500,6 +502,19 @@ pub struct Answer {
     #[serde(default)]
     #[ts(optional)]
     pub to: Option<String>,
+    /// The images sent with the answer, in the order the owner added them.
+    #[serde(default)]
+    pub images: Vec<ImageSent>,
+}
+
+/// An image the owner sends with words, as the page hands it in: a PNG, JPEG, GIF or WebP image of at most 5 MB, at
+/// most 10 to a message.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct ImageSent {
+    /// image/png, image/jpeg, image/gif or image/webp.
+    pub media_type: String,
+    /// Its bytes, as base64.
+    pub data: String,
 }
 
 /// The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
@@ -640,6 +655,17 @@ pub struct RoundConditional {
     pub given: bool,
 }
 
+/// An image the owner sent that an agent round's message named.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct RoundImage {
+    /// The image, by its id; it is read at `/api/v1/attachments/<id>`.
+    pub attachment: i64,
+    /// The address of what the message gave that named it: the owner's words it came with, or what holds them.
+    pub with: String,
+    /// Given after the message's text; otherwise the session held it, and the message only referred to it.
+    pub given: bool,
+}
+
 /// A file a tool run kept, or that its result points to, under the data directory.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct KeptFile {
@@ -680,6 +706,9 @@ pub struct RoundDetail {
     /// Each conditional input the message gave or referred to; empty for a round no agent ran, or one recorded
     /// before.
     pub conditional: Vec<RoundConditional>,
+    /// The images the owner sent that the message named, in the order named: those given after its text, and those
+    /// its session held, which it only referred to.
+    pub images: Vec<RoundImage>,
     /// How the command line was called: the whole command line, the session started or resumed, the engine's and
     /// the command line's versions; none for a round no agent ran, or one recorded before.
     pub call: Option<Value>,
@@ -1140,6 +1169,9 @@ pub struct ConversationEntry {
     /// For a notice of a fault of wf-agents: the architects it was forwarded to, in the order it went; none for
     /// another entry.
     pub forwards: Vec<Forwarded>,
+    /// The images the owner sent with the owner's words it holds, by their ids, in order; each is read at
+    /// `/api/v1/attachments/<id>`. Empty for anything else.
+    pub images: Vec<i64>,
     /// For an ask: the ask in full.
     pub ask_detail: Option<OwnerAsk>,
     /// For a stage card: the stage the work went through.
@@ -1282,6 +1314,9 @@ pub struct WorkSaid {
     #[serde(default)]
     #[ts(optional)]
     pub question: Option<i64>,
+    /// The images sent with the words, in the order the owner added them; words may be images alone.
+    #[serde(default)]
+    pub images: Vec<ImageSent>,
 }
 
 /// What the owner says in a group of projects: to one of their architects, or to every one.
@@ -1294,6 +1329,27 @@ pub struct ProjectsSaid {
     #[serde(default)]
     #[ts(optional)]
     pub to: Option<String>,
+    /// The images sent with the words, in the order the owner added them; words may be images alone.
+    #[serde(default)]
+    pub images: Vec<ImageSent>,
+}
+
+/// What the owner says to a project's architect in their one-to-one: the words, the images sent with them, and the
+/// question pinned there that they reply to, when the owner ticked one.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct ArchitectSaid {
+    pub text: String,
+    /// The item it is about, if any.
+    #[serde(default)]
+    #[ts(optional)]
+    pub item: Option<i64>,
+    /// The question pinned in the one-to-one that the words reply to.
+    #[serde(default)]
+    #[ts(optional)]
+    pub reply_to: Option<i64>,
+    /// The images sent with the words, in the order the owner added them; words may be images alone.
+    #[serde(default)]
+    pub images: Vec<ImageSent>,
 }
 
 /// How far the owner has read a conversation: the time of the latest entry the page showed.

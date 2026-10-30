@@ -19,8 +19,8 @@ use crate::{
     InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
     LinkedItem, Matter, MatterCard, NamedText, NextPlan, NotebookSection, NotebookVersion, Observation, OwnerAsk,
     OwnerMessage, PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, Queued, Replacement, RoundConditional,
-    RoundDetail, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session, Shown, Tag, ToolRun,
-    Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
+    RoundDetail, RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Said, Session, Shown,
+    Tag, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -773,10 +773,15 @@ pub(crate) fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<
             kinds: ask_kinds(&body),
             body,
             answer: json(r.get(5)?),
+            answer_images: Vec::new(),
             asked_at: r.get(6)?,
         })
     })?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
+    let mut out: Vec<OwnerAsk> = rows.collect::<rusqlite::Result<_>>()?;
+    for a in out.iter_mut().filter(|a| a.answer.is_some()) {
+        a.answer_images = db::attachments::of(conn, db::attachments::Words::Ask(a.id))?;
+    }
+    Ok(out)
 }
 
 const MESSAGE: &str = "SELECT m.id, m.round, r.cell, s.line, r.ended_at, m.work, w.item, i.title, m.text, m.read_at,
@@ -1125,6 +1130,20 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, work: i64, n: i64) -
                 .collect()
         })
         .unwrap_or_default();
+    let images = input["images"]
+        .as_array()
+        .map(|xs| {
+            xs.iter()
+                .filter_map(|x| {
+                    Some(RoundImage {
+                        attachment: x["attachment"].as_i64()?,
+                        with: x["with"].as_str().unwrap_or_default().to_string(),
+                        given: x["given"].as_bool().unwrap_or(false),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let call = input.get("call").cloned();
     let effort = call.as_ref().and_then(|c| flag(c, "--effort"));
     let level = call.as_ref().and_then(|c| {
@@ -1159,6 +1178,7 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, work: i64, n: i64) -
             .or(input["prompt"].as_str())
             .map(str::to_string),
         conditional,
+        images,
         call,
         inputs,
         input,
@@ -1171,6 +1191,11 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, work: i64, n: i64) -
         interjections: interjections(conn, "WHERE work = ?1 AND delivered_round = ?2", &[work, n])?,
         round: summary,
     })
+}
+
+/// An image the owner sent, by its id: its media type and its bytes, as sent.
+pub fn attachment(conn: &Connection, id: i64) -> Result<(String, Vec<u8>)> {
+    db::attachments::bytes(conn, id)?.ok_or_else(|| Error::NotFound(format!("no image {id}")))
 }
 
 /// What a conditional input of one of a work's rounds holds, by the hash the round's record names it with, whether the

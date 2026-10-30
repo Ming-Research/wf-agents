@@ -29,13 +29,13 @@ pub use diff::diff;
 pub use events::events;
 pub use marks::{mark_read, read_to};
 pub use owner::{
-    answer, can_start, close_observation, fault_forwarding, forward_fault, interject, keep_warm_paused, pause,
+    answer, can_start, close_observation, fault_forwarding, forward_fault, images, interject, keep_warm_paused, pause,
     pause_architect, project_named, reply_to_question, resume, rule, say_to_projects, say_to_work,
     set_fault_forwarding, set_keep_warm_paused, start_over,
 };
 pub use read::{
-    Error, Flows, architect, compiled_flow, content, file, flow_view, flows, inputs_now, item, items, round,
-    version_of, work, works,
+    Error, Flows, architect, attachment, compiled_flow, content, file, flow_view, flows, inputs_now, item, items,
+    round, version_of, work, works,
 };
 pub use settings::{accounts, save_settings, set_level, settings, switch_account};
 pub use source::{Sources, refs};

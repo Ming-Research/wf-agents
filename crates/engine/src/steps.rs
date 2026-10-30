@@ -275,10 +275,23 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         }
         words.iter().map(|x| agent::quote(x)).collect::<Vec<_>>().join(" ")
     });
+    // The images the message gives, after its text, each after its address.
+    let mut images = Vec::new();
+    for i in msg.images.iter().filter(|i| i.given) {
+        let (media_type, bytes) = db::attachments::bytes(e.db.conn(), i.attachment)
+            .map_err(sql)?
+            .ok_or_else(|| format!("{number}: image {} is not kept", i.attachment))?;
+        images.push(agent::Image {
+            address: db::attachments::address(i.attachment),
+            media_type,
+            bytes,
+        });
+    }
     let req = Request {
         resume,
         new_session: new_session.clone(),
         prompt: msg.text.clone(),
+        images,
         regive: Some(given_again.clone()),
         deliver,
         ..cell_request(e, w, g, cell, item.as_ref())?
@@ -293,7 +306,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     );
     // The level the round runs at, which the configuration maps to its model: the owner reads the round by it.
     call["level"] = Value::String(level_name.clone());
-    let input = json!({
+    let mut input = json!({
         "message": msg.stored,
         "conditional": msg.record(),
         "call": call,
@@ -302,6 +315,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             "new_session": new_why,
         },
     });
+    // Where the owner's images were given, by their attachments, and those only referred to.
+    if !msg.images.is_empty() {
+        input["images"] = msg.record_images();
+    }
     let round =
         e.db.write(Actor::Engine, |tx| {
             db::keep(tx, &kept)?;
@@ -654,6 +671,7 @@ pub fn cell_request(
         resume: None,
         new_session: String::new(),
         prompt: String::new(),
+        images: Vec::new(),
         schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
         envelope: sessions::cli::envelope(g),
         refused: e.config.config.install.agents.permissions.refused(&line),
@@ -1414,7 +1432,9 @@ fn ask(
             return Ok(Advance::Waits(format!("ask {id} waits for the owner")));
         };
         let answer: Value = serde_json::from_str(&answer).unwrap_or(Value::Null);
-        let text = answer["text"].as_str().unwrap_or_default().to_string();
+        // The answer's words end with the line that names the images the owner sent with them.
+        let images = db::attachments::of(e.db.conn(), db::attachments::Words::Ask(id)).map_err(sql)?;
+        let text = db::attachments::with_named(answer["text"].as_str().unwrap_or_default(), &images);
         let output = if to == "owner" {
             // The owner resolves it, or hands it back to the architect with a decision for it to carry out.
             match answer["to"].as_str().filter(|t| *t == "architect") {
@@ -1423,7 +1443,13 @@ fn ask(
             }
         } else {
             match answer.get("reply").filter(|x| x.is_object()) {
-                Some(reply) => json!({ "reply": reply }),
+                Some(reply) => {
+                    let mut reply = reply.clone();
+                    if !images.is_empty() {
+                        reply["text"] = json!(text);
+                    }
+                    json!({ "reply": reply })
+                }
                 None => {
                     json!({ "reply": { "text": text, "why": answer["why"].as_str().unwrap_or("The owner answered for the architect.") } })
                 }

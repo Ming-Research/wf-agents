@@ -18,6 +18,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use db::attachments::{self, Words};
 use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
 use db::{Actor, Matter, queue_matter};
 use flow::format::Src;
@@ -1204,9 +1205,15 @@ fn asked_of(gathered: &[Gathered]) -> Vec<Value> {
         .collect()
 }
 
-/// What an answer of the owner's comes back to an owner's cell of the architect's graph as: a reply with the words.
-fn answered_as(answer: &Value) -> Value {
-    json!({ "reply": { "text": text(&answer["text"]) } })
+/// What an answer of the owner's comes back to an owner's cell of the architect's graph as: a reply with the words,
+/// ending with the line that names the images the owner sent with them.
+fn answered_as(answer: &Value, images: &[i64]) -> Value {
+    json!({ "reply": { "text": attachments::with_named(text(&answer["text"]), images) } })
+}
+
+/// The addresses of images, as the agents are given them: `image:<id>`.
+fn image_addresses(ids: &[i64]) -> Value {
+    json!(ids.iter().map(|i| attachments::address(*i)).collect::<Vec<_>>())
 }
 
 /// The owner's cell of the architect's graph: what the architect asks becomes an ask of the owner that holds only the
@@ -1229,7 +1236,8 @@ pub fn ask_owner(
         };
         let gathered = inputs::gather(e, w, g, cell, None)?;
         let given = values::given(e, w, g, cell, None, &gathered)?;
-        let output = answered_as(&answer);
+        let images = attachments::of(e.db.conn(), Words::Ask(id)).map_err(sql)?;
+        let output = answered_as(&answer, &images);
         let row = g.take(&cell.id, &output, &given)?.clone();
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None, &given);
     }
@@ -1372,7 +1380,17 @@ pub fn ask_architect(
                     }
                     None => None,
                 };
-                json!({ "reply": json_col(reply).unwrap_or(Value::Null) })
+                let mut reply = json_col(reply).unwrap_or(Value::Null);
+                // The owner's answer in the group ends with the line that names the images the owner sent with it.
+                if let Some(m) = b.matter
+                    && reply["by"] == "owner"
+                {
+                    let images = attachments::of(e.db.conn(), Words::Matter(m)).map_err(sql)?;
+                    if !images.is_empty() {
+                        reply["text"] = json!(attachments::with_named(text(&reply["text"]), &images));
+                    }
+                }
+                json!({ "reply": reply })
             }
             _ => json!({}),
         };
@@ -3130,19 +3148,22 @@ fn last_read(conn: &Connection, project: &str, upto: i64) -> Result<Option<i64>,
 
 /// What was said in the groups of a project's works after `since`, other than to its architect, oldest first: the
 /// owner's words to the engineers, what the engineers told the owner, and the owner's answers, to the engineers' asks
-/// and, in a group, to a question the architect held; each with its work and item.
+/// and, in a group, to a question the architect held; each with its work and item, and the owner's words with the
+/// images the owner sent with them, by their addresses, everything said in a group reaching all three.
 fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Value>, String> {
     query_json(
         conn,
         "SELECT * FROM (
            SELECT j.work, w.item, i.title, 'owner' AS who, 'engineer' AS \"to\", j.text, NULL AS asked,
              (SELECT min(c.at) FROM changes c
-              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)) AS at
+              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)) AS at,
+             nullif((SELECT json_group_array('image:' || x.id ORDER BY x.position) FROM attachments x
+                     WHERE x.interjection = j.id), '[]') AS images
            FROM interjections j JOIN works w ON w.id = j.work JOIN items i ON i.id = w.item
            WHERE i.project = ?1 AND w.graph = 'engineer' AND j.speaker = 'owner' AND j.matter IS NULL
              AND j.informs = 0 AND j.cancelled_item IS NULL AND j.text NOT LIKE 'Ruling on design card %'
            UNION ALL
-           SELECT m.work, w.item, i.title, 'engineer', 'owner', m.text, NULL, coalesce(r.ended_at, r.started_at)
+           SELECT m.work, w.item, i.title, 'engineer', 'owner', m.text, NULL, coalesce(r.ended_at, r.started_at), NULL
            FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
            JOIN items i ON i.id = w.item LEFT JOIN sessions s ON s.id = r.session
            WHERE i.project = ?1 AND w.graph = 'engineer' AND coalesce(s.line, 'engineer') = 'engineer'
@@ -3150,12 +3171,16 @@ fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Va
            SELECT a.work, w.item, i.title, 'owner', 'engineer', json_extract(a.answer, '$.text'),
              (SELECT group_concat(json_extract(p.value, '$.what'), char(10))
               FROM json_each(a.body, '$.asked') q, json_each(q.value, '$.value.points') p),
-             json_extract(a.answer, '$.at')
+             json_extract(a.answer, '$.at'),
+             nullif((SELECT json_group_array('image:' || x.id ORDER BY x.position) FROM attachments x
+                     WHERE x.ask = a.id), '[]')
            FROM owner_asks a JOIN works w ON w.id = a.work JOIN items i ON i.id = w.item
            WHERE i.project = ?1 AND w.graph = 'engineer' AND json_extract(a.answer, '$.by') = 'owner'
            UNION ALL
            SELECT m.work, w.item, i.title, 'owner', 'engineer', json_extract(m.reply, '$.text'), m.what,
-             json_extract(m.reply, '$.at')
+             json_extract(m.reply, '$.at'),
+             nullif((SELECT json_group_array('image:' || x.id ORDER BY x.position) FROM attachments x
+                     WHERE x.matter = m.id), '[]')
            FROM architect_matters m JOIN works w ON w.id = m.work JOIN items i ON i.id = w.item
            WHERE m.project = ?1 AND w.graph = 'engineer' AND json_extract(m.reply, '$.by') = 'owner')
          WHERE at > ?2 ORDER BY at",
@@ -3776,6 +3801,14 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
         return Ok(None);
     };
     matter["at"] = json!(matter["at"].as_i64().map(utc_minute));
+    // The images the owner sent with the words it holds, or with the answer it holds.
+    let mut images = attachments::of(conn, Words::Matter(m)).map_err(sql)?;
+    if let Some(a) = matter["body"]["owner_ask"].as_i64() {
+        images.extend(attachments::of(conn, Words::Ask(a)).map_err(sql)?);
+    }
+    if !images.is_empty() {
+        matter["images"] = image_addresses(&images);
+    }
     let mut material = Map::new();
     // What the work the matter came from did, when it came from an engineer's work.
     if let Some(work) = matter["work"].as_i64() {
@@ -4119,6 +4152,10 @@ fn owner_answer(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
         &[&m],
         1,
     )?;
+    let images = match row.first().and_then(|r| r["ask"].as_i64()) {
+        Some(a) => attachments::of(conn, Words::Ask(a)).map_err(sql)?,
+        None => Vec::new(),
+    };
     Ok(row.into_iter().next().map(|r| {
         let mut back = json!({
             "ask": r["ask"],
@@ -4126,6 +4163,9 @@ fn owner_answer(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
             "answer": r["answer"]["text"],
             "answered_at": r["answer"]["at"].as_i64().map(utc_minute),
         });
+        if !images.is_empty() {
+            back["images"] = image_addresses(&images);
+        }
         if let (Some(q), Some(o)) = (r["body"].get("question"), back.as_object_mut()) {
             o.remove("asked");
             o.insert("question".into(), q.clone());

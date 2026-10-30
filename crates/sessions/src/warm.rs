@@ -234,6 +234,7 @@ pub fn ping(
         resume: Some(due.cli_session.clone()),
         new_session: due.cli_session.clone(),
         prompt: MESSAGE.to_string(),
+        images: Vec::new(),
         schema: json!({}),
         envelope: json!({}),
         refused: Vec::new(),

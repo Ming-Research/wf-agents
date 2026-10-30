@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use api::{ApiError, Bus, Control, Envelope, Event, Flows, Sources};
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{self, KeepAlive, Sse};
@@ -34,6 +34,10 @@ mod built {
 
 /// The most of a kept file the interface hands out.
 const FILE_MAX: u64 = 4 * 1024 * 1024;
+
+/// The most a request that says or answers something may hold: ten images of 5 MB, a third larger as base64, and the
+/// words; any other request keeps the server's own limit.
+const SAID_MAX: usize = 72 * 1024 * 1024;
 
 /// What the interface serves.
 pub struct Options {
@@ -126,7 +130,10 @@ fn router(app: App) -> Router {
         .route("/api/v1/works/{id}/start", post(start_work))
         .route("/api/v1/works/{id}/pause", post(pause))
         .route("/api/v1/works/{id}/start-over", post(start_over))
-        .route("/api/v1/works/{id}/say", post(say_to_work))
+        .route(
+            "/api/v1/works/{id}/say",
+            post(say_to_work).layer(DefaultBodyLimit::max(SAID_MAX)),
+        )
         .route("/api/v1/works/{id}/rounds/{n}", get(round))
         .route("/api/v1/works/{id}/contents/{hash}", get(content))
         .route("/api/v1/flows", get(flows))
@@ -149,15 +156,25 @@ fn router(app: App) -> Router {
         .route("/api/v1/faults/{id}/forward", post(forward_fault))
         .route("/api/v1/faults/forward-new", post(forward_new))
         .route("/api/v1/conversations/read", post(read_to))
-        .route("/api/v1/projects/say", post(say_to_projects))
-        .route("/api/v1/asks/{id}/answer", post(answer))
+        .route(
+            "/api/v1/projects/say",
+            post(say_to_projects).layer(DefaultBodyLimit::max(SAID_MAX)),
+        )
+        .route(
+            "/api/v1/asks/{id}/answer",
+            post(answer).layer(DefaultBodyLimit::max(SAID_MAX)),
+        )
         .route("/api/v1/design-cards/{id}/rule", post(rule))
-        .route("/api/v1/architect/say", post(say_to_architect))
+        .route(
+            "/api/v1/architect/say",
+            post(say_to_architect).layer(DefaultBodyLimit::max(SAID_MAX)),
+        )
         .route("/api/v1/architect/step", post(step_architect))
         .route("/api/v1/architect/start", post(start_architect))
         .route("/api/v1/architect/pause", post(pause_architect))
         .route("/api/v1/observations/{id}/close", post(close_observation))
         .route("/api/v1/files/{dir}/{name}", get(file))
+        .route("/api/v1/attachments/{id}", get(attachment))
         .route("/api/{*rest}", any(no_such))
         .fallback(page)
         .layer(middleware::from_fn_with_state(app.clone(), guard))
@@ -658,28 +675,20 @@ async fn rule(
     decide(&app, move |db| api::rule(db, id, &r)).await
 }
 
-/// What the owner says to an architect, the item it is about, if any, and the question pinned in their one-to-one the
-/// words reply to, when the owner ticked one.
-#[derive(Deserialize)]
-struct Said {
-    text: String,
-    #[serde(default)]
-    item: Option<i64>,
-    #[serde(default)]
-    reply_to: Option<i64>,
-}
-
 /// Says something to a project's architect, as the owner, as the command line does: it comes to its queue, and the
 /// engine is woken, so that a work of the architect starts when works go on.
 async fn say_to_architect(
     State(app): State<App>,
     Query(q): Query<OfProject>,
-    Json(s): Json<Said>,
+    Json(s): Json<api::ArchitectSaid>,
 ) -> Result<Json<api::Done>, Fail> {
     let (project, _) = project_of(&app, &q)?;
-    decide(&app, move |db| match s.reply_to {
-        Some(ask) => api::reply_to_question(db, &project, ask, &s.text),
-        None => db::say_to_architect(db, &project, s.item, None, &s.text),
+    decide(&app, move |db| {
+        let images = api::images(&s.images)?;
+        match s.reply_to {
+            Some(ask) => api::reply_to_question(db, &project, ask, &s.text, &images),
+            None => db::say_to_architect(db, &project, s.item, None, &s.text, &images),
+        }
     })
     .await
 }
@@ -835,6 +844,22 @@ async fn file(State(app): State<App>, Path((dir, name)): Path<(String, String)>)
         .await
         .map_err(|e| Fail::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
     Ok(([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response())
+}
+
+/// An image the owner sent, by its id, as it was sent, with its media type; it never changes, so the browser keeps it.
+async fn attachment(State(app): State<App>, Path(id): Path<i64>) -> Result<Response, Fail> {
+    let (media_type, bytes) = read(&app, move |c, _| api::attachment(c, id)).await?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, media_type),
+            (
+                header::CACHE_CONTROL,
+                "private, max-age=31536000, immutable".to_string(),
+            ),
+        ],
+        bytes,
+    )
+        .into_response())
 }
 
 async fn no_such(uri: Uri) -> Fail {

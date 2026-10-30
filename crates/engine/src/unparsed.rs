@@ -279,6 +279,8 @@ pub fn recover(
     let ask = Request {
         resume: Some(reply.session.clone()),
         prompt: message.clone(),
+        // The session holds the images the round's message gave.
+        images: Vec::new(),
         regive: None,
         deliver: None,
         ..req.clone()
@@ -335,6 +337,7 @@ fn repair(
         resume: None,
         new_session: agent::new_session_id(),
         prompt,
+        images: Vec::new(),
         schema: json!({}),
         envelope: Value::Null,
         refused: Vec::new(),

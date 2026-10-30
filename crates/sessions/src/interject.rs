@@ -1,7 +1,8 @@
 //! Interjections handed to a round that runs: the command line's hook after each tool use asks the session manager for
 //! the interjections waiting for the round's line, which it hands in to the round and records as delivered in it, and
 //! the command line adds them to the session before the agent goes on. Those still waiting when the round ends go at
-//! the top of the next round's message.
+//! the top of the next round's message. What the owner said with images waits for that message too: the hook adds text
+//! only, and the images go to the agent with their words.
 
 use db::rusqlite::params;
 use db::{Actor, Db};
@@ -9,7 +10,8 @@ use serde_json::{Value, json};
 
 /// The interjections waiting for a work's line, handed in to its running round: each recorded as delivered in the
 /// round, and what the hook gives the session, as the command line reads a hook's output after a tool use; none when
-/// none waits.
+/// none waits. One that carries images, its own or those of the owner's words its matter holds, is left for the line's
+/// next message, which gives the words and the images together.
 pub fn deliver(db: &mut Db, work: i64, round: i64, line: &str) -> Result<Option<String>, String> {
     let said: Vec<(i64, String, String)> = db
         .write(Actor::Engine, |tx| {
@@ -23,8 +25,10 @@ pub fn deliver(db: &mut Db, work: i64, round: i64, line: &str) -> Result<Option<
                 return Ok(Vec::new());
             }
             let mut st = tx.prepare(
-                "SELECT id, speaker, text FROM interjections
-                 WHERE work = ?1 AND line = ?2 AND delivered_round IS NULL ORDER BY id",
+                "SELECT id, speaker, text FROM interjections j
+                 WHERE work = ?1 AND line = ?2 AND delivered_round IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.interjection = j.id OR a.matter = j.matter)
+                 ORDER BY id",
             )?;
             let rows: Vec<(i64, String, String)> = st
                 .query_map(params![work, line], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
@@ -129,5 +133,49 @@ mod tests {
         })
         .unwrap();
         assert_eq!(deliver(&mut db, 1, 1, "review").unwrap(), None);
+    }
+
+    // What the owner said with images is not handed in during a round, since the hook adds text only: it waits for the
+    // line's next message, which gives the words and the images together.
+    #[test]
+    fn an_interjection_with_images_waits_for_the_next_message() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Owner, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'R1')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'R1', '{}', 'c', 1)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text) VALUES (1, 'engineer', 'owner', 'See this.')",
+                [],
+            )?;
+            let image = db::attachments::Image {
+                media_type: "image/png".into(),
+                bytes: b"\x89PNG\r\n\x1a\n".to_vec(),
+            };
+            db::attachments::attach(tx, db::attachments::Words::Interjection(1), &[image])?;
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text) VALUES (1, 'engineer', 'owner', 'And this.')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let out = deliver(&mut db, 1, 1, "engineer").unwrap().unwrap();
+        assert!(out.contains("ij:2") && !out.contains("ij:1"), "{out}");
+        let waiting: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM interjections WHERE delivered_round IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(waiting, 1);
     }
 }

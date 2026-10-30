@@ -2,16 +2,17 @@
 // to Primer: a round, by its name; a round at a cell; who wrote something (who to whom), its round at its cell, and
 // when; what an agent wrote, as a block, its head and who wrote it over its text; a section under its heading and how
 // many it holds, folded or open, and a sub-heading inside it; an item, by its number and title; a pull request, by its
-// number; the words the owner writes beside the button that sends them; and the form that answers or says something,
-// its words and the button that sends them.
+// number; the words the owner writes beside the button that sends them, with the images that go with them; the images
+// the owner sent, as thumbnails; and the form that answers or says something, its words and the button that sends them.
 
-import { ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
+import { ChevronDownIcon, ChevronRightIcon, PaperclipIcon, XIcon } from '@primer/octicons-react';
 import {
   Button,
   CounterLabel,
   Details,
   Flash,
   Heading,
+  IconButton,
   Label,
   type LabelColorOptions,
   Link as PrimerLink,
@@ -20,15 +21,19 @@ import {
 import {
   createContext,
   createElement,
+  type Dispatch,
   Fragment,
   type KeyboardEvent,
   type ReactNode,
+  type SetStateAction,
   useContext,
   useLayoutEffect,
   useRef,
+  useState,
 } from 'react';
 
 import { roundName, time } from './format';
+import { admit, IMAGE_KINDS, imageHref, IMAGES_MOST, megabytes, pastedFiles, type PendingImage, readImage } from './images';
 import { useStatus } from './live';
 import { Link, workHref } from './route';
 import { t } from './text';
@@ -324,12 +329,19 @@ export function PrLink({ project, n }: { project: string | null; n: number }) {
   );
 }
 
-/// The words the owner writes beside the button that sends them, in every box that says or answers something: one line
-/// at rest, as tall as the button (`small` beside a small one), growing with what is written up to twelve lines, past
-/// which they scroll, with no handle to drag, the growing taking its place.
-export function SayBox({ text, set, small = false, placeholder, label, title, disabled, onKeyDown }: {
+/// The words the owner writes beside the button that sends them, in every box that says or answers something, and the
+/// images that go with them: one line at rest, as tall as the button (`small` beside a small one), growing with what is
+/// written up to twelve lines, past which they scroll, with no handle to drag, the growing taking its place. Beside the
+/// words a button picks images; an image pasted into the words is added, and pasted text still pastes as text. The
+/// images added wait over the words, each a thumbnail with a button that takes it out, with how many against the 10 a
+/// message carries; what the box refuses (a file that is no PNG, JPEG, GIF or WebP image, one over 5 MB, one past the
+/// tenth) is said under them, until the box takes or loses an image or is emptied. The words and the images go together
+/// when sent, and may be images alone.
+export function SayBox({ text, set, images, setImages, small = false, placeholder, label, title, disabled, onKeyDown }: {
   text: string;
   set: (text: string) => void;
+  images: PendingImage[];
+  setImages: Dispatch<SetStateAction<PendingImage[]>>;
   small?: boolean;
   placeholder: string;
   label?: string;
@@ -338,27 +350,111 @@ export function SayBox({ text, set, small = false, placeholder, label, title, di
   onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const [refused, setRefused] = useState<string | null>(null);
+  // Sent, the box is emptied, and what it refused before goes with what it held.
+  const [held, setHeld] = useState(images);
+  if (held !== images) {
+    setHeld(images);
+    if (images.length === 0 && text === '') setRefused(null);
+  }
   useLayoutEffect(() => {
     const el = box.current;
     if (el === null) return;
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
   }, [text]);
+  const add = (files: File[]) => {
+    const { take, refused: no } = admit(images.length, files);
+    setRefused(no.length > 0 ? no.join(' ') : null);
+    Promise.all(take.map(readImage)).then(
+      (read) => setImages((now) => [...now, ...read].slice(0, IMAGES_MOST)),
+      (x: unknown) => setRefused(x instanceof Error ? x.message : String(x)),
+    );
+  };
+  const size = small ? 'small' : 'medium';
   return (
-    <Textarea
-      ref={box}
-      block
-      resize="none"
-      rows={1}
-      className={small ? 'say-box say-box-small' : 'say-box'}
-      value={text}
-      disabled={disabled}
-      placeholder={placeholder}
-      aria-label={label}
-      title={title}
-      onChange={(e) => set(e.target.value)}
-      onKeyDown={onKeyDown}
-    />
+    <div className="say-box">
+      {images.length > 0 ? (
+        <div className="say-images" role="group" aria-label={t('say_images')}>
+          {images.map((im) => (
+            <span key={im.key} className="say-image">
+              <img src={im.data_url} alt={im.name} title={t('say_image_hint', { name: im.name, size: megabytes(im.size) })} />
+              <IconButton
+                icon={XIcon}
+                size="small"
+                variant="invisible"
+                className="say-image-remove"
+                aria-label={t('say_image_remove', { name: im.name })}
+                disabled={disabled}
+                onClick={() => {
+                  setRefused(null);
+                  setImages((now) => now.filter((x) => x.key !== im.key));
+                }}
+              />
+            </span>
+          ))}
+          <span className="say-images-count">{t('say_images_count', { n: images.length, most: IMAGES_MOST })}</span>
+        </div>
+      ) : null}
+      {refused !== null ? <p className="say-refused">{refused}</p> : null}
+      <div className="say-box-row">
+        <IconButton
+          icon={PaperclipIcon}
+          size={size}
+          aria-label={t('say_add_images')}
+          disabled={disabled || images.length >= IMAGES_MOST}
+          onClick={() => picker.current?.click()}
+        />
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          hidden
+          accept={IMAGE_KINDS.join(',')}
+          onChange={(e) => {
+            add([...(e.target.files ?? [])]);
+            e.target.value = '';
+          }}
+        />
+        <Textarea
+          ref={box}
+          block
+          resize="none"
+          rows={1}
+          className={small ? 'say-box-words say-box-words-small' : 'say-box-words'}
+          value={text}
+          disabled={disabled}
+          placeholder={placeholder}
+          aria-label={label}
+          title={title}
+          onChange={(e) => set(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={(e) => {
+            const files = pastedFiles([...e.clipboardData.types], [...e.clipboardData.files]);
+            if (files.length > 0) {
+              e.preventDefault();
+              add(files);
+            }
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/// The images the owner sent, as thumbnails in a row that wraps, under the owner's words or where a round was given
+/// them; a click opens one at full size in a new tab.
+export function Thumbs({ ids }: { ids: number[] }) {
+  if (ids.length === 0) return null;
+  return (
+    <div className="thumbs">
+      {ids.map((id) => (
+        <a key={id} className="thumb" href={imageHref(id)} target="_blank" rel="noreferrer" title={t('image_open')}>
+          <img src={imageHref(id)} alt={t('image_alt', { id })} loading="lazy" />
+        </a>
+      ))}
+    </div>
   );
 }
 

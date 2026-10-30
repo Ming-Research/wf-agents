@@ -15,6 +15,7 @@ use serde_json::Value;
 
 pub use rusqlite;
 
+pub mod attachments;
 mod cells;
 mod matters;
 mod start_over;
@@ -87,13 +88,14 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0052.sql"),
     include_str!("../../../db/migrations/0053.sql"),
     include_str!("../../../db/migrations/0054.sql"),
+    include_str!("../../../db/migrations/0055.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 7] = [
+const UNTRACKED: [&str; 8] = [
     "rounds",
     "tool_runs",
     "pings",
@@ -101,6 +103,7 @@ const UNTRACKED: [&str; 7] = [
     "changes",
     "outbox",
     "contents",
+    "attachments",
 ];
 
 /// The line a table's description has when agents may not read it.

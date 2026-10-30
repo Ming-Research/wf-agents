@@ -186,6 +186,7 @@ pub fn answer(data: &Path, a: Answer) -> Result<String, String> {
         why: a.why,
         reply: a.reply,
         to: None,
+        images: Vec::new(),
     };
     api::answer(&mut db, a.ask, &given)
 }
@@ -261,7 +262,7 @@ pub fn say_to_architect(data: &Path, project: Option<&str>, item: Option<i64>, t
     let committed = config::committed(data).map_err(|e| e.to_string())?;
     let project = api::project_named(&committed.config, project)?;
     let mut db = open(data)?;
-    db::say_to_architect(&mut db, &project, item, None, text)
+    db::say_to_architect(&mut db, &project, item, None, text, &[])
 }
 
 /// Says something in a running work's group, as the page does: to its engineer, its project's architect or both.
@@ -270,6 +271,7 @@ pub fn say(data: &Path, work: i64, to: &str, text: &str) -> Result<String, Strin
         text: text.to_string(),
         to: Some(to.to_string()),
         question: None,
+        images: Vec::new(),
     };
     api::say_to_work(&mut open(data)?, work, &said)
 }

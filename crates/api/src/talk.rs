@@ -257,6 +257,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
                 fault: r.get(17)?,
                 misses: None,
                 forwards: Vec::new(),
+                images: Vec::new(),
                 ask_detail: None,
                 stage: None,
                 matter_card: None,
@@ -281,6 +282,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
     misses(conn, &mut entries)?;
     forwards(conn, &mut entries)?;
     words_states(conn, &mut entries)?;
+    images(conn, &mut entries)?;
     // Each ask in full.
     let ids: Vec<String> = entries
         .iter()
@@ -541,6 +543,21 @@ fn said_at_once(entries: &mut Vec<ConversationEntry>) {
     *entries = kept;
 }
 
+/// The images the owner sent with the owner's words each entry holds: an interjection's own or those of the matter
+/// holding its words, the words of a matter, and the owner's reply to an engineer's question; an answer to an ask has
+/// its images in the ask.
+fn images(conn: &Connection, entries: &mut [ConversationEntry]) -> Result<()> {
+    use db::attachments::{Words, of, of_interjection};
+    for e in entries.iter_mut().filter(|e| e.sender == "owner") {
+        e.images = match e.source.as_str() {
+            "interjection" => of_interjection(conn, e.id)?,
+            "words" | "reply" => of(conn, Words::Matter(e.id))?,
+            _ => Vec::new(),
+        };
+    }
+    Ok(())
+}
+
 /// An entry with nothing in it, for the engine's cards to fill.
 fn blank() -> ConversationEntry {
     ConversationEntry {
@@ -563,6 +580,7 @@ fn blank() -> ConversationEntry {
         fault: None,
         misses: None,
         forwards: Vec::new(),
+        images: Vec::new(),
         ask_detail: None,
         stage: None,
         matter_card: None,

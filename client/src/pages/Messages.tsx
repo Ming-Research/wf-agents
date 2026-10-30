@@ -34,7 +34,17 @@ import {
   PageLayout,
   Timeline,
 } from '@primer/react';
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import {
+  type Dispatch,
+  type MouseEvent,
+  type ReactNode,
+  type RefObject,
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import type {
   Architect,
@@ -78,10 +88,11 @@ import {
 } from '../conversation';
 import { cost, time } from '../format';
 import { postJson } from '../http';
+import { imagesSent, type PendingImage, saysSomething } from '../images';
 import { isObj, label, str, words } from '../labelled';
 import { reread, useResource, useStatus } from '../live';
 import { Markdown } from '../markdown';
-import { SayBox } from '../parts';
+import { SayBox, Thumbs } from '../parts';
 import { architectHref, forProject, href, Link, navigate, workHref } from '../route';
 import { t, tn } from '../text';
 import { joinedWords, SEP } from '../voices';
@@ -179,15 +190,16 @@ function MissesLine({ m }: { m: Misses }) {
   );
 }
 
-/// What a message of the owner's or an agent's says: its words as written, in the page's markdown; a ruling, which
-/// card; an ask, in full while it waits, so that it is read where it is answered, and once answered its words with the
-/// ask in full folded under them.
+/// What a message of the owner's or an agent's says: its words as written, in the page's markdown, and the images the
+/// owner sent with them as thumbnails under them; a ruling, which card; an ask, in full while it waits, so that it is
+/// read where it is answered, and once answered its words with the ask in full folded under them.
 function Words({ e }: { e: ConversationEntry }) {
   if (e.source === 'ruling') return <p>{t('conv_ruling', { id: e.design_card ?? e.id })}</p>;
   if (e.ask_detail !== null && e.ask_detail.answer === null) return <AskIn a={e.ask_detail} />;
   return (
     <>
       {e.text !== '' ? <Markdown text={e.text} /> : null}
+      <Thumbs ids={e.images} />
       {e.ask_detail !== null ? (
         <details className="talk-fold">
           <summary>{t('conv_ask_full', { id: e.ask_detail.id })}</summary>
@@ -210,14 +222,16 @@ function AskIn({ a }: { a: OwnerAsk }) {
   );
 }
 
-/// The small box in a bubble where the owner's words answer that bubble, beside Answer: Enter sends and Shift with
-/// Enter starts a new line; what failed is said under it.
-function AnswerBox({ placeholder, ready, busy, text, setText, send, error, children = null }: {
+/// The small box in a bubble where the owner's words, and the images sent with them, answer that bubble, beside
+/// Answer: Enter sends and Shift with Enter starts a new line; what failed is said under it.
+function AnswerBox({ placeholder, ready, busy, text, setText, images, setImages, send, error, children = null }: {
   placeholder: string;
   ready: boolean;
   busy: boolean;
   text: string;
   setText: (text: string) => void;
+  images: PendingImage[];
+  setImages: Dispatch<SetStateAction<PendingImage[]>>;
   send: () => void;
   error: string | null;
   children?: ReactNode;
@@ -229,6 +243,8 @@ function AnswerBox({ placeholder, ready, busy, text, setText, send, error, child
           small
           text={text}
           set={setText}
+          images={images}
+          setImages={setImages}
           disabled={busy}
           placeholder={placeholder}
           label={placeholder}
@@ -250,24 +266,29 @@ function AnswerBox({ placeholder, ready, busy, text, setText, send, error, child
   );
 }
 
-/// What answering in a bubble needs: the words, whether they are being sent, what failed, and how to send them.
+/// What answering in a bubble needs: the words and the images that go with them, whether they are being sent, what
+/// failed, and how to send them, the images with the words.
 function useAnswer(): {
   text: string;
   setText: (text: string) => void;
+  images: PendingImage[];
+  setImages: Dispatch<SetStateAction<PendingImage[]>>;
   busy: boolean;
   error: string | null;
   post: (url: string, body: object) => void;
 } {
   const [text, setText] = useState('');
+  const [images, setImages] = useState<PendingImage[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const post = (url: string, body: object) => {
     setBusy(true);
     setError(null);
-    postJson(url, body).then(
+    postJson(url, { ...body, images: imagesSent(images) }).then(
       () => {
         setBusy(false);
         setText('');
+        setImages([]);
         reread('messages', 'architect', 'works', 'work:*');
       },
       (e: unknown) => {
@@ -276,7 +297,7 @@ function useAnswer(): {
       },
     );
   };
-  return { text, setText, busy, error, post };
+  return { text, setText, images, setImages, busy, error, post };
 }
 
 /// How an ask that waits is answered, in its bubble: the buttons of what it offers (the options of its choice), a click
@@ -287,8 +308,8 @@ function AskAnswer({ a }: { a: OwnerAsk }) {
   const way = answerWay(a);
   const [pick, setPick] = useState('');
   const [back, setBack] = useState(false);
-  const { text, setText, busy, error, post } = useAnswer();
-  const answer = askAnswer(pick, text, handsBack(a) && back);
+  const { text, setText, images, setImages, busy, error, post } = useAnswer();
+  const answer = askAnswer(pick, text, handsBack(a) && back, images.length > 0);
   const button = (value: string) => (
     <Button
       key={value}
@@ -309,6 +330,8 @@ function AskAnswer({ a }: { a: OwnerAsk }) {
         busy={busy}
         text={text}
         setText={setText}
+        images={images}
+        setImages={setImages}
         send={() => {
           if (answer !== null) post(`/api/v1/asks/${a.id}/answer`, answer);
         }}
@@ -329,17 +352,20 @@ function AskAnswer({ a }: { a: OwnerAsk }) {
 /// How a question of an engineer's that the architect holds is answered in the group, in its bubble: the small box of
 /// the owner's words and Answer; the answer is the reply, and the architect is told.
 function QuestionAnswer({ work, matter }: { work: number; matter: number }) {
-  const { text, setText, busy, error, post } = useAnswer();
+  const { text, setText, images, setImages, busy, error, post } = useAnswer();
+  const ready = saysSomething(text, images);
   return (
     <div className="talk-answer">
       <AnswerBox
         placeholder={t('conv_answer_words')}
-        ready={text.trim() !== ''}
+        ready={ready}
         busy={busy}
         text={text}
         setText={setText}
+        images={images}
+        setImages={setImages}
         send={() => {
-          if (text.trim() !== '') post(`/api/v1/works/${work}/say`, { text: text.trim(), question: matter });
+          if (ready) post(`/api/v1/works/${work}/say`, { text: text.trim(), question: matter });
         }}
         error={error}
       />
@@ -348,9 +374,15 @@ function QuestionAnswer({ work, matter }: { work: number; matter: number }) {
 }
 
 /// The owner's answer inside the bubble it answers, named as the owner's answer to it so that it is not read as other
-/// words of the owner's: what it answers and when, then the choice made and the words, in the look of what is sent to
-/// an agent.
-function AnswerIn({ head, at, choice = '', text }: { head: string; at: number | null; choice?: string; text: string }) {
+/// words of the owner's: what it answers and when, then the choice made, the words and the images sent with them, in
+/// the look of what is sent to an agent.
+function AnswerIn({ head, at, choice = '', text, images }: {
+  head: string;
+  at: number | null;
+  choice?: string;
+  text: string;
+  images: number[];
+}) {
   return (
     <div className="talk-answer">
       <div className="talk-bubble-head">
@@ -365,6 +397,7 @@ function AnswerIn({ head, at, choice = '', text }: { head: string; at: number | 
             </p>
           ) : null}
           {text !== '' ? <Markdown text={text} /> : null}
+          <Thumbs ids={images} />
         </div>
       </div>
     </div>
@@ -388,6 +421,7 @@ function AskAnswered({ a }: { a: OwnerAsk }) {
       at={typeof ans.at === 'number' ? ans.at : null}
       choice={str(ans.choice)}
       text={str(ans.text)}
+      images={a.answer_images}
     />
   );
 }
@@ -429,7 +463,9 @@ function Message({ e, to, reply }: { e: ConversationEntry; to: string | null; re
         <>
           {ask !== null ? ask.answer === null ? <AskAnswer a={ask} /> : <AskAnswered a={ask} /> : null}
           {question !== null ? <QuestionAnswer work={question.work} matter={question.matter} /> : null}
-          {reply !== null ? <AnswerIn head={t('conv_your_reply')} at={reply.at} text={reply.text} /> : null}
+          {reply !== null ? (
+            <AnswerIn head={t('conv_your_reply')} at={reply.at} text={reply.text} images={reply.images} />
+          ) : null}
         </>
       }
       under={own && e.words_state !== null ? <WordsLine w={e.words_state} /> : undefined}
@@ -616,13 +652,15 @@ function Pinned({ d }: { d: ConversationDetail }) {
   );
 }
 
-/// The one box at the bottom of a conversation: it says something, in a work's group to the engineer, the architect or
-/// both; in a group of projects to one architect or every one; in the one-to-one to the architect, as the owner's words
-/// it takes first. It never answers a bubble: an ask, and a question the architect holds, are answered in their
-/// bubbles. Closed, it says why: a work at its end no longer changes its way on.
+/// The one box at the bottom of a conversation: it says something, with the images added to it or images alone, in a
+/// work's group to the engineer, the architect or both; in a group of projects to one architect or every one; in the
+/// one-to-one to the architect, as the owner's words it takes first. It never answers a bubble: an ask, and a question
+/// the architect holds, are answered in their bubbles. Closed, it says why: a work at its end no longer changes its way
+/// on.
 export function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
   const choices = sayTo(c);
   const [text, setText] = useState('');
+  const [images, setImages] = useState<PendingImage[]>([]);
   const [ticked, setTicked] = useState<string[]>(choices.slice(0, 1));
   const sendTo = sayToTicked(c, ticked);
   const to = sendTo.length === 1 ? sendTo[0] : '';
@@ -630,10 +668,11 @@ export function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
   const [error, setError] = useState<string | null>(null);
   const closed = closedWhy(c, w);
   if (choices.length === 0) return null;
-  const ready = closed === null && text.trim() !== '' && sendTo.length > 0;
+  const ready = closed === null && saysSomething(text, images) && sendTo.length > 0;
   const done = () => {
     setBusy(false);
     setText('');
+    setImages([]);
     reread('messages', 'architect', 'works', 'work:*');
   };
   const failed = (e: unknown) => {
@@ -645,15 +684,21 @@ export function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
     setBusy(true);
     setError(null);
     const words = text.trim();
+    const sentImages = imagesSent(images);
     let sent: Promise<void>;
     if (c.kind === 'work') {
-      sent = postJson(`/api/v1/works/${c.work ?? 0}/say`, { text: words, to });
+      sent = postJson(`/api/v1/works/${c.work ?? 0}/say`, { text: words, to, images: sentImages });
     } else if (c.kind === 'projects') {
       sent = Promise.all(
-        sendTo.map((x) => postJson('/api/v1/projects/say', x === 'all' ? { key: c.key, text: words } : { key: c.key, text: words, to: x })),
+        sendTo.map((x) =>
+          postJson(
+            '/api/v1/projects/say',
+            x === 'all' ? { key: c.key, text: words, images: sentImages } : { key: c.key, text: words, to: x, images: sentImages },
+          ),
+        ),
       ).then(() => undefined);
     } else {
-      sent = postJson(forProject('/api/v1/architect/say', c.project), { text: words });
+      sent = postJson(forProject('/api/v1/architect/say', c.project), { text: words, images: sentImages });
     }
     sent.then(done, failed);
   };
@@ -676,6 +721,8 @@ export function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
         <SayBox
           text={text}
           set={setText}
+          images={images}
+          setImages={setImages}
           disabled={busy || closed !== null}
           placeholder={
             closed !== null

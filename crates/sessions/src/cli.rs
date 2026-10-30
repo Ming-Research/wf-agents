@@ -1,6 +1,8 @@
 //! The command line an agent's round runs in: how it starts (the context, permissions, tools, model and reasoning
 //! effort it is given), one run of it in the work's worktree from the message to the return, and what its stream
-//! reports. The flags the installation gives every agent's command line, such as the tools it offers, stay in the
+//! reports. Every round's message goes in one way: on the standard input as one user message of the stream-json input
+//! format, its text and then the images it gives, each after its address, so that the owner's images reach an agent
+//! in its message and no agent has to find a file or be let read one. The flags the installation gives every agent's command line, such as the tools it offers, stay in the
 //! configuration; the flags that shape a session's context belong here. It is a trait so that the engine's tests can
 //! script the agents; [`Claude`] runs `claude -p`.
 
@@ -27,8 +29,10 @@ pub struct Request {
     /// The CLI's session to resume; none for the line's first round, which starts `new_session`.
     pub resume: Option<String>,
     pub new_session: String,
-    /// The message, given on the CLI's standard input.
+    /// The message's text, given on the CLI's standard input ([`stdin`]).
     pub prompt: String,
+    /// The images the message gives after its text, each after its address; none for most rounds.
+    pub images: Vec<Image>,
     /// What the return must be, as JSON Schema; the engine checks the return against it.
     pub schema: Value,
     /// The schema the CLI is given, the same for every cell of the graph: [`envelope`].
@@ -51,6 +55,15 @@ pub struct Request {
     /// A call apart from an agent's round, such as the repair of a return whose JSON the command line could not parse:
     /// it is offered no tools and given no structured output, and what it answers is its text.
     pub bare: bool,
+}
+
+/// An image a round's message gives after its text: the owner's, sent with words the message gives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Image {
+    /// What names it in the message, written just before it: `image:12`.
+    pub address: String,
+    pub media_type: String,
+    pub bytes: Vec<u8>,
 }
 
 /// The variable that names to `claude` the configuration directory it runs with: its settings, its login and the
@@ -149,6 +162,10 @@ pub fn command_line(r: &Request) -> Vec<String> {
     out.extend(
         [
             "-p",
+            // The message comes on the standard input as one user message of the stream-json format, which carries
+            // images as well as text ([`stdin`]).
+            "--input-format",
+            "stream-json",
             "--output-format",
             "stream-json",
             "--verbose",
@@ -199,6 +216,34 @@ pub fn command_line(r: &Request) -> Vec<String> {
         Some(s) => out.extend(["--resume".to_string(), s.clone()]),
         None => out.extend(["--session-id".to_string(), r.new_session.clone()]),
     }
+    out
+}
+
+/// Whether a command line takes its message as the stream-json input format: every round's since rounds were sent so,
+/// and a keep-warm ping's that replays one of them.
+fn streams_input(line: &[String]) -> bool {
+    line.windows(2)
+        .any(|w| w[0] == "--input-format" && w[1] == "stream-json")
+}
+
+/// What a command line is given on its standard input: with the stream-json input format, one user message as a line
+/// of JSON, the message's text and then each image after a text block of its address; a command line from before rounds
+/// were sent so, as a keep-warm ping replays it, the text as it is.
+pub fn stdin(line: &[String], prompt: &str, images: &[Image]) -> Vec<u8> {
+    if !streams_input(line) {
+        return prompt.as_bytes().to_vec();
+    }
+    let mut content = vec![json!({ "type": "text", "text": prompt })];
+    for im in images {
+        content.push(json!({ "type": "text", "text": im.address }));
+        content.push(json!({
+            "type": "image",
+            "source": { "type": "base64", "media_type": im.media_type, "data": db::attachments::base64(&im.bytes) },
+        }));
+    }
+    let message = json!({ "type": "user", "message": { "role": "user", "content": content } });
+    let mut out = message.to_string().into_bytes();
+    out.push(b'\n');
     out
 }
 
@@ -307,8 +352,13 @@ pub fn home(data: &Path, cli: &config::Cli, name: &str) -> (PathBuf, Option<Stri
 pub struct Claude;
 
 impl Claude {
+    /// The command line a request runs: the one it replays, or the round's.
+    fn line(r: &Request) -> Vec<String> {
+        r.replay.clone().unwrap_or_else(|| command_line(r))
+    }
+
     fn command(r: &Request) -> Command {
-        let line = r.replay.clone().unwrap_or_else(|| command_line(r));
+        let line = Claude::line(r);
         let mut c = Command::new(&line[0]);
         c.args(&line[1..]);
         if let Some(d) = &r.config_dir {
@@ -352,8 +402,8 @@ impl Agents for Claude {
 }
 
 impl Claude {
-    /// One run of the CLI: the message on its standard input, its stream read line by line as it comes, each line
-    /// that says what the agent does told to `activity`.
+    /// One run of the CLI: the message on its standard input ([`stdin`]), its stream read line by line as it comes,
+    /// each line that says what the agent does told to `activity`.
     fn once(r: &Request, activity: &dyn Fn(&str)) -> Reply {
         let mut reply = Reply {
             session: r.resume.clone().unwrap_or_else(|| r.new_session.clone()),
@@ -371,12 +421,14 @@ impl Claude {
                 return reply;
             }
         };
-        // The standard input is closed once the message is written, so the CLI knows it has all of it.
-        if let Some(mut stdin) = child.stdin.take()
-            && let Err(e) = stdin.write_all(r.prompt.as_bytes())
-        {
-            reply.error = Some(format!("giving the prompt: {e}"));
-        }
+        // The message is written beside, as the standard error is read, so that a large one, images and all, and the
+        // stream never wait on each other; the standard input is closed once it is written, so the CLI knows it has all
+        // of it.
+        let message = stdin(&Claude::line(r), &r.prompt, &r.images);
+        let writer = child
+            .stdin
+            .take()
+            .map(|mut input| std::thread::spawn(move || input.write_all(&message)));
         // The standard error is read beside, so that neither pipe fills while the other is read.
         let stderr = child.stderr.take().map(|mut e| {
             std::thread::spawn(move || {
@@ -392,6 +444,9 @@ impl Claude {
                     activity(&what);
                 }
             }
+        }
+        if let Some(Err(e)) = writer.and_then(|t| t.join().ok()) {
+            reply.error = Some(format!("giving the message: {e}"));
         }
         let status = child.wait();
         let err = stderr.and_then(|t| t.join().ok()).unwrap_or_default();
@@ -1716,6 +1771,7 @@ mod tests {
             resume: Some("s1".into()),
             new_session: "s2".into(),
             prompt: "p".into(),
+            images: Vec::new(),
             schema: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
             envelope: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
             refused: config::Permissions::default().refused("engineer"),
@@ -1819,6 +1875,93 @@ mod tests {
         let cmd = Claude::command(&ping);
         assert_eq!(cmd.get_program(), "claude");
         assert_eq!(cmd.get_args().collect::<Vec<_>>(), ["-p", "--resume", "s1"]);
+    }
+
+    // Every round's message goes on the standard input one way: one user message of the stream-json input format, its
+    // text, then each image after a text block of its address, so that the owner's images reach the agent in the
+    // message; a round with no images gives its text alone. A keep-warm ping that replays a command line from before
+    // rounds were sent so gives its text as it is, and one that replays a newer command line, as stream-json.
+    #[test]
+    fn a_round_s_message_goes_on_the_standard_input_as_stream_json() {
+        let r = Request {
+            work: 1,
+            cell: "I1".into(),
+            line: "engineer".into(),
+            cli: config::Cli {
+                kind: config::CliKind::Claude,
+                command: "claude".into(),
+                args: Vec::new(),
+                config_dir: None,
+            },
+            model: "m".into(),
+            effort: None,
+            worktree: PathBuf::from("/w"),
+            config_dir: None,
+            resume: None,
+            new_session: "s1".into(),
+            prompt: "# R1-2 · cell I1\n\nFrom the owner: look.\n\nImages: image:12, image:13\n".into(),
+            images: vec![
+                Image {
+                    address: "image:12".into(),
+                    media_type: "image/png".into(),
+                    bytes: b"\x89PNG\r\n\x1a\n one".to_vec(),
+                },
+                Image {
+                    address: "image:13".into(),
+                    media_type: "image/jpeg".into(),
+                    bytes: b"\xff\xd8\xff two".to_vec(),
+                },
+            ],
+            schema: json!({}),
+            envelope: json!({}),
+            refused: Vec::new(),
+            readable: Vec::new(),
+            replay: None,
+            regive: None,
+            deliver: None,
+            bare: false,
+        };
+        let line = command_line(&r);
+        assert!(
+            line.windows(2).any(|w| w == ["--input-format", "stream-json"]),
+            "{line:?}"
+        );
+        assert!(
+            line.windows(2).any(|w| w == ["--output-format", "stream-json"]),
+            "{line:?}"
+        );
+        let given = stdin(&line, &r.prompt, &r.images);
+        assert_eq!(given.last(), Some(&b'\n'));
+        let text = String::from_utf8(given).unwrap();
+        assert_eq!(text.lines().count(), 1, "{text}");
+        let v: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            (v["type"].as_str(), v["message"]["role"].as_str()),
+            (Some("user"), Some("user"))
+        );
+        let content = v["message"]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 5, "{v}");
+        assert_eq!(content[0], json!({ "type": "text", "text": r.prompt }));
+        for (i, im) in r.images.iter().enumerate() {
+            assert_eq!(content[1 + 2 * i], json!({ "type": "text", "text": im.address }));
+            let block = &content[2 + 2 * i];
+            assert_eq!(block["type"], "image");
+            assert_eq!(block["source"]["type"], "base64");
+            assert_eq!(block["source"]["media_type"], json!(im.media_type));
+            let data = block["source"]["data"].as_str().unwrap();
+            assert_eq!(db::attachments::from_base64(data).unwrap(), im.bytes);
+        }
+        // A round with no images gives its text alone, in the same way.
+        let plain: Value = serde_json::from_slice(&stdin(&line, "p", &[])).unwrap();
+        assert_eq!(plain["message"]["content"], json!([{ "type": "text", "text": "p" }]));
+        // A keep-warm ping replays the last round's command line as it ran.
+        let before: Vec<String> = ["claude", "-p", "--output-format", "stream-json", "--resume", "s1"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(stdin(&before, "ping", &[]), b"ping");
+        let ping: Value = serde_json::from_slice(&stdin(&crate::warm::replayed(&line, "s1"), "ping", &[])).unwrap();
+        assert_eq!(ping["message"]["content"][0]["text"], "ping");
     }
 
     #[test]

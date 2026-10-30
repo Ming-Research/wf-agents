@@ -4,27 +4,52 @@
 //! architect, the setting that forwards each new one as it comes, and ending a talk with an architect. Each is written
 //! as the owner, so `changes` records it as theirs, and the engine reads it as it goes on; a start over is an action of
 //! the outbox, which the engine carries out and records as the owner's in the end it writes. What the owner says to the
-//! architect is `db::say_to_architect`.
+//! architect is `db::say_to_architect`. The owner's words and answers may carry images, kept with them in the same
+//! write, and may be images alone.
 
+use db::attachments::{self, Image, Words};
 use db::rusqlite::{Connection, OptionalExtension, params};
 use db::{Actor, Db, Matter, queue_matter};
 use serde_json::{Value, json};
 
-use crate::{Answer, ProjectsSaid, Ruling, WorkSaid};
+use crate::{Answer, ImageSent, ProjectsSaid, Ruling, WorkSaid};
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+/// The images the owner sent with words, as the page hands them in, taken as the database keeps them: each a PNG, JPEG,
+/// GIF or WebP image given as base64, of at most 5 MB, at most 10 to a message; refused otherwise, saying why.
+pub fn images(sent: &[ImageSent]) -> Result<Vec<Image>, String> {
+    let mut out = Vec::new();
+    for (i, s) in sent.iter().enumerate() {
+        let bytes =
+            attachments::from_base64(&s.data).ok_or_else(|| format!("image {} is not given as base64", i + 1))?;
+        out.push(Image {
+            media_type: s.media_type.clone(),
+            bytes,
+        });
+    }
+    attachments::check(&out)?;
+    Ok(out)
+}
+
+/// Whether words say nothing: no text and no image.
+fn says_nothing(text: &str, images: &[Image]) -> bool {
+    text.trim().is_empty() && images.is_empty()
+}
+
 /// Says something to a work's engineer as the owner: an interjection, handed to the engineer's round that runs after
 /// its next tool use, or at the top of its next round. The owner speaks to the engineer alone of a work's lines: its
 /// helpers (the advisor, the review, the adversarial testing) take nothing from the owner. A work at its end (`E1`) is
-/// told nothing more: its way on no longer changes. Gives the interjection.
-pub fn interject(db: &mut Db, work: i64, line: &str, text: &str) -> Result<i64, String> {
+/// told nothing more: its way on no longer changes. The images sent with the words are kept with them. Gives the
+/// interjection.
+pub fn interject(db: &mut Db, work: i64, line: &str, text: &str, images: &[Image]) -> Result<i64, String> {
     let text = text.trim();
-    if text.is_empty() {
+    if says_nothing(text, images) {
         return Err("what is said to a work says something".into());
     }
+    attachments::check(images)?;
     if line != "engineer" {
         return Err(format!(
             "the owner speaks to a work's engineer, not to its {line}: its helpers take nothing from the owner"
@@ -36,7 +61,9 @@ pub fn interject(db: &mut Db, work: i64, line: &str, text: &str) -> Result<i64, 
             "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, ?2, 'owner', ?3)",
             params![work, line, text],
         )?;
-        Ok(tx.last_insert_rowid())
+        let id = tx.last_insert_rowid();
+        attachments::attach(tx, Words::Interjection(id), images)?;
+        Ok(id)
     })
     .map_err(sql)
 }
@@ -72,14 +99,16 @@ const TOLD_TO_ARCHITECT: &str = "Said to the architect, for you to know";
 /// the engineer, as an interjection; to the architect, as the owner's words naming the work, which the engineer is
 /// given as a word that needs no answer; or to both, the engineer's interjection naming the architect's matter, so that
 /// the group shows the words once. What is said to the engineer alone the architect is given at its next pick. With a
-/// question named, the words answer that question of the engineer's, which the architect holds.
+/// question named, the words answer that question of the engineer's, which the architect holds. The images sent with
+/// the words go with them: an interjection's own, or the matter's that holds them, which the engineer told is given too.
 pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, String> {
+    let images = images(&said.images)?;
     if let Some(m) = said.question {
-        return answer_question(db, work, m, &said.text);
+        return answer_question(db, work, m, &said.text, &images);
     }
     let to = said.to.as_deref().unwrap_or("engineer");
     if to == "engineer" {
-        let id = interject(db, work, to, &said.text)?;
+        let id = interject(db, work, to, &said.text, &images)?;
         return Ok(format!("interjection {id} goes to the engineer of work {work}"));
     }
     if to != "architect" && to != "both" {
@@ -88,7 +117,7 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
         ));
     }
     let text = said.text.trim();
-    if text.is_empty() {
+    if says_nothing(text, &images) {
         return Err("what is said to a work says something".into());
     }
     live(db, work)?;
@@ -97,19 +126,20 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
         project: project.clone(),
         kind: "owner_words".into(),
         detail: Some("said".into()),
-        what: format!("The owner says: {}", db::one_sentence(text)),
+        what: attachments::owner_says(text, images.len()),
         body: json!({ "text": text, "where": "work", "work": work }),
         item,
         ..Matter::default()
     };
-    let (copy, informs) = if to == "both" {
-        (text.to_string(), 0)
-    } else {
-        (format!("{TOLD_TO_ARCHITECT}: {text}"), 1)
+    let (copy, informs) = match (to, text.is_empty()) {
+        ("both", _) => (text.to_string(), 0),
+        (_, true) => (TOLD_TO_ARCHITECT.to_string(), 1),
+        (_, false) => (format!("{TOLD_TO_ARCHITECT}: {text}"), 1),
     };
     let id = db
         .write(Actor::Owner, |tx| {
             let matter = queue_matter(tx, &m)?;
+            attachments::attach(tx, Words::Matter(matter), &images)?;
             tx.execute(
                 "INSERT INTO interjections (work, line, speaker, text, informs, matter)
                  VALUES (?1, 'engineer', 'owner', ?2, ?3, ?4)",
@@ -126,10 +156,12 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
 
 /// What the owner says in a group of the architects of projects the configuration connects (`projects`, the group's,
 /// in order): to the architect named, or to every one; each comes to its queue as the owner's words naming the group,
-/// the projects it was said to listed in each, so that the group shows the words once.
+/// the projects it was said to listed in each, so that the group shows the words once; each holds the images sent with
+/// them too, as its architect is given them with the words.
 pub fn say_to_projects(db: &mut Db, projects: &[String], said: &ProjectsSaid) -> Result<String, String> {
+    let images = images(&said.images)?;
     let text = said.text.trim();
-    if text.is_empty() {
+    if says_nothing(text, &images) {
         return Err("what is said to the architects says something".into());
     }
     let to: Vec<String> = match said.to.as_deref() {
@@ -145,11 +177,13 @@ pub fn say_to_projects(db: &mut Db, projects: &[String], said: &ProjectsSaid) ->
                     project: p.clone(),
                     kind: "owner_words".into(),
                     detail: Some("said".into()),
-                    what: format!("The owner says: {}", db::one_sentence(text)),
+                    what: attachments::owner_says(text, images.len()),
                     body: json!({ "text": text, "where": "projects", "group": said.key, "to": to }),
                     ..Matter::default()
                 };
-                ids.push(queue_matter(tx, &m)?);
+                let id = queue_matter(tx, &m)?;
+                attachments::attach(tx, Words::Matter(id), &images)?;
+                ids.push(id);
             }
             Ok(ids)
         })
@@ -184,10 +218,11 @@ fn item_of(db: &Db, work: i64) -> Result<(Option<i64>, String), String> {
 /// The owner's answer, in a work's group, to a question of its engineer's that an architect holds: the answer becomes
 /// the reply of the architect's matter, said by the owner, which the work takes as it takes an architect's reply, and
 /// the matter leaves the architect's queue, saying so; the architect is told what the owner answered at its next pick.
-/// A question the architect is handling now, or that is not open, is refused.
-fn answer_question(db: &mut Db, work: i64, matter: i64, text: &str) -> Result<String, String> {
+/// A question the architect is handling now, or that is not open, is refused. The images sent with the answer are the
+/// matter's.
+fn answer_question(db: &mut Db, work: i64, matter: i64, text: &str, images: &[Image]) -> Result<String, String> {
     let text = text.trim();
-    if text.is_empty() {
+    if says_nothing(text, images) {
         return Err("an answer says something".into());
     }
     let open: Option<(i64, Option<String>)> = db
@@ -241,6 +276,7 @@ fn answer_question(db: &mut Db, work: i64, matter: i64, text: &str) -> Result<St
                 format!("the owner answered it in the group of work {work}")
             ],
         )?;
+        attachments::attach(tx, Words::Matter(matter), images)?;
         Ok(())
     })
     .map_err(sql)?;
@@ -253,12 +289,14 @@ fn answer_question(db: &mut Db, work: i64, matter: i64, text: &str) -> Result<St
 /// the question ticked, answer it, and its matter comes back to the architect's queue with them, first, to the cell
 /// that asked. A question whose matter is gone (handled, or withdrawn as its item was cancelled or its work taken over)
 /// is no longer pinned: the reply then comes to the architect's queue as the owner's words, with the question, and the
-/// architect tells the owner. Refused for a question of no architect of the project, or one replied to already.
-pub fn reply_to_question(db: &mut Db, project: &str, ask: i64, text: &str) -> Result<String, String> {
+/// architect tells the owner. Refused for a question of no architect of the project, or one replied to already. The
+/// images sent with the reply are kept with the answer, and go with it either way.
+pub fn reply_to_question(db: &mut Db, project: &str, ask: i64, text: &str, images: &[Image]) -> Result<String, String> {
     let text = text.trim();
-    if text.is_empty() {
+    if says_nothing(text, images) {
         return Err("a reply says something".into());
     }
+    attachments::check(images)?;
     let asked: Option<(String, Option<String>, String, Option<String>)> = db
         .conn()
         .query_row(
@@ -294,13 +332,14 @@ pub fn reply_to_question(db: &mut Db, project: &str, ask: i64, text: &str) -> Re
             "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
             params![ask, answer.to_string()],
         )?;
+        attachments::attach(tx, Words::Ask(ask), images)?;
         if parked.is_none() {
             let question = body["question"].clone();
             let m = Matter {
                 project: project.to_string(),
                 kind: "owner_words".into(),
                 detail: Some("answer".into()),
-                what: format!("The owner replied to question {ask}: {}", db::one_sentence(text)),
+                what: replied(&format!("The owner replied to question {ask}"), text, images.len()),
                 body: json!({ "text": text, "where": "page", "question": question, "owner_ask": ask,
                               "gone": "the matter the question parked is closed" }),
                 ..Matter::default()
@@ -318,6 +357,16 @@ pub fn reply_to_question(db: &mut Db, project: &str, ask: i64, text: &str) -> Re
     })
 }
 
+/// What an answer of the owner's says of itself as a matter: who answered what, then the answer's first sentence, or
+/// how many images it sent alone.
+fn replied(lead: &str, text: &str, images: usize) -> String {
+    match (text.trim().is_empty(), images) {
+        (false, _) => format!("{lead}: {}", db::one_sentence(text)),
+        (true, 1) => format!("{lead} with an image"),
+        (true, n) => format!("{lead} with {n} images"),
+    }
+}
+
 /// The matters an ask of an architect holds, by their numbers: those it was put about, which come back to their
 /// architect's queue once it is answered.
 fn holds_of(body: &Value) -> Vec<i64> {
@@ -330,8 +379,8 @@ fn holds_of(body: &Value) -> Vec<i64> {
 /// Answers an ask an architect put, by its kind: an answer to what the architect asked, which brings back the matters
 /// the ask holds, each to the cell that asked about it, or, for an ask that held neither a matter nor a work of the
 /// architect, comes to the architect's queue as the owner's words. An ask of the changes an earlier architect collected
-/// for approval is closed: item changes are reviewed now.
-fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer) -> Result<String, String> {
+/// for approval is closed: item changes are reviewed now. The images sent with the answer are kept with it.
+fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[Image]) -> Result<String, String> {
     let at = db::now();
     let text = a.text.trim();
     let kind = body["kind"].as_str().unwrap_or_default();
@@ -343,7 +392,7 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer) -> Result<S
             ));
         }
         _ => {
-            if text.is_empty() {
+            if says_nothing(text, images) {
                 return Err("an answer says something".into());
             }
             let answer = json!({ "by": "owner", "at": at, "text": text });
@@ -360,6 +409,7 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer) -> Result<S
                     "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
                     params![ask, answer.to_string()],
                 )?;
+                attachments::attach(tx, Words::Ask(ask), images)?;
                 if open {
                     let project = match body["project"].as_str() {
                         Some(p) => Some(p.to_string()),
@@ -372,7 +422,7 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer) -> Result<S
                             project,
                             kind: "owner_words".into(),
                             detail: Some("answer".into()),
-                            what: format!("The owner answered ask {ask}: {}", db::one_sentence(text)),
+                            what: replied(&format!("The owner answered ask {ask}"), text, images.len()),
                             body: json!({ "ask": asked, "answer": text, "owner_ask": ask }),
                             ..Matter::default()
                         };
@@ -404,10 +454,11 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
         return Err(format!("ask {ask} is answered already"));
     }
     let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+    let images = images(&a.images)?;
     if body["from"] == "architect" {
-        return architect_answer(db, ask, &body, a);
+        return architect_answer(db, ask, &body, a, &images);
     }
-    if a.text.trim().is_empty() {
+    if says_nothing(&a.text, &images) {
         return Err("an answer says something".into());
     }
     let mut answer = json!({ "by": "owner", "at": db::now(), "text": a.text });
@@ -432,6 +483,7 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
             "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
             params![ask, answer.to_string()],
         )?;
+        attachments::attach(tx, Words::Ask(ask), &images)?;
         Ok(())
     })
     .map_err(sql)?;
@@ -811,6 +863,75 @@ mod tests {
         db
     }
 
+    /// An image the owner sends, as the page hands it in.
+    fn png() -> ImageSent {
+        ImageSent {
+            media_type: "image/png".into(),
+            data: db::attachments::base64(b"\x89PNG\r\n\x1a\n"),
+        }
+    }
+
+    /// The ids of the images kept with words.
+    fn kept(db: &Db, words: Words) -> usize {
+        attachments::of(db.conn(), words).unwrap().len()
+    }
+
+    // The images the owner sends are kept with the words they came with, in the write that keeps them: an
+    // interjection's own; the matter's that holds words said to the architect or to both, which the engineer is told
+    // too; and an answer's, to an ask. Words may be images alone, and a matter of images alone says how many; what
+    // the owner may not send is refused, and nothing is kept.
+    #[test]
+    fn the_owner_s_images_are_kept_with_the_words() {
+        let mut db = setup();
+        let said = |to: &str, text: &str, images: Vec<ImageSent>| WorkSaid {
+            text: text.into(),
+            to: Some(to.into()),
+            question: None,
+            images,
+        };
+        say_to_work(&mut db, 1, &said("engineer", "", vec![png(), png()])).unwrap();
+        assert_eq!(kept(&db, Words::Interjection(1)), 2);
+        say_to_work(&mut db, 1, &said("both", "See.", vec![png()])).unwrap();
+        let (matter, what): (i64, String) = db
+            .conn()
+            .query_row("SELECT id, what FROM architect_matters", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(what, "The owner says, with an image: See.");
+        assert_eq!(kept(&db, Words::Matter(matter)), 1);
+        assert_eq!(attachments::of_interjection(db.conn(), 2).unwrap().len(), 1);
+        say_to_work(&mut db, 1, &said("architect", " ", vec![png(), png()])).unwrap();
+        let what: String = db
+            .conn()
+            .query_row("SELECT what FROM architect_matters ORDER BY id DESC LIMIT 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(what, "The owner sends 2 images");
+        assert!(say_to_work(&mut db, 1, &said("engineer", " ", Vec::new())).is_err());
+        let pdf = ImageSent {
+            media_type: "application/pdf".into(),
+            data: db::attachments::base64(b"%PDF"),
+        };
+        assert!(say_to_work(&mut db, 1, &said("both", "No.", vec![pdf])).is_err());
+        assert!(say_to_work(&mut db, 1, &said("engineer", "No.", vec![png(); 11])).is_err());
+        let interjections: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM interjections", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(interjections, 3);
+        let a = Answer {
+            text: String::new(),
+            why: None,
+            reply: None,
+            to: None,
+            images: vec![png()],
+        };
+        answer(&mut db, 1, &a).unwrap();
+        assert_eq!(kept(&db, Words::Ask(1)), 1);
+    }
+
     // The owner answers in a work's group a question of its engineer's that the architect holds: the answer is the
     // matter's reply, said by the owner, and the matter leaves the queue; a question no architect holds, one of another
     // work, and one a work of the architect has in hand are refused.
@@ -837,6 +958,7 @@ mod tests {
             text: text.into(),
             to: None,
             question: Some(question),
+            images: Vec::new(),
         };
         assert!(say_to_work(&mut db, 1, &said(2, "No.")).is_err());
         assert!(say_to_work(&mut db, 2, &said(1, "No.")).is_err());
@@ -993,6 +1115,7 @@ mod tests {
             why: None,
             reply: None,
             to: None,
+            images: Vec::new(),
         };
         assert_eq!(answer(&mut db, 1, &a).unwrap(), "ask 1 answered");
         let got: String = db
@@ -1180,6 +1303,7 @@ mod tests {
             why: None,
             reply: None,
             to: None,
+            images: Vec::new(),
         }
     }
 

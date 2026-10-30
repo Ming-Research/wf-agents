@@ -315,22 +315,114 @@
   gap: var(--base-size-8);
 }
 
+/* The box the owner writes in, beside the button that sends: the images waiting to go with the words over them, what
+   the box refused, then the button that adds images and the words, on the button's bottom line. */
+.say-box {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: var(--base-size-8);
+}
+
+.say-box-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--base-size-8);
+}
+
 /* The words the owner writes beside the button that sends them: one line at rest, as tall as the button beside it,
    its line the control's between the control's padding less the box's border; growing with what is written, the page
    setting its height, to twelve lines, past which they scroll. */
-.say-box > textarea[data-component='Textarea'] {
+.say-box-words {
+  flex: 1;
+  min-width: 0;
+}
+
+.say-box-words > textarea[data-component='Textarea'] {
   padding-block: calc(var(--control-medium-paddingBlock) - var(--borderWidth-thin));
   line-height: inherit;
   max-height: calc(12 * var(--base-size-20) + 2 * var(--control-medium-paddingBlock));
   overflow-y: auto;
 }
 
-.say-box.say-box-small {
+.say-box-words.say-box-words-small {
   min-height: var(--control-small-size);
 }
 
-.say-box-small > textarea[data-component='Textarea'] {
+.say-box-words-small > textarea[data-component='Textarea'] {
   padding-block: calc(var(--control-small-paddingBlock) - var(--borderWidth-thin));
+}
+
+/* The images waiting to go with the words: a thumbnail each, its corner holding the button that takes it out, then how
+   many against the 10 a message carries. */
+.say-images {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-12);
+}
+
+.say-image {
+  position: relative;
+  display: inline-flex;
+}
+
+.say-image > img {
+  width: var(--base-size-48);
+  height: var(--base-size-48);
+  object-fit: cover;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-muted);
+}
+
+/* The button that takes an image out floats over its thumbnail's corner, on the surface of what floats. */
+.say-image > .say-image-remove {
+  position: absolute;
+  top: calc(-1 * var(--base-size-8));
+  right: calc(-1 * var(--base-size-8));
+  background: var(--overlay-bgColor);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-full);
+  box-shadow: var(--shadow-floating-small);
+}
+
+.say-images-count {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+/* What the box refused, said under the images. */
+.say-refused {
+  margin: 0;
+  color: var(--fgColor-danger);
+  font-size: var(--text-body-size-small);
+}
+
+/* The images the owner sent, as thumbnails in a row that wraps: each as tall as the room for it and no wider than four
+   times that, a click opening it at full size. */
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-8);
+  margin-top: var(--base-size-8);
+}
+
+.thumbs:first-child {
+  margin-top: 0;
+}
+
+.thumb {
+  display: inline-flex;
+}
+
+.thumb > img {
+  height: var(--base-size-96);
+  max-width: calc(4 * var(--base-size-96));
+  object-fit: contain;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-default);
 }
 
 /* Label and value pairs: the name muted and never bold, the value in the text's colour. */

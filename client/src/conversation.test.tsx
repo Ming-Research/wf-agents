@@ -26,7 +26,10 @@ import type {
 import { architectMark } from './architect';
 import { StateMark } from './components';
 import { awayOf, streamOf } from './conversation';
+import { admit, IMAGE_MOST_BYTES, imagesSent, pastedFiles, type PendingImage, saysSomething } from './images';
 import { Composer, Stream, workMark } from './pages/Messages';
+import { SayBox } from './parts';
+import { t } from './text';
 
 const ask = (id: number, body: JsonValue, answer: JsonValue | null = null): OwnerAsk => ({
   id,
@@ -36,6 +39,7 @@ const ask = (id: number, body: JsonValue, answer: JsonValue | null = null): Owne
   body,
   kinds: [],
   answer,
+  answer_images: [],
   asked_at: 0,
 });
 
@@ -65,6 +69,7 @@ const entry = (source: string, extra: Partial<ConversationEntry> = {}): Conversa
   policy: null,
   observation: null,
   forwards: [],
+  images: [],
   ...extra,
 });
 
@@ -128,14 +133,21 @@ function bubble(r: string): { inside: string; after: string } {
   return { inside: r.slice(start), after: '' };
 }
 
-/// The buttons drawn, each as its words and whether it is pressed and disabled.
+/// The buttons drawn, each as its words, or a button drawn as an icon as its label (the tooltip that labels it, or its
+/// own while disabled) in brackets, and whether it is pressed and disabled.
 const buttons = (html: string): string[] =>
   [...html.matchAll(/<button\b([^>]*)>((?:(?!<\/button>).)*)<\/button>/g)].map((m) => {
-    const words = m[2].replace(/<[^>]+>/g, '');
+    const by = /aria-labelledby="([^"]*)"/.exec(m[1]);
+    const label = by !== null ? new RegExp(`id="${by[1]}">([^<]*)<`).exec(html) : /aria-label="([^"]*)"/.exec(m[1]);
+    const text = m[2].replace(/<[^>]+>/g, '');
+    const words = text !== '' || label === null ? text : `[${label[1]}]`;
     const pressed = /aria-pressed="true"/.test(m[1]) ? ' (picked)' : '';
     const disabled = /\bdisabled=""/.test(m[1]) ? ' (disabled)' : '';
     return `${words}${pressed}${disabled}`;
   });
+
+/// The button beside every box of the owner's words that adds images, as `buttons` names it.
+const ADD = `[${t('say_add_images')}]`;
 
 const choice = {
   asked: [
@@ -177,7 +189,7 @@ describe('an ask in its conversation', () => {
     const { inside, after } = bubble(row(drawn(detail([asked(ask(4, choice))])), 'data-ask="4"'));
     expect(after).toMatch(/^(<\/div>)+$/);
     const answer = inside.slice(inside.indexOf('class="talk-answer"'));
-    expect(buttons(answer)).toEqual(['One table', 'Two tables', 'Answer (disabled)']);
+    expect(buttons(answer)).toEqual(['One table', 'Two tables', ADD, 'Answer (disabled)']);
     expect(answer).toContain('<textarea');
     expect(answer).toContain('placeholder="Your answer"');
     // The ask's card in the bubble only reads: its option boxes are not picked, and it says nothing of where to answer.
@@ -188,7 +200,7 @@ describe('an ask in its conversation', () => {
   it('has only the small box for an ask in words alone', () => {
     const plain = bubble(row(drawn(detail([asked(ask(6, words))])), 'data-ask="6"')).inside;
     expect(plain).not.toContain('talk-answer-buttons');
-    expect(buttons(plain.slice(plain.indexOf('class="talk-answer"')))).toEqual(['Answer (disabled)']);
+    expect(buttons(plain.slice(plain.indexOf('class="talk-answer"')))).toEqual([ADD, 'Answer (disabled)']);
   });
 
   it('once answered is one entry, one bubble, the owner’s answer in it', () => {
@@ -220,7 +232,7 @@ describe('a question the architect holds', () => {
   it('is answered in its bubble, and the owner’s answer is then in it, not an entry of its own', () => {
     const q = entry('question', { id: 8, matter: 8, recipient: 'architect', answerable: true, text: 'Split it?' });
     const open = bubble(row(drawn(detail([q])), 'Split it?')).inside;
-    expect(buttons(open.slice(open.indexOf('class="talk-answer"')))).toEqual(['Answer (disabled)']);
+    expect(buttons(open.slice(open.indexOf('class="talk-answer"')))).toEqual([ADD, 'Answer (disabled)']);
     const answered = { ...q, answerable: false };
     const reply = entry('reply', { id: 8, matter: 8, sender: 'owner', recipient: 'engineer', text: 'Split it in two.', at: 4 });
     const theirs = entry('reply', { id: 9, matter: 9, sender: 'architect', recipient: 'engineer', text: 'Keep it.', at: 5 });
@@ -262,6 +274,8 @@ describe('answering an ask', () => {
     expect(askAnswer('One table', '', false)).toEqual({ text: 'Chosen option: One table.' });
     expect(askAnswer('', 'Neither.', true)).toEqual({ text: 'Neither.', to: 'architect' });
     expect(askAnswer('', ' ', false)).toBeNull();
+    // Images may answer alone.
+    expect(askAnswer('', ' ', false, true)).toEqual({ text: '' });
   });
 
   it('sends on Enter, and not on Shift with Enter or an Enter that ends a word of an input method', () => {
@@ -399,6 +413,89 @@ describe('the box of the one-to-one with an architect', () => {
     expect(box).toContain('<textarea');
     expect(box).not.toContain('Done');
     expect(box).not.toContain('waits for your reply');
+  });
+});
+
+/// An image waiting in a box, as the box keeps it once read.
+const pending = (n: number): PendingImage => ({
+  key: `image-${n}`,
+  name: `shot-${n}.png`,
+  media_type: 'image/png',
+  size: 1024,
+  data_url: `data:image/png;base64,iVBOR${n}`,
+});
+
+/// A box of the owner's words drawn with images waiting in it.
+const boxWith = (images: PendingImage[], text = '') =>
+  renderToStaticMarkup(
+    <SayBox text={text} set={() => {}} images={images} setImages={() => {}} placeholder="Say" disabled={false} onKeyDown={() => {}} />,
+  );
+
+describe('the images the owner sends with words', () => {
+  it('wait over the words, each a thumbnail with a button that takes it out, with how many against the ten', () => {
+    const html = boxWith([pending(1), pending(2)]);
+    expect(html.indexOf('class="say-images"')).toBeLessThan(html.indexOf('<textarea'));
+    expect(html.match(/<img /g)).toHaveLength(2);
+    expect(html).toContain('src="data:image/png;base64,iVBOR1"');
+    expect(buttons(html)).toEqual([
+      `[${t('say_image_remove', { name: 'shot-1.png' })}]`,
+      `[${t('say_image_remove', { name: 'shot-2.png' })}]`,
+      ADD,
+    ]);
+    expect(html).toContain('>2 of 10<');
+    // With none waiting there is no room for them; with ten, no more can be added.
+    expect(boxWith([])).not.toContain('say-images');
+    const full = boxWith(Array.from({ length: 10 }, (_, i) => pending(i)));
+    expect(buttons(full)).toContain(`${ADD} (disabled)`);
+    expect(full).toContain('>10 of 10<');
+  });
+
+  it('are taken only as PNG, JPEG, GIF or WebP images of at most 5 MB, at most ten to a message, saying why not', () => {
+    const file = (name: string, type: string, size = 10) => ({ name, type, size });
+    const { take, refused } = admit(8, [
+      file('a.png', 'image/png'),
+      file('b.pdf', 'application/pdf'),
+      file('c.jpg', 'image/jpeg', IMAGE_MOST_BYTES + 1),
+      file('d.webp', 'image/webp'),
+      file('e.gif', 'image/gif'),
+    ]);
+    expect(take.map((f) => f.name)).toEqual(['a.png', 'd.webp']);
+    expect(refused).toEqual([
+      t('image_refused_kind', { name: 'b.pdf' }),
+      t('image_refused_size', { name: 'c.jpg', size: '5.0' }),
+      t('image_refused_most', { name: 'e.gif', most: 10 }),
+    ]);
+    expect(admit(0, [file('', 'image/png', IMAGE_MOST_BYTES)]).take).toHaveLength(1);
+    expect(admit(0, [file('', 'text/plain')]).refused).toEqual([t('image_refused_kind', { name: t('image_pasted') })]);
+  });
+
+  it('are added by a paste that carries no text, and text pasted still pastes as text', () => {
+    expect(pastedFiles(['Files'], ['shot'])).toEqual(['shot']);
+    expect(pastedFiles(['text/html', 'Files'], ['shot'])).toEqual(['shot']);
+    expect(pastedFiles(['text/plain', 'text/html', 'Files'], ['rendition'])).toEqual([]);
+    expect(pastedFiles(['text/plain'], [])).toEqual([]);
+  });
+
+  it('go with the words as one message, or alone', () => {
+    expect(imagesSent([pending(1), pending(2)])).toEqual([
+      { media_type: 'image/png', data: 'iVBOR1' },
+      { media_type: 'image/png', data: 'iVBOR2' },
+    ]);
+    expect(saysSomething(' ', [])).toBe(false);
+    expect(saysSomething(' ', [pending(1)])).toBe(true);
+    expect(saysSomething('Look.', [])).toBe(true);
+  });
+
+  it('show under the owner’s words as thumbnails, each opening at full size', () => {
+    const said = entry('interjection', { id: 3, sender: 'owner', text: 'Look at these.', images: [12, 13] });
+    const r = row(drawn(detail([said])), 'Look at these.');
+    expect(r).toContain('href="/api/v1/attachments/12" target="_blank"');
+    expect(r).toContain('src="/api/v1/attachments/13"');
+    expect(r.indexOf('Look at these.')).toBeLessThan(r.indexOf('class="thumbs"'));
+    // The owner's answer to an ask shows the images sent with it.
+    const a = ask(7, words, { by: 'owner', at: 9, text: '' });
+    const html = drawn(detail([asked({ ...a, answer_images: [21] })]));
+    expect(bubble(row(html, 'data-ask="7"')).inside).toContain('src="/api/v1/attachments/21"');
   });
 });
 

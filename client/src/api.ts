@@ -377,6 +377,10 @@ kinds: Array<AskKind>,
  */
 answer: JsonValue | null, 
 /**
+ * The images the owner sent with the answer, by their ids, in order.
+ */
+answer_images: Array<number>, 
+/**
  * When the owner was told of it, from which it waits: the engine's notice of it, or else the start of the round
  * that put it.
  */
@@ -557,6 +561,11 @@ misses: Misses | null,
  */
 forwards: Array<Forwarded>, 
 /**
+ * The images the owner sent with the owner's words it holds, by their ids, in order; each is read at
+ * `/api/v1/attachments/<id>`. Empty for anything else.
+ */
+images: Array<number>, 
+/**
  * For an ask: the ask in full.
  */
 ask_detail: OwnerAsk | null, 
@@ -733,7 +742,11 @@ to?: string,
 /**
  * The architect's matter that holds the question the words answer.
  */
-question?: number, };
+question?: number, 
+/**
+ * The images sent with the words, in the order the owner added them; words may be images alone.
+ */
+images: Array<ImageSent>, };
 
 /**
  * What the owner says in a group of projects: to one of their architects, or to every one.
@@ -746,7 +759,43 @@ key: string, text: string,
 /**
  * The project whose architect it is for; none for every architect of the group.
  */
-to?: string, };
+to?: string, 
+/**
+ * The images sent with the words, in the order the owner added them; words may be images alone.
+ */
+images: Array<ImageSent>, };
+
+/**
+ * What the owner says to a project's architect in their one-to-one: the words, the images sent with them, and the
+ * question pinned there that they reply to, when the owner ticked one.
+ */
+export type ArchitectSaid = { text: string, 
+/**
+ * The item it is about, if any.
+ */
+item?: number, 
+/**
+ * The question pinned in the one-to-one that the words reply to.
+ */
+reply_to?: number, 
+/**
+ * The images sent with the words, in the order the owner added them; words may be images alone.
+ */
+images: Array<ImageSent>, };
+
+/**
+ * An image the owner sends with words, as the page hands it in: a PNG, JPEG, GIF or WebP image of at most 5 MB, at
+ * most 10 to a message.
+ */
+export type ImageSent = { 
+/**
+ * image/png, image/jpeg, image/gif or image/webp.
+ */
+media_type: string, 
+/**
+ * Its bytes, as base64.
+ */
+data: string, };
 
 /**
  * How far the owner has read a conversation: the time of the latest entry the page showed.
@@ -786,7 +835,11 @@ reply?: JsonValue,
  * For an ask that holds an engineer's work: `architect` to hand the question back to the project's architect with
  * the answer as a decision for it to carry out, instead of resolving it.
  */
-to?: string, };
+to?: string, 
+/**
+ * The images sent with the answer, in the order the owner added them.
+ */
+images: Array<ImageSent>, };
 
 /**
  * The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
@@ -933,6 +986,23 @@ hash: string,
 given: boolean, };
 
 /**
+ * An image the owner sent that an agent round's message named.
+ */
+export type RoundImage = { 
+/**
+ * The image, by its id; it is read at `/api/v1/attachments/<id>`.
+ */
+attachment: number, 
+/**
+ * The address of what the message gave that named it: the owner's words it came with, or what holds them.
+ */
+with: string, 
+/**
+ * Given after the message's text; otherwise the session held it, and the message only referred to it.
+ */
+given: boolean, };
+
+/**
  * A file a tool run kept, or that its result points to, under the data directory.
  */
 export type KeptFile = { 
@@ -972,6 +1042,11 @@ message: string | null,
  * before.
  */
 conditional: Array<RoundConditional>, 
+/**
+ * The images the owner sent that the message named, in the order named: those given after its text, and those
+ * its session held, which it only referred to.
+ */
+images: Array<RoundImage>, 
 /**
  * How the command line was called: the whole command line, the session started or resumed, the engine's and
  * the command line's versions; none for a round no agent ran, or one recorded before.

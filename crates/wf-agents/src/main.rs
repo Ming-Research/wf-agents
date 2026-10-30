@@ -593,7 +593,7 @@ fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
     let mut e = engine::Engine::reading(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
     let m = engine::next_message(&mut e, work)?;
     if json {
-        let v = serde_json::json!({ "message": m.text, "conditional": m.record() });
+        let v = serde_json::json!({ "message": m.text, "conditional": m.record(), "images": m.record_images() });
         println!("{v}");
     } else {
         print!("{}", m.text);

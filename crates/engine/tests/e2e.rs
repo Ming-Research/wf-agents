@@ -1574,6 +1574,7 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
         why: None,
         reply: None,
         to: None,
+        images: Vec::new(),
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();
     let first = e.step(None).unwrap();
@@ -3148,6 +3149,7 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
         why: None,
         reply: None,
         to: None,
+        images: Vec::new(),
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();
     let ruling = api::Ruling {
@@ -3443,7 +3445,7 @@ fn an_item(e: &mut Engine) -> i64 {
 
 /// The owner says something to project p's architect in their one-to-one.
 fn say(e: &mut Engine, text: &str) {
-    db::say_to_architect(&mut e.db, "p", None, None, text).unwrap();
+    db::say_to_architect(&mut e.db, "p", None, None, text, &[]).unwrap();
 }
 
 // The owner's words start a work of project p's architect, which goes once through the whole graph: it starts, finds
@@ -3489,7 +3491,7 @@ fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
-    db::say_to_architect(&mut e.db, "p", None, None, "Make the parser's item clearer.").unwrap();
+    db::say_to_architect(&mut e.db, "p", None, None, "Make the parser's item clearer.", &[]).unwrap();
     let started = e.step(None).unwrap();
     let log = said.borrow().join("\n");
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
@@ -3971,8 +3973,8 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     );
     // The owner replies with the question ticked: the matter is back, an architect work starts, and the matter goes
     // back to the cell that asked.
-    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.").unwrap();
-    assert!(api::reply_to_question(&mut e.db, "p", ask, "Again.").is_err());
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[]).unwrap();
+    assert!(api::reply_to_question(&mut e.db, "p", ask, "Again.", &[]).is_err());
     let again = e.step(None).unwrap().work.unwrap();
     assert_ne!(again, arch);
     assert!(
@@ -4053,6 +4055,7 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
         why: None,
         reply: None,
         to: None,
+        images: Vec::new(),
     };
     api::answer(&mut e.db, ask, &yes).unwrap();
     let again = e.step(None).unwrap().work.unwrap();
@@ -4142,7 +4145,7 @@ fn a_question_just_put_waits_at_the_queue_for_the_owner_s_reply() {
         ]
     );
     let ask = parked_by(&e, held);
-    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.").unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[]).unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
@@ -4237,7 +4240,7 @@ fn the_owner_s_words_end_the_wait_and_a_reply_to_a_closed_question_is_the_owner_
     })
     .unwrap();
     assert_eq!(pending(&e), 0);
-    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.").unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[]).unwrap();
     let words: (String, String) =
         e.db.conn()
             .query_row(
@@ -4379,7 +4382,7 @@ fn a_new_session_queues_the_check_and_the_plan_and_takes_them_after_the_wait() {
             ("make_plan".to_string(), false, vec![("U1".to_string(), understood)])
         ]
     );
-    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.").unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[]).unwrap();
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
         "{}",
@@ -4463,7 +4466,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
         said.borrow().join("\n")
     );
     let (research, _) = question_now(&e);
-    api::reply_to_question(&mut e.db, "p", research, "Yes, research it.").unwrap();
+    api::reply_to_question(&mut e.db, "p", research, "Yes, research it.", &[]).unwrap();
     assert!(
         steps_until(&mut e, 30, |e| waited(e) == 2 && waits_at_queue(e, arch)),
         "{}",
@@ -4480,7 +4483,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
             .unwrap();
     assert_eq!((&pinned["kind"], &pinned["cell"]), (&json!("question"), &json!("P2")));
     assert!(pinned.get("policy").is_none(), "{pinned}");
-    api::reply_to_question(&mut e.db, "p", approval, "Make the why shorter.").unwrap();
+    api::reply_to_question(&mut e.db, "p", approval, "Make the why shorter.", &[]).unwrap();
     assert!(
         steps_until(&mut e, 30, |e| waited(e) == 3 && waits_at_queue(e, arch)),
         "{}",
@@ -4488,7 +4491,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
     );
     let (again, _) = question_now(&e);
     assert_ne!(again, approval);
-    api::reply_to_question(&mut e.db, "p", again, " approved ").unwrap();
+    api::reply_to_question(&mut e.db, "p", again, " approved ", &[]).unwrap();
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
         "{}",
@@ -4593,6 +4596,7 @@ fn the_reply_to_the_owner_s_words_in_a_work_s_group_is_in_that_group() {
         Some(item),
         Some(work),
         "Do the tests run on every push?",
+        &[],
     )
     .unwrap();
     let arch = e.step(None).unwrap().work.unwrap();
@@ -6322,6 +6326,221 @@ fn an_interjection_during_a_round_is_handed_in_and_answered_in_it() {
     assert_eq!(transition.as_deref(), Some("answers"), "{log}");
     assert_eq!(delivered.map(|n| format!("R{work}-{n}")), Some(id.clone()));
     assert_eq!(input["engine"]["interjections"], json!([1]), "{input}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A PNG and a JPEG the owner sends with words, as the page hands them in.
+fn two_images() -> Vec<api::ImageSent> {
+    let sent = |media_type: &str, bytes: &[u8]| api::ImageSent {
+        media_type: media_type.into(),
+        data: db::attachments::base64(bytes),
+    };
+    vec![
+        sent("image/png", b"\x89PNG\r\n\x1a\n a screenshot"),
+        sent("image/jpeg", b"\xff\xd8\xff\xe0 a photo"),
+    ]
+}
+
+/// What scripted rounds were sent, in order: each one's cell, its message's text, and each image given after the text,
+/// by its address, its media type and its bytes.
+type Sent = Rc<RefCell<Vec<(String, String, Vec<(String, String, Vec<u8>)>)>>>;
+
+/// Keeps what a scripted round was sent.
+fn keep_sent(sent: &Sent, r: &Request) {
+    let images = r
+        .images
+        .iter()
+        .map(|i| (i.address.clone(), i.media_type.clone(), i.bytes.clone()))
+        .collect();
+    sent.borrow_mut().push((r.cell.clone(), r.prompt.clone(), images));
+}
+
+/// The addresses of images, as agents are given them.
+fn image_addresses(ids: &[i64]) -> Vec<String> {
+    ids.iter().map(|i| db::attachments::address(*i)).collect()
+}
+
+// What the owner says to the engineer with two images while a round runs is not handed in by the hook, which adds text
+// only: the line's next round is given it, the words ending with the line that names the images and the images given
+// after the message's text, each after its address, in the order the owner added them. The round's record says which
+// images were given, by their attachments, with the words that named them.
+#[test]
+fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
+    let s = setup("images-engineer");
+    let mut scripts = scripts();
+    let data = s.data.clone();
+    scripts.insert(
+        "R1",
+        Box::new(move |r: &Request, _: usize| {
+            let mut db = engine::database::open(&data).unwrap();
+            let said = api::WorkSaid {
+                text: "Look at these two.".into(),
+                to: None,
+                question: None,
+                images: two_images(),
+            };
+            api::say_to_work(&mut db, r.work, &said).unwrap();
+            let n: i64 = db
+                .conn()
+                .query_row("SELECT max(n) FROM rounds WHERE work = ?1", [r.work], |x| x.get(0))
+                .unwrap();
+            assert_eq!(
+                sessions::interject::deliver(&mut db, r.work, n, "engineer").unwrap(),
+                None
+            );
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let sent: Sent = Rc::default();
+    let seen = sent.clone();
+    scripts.insert(
+        "R2",
+        Box::new(move |r: &Request, _: usize| {
+            keep_sent(&seen, r);
+            (
+                vec![("outcome", "answers")],
+                vec![("outcome.answers", json!([{ "to": "owner", "text": "I see both." }]))],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    agent_rounds_to(&mut e, item, 2);
+    let log = said.borrow().join("\n");
+    let j: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT id FROM interjections WHERE text = 'Look at these two.'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let ids = db::attachments::of(e.db.conn(), db::attachments::Words::Interjection(j)).unwrap();
+    let a = image_addresses(&ids);
+    assert_eq!(a.len(), 2);
+    let sent = sent.borrow();
+    let (cell, prompt, images) = sent.first().unwrap_or_else(|| panic!("no round at R2:\n{log}"));
+    assert_eq!(cell, "R2");
+    assert!(
+        prompt.contains(&format!(
+            "From the owner: Look at these two.\n\nImages: {}, {}",
+            a[0], a[1]
+        )),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains(&format!(
+            "- {} (PNG, 1 KB), with ij:{j}: follows this message's text",
+            a[0]
+        )) && prompt.contains(&format!(
+            "- {} (JPEG, 1 KB), with ij:{j}: follows this message's text",
+            a[1]
+        )),
+        "{prompt}"
+    );
+    let given_images: Vec<(&str, &str)> = images.iter().map(|i| (i.0.as_str(), i.1.as_str())).collect();
+    assert_eq!(
+        given_images,
+        [(a[0].as_str(), "image/png"), (a[1].as_str(), "image/jpeg")]
+    );
+    assert_eq!(images[0].2, b"\x89PNG\r\n\x1a\n a screenshot");
+    assert_eq!(images[1].2, b"\xff\xd8\xff\xe0 a photo");
+    let rounds = agent_rounds(&e, item);
+    let input = &rounds[1].2;
+    assert_eq!(
+        input["images"],
+        json!([
+            { "attachment": ids[0], "with": format!("ij:{j}"), "given": true },
+            { "attachment": ids[1], "with": format!("ij:{j}"), "given": true }
+        ]),
+        "{input}"
+    );
+    assert_eq!(given(input, &a[0]), Some(true), "{input}");
+    // The round that ran when the owner said it was given no image.
+    assert!(rounds[0].2.get("images").is_none(), "{}", rounds[0].2);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's words to the architect with two images come to its queue as a matter that names them: the round that
+// takes the words is given the images after its message's text. When the matter comes back to that cell in the same
+// session with the owner's reply to what it asked, and the image sent with the reply, the words are only referred to and
+// their images not given again, while the reply's image is given.
+#[test]
+fn the_owner_s_images_reach_the_architect_once_in_a_session() {
+    let s = setup("images-architect");
+    no_reply_wait(&s);
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    let sent: Sent = Rc::default();
+    let seen = sent.clone();
+    agents.insert(
+        "H8",
+        Box::new(move |r: &Request, n: usize| {
+            keep_sent(&seen, r);
+            if n == 1 {
+                return asks_the_owner("Which of the two do you mean?");
+            }
+            (
+                vec![("outcome.answer", "done")],
+                vec![("outcome.answer.reply", json!("The left one, then."))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    let images = api::images(&two_images()).unwrap();
+    db::say_to_architect(&mut e.db, "p", None, None, "Look at these two.", &images).unwrap();
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let (matter, ask): (i64, i64) =
+        e.db.conn()
+            .query_row(
+                "SELECT id, asked FROM architect_matters WHERE kind = 'owner_words'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    let words = image_addresses(&db::attachments::of(e.db.conn(), db::attachments::Words::Matter(matter)).unwrap());
+    {
+        let sent = sent.borrow();
+        let (_, prompt, images) = &sent[0];
+        assert!(
+            prompt.contains(&format!("\"images\":[\"{}\",\"{}\"]", words[0], words[1])),
+            "{prompt}"
+        );
+        let blocks: Vec<&str> = images.iter().map(|i| i.0.as_str()).collect();
+        assert_eq!(blocks, [words[0].as_str(), words[1].as_str()]);
+    }
+    let reply = vec![api::ImageSent {
+        media_type: "image/gif".into(),
+        data: db::attachments::base64(b"GIF89a the left one"),
+    }];
+    api::reply_to_question(&mut e.db, "p", ask, "The left one.", &api::images(&reply).unwrap()).unwrap();
+    let again = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, again)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let answered = image_addresses(&db::attachments::of(e.db.conn(), db::attachments::Words::Ask(ask)).unwrap());
+    let sent = sent.borrow();
+    assert_eq!(sent.len(), 2, "{log}");
+    let (_, prompt, images) = &sent[1];
+    assert!(
+        prompt.contains("The left one.") && prompt.contains(&answered[0]),
+        "{prompt}"
+    );
+    let blocks: Vec<&str> = images.iter().map(|i| i.0.as_str()).collect();
+    assert_eq!(blocks, [answered[0].as_str()], "{prompt}");
+    let input = input_at(&e, again, "H8", false);
+    assert_eq!(given_ending(&input, "·engine·matter"), Some(false), "{input}");
+    assert_eq!(given(&input, &words[0]), None, "{input}");
+    assert_eq!(given(&input, &answered[0]), Some(true), "{input}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -8489,6 +8708,7 @@ fn random_events(seed: u64, events: usize) {
                         why: None,
                         reply: None,
                         to: back.then(|| "architect".to_string()),
+                        images: Vec::new(),
                     };
                     match api::answer(&mut e.db, *ask, &answer) {
                         Ok(_) if back => format!("the owner hands ask {ask} back to the architect"),
