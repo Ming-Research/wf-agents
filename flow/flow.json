@@ -3111,6 +3111,7 @@
       "tree_changes_to_review": "The change to the design tree to review: across the whole branch at the first review, since the last review at a re-review; the engine lists the nodes changed.",
       "tree_check_numbers": "The numbers the engine's run of the design tree check prints: nodes, depth, decisions, and how many more than at the fork point.",
       "design_tree_diff": "The change to the design paths on the branch against main, decision by decision.",
+      "review_base": "What a review reviews, by commits the work's worktree has: main as fetched (`origin/<main>`), which is the pull request's base, the commit of main the branch was cut from or last took main in at, the head under review, the git command that reads the change between them, and at a re-review the head the last table review looked at.",
       "existing_work": "What already exists for the item, as pointers to read: its earlier works here, with how far each got, why it ended and the queries that read their rounds, returns, design cards and asks of the owner, and what each asked the architect and had withdrawn when it ended; where an imported item came from; the branch taken over, with the git commands that show what it adds beyond main; the PR kept, with the gh commands for its description, comments, reviews and checks.",
       "constitution": "The project's constitution, as its configuration names it.",
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its design tree.",
@@ -3322,7 +3323,8 @@
           "local_commits",
           "tree_changes_to_review",
           "tree_check_numbers",
-          "design_tree_diff"
+          "design_tree_diff",
+          "review_base"
         ]
       },
       "recorded": {
@@ -7519,6 +7521,15 @@
               ]
             },
             {
+              "name": "The change under review",
+              "what": "What you review, by commits the worktree has: main as fetched (`origin/<main>`, the pull request's base), the commit of main the branch was cut from or last took main in at, the head under review, the git command that reads the change between them, and at a re-review the head the last review looked at",
+              "from": [
+                {
+                  "engine": "review_base"
+                }
+              ]
+            },
+            {
               "name": "Replies from those asked",
               "what": "Replies from those asked: the advisor's, the architect's or the owner's, to carry on with in this round; none if no one was asked",
               "from": [
@@ -7896,6 +7907,15 @@
                 ]
               ],
               "maybe": true
+            },
+            {
+              "name": "The change under review",
+              "what": "What you review, by commits the worktree has: main as fetched (`origin/<main>`, the pull request's base), the commit of main the branch was cut from or last took main in at, the head under review, the git command that reads the change between them, and at a re-review the head the last review looked at",
+              "from": [
+                {
+                  "engine": "review_base"
+                }
+              ]
             }
           ],
           "rules": [
@@ -8182,6 +8202,15 @@
                 ]
               ],
               "maybe": true
+            },
+            {
+              "name": "The change under review",
+              "what": "What you review, by commits the worktree has: main as fetched (`origin/<main>`, the pull request's base), the commit of main the branch was cut from or last took main in at, the head under review, the git command that reads the change between them, and at a re-review the head the last review looked at",
+              "from": [
+                {
+                  "engine": "review_base"
+                }
+              ]
             }
           ],
           "rules": [

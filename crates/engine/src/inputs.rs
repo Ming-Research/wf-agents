@@ -519,6 +519,30 @@ pub fn engine_input(
             git::git(wt, &["log", "--format=%H %s", &range]).ok().map(Value::String)
         }),
         "existing_work" => existing_work(e, w, g, item, &main)?.map(Value::String),
+        // What a review reviews, by commits the worktree has: main as it has it fetched, the pull request's base, the
+        // commit of main the branch was cut from or last took main in at, the head under review, and at a re-review
+        // the head the last table review looked at.
+        "review_base" => match wt {
+            Some(wt) => {
+                let fork = git::fork_point(wt, &main)?;
+                let head = w
+                    .pushed_head
+                    .clone()
+                    .or_else(|| git::resolve(wt, "HEAD"))
+                    .unwrap_or_default();
+                let mut v = json!({
+                    "main": format!("origin/{main}"),
+                    "fork_point": fork,
+                    "head": head,
+                    "change": format!("git diff {fork}..{head}"),
+                });
+                if let Some(last) = crate::values::reviewed_head(e, w, g)? {
+                    v["last_reviewed"] = json!(last);
+                }
+                Some(v)
+            }
+            None => None,
+        },
         "design_tree_diff" | "tree_changes_to_review" => match wt {
             Some(wt) => {
                 // At a re-review of the design tree, the change since the last design tree review; the table review

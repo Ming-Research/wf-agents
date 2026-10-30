@@ -820,6 +820,19 @@ fn an_item_goes_from_the_queue_to_main() {
         message.contains("you only read it, and change and commit nothing there"),
         "{message}"
     );
+    // The review is given what it reviews by commits the worktree has: main as fetched, the commit the branch was cut
+    // from, the head under review and the command that reads the change between them.
+    let base = given_value(message, "·engine·review_base").expect(message);
+    let fork = base["fork_point"].as_str().unwrap_or_default();
+    assert_eq!(base["main"], "origin/main", "{base}");
+    assert!(
+        fork.len() == 40 && base["head"].as_str().is_some_and(|h| h.len() == 40),
+        "{base}"
+    );
+    assert_eq!(
+        base["change"],
+        format!("git diff {fork}..{}", base["head"].as_str().unwrap())
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

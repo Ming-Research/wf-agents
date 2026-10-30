@@ -803,8 +803,9 @@ fn architect_workspace(e: &Engine, graph: &str, project: &str) -> String {
 fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool) -> Option<String> {
     let p = project?;
     let main = format!(
-        "Main, wherever the flow says it, is the branch {}: the work branches from it, its PR merges into it, and a \
-         diff against main is a diff against it.",
+        "Main, wherever the flow says it, is the branch {0}: the work branches from it, its PR merges into it, and a \
+         diff against main is a diff against it. Read it as origin/{0}, main as last fetched: a local branch {0} may \
+         be missing or out of date.",
         p.main
     );
     Some(match (&w.worktree, &w.branch) {
