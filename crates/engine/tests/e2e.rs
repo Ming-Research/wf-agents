@@ -6608,6 +6608,183 @@ fn a_new_session_s_understanding_is_given_what_is_unclear_and_not_what_the_proje
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The check of the policy writes a new policy only once the owner said yes: a check a new session's understanding
+// queued that hands in write_policy without the owner's reply to the question whether to research one is sent back
+// saying to ask first.
+#[test]
+fn a_check_of_the_policy_writes_a_new_one_only_once_the_owner_said_yes() {
+    let s = setup("policy-unasked");
+    let mut agents = scripts();
+    agents.insert(
+        "P1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                (vec![("outcome.verdict", "write_policy")], Vec::new())
+            } else {
+                (Vec::new(), Vec::new())
+            }
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Look.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let back = why_sent_back(&e, arch, "P1");
+    assert_eq!(back.len(), 1, "{back:?}\n{log}");
+    assert!(
+        back[0].contains("the owner has not said yes to a new policy: ask the owner first"),
+        "{back:?}"
+    );
+    assert_eq!(rows_at(&e, arch, "P1"), ["holds"], "{log}");
+    assert!(!path_of(&e, arch).contains(&"P2".to_string()), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A check of the policy the owner's own words asked for, queued by the answer to them, has the owner's yes already:
+// it writes a new policy without asking.
+#[test]
+fn a_check_the_owner_s_words_asked_for_writes_a_new_policy_without_asking() {
+    let s = setup("policy-asked-by-words");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, _: usize| {
+            (
+                vec![("outcome.answer", "new_policy")],
+                vec![
+                    ("outcome.answer.reply", json!("I will write a new policy.")),
+                    ("outcome.answer.why", json!("The owner wants the parser first.")),
+                ],
+            )
+        }),
+    );
+    agents.insert(
+        "P1",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.verdict", "write_policy")], Vec::new())),
+    );
+    agents.insert("P2", writes_a_policy());
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Write a new policy: the parser first.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| path_of(e, arch).contains(&"P2".to_string())),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(rows_at(&e, arch, "P1"), ["write_policy"], "{log}");
+    assert!(why_sent_back(&e, arch, "P1").is_empty(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// What was said in a work's group while a work of the architect runs is queued at the end of its batch, for that work,
+// which takes it at its cell in its next batch; no other work of the architect starts for it.
+#[test]
+fn what_was_said_in_the_groups_while_a_work_runs_is_taken_after_its_batch() {
+    let s = setup("group-talk-batch");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let item = an_item(&mut e);
+    say(&mut e, "Look.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    let v = e.flow_now;
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, paused, paused_by) VALUES (?1, ?2, 'engineer', 'R1', 'later', 'owner')",
+            params![item, v],
+        )?;
+        tx.execute(
+            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', 'Keep the parser small.')",
+            [tx.last_insert_rowid()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(rows_at(&e, arch, "H12"), ["done"], "{log}");
+    let path = path_of(&e, arch);
+    let first_end = path.iter().position(|c| c == "B4").expect(&log);
+    let heard = path.iter().position(|c| c == "H12").expect(&log);
+    assert!(first_end < heard, "{path:?}");
+    assert!(
+        message_at(&e, arch, "H12", false).contains("Keep the parser small."),
+        "{log}"
+    );
+    assert_eq!(architect_works(&e), [arch], "{log}");
+    let open: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM architect_matters WHERE kind = 'group_talk' AND handled_round IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(open, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// While new starts are held to set the project straight, the owner's words are still taken first: the hold keeps back
+// only the matters from the head of the queue on, a place to set straight coming before the check of the policy and
+// the plan.
+#[test]
+fn the_owner_s_words_come_first_while_new_starts_are_held_to_set_things_straight() {
+    let s = setup("straight-words");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Architect, |tx| {
+        tx.execute(
+            "INSERT INTO dispatch_holds (project, reason, since) VALUES ('p', 'set_straight', 1)",
+            [],
+        )?;
+        let fix = json!({ "where": "item 1", "items": [1], "works": [], "kind": "dependencies",
+                          "wrong": "It waits for nothing it needs.", "steps": ["Check its links."] });
+        db::queue_matter(
+            tx,
+            &db::Matter {
+                project: "p".into(),
+                kind: "set_straight".into(),
+                what: "To set straight, item 1: Check its links".into(),
+                body: json!({ "fix": fix }),
+                ..db::Matter::default()
+            },
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Look.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let path = path_of(&e, arch);
+    let at = |cell: &str| {
+        path.iter()
+            .position(|c| c == cell)
+            .unwrap_or_else(|| panic!("{cell}: {path:?}\n{log}"))
+    };
+    assert!(at("H8") < at("H1") && at("H1") < at("P1"), "{path:?}");
+    assert_eq!(rows_at(&e, arch, "Q0")[0], "owner_words", "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 /// What the cell that writes a new policy hands in: the policy, and no new measure.
 fn writes_a_policy() -> Script {
     Box::new(|_: &Request, _: usize| {

@@ -151,8 +151,13 @@ pub const KINDS: [(&str, &str, &str); 11] = [
 
 /// The kind of matter that holds what was said in the groups of a project's works since its architect last read it,
 /// other than to it: one accumulates for each project, its material worked out when it is handled, and, like flow
-/// feedback, it starts no work of the architect and waits for one something else started.
+/// feedback, it starts no work of the architect and waits for one something else started, or one that runs queues it at
+/// the end of a batch.
 const GROUP_TALK: &str = "group_talk";
+
+/// The field of the body of a matter of what was said in the groups that names the architect's work that queued it at
+/// the end of a batch, which takes it; none when it was queued as the architect waited to start.
+const QUEUED_IN: &str = "queued_in";
 
 /// The kinds of matter that come at the head of the queue, taken in this order before any other but the owner's words,
 /// a matter back with the owner's reply and the wait for a question just put: the check of whether the policy in force
@@ -359,12 +364,6 @@ const FEEDBACK_KINDS: &str = "('report', 'other_architect')";
 /// Whether a matter of the queue holds flow feedback, which waits for a work of the architect something else started.
 fn is_flow_feedback(kind: &Value, detail: &Value) -> bool {
     (kind == "report" || kind == "other_architect") && detail == FLOW_FEEDBACK
-}
-
-/// Whether a matter of the queue waits for a work of the architect something else started, and is picked only when it
-/// came before that work started: flow feedback, and what was said in the works' groups.
-fn waits_for_a_work(kind: &Value, detail: &Value) -> bool {
-    is_flow_feedback(kind, detail) || kind == GROUP_TALK
 }
 
 /// Whether flow feedback says there is nothing: empty, or none.
@@ -687,22 +686,37 @@ fn held_straight(conn: &Connection, project: &str) -> Result<bool, String> {
     )? > 0)
 }
 
-/// The matters of a project's queue that the architect's work `work` can pick now, oldest first: every one, flow
+/// The matters of a project's queue that the architect's work `work` can take now, oldest first: every one, flow
 /// feedback, its own or forwarded, and what was said in the works' groups only when they came before the work started,
-/// which wait for the architect's next work otherwise; but while new starts are held to set the project straight and
-/// some matter sets it straight or has an agent stopped waiting, only those.
-fn pickable(conn: &Connection, project: &str, work: i64) -> Result<Vec<Value>, String> {
-    let rows = query_json(
+/// which wait for the architect's next work otherwise; what was said in the groups that the work itself queued at the
+/// end of a batch ([`QUEUED_IN`]) it takes.
+fn queued(conn: &Connection, project: &str, work: i64) -> Result<Vec<Value>, String> {
+    query_json(
         conn,
         &format!(
             "SELECT * FROM architect_queue q WHERE q.project = ?1
-               AND NOT ((q.kind IN {FEEDBACK_KINDS} AND q.detail IS ?3 OR q.kind = ?4)
+               AND NOT ((q.kind IN {FEEDBACK_KINDS} AND q.detail IS ?3
+                         OR q.kind = ?4 AND (SELECT json_extract(m.body, '$.{QUEUED_IN}') FROM architect_matters m
+                                             WHERE m.id = q.matter) IS NOT ?2)
                  AND q.at >= coalesce((SELECT min(r.started_at) FROM rounds r WHERE r.work = ?2), q.at + 1))
              ORDER BY q.matter"
         ),
         &[&project, &work, &FLOW_FEEDBACK, &GROUP_TALK],
         100_000,
-    )?;
+    )
+}
+
+/// The matters of a project's queue that the architect's work `work` can pick from the head of the queue on, oldest
+/// first: those it can take ([`queued`]); but while new starts are held to set the project straight and some matter
+/// sets it straight or has an agent stopped waiting, only those. The owner's words, a matter back with the owner's
+/// reply and the wait for a question just put come before, taken from all it can take.
+fn pickable(conn: &Connection, project: &str, work: i64) -> Result<Vec<Value>, String> {
+    straight_first(conn, project, queued(conn, project, work)?)
+}
+
+/// The matters a work can take, but, while new starts are held to set the project straight and some matter sets it
+/// straight or has an agent stopped waiting, only those.
+fn straight_first(conn: &Connection, project: &str, rows: Vec<Value>) -> Result<Vec<Value>, String> {
     if !held_straight(conn, project)? {
         return Ok(rows);
     }
@@ -853,8 +867,8 @@ pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<bool, Str
         return Ok(false);
     }
     let project = project_of(w)?;
-    let can = pickable(e.db.conn(), project, w.id)?;
-    let (said, back) = taken_first(cell, &can);
+    let all = queued(e.db.conn(), project, w.id)?;
+    let (said, back) = taken_first(cell, &all);
     Ok(said.is_none() && back.is_none() && waits_on(e, project)?.is_some())
 }
 
@@ -862,9 +876,11 @@ pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<bool, Str
 /// with the owner's reply, the oldest first, then the matters at the head of the queue ([`at_head`]), and a lone matter
 /// are picked here, without a round; while the newest question pending was put just now and the owner said nothing
 /// since, the architect waits for the reply ([`waits_on`]) before the matters at the head of the queue, which a flow
-/// version before did not. A design card matter whose card needs no look any longer is closed first (the cell's
-/// `close_settled_cards`, which a flow version before the cell named what it does did too), as the round's progress
-/// says.
+/// version before did not. The owner's words, a matter back with the reply and the wait come from all the work can
+/// take ([`queued`]), never held back by the hold to set the project straight, which holds back only the matters from
+/// the head of the queue on ([`pickable`]). A design card matter whose card needs no look any longer is closed first
+/// (the cell's `close_settled_cards`, which a flow version before the cell named what it does did too), as the round's
+/// progress says.
 pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
     let project = project_of(w)?;
     let closes = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "close_settled_cards");
@@ -874,9 +890,10 @@ pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Va
         Vec::new()
     };
     let conn = e.db.conn();
-    let can = pickable(conn, project, w.id)?;
+    let all = queued(conn, project, w.id)?;
+    let can = straight_first(conn, project, all.clone())?;
     let handled = handled_in_batch(conn, w.id)?;
-    let (said, back) = taken_first(cell, &can);
+    let (said, back) = taken_first(cell, &all);
     let waits = if said.is_none() && back.is_none() && has_row(cell, "waits") {
         waits_on(e, project)?
     } else {
@@ -2040,6 +2057,14 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         "settle_straight_hold" => settle_hold(tx, w, &architect_work_of(ctx)?.1)?,
         "queue_check_policy" => queue_head(ctx, tx, CHECK, at)?,
         "queue_make_plan" => queue_head(ctx, tx, PLAN, at)?,
+        "queue_group_talk" => {
+            // At the end of a batch, what was said in the groups since the architect last read it, for this work,
+            // which takes it, so that a work that runs long is not blind to it until it ends.
+            let (_, project) = architect_work_of(ctx)?;
+            if let Some(m) = group_talk_due(tx, &project, Some(w))? {
+                queue_matter(tx, &m).map_err(sql)?;
+            }
+        }
         "ask_approval" => {
             // The engine's short question whether the draft the round wrote is approved, pinned in the owner's
             // one-to-one as the architect's question, which parks the matter in hand at the cell; without the draft,
@@ -2736,6 +2761,32 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
             Ok(())
         }
+        "asked_before_writing" => {
+            if v.is_none_or(|x| x["verdict"] != "write_policy") {
+                return Ok(());
+            }
+            let Some(m) = picked(conn, c.w.id)? else { return Ok(()) };
+            // The owner said yes: by the reply to the question whether to research a new policy, or by the owner's own
+            // words, which asked for this check.
+            let yes = count(
+                conn,
+                "SELECT count(*) FROM architect_matters m
+                 WHERE m.id = ?1 AND (EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL)
+                   OR EXISTS (SELECT 1 FROM json_each(m.body, '$.asked_by') b
+                              WHERE json_extract(b.value, '$.cell') = ?2))",
+                &[&m, &TALK],
+            )? > 0;
+            if !yes {
+                return Err(
+                    "the owner has not said yes to a new policy: ask the owner first whether to research one, saying \
+                     why you doubt the policy in force, and hand in write_policy once the owner replied; only a check \
+                     the owner's own words asked for (queued by the answer to them, H8, as why it is checked says) \
+                     goes on to write a new policy without asking"
+                        .into(),
+                );
+            }
+            Ok(())
+        }
         "policy_text_clean" => {
             let Some(policy) = v else { return Ok(()) };
             let text = policy.to_string();
@@ -3100,10 +3151,21 @@ fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Va
 
 /// The action of the cell a project's architect waits at to start (`S0`), `queue_group_talk`: what was said in the
 /// groups of the project's works since its architect last read it, other than to it, as one matter of the kind
-/// group_talk, when there is such talk and none is open; new talk joins the one open, whose material is worked out when
-/// it is handled ([`group_talk`]). The first time, the week before now.
+/// group_talk, when there is such talk and none is open ([`group_talk_due`]); new talk joins the one open, whose
+/// material is worked out when it is handled ([`group_talk`]). The first time, the week before now.
 fn queue_group_talk(e: &mut Engine, project: &str) -> Result<(), String> {
-    let conn = e.db.conn();
+    let Some(m) = group_talk_due(e.db.conn(), project, None)? else {
+        return Ok(());
+    };
+    e.db.write(Actor::Engine, |tx| queue_matter(tx, &m)).map_err(sql)?;
+    Ok(())
+}
+
+/// The matter of what was said in the groups of a project's works since its architect last read it, other than to it,
+/// to queue: none when nothing was said since, or one is open, which the new talk joins. Queued by a work of the
+/// architect at the end of a batch, it names that work ([`QUEUED_IN`]), which takes it; queued as the architect waits
+/// to start, it waits for a work something else starts.
+fn group_talk_due(conn: &Connection, project: &str, by: Option<i64>) -> Result<Option<Matter>, String> {
     let open = count(
         conn,
         "SELECT count(*) FROM architect_matters WHERE project = ?1 AND kind = ?2 AND handled_round IS NULL
@@ -3111,22 +3173,24 @@ fn queue_group_talk(e: &mut Engine, project: &str) -> Result<(), String> {
         &[&project, &GROUP_TALK],
     )?;
     if open > 0 {
-        return Ok(());
+        return Ok(None);
     }
     let since = last_read(conn, project, i64::MAX)?.unwrap_or_else(|| db::now() - 7 * 24 * HOUR);
     if said_in_groups(conn, project, since)?.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
-    let m = Matter {
+    let mut body = json!({});
+    if let Some(w) = by {
+        body[QUEUED_IN] = json!(w);
+    }
+    Ok(Some(Matter {
         project: project.to_string(),
         kind: GROUP_TALK.into(),
         detail: None,
         what: format!("What was said in the groups of {project}'s works since its architect last read it"),
-        body: json!({}),
+        body,
         ..Matter::default()
-    };
-    e.db.write(Actor::Engine, |tx| queue_matter(tx, &m)).map_err(sql)?;
-    Ok(())
+    }))
 }
 
 /// What was said in the groups of a project's works since its architect last read it ([`last_read`]), other than to
@@ -3555,15 +3619,10 @@ fn slots(e: &Engine) -> Result<Value, String> {
 /// starts are held to set things straight.
 fn queue(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
-    let can: BTreeSet<i64> = pickable(conn, project, w.id)?
-        .iter()
-        .filter_map(|r| r["matter"].as_i64())
-        .collect();
-    let started: Option<i64> = conn
-        .query_row("SELECT min(started_at) FROM rounds WHERE work = ?1", [w.id], |r| {
-            r.get(0)
-        })
-        .map_err(sql)?;
+    let ids = |rows: &[Value]| -> BTreeSet<i64> { rows.iter().filter_map(|r| r["matter"].as_i64()).collect() };
+    let all = queued(conn, project, w.id)?;
+    let taken = ids(&all);
+    let can = ids(&straight_first(conn, project, all)?);
     let rows = query_json(
         conn,
         "SELECT * FROM architect_queue WHERE project = ?1 ORDER BY matter",
@@ -3572,11 +3631,10 @@ fn queue(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     )?;
     let mut matters = Map::new();
     for r in rows {
-        // Flow feedback and what was said in the groups that came after the work started wait for the architect's next
-        // work.
-        let later = waits_for_a_work(&r["kind"], &r["detail"])
-            && started.is_some_and(|s| r["at"].as_i64().is_some_and(|at| at >= s));
         let id = r["matter"].as_i64().unwrap_or_default();
+        // Flow feedback and what was said in the groups that came after the work started, and that it did not queue
+        // itself, wait for the architect's next work.
+        let later = !taken.contains(&id);
         let mut m = json!({
             "kind": r["kind"], "detail": r["detail"], "item": r["item"], "waits": r["waits"],
             "since": r["at"].as_i64().map(utc_minute), "what": r["what"],

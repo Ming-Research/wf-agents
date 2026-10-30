@@ -166,7 +166,8 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
 // understanding queues both and goes on to the queue; the look at the queue takes them after the owner's words, a
 // matter back with the owner's reply and the wait for a question just put, and before the others, without a pick
 // (`head`), and the router sends each to its cell. The check closes it when the policy holds, asks the owner in doubt,
-// and goes on to write a new policy by the owner's reply (`write_policy`); the writing asks the owner to approve it,
+// and goes on to write a new policy by the owner's reply, or by the owner's words that asked for it (`write_policy`,
+// which the engine refuses otherwise); the writing asks the owner to approve it,
 // which parks the check there, and the router sends it back to the writing with any other reply, and with approved to
 // where it takes effect, which queues the plan and closes the check. The plan closes its matter. Whoever wants a check
 // or a plan queues it: no row of a batch's rethink, a talk or the taking effect goes to the check or the plan. An
@@ -203,6 +204,14 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
     assert_eq!(way(&row("P1", "holds")), to("B1", &["close_matter"]));
     assert_eq!(way(&row("P1", "write_policy")), to("P2", &[]));
     assert_eq!(row("P1", "ask_owner").to, "A3");
+    // It writes a new policy only once the owner said yes, by the reply or by the words that asked for the check.
+    assert!(
+        g.cell("P1")
+            .unwrap()
+            .checks
+            .iter()
+            .any(|x| x.at.as_deref() == Some("verdict") && x.check == "asked_before_writing")
+    );
     assert_eq!(
         way(&row("P2", "written")),
         to("B1", &["queue_measures", "ask_approval"])
@@ -320,7 +329,8 @@ fn the_owner_s_words_are_answered_in_one_round() {
 }
 
 // What was said in the works' groups, other than to the architect, is a matter of its own (`group_talk`), which the
-// cell the architect waits at to start queues (`S0`'s `queue_group_talk`) and the router sends to its cell (`H12`): it
+// cell the architect waits at to start queues (`S0`'s `queue_group_talk`), and the rethink that ends each batch while a
+// work runs (`B4`, every time it returns), and the router sends to its cell (`H12`): it
 // may do nothing more, interject in its effects, plan again or check the policy, each a matter it queues at the head of
 // the queue, back to the batch; the pick is given it no longer.
 #[test]
@@ -364,6 +374,14 @@ fn what_was_said_in_the_groups_is_a_matter_of_its_own() {
     };
     assert!(reads("H12"));
     assert!(!reads("Q1"));
+    // The rethink every batch ends at queues it too, every time it returns, for the work that runs.
+    assert!(
+        g.cell("B4")
+            .unwrap()
+            .always
+            .iter()
+            .any(|a| a.at == "rethink" && a.action.as_deref() == Some("queue_group_talk"))
+    );
 }
 
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every

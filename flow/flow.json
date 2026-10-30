@@ -2921,7 +2921,7 @@
       "queue_check_policy": "Queues the check of whether the policy in force still holds, a matter of the kind check_policy at the head of the queue, with why: what the cell's place given says, or why the cell asks for it. One open already, queued or parked for the owner's reply, stands instead, and takes the why.",
       "queue_make_plan": "Queues the plan of what to do next, a matter of the kind make_plan at the head of the queue, after the check of the policy, with why: what the cell's place given says, or why the cell asks for it. One open already stands instead, and takes the why.",
       "ask_approval": "Pins the engine's short question to the owner, whether the draft the round wrote is approved (Approve this policy? Reply exactly: approved), in the owner's one-to-one with the architect, as a question of the architect's that parks the matter in hand at the cell, without the draft; the draft is the round's return, which waits for the approval.",
-      "queue_group_talk": "Queues what was said in the groups of the project's works since its architect last read it, other than to it, as one matter of the kind group_talk, when there is such talk and no such matter is open: new talk joins the one open, whose material is worked out when it is handled. Like flow feedback, it starts no work of the architect, and a work picks it only when it came before that work started.",
+      "queue_group_talk": "Queues what was said in the groups of the project's works since its architect last read it, other than to it, as one matter of the kind group_talk, when there is such talk and no such matter is open: new talk joins the one open, whose material is worked out when it is handled. Like flow feedback, it starts no work of the architect: queued as the architect waits to start, a work picks it only when it came before that work started; queued at the end of a batch, the work that runs takes it.",
       "edit_notebook": "Writes each section of the notebook the round rewrote, whole, as the project's architect's notebook's latest version of it; the versions before stay, for the owner to look at."
     },
     "checks": {
@@ -2970,7 +2970,8 @@
       "no_holds_after_reply": "Once the owner replied to the question whether to research a new policy, the check of the policy does not hand in that it holds: it writes the policy by the owner's stance, or asks again.",
       "notebook_fits": "The notebook's sections the round rewrote are each named once, each at most 4,000 characters, and with the sections it leaves as they are at most 12,000 characters in all.",
       "understanding_written": "The understanding rewrites the notebook's sections on what the project is now and on what is unclear.",
-      "plan_written": "The plan rewrites the notebook's plan."
+      "plan_written": "The plan rewrites the notebook's plan.",
+      "asked_before_writing": "The check of the policy hands in write_policy only once the owner said yes to a new policy: by the reply to the question whether to research one, or by the owner's own words, which asked for the check (queued by `H8`'s new_policy)."
     },
     "inputs": {
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",
@@ -12328,7 +12329,7 @@
           "prompt": [
             "This round answers one thing only: does the policy in force still hold, and is its direction still right. The policy is the owner's: you act by it and do not change it, but you must see when it no longer holds. You judge its direction only here; what to do under it is planned apart.",
             "Signs it does not hold: a signal it names passed its line; a conflict with the constitution, checked article by article, looking also for steps each reasonable alone that together break an article, such as a specification that grows one rule at a time; a fact it rests on, overturned by what the project is now; a new situation it does not cover; a policy that oversteps what a policy governs; no policy yet.",
-            "Go through the constitution article by article in against. Then hand in holds, with why in a sentence or two, when the policy still holds. In doubt, ask the owner whether to research a new policy, saying why you doubt it: the check waits for the reply and comes back here with it, while the architect goes on with its queue. Once the owner replied, hand in write_policy with the owner's stance, whether the owner wants a new policy researched or says none is needed and why, and the policy is written next; when the reply does not answer the question, ask again. Once the owner replied you cannot hand in holds."
+            "Go through the constitution article by article in against. Then hand in holds, with why in a sentence or two, when the policy still holds. In doubt, ask the owner whether to research a new policy, saying why you doubt it: the check waits for the reply and comes back here with it, while the architect goes on with its queue. When the owner's own words asked for this check, as why it is checked says, the owner has said yes already: you may hand in write_policy without asking. Once the owner replied, hand in write_policy with the owner's stance, whether the owner wants a new policy researched or says none is needed and why, and the policy is written next; when the reply does not answer the question, ask again. Once the owner replied you cannot hand in holds."
           ],
           "out": [
             {
@@ -12401,13 +12402,13 @@
                 },
                 {
                   "value": "write_policy",
-                  "desc": "The owner replied to your question: the policy is written next, by the owner's stance",
+                  "desc": "The owner replied to your question, or the owner's own words asked for this check: the policy is written next, by the owner's stance",
                   "fields": [
                     {
                       "name": "stance",
                       "title": "The owner's stance",
                       "type": "text",
-                      "desc": "The owner's stance, as the reply gives it: a new policy to research, and which way, or why none is needed"
+                      "desc": "The owner's stance, as the reply or the owner's words give it: a new policy to research, and which way, or why none is needed"
                     }
                   ]
                 }
@@ -12466,6 +12467,10 @@
             {
               "at": "notebook",
               "check": "notebook_fits"
+            },
+            {
+              "at": "verdict",
+              "check": "asked_before_writing"
             }
           ],
           "shown": [
@@ -16968,6 +16973,10 @@
             {
               "at": "notebook",
               "do": "edit_notebook"
+            },
+            {
+              "at": "rethink",
+              "do": "queue_group_talk"
             }
           ],
           "checks": [
