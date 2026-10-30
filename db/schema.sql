@@ -1128,10 +1128,10 @@ CREATE VIEW architect_queue AS
   -- Each project's queue: the matters not handled, not withdrawn, not held by an ask of the owner still waiting and
   -- not held by a talk with the owner that waits for the owner's reply, each with who waits for it (an agent: an
   -- engineer stopped at the architect's cell for its question; the owner, for the owner's words; or no one), when it
-  -- came and how long it has waited, whether it comes back with the owner's answer, and whether it is urgent. A talk
-  -- held is due again once the owner said more to the architect in their one-to-one since, or ended it. Read by: cells
-  -- `S0`, `S1` and `Q0`; the engine, which takes `S0`'s rows by it for each project whose architect runs no work, and
-  -- gives the architect its queue; the owner's interface.
+  -- came and how long it has waited, whether it comes back with the owner's answer and to which cell, and whether it
+  -- is urgent. A talk held is due again once the owner said more to the architect in their one-to-one since, or ended
+  -- it. Read by: cells `S0`, `S1` and `Q0`; the engine, which takes `S0`'s rows by it for each project whose architect
+  -- runs no work, and gives the architect its queue; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
     CASE
       WHEN m.work IS NOT NULL AND m.reply IS NULL AND EXISTS (
@@ -1144,6 +1144,7 @@ CREATE VIEW architect_queue AS
     m.at,
     CAST(unixepoch('subsec') * 1000 AS INTEGER) - m.at AS waited_ms,
     m.asked IS NOT NULL AS answered,
+    m.resume_cell AS back_to,
     coalesce(json_extract(m.body, '$.urgent'), 0) AS urgent
   FROM architect_matters m
   WHERE m.handled_round IS NULL AND m.withdrawn IS NULL

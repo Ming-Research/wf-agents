@@ -441,6 +441,15 @@ case!(the_design_never_asked_about_other_projects, "unreached D7", |v| {
     node(v, "D6")["to"] = json!("D8");
 });
 
+// A cell whose rows test a value the engine works out lists what it is worked out from.
+case!(
+    a_value_tested_from_nothing,
+    "a cell whose rows test a value the engine works out lists the inputs it is worked out from: M2",
+    |v| {
+        node(v, "M2")["inputs"] = json!([]);
+    }
+);
+
 // Every loop counts.
 case!(a_loop_with_no_counter, "no counter", |v| {
     obj(row(v, "T6", "done")).remove("counts");

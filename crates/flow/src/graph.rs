@@ -746,6 +746,17 @@ impl<'s> Graph<'s> {
                 !asked.contains(&i) || rows.iter().any(|r| r.to == "@asker" || r.drops),
                 "a cell that is asked does not answer: {nid}"
             );
+            // A value the engine works out that the rows test is worked out from something: the cell lists it, so that
+            // the owner's page shows what its row was chosen by.
+            let tests_value = rows.iter().any(|r| {
+                let mut atoms = Vec::new();
+                flat(&r.atoms, &mut atoms);
+                atoms.iter().any(|a| matches!(a, Atom::Inp(..)))
+            });
+            ensure!(
+                !tests_value || !n.inputs.is_empty(),
+                "a cell whose rows test a value the engine works out lists the inputs it is worked out from: {nid}"
+            );
             let mut main: Vec<Field> = n
                 .out
                 .iter()

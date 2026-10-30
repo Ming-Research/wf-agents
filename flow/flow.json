@@ -15121,7 +15121,36 @@
           "id": "Q2",
           "kind": "engine",
           "title": "Route the matter",
-          "inputs": [],
+          "inputs": [
+            {
+              "name": "The matter picked",
+              "what": "The matter picked: the owner's words or the lone matter the look at the queue took, or the one the pick chose",
+              "from": [
+                [
+                  "Q0",
+                  "queue[owner_words].matter"
+                ],
+                [
+                  "Q0",
+                  "queue[one].matter"
+                ],
+                [
+                  "Q1",
+                  "pick.matter"
+                ]
+              ]
+            },
+            {
+              "name": "The matter as the queue has it",
+              "what": "The matter picked as the queue has it: its kind and what more it says, whether it comes back with the owner's answer and to which cell (back_to); the setting of a new policy goes on from the cell it stood at",
+              "from": [
+                {
+                  "db": "architect_queue",
+                  "by": "matter"
+                }
+              ]
+            }
+          ],
           "out": [],
           "cases": [
             {
@@ -17367,7 +17396,28 @@
           "id": "B1",
           "kind": "engine",
           "title": "Where the batch stands",
-          "inputs": [],
+          "inputs": [
+            {
+              "name": "Matters left to pick",
+              "what": "The project's queue as it stands: the matters that can still be picked in this batch",
+              "from": [
+                {
+                  "db": "architect_queue",
+                  "by": "project"
+                }
+              ]
+            },
+            {
+              "name": "The batch's item changes",
+              "what": "The item changes the batch collected, which go to its review once it is done",
+              "from": [
+                {
+                  "engine": "batch_changes"
+                }
+              ],
+              "maybe": true
+            }
+          ],
           "out": [],
           "cases": [
             {
