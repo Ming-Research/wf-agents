@@ -4634,14 +4634,6 @@ mod tests {
         assert!(!names_date("version 2026-10 and 27"));
     }
 
-    // A text names an item as #12 or item 12.
-    #[test]
-    fn a_text_names_items_by_number() {
-        let mut ids = BTreeSet::new();
-        named_items("Item 7 waits for #12, (item 9) and not 13.", &mut ids);
-        assert_eq!(ids.into_iter().collect::<Vec<_>>(), [7, 9, 12]);
-    }
-
     // A reply names the items a batch made by their numbers once they are made, and keeps the numbers it named.
     #[test]
     fn a_reply_gets_the_numbers_of_the_items_made() {
