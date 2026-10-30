@@ -1558,11 +1558,11 @@ fn texts(v: &Value) -> Vec<String> {
         .collect()
 }
 
-/// Makes one change to a project's observations, at once.
-fn observe(tx: &Transaction<'_>, project: &str, matter: i64, o: &Value) -> Result<(), String> {
+/// Makes one change to a project's observations, at once; `from` says where it came from, such as the matter in hand.
+fn observe(tx: &Transaction<'_>, project: &str, from: &str, o: &Value) -> Result<(), String> {
     match text(&o["kind"]) {
         "new" => {
-            let source = format!("{} (matter {matter})", text(&o["source"]).trim());
+            let source = format!("{} ({from})", text(&o["source"]).trim());
             tx.execute(
                 "INSERT INTO observations (project, what, tags, source, refs) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
@@ -1584,7 +1584,7 @@ fn observe(tx: &Transaction<'_>, project: &str, matter: i64, o: &Value) -> Resul
             refs.extend(texts(&o["refs"]).into_iter().map(Value::String));
             let seen = text(&o["seen"]).trim();
             if !seen.is_empty() {
-                refs.push(json!(format!("Reported again (matter {matter}): {seen}")));
+                refs.push(json!(format!("Reported again ({from}): {seen}")));
             }
             tx.execute(
                 "UPDATE observations SET times_reported = times_reported + 1, refs = ?2 WHERE id = ?1",
@@ -1647,7 +1647,7 @@ fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(),
         .map_err(sql)?;
     }
     for o in items(effects.get("observation_changes")) {
-        observe(tx, &project, matter, &o)?;
+        observe(tx, &project, &format!("matter {matter}"), &o)?;
     }
     for a in items(effects.get("actions")) {
         act_now(tx, &project, &a)?;
@@ -2185,6 +2185,15 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 .map_err(sql)?;
             }
         }
+        "change_observations" => {
+            // The changes to the project's observations a round hands in beside its own answer, such as the revision of
+            // a batch closing one its review found done already: made at once, as an answer's effects make theirs.
+            let (_, project) = architect_work_of(ctx)?;
+            let from = format!("R{}-{}, {}", ctx.round.work, ctx.round.n, ctx.cell.title);
+            for o in items(at) {
+                observe(tx, &project, &from, &o)?;
+            }
+        }
         "revise_batch" => {
             tx.execute(
                 "UPDATE architect_item_changes SET state = 'revised' WHERE work = ?1 AND state = 'collected'",
@@ -2364,63 +2373,11 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
             }));
         }
     }
-    let tags: BTreeSet<String> =
-        c.e.config
-            .config
-            .projects
-            .get(project)
-            .map(|p| p.observation_tags.iter().map(|t| t.name.clone()).collect())
-            .unwrap_or_default();
-    for (i, o) in items(effects.get("observation_changes")).iter().enumerate() {
-        let n = i + 1;
-        match text(&o["kind"]) {
-            "new" => {
-                if text(&o["what"]).trim().is_empty() {
-                    problems.push(format!("observation change {n}: it says nothing of what it is"));
-                }
-                // Observations are summed up and looked for by their tags: once the project has tags, a new one carries
-                // one at least.
-                if !tags.is_empty() && texts(&o["tags"]).is_empty() {
-                    problems.push(format!(
-                        "observation change {n}: it carries no tag; give it at least one of the project's tags: {}",
-                        tags.iter().cloned().collect::<Vec<_>>().join(", ")
-                    ));
-                }
-                for t in texts(&o["tags"]) {
-                    if !tags.contains(&t) {
-                        problems.push(format!(
-                            "observation change {n}: {t} is not one of the project's tags: {}",
-                            tags.iter().cloned().collect::<Vec<_>>().join(", ")
-                        ));
-                    }
-                }
-            }
-            "merge" => {
-                let id = o["into"].as_i64().unwrap_or_default();
-                if !open_observation(conn, project, id)? {
-                    problems.push(format!(
-                        "observation change {n}: {id} is no open observation of the project"
-                    ));
-                }
-            }
-            "close" => {
-                let id = o["id"].as_i64().unwrap_or_default();
-                if !open_observation(conn, project, id)? {
-                    problems.push(format!(
-                        "observation change {n}: {id} is no open observation of the project"
-                    ));
-                }
-                if o["why"] == "folded" {
-                    problems.push(format!(
-                        "observation change {n}: an observation an item takes in is folded into that item, by the item \
-                         change fold_observations naming the item (or the key of the item the batch creates), not \
-                         closed: it closes once that item's work merges"
-                    ));
-                }
-            }
-            other => problems.push(format!("observation change {n}: no such kind {other}")),
-        }
-    }
+    problems.extend(observation_problems(
+        c,
+        project,
+        &items(effects.get("observation_changes")),
+    )?);
     for (i, a) in items(effects.get("actions")).iter().enumerate() {
         let n = i + 1;
         let item = a["item"].as_i64();
@@ -2479,6 +2436,72 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
         let to = text(&m["project"]);
         if to == project || !c.e.config.config.projects.contains_key(to) {
             problems.push(format!("message {}: {to} is no other project", i + 1));
+        }
+    }
+    Ok(problems)
+}
+
+/// What is wrong with changes to a project's observations, as an answer's effects or the revision of a batch hands them
+/// in: a new one that says nothing or carries no tag of the project's, or one not of them; a merge or a close of an
+/// observation the project has no open one of; a close of one an item takes in, which is folded into that item instead.
+fn observation_problems(c: &checks::Ctx<'_>, project: &str, changes: &[Value]) -> Result<Vec<String>, String> {
+    let conn = c.e.db.conn();
+    let mut problems = Vec::new();
+    let tags: BTreeSet<String> =
+        c.e.config
+            .config
+            .projects
+            .get(project)
+            .map(|p| p.observation_tags.iter().map(|t| t.name.clone()).collect())
+            .unwrap_or_default();
+    for (i, o) in changes.iter().enumerate() {
+        let n = i + 1;
+        match text(&o["kind"]) {
+            "new" => {
+                if text(&o["what"]).trim().is_empty() {
+                    problems.push(format!("observation change {n}: it says nothing of what it is"));
+                }
+                // Observations are summed up and looked for by their tags: once the project has tags, a new one carries
+                // one at least.
+                if !tags.is_empty() && texts(&o["tags"]).is_empty() {
+                    problems.push(format!(
+                        "observation change {n}: it carries no tag; give it at least one of the project's tags: {}",
+                        tags.iter().cloned().collect::<Vec<_>>().join(", ")
+                    ));
+                }
+                for t in texts(&o["tags"]) {
+                    if !tags.contains(&t) {
+                        problems.push(format!(
+                            "observation change {n}: {t} is not one of the project's tags: {}",
+                            tags.iter().cloned().collect::<Vec<_>>().join(", ")
+                        ));
+                    }
+                }
+            }
+            "merge" => {
+                let id = o["into"].as_i64().unwrap_or_default();
+                if !open_observation(conn, project, id)? {
+                    problems.push(format!(
+                        "observation change {n}: {id} is no open observation of the project"
+                    ));
+                }
+            }
+            "close" => {
+                let id = o["id"].as_i64().unwrap_or_default();
+                if !open_observation(conn, project, id)? {
+                    problems.push(format!(
+                        "observation change {n}: {id} is no open observation of the project"
+                    ));
+                }
+                if o["why"] == "folded" {
+                    problems.push(format!(
+                        "observation change {n}: an observation an item takes in is folded into that item, by the item \
+                         change fold_observations naming the item (or the key of the item the batch creates), not \
+                         closed: it closes once that item's work merges"
+                    ));
+                }
+            }
+            other => problems.push(format!("observation change {n}: no such kind {other}")),
         }
     }
     Ok(problems)
@@ -2586,6 +2609,14 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                     "matter {m} cannot be picked now; those that can: {}",
                     can.iter().map(i64::to_string).collect::<Vec<_>>().join(", ")
                 ))
+            }
+        }
+        "observation_changes_valid" => {
+            let problems = observation_problems(c, project_of(c.w)?, &items(v))?;
+            if problems.is_empty() {
+                Ok(())
+            } else {
+                Err(problems.join("\n"))
             }
         }
         "effects_valid" => {

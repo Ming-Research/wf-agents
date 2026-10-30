@@ -2933,7 +2933,8 @@
       "queue_make_plan": "Queues the plan of what to do next, a matter of the kind make_plan at the head of the queue, after the check of the policy, with why: what the cell's place given says, or why the cell asks for it. One open already stands instead, and takes the why.",
       "ask_approval": "Pins the engine's short question to the owner, whether the draft the round wrote is approved (Approve this policy? Reply exactly: approved), in the owner's one-to-one with the architect, as a question of the architect's that parks the matter in hand at the cell, without the draft; the draft is the round's return, which waits for the approval.",
       "queue_group_talk": "Queues what was said in the groups of the project's works since its architect last read it, other than to it, as one matter of the kind group_talk, when there is such talk and no such matter is open: new talk joins the one open, whose material is worked out when it is handled. Like flow feedback, it starts no work of the architect: queued as the architect waits to start, a work picks it only when it came before that work started; queued at the end of a batch, the work that runs takes it.",
-      "edit_notebook": "Writes each section of the notebook the round rewrote, whole, as the project's architect's notebook's latest version of it; the versions before stay, for the owner to look at."
+      "edit_notebook": "Writes each section of the notebook the round rewrote, whole, as the project's architect's notebook's latest version of it; the versions before stay, for the owner to look at.",
+      "change_observations": "Makes each change to the project's observations a round hands in beside its own answer, at once, as an answer's effects make theirs."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -2982,7 +2983,8 @@
       "notebook_fits": "The notebook's sections the round rewrote are each named once, each at most 4,000 characters, and with the sections it leaves as they are at most 12,000 characters in all.",
       "understanding_written": "The understanding rewrites the notebook's sections on what the project is now and on what is unclear.",
       "plan_written": "The plan rewrites the notebook's plan.",
-      "asked_before_writing": "The check of the policy hands in write_policy only once the owner said yes to a new policy: by the reply to the question whether to research one, or by the owner's own words, which asked for the check (queued by `H8`'s new_policy)."
+      "asked_before_writing": "The check of the policy hands in write_policy only once the owner said yes to a new policy: by the reply to the question whether to research one, or by the owner's own words, which asked for the check (queued by `H8`'s new_policy).",
+      "observation_changes_valid": "Each change to the observations holds, as effects_valid checks them: a new one says what it is and carries the project's tags; one merged into or closed is open; one an item takes in is folded into it, not closed."
     },
     "inputs": {
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",
@@ -3541,6 +3543,9 @@
       ],
       "edit_notebook": [
         "notebook"
+      ],
+      "change_observations": [
+        "observations"
       ]
     },
     "reads": {
@@ -16713,7 +16718,7 @@
             }
           ],
           "prompt": [
-            "This round revises the batch's item changes by what the review found. Hand in the whole set as it should be made: those found sound as they were, those to fix fixed, and a change left out where the fix is to make none; each with the matter it came from. Search the observations when a change makes or widens an item. The review looks at the whole set again."
+            "This round revises the batch's item changes by what the review found. Hand in the whole set as it should be made: those found sound as they were, those to fix fixed, and a change left out where the fix is to make none; each with the matter it came from. Search the observations when a change makes or widens an item; change an observation the findings show done already or no longer so in observation_changes. The review looks at the whole set again."
           ],
           "out": [
             {
@@ -16737,6 +16742,17 @@
                   }
                 ]
               }
+            },
+            {
+              "name": "observation_changes",
+              "title": "Observation changes",
+              "type": "list",
+              "desc": "Changes to the project's observations the review's findings call for, such as closing one it found done already; made at once, as an answer's effects make theirs",
+              "item": {
+                "$ref": "observation_change"
+              },
+              "optional": true,
+              "min": 1
             },
             {
               "$ref": "notebook"
@@ -16764,6 +16780,10 @@
               "do": "revise_batch"
             },
             {
+              "at": "observation_changes",
+              "do": "change_observations"
+            },
+            {
               "at": "notebook",
               "do": "edit_notebook"
             }
@@ -16772,6 +16792,10 @@
             {
               "at": "changes",
               "check": "changes_valid"
+            },
+            {
+              "at": "observation_changes",
+              "check": "observation_changes_valid"
             },
             {
               "at": "notebook",

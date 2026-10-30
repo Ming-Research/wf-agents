@@ -3903,7 +3903,9 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
 }
 
 // The review of a batch finds an item change to fix: the revision hands in the whole set again, the review looks at it
-// again, and the revised change is made; what was handed in first is kept as revised, not made.
+// again, and the revised change is made; what was handed in first is kept as revised, not made. The revision closes an
+// observation the review found done already, at once, as an answer's effects would: in the sixth trial it could hand in
+// item changes only, and the review's advice to close two observations went into its notebook, with no cell to do it.
 #[test]
 fn an_item_change_the_review_rejects_is_revised_and_then_made() {
     let s = setup("revise");
@@ -3944,15 +3946,28 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
                 .unwrap();
             let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
                                  "reason": "An action, as the review asked." });
+            let close = json!({ "kind": "close", "id": 1, "why": "outdated", "text": "Main reads the token already.",
+                                "reason": "The review found it done." });
             (
                 Vec::new(),
-                vec![("outcome.changes", json!([{ "matter": matter, "change": change }]))],
+                vec![
+                    ("outcome.changes", json!([{ "matter": matter, "change": change }])),
+                    ("outcome.observation_changes", json!([close])),
+                ],
             )
         }),
     );
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO observations (project, what, source) VALUES ('p', 'The lexer drops a token.', 'A report')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
     say(&mut e, "Name the parser's item.");
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
@@ -3977,6 +3992,17 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
         st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
     };
     assert_eq!(states, ["revised", "made"]);
+    let closed: (String, String) =
+        e.db.conn()
+            .query_row("SELECT closed, closed_why FROM observations WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!(
+        closed,
+        ("outdated".to_string(), "Main reads the token already.".to_string()),
+        "{log}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
