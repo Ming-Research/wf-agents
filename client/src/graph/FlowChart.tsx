@@ -170,6 +170,30 @@ export function moveWords(m: Move): string {
   }
 }
 
+/// What the legend says of what cells do every time and of the stores they use alike, instead of beside each cell:
+/// the actions every agent's cell does, then for each set of lines, the actions every cell of those lines does and the
+/// stores each of them reads or writes.
+export function sharedWords(c: Chart): string[] {
+  const action = (a: { action: string; at: string }) => t('legend_shared_action', { action: actionWords(a.action), at: a.at });
+  const out: string[] = [];
+  const every = c.shared.filter((a) => a.lines === null);
+  if (every.length > 0) out.push(t('legend_shared_actions', { actions: every.map(action).join(', ') }));
+  const lineSets = [
+    ...new Set([...c.shared.flatMap((a) => (a.lines !== null ? [a.lines.join(', ')] : [])), ...c.stores.map((s) => s.lines.join(', '))]),
+  ];
+  for (const lines of lineSets) {
+    const acts = c.shared.filter((a) => a.lines !== null && a.lines.join(', ') === lines);
+    if (acts.length > 0) out.push(t('legend_line_actions', { lines, actions: acts.map(action).join(', ') }));
+    for (const use of ['read', 'write', 'both'] as const) {
+      const stores = c.stores.filter((s) => s.use === use && s.lines.join(', ') === lines);
+      if (stores.length === 0) continue;
+      const key = use === 'read' ? 'legend_line_reads' : use === 'write' ? 'legend_line_writes' : 'legend_line_reads_writes';
+      out.push(t(key, { lines, stores: stores.map((s) => s.title).join(', ') }));
+    }
+  }
+  return out;
+}
+
 /// The chart's "?" in its bottom left corner, which stays there and opens and closes the legend above it.
 function Question({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -488,7 +512,7 @@ function Legend({ charts, stores, legend }: {
           </>
         ) : null}
         {charts.map(({ g, chart: c }) =>
-          c.moves.length + c.shared.length > 0 ? (
+          c.moves.length + c.shared.length + c.stores.length > 0 ? (
             <li key={g.name} className="legend-moves">
               <div>
                 <strong>{several ? t('legend_moves_of', { graph: g.name }) : t('legend_moves')}</strong>
@@ -496,13 +520,9 @@ function Legend({ charts, stores, legend }: {
                   {c.moves.map((m) => (
                     <li key={m.row}>{moveWords(m)}</li>
                   ))}
-                  {c.shared.length > 0 ? (
-                    <li>
-                      {t('legend_shared_actions', {
-                        actions: c.shared.map((a) => t('legend_shared_action', { action: actionWords(a.action), at: a.at })).join(', '),
-                      })}
-                    </li>
-                  ) : null}
+                  {sharedWords(c).map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
                 </ul>
               </div>
             </li>

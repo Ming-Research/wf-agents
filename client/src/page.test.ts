@@ -50,7 +50,7 @@ import {
   styleOf,
 } from './graph/flowDraw';
 import { addHops, type Box, type Laid, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
-import { moveWords, pickAt, type Under } from './graph/FlowChart';
+import { moveWords, pickAt, sharedWords, type Under } from './graph/FlowChart';
 import { attachments, layUnit } from './graph/units';
 import { centredAt, draggedBy, LEAST, mapGeom, mapOf, mapShown, viewFrame, zoomText } from './graph/Minimap';
 import {
@@ -696,8 +696,44 @@ describe('the chart of a flow', () => {
     expect(node('d:b')).toMatchObject({ kind: 'does', actions: ['update_card'] });
     expect(edge('c:b->d:b')?.kind).toBe('does');
     expect(node('d:t')?.actions).toEqual(['record']);
-    expect(c.shared).toEqual([{ action: 'tell_owner', at: 'tell_owner' }]);
+    expect(c.shared).toEqual([{ action: 'tell_owner', at: 'tell_owner', lines: null }]);
     expect(node('d:a')).toBeUndefined();
+  });
+
+  it('names once in the legend what every cell of a line does every time and the stores they all use alike', () => {
+    // a and d are the engineer line's agent cells; each notes what it saw, and reads the notes, as no other cell does.
+    const notes = { title: 'Notes', desc: 'What was noted', layer: 'project' as const, relations: ['notes'] };
+    const lineEngine: EngineNames = { ...engine, stores: { ...engine.stores, notes }, writes: { ...engine.writes, note: [] } };
+    const read = { id: null, what: 'the notes', from: [{ db: 'notes', by: 'project' }], maybe: true };
+    const noting = { at: 'noted', view: null, do: 'note' };
+    const lined: CompiledGraph = {
+      ...graph,
+      cells: graph.cells.map((x) =>
+        x.id === 'a' || x.id === 'd' ? { ...x, always: [...(x.always ?? []), noting], inputs: [...x.inputs, read] } : x,
+      ),
+    };
+    const l = chart(lined, view, lineEngine);
+    expect(l.shared).toEqual([
+      { action: 'tell_owner', at: 'tell_owner', lines: null },
+      { action: 'note', at: 'noted', lines: ['engineer'] },
+    ]);
+    expect(l.stores).toEqual([{ store: 'notes', title: 'Notes', use: 'read', lines: ['engineer'] }]);
+    expect(l.nodes.filter((n) => n.other === 'notes' || n.actions.includes('note'))).toEqual([]);
+    expect(sharedWords(l)).toEqual([
+      'Every time a return holds the field named, the engine does: tell owner (tell_owner)',
+      'Every time a return of a cell of the engineer line holds the field named, the engine does: note (noted)',
+      'Every cell of the engineer line reads, not drawn beside each: Notes',
+    ]);
+    // Done by one cell of a line, it stays beside that cell.
+    const one: CompiledGraph = {
+      ...graph,
+      cells: graph.cells.map((x) => (x.id === 'a' ? { ...x, always: [...(x.always ?? []), noting], inputs: [...x.inputs, read] } : x)),
+    };
+    const o = chart(one, view, lineEngine);
+    expect(o.shared.map((a) => a.action)).toEqual(['tell_owner']);
+    expect(o.stores).toEqual([]);
+    expect(o.nodes.find((n) => n.id === 'd:a')?.actions).toEqual(['note']);
+    expect(o.nodes.find((n) => n.id === 's:notes:a')?.use).toBe('read');
   });
 
   it('says under a step the engine decides what its values read', () => {

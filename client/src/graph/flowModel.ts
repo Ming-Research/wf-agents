@@ -68,8 +68,11 @@ export type Chart = {
   groups: ChartGroup[];
   parts: string[];
   moves: Move[];
-  /// The actions every agent's cell does every time it returns what sets them off, which the legend names.
+  /// The actions every agent's cell, or every cell of a line, does every time it returns what sets them off, which the
+  /// legend names.
   shared: SharedAction[];
+  /// The stores every cell of a line reads or writes alike, which the legend names once instead of beside each cell.
+  stores: SharedStore[];
   notes: Map<string, CellNotes>;
 };
 
@@ -175,11 +178,34 @@ export function moves(g: CompiledGraph): Move[] {
 }
 
 /// An action every agent's cell that could does every time it returns the place that sets it off: every agent's cell,
-/// or, for a place in one of the return's forms, every cell that has the form.
-export type SharedAction = { action: string; at: string };
+/// or, for a place in one of the return's forms, every cell that has the form; or every cell of the lines named
+/// (`lines`), as a move can be.
+export type SharedAction = { action: string; at: string; lines: string[] | null };
 
-/// The actions each agent's cell does every time that every cell that could does too, which the legend names; and for
-/// each cell, by its id, the actions it does every time of its own, those every work's end does included.
+/// A store every agent's cell of the lines named reads or writes alike, as a cell's store beside it would say, with
+/// the store's title.
+export type SharedStore = { store: string; title: string; use: StoreUse; lines: string[] };
+
+/// The lines whose agent's cells are exactly the cells given, when each of those lines has more than one: what they all
+/// do or use is the lines', which the legend names once; none otherwise.
+function wholeLines(agents: CompiledCell[], cells: string[]): string[] | null {
+  const has = new Set(cells);
+  const lines: string[] = [];
+  for (const c of agents) {
+    if (!has.has(c.id)) continue;
+    if (c.line == null) return null;
+    if (!lines.includes(c.line)) lines.push(c.line);
+  }
+  const whole = (l: string) => {
+    const of = agents.filter((c) => c.line === l);
+    return of.length > 1 && of.every((c) => has.has(c.id));
+  };
+  return lines.length > 0 && lines.every(whole) ? lines : null;
+}
+
+/// The actions each agent's cell does every time that every cell that could does too, or every cell of its line, which
+/// the legend names; and for each cell, by its id, the actions it does every time of its own, those every work's end
+/// does included.
 export function cellActions(g: CompiledGraph): { shared: SharedAction[]; own: Map<string, string[]> } {
   const agents = g.cells.filter((c) => c.kind === 'agent');
   const withForm = (field: string) => agents.filter((c) => (c.forms ?? []).some((f) => f.field === field));
@@ -200,7 +226,13 @@ export function cellActions(g: CompiledGraph): { shared: SharedAction[]; own: Ma
     const form = withForm(head);
     const could = form.length > 0 ? form : agents;
     if (d.cells.length > 1 && d.cells.length === could.length) {
-      shared.push({ action: d.action, at: d.at });
+      shared.push({ action: d.action, at: d.at, lines: null });
+      sharedKeys.add(key);
+      continue;
+    }
+    const lines = wholeLines(agents, d.cells);
+    if (lines !== null) {
+      shared.push({ action: d.action, at: d.at, lines });
       sharedKeys.add(key);
     }
   }
@@ -283,6 +315,32 @@ export function cellStores(engine: EngineNames, cell: CompiledCell, actions: str
     if (writes.has(s)) return [[s, 'write']];
     return [];
   });
+}
+
+/// The stores every agent's cell of some lines reads or writes alike, by the stores each cell's own would be drawn
+/// beside it (`cellStores`), each of those lines of more than one cell: the legend names each once, and no cell of
+/// those lines has it beside it.
+export function lineStores(
+  g: CompiledGraph,
+  beside: Map<string, Array<[string, StoreUse]>>,
+  title: (store: string) => string,
+): SharedStore[] {
+  const agents = g.cells.filter((c) => c.kind === 'agent');
+  const having = new Map<string, { store: string; use: StoreUse; cells: string[] }>();
+  for (const c of agents) {
+    for (const [store, use] of beside.get(c.id) ?? []) {
+      const key = `${store}\u0000${use}`;
+      const h = having.get(key) ?? { store, use, cells: [] };
+      h.cells.push(c.id);
+      having.set(key, h);
+    }
+  }
+  const out: SharedStore[] = [];
+  for (const h of having.values()) {
+    const lines = wholeLines(agents, h.cells);
+    if (lines !== null) out.push({ store: h.store, title: title(h.store), use: h.use, lines });
+  }
+  return out;
 }
 
 /// The part each cell is drawn in. The asking part is a part of its own; a cell outside it that no row the chart draws
@@ -460,8 +518,22 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
   // What a cell does every time beside it; the rules beside the cells that name them (those every cell of a line is
   // given are listed in each cell's inputs, not drawn); and the interjection beside the engine's steps that take one.
   const acting = cellActions(g);
+  const ownOf = (c: CompiledCell) => [...(acting.own.get(c.id) ?? []), ...(back.get(c.id) ?? [])];
+  // The stores each cell reads or writes, by what it reads, its own actions and those on the rows drawn out of it; a
+  // store every cell of a line uses alike is the line's, named once in the legend instead of beside each cell.
+  const beside = new Map<string, Array<[string, StoreUse]>>();
+  if (engine !== null) {
+    for (const c of g.cells) {
+      const drawnRows = c.rows.filter((r) => !fallback(r) && (!r.common || drawn.has(r.name)));
+      beside.set(c.id, cellStores(engine, c, [...ownOf(c), ...drawnRows.flatMap(rowActions)]));
+    }
+  }
+  const lined = lineStores(g, beside, (s) => engine?.stores?.[s]?.title ?? s);
+  const ofLine = (c: CompiledCell, store: string, use: StoreUse) =>
+    c.kind === 'agent' &&
+    lined.some((s) => s.store === store && s.use === use && c.line != null && s.lines.includes(c.line));
   for (const c of g.cells) {
-    const own = [...(acting.own.get(c.id) ?? []), ...(back.get(c.id) ?? [])];
+    const own = ownOf(c);
     if (own.length > 0) {
       const id = `d:${c.id}`;
       node({ id, kind: 'does', cell: c.id, other: null, actions: [...new Set(own)] });
@@ -478,14 +550,12 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
       plain(`${id}->${cellNode(c.id)}`, id, cellNode(c.id), 'interjection');
     }
     // Each store the cell reads or writes, beside it: a read comes into the cell, a write goes out to the store.
-    if (engine !== null) {
-      const drawnRows = c.rows.filter((r) => !fallback(r) && (!r.common || drawn.has(r.name)));
-      for (const [store, use] of cellStores(engine, c, [...own, ...drawnRows.flatMap(rowActions)])) {
-        const id = `s:${store}:${c.id}`;
-        node({ id, kind: 'store', cell: c.id, other: store, use });
-        if (use === 'read') plain(`${id}->${cellNode(c.id)}`, id, cellNode(c.id), 'store');
-        else plain(`${cellNode(c.id)}->${id}`, cellNode(c.id), id, 'store');
-      }
+    for (const [store, use] of beside.get(c.id) ?? []) {
+      if (ofLine(c, store, use)) continue;
+      const id = `s:${store}:${c.id}`;
+      node({ id, kind: 'store', cell: c.id, other: store, use });
+      if (use === 'read') plain(`${id}->${cellNode(c.id)}`, id, cellNode(c.id), 'store');
+      else plain(`${cellNode(c.id)}->${id}`, cellNode(c.id), id, 'store');
     }
   }
   for (const e of edges.values()) {
@@ -530,6 +600,7 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
     parts: partList,
     moves: ms,
     shared: acting.shared,
+    stores: lined,
     notes,
   };
 }

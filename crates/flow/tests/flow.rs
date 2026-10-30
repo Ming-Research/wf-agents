@@ -69,8 +69,9 @@ fn the_architect_graph_compiles_as_its_reference_has_it() {
 // Every agent's cell of the architect's line but the review of a batch and the observer's search may rewrite sections
 // of the notebook in its own answer, beside its effects, the edit made at once and its size checked; the understanding
 // and the plan must, each its own sections. Each such cell is given the four sections, each an engine input of its own,
-// but the understanding, which writes what the project is now afresh and is not given it; no cell reads the state of
-// things, the notes, the log or the last plan, which the notebook took the place of.
+// but the understanding, which writes what the project is now afresh and is given only what is unclear, as questions
+// to settle, and the other section; no cell reads the state of things, the notes, the log or the last plan, which the
+// notebook took the place of.
 #[test]
 fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     let c = compiled();
@@ -108,7 +109,7 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
                     .any(|x| x.from == [flow::format::Src::Engine(name.clone())])
             })
             .collect();
-        let want: &[&str] = if cell.id == "U1" { &sections[1..] } else { &sections };
+        let want: &[&str] = if cell.id == "U1" { &sections[2..] } else { &sections };
         assert_eq!(given, want, "{}", cell.id);
         let node = nodes.iter().find(|n| n["id"] == cell.id.as_str()).unwrap();
         let field = node["out"]
