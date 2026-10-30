@@ -401,9 +401,10 @@
   background: var(--bgColor-default);
 }
 
+/* Send and Done sit on the box's bottom line, as a chat's do, however tall the owner drags the box. */
 .talk-say-row {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--base-size-8);
 }
 
