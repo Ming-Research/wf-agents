@@ -308,11 +308,11 @@ struct Timed {
 /// retry's TRY, the Summary) end no test.
 const ENDED: [&str; 6] = ["PASS", "FAIL", "TIMEOUT", "LEAK", "LEAK-FAIL", "ABORT"];
 
-/// The tests a cargo-nextest log shows ended, in the order they ended, each once. Each line is read as a reader sees
-/// it: without the job, the step and the time gh puts before it, and without colour escapes.
+/// The tests a cargo-nextest log shows ended, in the order they ended, each once. The log is as a reader sees it:
+/// without the job, the step and the time gh puts before each line, and without colour escapes.
 fn timed(log: &str) -> Vec<Timed> {
     let mut out: Vec<Timed> = Vec::new();
-    for line in hub::clean_log(log).lines() {
+    for line in log.lines() {
         let Some((status, rest)) = line.trim().split_once(" [") else {
             continue;
         };
@@ -350,45 +350,145 @@ fn timed(log: &str) -> Vec<Timed> {
     out
 }
 
-/// How long each named test took, as the logs of the fast CI's jobs tell: cargo-nextest runs each test on its own and
-/// times it, and a test that did not pass says how it ended. A test is named by its name in its test binary, a path
-/// ending in that, or its binary and its name as nextest writes them. A test not found says how many tests the logs
-/// showed, and a log that could not be read says why.
-fn test_times(tests: &[String], logs: &[Result<String, String>]) -> Vec<Value> {
-    let found: Vec<Timed> = logs
+/// The steps of the fast CI's test job that the engine reads by name: `Build` compiles the tests (`--no-run`) and `Test`
+/// runs them (`--no-fail-fast`), both in `.github/workflows/ci.yml`; a test reads that file to keep the two in step.
+const BUILD_STEP: &str = "Build";
+const TEST_STEP: &str = "Test";
+
+/// A job of a run of the fast CI, as the results of tests are read from it: its check, with its steps, and its whole
+/// log without what gh puts before each line and without colour escapes, or why the log could not be read.
+struct JobLog<'a> {
+    check: &'a CheckRun,
+    log: Result<String, String>,
+}
+
+/// The jobs of a run of the fast CI, each with its log.
+fn job_logs<'a>(e: &Engine, project: &config::Project, checks: &'a [CheckRun]) -> Vec<JobLog<'a>> {
+    checks
         .iter()
-        .filter_map(|l| l.as_ref().ok())
-        .flat_map(|l| timed(l))
-        .collect();
-    let unread: Vec<&str> = logs
+        .map(|check| JobLog {
+            check,
+            log: e
+                .github
+                .job_log(&repo(project), check)
+                .map(|log| hub::clean_log(&log))
+                .map_err(|f| f.what),
+        })
+        .collect()
+}
+
+/// Whether a test of a log is the one a name means: the name is the test's name in its test binary, or ends the path of
+/// it after `::`, or is the binary, a space and that name, as nextest prints a test. A name that starts or ends another
+/// test's name is not that test's.
+fn holds(t: &Timed, named: &str) -> bool {
+    t.test == named || t.test.ends_with(&format!("::{named}")) || format!("{} {}", t.binary, t.test) == named
+}
+
+/// Whether nextest counts a test as passed: `LEAK` is a pass that left a process running.
+fn passed(status: &str) -> bool {
+    status == "PASS" || status == "LEAK"
+}
+
+/// The seconds a test took, as nextest wrote them (`1.234s`).
+fn seconds(t: &Timed) -> f64 {
+    t.time.trim_end_matches('s').parse().unwrap_or(0.0)
+}
+
+/// Why no line of the logs ends a test, from the first of these that holds: the build failed, a log could not be read,
+/// a log says tests were not run because an earlier test failed (what the fast CI before it ran without
+/// `--no-fail-fast` does), a job was cancelled or timed out, or no test has that name. `shown` is how many tests the
+/// logs show ended.
+fn why_not_run(jobs: &[JobLog<'_>], shown: usize) -> String {
+    let build_failed = |j: &&JobLog<'_>| {
+        j.check
+            .steps
+            .iter()
+            .any(|s| s.name == BUILD_STEP && s.conclusion == "failure")
+    };
+    if let Some(j) = jobs.iter().find(build_failed) {
+        return format!(
+            "the code did not build: the step {BUILD_STEP} of the job {} failed",
+            j.check.name
+        );
+    }
+    if let Some((j, why)) = jobs.iter().find_map(|j| j.log.as_ref().err().map(|why| (j, why))) {
+        return format!("the log of the job {} could not be read: {why}", j.check.name);
+    }
+    if let Some(j) = jobs
         .iter()
-        .filter_map(|l| l.as_ref().err().map(String::as_str))
-        .collect();
-    let missing = if found.is_empty() && !unread.is_empty() {
-        format!("the logs of the fast CI could not be read: {}", unread.join("; "))
-    } else {
-        format!("not found among the {} tests the logs of the fast CI show", found.len())
+        .find(|j| j.log.as_ref().is_ok_and(|l| l.contains("not run due to test failure")))
+    {
+        return format!(
+            "the run stopped at an earlier failed test: the log of the job {} says tests were not run due to test failure",
+            j.check.name
+        );
+    }
+    let stopped = |j: &&JobLog<'_>| {
+        j.check.result == "cancelled"
+            || j.check
+                .steps
+                .iter()
+                .any(|s| s.name == TEST_STEP && matches!(s.conclusion.as_str(), "cancelled" | "timed_out"))
     };
-    let holds = |t: &Timed, named: &str| {
-        t.test == named
-            || format!("{} {}", t.binary, t.test) == named
-            || t.test.ends_with(&format!("::{named}"))
-            || named.ends_with(&format!("::{}", t.test))
-    };
+    if let Some(j) = jobs.iter().find(stopped) {
+        return format!(
+            "the run stopped before this test: the job {} was cancelled or timed out",
+            j.check.name
+        );
+    }
+    format!(
+        "no test of that name ended in the fast CI (the logs show {shown} tests): the name is no test's, or the test is \
+         ignored"
+    )
+}
+
+/// How each named test ended in a run of the fast CI, one entry for each name, as the logs and steps of the run's jobs
+/// tell: `passed` with its time, `failed` with its time and how it ended, or `not_run` with why. cargo-nextest runs each
+/// test on its own and writes a line as it ends. A name that holds several tests gives the worst of them, with how many
+/// it holds; a test with no line is never `passed`.
+fn test_results(tests: &[String], jobs: &[JobLog<'_>]) -> Vec<Value> {
+    // A test in the logs of two jobs counts once, the worse of its two ends.
+    let mut found: Vec<Timed> = Vec::new();
+    for t in jobs.iter().filter_map(|j| j.log.as_ref().ok()).flat_map(|l| timed(l)) {
+        match found.iter_mut().find(|f| f.binary == t.binary && f.test == t.test) {
+            Some(f) if passed(&f.status) && !passed(&t.status) => *f = t,
+            Some(_) => {}
+            None => found.push(t),
+        }
+    }
     tests
         .iter()
         .map(|named| {
-            let time = found
+            let hits: Vec<&Timed> = found.iter().filter(|t| holds(t, named)).collect();
+            let worst = hits
                 .iter()
-                .find(|t| holds(t, named))
-                .map(|t| match t.status.as_str() {
-                    "PASS" => t.time.clone(),
-                    status => format!("{}, ended {status}", t.time),
-                })
-                .unwrap_or_else(|| missing.clone());
-            json!({ "test": named, "time": time })
+                .find(|t| !passed(&t.status))
+                .or_else(|| hits.iter().max_by(|a, b| seconds(a).total_cmp(&seconds(b))));
+            let Some(worst) = worst else {
+                return json!({ "test": named, "result": "not_run", "why": why_not_run(jobs, found.len()) });
+            };
+            let mut r = json!({
+                "test": named,
+                "result": if passed(&worst.status) { "passed" } else { "failed" },
+                "time": worst.time,
+            });
+            if worst.status != "PASS" {
+                r["ended"] = json!(worst.status);
+            }
+            if hits.len() > 1 {
+                r["matched"] = json!(hits.len());
+            }
+            r
         })
         .collect()
+}
+
+/// The tests a request names, as given.
+fn named_tests(req: &Value) -> Vec<String> {
+    req["tests"]
+        .as_array()
+        .map(|ts| ts.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
 }
 
 // Cell `X1`.
@@ -540,10 +640,7 @@ fn ci(
         )
     });
     let fallback = (item.title.clone(), format!("{}\n\nWhy: {}", item.problem, item.why));
-    let tests: Vec<String> = req["tests"]
-        .as_array()
-        .map(|ts| ts.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
-        .unwrap_or_default();
+    let tests = named_tests(req);
     let got = attempts(e, round, "ci", req, || {
         hub::push(&wt, &sha, &format!("refs/heads/{branch}"), false)?;
         let tb = title_body
@@ -558,17 +655,9 @@ fn ci(
         )?;
         pr.set(Some(n));
         let checks = e.github.checks(&repo(project), &sha, &project.ci.fast)?;
-        let logs: Vec<Result<String, String>> = checks
-            .iter()
-            .map(|c| {
-                e.github
-                    .job_log(&repo(project), c)
-                    .map_err(|f| format!("{}: {}", c.name, f.what))
-            })
-            .collect();
-        let times = test_times(&tests, &logs);
+        let results = test_results(&tests, &job_logs(e, project, &checks));
         Ok(
-            json!({ "push": { "verdict": "pushed", "head": sha, "checks": checks_json(&checks), "times": times }, "pr": n }),
+            json!({ "push": { "verdict": "pushed", "head": sha, "checks": checks_json(&checks), "tests": results }, "pr": n }),
         )
     })?;
     *pushed = Some(sha.clone());
@@ -619,12 +708,15 @@ fn ci_before(
         .map(|s| s.trim().to_string())
         .map_err(|x| (Failure::other(x), String::new()))?;
     let refname = format!("refs/heads/wf-agents-before/{}-{}-{n}", round.work, round.n);
+    let tests = named_tests(req);
     attempts(e, round, "ci_before", req, || {
         let commit = git::files_onto(&wt, &files, &sha, &base).map_err(Failure::other)?;
         hub::push(&wt, &commit, &refname, true)?;
         let checks = e.github.checks(&repo(project), &commit, &project.ci.fast);
         let _ = hub::delete_ref(&wt, &refname);
-        Ok(json!({ "ran": { "verdict": "ran", "checks": checks_json(&checks?) } }))
+        let checks = checks?;
+        let results = test_results(&tests, &job_logs(e, project, &checks));
+        Ok(json!({ "ran": { "verdict": "ran", "checks": checks_json(&checks), "tests": results } }))
     })
 }
 
@@ -904,38 +996,246 @@ mod tests {
         assert!(words("pr view 'x").is_err());
     }
 
+    /// A job of the fast CI with the steps given as (name, conclusion).
+    fn check(name: &str, result: &str, steps: &[(&str, &str)]) -> CheckRun {
+        CheckRun {
+            name: name.to_string(),
+            result: result.to_string(),
+            run: format!("https://example.invalid/{name}"),
+            log_tail: None,
+            log_path: None,
+            steps: steps
+                .iter()
+                .map(|(n, c)| hub::Step {
+                    name: n.to_string(),
+                    conclusion: c.to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    /// The job and its log as `job_logs` hands them to the reading, the log cleaned as gh's is.
+    fn job<'a>(check: &'a CheckRun, log: Result<&str, &str>) -> JobLog<'a> {
+        JobLog {
+            check,
+            log: log.map(hub::clean_log).map_err(str::to_string),
+        }
+    }
+
+    fn names(ns: &[&str]) -> Vec<String> {
+        ns.iter().map(|n| n.to_string()).collect()
+    }
+
     #[test]
-    fn a_named_test_is_given_its_own_time_from_any_job_s_log() {
-        let first = "    Starting 3 tests across 2 binaries (5 tests skipped)
-        PASS [   0.007s] (1/3) engine tools::tests::a_command_line_is_split_as_a_shell_would
+    fn a_named_test_is_given_its_result_from_any_job_s_log() {
+        let first = "    Starting 4 tests across 2 binaries (5 tests skipped)
+        PASS [   0.007s] (1/4) engine tools::tests::a_command_line_is_split_as_a_shell_would
         SLOW [> 30.000s] (───────) engine::e2e a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue
-        PASS [  35.134s] (2/3) engine::e2e a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue
-     TIMEOUT [  60.003s] (3/3) engine::e2e a_work_s_pause_is_kept_across_a_restart
+        PASS [  35.134s] (2/4) engine::e2e a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue
+     TIMEOUT [  60.003s] (3/4) engine::e2e a_work_s_pause_is_kept_across_a_restart
+        LEAK [   0.100s] (4/4) engine::e2e a_leaky_test
 ------------
-     Summary [  60.010s] 3 tests run: 2 passed, 1 timed out, 5 skipped
-     TIMEOUT [  60.003s] (3/3) engine::e2e a_work_s_pause_is_kept_across_a_restart
+     Summary [  60.010s] 4 tests run: 3 passed, 1 timed out, 5 skipped
+     TIMEOUT [  60.003s] (3/4) engine::e2e a_work_s_pause_is_kept_across_a_restart
 ";
         let second = "        FAIL [   1.250s] (1/1) flow::negative no_such_view\n";
-        let named = vec![
-            "a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue".to_string(),
-            "engine::tools::tests::a_command_line_is_split_as_a_shell_would".to_string(),
-            "engine::e2e a_work_s_pause_is_kept_across_a_restart".to_string(),
-            "no_such_view".to_string(),
-            "missing".to_string(),
-        ];
-        let times = test_times(&named, &[Ok(first.to_string()), Ok(second.to_string())]);
-        assert_eq!(times[0], json!({ "test": named[0], "time": "35.134s" }));
-        assert_eq!(times[1]["time"], "0.007s");
-        assert_eq!(times[2]["time"], "60.003s, ended TIMEOUT");
-        assert_eq!(times[3]["time"], "1.250s, ended FAIL");
+        let (green, red) = (check("test 1 of 3", "green", &[]), check("test 2 of 3", "red", &[]));
+        let jobs = [job(&green, Ok(first)), job(&red, Ok(second))];
+        let named = names(&[
+            "a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue",
+            "tools::tests::a_command_line_is_split_as_a_shell_would",
+            "engine::e2e a_work_s_pause_is_kept_across_a_restart",
+            "no_such_view",
+            "a_leaky_test",
+            "missing",
+        ]);
+        let results = test_results(&named, &jobs);
+        // A test that passed has its own entry, in a job that is green too.
         assert_eq!(
-            times[4]["time"],
-            "not found among the 4 tests the logs of the fast CI show"
+            results[0],
+            json!({ "test": named[0], "result": "passed", "time": "35.134s" })
         );
-        let unread = test_times(&named[..1], &[Err("check: HTTP 404".to_string())]);
         assert_eq!(
-            unread[0]["time"],
-            "the logs of the fast CI could not be read: check: HTTP 404"
+            results[1],
+            json!({ "test": named[1], "result": "passed", "time": "0.007s" })
+        );
+        assert_eq!(
+            results[2],
+            json!({ "test": named[2], "result": "failed", "time": "60.003s", "ended": "TIMEOUT" })
+        );
+        assert_eq!(
+            results[3],
+            json!({ "test": named[3], "result": "failed", "time": "1.250s", "ended": "FAIL" })
+        );
+        assert_eq!(
+            results[4],
+            json!({ "test": named[4], "result": "passed", "time": "0.100s", "ended": "LEAK" })
+        );
+        assert_eq!(results[5]["result"], "not_run");
+        assert_eq!(
+            results[5]["why"],
+            "no test of that name ended in the fast CI (the logs show 5 tests): the name is no test's, or the test is ignored"
+        );
+    }
+
+    // Five tests that all fail, in jobs that each run every test to its end: each has its own result and none is not_run.
+    #[test]
+    fn five_failing_tests_each_have_a_result_when_every_test_runs_to_its_end() {
+        let (a, b, c) = (
+            check("test 1 of 3", "red", &[("Build", "success"), ("Test", "failure")]),
+            check("test 2 of 3", "red", &[("Build", "success"), ("Test", "failure")]),
+            check("test 3 of 3", "red", &[("Build", "success"), ("Test", "failure")]),
+        );
+        let jobs = [
+            job(
+                &a,
+                Ok(
+                    "        FAIL [   0.1s] (1/2) engine::e2e t1\n        PASS [   0.2s] (2/2) engine::e2e other\n        FAIL [   0.3s] (3/3) engine::e2e t2\n",
+                ),
+            ),
+            job(&b, Ok("        FAIL [   0.1s] (1/1) engine::e2e t3\n")),
+            job(
+                &c,
+                Ok(
+                    "        FAIL [   0.1s] (1/2) flow::negative t4\n     TIMEOUT [  60.0s] (2/2) flow::negative t5\n------------\n     Summary [  60.1s] 5 tests run: 0 passed, 4 failed, 1 timed out\n        FAIL [   0.1s] (1/2) flow::negative t4\n",
+                ),
+            ),
+        ];
+        let named = names(&["t1", "t2", "t3", "t4", "t5"]);
+        let results = test_results(&named, &jobs);
+        assert_eq!(results.len(), 5);
+        let ended: Vec<(&str, &str)> = results
+            .iter()
+            .map(|r| (r["result"].as_str().unwrap(), r["ended"].as_str().unwrap()))
+            .collect();
+        assert_eq!(
+            ended,
+            [
+                ("failed", "FAIL"),
+                ("failed", "FAIL"),
+                ("failed", "FAIL"),
+                ("failed", "FAIL"),
+                ("failed", "TIMEOUT")
+            ]
+        );
+    }
+
+    // Each of the five reasons a test has no line, and the order they are told in; never passed.
+    #[test]
+    fn a_test_with_no_line_is_not_run_and_says_why_and_is_never_passed() {
+        let named = names(&["t"]);
+        let why = |jobs: &[JobLog<'_>]| {
+            let r = &test_results(&named, jobs)[0];
+            assert_eq!(r["result"], "not_run", "{r}");
+            assert!(r.get("time").is_none());
+            r["why"].as_str().unwrap().to_string()
+        };
+        let ok_log = "        PASS [   0.1s] (1/1) engine::e2e other\n";
+        let fail_fast = "        FAIL [   0.1s] (1/9) engine::e2e a\n     Summary [  1.0s] 1/9 tests run: 0 passed, 1 failed, 0 skipped\nwarning: 8/9 tests were not run due to test failure (run with --no-fail-fast to run all tests)\n";
+        let built = check("t1", "green", &[("Build", "success"), ("Test", "success")]);
+        let not_built = check("t2", "red", &[("Build", "failure"), ("Test", "skipped")]);
+        let cancelled = check("t3", "cancelled", &[("Build", "success"), ("Test", "cancelled")]);
+        let timed_out = check("t4", "red", &[("Build", "success"), ("Test", "timed_out")]);
+
+        // The build failed: the code did not compile, so no test of it ran.
+        assert!(why(&[job(&built, Ok(ok_log)), job(&not_built, Ok(""))]).starts_with("the code did not build"));
+        // A log that could not be read could have held the line.
+        assert_eq!(
+            why(&[job(&built, Ok(ok_log)), job(&built, Err("HTTP 404"))]),
+            "the log of the job t1 could not be read: HTTP 404"
+        );
+        // The run before the fast CI ran every test stopped at the first failed test, in a log as nextest writes it.
+        assert!(
+            why(&[job(&built, Ok(ok_log)), job(&built, Ok(fail_fast))])
+                .starts_with("the run stopped at an earlier failed test")
+        );
+        // The same, said of one test that was not run.
+        let one = "warning: 1/9 test was not run due to test failure\n";
+        assert!(why(&[job(&built, Ok(one))]).starts_with("the run stopped at an earlier failed test"));
+        // A job cancelled, or timed out in its test step, before it showed the test.
+        assert_eq!(
+            why(&[job(&cancelled, Ok(ok_log))]),
+            "the run stopped before this test: the job t3 was cancelled or timed out"
+        );
+        assert!(why(&[job(&timed_out, Ok(ok_log))]).starts_with("the run stopped before this test"));
+        // None of these: no test has the name.
+        assert!(why(&[job(&built, Ok(ok_log))]).starts_with("no test of that name ended"));
+        // No jobs and no logs at all is no result either.
+        assert!(why(&[]).starts_with("no test of that name ended"));
+        // The order: a build that failed is told before an unreadable log, before a stop at a failed test, before a
+        // cancelled job.
+        assert!(
+            why(&[
+                job(&cancelled, Ok(fail_fast)),
+                job(&built, Err("x")),
+                job(&not_built, Ok(fail_fast))
+            ])
+            .starts_with("the code did not build")
+        );
+        assert!(why(&[job(&cancelled, Ok(fail_fast)), job(&built, Err("x"))]).starts_with("the log of the job t1"));
+        assert!(why(&[job(&cancelled, Ok(fail_fast))]).starts_with("the run stopped at an earlier failed test"));
+        // A line wins over every reason: a job whose log could not be read does not make a test with a line not run.
+        let lines = "        PASS [   0.5s] (1/1) engine::e2e t\n";
+        let r = test_results(&named, &[job(&built, Err("HTTP 404")), job(&not_built, Ok(lines))]);
+        assert_eq!(r[0], json!({ "test": "t", "result": "passed", "time": "0.5s" }));
+    }
+
+    // A name holds the tests whose name in their binary is it or ends in `::` and it, not those it only starts or ends.
+    #[test]
+    fn a_name_holds_only_the_tests_it_names() {
+        let log = "        PASS [   0.1s] (1/6) engine::e2e a_row
+        PASS [   0.2s] (2/6) engine::e2e a_row_into_the_asking_part
+        FAIL [   0.3s] (3/6) engine::e2e mod_a::a_row
+        PASS [   0.4s] (4/6) engine::e2e other_a_row
+        PASS [   0.5s] (5/6) flow::negative a_row
+        PASS [   0.6s] (6/6) engine tools::tests::a_command_line
+";
+        let c = check("test", "red", &[]);
+        let jobs = [job(&c, Ok(log))];
+        let r = |n: &str| test_results(&names(&[n]), &jobs).remove(0);
+        // a_row is three tests, one failed: the worst of them, and how many.
+        assert_eq!(
+            r("a_row"),
+            json!({ "test": "a_row", "result": "failed", "time": "0.3s", "ended": "FAIL", "matched": 3 })
+        );
+        // One path names one test; the binary and the name as nextest writes them name one test in one binary.
+        assert_eq!(
+            r("mod_a::a_row"),
+            json!({ "test": "mod_a::a_row", "result": "failed", "time": "0.3s", "ended": "FAIL" })
+        );
+        assert_eq!(
+            r("flow::negative a_row"),
+            json!({ "test": "flow::negative a_row", "result": "passed", "time": "0.5s" })
+        );
+        assert_eq!(
+            r("a_row_into_the_asking_part"),
+            json!({ "test": "a_row_into_the_asking_part", "result": "passed", "time": "0.2s" })
+        );
+        // A name that starts or ends another's, or is a piece of it, is no test's.
+        for n in [
+            "a_row_into",
+            "row",
+            "_row",
+            "a_row_in",
+            "engine a_row",
+            "::a_row",
+            "tests::a_command",
+            "",
+        ] {
+            assert_eq!(r(n)["result"], "not_run", "{n}");
+        }
+        // A test in the logs of two jobs counts once, as the worse of its two ends.
+        let (a, b) = (check("a", "green", &[]), check("b", "red", &[]));
+        let twice = test_results(
+            &names(&["a_row"]),
+            &[
+                job(&a, Ok("        PASS [   0.1s] (1/1) engine::e2e a_row\n")),
+                job(&b, Ok("        FAIL [   0.2s] (1/1) engine::e2e a_row\n")),
+            ],
+        );
+        assert_eq!(
+            twice[0],
+            json!({ "test": "a_row", "result": "failed", "time": "0.2s", "ended": "FAIL" })
         );
     }
 
@@ -954,9 +1254,47 @@ mod tests {
             "tools::tests::a_command_line_is_split_as_a_shell_would".to_string(),
             "a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue".to_string(),
         ];
-        let times = test_times(&named, &[Ok(log.to_string())]);
-        assert_eq!(times[0]["time"], "0.007s");
-        assert_eq!(times[1]["time"], "35.134s");
+        let check = check("test 1 of 3", "green", &[("Build", "success"), ("Test", "success")]);
+        // The log as gh gives it, which `job_logs` cleans before the reading.
+        let results = test_results(&named, &[job(&check, Ok(log))]);
+        assert_eq!(
+            results[0],
+            json!({ "test": named[0], "result": "passed", "time": "0.007s" })
+        );
+        assert_eq!(
+            results[1],
+            json!({ "test": named[1], "result": "passed", "time": "35.134s" })
+        );
+    }
+
+    // The engine reads the steps Build and Test of the test job by their names, and a test with no line as not run: the
+    // workflow builds in one step (--no-run) and runs every test in the other (--no-fail-fast), the same build in both.
+    #[test]
+    fn the_fast_ci_builds_in_one_step_and_runs_every_test_in_another() {
+        let workflow = include_str!("../../../.github/workflows/ci.yml");
+        let lines: Vec<&str> = workflow.lines().map(str::trim).collect();
+        let run_of = |step: &str| -> String {
+            let named: Vec<usize> = (0..lines.len())
+                .filter(|&i| lines[i] == format!("- name: {step}"))
+                .collect();
+            assert_eq!(named.len(), 1, "the steps named {step}: {named:?}");
+            lines[named[0] + 1]
+                .strip_prefix("run: ")
+                .unwrap_or_else(|| panic!("the step {step} runs nothing on its next line"))
+                .to_string()
+        };
+        let (build, test) = (run_of(BUILD_STEP), run_of(TEST_STEP));
+        let nextest = "cargo nextest run --workspace --locked --cargo-profile ci --profile ci";
+        assert!(
+            build.starts_with(nextest) && test.starts_with(nextest),
+            "{build}\n{test}"
+        );
+        assert!(build.contains("--no-run") && !build.contains("--partition"), "{build}");
+        assert!(
+            test.contains("--no-fail-fast") && test.contains("--partition"),
+            "{test}"
+        );
+        assert!(!test.contains("--no-run"), "{test}");
     }
 
     #[test]

@@ -106,9 +106,15 @@ jobs:
           npm ci
           npm run build
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test
-      # at 60 s; each job runs a third of every test binary's tests.
+      # at 60 s. The build is a step of its own, so that the engine tells from the steps of a job a build that failed
+      # from tests that were not run; the step Test builds nothing more. The engine reads these two steps by their
+      # names, and the results of the tests from the line nextest writes as each ends.
+      - name: Build
+        run: cargo nextest run --workspace --locked --cargo-profile ci --profile ci --no-run
+      # Each job runs a third of every test binary's tests, every one to its end whatever fails before it: a test
+      # nextest did not start has no line in any log, and the engine reads a test with no line as not run.
       - name: Test
-        run: cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition count:${{ matrix.shard }}/3
+        run: cargo nextest run --workspace --locked --cargo-profile ci --profile ci --no-fail-fast --partition count:${{ matrix.shard }}/3
 
   check:
     needs: [lint, test]

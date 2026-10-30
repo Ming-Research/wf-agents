@@ -411,6 +411,70 @@
         "$ref": "checks_item"
       }
     },
+    "test_results": {
+      "name": "tests",
+      "title": "Test results",
+      "type": "list",
+      "desc": "How each test you named ended in the fast CI run, one row for each name, in your order: read from the line cargo-nextest writes as each test ends in the logs of every job, and, for a test with no such line, from the jobs' steps",
+      "item": {
+        "type": "obj",
+        "fields": [
+          {
+            "name": "test",
+            "title": "Test",
+            "type": "text",
+            "desc": "The name you gave"
+          },
+          {
+            "name": "result",
+            "title": "Result",
+            "type": "enum",
+            "values": [
+              [
+                "passed",
+                "A job's log has the line that ends the test, and it passed"
+              ],
+              [
+                "failed",
+                "A job's log has the line that ends the test, and it did not pass: ended says how"
+              ],
+              [
+                "not_run",
+                "No job's log has a line that ends the test: why says the reason. A test with no line is never passed"
+              ]
+            ]
+          },
+          {
+            "name": "time",
+            "title": "Time",
+            "type": "text",
+            "desc": "How long the test took on its own, as nextest wrote it; for a name that holds several tests, the slowest of those that passed, or the first that did not",
+            "optional": true
+          },
+          {
+            "name": "ended",
+            "title": "How it ended",
+            "type": "text",
+            "desc": "How a test that did not pass ended, as nextest writes it: FAIL, TIMEOUT, ABORT, or a signal such as SIGSEGV; LEAK for a test that passed and left a process running",
+            "optional": true
+          },
+          {
+            "name": "matched",
+            "title": "Tests the name holds",
+            "type": "int",
+            "desc": "How many tests in the logs the name holds, when more than one; the row is the worst of them",
+            "optional": true
+          },
+          {
+            "name": "why",
+            "title": "Why it did not run",
+            "type": "text",
+            "desc": "Why no line ends the test, from the first that holds: the code did not build (the step Build of a job failed); a job's log could not be read; the run stopped at an earlier failed test (a log says tests were not run due to test failure, as the fast CI did before it ran every test); a job was cancelled or timed out; or no test has that name, or the test is ignored",
+            "optional": true
+          }
+        ]
+      }
+    },
     "decision_kind": {
       "type": "enum",
       "values": [
@@ -2615,8 +2679,8 @@
   "tools": [
     {
       "name": "ci",
-      "desc": "Pushes your local commits and runs the repository's fast CI on the commit; when it is done, gives you the result of each check",
-      "runs": "The engine checks the head and pushes. On the first push it opens a draft PR with the title and description handed in, and updates them when new ones come. It triggers the fast CI workflow the project's configuration names, with the tests to run, and waits for it to finish. It downloads the logs of red checks. It also runs each listed test once on its own and notes how long each took",
+      "desc": "Pushes your local commits and runs the repository's fast CI on the commit; when it is done, gives you the result of each check and of each test you name",
+      "runs": "The engine checks the head and pushes. On the first push it opens a draft PR with the title and description handed in, and updates them when new ones come. The push runs the fast CI workflow the project's configuration names, which runs every test to its end; the engine waits for it to finish. It downloads the logs of red checks. It reads the log of every job for each test listed: the test's own result and time, or, for a test no line ends, why it did not run",
       "in": [
         {
           "name": "head",
@@ -2626,9 +2690,9 @@
         },
         {
           "name": "tests",
-          "title": "Tests to run",
+          "title": "Tests to read the results of",
           "type": "list",
-          "desc": "Which tests to run",
+          "desc": "Which tests to read the results and times of, by their names: a name is the test's name in its test binary (`a_row`), or a path that ends in it (`mod::a_row` for `a_row` in the module `mod`), or the binary and the name as nextest prints a test (`engine::e2e a_row`); not a part of a name, so `a_row` does not give the result of `a_row_into_the_asking_part`",
           "item": {
             "type": "text",
             "desc": "The test's name"
@@ -2679,27 +2743,7 @@
                   "$ref": "checks"
                 },
                 {
-                  "name": "times",
-                  "title": "Test times",
-                  "type": "list",
-                  "desc": "How long each listed test took when run on its own, one per row",
-                  "item": {
-                    "type": "obj",
-                    "fields": [
-                      {
-                        "name": "test",
-                        "title": "Test",
-                        "type": "text",
-                        "desc": "The test's name"
-                      },
-                      {
-                        "name": "time",
-                        "title": "Time",
-                        "type": "text",
-                        "desc": "How long it took"
-                      }
-                    ]
-                  }
+                  "$ref": "test_results"
                 }
               ]
             },
@@ -2721,8 +2765,8 @@
     },
     {
       "name": "ci_before",
-      "desc": "Runs the tests you list on the code before the change: the engine puts these tests' files on the code before the change, runs the fast CI once, and gives you the result of each check. Nothing goes onto this work's branch",
-      "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, and commits that to a temporary ref. It triggers the fast CI workflow the project's configuration names, with the tests to run, waits for it to finish, and deletes the temporary ref. It downloads the logs of red checks",
+      "desc": "Runs the fast CI on the code before the change, with your tests' files put on it, and gives you the result of each check and of each test you name. Nothing goes onto this work's branch",
+      "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, and commits that to a temporary ref. The push of that ref runs the fast CI workflow the project's configuration names, which runs every test to its end; the engine waits for it to finish and deletes the temporary ref. It downloads the logs of red checks. It reads the log of every job for each test listed, as the ci tool does: the test's own result and time, or, for a test no line ends, why it did not run",
       "in": [
         {
           "name": "head",
@@ -2743,9 +2787,9 @@
         },
         {
           "name": "tests",
-          "title": "Tests to run",
+          "title": "Tests to read the results of",
           "type": "list",
-          "desc": "Which tests to run",
+          "desc": "Which tests to read the results of, by their names: a name is the test's name in its test binary (`a_row`), or a path that ends in it (`mod::a_row` for `a_row` in the module `mod`), or the binary and the name as nextest prints a test (`engine::e2e a_row`); not a part of a name, so `a_row` does not give the result of `a_row_into_the_asking_part`",
           "item": {
             "type": "text",
             "desc": "The test's name"
@@ -2767,6 +2811,9 @@
               "fields": [
                 {
                   "$ref": "checks"
+                },
+                {
+                  "$ref": "test_results"
                 }
               ]
             },

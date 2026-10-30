@@ -12,7 +12,7 @@ use std::rc::Rc;
 use db::Actor;
 use db::rusqlite::params;
 use engine::agent::{Agents, Reply, Request};
-use engine::hub::{CheckRun, Failure, GitHub};
+use engine::hub::{CheckRun, Failure, GitHub, Step};
 use engine::{Advance, Engine};
 use serde_json::{Value, json};
 
@@ -356,13 +356,57 @@ impl GitHub for FakeHub {
     }
 
     fn checks(&self, _repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
+        // The code before a change, which `ci_before` pushes to a ref of its own, fails one of its tests.
+        let origin = self.origin.to_string_lossy();
+        let refs = git(
+            &self.scratch,
+            &[
+                "--git-dir",
+                &origin,
+                "for-each-ref",
+                "--points-at",
+                sha,
+                "refs/heads/wf-agents-before/",
+            ],
+        );
+        let before = !refs.is_empty();
+        let (kind, result, test) = if before {
+            ("before", "red", "failure")
+        } else {
+            ("head", "green", "success")
+        };
         Ok(vec![CheckRun {
             name: "check".into(),
-            result: "green".into(),
-            run: format!("https://example.invalid/{workflow}/{sha}"),
+            result: result.into(),
+            run: format!("https://example.invalid/{kind}/{workflow}/{sha}"),
             log_tail: None,
             log_path: None,
+            steps: [("Build", "success"), ("Test", test)]
+                .map(|(name, conclusion)| Step {
+                    name: name.into(),
+                    conclusion: conclusion.into(),
+                })
+                .into(),
         }])
+    }
+
+    /// The log of a job as gh gives it: the job, the step and the time before each line of nextest's.
+    fn job_log(&self, _repo: &str, check: &CheckRun) -> Result<String, Failure> {
+        let lines: &[&str] = if check.run.contains("/before/") {
+            &[
+                "        FAIL [   0.020s] ( 1/2) p::e2e broken",
+                "        PASS [   0.010s] ( 2/2) p::e2e feature",
+            ]
+        } else {
+            &[
+                "        PASS [   0.010s] ( 1/2) p::e2e feature",
+                "        PASS [   0.030s] ( 2/2) p::e2e feature_in_depth",
+            ]
+        };
+        Ok(lines
+            .iter()
+            .map(|l| format!("check\tTest\t2026-10-30T00:57:30.8321137Z {l}\n"))
+            .collect())
     }
 
     fn rerun(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
@@ -739,6 +783,91 @@ fn an_item_goes_from_the_queue_to_main() {
         message.contains("you only read it, and change and commit nothing there"),
         "{message}"
     );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// ci and ci_before give each test they are named its own result, read from the logs of the fast CI's jobs: one that
+// passed, one that failed, and one with no line that did not run, with why. The answer is checked against the flow's
+// schema for the tool cell's return, as the engine does with every tool result.
+#[test]
+fn ci_and_ci_before_give_each_test_named_its_own_result() {
+    let s = setup("ci-results");
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            write(wt, "src/lib.txt", "old\nfeature\n");
+            write(wt, "tests/t.txt", "a test\n");
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Add the feature"]);
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            let tests = ["feature", "broken", "missing"];
+            let tools = json!([
+                { "tool": "ci_before", "head": head, "files": ["tests/t.txt"], "tests": tests },
+                { "tool": "ci", "head": head, "tests": tests, "pr": { "title": "Add the feature", "body": "It adds it." } },
+            ]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let ran = |e: &mut Engine| {
+        state(e, item).is_some_and(|(w, _, _)| {
+            cells_of(e, w)
+                .iter()
+                .any(|c| c.0 == "X1" && c.1.as_deref() == Some("ran"))
+        })
+    };
+    assert!(steps_until(&mut e, 40, ran), "{}", said.borrow().join("\n"));
+    let result_of = |tool: &str| -> Value {
+        let text: String =
+            e.db.conn()
+                .query_row(
+                    "SELECT result FROM tool_runs WHERE tool = ?1 AND result IS NOT NULL ORDER BY id DESC LIMIT 1",
+                    [tool],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        serde_json::from_str(&text).unwrap()
+    };
+    // On the head every test named that has a line passed, and the one with none did not run, said so.
+    let head = result_of("ci");
+    let on_head = head["push"]["tests"].as_array().unwrap();
+    assert_eq!(
+        on_head[0],
+        json!({ "test": "feature", "result": "passed", "time": "0.010s" })
+    );
+    assert_eq!(on_head[1]["result"], "not_run", "{head}");
+    assert!(
+        on_head[1]["why"]
+            .as_str()
+            .unwrap()
+            .starts_with("no test of that name ended"),
+        "{head}"
+    );
+    assert_eq!(on_head[2]["result"], "not_run");
+    // Before the change the tool reads the same logs: one test failed, one passed, one did not run.
+    let before = result_of("ci_before");
+    assert_eq!(before["ran"]["verdict"], "ran", "{before}");
+    assert_eq!(
+        before["ran"]["tests"],
+        json!([
+            { "test": "feature", "result": "passed", "time": "0.010s" },
+            { "test": "broken", "result": "failed", "time": "0.020s", "ended": "FAIL" },
+            { "test": "missing", "result": "not_run",
+              "why": "no test of that name ended in the fast CI (the logs show 2 tests): the name is no test's, or the test is ignored" },
+        ]),
+        "{before}"
+    );
+    // What agents are given is the checks and the results only: the job's steps stay with the engine.
+    assert!(before["ran"]["checks"][0].get("steps").is_none(), "{before}");
+    let rejected: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM rounds WHERE rejected IS NOT NULL", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(rejected, 0, "{}", said.borrow().join("\n"));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
