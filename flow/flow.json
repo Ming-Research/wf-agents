@@ -14533,7 +14533,7 @@
           "inputs": [
             {
               "name": "The report",
-              "what": "The report and where it came from: its text as written, the work, the item and the cell that handed it in, whether it is urgent; for what to do next after a report, the report's paths and the commit that merged it; for flow feedback, what each cell's rounds said, by cell, and the project that is wf-agents; for a fault of wf-agents forwarded to you, the notice the owner was told with its kind, the engine's evidence as it stands now (the cache misses it holds, or the ask a flow anomaly put, with its answer) and who forwarded it",
+              "what": "The report and where it came from: its text as written, the work, the item and the cell that handed it in, whether it is urgent; for what to do next after a report, the report's paths and the commit that merged it; for flow feedback, what each cell's rounds said, by cell, and the project that is wf-agents; for a fault of wf-agents forwarded to you, the notice the owner was told with its kind, the engine's evidence as it stands now (the cache misses it holds, or the ask a flow anomaly put, with its answer) and who forwarded it; for the side reports handed in before you ran, each text once by its work and cell, with how many times and in which rounds, and whether that work goes on, merged, is done, ended or its item was cancelled",
               "from": [
                 {
                   "engine": "matter"

@@ -3950,6 +3950,15 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
                 material.insert("fault".into(), f);
             }
         }
+        // The side reports handed in before the architect ran, which a migration put in one matter: each once, by its
+        // work and cell, instead of the list as it was handed in, round after round.
+        "report" if matter["body"]["side_reports"].is_array() => {
+            let reports = items(matter["body"].get("side_reports"));
+            if let Some(b) = matter["body"].as_object_mut() {
+                b.remove("side_reports");
+            }
+            material.insert("side_reports".into(), side_reports_once(e, &reports)?);
+        }
         "design_card" => {
             if let Some(card) = matter["body"]["design_card"].as_i64() {
                 let rows = query_json(
@@ -4013,6 +4022,85 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
         _ => {}
     }
     Ok(Some(json!({ "matter": matter, "material": material })))
+}
+
+/// Side reports, each as a list of them holds it (`{ work, round, cell, report }`), by work and cell in the order they
+/// came: each text once, trimmed and its spaces collapsed, with its kind, whether it was urgent, how many times it was
+/// handed in and in which rounds, and how the work it came from stands now (it goes on, it merged, it is done, it
+/// ended and why, or its item was cancelled), which tells whether a report can still matter. A report handed in as the
+/// JSON text of a list holds that list; one that holds no text holds nothing and is left out.
+fn side_reports_once(e: &Engine, reports: &[Value]) -> Result<Value, String> {
+    let conn = e.db.conn();
+    let end = engineer_graph(e).map(|g| g.end.clone()).unwrap_or_default();
+    let mut groups: Vec<Value> = Vec::new();
+    for r in reports {
+        let said: Vec<Value> = match &r["report"] {
+            Value::String(t) => match serde_json::from_str::<Value>(t) {
+                Ok(Value::Array(xs)) => xs,
+                Ok(o @ Value::Object(_)) => vec![o],
+                _ => vec![json!({ "what": t })],
+            },
+            Value::Array(xs) => xs.clone(),
+            other => vec![other.clone()],
+        };
+        for one in said {
+            let what = text(&one["what"]).split_whitespace().collect::<Vec<_>>().join(" ");
+            if what.is_empty() {
+                continue;
+            }
+            let at = |g: &Value| g["work"] == r["work"] && g["cell"] == r["cell"];
+            let i = match groups.iter().position(at) {
+                Some(i) => i,
+                None => {
+                    groups.push(json!({ "work": r["work"], "cell": r["cell"], "reports": [] }));
+                    groups.len() - 1
+                }
+            };
+            let Some(list) = groups[i]["reports"].as_array_mut() else {
+                continue;
+            };
+            let (round, urgent) = (r["round"].clone(), one["urgent"] == true);
+            match list.iter_mut().find(|x| x["what"] == what.as_str()) {
+                Some(x) => {
+                    x["times"] = json!(x["times"].as_i64().unwrap_or(1) + 1);
+                    if let Some(rounds) = x["rounds"].as_array_mut() {
+                        rounds.push(round);
+                    }
+                    if urgent {
+                        x["urgent"] = json!(true);
+                    }
+                }
+                None => list.push(json!({
+                    "kind": one["kind"], "urgent": urgent, "what": what, "times": 1, "rounds": [round],
+                })),
+            }
+        }
+    }
+    for g in &mut groups {
+        let Some(work) = g["work"].as_i64() else { continue };
+        let row: Option<(String, Option<String>, Option<String>, bool)> = conn
+            .query_row(
+                &format!(
+                    "SELECT w.at, w.ended, i.cancelled,
+                       EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.cell IN {} AND r.transition = 'merged')
+                     FROM works w LEFT JOIN items i ON i.id = w.item WHERE w.id = ?1",
+                    db::cells_sql(ENGINEER, &["M2"])
+                ),
+                [work],
+                |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?)),
+            )
+            .optional()
+            .map_err(sql)?;
+        g["work_now"] = json!(match row {
+            None => "no such work".to_string(),
+            Some((_, _, Some(_), _)) => "its item was cancelled".to_string(),
+            Some((_, Some(why), None, _)) => format!("it ended: {why}"),
+            Some((_, None, None, true)) => "it merged".to_string(),
+            Some((at, None, None, false)) if at == end => "it is done".to_string(),
+            Some(_) => "it goes on".to_string(),
+        });
+    }
+    Ok(Value::Array(groups))
 }
 
 /// An item's number given as a number or as a text of one, added to a set.

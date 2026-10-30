@@ -8037,6 +8037,71 @@ fn the_review_drops_a_change_and_the_rest_is_made_without_a_revision() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The side reports handed in before the architect ran, which a migration put in one matter, are given by work and
+// cell, each text once, its spaces collapsed, with how many times and in which rounds it was handed in, and how the
+// work it came from stands; a report that holds nothing, such as the text of an empty list, is left out. In the sixth
+// trial the matter gave 65 reports from five works as one list, most handed in again round after round.
+#[test]
+fn the_side_reports_handed_in_before_are_given_once_by_work_and_cell() {
+    let s = setup("reports-once");
+    let (mut e, _) = engine(&s, scripts());
+    quiet(&mut e);
+    let item = an_item(&mut e);
+    let v = e.flow_now;
+    let arch = architect_work_at(&mut e, "H4");
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', 'I1', 'stopped: by hand')",
+            params![item, v],
+        )?;
+        let work = tx.last_insert_rowid();
+        let report = |round: i64, cell: &str, what: &str| {
+            json!({ "work": work, "round": round, "cell": cell, "index": 0,
+                    "report": { "kind": "other", "what": what, "urgent": false } })
+        };
+        let reports = json!([
+            report(2, "R1", "The lexer drops a token."),
+            report(3, "R1", " The lexer  drops a token.\n"),
+            { "work": work, "round": 4, "cell": "R1", "index": null, "report": "[]" },
+            report(5, "D1", "The lexer drops a token."),
+        ]);
+        let m = db::queue_matter(
+            tx,
+            &db::Matter {
+                project: "p".into(),
+                kind: "report".into(),
+                detail: Some("other".into()),
+                what: "Look through the 4 side reports handed in before you ran".into(),
+                body: json!({ "side_reports": reports }),
+                ..db::Matter::default()
+            },
+        )?;
+        record_round(
+            tx,
+            arch,
+            1,
+            "Q0",
+            &json!({ "queue": { "verdict": "one", "matter": m } }),
+            "one",
+        )
+    })
+    .unwrap();
+    let m = engine::next_message(&mut e, arch).unwrap().text;
+    let given = given_value(&m, "·engine·matter").expect(&m);
+    assert_eq!(given["matter"]["body"].get("side_reports"), None, "{given}");
+    let groups = given["material"]["side_reports"].as_array().expect(&m).clone();
+    let cells: Vec<&str> = groups.iter().map(|g| g["cell"].as_str().unwrap()).collect();
+    assert_eq!(cells, ["R1", "D1"], "{given}");
+    assert_eq!(groups[0]["work_now"], "it ended: stopped: by hand", "{given}");
+    assert_eq!(
+        groups[0]["reports"],
+        json!([{ "kind": "other", "urgent": false, "what": "The lexer drops a token.", "times": 2, "rounds": [2, 3] }]),
+        "{given}"
+    );
+    assert_eq!(groups[1]["reports"][0]["rounds"], json!([5]), "{given}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The architect's look at a design card leaves its queue as the owner rules the card, disagreeing with a decision as
 // much as confirming them all, or as another card replaces it, withdrawn saying why, and never reaches `H6`: in the
 // sixth trial a look queued two days before reached `H6` after the owner had ruled the card, disagreeing with a
