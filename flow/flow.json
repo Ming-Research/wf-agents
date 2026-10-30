@@ -2996,15 +2996,15 @@
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its design tree.",
       "cited_nodes": "The design tree nodes the matter at hand names, in full, as the project's main has them.",
       "since_last_work": "What happened in the project since its architect's last work: commits merged on main, works ended or stopped, the CI on main, the owner's words and design cards ruled, reports that came in; at the architect's first work, the same over the last week. Each list is the latest first, at most 60 of it, then how many earlier ones there are; a commit is given by its message's first sentence, cut at a word to 120 characters.",
-      "board": "The project's items running and queued, each with its rank, cell, stage, what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run and what it spent, or why its last work stopped; the release items with the items under them; dependencies with other projects' items.",
+      "board": "The project's items running and queued, each with its rank, cell, stage, what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the release items with the items under them; dependencies with other projects' items.",
       "numbers": "The numbers the engine measures for the project, each as the architect's work started and earlier, for the trend.",
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
       "policy": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change.",
       "policy_signals": "The signals of the project's policy the engine measures, each with its numbers: a signal that names a measure of the numbers by its name.",
-      "slots": "The machines' slots, which every project shares: how many there are, used and free, and how many items are ready.",
+      "slots": "The machines' slots, which every project shares: how many there are, used and free, and how many items are ready; and whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run's cause stops every work.",
       "queue": "The project's queue: the numbers of the matters that can be picked now, and each matter with its kind, item, who waits and since when, and what it is; those held by an ask; whether new starts are held to set things straight.",
-      "batch": "The batch so far: the numbers of the matters handled, and each with how it ended, the item changes made, and whether a hold to set things straight was released.",
+      "batch": "The batch so far: the numbers of the matters handled, and each with how it ended; its item changes, those collected so far each whole with the key of an item it creates, made only once the review finds them sound, and those made or dropped; and whether a hold to set things straight was released.",
       "matter": "The matter picked, with its material by its kind.",
       "matter_items": "The items and works the matter picked concerns, in full.",
       "item_log": "The architect's recent log entries on the item the matter concerns.",
@@ -12086,7 +12086,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, each blocking or parallel, what keeps it from starting, since when it runs and what it spent, or why its last work stopped; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
+              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, each blocking or parallel, what keeps it from starting, since when it runs, what it spent and its own pause with who paused it and why, or why its last work stopped; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
               "from": [
                 {
                   "engine": "board"
@@ -12537,7 +12537,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for) and the items queued (rank, dependencies, each blocking or parallel, ready or not, what each waits for); the release items with the items under them; the dependencies with other projects' items",
+              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for, its own pause with who paused it and why) and the items queued (rank, dependencies, each blocking or parallel, ready or not, what each waits for); the release items with the items under them; the dependencies with other projects' items",
               "from": [
                 {
                   "engine": "board"
@@ -12546,7 +12546,7 @@
             },
             {
               "name": "Slots",
-              "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'",
+              "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work",
               "from": [
                 {
                   "engine": "slots"
@@ -13331,7 +13331,7 @@
             },
             {
               "name": "The batch so far",
-              "what": "The batch so far: the matters handled in it and how each ended",
+              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
                 {
                   "engine": "batch"
@@ -13845,7 +13845,7 @@
             },
             {
               "name": "The batch so far",
-              "what": "The batch so far: the matters handled in it and how each ended",
+              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
                 {
                   "engine": "batch"
@@ -14325,7 +14325,7 @@
             },
             {
               "name": "The batch so far",
-              "what": "The batch so far: the matters handled in it and how each ended",
+              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
                 {
                   "engine": "batch"
@@ -14764,7 +14764,7 @@
             },
             {
               "name": "The batch so far",
-              "what": "The batch so far: the matters handled in it and how each ended",
+              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
                 {
                   "engine": "batch"
@@ -15048,7 +15048,7 @@
             },
             {
               "name": "The batch so far",
-              "what": "The batch so far: the matters handled in it and how each ended",
+              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
                 {
                   "engine": "batch"
@@ -15250,7 +15250,7 @@
             },
             {
               "name": "The batch so far",
-              "what": "The batch so far: the matters handled in it and how each ended",
+              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
                 {
                   "engine": "batch"
@@ -15449,7 +15449,7 @@
             },
             {
               "name": "The batch so far",
-              "what": "The batch so far: the matters handled in it and how each ended",
+              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
                 {
                   "engine": "batch"
@@ -15718,7 +15718,7 @@
             },
             {
               "name": "The batch so far",
-              "what": "The batch so far: the matters handled in it and how each ended",
+              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
                 {
                   "engine": "batch"
@@ -15874,7 +15874,7 @@
           "inputs": [
             {
               "name": "Slots",
-              "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'",
+              "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work",
               "from": [
                 {
                   "engine": "slots"
@@ -15911,7 +15911,7 @@
             },
             {
               "name": "The batch so far",
-              "what": "The batch so far: the matters handled in it and how each ended",
+              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
                 {
                   "engine": "batch"
@@ -16098,7 +16098,7 @@
             },
             {
               "name": "The batch so far",
-              "what": "The batch so far: the matters handled in it and how each ended",
+              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
                 {
                   "engine": "batch"
@@ -16788,7 +16788,7 @@
           "inputs": [
             {
               "name": "The batch",
-              "what": "The batch: the matters handled in it and how each ended, by the round that holds it; the item changes made; whether a hold to set things straight was released",
+              "what": "The batch: the matters handled in it and how each ended, by the round that holds it; its item changes, made or dropped; whether a hold to set things straight was released",
               "from": [
                 {
                   "engine": "batch"

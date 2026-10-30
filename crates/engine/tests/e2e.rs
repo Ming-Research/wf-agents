@@ -6752,7 +6752,11 @@ fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done
     assert_eq!(row(stopped)["ready"], true, "{board}");
     assert_eq!(row(stopped).get("work"), None, "{board}");
     assert_eq!(row(asking)["stage"], "implement", "{board}");
-    assert_eq!(row(asking)["paused"], "later", "{board}");
+    assert_eq!(
+        row(asking)["paused"],
+        json!({ "by": "owner", "why": "later" }),
+        "{board}"
+    );
     assert_eq!(row(asking).get("waits"), None, "{board}");
     assert_eq!(row(tools)["stage"], "implement", "{board}");
     let _ = std::fs::remove_dir_all(&s.root);
@@ -7851,6 +7855,70 @@ fn a_design_card_s_look_leaves_the_queue_once_the_owner_ruled_or_it_was_replaced
     );
     let log = said.borrow().join("\n");
     assert!(!path_of(&e, arch).contains(&"H6".to_string()), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The cells that judge what runs and what starts are told, with the slots, whether the engine runs works or the owner
+// paused every work, and which run despite it; and every cell that hands in item changes is told, with the batch, the
+// changes collected so far, each whole with the key of an item it creates, not made until the review: in the sixth
+// trial `N1` and `H10` were told two slots were free while three works stood mid-flow and could not tell whether the
+// engine ran, and `H12` could not cancel an item made earlier in the batch, for want of its key.
+#[test]
+fn the_slots_say_whether_works_run_and_the_batch_its_changes_with_their_keys() {
+    let s = setup("engine-state");
+    let (mut e, _) = engine(&s, scripts());
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "H10");
+    e.db.write(Actor::Engine, |tx| {
+        let m = db::queue_matter(
+            tx,
+            &db::Matter {
+                project: "p".into(),
+                kind: "slots_free".into(),
+                what: "2 slots are free, and no item of p is ready to start".into(),
+                body: json!({ "free": 2, "ready": 0 }),
+                ..db::Matter::default()
+            },
+        )?;
+        record_round(
+            tx,
+            arch,
+            1,
+            "Q0",
+            &json!({ "queue": { "verdict": "one", "matter": m } }),
+            "one",
+        )?;
+        let create = json!({ "kind": "create_item", "key": "cover", "project": "p", "title": "Cover the lexer",
+                             "problem": "p", "why": "w", "acceptance": ["It is covered."], "level": "l",
+                             "deliver": "change", "reason": "r" });
+        tx.execute(
+            "INSERT INTO architect_item_changes (work, round, matter, change, state)
+             VALUES (?1, 1, ?2, ?3, 'collected')",
+            params![arch, m, create.to_string()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    e.global_pause = Some(engine::GlobalPause {
+        warm: true,
+        runs: [7].into(),
+        architects: ["p".to_string()].into(),
+    });
+    let m = engine::next_message(&mut e, arch).unwrap().text;
+    let slots = given_value(&m, "·engine·slots").expect(&m);
+    assert_eq!(slots["engine"]["runs"], "paused", "{slots}");
+    assert_eq!(slots["engine"]["started"], json!([7]), "{slots}");
+    let batch = given_value(&m, "·engine·batch").expect(&m);
+    let change = &batch["item_changes"]["1"];
+    assert_eq!(
+        (&change["state"], &change["change"]["key"]),
+        (&json!("collected"), &json!("cover")),
+        "{batch}"
+    );
+    e.global_pause = None;
+    let m = engine::next_message(&mut e, arch).unwrap().text;
+    let slots = given_value(&m, "·engine·slots").expect(&m);
+    assert_eq!(slots["engine"], json!({ "runs": "running" }), "{slots}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

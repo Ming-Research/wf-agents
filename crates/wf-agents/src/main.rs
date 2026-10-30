@@ -607,7 +607,8 @@ fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
 /// asked, whatever the global state, the owner's Start of a work taken over going on in the work that took its item
 /// over; hands the session manager the new sessions the owner asked for, lifts the pause of the works the owner
 /// started once each may hold a slot, keeps waiting sessions warm unless the owner switched that off while every work
-/// is paused, tells how the engine stands, and takes the round of a work the owner asked for, or else the next step of
+/// is paused, hands the engine whether every work is paused, which its architects are told, tells how the engine
+/// stands, and takes the round of a work the owner asked for, or else the next step of
 /// the works that go on: every work but those paused by themselves, or while every work is paused, those the owner
 /// started. So a pause takes effect as soon as the round under way has ended.
 fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
@@ -697,6 +698,8 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
         if let Err(x) = e.keep_warm(db::now(), pause.as_ref()) {
             (e.say)(&format!("keeping waiting sessions warm: {x}"));
         }
+        // The architects that judge what runs and what starts are told whether every work is paused.
+        e.global_pause = pause;
         // The asks waiting for the owner's answer are reminded of once an interval, whatever the works do.
         if let Err(x) = e.remind(db::now()) {
             (e.say)(&format!("reminding the owner of the asks waiting: {x}"));

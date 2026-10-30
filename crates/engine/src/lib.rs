@@ -111,6 +111,10 @@ pub struct Engine {
     /// While a failed run's cause stops every work alike (a usage limit, no network), why and until when: no new
     /// round starts until then.
     pub halt: Option<Halt>,
+    /// The owner's global pause while it holds, as the loop that runs the engine hands it each turn: no work takes a
+    /// step but those the owner started, and no new work starts; none while works go on. The architects that judge
+    /// what runs and what starts are told it with the slots.
+    pub global_pause: Option<GlobalPause>,
     /// The kind of failed run the owner was last told stops every work, until a round runs to a return again: the
     /// owner is told once.
     told: Option<String>,
@@ -162,6 +166,7 @@ impl Engine {
             activity: Box::new(|_, _, _| {}),
             busy: Box::new(|_| {}),
             halt: None,
+            global_pause: None,
             told: None,
             retry_wait: Duration::from_secs(10),
             replaced: Vec::new(),
@@ -209,6 +214,7 @@ impl Engine {
             activity: Box::new(|_, _, _| {}),
             busy: Box::new(|_| {}),
             halt: None,
+            global_pause: None,
             told: None,
             retry_wait: Duration::from_secs(10),
             replaced: Vec::new(),

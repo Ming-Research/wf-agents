@@ -2947,8 +2947,9 @@ fn spent(e: &Engine, work: i64) -> Result<f64, String> {
 }
 
 /// A project's items running and queued, each by its number, with its rank, its cell and stage, what it waits for and
-/// who waits for it, each by the kind of its dependency, since when its work runs and what it spent, or why its last
-/// work stopped, as one queued again, and for one with no work running, the items not merged yet that it waits for by
+/// who waits for it, each by the kind of its dependency, since when its work runs and what it spent, and its own pause
+/// with who paused it (the owner, the engine or the architect) and why, or why its last work stopped, as one queued
+/// again, and for one with no work running, the items not merged yet that it waits for by
 /// a blocking dependency before it starts; the release items, each an item nothing depends on with items under it, with
 /// the items under it; and the dependencies with other projects' items. A work at a cell of no stage, which asks or
 /// runs tools for another, is at the stage of the cell it stopped at, or else of the innermost cell that waits for it
@@ -2959,7 +2960,7 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
     let rows = query_json(
         e.db.conn(),
         "SELECT i.id AS item, i.title, i.rank, i.held, i.level, i.deliver, w.id AS work, w.at, w.resume_at, w.waiting,
-                w.paused, w.ended, (SELECT min(r.started_at) FROM rounds r WHERE r.work = w.id) AS since,
+                w.paused, w.paused_by, w.ended, (SELECT min(r.started_at) FROM rounds r WHERE r.work = w.id) AS since,
                 (SELECT json_group_object('#' || l.depends_on, l.kind) FROM item_links l WHERE l.item = i.id)
                   AS waits_for,
                 (SELECT json_group_object('#' || l.item, l.kind) FROM item_links l WHERE l.depends_on = i.id)
@@ -2993,6 +2994,14 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
             r["waits"] = json!(work_waits(e, work, &at)?);
             r["since"] = json!(r["since"].as_i64().map(utc_minute));
             r["spent_usd"] = json!((spent(e, work)? * 100.0).round() / 100.0);
+            if let Some(why) = r["paused"].as_str().map(str::to_string) {
+                let by = if why.starts_with(db::STOPPED_BY_ARCHITECT) {
+                    json!("architect")
+                } else {
+                    r["paused_by"].clone()
+                };
+                r["paused"] = json!({ "by": by, "why": why });
+            }
             // A work that runs goes on whatever it depends on.
             if let Some(o) = r.as_object_mut() {
                 o.remove("blocked_by");
@@ -3003,7 +3012,7 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
             }
         }
         if let Some(o) = r.as_object_mut() {
-            for k in ["resume_at", "waiting", "ended"] {
+            for k in ["resume_at", "waiting", "ended", "paused_by"] {
                 o.remove(k);
             }
         }
@@ -3598,8 +3607,29 @@ fn holding(e: &Engine) -> Result<i64, String> {
     Ok(n)
 }
 
-/// The machines' slots, which every project shares: how many there are, used and free, and how many items are ready,
-/// by project.
+/// Whether the engine runs works now: every work going on that is not paused by itself; every work paused by the owner,
+/// but those the owner started; or every work stopped by a failed run's cause until when it says.
+fn engine_state(e: &Engine) -> Value {
+    if let Some(h) = e.halt.as_ref().filter(|h| db::now() < h.until) {
+        return json!({
+            "runs": "halted",
+            "why": format!("Every work stops: {} ({})", h.kind, h.why.trim()),
+            "until": utc_minute(h.until),
+        });
+    }
+    match &e.global_pause {
+        Some(p) => json!({
+            "runs": "paused",
+            "why": "The owner paused every work: none takes a step and no new work starts until the owner starts them \
+                    again, but the works the owner started, which go on",
+            "started": p.runs,
+        }),
+        None => json!({ "runs": "running" }),
+    }
+}
+
+/// The machines' slots, which every project shares: how many there are, used and free, how many items are ready, by
+/// project, and whether the engine runs works now ([`engine_state`]).
 fn slots(e: &Engine) -> Result<Value, String> {
     let total = total_slots(e);
     let held = holding(e)?;
@@ -3622,7 +3652,14 @@ fn slots(e: &Engine) -> Result<Value, String> {
         .iter()
         .map(|(n, h)| (n.clone(), json!(h.slots)))
         .collect();
-    Ok(json!({ "machines": machines, "total": total, "used": held, "free": total - held, "ready": ready }))
+    Ok(json!({
+        "engine": engine_state(e),
+        "machines": machines,
+        "total": total,
+        "used": held,
+        "free": total - held,
+        "ready": ready,
+    }))
 }
 
 /// A project's queue, by matter: each matter that can be picked, with its kind and detail, the item it concerns, who
@@ -3692,9 +3729,10 @@ fn queue(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
 }
 
 /// The batch so far: the numbers of the matters it handled; each, by its number, with how it ended, by the round that
-/// handled it; those held for the owner's answer; the item changes it made; and whether a hold to set things straight
-/// was released in it. Each matter is by its number, so that a session given only what changed is given the matters new
-/// to it.
+/// handled it; those held for the owner's answer; its item changes, those collected so far each whole with its key,
+/// which the review makes once it finds them sound, and those it made or dropped; and whether a hold to set things
+/// straight was released in it. Each matter is by its number, so that a session given only what changed is given the
+/// matters new to it.
 fn batch(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
     let from = batch_start(conn, w.id)?;
@@ -3725,14 +3763,25 @@ fn batch(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         &[&w.id, &from],
         ROWS,
     )?;
-    let made = query_json(
+    // The batch's item changes, numbered as its review numbers them: those collected so far, each whole, with the key
+    // of an item it creates, by which a later change names it; once the review made or dropped them, each with what
+    // came of it.
+    let changes: Map<String, Value> = query_json(
         conn,
-        "SELECT c.matter, json_extract(c.change, '$.kind') AS kind, json_extract(c.change, '$.item') AS item,
-                c.state, c.outcome
-         FROM architect_item_changes c WHERE c.work = ?1 AND c.round > ?2 AND c.state IN ('made', 'dropped') ORDER BY c.id",
+        "SELECT matter, state, change, outcome FROM architect_item_changes
+         WHERE work = ?1 AND round > ?2 AND state IN ('collected', 'made', 'dropped') ORDER BY id",
         &[&w.id, &from],
         ROWS,
-    )?;
+    )?
+    .into_iter()
+    .enumerate()
+    .map(|(i, mut r)| {
+        if let Some(o) = r.as_object_mut() {
+            o.retain(|_, v| !v.is_null());
+        }
+        ((i + 1).to_string(), r)
+    })
+    .collect();
     let since: i64 = conn
         .query_row(
             "SELECT coalesce((SELECT ended_at FROM rounds WHERE work = ?1 AND n = ?2),
@@ -3751,7 +3800,7 @@ fn batch(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         "handled_matters": numbers,
         "handled": by_matter(handled),
         "held_for_owner": by_matter(asked),
-        "item_changes": made,
+        "item_changes": changes,
         "straight_hold_released": released,
     }))
 }
