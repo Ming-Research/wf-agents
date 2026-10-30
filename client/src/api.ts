@@ -669,7 +669,7 @@ withdrawn: string | null,
 /**
  * The ask of the owner that holds it, or held it.
  */
-asked: number | null,
+asked: number | null, 
 /**
  * For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
  * steps to set it straight); none for a matter of another kind.
