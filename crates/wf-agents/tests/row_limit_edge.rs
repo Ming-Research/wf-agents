@@ -169,3 +169,29 @@ fn tables_that_hold_exactly_the_limit_say_nothing_about_rows_left_out() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// `history --full` is JSON, to which no line of text can be added, so it is not cut at the row limit: a work with two
+// rounds more than ten thousand gives all of them, in order, and nothing that says rows are left out. Worked out by
+// hand from the rows written: work 1 has a round at each of 10,002 cells, numbered 1 to 10,002.
+#[test]
+fn history_in_full_gives_every_round_of_a_work() {
+    let dir = data_directory("history-full-limit");
+    engine::database::create(&dir).unwrap();
+    fill(
+        &dir,
+        r#"INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+         INSERT INTO works (id, flow_version, graph, at) VALUES (1, 1, 'engineer', 'I1');
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
+             INSERT INTO rounds (work, n, cell, input, config_commit, started_at)
+             SELECT 1, i, 'C' || i, '{}', 'c', 0 FROM n;"#,
+    );
+    let text = printed(&dir, "history 1 --full");
+    assert!(!text.contains("left out"));
+    let rounds: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let rounds = rounds.as_array().unwrap();
+    assert_eq!(rounds.len(), 10_002);
+    assert_eq!(rounds[0]["name"], "R1-1");
+    assert_eq!(rounds[10_001]["name"], "R1-10002");
+    assert_eq!(rounds[10_001]["cell"], "C10002");
+    let _ = std::fs::remove_dir_all(&dir);
+}
