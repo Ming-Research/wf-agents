@@ -422,7 +422,7 @@ function Legend({ charts, stores, legend }: {
         )}
         <li>
           <Swatch>
-            <g className="fc-circle fc-out">
+            <g className="fc-circle fc-out fc-any">
               <ellipse cx="17" cy="9" rx="7" ry="7" />
             </g>
           </Swatch>
@@ -430,7 +430,7 @@ function Legend({ charts, stores, legend }: {
         </li>
         <li>
           <Swatch>
-            <g className="fc-circle fc-in">
+            <g className="fc-circle fc-in fc-any">
               <ellipse cx="17" cy="9" rx="7" ry="7" />
             </g>
           </Swatch>

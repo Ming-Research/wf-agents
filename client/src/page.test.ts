@@ -1144,7 +1144,9 @@ describe("a cell's panel", () => {
 
   it('says after the title where the cell stands, and its line only when the chart has no colour for it', () => {
     expect(cellWhere(graph, cellOf('a'))).toBe('Stage: build');
-    expect(cellWhere(graph, cellOf('c'))).toBe('Stage: build; on the observer line');
+    // The observer line has a colour of its own; a line the page does not know is named.
+    expect(cellWhere(graph, cellOf('c'))).toBe('Stage: build');
+    expect(cellWhere(graph, { ...cellOf('c'), line: 'scout' })).toBe('Stage: build; on the scout line');
     expect(cellWhere(graph, cellOf('q'))).toBe('Asking part: ask');
     expect(cellWhere(graph, cellOf('t'))).toBeNull();
   });

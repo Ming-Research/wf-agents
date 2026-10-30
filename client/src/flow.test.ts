@@ -9,7 +9,7 @@ import type { Compiled, FlowView } from './api';
 import { cellWhere, enteredFrom, leavesTo, ownMoves } from './flow/CellPanel';
 import { moveWords } from './graph/FlowChart';
 import { cellRadius, cornerWidth, EFFORTS, effortOf, effortsOf, labelSize, sizes, startsAnew, textBoxes } from './graph/flowDraw';
-import { besides, type Laid, layoutChart } from './graph/flowLayout';
+import { besides, type Box, type Laid, layoutChart, overlap, type Route } from './graph/flowLayout';
 import { cellActions, cellNode, type Chart, chart, moves } from './graph/flowModel';
 import { LEAST, MAP_HEIGHT, MAP_WIDTH, mapOf } from './graph/Minimap';
 import { layStores, storeLinks, storeSize, storeUses } from './graph/stores';
@@ -270,6 +270,50 @@ describe('the flow as the engine stores it', () => {
       }
     }
     expect(Object.keys(MOST).every((name) => graphs.some(({ g }) => g.name === name))).toBe(true);
+  }, 30_000);
+
+  it("puts each row's label near where its arrow leaves the cell, clear of every node and of every other label", async () => {
+    for (const { g, v } of graphs) {
+      const c = chart(g, v, engine);
+      const measured = sizes(g, c);
+      const edges = new Map(c.edges.map((e) => [e.id, e]));
+      const laid = await layoutChart(
+        c,
+        (id) => measured.size.get(id) ?? { width: 40, height: 40 },
+        (id) => {
+          const e = edges.get(id);
+          return e ? labelSize(e) : null;
+        },
+      );
+      const labels = [...laid.edges].flatMap(([id, r]) => (r.label !== null ? [{ id, r, l: r.label }] : []));
+      for (const [i, { id, l }] of labels.entries()) {
+        for (const [n, b] of laid.nodes) expect(overlap(l, b), `${g.name}: the label of ${id} over ${n}`).toBe(false);
+        for (const o of labels.slice(i + 1)) expect(overlap(l, o.l), `${g.name}: the labels of ${id} and ${o.id}`).toBe(false);
+      }
+      // How far along its arrow a label's middle is, where the label sits on it.
+      const along = (r: Route, l: Box): number | null => {
+        const cx = l.x + l.width / 2;
+        const cy = l.y + l.height / 2;
+        let walked = 0;
+        for (let k = 0; k + 1 < r.points.length; k++) {
+          const a = r.points[k];
+          const b = r.points[k + 1];
+          const len = Math.hypot(b.x - a.x, b.y - a.y);
+          const t = len === 0 ? 0 : ((cx - a.x) * (b.x - a.x) + (cy - a.y) * (b.y - a.y)) / (len * len);
+          if (t >= 0 && t <= 1 && Math.hypot(cx - a.x - t * (b.x - a.x), cy - a.y - t * (b.y - a.y)) < 0.5) return walked + t * len;
+          walked += len;
+        }
+        return null;
+      };
+      // The labels of the rows out of a cell between the cells laid out: at least half are within a label's height or
+      // two of where their arrow leaves the cell (45 of 74 in the engineer graph when they first were, against 3 when
+      // the layout set each in its arrow's middle), the rest further on where the circles beside the cell or the
+      // labels before them took the room, or, on an arrow too short for one, beside it.
+      const out = labels.filter(({ id }) => id.startsWith('c:') && !id.endsWith(id.split('->')[0]));
+      const near = out.filter(({ r, l }) => (along(r, l) ?? Infinity) <= 60);
+      console.log(`labels of the ${g.name} graph near their arrow's start: ${near.length} of ${out.length}`);
+      expect(near.length / Math.max(1, out.length), g.name).toBeGreaterThanOrEqual(0.5);
+    }
   }, 30_000);
 
   for (const { g, v } of graphs) {

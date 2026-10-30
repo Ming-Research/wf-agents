@@ -1,12 +1,13 @@
 // How a flow's chart is drawn: each node's size and the lines of its text, measured in the font the page draws
-// them in, and the chart itself as SVG once laid out. Who does a cell's work decides its colours: an agent's round
-// takes its line's, a cell on no line lime, the engine's own step is purple and rounded, a tool the engine runs yellow,
-// the owner orange and rounded, a rounded cell's ends no rounder than a cell of one line's, so that its text stays
-// inside them; every cell's edge is solid. Under a step the engine decides, what its values read; on a
+// them in, and the chart itself as SVG once laid out. Only a cell has colours, and who does its work decides them: an
+// agent's round takes its session's, its line's, a cell on no line pink, the engine's own step is purple and rounded, a
+// tool the engine runs lemon, the owner orange and rounded, a rounded cell's ends no rounder than a cell of one line's,
+// so that its text stays inside them; every cell's edge is solid. A circle that names a cell takes that cell's colours;
+// everything else is light grey. Under a step the engine decides, what its values read; on a
 // cell that lacks a move most cells that could make make, a small mark saying so. An agent's cell carries over its top
 // left corner the reasoning effort it runs at, as a badge in the level's colour, and after it, on a cell that starts a
 // new session every round, an outlined badge saying so. What the engine does on a line or every time a cell returns is a
-// purple hexagon. A cell, which a work stands at, is edged heavier than every shape beside it and titled semibold. The
+// hexagon. A cell, which a work stands at, is edged heavier than every shape beside it and titled semibold. The
 // cell picked, or the cell under the pointer while the pointer is on one, has its rows into it lit green and its rows
 // out of it red. Hovering an arrow or its label lights up the whole row, every arrow that draws it from its source to
 // its target.
@@ -29,7 +30,7 @@ import {
 import { type Box, type Laid, pathOf, type Size } from './flowLayout';
 
 /// The lines that have colours of their own; a line not here is drawn in the colour of other lines.
-const LINES = ['engineer', 'review', 'adversarial', 'advisor', 'architect'];
+const LINES = ['engineer', 'review', 'adversarial', 'advisor', 'architect', 'architect_review', 'observer'];
 
 /// Whether a cell starts a new session every time it runs: an agent's cell on no line, which the flow says starts a
 /// session of its own every round. A cell of a line that starts a new session only at its first round in a work
@@ -658,6 +659,11 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
     const c = cells.get(id);
     return c ? `${c.id} ${c.title}` : id;
   };
+  // A circle names a cell, and takes its colours.
+  const named = (id: string | null) => {
+    const c = id !== null ? cells.get(id) : undefined;
+    return c !== undefined ? ` ${styleOf(c)}` : '';
+  };
   const hot = new Set([...related(chart.edges, hover), ...related(chart.edges, pinned)]);
   const lighted = ways(chart.edges, litCell(chart, marks.selected, pointedNode));
   const ringed = [...(marks.overlays ?? [])].find(([, o]) => o.current)?.[0];
@@ -718,7 +724,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
             key={n.id}
             n={n}
             box={box}
-            cls="fc-out"
+            cls={`fc-out${named(n.other)}`}
             title={t('chart_out_title', { cell: title(n.other ?? '') })}
             text={[n.other ?? '']}
           />
@@ -729,7 +735,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
             key={n.id}
             n={n}
             box={box}
-            cls="fc-in"
+            cls={`fc-in${named(n.other)}`}
             title={t('chart_in_title', { cell: title(n.other ?? '') })}
             text={[n.other ?? '']}
           />

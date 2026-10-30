@@ -3,7 +3,7 @@
 // routed at right angles around the boxes with room for their labels and meeting each cell in the lane of its edge,
 // each with a last straight piece long enough for its head; then the main part on top and the other parts in a row
 // below it. Each arrow's route also says where it crosses an arrow that runs the other way, so that it is drawn with a
-// small arch there.
+// small arch there; and its label is moved near where it leaves its cell, clear of the nodes and the other labels.
 
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk-api';
@@ -350,8 +350,103 @@ async function layPart(
     for (const k of n.children ?? []) collect(k);
   };
   collect(out);
-  return { nodes, groups: boxes, edges: routes, box: { x: 0, y: 0, width: out.width ?? 0, height: out.height ?? 0 } };
+  // Each row's label near the cell it leaves, clear of every node, of the labels the units place, of a stage's name and
+  // of the labels placed before it.
+  const fixed = [
+    ...nodes.values(),
+    ...[...routes].filter(([id]) => !chartEdges.has(id)).flatMap(([, r]) => (r.label !== null ? [r.label] : [])),
+    ...[...boxes.values()].map((b) => ({ x: b.x, y: b.y, width: Math.min(b.width, NAME_ROOM), height: TITLE })),
+  ];
+  const outward = [...chartEdges.keys()].filter((id) => routes.get(id)?.label != null);
+  return {
+    nodes,
+    groups: boxes,
+    edges: nearStart(routes, outward, fixed),
+    box: { x: 0, y: 0, width: out.width ?? 0, height: out.height ?? 0 },
+  };
 }
+
+/// The room a stage's name takes at most at the left of its box's top, which no label covers.
+const NAME_ROOM = 300;
+/// How far a label moves along its arrow at a time to keep clear of what is already there, and the room it keeps from
+/// it.
+const LABEL_STEP = 4;
+const LABEL_CLEAR = 3;
+
+/// The point `d` along a route from its start; none past its end.
+function pointAlong(ps: Point[], d: number): Point | null {
+  let left = d;
+  for (let i = 0; i + 1 < ps.length; i++) {
+    const a = ps[i];
+    const b = ps[i + 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (left <= len) {
+      const k = len === 0 ? 0 : left / len;
+      return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
+    }
+    left -= len;
+  }
+  return null;
+}
+
+/// Whether two boxes, one grown by `pad` on each side, overlap.
+export function overlap(a: Box, b: Box, pad = 0): boolean {
+  return a.x < b.x + b.width + pad && b.x < a.x + a.width + pad && a.y < b.y + b.height + pad && b.y < a.y + a.height + pad;
+}
+
+/// The routes with the label of each of `ids` moved to near its start, on its line, where the owner looks for a cell's
+/// ways out and where it stays in view however far the arrow runs: the first place along the arrow, a step at a time
+/// from where it leaves its cell, where the label touches none of `fixed` and no label placed before it, short of the
+/// arrow's head, the labels with the least room placed first. A label with no such place clear of `fixed` (an arrow too
+/// short) keeps the layout's, which the others keep clear of too; and one whose places the others took keeps the
+/// layout's.
+export function nearStart(routes: Map<string, Route>, ids: string[], fixed: Box[]): Map<string, Route> {
+  const out = new Map(routes);
+  // The places a label may take along its route, nearest its start first.
+  const places = (r: Route, l: Box): Box[] => {
+    let total = 0;
+    for (let i = 0; i + 1 < r.points.length; i++) {
+      total += Math.hypot(r.points[i + 1].x - r.points[i].x, r.points[i + 1].y - r.points[i].y);
+    }
+    const last = total - HEAD_ROOM - Math.max(l.width, l.height) / 2;
+    const all: Box[] = [];
+    for (let d = 0; d <= last; d += LABEL_STEP) {
+      const p = pointAlong(r.points, d);
+      if (p === null) break;
+      all.push({ x: p.x - l.width / 2, y: p.y - l.height / 2, width: l.width, height: l.height });
+    }
+    return all;
+  };
+  const clear = (at: Box, of: Box[]) => !of.some((b) => overlap(at, b, LABEL_CLEAR));
+  const start = (id: string) => routes.get(id)?.points[0] ?? { x: 0, y: 0 };
+  const order = [...ids].sort((a, b) => start(a).y - start(b).y || start(a).x - start(b).x);
+  const kept: Box[] = [];
+  const room = new Map<string, number>();
+  for (const id of order) {
+    const r = routes.get(id);
+    const l = r?.label;
+    if (r === undefined || l == null) continue;
+    const free = places(r, l).filter((at) => clear(at, fixed)).length;
+    if (free > 0) room.set(id, free);
+    else kept.push(l);
+  }
+  // The labels with the least room first, so that one on a short arrow is not crowded out by one on a long arrow
+  // beside it.
+  const moving = [...room.keys()].sort((a, b) => (room.get(a) ?? 0) - (room.get(b) ?? 0));
+  const placed: Box[] = [];
+  for (const id of moving) {
+    const r = routes.get(id);
+    const l = r?.label;
+    if (r === undefined || l == null) continue;
+    const label = places(r, l).find((at) => clear(at, [...fixed, ...kept, ...placed])) ?? l;
+    placed.push(label);
+    out.set(id, { ...r, label });
+  }
+  return out;
+}
+
+/// The room a label leaves before the end of its arrow, for the arrow's head.
+const HEAD_ROOM = 10;
 
 const shift = (b: Box, dx: number, dy: number): Box => ({ ...b, x: b.x + dx, y: b.y + dy });
 

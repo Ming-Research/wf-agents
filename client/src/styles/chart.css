@@ -1,10 +1,11 @@
 /* A flow's chart, drawn as the UI spec says a chart is: its layout, shapes and lines as the page's decisions draw them,
-   its look in Primer's tokens. Text, boxes and fills take the functional tokens; who does a cell's work, the stage
-   boxes and the stores take Primer's data and display colours, each named here once by what it marks: an agent's round
-   its line's hue, a cell on no line lime; the engine's own step purple; a tool the engine runs yellow; the owner
-   orange; every cell's edge solid; a rule blue; the interjection orange; a way to another part lavender, a way from
-   another part orange; what the engine does on a line or every time a cell returns a purple hexagon; a store teal,
-   dashed when it is computed. A cell, where a work stands, is edged heavier than every shape beside it and titled
+   its look in Primer's tokens. Text, boxes and fills take the functional tokens. Only the cells, every box a work can
+   stand at, have colours, Primer's data colours, each named here once by what it marks: an agent's round its session's,
+   that is its line's, the lines of one graph green, blue, red and pink in the order the flow lists them, a cell on no
+   line, a session of its own every round, pink; the engine's own step purple; the owner orange; a tool lemon; every
+   cell's edge solid. A circle that names a cell takes that cell's colours. Everything else (the actions on a line or
+   every time a cell returns, a rule, the interjection, a store) is light grey, edged grey; the stage boxes are the
+   palest warm display colour. A cell, where a work stands, is edged heavier than every shape beside it and titled
    semibold. The arrows are grey, the main path blue at the same width; the rows into the cell picked or pointed at
    green and those out of it red. The values Primer has no token for are in tokens.css. */
 
@@ -12,41 +13,42 @@
   --fc-text: var(--fgColor-default);
   --fc-group: var(--display-brown-bgColor-muted);
   --fc-group-line: var(--display-brown-borderColor-muted);
+  /* One colour to a session: the lines of each graph, in the order the flow lists them, green, blue, red and pink,
+     which tell four apart in either theme beside the owner's orange and the engine's purple; a cell on no line pink, as
+     the architect's graph has three lines; a line the page does not know teal. */
   --fc-engineer: var(--data-green-color-emphasis);
   --fc-engineer-fill: var(--data-green-color-muted);
-  --fc-review: var(--data-teal-color-emphasis);
-  --fc-review-fill: var(--data-teal-color-muted);
+  --fc-review: var(--data-blue-color-emphasis);
+  --fc-review-fill: var(--data-blue-color-muted);
   --fc-adversarial: var(--data-red-color-emphasis);
   --fc-adversarial-fill: var(--data-red-color-muted);
   --fc-advisor: var(--data-pink-color-emphasis);
   --fc-advisor-fill: var(--data-pink-color-muted);
-  --fc-architect: var(--data-lime-color-emphasis);
-  --fc-architect-fill: var(--data-lime-color-muted);
-  --fc-other: var(--data-pine-color-emphasis);
-  --fc-other-fill: var(--data-pine-color-muted);
+  --fc-architect: var(--data-green-color-emphasis);
+  --fc-architect-fill: var(--data-green-color-muted);
+  --fc-architect-review: var(--data-blue-color-emphasis);
+  --fc-architect-review-fill: var(--data-blue-color-muted);
+  --fc-observer: var(--data-red-color-emphasis);
+  --fc-observer-fill: var(--data-red-color-muted);
+  --fc-other: var(--data-teal-color-emphasis);
+  --fc-other-fill: var(--data-teal-color-muted);
   /* A cell on no line, filled as any agent's cell is; its badge says it starts a new session every round. */
-  --fc-fresh: var(--data-lime-color-emphasis);
-  --fc-fresh-fill: var(--data-lime-color-muted);
+  --fc-fresh: var(--data-pink-color-emphasis);
+  --fc-fresh-fill: var(--data-pink-color-muted);
   --fc-engine: var(--data-purple-color-emphasis);
   --fc-engine-fill: var(--data-purple-color-muted);
-  /* A tool in a colour of its own, so that no cell looks grey and faded but one a work has not reached. */
-  --fc-tool: var(--data-yellow-color-emphasis);
-  --fc-tool-fill: var(--data-yellow-color-muted);
-  /* In the legend, a cell of any kind. */
-  --fc-any: var(--data-gray-color-emphasis);
-  --fc-any-fill: var(--data-gray-color-muted);
+  /* A tool in a colour of its own, lemon rather than yellow, which in the dark theme reads as the owner's orange. */
+  --fc-tool: var(--data-lemon-color-emphasis);
+  --fc-tool-fill: var(--data-lemon-color-muted);
   --fc-owner: var(--data-orange-color-emphasis);
   --fc-owner-fill: var(--data-orange-color-muted);
-  --fc-rule: var(--data-blue-color-emphasis);
-  --fc-rule-fill: var(--data-blue-color-muted);
-  --fc-flag: var(--data-orange-color-emphasis);
-  --fc-flag-fill: var(--data-orange-color-muted);
-  --fc-store: var(--data-teal-color-emphasis);
-  --fc-store-fill: var(--data-teal-color-muted);
-  --fc-out: var(--data-gray-color-emphasis);
-  --fc-out-fill: var(--data-purple-color-muted);
-  --fc-in: var(--data-orange-color-emphasis);
-  --fc-in-fill: var(--data-orange-color-muted);
+  /* What is no cell, light grey with a grey edge; and in the legend, a cell of any kind. */
+  --fc-plain: var(--borderColor-emphasis);
+  --fc-plain-fill: var(--data-gray-color-muted);
+  --fc-any: var(--data-gray-color-emphasis);
+  --fc-any-fill: var(--data-gray-color-muted);
+  /* The lines to a store from what is pointed at or open. */
+  --fc-link: var(--fgColor-muted);
   /* The arrows: the lines of the chart, a step darker than a box's border so that they read on the chart's inset
      background; the main path in the accent's blue instead of heavier, as the owner asked. The rows into the cell lit
      in the success colour and out of it in the danger colour, as the owner chose them, both of which read on the
@@ -168,59 +170,78 @@ svg.fc {
   font-family: var(--fontStack-monospace);
 }
 
-.line-engineer > rect:not(.fc-ring) {
-  fill: var(--fc-engineer-fill);
-  stroke: var(--fc-engineer);
+/* Each kind of cell sets its two colours, its edge's and its fill's, which its box, a circle naming it and its mark on
+   the map take from it: one rule to a kind, so that the three never differ. */
+.line-engineer {
+  --fc-hue: var(--fc-engineer);
+  --fc-hue-fill: var(--fc-engineer-fill);
 }
 
-.line-review > rect:not(.fc-ring) {
-  fill: var(--fc-review-fill);
-  stroke: var(--fc-review);
+.line-review {
+  --fc-hue: var(--fc-review);
+  --fc-hue-fill: var(--fc-review-fill);
 }
 
-.line-adversarial > rect:not(.fc-ring) {
-  fill: var(--fc-adversarial-fill);
-  stroke: var(--fc-adversarial);
+.line-adversarial {
+  --fc-hue: var(--fc-adversarial);
+  --fc-hue-fill: var(--fc-adversarial-fill);
 }
 
-.line-advisor > rect:not(.fc-ring) {
-  fill: var(--fc-advisor-fill);
-  stroke: var(--fc-advisor);
+.line-advisor {
+  --fc-hue: var(--fc-advisor);
+  --fc-hue-fill: var(--fc-advisor-fill);
 }
 
-.line-architect > rect:not(.fc-ring) {
-  fill: var(--fc-architect-fill);
-  stroke: var(--fc-architect);
+.line-architect {
+  --fc-hue: var(--fc-architect);
+  --fc-hue-fill: var(--fc-architect-fill);
 }
 
-.line-other > rect:not(.fc-ring) {
-  fill: var(--fc-other-fill);
-  stroke: var(--fc-other);
+.line-architect_review {
+  --fc-hue: var(--fc-architect-review);
+  --fc-hue-fill: var(--fc-architect-review-fill);
 }
 
-.fresh > rect:not(.fc-ring) {
-  fill: var(--fc-fresh-fill);
-  stroke: var(--fc-fresh);
+.line-observer {
+  --fc-hue: var(--fc-observer);
+  --fc-hue-fill: var(--fc-observer-fill);
 }
 
-.kind-engine > rect:not(.fc-ring) {
-  fill: var(--fc-engine-fill);
-  stroke: var(--fc-engine);
+.line-other {
+  --fc-hue: var(--fc-other);
+  --fc-hue-fill: var(--fc-other-fill);
 }
 
-.kind-tool > rect:not(.fc-ring) {
-  fill: var(--fc-tool-fill);
-  stroke: var(--fc-tool);
+.fresh {
+  --fc-hue: var(--fc-fresh);
+  --fc-hue-fill: var(--fc-fresh-fill);
 }
 
-.kind-owner > rect:not(.fc-ring) {
-  fill: var(--fc-owner-fill);
-  stroke: var(--fc-owner);
+.kind-engine {
+  --fc-hue: var(--fc-engine);
+  --fc-hue-fill: var(--fc-engine-fill);
 }
 
-.fc-any > rect:not(.fc-ring) {
-  fill: var(--fc-any-fill);
-  stroke: var(--fc-any);
+.kind-tool {
+  --fc-hue: var(--fc-tool);
+  --fc-hue-fill: var(--fc-tool-fill);
+}
+
+.kind-owner {
+  --fc-hue: var(--fc-owner);
+  --fc-hue-fill: var(--fc-owner-fill);
+}
+
+.fc-any {
+  --fc-hue: var(--fc-any);
+  --fc-hue-fill: var(--fc-any-fill);
+}
+
+.fc-cell > rect:not(.fc-ring),
+.fc-circle ellipse,
+.fc-map-cell {
+  fill: var(--fc-hue-fill, var(--fc-plain-fill));
+  stroke: var(--fc-hue, var(--fc-plain));
 }
 
 .fc-circle ellipse {
@@ -239,15 +260,18 @@ svg.fc {
   font-size: var(--text-body-size-medium);
 }
 
-/* What the engine does on a line, or every time a cell returns. */
-.fc-act polygon {
-  fill: var(--fc-engine-fill);
-  stroke: var(--fc-engine);
+/* What is no cell, light grey with a grey edge and no colour: what the engine does on a line or every time a cell
+   returns, a rule, the interjection and a store. */
+.fc-act polygon,
+.fc-rule polygon,
+.fc-flag polygon,
+.fc-store rect {
+  fill: var(--fc-plain-fill);
+  stroke: var(--fc-plain);
   stroke-width: var(--chart-line-thin);
 }
 
 .fc-edge.fc-edge-does {
-  stroke: var(--fc-engine);
   stroke-dasharray: var(--chart-dash-does);
 }
 
@@ -273,12 +297,6 @@ svg.fc {
 }
 
 /* The stores, in boxes by what they belong to, and the lines to them from what is pointed at or open. */
-.fc-store rect {
-  fill: var(--fc-store-fill);
-  stroke: var(--fc-store);
-  stroke-width: var(--chart-line-thin);
-}
-
 .fc-store-computed rect {
   stroke-dasharray: var(--chart-dash-computed);
 }
@@ -300,7 +318,7 @@ svg.fc {
 
 .fc-link {
   fill: none;
-  stroke: var(--fc-store);
+  stroke: var(--fc-link);
   stroke-width: var(--chart-line-box);
 }
 
@@ -309,29 +327,7 @@ svg.fc {
 }
 
 .fc-link-head path {
-  fill: var(--fc-store);
-}
-
-.fc-out ellipse {
-  fill: var(--fc-out-fill);
-  stroke: var(--fc-out);
-}
-
-.fc-in ellipse {
-  fill: var(--fc-in-fill);
-  stroke: var(--fc-in);
-}
-
-.fc-rule polygon {
-  fill: var(--fc-rule-fill);
-  stroke: var(--fc-rule);
-  stroke-width: var(--chart-line-thin);
-}
-
-.fc-flag polygon {
-  fill: var(--fc-flag-fill);
-  stroke: var(--fc-flag);
-  stroke-width: var(--chart-line-thin);
+  fill: var(--fc-link);
 }
 
 .fc-selected > rect:not(.fc-ring),
@@ -516,7 +512,6 @@ svg.fc {
 }
 
 .fc-edge-rule {
-  stroke: var(--fc-rule);
   stroke-width: var(--chart-line-rule);
 }
 
@@ -589,7 +584,7 @@ svg.fc {
 }
 
 .fc-head-rule path {
-  fill: var(--fc-rule);
+  fill: var(--fc-arrow);
 }
 
 .fc-head-taken path {
@@ -832,10 +827,6 @@ svg.fc {
 }
 
 /* A cell's fill and edge are the chart's, from the class of its kind or line; only the edge's width is the map's. */
-.fc-map-cell {
-  fill: var(--fgColor-muted);
-}
-
 .fc-map .fc-map-cell {
   stroke-width: var(--chart-line-map);
 }
