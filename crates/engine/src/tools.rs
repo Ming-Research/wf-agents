@@ -24,6 +24,10 @@ const ATTEMPTS: i64 = 3;
 /// The longest output given inline; a longer one is saved and its path given.
 const LONG: usize = 20_000;
 
+/// Where the temporary branches ci_before pushes the code before the change to are: a project's fast CI that takes
+/// the tests to run leaves them alone on push, and runs on one only as ci_before asks it to.
+const BEFORE: &str = "wf-agents-before";
+
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -350,11 +354,12 @@ fn timed(log: &str) -> Vec<Timed> {
     out
 }
 
-/// How long each named test took, as the logs of the fast CI's jobs tell: cargo-nextest runs each test on its own and
-/// times it, and a test that did not pass says how it ended. A test is named by its name in its test binary, a path
-/// ending in that, or its binary and its name as nextest writes them. A test not found says how many tests the logs
-/// showed, and a log that could not be read says why.
-fn test_times(tests: &[String], logs: &[Result<String, String>]) -> Vec<Value> {
+/// What became of each named test in a run, as the logs of its jobs tell, cargo-nextest writing a line as each test
+/// ends: passed, with its time; failed, with how it ended and its time; or not run, when no log shows it, as when its
+/// job stopped at an earlier red test or there is no such test, so that a test the run did not reach is never read
+/// as measured; and when no log could be read, unread, with why. A test is named by its name in its test binary, a
+/// path ending in that, or its binary and its name as nextest writes them.
+fn test_results(tests: &[String], logs: &[Result<String, String>]) -> Vec<Value> {
     let found: Vec<Timed> = logs
         .iter()
         .filter_map(|l| l.as_ref().ok())
@@ -364,11 +369,6 @@ fn test_times(tests: &[String], logs: &[Result<String, String>]) -> Vec<Value> {
         .iter()
         .filter_map(|l| l.as_ref().err().map(String::as_str))
         .collect();
-    let missing = if found.is_empty() && !unread.is_empty() {
-        format!("the logs of the fast CI could not be read: {}", unread.join("; "))
-    } else {
-        format!("not found among the {} tests the logs of the fast CI show", found.len())
-    };
     let holds = |t: &Timed, named: &str| {
         t.test == named
             || format!("{} {}", t.binary, t.test) == named
@@ -377,16 +377,14 @@ fn test_times(tests: &[String], logs: &[Result<String, String>]) -> Vec<Value> {
     };
     tests
         .iter()
-        .map(|named| {
-            let time = found
-                .iter()
-                .find(|t| holds(t, named))
-                .map(|t| match t.status.as_str() {
-                    "PASS" => t.time.clone(),
-                    status => format!("{}, ended {status}", t.time),
-                })
-                .unwrap_or_else(|| missing.clone());
-            json!({ "test": named, "time": time })
+        .map(|named| match found.iter().find(|t| holds(t, named)) {
+            Some(t) if t.status == "PASS" => json!({ "test": named, "result": "passed", "time": t.time }),
+            Some(t) => json!({ "test": named, "result": "failed", "time": t.time, "ended": t.status }),
+            None if found.is_empty() && !unread.is_empty() => json!({
+                "test": named, "result": "unread",
+                "why": format!("the logs of the run could not be read: {}", unread.join("; ")),
+            }),
+            None => json!({ "test": named, "result": "not_run" }),
         })
         .collect()
 }
@@ -568,9 +566,9 @@ fn ci(
                     .map_err(|f| format!("{}: {}", c.name, f.what))
             })
             .collect();
-        let times = test_times(&tests, &logs);
+        let tests = test_results(&tests, &logs);
         Ok(
-            json!({ "push": { "verdict": "pushed", "head": sha, "checks": checks_json(&checks), "times": times }, "pr": n }),
+            json!({ "push": { "verdict": "pushed", "head": sha, "checks": checks_json(&checks), "tests": tests }, "pr": n }),
         )
     })?;
     *pushed = Some(sha.clone());
@@ -620,13 +618,43 @@ fn ci_before(
     let base = git::git(&wt, &["merge-base", &sha, &format!("origin/{}", project.main)])
         .map(|s| s.trim().to_string())
         .map_err(|x| (Failure::other(x), String::new()))?;
-    let refname = format!("refs/heads/wf-agents-before/{}-{}-{n}", round.work, round.n);
+    let tests: Vec<String> = req["tests"]
+        .as_array()
+        .map(|ts| ts.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    // Where the fast CI takes the tests to run, it runs exactly the named ones, each to its end, by hand on the
+    // temporary branch; else the push runs the whole of it, which stops at a job's first red test.
+    let named = project.ci.tests_input.as_deref().filter(|_| !tests.is_empty());
+    let listed = tests.join(" ");
+    let branch = format!("{BEFORE}/{}-{}-{n}", round.work, round.n);
+    let refname = format!("refs/heads/{branch}");
     attempts(e, round, "ci_before", req, || {
         let commit = git::files_onto(&wt, &files, &sha, &base).map_err(Failure::other)?;
         hub::push(&wt, &commit, &refname, true)?;
-        let checks = e.github.checks(&repo(project), &commit, &project.ci.fast);
+        let dispatched = match named {
+            Some(input) => e
+                .github
+                .dispatch(&repo(project), &project.ci.fast, &branch, &[(input, listed.as_str())]),
+            None => Ok(()),
+        };
+        let ran = dispatched.and_then(|()| e.github.checks(&repo(project), &commit, &project.ci.fast));
+        let logs: Vec<Result<String, String>> = ran
+            .iter()
+            .flatten()
+            .map(|c| {
+                e.github
+                    .job_log(&repo(project), c)
+                    .map_err(|f| format!("{}: {}", c.name, f.what))
+            })
+            .collect();
         let _ = hub::delete_ref(&wt, &refname);
-        Ok(json!({ "ran": { "verdict": "ran", "checks": checks_json(&checks?) } }))
+        let checks = ran?;
+        Ok(json!({ "ran": {
+            "verdict": "ran",
+            "run": if named.is_some() { "named" } else { "whole" },
+            "checks": checks_json(&checks),
+            "tests": test_results(&tests, &logs),
+        } }))
     })
 }
 
@@ -974,8 +1002,11 @@ mod tests {
         assert!(words("pr view 'x").is_err());
     }
 
+    // Each named test is given what became of it in any job's log: passed with its time, failed with how it ended,
+    // or not run when no log shows it, as when its job stopped at an earlier red test; unread when no log could be
+    // read.
     #[test]
-    fn a_named_test_is_given_its_own_time_from_any_job_s_log() {
+    fn a_named_test_is_given_its_result_from_any_job_s_log() {
         let first = "    Starting 3 tests across 2 binaries (5 tests skipped)
         PASS [   0.007s] (1/3) engine tools::tests::a_command_line_is_split_as_a_shell_would
         SLOW [> 30.000s] (───────) engine::e2e a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue
@@ -993,19 +1024,23 @@ mod tests {
             "no_such_view".to_string(),
             "missing".to_string(),
         ];
-        let times = test_times(&named, &[Ok(first.to_string()), Ok(second.to_string())]);
-        assert_eq!(times[0], json!({ "test": named[0], "time": "35.134s" }));
-        assert_eq!(times[1]["time"], "0.007s");
-        assert_eq!(times[2]["time"], "60.003s, ended TIMEOUT");
-        assert_eq!(times[3]["time"], "1.250s, ended FAIL");
+        let results = test_results(&named, &[Ok(first.to_string()), Ok(second.to_string())]);
         assert_eq!(
-            times[4]["time"],
-            "not found among the 4 tests the logs of the fast CI show"
+            results[0],
+            json!({ "test": named[0], "result": "passed", "time": "35.134s" })
         );
-        let unread = test_times(&named[..1], &[Err("check: HTTP 404".to_string())]);
+        assert_eq!(results[1]["time"], "0.007s");
         assert_eq!(
-            unread[0]["time"],
-            "the logs of the fast CI could not be read: check: HTTP 404"
+            (&results[2]["result"], &results[2]["time"], &results[2]["ended"]),
+            (&json!("failed"), &json!("60.003s"), &json!("TIMEOUT"))
+        );
+        assert_eq!(results[3]["ended"], "FAIL");
+        assert_eq!(results[4], json!({ "test": "missing", "result": "not_run" }));
+        let unread = test_results(&named[..1], &[Err("check: HTTP 404".to_string())]);
+        assert_eq!(unread[0]["result"], "unread");
+        assert_eq!(
+            unread[0]["why"],
+            "the logs of the run could not be read: check: HTTP 404"
         );
     }
 
@@ -1024,9 +1059,9 @@ mod tests {
             "tools::tests::a_command_line_is_split_as_a_shell_would".to_string(),
             "a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue".to_string(),
         ];
-        let times = test_times(&named, &[Ok(log.to_string())]);
-        assert_eq!(times[0]["time"], "0.007s");
-        assert_eq!(times[1]["time"], "35.134s");
+        let results = test_results(&named, &[Ok(log.to_string())]);
+        assert_eq!(results[0]["time"], "0.007s");
+        assert_eq!(results[1]["time"], "35.134s");
     }
 
     #[test]

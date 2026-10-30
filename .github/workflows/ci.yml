@@ -1,10 +1,20 @@
 name: ci
 
-# Every pushed commit on every branch is checked, not only pull requests: a temporary ref the engine pushes to run
-# tests on other code is checked the same way.
+# Every pushed commit on every branch is checked, not only pull requests, but for the engine's temporary branches of
+# the code before a change (its tool ci_before): the engine runs this workflow on one of those by hand, with the tests
+# to run, which then runs exactly them, each to its end, and skips the lint, so that each named test has a result of
+# its own on the code before the change instead of a run that stops at its first red test. The project's
+# configuration names the input (`tests_input`).
 on:
   push:
+    branches-ignore:
+      - 'wf-agents-before/**'
   workflow_dispatch:
+    inputs:
+      tests:
+        description: The tests to run, by their names separated by spaces, each to its end; empty for the whole CI
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -19,6 +29,7 @@ concurrency:
 # job `check` is red whenever any of them is, which is the check the projects' configuration waits for to merge.
 jobs:
   lint:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.tests == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -106,9 +117,25 @@ jobs:
           npm ci
           npm run build
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test
-      # at 60 s; each job runs a third of every test binary's tests.
+      # at 60 s; each job runs a third of every test binary's tests, and stops at its first red test, which keeps a
+      # red run short. Given tests to run, it runs those only, a test named by its name or the end of its path, and
+      # each to its end.
       - name: Test
-        run: cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition count:${{ matrix.shard }}/3
+        env:
+          TESTS: ${{ inputs.tests }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          if [ -z "$TESTS" ]; then
+            exec cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition "count:$SHARD/3"
+          fi
+          set -f
+          filter=""
+          for t in $TESTS; do
+            name=$(printf '%s' "$t" | sed 's/[][\\.^$*+?(){}|]/\\&/g')
+            filter="${filter:+$filter | }test(/(^|::)${name}\$/)"
+          done
+          exec cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition "count:$SHARD/3" \
+            --no-fail-fast --no-tests=pass -E "$filter"
 
   check:
     needs: [lint, test]
@@ -119,6 +146,7 @@ jobs:
       - name: Every other job passed
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+        # The lint is skipped only on a run of the tests named.
         run: |
           echo "lint and test: $RESULTS"
-          for r in $RESULTS; do [ "$r" = success ] || exit 1; done
+          for r in $RESULTS; do [ "$r" = success ] || [ "$r" = skipped ] || exit 1; done

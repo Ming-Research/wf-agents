@@ -2455,7 +2455,7 @@
     {
       "name": "ci",
       "desc": "Pushes your local commits and runs the repository's fast CI on the commit; when it is done, gives you the result of each check",
-      "runs": "The engine checks the head and pushes. On the first push it opens a draft PR with the title and description handed in, and updates them when new ones come. It triggers the fast CI workflow the project's configuration names, with the tests to run, and waits for it to finish. It downloads the logs of red checks. It also runs each listed test once on its own and notes how long each took",
+      "runs": "The engine checks the head and pushes. On the first push it opens a draft PR with the title and description handed in, and updates them when new ones come. The push runs the fast CI workflow the project's configuration names, the whole of it, which stops a job at its first red test; the engine waits for it to finish and downloads the logs of red checks. It reads from the logs of every job what became of each listed test and how long it took; a test the run did not reach is not run",
       "in": [
         {
           "name": "head",
@@ -2467,7 +2467,7 @@
           "name": "tests",
           "title": "Tests to run",
           "type": "list",
-          "desc": "Which tests to run",
+          "desc": "Which tests to read the results and times of, by their names",
           "item": {
             "type": "text",
             "desc": "The test's name"
@@ -2518,10 +2518,10 @@
                   "$ref": "checks"
                 },
                 {
-                  "name": "times",
-                  "title": "Test times",
+                  "name": "tests",
+                  "title": "The tests named",
                   "type": "list",
-                  "desc": "How long each listed test took when run on its own, one per row",
+                  "desc": "What became of each test you named, as the run's logs show it, one per row: passed, with its time; failed, with how it ended; not run, when no log shows it, as when its job stopped at an earlier red test or there is no such test, so that it is no result; or unread, when the run's logs could not be read",
                   "item": {
                     "type": "obj",
                     "fields": [
@@ -2529,13 +2529,52 @@
                         "name": "test",
                         "title": "Test",
                         "type": "text",
-                        "desc": "The test's name"
+                        "desc": "The test's name, as you named it"
+                      },
+                      {
+                        "name": "result",
+                        "title": "Result",
+                        "type": "enum",
+                        "desc": "What became of it",
+                        "values": [
+                          [
+                            "passed",
+                            "It ran and passed"
+                          ],
+                          [
+                            "failed",
+                            "It ran and did not pass"
+                          ],
+                          [
+                            "not_run",
+                            "No log of the run shows it: the run did not reach it, or there is no such test"
+                          ],
+                          [
+                            "unread",
+                            "The run's logs could not be read"
+                          ]
+                        ]
                       },
                       {
                         "name": "time",
                         "title": "Time",
                         "type": "text",
-                        "desc": "How long it took"
+                        "desc": "How long it took",
+                        "optional": true
+                      },
+                      {
+                        "name": "ended",
+                        "title": "How it ended",
+                        "type": "text",
+                        "desc": "How a test that did not pass ended, as the test runner says it, such as FAIL or TIMEOUT",
+                        "optional": true
+                      },
+                      {
+                        "name": "why",
+                        "title": "Why unread",
+                        "type": "text",
+                        "desc": "Why the logs could not be read",
+                        "optional": true
                       }
                     ]
                   }
@@ -2560,8 +2599,8 @@
     },
     {
       "name": "ci_before",
-      "desc": "Runs the tests you list on the code before the change: the engine puts these tests' files on the code before the change, runs the fast CI once, and gives you the result of each check. Nothing goes onto this work's branch",
-      "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, and commits that to a temporary ref. It triggers the fast CI workflow the project's configuration names, with the tests to run, waits for it to finish, and deletes the temporary ref. It downloads the logs of red checks",
+      "desc": "Runs the tests you list on the code before the change: the engine puts these tests' files on the code before the change, runs them, and gives you the result of each check and of each test. Nothing goes onto this work's branch",
+      "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, and commits that to a temporary branch. Where the project's fast CI takes the tests to run (its configuration's tests_input), the engine runs that workflow on the branch with the listed tests, which runs exactly them, each to its end; otherwise the push runs the whole fast CI, which stops a job at its first red test. It waits for the run to finish, reads from the logs what became of each listed test, downloads the logs of red checks and deletes the temporary branch",
       "in": [
         {
           "name": "head",
@@ -2584,7 +2623,7 @@
           "name": "tests",
           "title": "Tests to run",
           "type": "list",
-          "desc": "Which tests to run",
+          "desc": "Which tests to run, by their names as the test runner prints them",
           "item": {
             "type": "text",
             "desc": "The test's name"
@@ -2605,7 +2644,85 @@
               "desc": "It ran on the code before the change",
               "fields": [
                 {
+                  "name": "run",
+                  "title": "What ran",
+                  "type": "enum",
+                  "desc": "What the run was",
+                  "values": [
+                    [
+                      "named",
+                      "Exactly the tests listed, each to its end"
+                    ],
+                    [
+                      "whole",
+                      "The whole fast CI, since the project's CI takes no tests to run: a job stops at its first red test, and a test it did not reach is not run"
+                    ]
+                  ]
+                },
+                {
                   "$ref": "checks"
+                },
+                {
+                  "name": "tests",
+                  "title": "The tests named",
+                  "type": "list",
+                  "desc": "What became of each test you named, as the run's logs show it, one per row: passed, with its time; failed, with how it ended; not run, when no log shows it, as when its job stopped at an earlier red test or there is no such test, so that it is no result; or unread, when the run's logs could not be read",
+                  "item": {
+                    "type": "obj",
+                    "fields": [
+                      {
+                        "name": "test",
+                        "title": "Test",
+                        "type": "text",
+                        "desc": "The test's name, as you named it"
+                      },
+                      {
+                        "name": "result",
+                        "title": "Result",
+                        "type": "enum",
+                        "desc": "What became of it",
+                        "values": [
+                          [
+                            "passed",
+                            "It ran and passed"
+                          ],
+                          [
+                            "failed",
+                            "It ran and did not pass"
+                          ],
+                          [
+                            "not_run",
+                            "No log of the run shows it: the run did not reach it, or there is no such test"
+                          ],
+                          [
+                            "unread",
+                            "The run's logs could not be read"
+                          ]
+                        ]
+                      },
+                      {
+                        "name": "time",
+                        "title": "Time",
+                        "type": "text",
+                        "desc": "How long it took",
+                        "optional": true
+                      },
+                      {
+                        "name": "ended",
+                        "title": "How it ended",
+                        "type": "text",
+                        "desc": "How a test that did not pass ended, as the test runner says it, such as FAIL or TIMEOUT",
+                        "optional": true
+                      },
+                      {
+                        "name": "why",
+                        "title": "Why unread",
+                        "type": "text",
+                        "desc": "Why the logs could not be read",
+                        "optional": true
+                      }
+                    ]
+                  }
                 }
               ]
             },

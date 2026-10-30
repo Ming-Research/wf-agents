@@ -466,6 +466,12 @@ pub struct Ci {
     pub full: Vec<String>,
     /// The checks a merge needs to have passed.
     pub merge_checks: Vec<String>,
+    /// The input of the fast CI's workflow that takes the tests to run, their names separated by spaces, when it has
+    /// one: given it, the workflow runs exactly those tests, every one to its end, and the ci_before tool runs it so on
+    /// its temporary ref, which the workflow's own runs on push leave alone; none when it has no such input, and
+    /// ci_before then waits for the whole fast CI its push runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests_input: Option<String>,
 }
 
 /// The settings the flow reads from a project, as `{"config": name}` inputs name them.
@@ -1283,6 +1289,7 @@ review_list = ["one", "two"]
 fast = "ci"
 full = ["ci"]
 merge_checks = ["check"]
+tests_input = "tests"
 [limits]
 fixes = 5
 "#;
@@ -1340,6 +1347,7 @@ asks = 9
         assert_eq!(p.review_list, ["three"]);
         assert_eq!(p.ci.fast, "ci");
         assert_eq!(p.ci.merge_checks, ["check", "lint"]);
+        assert_eq!(p.ci.tests_input.as_deref(), Some("tests"));
         assert_eq!(
             p.limits,
             BTreeMap::from([("asks".to_string(), 9), ("fixes".to_string(), 5)])

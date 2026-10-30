@@ -60,6 +60,11 @@ pub trait GitHub {
     ) -> Result<i64, Failure>;
     /// Waits for the workflow's run on a commit to finish, and gives each check's result.
     fn checks(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure>;
+    /// Runs a workflow on a branch, by hand, with the inputs given, each as its name and its value; [`GitHub::checks`]
+    /// on the branch's commit then waits for that run.
+    fn dispatch(&self, _repo: &str, _workflow: &str, _branch: &str, _inputs: &[(&str, &str)]) -> Result<(), Failure> {
+        Err(Failure::other("no workflow runs by hand here"))
+    }
     /// Runs the red checks of the workflow's run on a commit once more, waits, and gives each check's result.
     fn rerun(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure>;
     /// The branch a pull request merges into: its base.
@@ -360,6 +365,15 @@ impl GitHub for Gh {
     fn checks(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
         let run = self.finished_run(repo, sha, workflow, None)?;
         self.jobs(repo, &run)
+    }
+
+    fn dispatch(&self, repo: &str, workflow: &str, branch: &str, inputs: &[(&str, &str)]) -> Result<(), Failure> {
+        let fields: Vec<String> = inputs.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let mut args = vec!["workflow", "run", workflow, "-R", repo, "--ref", branch];
+        for f in &fields {
+            args.extend(["-f", f.as_str()]);
+        }
+        self.run(&args).map(|_| ())
     }
 
     fn job_log(&self, repo: &str, check: &CheckRun) -> Result<String, Failure> {
