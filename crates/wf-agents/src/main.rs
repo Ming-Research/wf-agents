@@ -12,13 +12,13 @@ use clap::{Parser, Subcommand};
 
 /// Runs coding agents through a defined flow.
 #[derive(Parser)]
-#[command(version)]
+#[command(version, arg_required_else_help = true)]
 struct Cli {
     /// The data directory: the configuration, the rules and the database.
     #[arg(long, global = true, env = "WF_AGENTS_DATA")]
     data: Option<PathBuf>,
     #[command(subcommand)]
-    command: Option<Command>,
+    command: Command,
 }
 
 #[derive(Subcommand)]
@@ -282,11 +282,10 @@ enum ConfigCommand {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
-        None => Ok(()),
-        Some(Command::Flow(FlowCommand::Check { flow, schema })) => flow_check(&flow, schema.as_deref()),
-        Some(Command::Config(ConfigCommand::Check)) => data(cli.data.as_deref()).and_then(config_check),
-        Some(Command::TreeCheck { root, fork }) => tree::report(Path::new("."), &fork, &root).map(|r| print!("{r}")),
-        Some(c) => data(cli.data.as_deref()).and_then(|d| owners(d, c)),
+        Command::Flow(FlowCommand::Check { flow, schema }) => flow_check(&flow, schema.as_deref()),
+        Command::Config(ConfigCommand::Check) => data(cli.data.as_deref()).and_then(config_check),
+        Command::TreeCheck { root, fork } => tree::report(Path::new("."), &fork, &root).map(|r| print!("{r}")),
+        c => data(cli.data.as_deref()).and_then(|d| owners(d, c)),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
