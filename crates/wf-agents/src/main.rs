@@ -163,7 +163,7 @@ enum Command {
     },
     /// Returns sent back, compactions, counters past their limits, and works paused.
     Anomalies,
-    /// The time and cost of each work, or of one work's rounds by cell.
+    /// The time and cost of each work with a total row last, or of one work's rounds by cell.
     Cost { work: Option<i64> },
 }
 

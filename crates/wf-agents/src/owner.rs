@@ -11,7 +11,7 @@ use engine::{Counted, query_json, query_json_counted};
 use serde_json::Value;
 
 /// The most rows an owner command lists from a query; a table that is longer ends there, and says how many rows it
-/// leaves out.
+/// leaves out. The total row of the cost table, which sums every work, comes after the works it lists.
 const TABLE_ROWS: usize = 10_000;
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -551,7 +551,8 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
     Ok(out)
 }
 
-/// Time and cost of each work, its keep-warm pings counted, and of its rounds by cell, with its pings apart.
+/// Time and cost of each work, its keep-warm pings counted, and of its rounds by cell, with its pings apart. The
+/// table of every work ends with a total row: the sum of each column, the cost summed before it is rounded.
 pub fn cost(data: &Path, work: Option<i64>) -> Result<String, String> {
     match work {
         Some(w) => {
@@ -581,16 +582,41 @@ pub fn cost(data: &Path, work: Option<i64>) -> Result<String, String> {
             out.push_str(&left_out_line(cells.left_out, cells.rows.len()));
             Ok(out)
         }
-        None => show(
-            data,
-            "SELECT work, count(*) AS rounds, (max(coalesce(ended_at, started_at)) - min(started_at)) / 1000 AS secs,
-                    round(sum(coalesce(json_extract(usage, '$.cost_usd'), 0)) + coalesce((SELECT
-                      sum(json_extract(p.usage, '$.cost_usd')) FROM pings p JOIN sessions s ON s.id = p.session
-                      WHERE s.work = rounds.work), 0), 2) AS cost_usd
-             FROM rounds GROUP BY work ORDER BY work",
-            &[],
-            40,
-        ),
+        None => {
+            let db = open(data)?;
+            // One statement, so the rows and the total are read from one snapshot. `w` is each work's line with its
+            // cost not yet rounded, computed once for both the rows and the total; the total is the one row after
+            // the works (`k` orders it, as UNION ALL does not), left out when there is no round to sum, and it is
+            // summed over every work, not over the TABLE_ROWS listed. The query may return one row more than the
+            // works listed, for the total, which is no row the count of works left out counts; that count is read in
+            // the one read transaction the statement is in, so that it is of the same works.
+            let tx = db.conn().unchecked_transaction().map_err(sql)?;
+            let rows = query_json(
+                db.conn(),
+                "WITH w AS MATERIALIZED (
+                     SELECT work, count(*) AS rounds,
+                            (max(coalesce(ended_at, started_at)) - min(started_at)) / 1000 AS secs,
+                            sum(coalesce(json_extract(usage, '$.cost_usd'), 0)) + coalesce((SELECT
+                              sum(json_extract(p.usage, '$.cost_usd')) FROM pings p JOIN sessions s ON s.id = p.session
+                              WHERE s.work = rounds.work), 0) AS cost
+                     FROM rounds GROUP BY work)
+                 SELECT work, rounds, secs, cost_usd FROM (
+                     SELECT 0 AS k, work, rounds, secs, round(cost, 2) AS cost_usd
+                     FROM (SELECT * FROM w ORDER BY work LIMIT ?1)
+                     UNION ALL
+                     SELECT 1, 'total', r, s, round(c, 2)
+                     FROM (SELECT sum(rounds) AS r, sum(secs) AS s, sum(cost) AS c FROM w) WHERE r IS NOT NULL)
+                 ORDER BY k, work",
+                &[&(TABLE_ROWS as i64)],
+                TABLE_ROWS + 1,
+            )?;
+            let works: i64 = tx
+                .query_row("SELECT count(DISTINCT work) FROM rounds", [], |r| r.get(0))
+                .map_err(sql)?;
+            let left_out = (works as usize).saturating_sub(TABLE_ROWS);
+            // The total row is a row of the table, and what the table leaves out is said after it, last of all.
+            Ok(table_body(&rows, 40) + &left_out_line(left_out, TABLE_ROWS))
+        }
     }
 }
 

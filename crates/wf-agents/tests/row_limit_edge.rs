@@ -157,8 +157,9 @@ fn tables_that_hold_exactly_the_limit_say_nothing_about_rows_left_out() {
     assert_eq!(paused[1_000], "1000\t\tI1\tx");
     let text = printed(&dir, "cost");
     assert!(!text.contains("left out"), "cost");
-    assert_eq!(text.lines().count(), 10_001, "a head and 10,000 works");
-    assert_eq!(text.lines().last(), Some("10000\t1\t2\t0.25"));
+    assert_eq!(text.lines().count(), 10_002, "a head, 10,000 works and the total");
+    assert_eq!(text.lines().nth(10_000), Some("10000\t1\t2\t0.25"));
+    assert_eq!(text.lines().last(), Some("total\t19999\t20000\t2500.5"));
     let text = printed(&dir, "cost 1");
     assert!(!text.contains("left out"), "cost 1");
     assert_eq!(text.lines().count(), 10_002, "a head, 10,000 cells and the pings");
