@@ -696,11 +696,14 @@ impl Engine {
             .cell(&w.pos.at)
             .cloned()
             .ok_or_else(|| format!("work {id} is at no such cell: {}", w.pos.at))?;
+        // A work that waits, which it does at no agent's cell, holds no slot: it goes on from its wait, once what it
+        // waits for came, only while its machine has a slot free, unless the owner asked for its round.
+        let room = cell.kind == "agent" || asked || w.graph != ENGINEER || !self.waiting(&w)? || self.room_for(&w)?;
         (self.busy)(Some(id));
         let result = if cell.kind == "agent" {
             steps::agent(self, &w, &g, &cell)
         } else {
-            steps::engine(self, &w, &g, &cell)
+            steps::engine(self, &w, &g, &cell, room)
         };
         (self.busy)(None);
         match result {
@@ -806,6 +809,16 @@ impl Engine {
             &self.config.config.install.machines.hosts,
             &holding,
         ))
+    }
+
+    /// Whether a work that holds no slot may take one: its machine has a slot free, or, before it has a machine, any
+    /// machine has.
+    fn room_for(&mut self, w: &Work) -> Result<bool, String> {
+        let free = self.slots_by_machine()?;
+        Ok(match &w.machine {
+            Some(m) => free.get(m).copied().unwrap_or(0) > 0,
+            None => free.values().sum::<i64>() > 0,
+        })
     }
 
     /// Whether the work stands waiting: at the owner's or the architect's cell with its question asked, or at a row
@@ -988,8 +1001,10 @@ impl Engine {
     }
 
     /// One pass over every work: reads the configuration again, carries out the outbox, moves or takes over the works
-    /// that go on on an older flow version, starts a work of the architect when a matter is due, starts works on ready
-    /// items while slots are free, and takes each active work one step. Gives whether anything moved.
+    /// that go on on an older flow version, starts a work of the architect when a matter is due, takes, while a slot is
+    /// free, a step of each work that waits holding no slot, so that one whose wait is over takes the slot first, starts
+    /// works on ready items while slots are free, and takes each other active work one step. Gives whether anything
+    /// moved.
     pub fn tick(&mut self) -> Result<bool, String> {
         self.reload_config();
         let mut moved = actions::run_outbox(self)?;
@@ -1004,6 +1019,16 @@ impl Engine {
         if self.architect_work_due()?.is_some() {
             moved = true;
         }
+        // The works that wait, holding no slot, take the free slots as what they wait for comes, before new works start.
+        let mut stepped = BTreeSet::new();
+        if self.free_slots()? > 0 {
+            for id in self.waiting_works()? {
+                if self.advance(id)? == Advance::Moved {
+                    moved = true;
+                }
+                stepped.insert(id);
+            }
+        }
         while self.free_slots()? > 0 {
             let Some(item) = self.next_ready() else { break };
             let id = self.create_work(item)?;
@@ -1017,11 +1042,24 @@ impl Engine {
             if self.halted() {
                 break;
             }
-            if self.advance(id)? == Advance::Moved {
+            if !stepped.contains(&id) && self.advance(id)? == Advance::Moved {
                 moved = true;
             }
         }
         Ok(moved)
+    }
+
+    /// The works on items that wait, holding no slot, in the order of their ids: once what one waits for came, it goes
+    /// on before a new work starts on a ready item, when its machine has a slot free.
+    fn waiting_works(&mut self) -> Result<Vec<i64>, String> {
+        let mut out = Vec::new();
+        for id in self.active()? {
+            let w = self.work(id)?;
+            if w.graph == ENGINEER && self.waiting(&w)? {
+                out.push(id);
+            }
+        }
+        Ok(out)
     }
 
     /// Takes exactly one step of the engine as a whole, the smallest pass, with which the engine's loop takes the
@@ -1030,7 +1068,9 @@ impl Engine {
     /// first carries out the outbox; then, when works that go on are on an older flow version, it moves those that can
     /// move and takes the others over, and when it took one over, takes the first step of the first new work, when one
     /// started; else, when no work of the architect runs and a
-    /// matter is due for it, it starts one and takes its first step; else, when a slot is free and an item is
+    /// matter is due for it, it starts one and takes its first step; else, when a slot is free, it takes the step of the
+    /// first work that waits, holding no slot, that has one, as one whose wait is over and goes on into the free slot;
+    /// else, when a slot is free and an item is
     /// ready, it starts a work on that item and takes the work's first step; otherwise it takes the next step of the
     /// first active work that has one, in the order of the works' ids, beginning after `after` and going round to the
     /// lowest, so that every work gets its turn as in a pass. The outbox the step filled is carried out after it.
@@ -1069,6 +1109,22 @@ impl Engine {
                 rounds,
                 cell,
             });
+        }
+        // A work that waits, holding no slot, goes on when what it waits for came before a new work takes the slot.
+        if self.free_slots()? > 0 {
+            for id in self.waiting_works()? {
+                self.advance(id)?;
+                let (rounds, cell) = self.rounds_since(&mark)?;
+                if !rounds.is_empty() {
+                    actions::run_outbox(self)?;
+                    return Ok(Stepped {
+                        work: Some(id),
+                        started_item: None,
+                        rounds,
+                        cell,
+                    });
+                }
+            }
         }
         if self.free_slots()? > 0
             && let Some(item) = self.next_ready()
@@ -1240,15 +1296,8 @@ impl Engine {
         let mut done = Vec::new();
         for &id in releasing {
             let w = self.work(id)?;
-            if w.paused.is_some() && w.ended.is_none() && w.graph == ENGINEER {
-                let free = self.slots_by_machine()?;
-                let room = match &w.machine {
-                    Some(m) => free.get(m).copied().unwrap_or(0) > 0,
-                    None => free.values().sum::<i64>() > 0,
-                };
-                if !room {
-                    continue;
-                }
+            if w.paused.is_some() && w.ended.is_none() && w.graph == ENGINEER && !self.room_for(&w)? {
+                continue;
             }
             if w.paused.is_some() && w.ended.is_none() {
                 self.lift(id)?;

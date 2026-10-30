@@ -8829,6 +8829,90 @@ fn two_works(name: &str) -> (Setup, Engine, Rc<RefCell<Vec<String>>>) {
     (s, e, said)
 }
 
+// A work that asked the owner waits for the answer holding no slot, and another work starts in the slot it left; once
+// the answer came, the first goes on only when a slot is free again, so that the machine never runs more works than its
+// slots, and then before any new work starts on a ready item. In the sixth trial a work answered went on at once, and
+// the slots read three used of two.
+#[test]
+fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
+    let s = setup("back-to-a-slot");
+    let mut agents = scripts();
+    // The first work to research asks the owner; the first to weigh whether the problem stands, the second work, too.
+    for cell in ["R1", "R2"] {
+        agents.insert(
+            cell,
+            Box::new(|_: &Request, n: usize| {
+                if n == 1 {
+                    an_ask("owner")
+                } else {
+                    (Vec::new(), Vec::new())
+                }
+            }),
+        );
+    }
+    let (mut e, said, first) = start(&s, agents);
+    let queue = |e: &mut Engine, title: &str, position: f64| -> i64 {
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
+                [title],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, ?2)", params![id, position])?;
+            Ok(id)
+        })
+        .unwrap()
+    };
+    let second = queue(&mut e, "Add another", 2.0);
+    let third = queue(&mut e, "Add a third", 3.0);
+    let ask_of = |e: &Engine, item: i64| -> Option<i64> {
+        e.db.conn()
+            .query_row(
+                "SELECT a.id FROM owner_asks a JOIN works w ON w.id = a.work WHERE w.item = ?1",
+                [item],
+                |r| r.get(0),
+            )
+            .ok()
+    };
+    assert!(
+        steps_until(&mut e, 20, |e| ask_of(e, first).is_some() && state(e, second).is_some()),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let ask = ask_of(&e, first).unwrap();
+    let (a, _, _) = state(&e, first).unwrap();
+    // The owner answers while the second work holds the one slot: the first stays where it waited.
+    let answer = api::Answer {
+        text: "Go ahead.".into(),
+        why: None,
+        reply: None,
+        to: None,
+        images: Vec::new(),
+    };
+    api::answer(&mut e.db, ask, &answer).unwrap();
+    let mut after = None;
+    for _ in 0..20 {
+        if state(&e, second).is_some_and(|x| x.1 == "A3") {
+            break;
+        }
+        after = e.step(after).unwrap().work;
+        let log = said.borrow().join("\n");
+        assert!(e.free_slots().unwrap() >= 0, "{log}");
+        assert_eq!(state(&e, first).map(|x| x.1).as_deref(), Some("A3"), "{log}");
+    }
+    let log = said.borrow().join("\n");
+    assert_eq!(state(&e, second).map(|x| x.1).as_deref(), Some("A3"), "{log}");
+    // The second work goes to ask the owner in turn, holding no slot: the first goes on in the slot it left, before a
+    // work starts on the third item.
+    let next = e.step(after).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(next.work, Some(a), "{log}");
+    assert_eq!(state(&e, first).map(|x| x.1).as_deref(), Some("R1"), "{log}");
+    assert_eq!(state(&e, third), None, "{log}");
+    assert_eq!(e.free_slots().unwrap(), 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Each work follows the global pause and start unless the owner started or paused it, and the later action wins: a
 // work the owner starts goes on while every work is paused, and follows the global pause again once every work is
 // paused after; a work the owner pauses stays paused through Start all, until the owner starts it; a work the owner

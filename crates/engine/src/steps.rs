@@ -1042,7 +1042,10 @@ fn finish_end(e: &mut Engine, w: &Work, round: RoundId, output: Value, also: AtE
     Ok(Advance::Moved)
 }
 
-pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Advance, String> {
+/// The step of an engine's, a tool's or the owner's cell. `room` says whether the work may go on holding a slot: it
+/// holds one, its machine has one free, or the owner asked for its round; when not, a work that waits, holding none,
+/// stays where it waits for as long as going on would take one ([`takes_slot`]).
+pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, room: bool) -> Result<Advance, String> {
     let item = e.subject(w)?;
     let open = close_interrupted(e, w)?;
     let step = cell.step.clone();
@@ -1050,7 +1053,7 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
         Some("ask_owner") if w.graph == ARCHITECT => {
             return architect::ask_owner(e, w, g, cell, open);
         }
-        Some("ask_owner") => return ask(e, w, g, cell, needed(&item, w)?, open),
+        Some("ask_owner") => return ask(e, w, g, cell, needed(&item, w)?, open, room),
         Some("ask_architect") => {
             let item = needed(&item, w)?;
             // A question an earlier engine put to the owner, who answered for the architect, is still the owner's to
@@ -1060,22 +1063,28 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
                 None => false,
             };
             if stood_in {
-                return ask(e, w, g, cell, item, open);
+                return ask(e, w, g, cell, item, open, room);
             }
-            return architect::ask_architect(e, w, g, cell, item, open);
+            return architect::ask_architect(e, w, g, cell, item, open, room);
         }
         _ => {}
     }
     // A work behind another in its project's merge queue waits its turn by the merge cell's row that waits, holding no
-    // slot; a flow version without that row has it wait the same, unrecorded.
-    if step.as_deref() == Some("merge") && values::value(e, w, g, item.as_ref(), "turn")? == "behind" {
-        let Some(row) = crate::row(cell, "behind").cloned() else {
-            return Ok(Advance::Waits(format!(
-                "work {} waits its turn in the merge queue",
-                w.id
-            )));
-        };
-        return wait_by(e, w, g, cell, &row, json!({ "given": { "turn": "behind" } }));
+    // slot; a flow version without that row has it wait the same, unrecorded. Its turn come, it merges only once it may
+    // take a slot.
+    if step.as_deref() == Some("merge") {
+        if values::value(e, w, g, item.as_ref(), "turn")? == "behind" {
+            let Some(row) = crate::row(cell, "behind").cloned() else {
+                return Ok(Advance::Waits(format!(
+                    "work {} waits its turn in the merge queue",
+                    w.id
+                )));
+            };
+            return wait_by(e, w, g, cell, &row, json!({ "given": { "turn": "behind" } }));
+        }
+        if !room {
+            return Ok(waits_for_slot(w));
+        }
     }
     // The agent paused: the work waits, paused by the engine, for the owner's Start; once the owner started it again
     // since it came here, it goes back.
@@ -1160,6 +1169,9 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
         if row.waits && waits_again(e, w, cell, &row)? {
             return Ok(Advance::Waits(format!("cell {} \"{}\"", cell.id, row.name)));
         }
+        if !room && takes_slot(g, w, &row)? {
+            return Ok(waits_for_slot(w));
+        }
         let round =
             e.db.write(Actor::Engine, |tx| {
                 work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
@@ -1208,6 +1220,26 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
     }
     let row = g.take(&cell.id, &output, &given)?.clone();
     finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)
+}
+
+/// Whether a work that waits, holding no slot, takes one by going on by `row`: unless the row waits again, or leads to
+/// an ask of the owner or the architect, where the work waits holding none.
+pub fn takes_slot(g: &CompiledGraph, w: &Work, row: &CompiledRow) -> Result<bool, String> {
+    if row.waits {
+        return Ok(false);
+    }
+    let next = g.step(&w.pos, row)?;
+    Ok(!g
+        .cell(&next.at)
+        .is_some_and(|c| matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect"))))
+}
+
+/// A work that waits on where it waited, what it waited for come, until it may take a slot.
+pub fn waits_for_slot(w: &Work) -> Advance {
+    Advance::Waits(format!(
+        "work {} waits for a free slot to go on from cell {}",
+        w.id, w.pos.at
+    ))
 }
 
 /// Whether a row that waits was the last the work took, at this cell: taken again with nothing new, it is not
@@ -1369,9 +1401,10 @@ fn report_followup(e: &Engine, w: &Work, project: &config::Project) -> Result<Op
     }))
 }
 
-/// Cell `A3`: the question becomes an ask of the owner, and the work waits for the answer. An ask of cell
-/// `A2` that an earlier engine put to the owner, who answered for the architect in the architect's form, is
-/// completed by the owner's answer the same way.
+/// Cell `A3`: the question becomes an ask of the owner, and the work waits for the answer, holding no slot; once the
+/// answer came, it goes on when `room` says it may take a slot ([`takes_slot`]). An ask of cell `A2` that an earlier
+/// engine put to the owner, who answered for the architect in the architect's form, is completed by the owner's answer
+/// the same way.
 fn ask(
     e: &mut Engine,
     w: &Work,
@@ -1379,6 +1412,7 @@ fn ask(
     cell: &CompiledCell,
     item: &Item,
     open: Option<Round>,
+    room: bool,
 ) -> Result<Advance, String> {
     let to = if cell.step.as_deref() == Some("ask_owner") {
         "owner"
@@ -1404,6 +1438,9 @@ fn ask(
                 let gathered = inputs::gather(e, w, g, cell, Some(item))?;
                 let given = values::given(e, w, g, cell, Some(item), &gathered)?;
                 if given.get("interjection").and_then(Value::as_str) == Some("yes") {
+                    if !room && takes_slot(g, w, &row)? {
+                        return Ok(waits_for_slot(w));
+                    }
                     return finish(
                         e,
                         w,
@@ -1452,6 +1489,9 @@ fn ask(
             given.insert("interjection".into(), json!("no"));
         }
         let row = g.take(&cell.id, &output, &given)?.clone();
+        if !room && takes_slot(g, w, &row)? {
+            return Ok(waits_for_slot(w));
+        }
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None, &given);
     }
     if to != "owner" {
