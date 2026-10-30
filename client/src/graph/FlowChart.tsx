@@ -6,7 +6,8 @@
 // or writes beside it, each leading to its box among the stores. On a work's page each cell carries what the work did there and the arrows the work took stand out; when two
 // flows are compared, the cells added and changed are marked. An arrow's label names its rows, with no numbers, as a
 // cell's page names them. A chart that opens on a cell opens at full size, centred on it; when a round starts running at another
-// cell than the one it last centred on, it centres on that cell at the zoom it has. A map of the whole chart over its
+// cell than the one it last centred on, it centres on that cell at the zoom it has; it centres, each time, in the part
+// of it that the window floating over its right side leaves. A map of the whole chart over its
 // top left corner shows the part in view and moves the view, while some of the chart is out of view. A click on the
 // chart's background, not a drag, lets go of what is picked.
 
@@ -101,6 +102,8 @@ export type FlowChartHandle = {
   focus: (cell: string, keep?: boolean, graph?: string) => void;
   /// Brings a store's box among the stores into view.
   focusStore: (store: string) => void;
+  /// Reads again how much of the chart what floats over its right side covers (`cover`), and does not move.
+  covered: () => void;
 };
 
 /// The least zoom the chart opens at when it opens on no cell.
@@ -124,6 +127,9 @@ export type FlowChartProps = {
   onPick: (p: Pick) => void;
   /// What the legend explains besides the kinds of box: a work's marks, or the marks of a comparison.
   legend: 'flow' | 'work' | 'compare';
+  /// How much of the chart's right side, in pixels, the window floating over it covers, read each time the chart
+  /// centres on something, which it then centres in the part left; none when nothing covers it.
+  cover?: () => number;
   ref?: Ref<FlowChartHandle>;
 };
 
@@ -568,7 +574,7 @@ function Legend({ charts, stores, legend }: {
 }
 
 export function FlowChart(props: FlowChartProps) {
-  const { graphs, marks, engine, store = null, start, startGraph, onPick, legend, ref } = props;
+  const { graphs, marks, engine, store = null, start, startGraph, onPick, legend, cover, ref } = props;
   const models = useMemo(() => graphs.map(({ g, view }) => build(g, view, engine)), [graphs, engine]);
   const measured = useMemo(() => graphs.map(({ g }, i) => sizes(g, models[i], engine)), [graphs, models, engine]);
   // The stores, between the first two graphs or beside the one, and which node of each graph reads or writes each.
@@ -671,6 +677,7 @@ export function FlowChart(props: FlowChartProps) {
         const r = storeRectRef.current(store);
         if (r) viewer.current?.focus(r, false);
       },
+      covered: () => viewer.current?.covered(),
     }),
     [],
   );
@@ -759,6 +766,7 @@ export function FlowChart(props: FlowChartProps) {
           width={placed.width}
           height={placed.height}
           onPick={pick}
+          cover={cover}
           over={map !== null ? <Minimap map={map} viewer={viewer} /> : null}
         >
           <div className="fc-sheets" style={{ width: placed.width, height: placed.height }}>

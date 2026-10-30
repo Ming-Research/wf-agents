@@ -1,12 +1,13 @@
-// A flow's chart filling the window under the bar, its graphs side by side, and a column docked at its right, whose
-// width drags at its left edge, sharing the width evenly with the chart at first on a work's page and the architect's.
-// On those two pages the page's panel is on top, at the column's full height, and while a cell, a rule, the
-// interjection, a comparison or a round is open, its panel is in the lower part, split from the top by a divider that
-// drags, at the share the owner last set on either page; closing it gives the page's panel the full height again. On
-// the flow page, which has no panel of its own, what is open is alone in the column. Every page that shows a flow shows
-// it here, in this one way, so that what is opened on one shows as on the others.
+// A flow's chart filling the window under the bar, its graphs side by side, and a window floating over its right side
+// (Dock.tsx), whose width drags at its left edge, half the chart's width at first on a work's page and the architect's,
+// and which never moves the chart. On those two pages the page's panel is on top, at the window's full height, and
+// while a cell, a rule, the interjection, a comparison or a round is open, its panel is in the lower part, split from
+// the top by a divider that drags, at the share the owner last set on either page; closing it gives the page's panel
+// the full height again. On the flow page, which has no panel of its own, what is open is alone in the window. A click
+// on the chart that opens something expands the window when it is minimised. Every page that shows a flow shows it
+// here, in this one way, so that what is opened on one shows as on the others.
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Compiled, FlowDiff, RoundSummary } from '../api';
 import { FlowChart, type FlowChartHandle, type Graph, type Pick } from '../graph/FlowChart';
@@ -19,6 +20,7 @@ import { CellPanel, type CellTab, cellWhere } from './CellPanel';
 import { DiffPanel } from './Changes';
 import { ActionPanel, StorePanel, storeWho } from './EnginePanels';
 import { type Flow, flowOf, FlowContext, type Subject, subjectKey } from './context';
+import { coverOf, Dock, DockContext, FoldButton, foldIn, useMinimised } from './Dock';
 import { Grip, Panel, savedSize, useTrail } from './Panel';
 import { OPEN_FIRST, type Side, toggled } from './Sides';
 import { CellLinks, inline, sheetText } from './words';
@@ -53,6 +55,12 @@ export function pickedOnChart(now: Subject | null): boolean {
   return now !== null && now.kind !== 'changes';
 }
 
+/// Whether a click on the chart expands the window floating over it, when it is minimised: a click that opens what it
+/// is on does, so that it is seen; a click on the chart's background, which only lets go, does not.
+export function pickExpands(p: Pick): boolean {
+  return p.kind !== 'nothing';
+}
+
 export type FlowScreenProps = {
   compiled: Compiled;
   /// The graphs drawn side by side, left to right; the same object while they are the same, as each new list is laid
@@ -79,13 +87,11 @@ export type FlowScreenProps = {
   round?: number | null;
   onRound?: (round: number | null) => void;
   renderRound?: (round: number) => ReactNode;
-  /// On a work's page and the architect's: the page's panel, on top of the column, with what is open on the chart split
-  /// under it.
+  /// On a work's page and the architect's: the page's panel, on top of the window, with what is open on the chart
+  /// split under it.
   side?: ReactNode;
 };
 
-const DOCK_KEY = 'wf-agents.dock-width';
-const DOCK_MIN = 320;
 /// The height of the page's panel over what is open, one for every page, so that a work's page and the architect's
 /// split alike.
 const SPLIT_KEY = 'wf-agents.dock-split';
@@ -176,11 +182,19 @@ export function FlowScreen(props: FlowScreenProps) {
     renderRound,
     side,
   } = props;
-  const [width, setWidth] = useState<number | null>(() => savedSize(DOCK_KEY, DOCK_MIN));
   const [split, setSplit] = useState<number | null>(() => savedSize(SPLIT_KEY, SPLIT_MIN));
   const nameOf = (n: number) => roundName(work ?? 0, n);
   const chartRef = useRef<FlowChartHandle>(null);
   const panelRef = useRef<HTMLElement>(null);
+  const areaRef = useRef<HTMLDivElement>(null);
+  const dockRef = useRef<HTMLElement>(null);
+  const { minimised, minimise, expand } = useMinimised(dockRef);
+  // What the window covers of the chart, read as they are drawn each time the chart centres on something.
+  const cover = useCallback(() => {
+    const dock = dockRef.current;
+    const area = areaRef.current?.getBoundingClientRect() ?? null;
+    return coverOf(area, dock !== null && !dock.classList.contains('dock-min') ? dock.getBoundingClientRect() : null);
+  }, []);
   // A round the address names is open from the page's first drawing.
   const trail = useTrail<Subject>(same, round != null ? { kind: 'round', round } : null);
   // The node whose panel is open, in its graph, or the store.
@@ -259,10 +273,11 @@ export function FlowScreen(props: FlowScreenProps) {
     // Only when the comparison changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diff]);
-  // Brings a cell into view once the panel that opens with it is drawn, as the chart narrows to make room for it.
+  // Brings a cell into view once the window that opens with it is drawn, in the part of the chart the window leaves.
   const into = (c: string, keep: boolean, graph: string) =>
     window.setTimeout(() => chartRef.current?.focus(c, keep, graph), 0);
   const onPick = (p: Pick) => {
+    if (pickExpands(p)) expand();
     // A click on nothing lets go of what is picked on the chart, as the panel's close does.
     if (p.kind === 'nothing') {
       if (pickedOnChart(now)) trail.close();
@@ -447,6 +462,22 @@ export function FlowScreen(props: FlowScreenProps) {
     }
   }, [now, rounds, first]);
   const shown = panel !== null && now !== null;
+  const docked = side !== undefined || shown;
+  // The window's top row, which it folds to, holds the button that minimises and expands it.
+  const head = foldIn(side !== undefined, shown, minimised);
+  const fold = <FoldButton minimised={minimised} onFold={minimised ? expand : minimise} />;
+  // The chart reads again what the window covers as it opens, closes, minimises, expands or is dragged, and does not
+  // move.
+  useLayoutEffect(() => {
+    chartRef.current?.covered();
+  }, [docked, minimised]);
+  useEffect(() => {
+    const el = dockRef.current;
+    if (el === null) return;
+    const resized = new ResizeObserver(() => chartRef.current?.covered());
+    resized.observe(el);
+    return () => resized.disconnect();
+  }, [docked]);
   const opened =
     panel !== null && now !== null ? (
       <Panel
@@ -464,6 +495,8 @@ export function FlowScreen(props: FlowScreenProps) {
         }}
         onClose={trail.close}
         shown={subjectKey(now)}
+        minimised={minimised}
+        fold={head === 'open' ? fold : null}
       >
         <FlowContext.Provider value={panel.flow}>{panel.body}</FlowContext.Provider>
       </Panel>
@@ -480,7 +513,7 @@ export function FlowScreen(props: FlowScreenProps) {
   return (
     <FlowContext.Provider value={flowFor(undefined)}>
       <div className="flow-screen">
-        <div className="flow-chart-area">
+        <div className="flow-chart-area" ref={areaRef}>
           <FlowChart
             ref={chartRef}
             graphs={graphs}
@@ -491,24 +524,24 @@ export function FlowScreen(props: FlowScreenProps) {
             startGraph={startGraph}
             onPick={onPick}
             legend={legend}
+            cover={cover}
           />
         </div>
-        {side !== undefined || shown ? (
-          <aside className={side !== undefined ? 'dock dock-half' : 'dock'} style={width !== null ? { width } : undefined}>
-            <Grip edge="left" min={DOCK_MIN} storage={DOCK_KEY} label={t('dock_grip')} onSize={setWidth} />
+        {docked ? (
+          <Dock ref={dockRef} half={side !== undefined} minimised={minimised}>
             {side !== undefined ? (
               <div
                 className={shown ? 'dock-top dock-top-split' : 'dock-top'}
                 style={shown ? { height: split !== null ? split : '50%' } : undefined}
               >
-                {side}
+                <DockContext.Provider value={{ fold: head === 'tabs' ? fold : null, expand }}>{side}</DockContext.Provider>
                 {shown ? (
                   <Grip edge="bottom" min={SPLIT_MIN} storage={SPLIT_KEY} label={t('dock_split')} onSize={setSplit} />
                 ) : null}
               </div>
             ) : null}
             {opened}
-          </aside>
+          </Dock>
         ) : null}
       </div>
     </FlowContext.Provider>

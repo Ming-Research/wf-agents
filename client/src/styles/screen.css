@@ -1,7 +1,7 @@
-/* A view that fills the window under the bar with a chart (the flow, a work, an architect), and the column docked at
-   the chart's right: what is open on the chart as a panel (its way back, its title, who does it, its close), under the
-   page's panel on a work's page and the architect's, split from it by a divider. The column's edge and the divider are
-   drawn as Primer's PageLayout draws its divider: a line that turns the accent under the pointer. */
+/* A view that fills the window under the bar with a chart (the flow, a work, an architect), and the window floating
+   over the chart's right side: what is open on the chart as a panel (its way back, its title, who does it, its close),
+   under the page's panel on a work's page and the architect's, split from it by a divider. The window's edge and the
+   divider are drawn as Primer's PageLayout draws its divider: a line that turns the accent under the pointer. */
 
 .app-screen {
   height: 100vh;
@@ -40,23 +40,92 @@
   min-width: 0;
 }
 
+/* The window over the chart's right side, at the chart's full height but for the room round it, on Primer's overlay
+   surface as what else floats over the chart: the chart under it keeps its whole width and never moves, whether the
+   window opens, closes, is minimised, expanded or dragged. It floats over the chart's other floating parts (its map,
+   its zoom, its "?" and legend, the flow's tools), which keep to the chart's left, where the window reaches only when
+   dragged nearly to the chart's whole width, or at a phone's width; and under what opens over the page from the line
+   above the chart. What it holds scrolls inside it, within its rounded corners. */
 .dock {
-  position: relative;
-  flex: none;
+  position: absolute;
+  top: var(--base-size-8);
+  right: var(--base-size-8);
+  bottom: var(--base-size-8);
+  z-index: 7;
   display: flex;
   flex-direction: column;
   width: 560px;
   min-width: 320px;
   max-width: calc(100% - 160px);
   min-height: 0;
-  border-left: var(--borderWidth-thin) solid var(--borderColor-default);
-  background: var(--bgColor-default);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--overlay-bgColor);
+  box-shadow: var(--shadow-floating-small);
 }
 
-/* On a work's page and the architect's the column and the chart share the width evenly until the owner drags it: the
-   owner reads where the work went on the chart and what it said in the column. */
+/* On a work's page and the architect's the window takes half the chart's width until the owner drags it: the owner
+   reads where the work went on the chart and what it said in the window. */
 .dock.dock-half {
   width: 50%;
+}
+
+.dock-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+/* Minimised, the window is its one head row at the chart's top right, as wide as it was: the head of what is open, or
+   else the page's tabs; what each holds stays where it was scrolled to, out of sight, and so does the page's panel
+   under what is open. */
+.dock.dock-min {
+  bottom: auto;
+}
+
+.dock-min .dock-top-split,
+.dock-min .drawer-body,
+.dock-min .panel-body {
+  display: none;
+}
+
+.dock-min .panel-head {
+  flex-wrap: nowrap;
+  align-items: center;
+  border-bottom: 0;
+}
+
+.dock-min .panel-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock-min .drawer-tabs,
+.dock-min .drawer-fold {
+  box-shadow: none;
+}
+
+/* The page's tabs as the window's top row, and at its right end the button that minimises and expands the window, on
+   the tabs' line. */
+.drawer-head {
+  display: flex;
+  min-width: 0;
+}
+
+.drawer-head > .drawer-tabs {
+  flex: 1;
+  min-width: 0;
+}
+
+.drawer-fold {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--base-size-8);
+  box-shadow: inset 0 calc(-1 * var(--borderWidth-thin)) var(--borderColor-muted);
 }
 
 .dock-top {
@@ -73,11 +142,11 @@
   border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
 }
 
-.dock > .panel {
+.dock-body > .panel {
   flex: 1;
 }
 
-/* The left edge of the column, which drags its width: the column's line, the accent under the pointer. */
+/* The left edge of the window, which drags its width: the window's line, the accent under the pointer. */
 .width-grip {
   position: absolute;
   top: 0;
@@ -124,17 +193,13 @@
   background: var(--borderColor-accent-emphasis);
 }
 
+/* At a phone's width the window takes the chart's whole width, expanded or minimised, and its width does not drag. */
 @media (max-width: 600px) {
-  .flow-screen {
-    flex-direction: column;
-  }
-
   .dock {
+    left: var(--base-size-8);
     width: auto !important;
+    min-width: 0;
     max-width: none;
-    height: 55%;
-    border-top: var(--borderWidth-thin) solid var(--borderColor-default);
-    border-left: 0;
   }
 
   .width-grip {
@@ -147,7 +212,6 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--bgColor-default);
 }
 
 .panel-head {
@@ -218,7 +282,7 @@
   top: calc(-1 * var(--base-size-16));
   z-index: 2;
   margin: calc(-1 * var(--base-size-16)) calc(-1 * var(--base-size-16)) 0;
-  background: var(--bgColor-default);
+  background: var(--overlay-bgColor);
 }
 
 .cell-tab {

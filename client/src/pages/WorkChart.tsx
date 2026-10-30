@@ -1,7 +1,8 @@
 // What a work's page and an architect's page share, each drawn once here so that a change to one is a change to both:
 // the chart of the work shown, with what it did marked on it and the halo going round the cell a round runs at; the
-// column docked beside it, the page's panel in tabs over what is open on the chart; and the panel's rounds tab, with
-// only the rounds sent back or failed when the page was opened on them, and the marks that open it so in a list.
+// window floating over its right side, the page's panel in tabs over what is open on the chart; and the panel's rounds
+// tab, with only the rounds sent back or failed when the page was opened on them, and the marks that open it so in a
+// list.
 
 import { ReplyIcon, XCircleIcon } from '@primer/octicons-react';
 import { CounterLabel, UnderlineNav } from '@primer/react';
@@ -10,6 +11,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import type { Compiled, CompiledGraph, FlowView, GraphView, RoundSummary, Status, WorkDetail, WorkSummary } from '../api';
 import { type Course, course, OutcomeBadge, StateChip } from '../components';
 import { waitOf } from '../course';
+import { useDockHead } from '../flow/Dock';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName } from '../format';
 import { chart, type Flash, haloAt, overlays, roundArrows, taken } from '../graph/flowModel';
@@ -197,9 +199,11 @@ export type PanelTab<T extends string> = {
   hint?: string;
 };
 
-/// A page's panel, on top of the column docked at the right of its chart: its tabs, each with its count and what in it
-/// waits for the owner as a count of its own, and what the tab shown holds, shown from its top when the tab changes. A
-/// click with a modifier key opens a tab as the browser would.
+/// A page's panel, on top of the window floating over the right of its chart: its tabs, each with its count and what in
+/// it waits for the owner as a count of its own, and at the row's right end, while the row is the window's top row, the
+/// button that minimises and expands the window; and what the tab shown holds, shown from its top when the tab changes.
+/// A tab picked while the window is minimised expands it to that tab. A click with a modifier key opens a tab as the
+/// browser would.
 export function ChartPanel<T extends string>({ label, tabs, current, onTab, children }: {
   label: string;
   tabs: Array<PanelTab<T>>;
@@ -208,33 +212,38 @@ export function ChartPanel<T extends string>({ label, tabs, current, onTab, chil
   children: ReactNode;
 }) {
   const body = useRef<HTMLDivElement>(null);
+  const dock = useDockHead();
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
   }, [current]);
   return (
     <div className="drawer">
-      <UnderlineNav aria-label={label} className="drawer-tabs">
-        {tabs.map((x) => (
-          <UnderlineNav.Item
-            key={x.tab}
-            href={x.href}
-            aria-current={x.tab === current ? 'page' : undefined}
-            onSelect={(e) => {
-              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-              e.preventDefault();
-              onTab(x.tab);
-            }}
-          >
-            {x.label}
-            {x.n !== null ? <CounterLabel className="drawer-count">{x.n}</CounterLabel> : null}
-            {(x.waiting ?? 0) > 0 ? (
-              <CounterLabel variant="primary" className="drawer-count" title={x.hint}>
-                {x.waiting}
-              </CounterLabel>
-            ) : null}
-          </UnderlineNav.Item>
-        ))}
-      </UnderlineNav>
+      <div className="drawer-head">
+        <UnderlineNav aria-label={label} className="drawer-tabs">
+          {tabs.map((x) => (
+            <UnderlineNav.Item
+              key={x.tab}
+              href={x.href}
+              aria-current={x.tab === current ? 'page' : undefined}
+              onSelect={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                e.preventDefault();
+                onTab(x.tab);
+                dock?.expand();
+              }}
+            >
+              {x.label}
+              {x.n !== null ? <CounterLabel className="drawer-count">{x.n}</CounterLabel> : null}
+              {(x.waiting ?? 0) > 0 ? (
+                <CounterLabel variant="primary" className="drawer-count" title={x.hint}>
+                  {x.waiting}
+                </CounterLabel>
+              ) : null}
+            </UnderlineNav.Item>
+          ))}
+        </UnderlineNav>
+        {dock?.fold ? <div className="drawer-fold">{dock.fold}</div> : null}
+      </div>
       <div className="drawer-body" ref={body}>
         {children}
       </div>
@@ -320,8 +329,8 @@ const NO_ROUNDS: RoundSummary[] = [];
 
 /// The chart of a work's page or an architect's: the graph of the work shown filling the window, as its flow version has
 /// it, with what the work did placed on it, opening on the cell of the round chosen or the cell the work is at; with no
-/// work, the bare graph named; and the docked column, the page's panel on top and what is open on the chart under it,
-/// a round of the work in the round's own panel.
+/// work, the bare graph named; and the window floating over its right side, the page's panel on top and what is open on
+/// the chart under it, a round of the work in the round's own panel.
 export function WorkChart({ compiled, view, graph, d, cell, round, onCell, onRound, panel }: {
   compiled: Compiled;
   view: FlowView;

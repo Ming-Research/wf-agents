@@ -1,12 +1,12 @@
 // A work's page, under its line above the chart, which holds its facts and how it goes on: the state machine of the
-// flow version it is pinned to, filling the window but for the column docked at its right, with what the work did on
-// it: the cell it is at ringed, each cell it visited with its rounds and the rounds sent back or failed, the arrows it
-// took standing out, the cell a round runs or has just run at in a moving halo, and beside the cell it waits at why,
-// in a few words. The page only reads the work: the owner acts on it in its group in the messages view, which its line
-// and what it waits for lead to. The column holds on top the work's panel in tabs: its rounds; its design cards, the
-// one waiting for the owner's ruling first; the talk of its helpers (the advisor, the review, the adversarial testing)
-// with its engineer, one thread for each helper, which is in no group; and its usage. A round or a cell opened shows in
-// the column's lower part, its cell brought into view. The chart, the panel, the rounds tab, the line and the usage are
+// flow version it is pinned to, filling the window under the panel floating over its right side, with what the work
+// did on it: the cell it is at ringed, each cell it visited with its rounds and the rounds sent back or failed, the
+// arrows it took standing out, the cell a round runs or has just run at in a moving halo, and beside the cell it waits
+// at why, in a few words. The page only reads the work: the owner acts on it in its group in the messages view, which
+// its line and what it waits for lead to. The floating window holds on top the work's panel in tabs: its rounds; its
+// design cards, the one waiting for the owner's ruling first; the talk of its helpers (the advisor, the review, the
+// adversarial testing) with its engineer, one thread for each helper, which is in no group; and its usage. A round or a
+// cell opened shows in the window's lower part, its cell brought into view. The chart, the panel, the rounds tab, the line and the usage are
 // the architect's page's too (WorkChart.tsx, HeadLine.tsx, Usage.tsx).
 
 import type { Compiled, CompiledGraph, DesignCard, FlowView, RoundDetail, RoundSummary, WorkDetail } from '../api';
@@ -166,8 +166,8 @@ function Helpers({ d, g, onRound }: { d: WorkDetail; g: CompiledGraph; onRound: 
   );
 }
 
-/// The work's panel, on top of the column docked at the right of its chart: its rounds, its design cards, its helpers'
-/// talk with its engineer, and its usage.
+/// The work's panel, on top of the window floating over the right of its chart: its rounds, its design cards, its
+/// helpers' talk with its engineer, and its usage.
 function WorkPanel({ d, g, r, go }: { d: WorkDetail; g: CompiledGraph; r: WorkRoute; go: (to: Partial<WorkRoute>) => void }) {
   const onRound = (round: number) => go({ round, cell: null });
   const openCards = d.design_cards.filter((c) => c.status === 'open').length;

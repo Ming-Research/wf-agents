@@ -2,7 +2,9 @@
 // the drawing; a pinch, or Shift with two fingers, zooms at the pointer; dragging moves it. Space shows the whole
 // drawing and remembers the zoom; Space again goes back to that zoom with the point under the pointer in the middle.
 // A click that does not drag picks what is under the pointer. What floats over the drawing, such as its map, stays
-// where it is as the drawing moves under it, and is told the view each time it changes.
+// where it is as the drawing moves under it, and is told the view each time it changes. What can be seen is the
+// viewer but for what a window floating over its right side covers: the drawing is centred, shown whole and framed on
+// its map in the part the window leaves, and moves under the window as freely as anywhere.
 
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useRef } from 'react';
 
@@ -11,8 +13,29 @@ export type Rect = { x: number; y: number; width: number; height: number };
 /// The view: the zoom, and where the drawing's top left corner is, in the viewer's own pixels.
 export type View = { s: number; x: number; y: number };
 
-/// The size of what can be seen of the viewer, in its own pixels.
+/// The size of what can be seen of the viewer, in its own pixels, from its top left corner.
 export type Seen = { width: number; height: number };
+
+/// A part of a viewer, in its own pixels: from its top left corner (`x0`, `y0`) to its bottom right (`x1`, `y1`).
+export type Area = { x0: number; y0: number; x1: number; y1: number };
+
+/// The part of a viewer of `box`'s size one can see: all of it but `cover` at its right, which a window floating over
+/// it there covers.
+export function seenOf(box: { width: number; height: number }, cover: number): Area {
+  return { x0: 0, y0: 0, x1: Math.max(0, box.width - Math.max(0, cover)), y1: box.height };
+}
+
+/// The view at zoom `s` that brings the middle of `r` to the middle of what can be seen.
+export function centredOn(r: Rect, s: number, w: Area): View {
+  return { s, x: (w.x0 + w.x1) / 2 - (r.x + r.width / 2) * s, y: (w.y0 + w.y1) / 2 - (r.y + r.height / 2) * s };
+}
+
+/// Whether `r` is wholly in what can be seen at the view `v`.
+export function inSight(r: Rect, v: View, w: Area): boolean {
+  const sx = r.x * v.s + v.x;
+  const sy = r.y * v.s + v.y;
+  return sx >= w.x0 && sy >= w.y0 && sx + r.width * v.s <= w.x1 && sy + r.height * v.s <= w.y1;
+}
 
 export type ViewerHandle = {
   /// Shows the whole drawing, or, when that is smaller than `least`, the top of it at that zoom, centred on `around`.
@@ -30,6 +53,9 @@ export type ViewerHandle = {
   listen: (f: (v: View, seen: Seen) => void) => () => void;
   /// Moves to a view: in a fifth of a second with `smooth`, else at once.
   to: (v: View, smooth: boolean) => void;
+  /// Reads again what the window floating over the viewer covers, and tells those who listen what can be seen now;
+  /// the view does not move.
+  covered: () => void;
 };
 
 export function Viewer(props: {
@@ -41,9 +67,14 @@ export function Viewer(props: {
   over?: ReactNode;
   /// Called with the element under the pointer when a click does not drag.
   onPick: (target: Element) => void;
+  /// How much of the viewer's right side, in its own pixels, a window floating over it covers, read each time it is
+  /// needed; none when nothing covers it.
+  cover?: () => number;
   ref?: Ref<ViewerHandle>;
 }) {
   const { width, height, onPick, ref } = props;
+  const cover = useRef(props.cover);
+  cover.current = props.cover;
   const box = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const view = useRef<View>({ s: 1, x: 0, y: 0 });
@@ -57,18 +88,22 @@ export function Viewer(props: {
   const dims = useRef<Seen>({ width: 0, height: 0 });
   const watchers = useRef(new Set<(v: View, seen: Seen) => void>());
 
-  const api = useRef<ViewerHandle & { whole: () => View; apply: () => void } | null>(null);
+  const api = useRef<(ViewerHandle & { whole: () => View; apply: () => void; measure: () => void }) | null>(null);
   if (api.current === null) {
     const apply = () => {
       const v = view.current;
       if (stage.current) stage.current.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.s})`;
       for (const f of watchers.current) f(v, dims.current);
     };
-    // The part of the viewer one can see, in the viewer's own pixels: all of it, as what floats over the chart keeps
-    // to its corners.
-    const seen = () => {
-      const r = box.current?.getBoundingClientRect() ?? new DOMRect(0, 0, 800, 600);
-      return { x0: 0, y0: 0, x1: r.width, y1: r.height };
+    // The part of the viewer one can see, in the viewer's own pixels: all of it but what the window floating over its
+    // right side covers, as the map, the tools and the "?" keep to its corners.
+    const seen = () => seenOf(box.current?.getBoundingClientRect() ?? new DOMRect(0, 0, 800, 600), cover.current?.() ?? 0);
+    // What those who listen are told can be seen, read again when the viewer or the window over it changes size.
+    const measure = () => {
+      const el = box.current;
+      if (!el) return;
+      const w = seenOf({ width: el.clientWidth, height: el.clientHeight }, cover.current?.() ?? 0);
+      dims.current = { width: w.x1 - w.x0, height: w.y1 - w.y0 };
     };
     const centre = (): [number, number] => {
       const w = seen();
@@ -113,6 +148,7 @@ export function Viewer(props: {
     };
     api.current = {
       whole,
+      measure,
       apply,
       start: (least, around) => {
         const w = whole();
@@ -128,29 +164,20 @@ export function Viewer(props: {
         apply();
       },
       place: (r, s) => {
-        const [cx, cy] = centre();
-        view.current = { s, x: cx - (r.x + r.width / 2) * s, y: cy - (r.y + r.height / 2) * s };
+        view.current = centredOn(r, s, seen());
         apply();
       },
       focus: (r, keep) => {
         settle();
         const v = view.current;
         const w = seen();
-        const [cx, cy] = centre();
-        const sx = r.x * v.s + v.x;
-        const sy = r.y * v.s + v.y;
-        const inside = sx >= w.x0 && sy >= w.y0 && sx + r.width * v.s <= w.x1 && sy + r.height * v.s <= w.y1;
-        if (keep && inside) return;
+        if (keep && inSight(r, v, w)) return;
         const s = keep ? v.s : v.s < 0.5 ? Math.max(0.85, saved.current ?? 0) : v.s;
-        const px = r.x + r.width / 2;
-        const py = r.y + r.height / 2;
-        moveTo({ s, x: cx - px * s, y: cy - py * s });
+        moveTo(centredOn(r, s, w));
       },
       centre: (r) => {
         settle();
-        const v = view.current;
-        const [cx, cy] = centre();
-        moveTo({ s: v.s, x: cx - (r.x + r.width / 2) * v.s, y: cy - (r.y + r.height / 2) * v.s });
+        moveTo(centredOn(r, view.current.s, seen()));
       },
       toggle: () => {
         settle();
@@ -183,6 +210,10 @@ export function Viewer(props: {
         anim.current.id++;
         anim.current.goal = null;
         view.current = { ...v };
+        apply();
+      },
+      covered: () => {
+        measure();
         apply();
       },
     };
@@ -300,10 +331,10 @@ export function Viewer(props: {
     };
     // Resizing keeps the zoom, and the point in the middle in the middle.
     let was = { w: el.clientWidth, h: el.clientHeight };
-    dims.current = { width: was.w, height: was.h };
+    a.measure();
     const resized = new ResizeObserver(() => {
       const now = { w: el.clientWidth, h: el.clientHeight };
-      dims.current = { width: now.w, height: now.h };
+      a.measure();
       view.current = {
         ...view.current,
         x: view.current.x + (now.w - was.w) / 2,

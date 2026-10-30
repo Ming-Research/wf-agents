@@ -1,6 +1,7 @@
-// The panel of what is open on a chart, in the column docked at the chart's right: its title and who does it, a way
-// back to what it showed before, a close button (Escape closes it too). The edges that drag the column's width and the
-// share of it the page's panel takes are here too, kept in this browser.
+// The panel of what is open on a chart, in the window floating over the chart's right side: its title and who does it,
+// a way back to what it showed before, a close button (Escape closes it too); minimised, its title and its close
+// alone. The edges that drag the window's width and the share of it the page's panel takes are here too, kept in this
+// browser.
 
 import { ArrowLeftIcon, XIcon } from '@primer/octicons-react';
 import { Heading, IconButton } from '@primer/react';
@@ -93,10 +94,14 @@ export function Panel(props: {
   onClose: () => void;
   /// Bumped each time the panel shows something else, so that it starts at its top.
   shown: string;
+  /// Whether the window it is in is minimised: its head is then the window's one row, its title and its close.
+  minimised?: boolean;
+  /// The button that minimises or expands the window, at the head's right end while the head is the window's top row.
+  fold?: ReactNode;
   children: ReactNode;
   ref?: Ref<HTMLElement>;
 }) {
-  const { title, who, back, onBack, onClose, shown, children, ref } = props;
+  const { title, who, back, onBack, onClose, shown, minimised = false, fold = null, children, ref } = props;
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
@@ -113,7 +118,7 @@ export function Panel(props: {
   return (
     <section className="panel" ref={ref}>
       <div className="panel-head">
-        {back !== null ? (
+        {back !== null && !minimised ? (
           <LinkButton className="panel-back" onClick={onBack}>
             <ArrowLeftIcon /> <span className="panel-back-to">{t('panel_back', { title: back })}</span>
           </LinkButton>
@@ -122,9 +127,10 @@ export function Panel(props: {
           <Heading as="h2" variant="small" className="panel-title">
             {title}
           </Heading>
-          {who ? <p className="panel-who">{who}</p> : null}
+          {who && !minimised ? <p className="panel-who">{who}</p> : null}
         </div>
         <IconButton size="small" variant="invisible" icon={XIcon} aria-label={t('close')} onClick={onClose} />
+        {fold}
       </div>
       <div className="panel-body" ref={body}>
         {children}
