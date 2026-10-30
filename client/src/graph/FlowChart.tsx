@@ -10,7 +10,19 @@
 // top left corner shows the part in view and moves the view, while some of the chart is out of view. A click on the
 // chart's background, not a drag, lets go of what is picked.
 
-import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { useOnOutsideClick } from '@primer/react';
+import {
+  type ReactNode,
+  type Ref,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import type { CompiledGraph, EngineNames, GraphView } from '../api';
 import { t } from '../text';
@@ -152,10 +164,67 @@ export function moveWords(m: Move): string {
   }
 }
 
-/// What every mark on the chart means, opened from the "?" in its corner: the kinds of cell, the efforts agents' cells
-/// run at, low to high, the rules and the interjection, the circles, the main path and the rows into and out of the
-/// cell lit, and the marks of a work, with the bar beside an agent round's cost in its rounds list, or of a comparison;
-/// then how the chart moves.
+/// The chart's "?" in its bottom left corner, which stays there and opens and closes the legend above it.
+function Question({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const button = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        className="legend-button"
+        aria-label={t('legend')}
+        title={t('legend')}
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => setOpen(!open)}
+      >
+        ?
+      </button>
+      {open ? (
+        <Opened id={id} button={button} onClose={close}>
+          {children}
+        </Opened>
+      ) : null}
+    </>
+  );
+}
+
+/// The legend open over the chart. A press anywhere but on it or its "?" closes it and goes on to do what it does
+/// there; Escape closes it and goes no further, so that a panel docked beside the chart, which Escape closes too, stays
+/// open.
+function Opened({ id, button, onClose, children }: {
+  id: string;
+  button: RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+  const ignore = useMemo(() => [button], [button]);
+  useOnOutsideClick({ containerRef: panel, ignoreClickRefs: ignore, onClickOutside: onClose });
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      onClose();
+    };
+    document.addEventListener('keydown', key, true);
+    return () => document.removeEventListener('keydown', key, true);
+  }, [onClose]);
+  return (
+    <div id={id} ref={panel} className="legend">
+      {children}
+    </div>
+  );
+}
+
+/// What every mark on the chart means, opened above the "?" in its corner: the kinds of cell, the efforts agents'
+/// cells run at, low to high, the rules and the interjection, the circles, the main path and the rows into and out of
+/// the cell lit, and the marks of a work, with the bar beside an agent round's cost in its rounds list, or of a
+/// comparison; then how the chart moves.
 function Legend({ charts, stores, legend }: {
   charts: Array<{ g: CompiledGraph; chart: Chart }>;
   stores: boolean;
@@ -189,10 +258,7 @@ function Legend({ charts, stores, legend }: {
   const lacking = charts.some((x) => [...x.chart.notes.values()].some((n) => n.lacks.length > 0));
   const chips = charts.some((x) => x.chart.nodes.some((n) => n.kind === 'store'));
   return (
-    <details className="legend">
-      <summary aria-label={t('legend')} title={t('legend')}>
-        ?
-      </summary>
+    <Question>
       <ul>
         {work ? (
           <>
@@ -497,7 +563,7 @@ function Legend({ charts, stores, legend }: {
       </ul>
       <p className="legend-keys">{t('legend_keys')}</p>
       <p className="legend-keys">{t(work ? 'legend_map_work' : 'legend_map')}</p>
-    </details>
+    </Question>
   );
 }
 

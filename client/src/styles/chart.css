@@ -695,16 +695,45 @@ svg.fc {
   transform: translateY(-50%);
 }
 
-/* The chart's "?" in its corner, and the legend it opens to: one floating surface, as the flow's tools are, its words
-   small text, its keys drawn as the chart draws them. */
-.legend {
+/* The chart's "?" in its bottom left corner, a round floating surface as the flow's tools are, where it stays while the
+   legend is open, drawn then as the option picked; named with its element to outweigh the rule that gives a button of
+   the page's own the text round it. */
+button.legend-button {
   position: absolute;
   left: var(--base-size-8);
   bottom: var(--base-size-8);
   z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-small-size);
+  height: var(--control-small-size);
+  padding: 0;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-full);
+  background: var(--overlay-bgColor);
+  box-shadow: var(--shadow-floating-small);
+  color: var(--fgColor-accent);
+  font: var(--text-title-shorthand-small);
+  cursor: pointer;
+}
+
+button.legend-button[aria-expanded='true'] {
+  border-color: var(--borderColor-accent-emphasis);
+  background: var(--bgColor-accent-muted);
+}
+
+/* The legend the "?" opens, above it, its left edge with the "?"'s: one floating surface, as the flow's tools are, its
+   words small text, its keys drawn as the chart draws them. */
+.legend {
+  position: absolute;
+  left: var(--base-size-8);
+  bottom: calc(2 * var(--base-size-8) + var(--control-small-size));
+  z-index: 5;
   max-width: min(420px, calc(100vw - 2 * var(--base-size-16)));
-  /* No taller than the chart, below the flow's tools over its top left corner; what does not fit scrolls inside. */
-  max-height: calc(100% - 2 * var(--base-size-8) - var(--control-small-size) - 2 * var(--base-size-4) - 2 * var(--base-size-8));
+  /* No taller than the chart's room above the "?", which ends below the flow's tools over its top left corner, where
+     the map starts; what does not fit scrolls inside. */
+  max-height: calc(100% - 4 * var(--base-size-8) - 2 * var(--control-small-size) - 2 * var(--base-size-4) - 2 * var(--borderWidth-thin));
   padding: var(--base-size-4) var(--base-size-12);
   border: var(--borderWidth-thin) solid var(--borderColor-default);
   border-radius: var(--borderRadius-medium);
@@ -712,38 +741,6 @@ svg.fc {
   box-shadow: var(--shadow-floating-small);
   font-size: var(--text-body-size-small);
   overflow-y: auto;
-}
-
-.legend:not([open]) {
-  padding: 0;
-  border-radius: var(--borderRadius-full);
-}
-
-.legend summary {
-  position: sticky;
-  top: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--control-small-size);
-  height: var(--control-small-size);
-  background: var(--overlay-bgColor);
-  color: var(--fgColor-accent);
-  font: var(--text-title-shorthand-small);
-  list-style: none;
-  cursor: pointer;
-}
-
-.legend summary::-webkit-details-marker {
-  display: none;
-}
-
-/* Open, the "?" heads the legend across its width and stays at its top while the rest scrolls under it. */
-.legend[open] summary {
-  top: calc(-1 * var(--base-size-4));
-  justify-content: flex-start;
-  width: auto;
-  padding-left: var(--base-size-8);
 }
 
 .legend ul {
