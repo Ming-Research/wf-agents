@@ -3823,6 +3823,49 @@ fn every_cell_of_a_line_gives_the_command_line_the_same_cached_prefix() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A batch that handled no matter and changed no item, as when its one matter was parked for the owner's reply, ends with
+// no round of the rethink: in the sixth trial the rethink ran an agent's round on such a batch, which changed nothing.
+#[test]
+fn a_batch_that_changed_nothing_ends_with_no_rethink() {
+    let s = setup("nothing-to-rethink");
+    no_reply_wait(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n == 2 {
+                return asks_the_owner("Which parser goes first?");
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Look at the queue.");
+    let first = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, first)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    say(&mut e, "Ask me which parser goes first.");
+    let second = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| architect_work_done(e, second)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(
+        path_of(&e, second),
+        ["S1", "Q0", "Q2", "H8", "A3", "B1", "Q0", "E2"],
+        "{log}"
+    );
+    assert_eq!(rows_at(&e, second, "B1"), ["nothing"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A work of the architect goes on in the session the project's last architect work left: one that understood the
 // project in it goes from starting straight to the queue, and does not understand it again.
 #[test]
@@ -4738,14 +4781,6 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
             .expect(&log);
     assert!(refused.contains("the owner replied to your question"), "{refused}");
     assert_eq!(rows_at(&e, arch, "P2"), ["written", "written"], "{log}");
-    // A batch that only parked the check again for the owner's reply has nothing to rethink, and runs no rethink.
-    let cells = cells_of(&e, arch);
-    let skipped = cells
-        .windows(2)
-        .filter(|x| x[0] == ("B1".to_string(), Some("nothing".to_string())))
-        .collect::<Vec<_>>();
-    assert!(!skipped.is_empty(), "{log}");
-    assert!(skipped.iter().all(|x| x[1].0 == "Q0"), "{log}");
     // The writing is given the owner's reply that brought it back; the first, which the session was given at the
     // check, by its address only.
     assert!(
