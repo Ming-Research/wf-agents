@@ -5,14 +5,14 @@
    line, a session of its own every round, pink; the engine's own step purple; the owner orange; a tool lemon; every
    cell's edge solid. A circle that names a cell takes that cell's colours. Everything else (the actions on a line or
    every time a cell returns, a rule, the interjection, a store) is light grey, edged grey; the stage boxes are the
-   palest warm display colour. A cell, where a work stands, is edged heavier than every shape beside it and titled
-   semibold. The arrows are grey, the main path blue at the same width; the rows into the cell picked or pointed at
+   display scale's light grey, as the owner asked. A cell, where a work stands, is edged heavier than every shape
+   beside it and titled semibold. The arrows are grey, the main path blue at the same width; the rows into the cell picked or pointed at
    green and those out of it red. The values Primer has no token for are in tokens.css. */
 
 :root {
   --fc-text: var(--fgColor-default);
-  --fc-group: var(--display-brown-bgColor-muted);
-  --fc-group-line: var(--display-brown-borderColor-muted);
+  --fc-group: var(--display-gray-bgColor-muted);
+  --fc-group-line: var(--display-gray-borderColor-muted);
   /* One colour to a session: the lines of each graph, in the order the flow lists them, green, blue, red and pink,
      which tell four apart in either theme beside the owner's orange and the engine's purple; a cell on no line pink, as
      the architect's graph has three lines; a line the page does not know teal. */
