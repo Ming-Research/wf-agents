@@ -3154,6 +3154,7 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             own: Some("p".into()),
             sets: Vec::new(),
+            ..crate::Talks::default()
         };
         let all = crate::conversations(s.db.conn(), &t).unwrap();
         let keys: Vec<&str> = all.iter().map(|c| c.key.as_str()).collect();
@@ -3194,7 +3195,11 @@ mod tests {
                 ("ask", "architect", "", 400, true, false)
             ]
         );
-        assert_eq!(d.asks.iter().map(|a| a.id).collect::<Vec<_>>(), [1, 2]);
+        // The question that parks a matter still open is pinned at the bottom, not among the asks that wait where they
+        // were asked; the installation's wait for the reply being none, the architect waits on none.
+        assert_eq!(d.asks.iter().map(|a| a.id).collect::<Vec<_>>(), [1]);
+        assert_eq!(d.questions.iter().map(|a| a.id).collect::<Vec<_>>(), [2]);
+        assert_eq!(d.waits_on, None);
         assert!(d.design_cards.is_empty());
         // The matter handled comes in at the round that picked it, the one held at the round of the ask that holds it;
         // the owner's words still in the queue have no card.
@@ -3287,6 +3292,7 @@ mod tests {
             projects: vec!["p".into()],
             own: None,
             sets: Vec::new(),
+            ..crate::Talks::default()
         };
         let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
         let cards: Vec<(i64, &str, i64)> = d
@@ -3404,6 +3410,7 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             own: None,
             sets: Vec::new(),
+            ..crate::Talks::default()
         };
         let step = |s: &mut Setup, sql: &[&str]| {
             s.db.write(Actor::Engine, |tx| {
@@ -3496,6 +3503,7 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             own: Some("p".into()),
             sets: Vec::new(),
+            ..crate::Talks::default()
         };
         let counts = |s: &Setup| {
             let all = crate::conversations(s.db.conn(), &t).unwrap();
@@ -3521,8 +3529,79 @@ mod tests {
         assert!(!e.waiting);
         let answer = e.ask_detail.as_ref().and_then(|a| a.answer.clone());
         assert_eq!(answer.map(|a| a["choice"].clone()), Some(json!("satisfied")));
-        assert_eq!(d.asks.iter().map(|a| a.id).collect::<Vec<_>>(), [2]);
+        assert!(d.asks.is_empty());
+        assert_eq!(d.questions.iter().map(|a| a.id).collect::<Vec<_>>(), [2]);
         assert_eq!(counts(&s), (1, 0));
+    }
+
+    // The one-to-one with an architect pins the questions it put that wait for the owner's reply, each parking a matter
+    // still open, newest first, and says which one the architect waits on now, as its look at the queue (Q0) works it
+    // out: the newest, while it was put less than the installation's wait for the reply ago and the owner said nothing
+    // since. Once the owner says something, or the wait runs out, it waits on none; a question replied to, or whose
+    // matter is gone, is pinned no longer.
+    #[test]
+    fn the_one_to_one_pins_the_questions_waiting_and_says_the_one_waited_on() {
+        let mut s = architect_setup("pinned");
+        let talks = |wait: i64| crate::Talks {
+            projects: vec!["p".into(), "q".into()],
+            own: Some("p".into()),
+            sets: Vec::new(),
+            reply_wait: wait,
+        };
+        let read = |s: &Setup, wait: i64| {
+            let d = crate::conversation(s.db.conn(), &Flows::default(), &talks(wait), "architect:p").unwrap();
+            (d.questions.iter().map(|a| a.id).collect::<Vec<_>>(), d.waits_on)
+        };
+        // Question 2 parks matter 3; a newer one, 4, parks matter 9 and is the one waited on.
+        s.db.write(Actor::Engine, |tx| {
+            let body = json!({ "from": "architect", "project": "p", "kind": "question", "work": 2, "cell": "A3",
+                "question": "Research a new policy?", "holds": [9] })
+            .to_string();
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (2, 14, 'A3', '{}', 'c', 900)",
+                [],
+            )?;
+            tx.execute("INSERT INTO owner_asks (work, round, body) VALUES (2, 14, ?1)", [&body])?;
+            tx.execute(
+                "INSERT INTO architect_matters (id, project, kind, what, body, at, asked, resume_cell)
+                 VALUES (9, 'p', 'check_policy', 'Check the policy', '{}', 880, 3, 'P1')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let ask: i64 =
+            s.db.conn()
+                .query_row("SELECT id FROM owner_asks WHERE round = 14", [], |r| r.get(0))
+                .unwrap();
+        assert_eq!(ask, 3);
+        assert_eq!(read(&s, i64::MAX), (vec![3, 2], Some(3)));
+        assert_eq!(read(&s, 0), (vec![3, 2], None));
+        // The owner says something to the architect in the one-to-one after it: the architect waits on none.
+        s.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, detail, what, body, at)
+                 VALUES ('p', 'owner_words', 'said', 'The owner said', '{\"text\":\"Later.\",\"where\":\"page\"}', 950)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(read(&s, i64::MAX), (vec![3, 2], None));
+        // Replied to, a question is pinned no longer; nor is one whose matter was withdrawn.
+        s.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "UPDATE owner_asks SET answer = '{\"by\":\"owner\",\"at\":960,\"text\":\"No.\"}' WHERE id = 3",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE architect_matters SET withdrawn = 'the item was cancelled' WHERE id = 3",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(read(&s, i64::MAX), (vec![], None));
     }
 
     // A place to set straight comes into the queue with the place as the check of what runs found it, and a design card

@@ -773,23 +773,11 @@ fn close_settled_cards(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<St
     Ok(closed.into_iter().map(|x| x.1).collect())
 }
 
-/// The questions a project's architect put to the owner that wait for the owner's reply, newest first: each an ask of
-/// the owner a cell of the architect's graph put, not answered, that parks a matter still open; with the question, the
-/// cell that asked, when it was put and the matter it parked.
+/// The questions a project's architect put to the owner that wait for the owner's reply, newest first, as the owner's
+/// interface reads them too ([`db::QUESTIONS_PENDING`]): with the question, the cell that asked, when it was put and the
+/// matter it parked.
 pub fn questions_pending(conn: &Connection, project: &str) -> Result<Vec<Value>, String> {
-    query_json(
-        conn,
-        "SELECT a.id AS question, json_extract(a.body, '$.question') AS text, m.resume_cell AS cell,
-                coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id), r.started_at) AS at,
-                m.id AS matter, m.what AS about
-         FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
-         JOIN architect_matters m ON m.asked = a.id
-         WHERE w.graph = 'architect' AND w.project = ?1 AND a.answer IS NULL
-           AND m.handled_round IS NULL AND m.withdrawn IS NULL
-         ORDER BY at DESC, a.id DESC",
-        &[&project],
-        ROWS,
-    )
+    query_json(conn, db::QUESTIONS_PENDING, &[&project], ROWS)
 }
 
 /// The questions pending, as the cells that may ask are given them; none when none waits.
@@ -804,35 +792,15 @@ fn questions(e: &Engine, project: &str) -> Result<Option<Value>, String> {
     Ok((!rows.is_empty()).then_some(Value::Array(rows)))
 }
 
-/// The question the architect waits for the owner's reply to at the look at the queue (`Q0`): the newest question
-/// pending, when it was put less than the installation's wait for the owner's reply (`agents.owner_reply_wait`) ago and
-/// the owner said nothing to the architect since in their one-to-one: no words, no entry of a talk, and no reply to
-/// another question. None otherwise: the question then waits at the back of the queue, and blocks nothing.
+/// The question the architect waits for the owner's reply to at the look at the queue (`Q0`), as the owner's interface
+/// reads it too ([`db::question_waited_on`]): the newest question pending, when it was put less than the installation's
+/// wait for the owner's reply (`agents.owner_reply_wait`) ago and the owner said nothing to the architect since in their
+/// one-to-one. None otherwise: the question then waits at the back of the queue, and blocks nothing.
 pub fn waits_on(e: &Engine, project: &str) -> Result<Option<i64>, String> {
-    let conn = e.db.conn();
-    let Some(newest) = questions_pending(conn, project)?.into_iter().next() else {
-        return Ok(None);
-    };
-    let (Some(id), Some(at)) = (newest["question"].as_i64(), newest["at"].as_i64()) else {
-        return Ok(None);
-    };
     let wait = i64::try_from(e.config.config.install.agents.owner_reply_wait)
         .unwrap_or(i64::MAX / 1000)
         .saturating_mul(1000);
-    if db::now() - at >= wait {
-        return Ok(None);
-    }
-    let said = count(
-        conn,
-        "SELECT (SELECT count(*) FROM architect_matters
-                 WHERE project = ?1 AND kind = 'owner_words' AND json_extract(body, '$.where') = 'page' AND at > ?2)
-              + (SELECT count(*) FROM talk_entries e JOIN architect_matters m ON m.id = e.matter
-                 WHERE m.project = ?1 AND e.at > ?2)
-              + (SELECT count(*) FROM owner_asks a JOIN works w ON w.id = a.work
-                 WHERE w.graph = 'architect' AND w.project = ?1 AND json_extract(a.answer, '$.at') > ?2)",
-        &[&project, &at],
-    )?;
-    Ok((said == 0).then_some(id))
+    db::question_waited_on(e.db.conn(), project, wait, db::now()).map_err(sql)
 }
 
 /// Whether a cell has a row of that name.

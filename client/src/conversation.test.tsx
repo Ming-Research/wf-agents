@@ -1,8 +1,11 @@
-// How what the owner is asked is answered in a conversation: an ask shows once, where it was asked, as the asking
-// agent's bubble, never pinned; it is answered in that bubble, by the buttons of what it offers and a small box of the
-// owner's words beside Answer, and once answered the owner's answer is in that bubble and nowhere else; a question the
-// architect holds alike. And what is sent, which asks that wait are out of view, and how the list marks each work's
-// group and each architect's one-to-one by how that work or that architect stands.
+// How what the owner is asked is answered in a conversation: an ask of a work's shows once, where it was asked, as the
+// asking agent's bubble, never pinned; it is answered in that bubble, by the buttons of what it offers and a small box
+// of the owner's words beside Answer, and once answered the owner's answer is in that bubble and nowhere else; a
+// question the architect holds alike. The questions an architect pinned wait at the bottom of its one-to-one, the
+// newest open and the others folded, with no box, and the box at the bottom replies to the one open while the tick over
+// it is on; replied to, a question is back where it was asked, the reply in it. And what is sent, which asks that wait
+// are out of view, and how the list marks each work's group and each architect's one-to-one by how that work or that
+// architect stands.
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -25,9 +28,9 @@ import type {
 } from './api';
 import { architectMark } from './architect';
 import { StateMark } from './components';
-import { awayOf, streamOf } from './conversation';
+import { awayOf, openQuestion, pinnedQuestions, replyTicked, streamOf, toArchitect } from './conversation';
 import { admit, IMAGE_MOST_BYTES, imagesSent, pastedFiles, type PendingImage, saysSomething } from './images';
-import { Composer, Stream, workMark } from './pages/Messages';
+import { Composer, Questions, type Reply, Stream, workMark } from './pages/Messages';
 import { SayBox } from './parts';
 import { t } from './text';
 
@@ -97,6 +100,8 @@ const detail = (entries: ConversationEntry[]): ConversationDetail => ({
   entries,
   asks: entries.flatMap((e) => (e.source === 'ask' && e.waiting && e.ask_detail !== null ? [e.ask_detail] : [])),
   design_cards: [],
+  questions: [],
+  waits_on: null,
   forwarding: null,
   read_to: null,
 });
@@ -413,6 +418,115 @@ describe('the box of the one-to-one with an architect', () => {
     expect(box).toContain('<textarea');
     expect(box).not.toContain('Done');
     expect(box).not.toContain('waits for your reply');
+    expect(box).not.toContain('Reply to');
+  });
+});
+
+describe('the questions an architect pinned in its one-to-one', () => {
+  const one: Conversation = { ...group, key: 'architect:p', kind: 'architect', work: null, item: null, title: null };
+  const question = (id: number, words: string, at: number, answer: JsonValue | null = null): ConversationEntry => {
+    const a = { ...ask(id, { from: 'architect', kind: 'question', question: words, holds: [id + 10] }, answer), work: 9 };
+    return asked(a, { sender: 'architect', text: words, at, work: 9, round: id });
+  };
+  const research = question(4, 'Research a new policy?', 2);
+  const approve = question(6, 'Approve this policy? Reply exactly: approved', 3);
+  const said = entry('message', { id: 1, sender: 'architect', text: 'Looking at the policy.', at: 1, work: 9, round: 1 });
+  const pinning = (entries: ConversationEntry[], pinned: ConversationEntry[], waits: number | null): ConversationDetail => ({
+    ...detail(entries),
+    key: one.key,
+    asks: [],
+    questions: pinned.flatMap((e) => (e.ask_detail !== null ? [e.ask_detail] : [])),
+    waits_on: waits,
+  });
+  const d = pinning([said, research, approve], [approve, research], 6);
+  const drawnIn = (x: ConversationDetail): string =>
+    renderToStaticMarkup(
+      <AnswersHere.Provider value={true}>
+        <Stream d={x} c={one} w={null} />
+      </AnswersHere.Provider>,
+    );
+  const bottom = (open: number): string =>
+    renderToStaticMarkup(
+      <AnswersHere.Provider value={true}>
+        <Questions pinned={pinnedQuestions(d)} open={open} onOpen={() => undefined} />
+      </AnswersHere.Provider>,
+    );
+
+  it('wait at the bottom and not in the stream, the newest open as the architect’s message with no box, the others folded', () => {
+    expect(streamOf(d).map((e) => `${e.source}-${e.id}`)).toEqual(['message-1']);
+    expect(drawnIn(d)).not.toContain('data-ask');
+    const pinned = pinnedQuestions(d);
+    expect(pinned.map((e) => e.id)).toEqual([6, 4]);
+    expect(openQuestion(pinned, null)?.id).toBe(6);
+    const html = bottom(6);
+    expect(html).toMatch(/^<section class="talk-pins talk-pins-bottom" aria-label="Waits for you">/);
+    // In the order they were put, the newest last, over the box.
+    expect(html.indexOf('Research a new policy?')).toBeLessThan(html.indexOf('data-ask="6"'));
+    const open = bubble(row(html, 'data-ask="6"')).inside;
+    expect(open).toContain('talk-bubble-architect');
+    expect(open).toContain('Approve this policy? Reply exactly: approved');
+    expect(open).not.toContain('<textarea');
+    expect(buttons(open)).toEqual([]);
+    // The older one is one line, its words whole on hovering, which a click opens.
+    const folded = html.slice(html.indexOf('<button'), html.indexOf('</button>') + '</button>'.length);
+    expect(folded).toMatch(/^<button type="button" class="talk-pinned-fold" title="Research a new policy\?" aria-expanded="false">/);
+    expect(folded).toContain('<span class="talk-pinned-text">Research a new policy?</span>');
+    expect(html.match(/data-ask=/g)).toHaveLength(1);
+  });
+
+  it('open the one the owner opened, which folds the other, and the newest again once it is no longer pinned', () => {
+    const pinned = pinnedQuestions(d);
+    expect(openQuestion(pinned, 4)?.id).toBe(4);
+    expect(openQuestion(pinned, 99)?.id).toBe(6);
+    expect(openQuestion([], null)).toBeNull();
+    const html = bottom(4);
+    expect(html).toContain('data-ask="4"');
+    expect(html).not.toContain('data-ask="6"');
+    expect(html).toContain('title="Approve this policy? Reply exactly: approved"');
+  });
+
+  it('are replied to by the box with the tick over it on, at first only while the architect waits on the one open', () => {
+    const [newest, older] = pinnedQuestions(d);
+    expect(replyTicked(newest, 6, null)).toBe(true);
+    expect(replyTicked(older, 6, null)).toBe(false);
+    expect(replyTicked(newest, null, null)).toBe(false);
+    expect(replyTicked(newest, 6, { question: 6, on: false })).toBe(false);
+    expect(replyTicked(older, 6, { question: 6, on: false })).toBe(false);
+    expect(replyTicked(older, 6, { question: 4, on: true })).toBe(true);
+    expect(replyTicked(null, 6, null)).toBe(false);
+    const reply = (on: boolean): Reply => ({ question: 6, words: newest.text, on, set: () => undefined });
+    const box = renderToStaticMarkup(<Composer c={one} w={null} reply={reply(true)} />);
+    const tick = box.slice(0, box.indexOf('<textarea'));
+    expect(tick).toMatch(/<input[^>]*type="checkbox"[^>]*checked=""/);
+    expect(tick).toContain(
+      '<span class="talk-reply-words" title="Approve this policy? Reply exactly: approved">Reply to: Approve this policy? Reply exactly: approved</span>',
+    );
+    expect(box).toContain('placeholder="Your reply to the question ticked"');
+    const off = renderToStaticMarkup(<Composer c={one} w={null} reply={reply(false)} />);
+    expect(off.slice(0, off.indexOf('<textarea'))).not.toMatch(/checked=""/);
+    expect(off).toContain('placeholder="Say something to the architect"');
+  });
+
+  it('take the words as the reply to the question ticked, and words with no tick as words to the architect', () => {
+    expect(toArchitect('approved', 6)).toEqual({ text: 'approved', reply_to: 6 });
+    expect(toArchitect('Look at #3 first.', null)).toEqual({ text: 'Look at #3 first.' });
+  });
+
+  it('once replied to are back where they were asked, the reply in the bubble; one no longer pinned has no box', () => {
+    const replied = question(4, 'Research a new policy?', 2, { by: 'owner', at: 5, text: 'Yes, research it.' });
+    const gone = question(7, 'Hold #2?', 4);
+    const x = pinning([said, replied, gone], [], null);
+    expect(streamOf(x).map((e) => `${e.source}-${e.id}`)).toEqual(['message-1', 'ask-4', 'ask-7']);
+    const html = drawnIn(x);
+    const back = bubble(row(html, 'data-ask="4"')).inside;
+    expect(back).toContain('Research a new policy?');
+    expect(back).toMatch(/<span class="talk-who">Your answer to ask 4<\/span>/);
+    expect(back).toContain('Yes, research it.');
+    const left = bubble(row(html, 'data-ask="7"')).inside;
+    expect(left).toContain('Hold #2?');
+    expect(left).not.toContain('<textarea');
+    expect(buttons(left)).toEqual([]);
+    expect(row(html, 'data-ask="7"')).not.toContain('talk-row-answers');
   });
 });
 

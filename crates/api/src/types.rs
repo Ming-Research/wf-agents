@@ -1286,13 +1286,23 @@ pub struct WordsState {
 
 /// A conversation in full: its entries in time order; what waits for the owner in it, the open blockers the owner
 /// holds with their forms (the asks, which show where they were asked, and the design cards whose ruling a work waits
-/// for, pinned at its top); and how far the owner has read it.
+/// for, pinned at its top); in the one-to-one with an architect, the questions it pinned for the owner's reply, at its
+/// bottom, and the one it waits on now; and how far the owner has read it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ConversationDetail {
     pub key: String,
     pub entries: Vec<ConversationEntry>,
+    /// The asks that wait for the owner where they were asked; the questions pinned are not among them.
     pub asks: Vec<OwnerAsk>,
     pub design_cards: Vec<DesignCard>,
+    /// In the one-to-one with an architect: the questions it pinned for the owner's reply, newest first, each an ask of
+    /// the architect's that waits and parks a matter still open, as the engine reads them; none in another
+    /// conversation. Each is an entry too, where it was asked.
+    pub questions: Vec<OwnerAsk>,
+    /// In the one-to-one with an architect: the question it waits for the owner's reply to now at its look at the queue
+    /// (`Q0`'s row `waits`), as the engine works it out: the newest pinned, put less than the installation's wait for
+    /// the owner's reply ago, with nothing said by the owner since; none otherwise.
+    pub waits_on: Option<i64>,
     /// The time of the latest entry the owner read; none before the first.
     pub read_to: Option<i64>,
     /// For wf-agents' own conversation: where its faults can go; none for another.

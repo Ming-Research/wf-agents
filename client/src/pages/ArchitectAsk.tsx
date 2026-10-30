@@ -1,8 +1,9 @@
 // An ask an architect put to the owner, as the owner reads and answers it, by its kind: a question, laid out as an
 // engineer's ask is, with the matters it holds; and an open choice, which holds no work of the architect, a block under
-// its number, kind and the cell and round that put it. In the conversation it is in, it is the architect's bubble,
-// answered in that bubble by a button of its options and the owner's words in a small box; elsewhere it says where it
-// is answered. Each answer goes to the interface's answer of an ask, and the engine goes on.
+// its number, kind and the cell and round that put it. In the one-to-one it is the architect's bubble, with no box:
+// while it waits it is pinned at the bottom, and the owner's words with it ticked reply to it (the interface's say to
+// the architect with `reply_to`); replied to, it is back where it was asked, the reply in it. Elsewhere it says where it
+// is answered.
 
 import { Label } from '@primer/react';
 

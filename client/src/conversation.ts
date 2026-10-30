@@ -1,8 +1,8 @@
 // The owner's conversations as the page works them out from what the interface reads, apart from drawing them: the
 // list in its parts, what a conversation is called, who an entry is from and to whom it is said, in which voice the
-// page draws it, what of it streams, what the box at the bottom says things to and does with them (in the one-to-one
-// with an architect, interjecting into what of it runs or adding to its queue), what a stage card's facts are, what is
-// new for the owner to be told of, and where a fault of wf-agents can go and went.
+// page draws it, what of it streams, which question an architect pinned at the bottom of its one-to-one is open and
+// whether the owner's words reply to it, what the box at the bottom says things to and sends, what a stage card's facts
+// are, what is new for the owner to be told of, and where a fault of wf-agents can go and went.
 
 import type {
   Conversation,
@@ -10,11 +10,12 @@ import type {
   ConversationEntry,
   Forwarded,
   Forwarding,
+  OwnerAsk,
   StageCard,
   WordsState,
   WorkSummary,
 } from './api';
-import { words } from './labelled';
+import { isObj, words } from './labelled';
 import { type Key, t, tn } from './messages';
 import { joinedWords } from './voices';
 
@@ -137,13 +138,51 @@ export function ownerReplies(entries: ConversationEntry[]): Map<number, Conversa
 }
 
 /// What streams in a conversation, oldest first: everything but the owner's replies to what an engineer put to the
-/// architect, which show in the bubble they answer, and the design cards its stage cards hold. An ask streams where it
-/// was asked, waiting or answered, the owner's answer in it.
+/// architect, which show in the bubble they answer, the design cards its stage cards hold, and the questions an
+/// architect pinned for the owner's reply, which show at the bottom while they wait. An ask streams where it was asked,
+/// waiting or answered, the owner's answer in it; a question once replied to, with the reply in it.
 export function streamOf(d: ConversationDetail): ConversationEntry[] {
   const held = heldCards(d);
   const replies = ownerReplies(d.entries);
-  return d.entries.filter((e) => !(e.source === 'reply' && replies.get(e.matter ?? e.id) === e) && voiceOf(e, held) !== 'none');
+  const pinned = new Set(d.questions.map((q) => q.id));
+  return d.entries.filter(
+    (e) =>
+      !(e.source === 'reply' && replies.get(e.matter ?? e.id) === e) &&
+      !(e.source === 'ask' && pinned.has(e.id)) &&
+      voiceOf(e, held) !== 'none',
+  );
 }
+
+/// Whether an ask is one an architect put to the owner: answered by the owner's words to the architect with it ticked,
+/// never in its bubble.
+export const architectAsk = (a: OwnerAsk): boolean => isObj(a.body) && a.body.from === 'architect';
+
+/// The questions an architect pinned for the owner's reply, as entries of its one-to-one, newest first: each shows at
+/// the bottom while it waits, not where it was asked.
+export function pinnedQuestions(d: ConversationDetail): ConversationEntry[] {
+  return d.questions.flatMap((q) => d.entries.filter((e) => e.source === 'ask' && e.id === q.id).slice(0, 1));
+}
+
+/// The pinned question open at the bottom, the one the tick replies to: the one the owner opened, while it is still
+/// pinned, else the newest; the others are folded.
+export function openQuestion(pinned: ConversationEntry[], opened: number | null): ConversationEntry | null {
+  return pinned.find((e) => e.id === opened) ?? pinned[0] ?? null;
+}
+
+/// How the owner set the tick for a question: on or off.
+export type Ticked = { question: number; on: boolean };
+
+/// Whether the owner's words reply to the question open: as the owner set the tick for it, else only while the
+/// architect waits on it.
+export function replyTicked(open: ConversationEntry | null, waitsOn: number | null, ticked: Ticked | null): boolean {
+  if (open === null) return false;
+  return ticked !== null && ticked.question === open.id ? ticked.on : waitsOn === open.id;
+}
+
+/// What the box at the bottom of the one-to-one sends to the architect: the owner's words, and the question they reply
+/// to when it is ticked.
+export const toArchitect = (text: string, replyTo: number | null): { text: string; reply_to?: number } =>
+  replyTo === null ? { text } : { text, reply_to: replyTo };
 
 /// Where an ask that waits for the owner is from the part of the stream in view, by its bounds and the stream's: above
 /// it or below it, or none when any of it is in view.

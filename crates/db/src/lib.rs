@@ -18,6 +18,7 @@ pub use rusqlite;
 pub mod attachments;
 mod cells;
 mod matters;
+mod questions;
 mod start_over;
 
 pub use cells::{cells_sql, code_of, is_cell};
@@ -25,6 +26,7 @@ pub use matters::{
     FAULT, Forwarder, Matter, fault_forwarding, forward_fault, forward_new_fault, lift_pause, one_sentence,
     project_of_item, queue_matter, say_to_architect, set_fault_forwarding,
 };
+pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use start_over::{START_OVER, cannot_start_over, start_over, start_over_asked};
 
 /// The database's definition, as `db/schema.sql` writes it.

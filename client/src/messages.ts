@@ -248,6 +248,8 @@ const messages = {
   conv_say_engineer: 'Say something to the engineer: it reaches its round after its next tool use; the architect is told at its next pick',
   conv_say_architect_work: 'Say something to the architect about this work; the engineer is told at its next round',
   conv_say_architect: 'Say something to the architect',
+  conv_say_reply: 'Your reply to the question ticked',
+  conv_reply_to: 'Reply to: {question}',
   conv_send: 'Send',
   say_add_images: 'Add images: PNG, JPEG, GIF or WebP, at most 5 MB each and 10 to a message; an image can be pasted into the box too',
   say_images: 'Images to send with the words',

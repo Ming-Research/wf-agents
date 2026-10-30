@@ -1,10 +1,11 @@
 /* The messages view, the one place the owner acts, as the UI spec draws it: Primer's PageLayout filling the window
    under the bar, the conversations a NavList in its pane, the one open on the right as a chat. Its head says what the
    conversation is about and holds the owner's controls; the design card a work waits on is pinned under it; the
-   stream scrolls, a slim line over it while an ask that waits is out of view; the one box is at the bottom. In the
-   stream, the page's three voices each have their look: the engine's cards and lines are the page's own words, with no
-   frame; an agent's message is the box of what an agent handed back, beside its avatar, in its colour, holding what
-   answers it and the owner's answer once given; the owner's is the sheet of what is sent to an agent, on the right. */
+   stream scrolls, a slim line over it while an ask that waits is out of view; the questions an architect pinned are
+   over the one box at the bottom, in the same look as what is pinned under the head. In the stream, the page's three
+   voices each have their look: the engine's cards and lines are the page's own words, with no frame; an agent's
+   message is the box of what an agent handed back, beside its avatar, in its colour, holding what answers it and the
+   owner's answer once given; the owner's is the sheet of what is sent to an agent, on the right. */
 
 .talks {
   flex: 1;
@@ -121,21 +122,70 @@
   border-radius: var(--borderRadius-medium);
 }
 
-/* What waits for the owner pinned under the head: the design card a work waits on, with its verdicts to send. */
+/* What is pinned for the owner, in one look wherever it is, a line between it and the stream: under the head the
+   design card a work waits on, with its verdicts to send; over the box the questions the architect pinned. */
 .talk-pins {
   display: grid;
   gap: var(--base-size-12);
   max-height: 45%;
   overflow-y: auto;
   padding: var(--base-size-12) var(--base-size-16);
-  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
   background: var(--bgColor-muted);
+}
+
+.talk-pins-top {
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
+}
+
+.talk-pins-bottom {
+  flex: none;
+  border-top: var(--borderWidth-thin) solid var(--borderColor-default);
 }
 
 .talk-pins-title {
   margin: 0;
   font-size: var(--text-body-size-medium);
   font-weight: var(--base-text-weight-semibold);
+}
+
+/* A question pinned over the box, folded to one line: its fold marker, who, when and its words cut where the line
+   ends; a click opens it. */
+.talk-pinned-fold {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  width: 100%;
+  min-width: 0;
+  padding: var(--base-size-4);
+  border: 0;
+  border-radius: var(--borderRadius-medium);
+  background: none;
+  color: var(--fgColor-default);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.talk-pinned-fold:hover {
+  background: var(--bgColor-neutral-muted);
+}
+
+.talk-pinned-fold > svg {
+  flex: none;
+  color: var(--fgColor-muted);
+}
+
+.talk-pinned-fold > .talk-who,
+.talk-pinned-fold > .talk-when {
+  flex: none;
+  font-size: var(--text-body-size-small);
+}
+
+.talk-pinned-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* While an ask that waits for the owner is out of view, one slim line over the stream says so, each such ask a button
@@ -478,6 +528,25 @@
 
 .talk-say-to-label {
   color: var(--fgColor-muted);
+}
+
+/* The tick over the box in the one-to-one: "Reply to:" and the question open at the bottom, on one line, cut where
+   the line ends. */
+.talk-reply-tick,
+.talk-reply-tick > * {
+  min-width: 0;
+}
+
+.talk-reply-tick label {
+  display: block;
+  min-width: 0;
+}
+
+.talk-reply-words {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* What an agent handed back, word for word, wherever a card shows it: the box. */

@@ -18,13 +18,15 @@ use crate::{
 
 type Result<T> = std::result::Result<T, Error>;
 
-/// What the conversations need of the configuration: its projects, in order, the project that is wf-agents itself, and
-/// the groups of two projects or more it connects through each project's `other_projects`.
+/// What the conversations need of the configuration: its projects, in order, the project that is wf-agents itself, the
+/// groups of two projects or more it connects through each project's `other_projects`, and how long, in milliseconds,
+/// an architect waits for the owner's reply to the question it put last (`agents.owner_reply_wait`).
 #[derive(Debug, Clone, Default)]
 pub struct Talks {
     pub projects: Vec<String>,
     pub own: Option<String>,
     pub sets: Vec<Vec<String>>,
+    pub reply_wait: i64,
 }
 
 impl Talks {
@@ -55,6 +57,9 @@ impl Talks {
             projects,
             own: c.wf_agents_project(),
             sets: sets.into_values().filter(|s| s.len() > 1).collect(),
+            reply_wait: i64::try_from(c.install.agents.owner_reply_wait)
+                .unwrap_or(i64::MAX / 1000)
+                .saturating_mul(1000),
         }
     }
 
@@ -223,7 +228,8 @@ pub fn conversations(conn: &Connection, t: &Talks) -> Result<Vec<Conversation>> 
 /// One of the owner's conversations in full: its entries in time order, with what the engine writes from the flow
 /// beside what was said (a work's stage cards; an architect's matter cards and the policy in force, with the documents
 /// of its asks; wf-agents' observations), and where the owner's words in it stand with the architect; the open
-/// blockers the owner holds in it, with their forms; and how far the owner has read it.
+/// blockers the owner holds in it, with their forms; in the one-to-one with an architect, the questions it pinned for
+/// the owner's reply and the one it waits on now; and how far the owner has read it.
 pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> Result<ConversationDetail> {
     let select = "SELECT conversation, source, id, sender, recipient, text, at, work, round, ask, design_card, matter,
                     read_at, waiting, pending, undelivered, answerable, fault
@@ -297,9 +303,28 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
     for e in entries.iter_mut().filter(|e| e.source == "ask") {
         e.ask_detail = asks.iter().find(|a| a.id == e.id).cloned();
     }
+    // In the one-to-one with an architect, the questions it pinned for the owner's reply, newest first, and the one it
+    // waits on now, read as the engine reads them.
+    let (questions, waits_on) = match key.strip_prefix("architect:") {
+        Some(project) => {
+            let mut st = conn.prepare(db::QUESTIONS_PENDING)?;
+            let pinned: Vec<i64> = st
+                .query_map([project], |r| r.get("question"))?
+                .collect::<db::rusqlite::Result<_>>()?;
+            let questions: Vec<_> = pinned
+                .iter()
+                .filter_map(|id| asks.iter().find(|a| a.id == *id).cloned())
+                .collect();
+            let waits_on = db::question_waited_on(conn, project, t.reply_wait, db::now())
+                .map_err(|e| Error::Failed(e.to_string()))?;
+            (questions, waits_on)
+        }
+        None => (Vec::new(), None),
+    };
     let waiting: Vec<_> = asks
         .iter()
         .filter(|a| entries.iter().any(|e| e.source == "ask" && e.id == a.id && e.waiting))
+        .filter(|a| !questions.iter().any(|q| q.id == a.id))
         .cloned()
         .collect();
     let mut design_cards = Vec::new();
@@ -370,6 +395,8 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
         entries,
         asks: waiting,
         design_cards,
+        questions,
+        waits_on,
         read_to,
         forwarding: if key == "wf-agents" {
             Some(Forwarding {

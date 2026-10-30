@@ -2189,6 +2189,8 @@ describe("the owner's conversations", () => {
       ],
       asks: [{ id: 4, round: 2, work: 5, item: null, body: {}, kinds: [], answer: null, answer_images: [], asked_at: 0 }],
       design_cards: [],
+      questions: [],
+      waits_on: null,
       read_to: null,
       forwarding: null,
     };

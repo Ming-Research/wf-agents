@@ -716,9 +716,26 @@ project: string, architect_work: number | null, round: number | null, cell: stri
 /**
  * A conversation in full: its entries in time order; what waits for the owner in it, the open blockers the owner
  * holds with their forms (the asks, which show where they were asked, and the design cards whose ruling a work waits
- * for, pinned at its top); and how far the owner has read it.
+ * for, pinned at its top); in the one-to-one with an architect, the questions it pinned for the owner's reply, at its
+ * bottom, and the one it waits on now; and how far the owner has read it.
  */
-export type ConversationDetail = { key: string, entries: Array<ConversationEntry>, asks: Array<OwnerAsk>, design_cards: Array<DesignCard>, 
+export type ConversationDetail = { key: string, entries: Array<ConversationEntry>, 
+/**
+ * The asks that wait for the owner where they were asked; the questions pinned are not among them.
+ */
+asks: Array<OwnerAsk>, design_cards: Array<DesignCard>, 
+/**
+ * In the one-to-one with an architect: the questions it pinned for the owner's reply, newest first, each an ask of
+ * the architect's that waits and parks a matter still open, as the engine reads them; none in another
+ * conversation. Each is an entry too, where it was asked.
+ */
+questions: Array<OwnerAsk>, 
+/**
+ * In the one-to-one with an architect: the question it waits for the owner's reply to now at its look at the queue
+ * (`Q0`'s row `waits`), as the engine works it out: the newest pinned, put less than the installation's wait for
+ * the owner's reply ago, with nothing said by the owner since; none otherwise.
+ */
+waits_on: number | null, 
 /**
  * The time of the latest entry the owner read; none before the first.
  */
