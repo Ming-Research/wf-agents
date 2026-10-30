@@ -77,8 +77,8 @@ out; leaving out is half the work, and putting on what the owner needs and does 
 thing has one place, named for what produced it, and is shown there once. Like things look alike: the same kind of
 content (a message, a text an agent wrote, a verdict, a list of items, a link to a round, a form to answer) is shown the
 same way wherever it appears, from one set of parts, so that the owner learns each look once. The page is built to its
-UI spec (`design/harness/owner-interface/ui-spec.md`), which a check in CI holds: a change that needs what the spec lacks
-changes the spec in the same change, saying why.
+UI spec (`design/harness/owner-interface/ui-spec.md`), which a check in CI holds: a change that needs what the spec
+lacks changes the spec in the same change, saying why.
 
 Violations: a column, a field or a log put on the page because the data exists (the engine's bookkeeping, raw values,
 internal names, JSON); the same thing shown in two places; text written for agents or the engine shown as if written for
