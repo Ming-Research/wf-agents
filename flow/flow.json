@@ -13857,19 +13857,8 @@
           ],
           "inputs": [
             {
-              "name": "Reading to judge",
-              "what": "The reading to judge: what the new architect just handed in, its restatement, its questions and its answers to the probes",
-              "from": [
-                [
-                  "P6",
-                  "reading"
-                ]
-              ],
-              "maybe": true
-            },
-            {
-              "name": "Earlier readings",
-              "what": "Every reading of this version so far by a new architect, oldest first, each with its restatement, questions and answers, and your judgment of each before this one",
+              "name": "Readings of this version",
+              "what": "Every reading of this version so far by a new architect, oldest first, each with its restatement, questions and answers, and your judgment of each: the last, which you have not judged yet, is the one to judge now",
               "from": [
                 {
                   "db": "policy_readings",
@@ -13901,7 +13890,7 @@
             }
           ],
           "prompt": [
-            "A new architect who took no part in the study or the discussion read only the text. A reading passes when it answers every probe rightly, and for the right reason; it fails only when it answers a probe wrongly or could not answer one. Its restatement and its questions do not fail it: look at whether the restatement says what you understand, and at its questions beside those of every reading of this version.",
+            "A new architect who took no part in the study or the discussion read only the text: the last of the readings given, which you judge now. A reading passes when it answers every probe rightly, and for the right reason; it fails only when it answers a probe wrongly or could not answer one. Its restatement and its questions do not fail it: look at whether the restatement says what you understand, and at its questions beside those of every reading of this version.",
             "A question is a gap of the text when two or more readers of this version asked it, or when it led a reader to a wrong answer; one that a single reader asked, or that the constitution, the architect's rules or the policy rightly leaves to the architect's judgment, is none. A text that oversteps what a policy governs, or names items, an order of work, holds or numbers the owner did not give, has a gap there too.",
             "Hand in understood when every probe is answered rightly, with the gaps the questions show, which the next correction fixes: they neither fail the reading nor undo the readings passed before it. Hand in minor_fix instead when some wording should also change that the reader read rightly anyway, such as a bare number that does not say whether it is a principle's or an article's: give the edits, which the engine puts into the text, and the reading still counts as passed. Hand in gaps when a probe was answered wrongly or not answered: where the text lacks something, and which probes, which are not used again."
           ],
