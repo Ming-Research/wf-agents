@@ -1519,8 +1519,8 @@ fn session_of(e: &Engine, work: i64, cell: &str) -> i64 {
 }
 
 // A work on an older flow version that goes on moves to the version the engine runs when the cell it stands at is
-// unchanged there and every return it handed in keeps its shape, whatever else changed: the same work goes on at its
-// cell in the same session, and says which version it moved from.
+// unchanged there and every return it handed in still fits its cell there, whatever else changed: the same work goes
+// on at its cell in the same session, and says which version it moved from.
 #[test]
 fn a_work_at_an_unchanged_cell_moves_and_keeps_its_session() {
     let s = setup("moves");
@@ -1553,33 +1553,67 @@ fn a_work_at_an_unchanged_cell_moves_and_keeps_its_session() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A work on an older flow version whose cell is unchanged, but one of whose earlier returns has another shape in the
-// version the engine runs, is taken over when it goes on: it ends, saying why, and a new work takes its item over.
+/// A change of a flow version at cell `R1`: its return may hold a field `before`, which the version the engine runs
+/// does not have.
+fn with_before(g: &mut flow::CompiledGraph) {
+    let r1 = g.cells.iter_mut().find(|c| c.id == "R1").unwrap();
+    if let Some(Value::Object(props)) = r1.schema.as_mut().and_then(|s| s.get_mut("properties")) {
+        props.insert("before".into(), json!({ "type": "string" }));
+    }
+}
+
+// A work on an older flow version whose earlier return's cell has another schema in the version the engine runs, which
+// still takes the return as the round stored it, moves: a field the return does not hold, taken out.
 #[test]
-fn a_work_whose_earlier_return_changed_its_shape_is_taken_over() {
+fn a_work_whose_earlier_returns_still_fit_moves() {
+    let s = setup("refit");
+    let (mut e, said, item, work) = at_r2_on_an_older_version(&s, with_before);
+    let stepped = e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(stepped.work, Some(work), "{log}");
+    assert_eq!(stepped.cell.as_deref(), Some("R2"), "{log}");
+    assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work on an older flow version whose cell is unchanged, but one of whose earlier returns its cell's schema in the
+// version the engine runs does not take, is taken over when it goes on: it ends, saying the round and where the return
+// does not fit, and a new work takes its item over.
+#[test]
+fn a_work_whose_earlier_return_no_longer_fits_is_taken_over() {
     let s = setup("reshaped");
-    let (mut e, said, item, work) = at_r2_on_an_older_version(&s, |g| {
-        let r1 = g.cells.iter_mut().find(|c| c.id == "R1").unwrap();
-        if let Some(Value::Object(schema)) = &mut r1.schema {
-            schema.insert("properties".into(), json!({ "before": { "type": "string" } }));
-        }
-    });
+    let (mut e, said, item, work) = at_r2_on_an_older_version(&s, with_before);
+    let n: i64 =
+        e.db.write(Actor::Engine, |tx| {
+            let n: i64 = tx.query_row(
+                "SELECT n FROM rounds WHERE work = ?1 AND cell = 'R1' AND transition IS NOT NULL",
+                [work],
+                |r| r.get(0),
+            )?;
+            tx.execute(
+                "UPDATE rounds SET output = json_set(output, '$.before', 'kept') WHERE work = ?1 AND n = ?2",
+                params![work, n],
+            )?;
+            Ok(n)
+        })
+        .unwrap();
     let stepped = e.step(None).unwrap();
     let log = said.borrow().join("\n");
     let works = works_of(&e, item);
     assert_eq!(works.len(), 2, "{works:?}\n{log}");
     assert_eq!(works[0].0, work);
     let now = e.flow_now;
-    assert_eq!(
-        works[0].5.as_deref(),
-        Some(
-            format!(
-                "stopped: the flow moved to version {now}, where the return of cell R1 has another shape, and a new \
-                 work on it takes the item over"
-            )
-            .as_str()
-        ),
-        "{log}"
+    let ended = works[0].5.clone().unwrap_or_default();
+    assert!(
+        ended.starts_with(&format!(
+            "stopped: the flow moved to version {now}, where the return of cell R1 in round R{work}-{n} no longer \
+             fits it (the return has before, which is not one of its fields: "
+        )),
+        "{ended}\n{log}"
+    );
+    assert!(
+        ended.ends_with("), and a new work on it takes the item over"),
+        "{ended}"
     );
     assert_eq!(
         (stepped.work, stepped.started_item),

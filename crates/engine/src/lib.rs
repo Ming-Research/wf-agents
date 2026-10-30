@@ -239,7 +239,9 @@ impl Engine {
     }
 
     /// Why a work on an older flow version cannot move to the version the engine runs ([`versions::why_not`]): what
-    /// changed at the cell it stands at, or in the shape of a return it handed in; none when it can move.
+    /// changed at the cell it stands at, or a return it handed in that its cell there does not take; none when it can
+    /// move. Both versions' graphs are read as the work's project's agents are asked them, which its returns were
+    /// checked against.
     fn cannot_move(&mut self, w: &Work) -> Result<Option<String>, String> {
         let old = self.flow(w.flow_version)?.graph(&w.graph).cloned();
         let now = self.flow_now;
@@ -247,21 +249,19 @@ impl Engine {
         let (Some(old), Some(new)) = (old, new) else {
             return Ok(Some(format!("there is no graph {}", w.graph)));
         };
-        let returned: BTreeSet<String> = {
-            let mut st = self
-                .db
-                .conn()
-                .prepare(
-                    "SELECT DISTINCT cell FROM rounds
-                     WHERE work = ?1 AND cell IS NOT NULL AND output IS NOT NULL AND transition IS NOT NULL",
-                )
-                .map_err(|e| e.to_string())?;
-            st.query_map([w.id], |r| r.get(0))
-                .map_err(|e| e.to_string())?
-                .collect::<Result<_, _>>()
-                .map_err(|e| e.to_string())?
-        };
-        Ok(versions::why_not(&old, &new, &w.pos, &returned))
+        let (old, new) = (self.as_asked(w, old)?, self.as_asked(w, new)?);
+        let handed: Vec<versions::Handed> = work::rounds(self.db.conn(), w.id)?
+            .into_iter()
+            .filter(|r| r.transition.is_some())
+            .filter_map(|r| {
+                Some(versions::Handed {
+                    round: r.id,
+                    cell: r.cell?,
+                    output: r.output?,
+                })
+            })
+            .collect();
+        Ok(versions::why_not(&old, &new, &w.pos, &handed))
     }
 
     /// Moves a work on an older flow version to the version the engine runs: the same work, at the same cell, in the
@@ -552,6 +552,11 @@ impl Engine {
             .graph(&w.graph)
             .cloned()
             .ok_or_else(|| format!("work {}: its flow has no graph {}", w.id, w.graph))?;
+        self.as_asked(w, g)
+    }
+
+    /// A graph as the agents of a work's project are asked it ([`CompiledGraph::as_asked`]).
+    fn as_asked(&self, w: &Work, g: CompiledGraph) -> Result<CompiledGraph, String> {
         let named: Option<String> = match (&w.project, w.item) {
             (Some(p), _) => Some(p.clone()),
             (None, Some(item)) => self
