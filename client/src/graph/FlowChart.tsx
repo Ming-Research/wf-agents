@@ -545,6 +545,7 @@ export function FlowChart(props: FlowChartProps) {
     if (current === null || placed === null) return null;
     const sheets = current.map((l, i) => ({
       graph: graphs[i].g.name,
+      cells: graphs[i].g.cells,
       chart: models[i],
       laid: l,
       left: placed.x[stores !== null && i >= storesAt ? i + 1 : i],

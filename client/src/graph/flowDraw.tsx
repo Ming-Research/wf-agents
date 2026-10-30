@@ -1,7 +1,8 @@
 // How a flow's chart is drawn: each node's size and the lines of its text, measured in the font the page draws
 // them in, and the chart itself as SVG once laid out. Who does a cell's work decides its colours: an agent's round
 // takes its line's, a cell on no line lime, the engine's own step is purple and rounded, a tool the engine runs yellow,
-// the owner orange and rounded; every cell's edge is solid. Under a step the engine decides, what its values read; on a
+// the owner orange and rounded, a rounded cell's ends no rounder than a cell of one line's, so that its text stays
+// inside them; every cell's edge is solid. Under a step the engine decides, what its values read; on a
 // cell that lacks a move most cells that could make make, a small mark saying so. An agent's cell carries over its top
 // left corner the reasoning effort it runs at, as a badge in the level's colour, and after it, on a cell that starts a
 // new session every round, an outlined badge saying so. What the engine does on a line or every time a cell returns is a
@@ -109,6 +110,20 @@ const PAD_X = 12;
 const PAD_Y = 9;
 /// The height of the row of marks of the moves a cell lacks.
 const MARKS = 22;
+/// The most an engine's or the owner's cell is rounded: its ends as round as a cell of one line, whose ends are
+/// half-circles, so that a taller cell's lines, which the layout sets as wide as a box's, keep clear of its curve.
+const ROUND = (LINE + 2 * PAD_Y) / 2;
+
+/// Whether a cell's box is rounded: the engine's own step and the owner's.
+function rounded(c: CompiledCell): boolean {
+  return c.kind === 'engine' || c.kind === 'owner';
+}
+
+/// The radius of a cell's corners at `height`: an engine's step and the owner's rounded, at most `ROUND`; any other
+/// slightly.
+export function cellRadius(c: CompiledCell, height: number): number {
+  return rounded(c) ? Math.min(height / 2, ROUND) : 3;
+}
 
 /// A text in lines no wider than `wrap` in `font`, the first starting `first` in.
 function wrapped(text: string, font: string, wrap: number, first = 0): string[] {
@@ -290,6 +305,27 @@ export function sizes(
   return { size, lines, notes };
 }
 
+/// The widths of the marks of the moves a cell lacks, as their row draws them, and the row's whole width.
+function lacksWidths(lacks: Lack[]): { each: number[]; total: number } {
+  const each = lacks.map((l) => Math.ceil(measure(l.text, chartFonts().note)) + 10);
+  return { each, total: each.reduce((a, w) => a + w, 0) + 4 * (lacks.length - 1) };
+}
+
+/// Where each line of a cell's text lies in its box of `size`, from the box's top left corner, as the box draws it:
+/// each line of its title, its code leading the first, each in the band of a line; what its values read; and the row
+/// of the moves it lacks; each centred.
+export function textBoxes(c: CompiledCell, size: Size, lines: string[], note: CellNote | undefined): Box[] {
+  const f = chartFonts();
+  const centred = (width: number, y: number, height: number): Box => ({ x: (size.width - width) / 2, y, width, height });
+  const out = lines.map((l, i) => centred(measure(l) + (i === 0 ? measure(`${c.id} `, f.code) : 0), PAD_Y + i * LINE, LINE));
+  const below = PAD_Y + lines.length * LINE;
+  (note?.reads ?? []).forEach((l, i) => out.push(centred(measure(l, f.note), below + i * SMALL_LINE, SMALL_LINE)));
+  if (note !== undefined && note.lacks.length > 0) {
+    out.push(centred(lacksWidths(note.lacks).total, size.height - PAD_Y - MARKS + 3, 16));
+  }
+  return out;
+}
+
 /// The size of an arrow's label: the rows' names; none for an arrow without one.
 export function labelSize(e: ChartEdge): Size | null {
   if (e.label === '') return null;
@@ -331,7 +367,8 @@ function CellShape({ n, cell, box, lines, note, marks }: {
   marks: Marks;
 }) {
   const o = marks.overlays?.get(cell.id) ?? null;
-  const round = cell.kind === 'engine' || cell.kind === 'owner';
+  const round = rounded(cell);
+  const radius = cellRadius(cell, box.height);
   const cls = [
     'fc-cell',
     styleOf(cell),
@@ -386,12 +423,12 @@ function CellShape({ n, cell, box, lines, note, marks }: {
           y={box.y - RING}
           width={box.width + 2 * RING}
           height={box.height + 2 * RING}
-          rx={round ? (box.height + 2 * RING) / 2 : 8}
+          rx={round ? radius + RING : 8}
         >
           <title>{`${name}: ${t('chart_current')}${o.running ? `; ${t('chart_running')}` : ''}`}</title>
         </rect>
       ) : null}
-      <rect x={box.x} y={box.y} width={box.width} height={box.height} rx={round ? box.height / 2 : 3} />
+      <rect x={box.x} y={box.y} width={box.width} height={box.height} rx={radius} />
       <text className="fc-title" x={box.x + box.width / 2} y={titleAt} textAnchor="middle" dominantBaseline="central">
         {lines.map((l, i) => (
           <tspan key={i} x={box.x + box.width / 2} dy={i === 0 ? 0 : LINE}>
@@ -434,8 +471,7 @@ function CellShape({ n, cell, box, lines, note, marks }: {
 
 /// The marks of the moves a cell lacks, in a row centred on `x`, each saying why on hovering.
 function Lacks({ lacks, x, y }: { lacks: Lack[]; x: number; y: number }) {
-  const widths = lacks.map((l) => Math.ceil(measure(l.text, chartFonts().note)) + 10);
-  const total = widths.reduce((a, w) => a + w, 0) + 4 * (lacks.length - 1);
+  const { each: widths, total } = lacksWidths(lacks);
   let at = x - total / 2;
   return (
     <>
@@ -467,7 +503,7 @@ export function Halo({ box, round, small = false }: { box: Box; round: boolean; 
     y: box.y - pad,
     width: box.width + 2 * pad,
     height: box.height + 2 * pad,
-    rx: round ? (box.height + 2 * pad) / 2 : 6 + pad / 2,
+    rx: round ? Math.min(box.height / 2, ROUND) + pad : 6 + pad / 2,
   };
   return (
     <g className={small ? 'fc-halo fc-halo-small' : 'fc-halo'} aria-hidden="true">

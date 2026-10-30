@@ -795,8 +795,9 @@ svg.fc {
 }
 
 /* The map over the chart's top left corner, under the flow's tools on the flow page and under the legend when that is
-   open: the whole chart small, its boxes and cells as plain shapes, the cell a work is at ringed as on the chart, and
-   the part in view framed. It shows only while some of the chart is out of view. */
+   open: the whole chart small, its boxes and cells as plain shapes, each cell and store in the chart's own colours for
+   it, which its class on the chart gives it, the cell a work is at ringed as on the chart, and the part in view framed.
+   It shows only while some of the chart is out of view. */
 .fc-map {
   position: absolute;
   top: var(--base-size-8);
@@ -830,12 +831,13 @@ svg.fc {
   stroke-width: var(--chart-line-map);
 }
 
+/* A cell's fill and edge are the chart's, from the class of its kind or line; only the edge's width is the map's. */
 .fc-map-cell {
   fill: var(--fgColor-muted);
 }
 
-.fc-map-cell.fc-map-current {
-  fill: var(--fc-taken);
+.fc-map .fc-map-cell {
+  stroke-width: var(--chart-line-map);
 }
 
 .fc-map-ring {
@@ -844,12 +846,29 @@ svg.fc {
   stroke-width: var(--chart-line-box);
 }
 
-.fc-map-cell.fc-map-running {
-  fill: var(--fgColor-success);
-}
-
 .fc-map-ring.fc-map-running {
   stroke: var(--fgColor-success);
+}
+
+/* The chart's zoom, under the map or in its place while the map hides: small muted text on a surface as the map's. */
+.fc-zoom {
+  position: absolute;
+  top: var(--base-size-8);
+  left: var(--base-size-8);
+  z-index: 4;
+  padding: 0 var(--base-size-4);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--overlay-bgColor);
+  box-shadow: var(--shadow-floating-small);
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.fc-zoom:empty {
+  visibility: hidden;
 }
 
 /* The part of the chart in view: a light wash over the map, so that what lies under it still shows. */

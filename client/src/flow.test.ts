@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { Compiled, FlowView } from './api';
 import { cellWhere, enteredFrom, leavesTo, ownMoves } from './flow/CellPanel';
 import { moveWords } from './graph/FlowChart';
-import { cornerWidth, EFFORTS, effortOf, effortsOf, labelSize, sizes, startsAnew } from './graph/flowDraw';
+import { cellRadius, cornerWidth, EFFORTS, effortOf, effortsOf, labelSize, sizes, startsAnew, textBoxes } from './graph/flowDraw';
 import { besides, type Laid, layoutChart } from './graph/flowLayout';
 import { cellActions, cellNode, type Chart, chart, moves } from './graph/flowModel';
 import { LEAST, MAP_HEIGHT, MAP_WIDTH, mapOf } from './graph/Minimap';
@@ -155,6 +155,38 @@ describe('the flow as the engine stores it', () => {
     }
   });
 
+  it("keeps every line of a cell's text inside its box, a rounded cell's curved ends included", () => {
+    // A point of the box drawn `width` by `height` with corners of `r`: inside the straight part, or within `r` of the
+    // middle of the corner it is in.
+    const inside = (x: number, y: number, width: number, height: number, r: number) => {
+      const cx = Math.min(Math.max(x, r), width - r);
+      const cy = Math.min(Math.max(y, r), height - r);
+      return x >= 0 && y >= 0 && x <= width && y <= height && Math.hypot(x - cx, y - cy) <= r + 1e-6;
+    };
+    let tall = 0;
+    for (const { g, v } of graphs) {
+      const { size, lines, notes } = sizes(g, chart(g, v, engine));
+      for (const c of g.cells) {
+        const at = cellNode(c.id);
+        const s = size.get(at);
+        if (s === undefined) continue;
+        const r = cellRadius(c, s.height);
+        if ((c.kind === 'engine' || c.kind === 'owner') && s.height > 40) tall += 1;
+        for (const b of textBoxes(c, s, lines.get(at) ?? [], notes.get(at))) {
+          const corners = [
+            [b.x, b.y],
+            [b.x + b.width, b.y],
+            [b.x, b.y + b.height],
+            [b.x + b.width, b.y + b.height],
+          ];
+          for (const [x, y] of corners) expect(inside(x, y, s.width, s.height, r), `${g.name} ${c.id} at ${x}, ${y}`).toBe(true);
+        }
+      }
+    }
+    // The flow has rounded cells of more than one line, whose ends a half-circle would have cut into.
+    expect(tall).toBeGreaterThan(0);
+  });
+
   it('draws every cell of every graph on the map of the flow page, and every store, inside the map', async () => {
     // The graphs side by side with the stores between the first two, each drawing 24 px inside its sheet, as the
     // chart places them.
@@ -185,6 +217,7 @@ describe('the flow as the engine stores it', () => {
       placed,
       laid.map((l, i) => ({
         graph: graphs[i].g.name,
+        cells: graphs[i].g.cells,
         chart: charts[i],
         laid: l,
         left: placed.x[stores !== null && i >= storesAt ? i + 1 : i],

@@ -1,14 +1,17 @@
 // The map over a chart's top left corner: the whole chart drawn small, its stage boxes and cells (and the stores' boxes
-// and stores) as plain shapes with no text and no arrows, on a work's chart the cell the work is at ringed and the
-// cells it never reached muted, and the part of the chart in view as a frame. A click on the map brings the point
-// clicked to the middle at the zoom the chart has; dragging the frame moves the chart. The map is drawn from the
-// layout the chart already has, and its frame follows the view as it changes, without drawing the chart again. It
-// hides while the whole chart is in view, and while what can be seen is too small for it to keep clear of the middle,
-// where the chart centres on the cell a round runs at.
+// and stores) as plain shapes with no text and no arrows, each cell and store in the colours the chart draws it in, on
+// a work's chart the cell the work is at ringed and the cells it never reached muted, and the part of the chart in
+// view as a frame. A click on the map brings the point clicked to the middle at the zoom the chart has; dragging the
+// frame moves the chart. The map is drawn from the layout the chart already has, and its frame follows the view as it
+// changes, without drawing the chart again. It hides while the whole chart is in view, and while what can be seen is
+// too small for it to keep clear of the middle, where the chart centres on the cell a round runs at. Under it, or in
+// its place while it hides, the chart's zoom as a percentage, which follows the view as the frame does.
 
 import { memo, type RefObject, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
+import type { CompiledCell } from '../api';
 import { t } from '../text';
+import { styleOf } from './flowDraw';
 import type { Box, Laid, Size } from './flowLayout';
 import type { Chart, Overlay } from './flowModel';
 import type { LaidStores } from './stores';
@@ -26,6 +29,13 @@ const CLICK = 4;
 /// What the map keeps clear of in the middle of what can be seen: a cell at full size with its halo, as the chart
 /// centres on the cell a round runs at.
 const MIDDLE = { width: 300, height: 120 };
+/// The room between the map and the zoom under it, Primer's `--base-size-8`.
+const BELOW = 8;
+
+/// The chart's zoom as the owner reads it: a whole percentage, 100% at full size.
+export function zoomText(s: number): string {
+  return t('chart_zoom', { percent: Math.round(s * 100) });
+}
 
 /// The map's scale, the size of its drawing and the size of the chart it maps.
 export type MapGeom = { k: number; width: number; height: number; chart: Size };
@@ -37,18 +47,27 @@ export function mapGeom(chart: Size): MapGeom {
   return { k, width: chart.width * k, height: chart.height * k, chart };
 }
 
-/// A shape on the map, in the map's pixels: a stage box or a box of stores, or a cell or a store; on a work's chart a
-/// cell is the one the work is at (`running` while a round runs there) or one it never reached.
+/// A shape on the map, in the map's pixels: a stage box or a box of stores, or a cell or a store, with the class the
+/// chart draws it in (`styleOf` for a cell, a store's for a store), so that the two take their colours from one rule;
+/// on a work's chart a cell is the one the work is at (`running` while a round runs there) or one it never reached.
 export type MapShape = Box & {
   kind: 'box' | 'cell';
   graph: string | null;
   cell: string | null;
+  style: string | null;
   mark: 'current' | 'running' | 'unvisited' | null;
 };
 
-/// A graph's drawing as the chart places it: its chart and layout, its sheet's left edge in the chart's pixels, and on
-/// a work's chart what the work did at each cell.
-export type MapSheet = { graph: string; chart: Chart; laid: Laid; left: number; overlays: Map<string, Overlay> | null };
+/// A graph's drawing as the chart places it: its cells, its chart and layout, its sheet's left edge in the chart's
+/// pixels, and on a work's chart what the work did at each cell.
+export type MapSheet = {
+  graph: string;
+  cells: CompiledCell[];
+  chart: Chart;
+  laid: Laid;
+  left: number;
+  overlays: Map<string, Overlay> | null;
+};
 
 export type MapOf = { geom: MapGeom; shapes: MapShape[] };
 
@@ -79,8 +98,9 @@ export function mapOf(
   for (const s of sheets) {
     const dx = s.left - s.laid.bounds.x + pad;
     const dy = top - s.laid.bounds.y + pad;
+    const compiled = new Map(s.cells.map((c) => [c.id, c]));
     for (const b of s.laid.groups.values()) {
-      boxes.push({ ...scaled(b, dx, dy, 0), kind: 'box', graph: s.graph, cell: null, mark: null });
+      boxes.push({ ...scaled(b, dx, dy, 0), kind: 'box', graph: s.graph, cell: null, style: null, mark: null });
     }
     for (const n of s.chart.nodes) {
       const b = s.laid.nodes.get(n.id);
@@ -89,17 +109,19 @@ export function mapOf(
       let mark: MapShape['mark'] = null;
       if (s.overlays !== null && o === undefined) mark = 'unvisited';
       else if (o?.current) mark = o.running ? 'running' : 'current';
-      cells.push({ ...scaled(b, dx, dy, LEAST), kind: 'cell', graph: s.graph, cell: n.cell, mark });
+      const c = compiled.get(n.cell);
+      const style = c !== undefined ? styleOf(c) : null;
+      cells.push({ ...scaled(b, dx, dy, LEAST), kind: 'cell', graph: s.graph, cell: n.cell, style, mark });
     }
   }
   if (stores !== null) {
     const dx = stores.left + pad;
     const dy = top + pad;
     for (const b of stores.laid.boxes) {
-      boxes.push({ ...scaled(b.box, dx, dy, 0), kind: 'box', graph: null, cell: null, mark: null });
+      boxes.push({ ...scaled(b.box, dx, dy, 0), kind: 'box', graph: null, cell: null, style: null, mark: null });
     }
     for (const b of stores.laid.stores.values()) {
-      cells.push({ ...scaled(b, dx, dy, LEAST), kind: 'cell', graph: null, cell: null, mark: null });
+      cells.push({ ...scaled(b, dx, dy, LEAST), kind: 'cell', graph: null, cell: null, style: 'fc-store', mark: null });
     }
   }
   const atop = (s: MapShape) => (s.mark === 'current' || s.mark === 'running' ? 1 : 0);
@@ -151,15 +173,16 @@ export const Minimap = memo(function Minimap({ map, viewer }: { map: MapOf; view
   const root = useRef<HTMLDivElement>(null);
   const drawing = useRef<SVGSVGElement>(null);
   const frame = useRef<SVGRectElement>(null);
+  const zoom = useRef<HTMLDivElement>(null);
   const geom = useRef(map.geom);
   geom.current = map.geom;
-  // The view the frame was last drawn for, the frame, and the map's own right and bottom edges in the viewer, read
+  // The view the frame was last drawn for, the frame, and the map's own top, right and bottom edges in the viewer, read
   // again only when what can be seen or the map changes size.
   const last = useRef({
     v: null as View | null,
     seen: { width: 0, height: 0 } as Seen,
     frame: null as Box | null,
-    edges: { key: '', right: 0, bottom: 0 },
+    edges: { key: '', top: 0, right: 0, bottom: 0 },
   });
   const draw = useCallback((v: View, seen: Seen) => {
     const el = root.current;
@@ -171,9 +194,16 @@ export const Minimap = memo(function Minimap({ map, viewer }: { map: MapOf; view
     l.seen = seen;
     const key = `${seen.width} ${seen.height} ${m.width} ${m.height}`;
     if (l.edges.key !== key) {
-      l.edges = { key, right: el.offsetLeft + el.offsetWidth, bottom: el.offsetTop + el.offsetHeight };
+      l.edges = { key, top: el.offsetTop, right: el.offsetLeft + el.offsetWidth, bottom: el.offsetTop + el.offsetHeight };
     }
-    el.toggleAttribute('data-on', mapShown(m, v, seen, l.edges.right, l.edges.bottom));
+    const shown = mapShown(m, v, seen, l.edges.right, l.edges.bottom);
+    el.toggleAttribute('data-on', shown);
+    // The zoom under the map, or in its place while it hides.
+    const z = zoom.current;
+    if (z !== null) {
+      z.textContent = zoomText(v.s);
+      z.style.top = `${shown ? l.edges.bottom + BELOW : l.edges.top}px`;
+    }
     const b = viewFrame(m, v, seen);
     l.frame = b;
     if (b === null) {
@@ -192,6 +222,14 @@ export const Minimap = memo(function Minimap({ map, viewer }: { map: MapOf; view
     const l = last.current;
     if (l.v !== null) draw(l.v, l.seen);
   }, [map, draw]);
+  // A press on the zoom is nobody's: it neither moves the chart nor picks what is under it.
+  useEffect(() => {
+    const z = zoom.current;
+    if (z === null) return;
+    const down = (e: PointerEvent) => e.stopPropagation();
+    z.addEventListener('pointerdown', down);
+    return () => z.removeEventListener('pointerdown', down);
+  }, []);
   // A press here is the map's, not the chart's: a click brings the point clicked to the middle, and dragging the frame
   // moves the chart; the wheel and a pinch go on to the chart as anywhere over it.
   useEffect(() => {
@@ -243,33 +281,39 @@ export const Minimap = memo(function Minimap({ map, viewer }: { map: MapOf; view
   }, [viewer]);
   const { geom: m, shapes } = map;
   return (
-    <div className="fc-map" ref={root} role="img" aria-label={t('chart_map')}>
-      <svg ref={drawing} width={m.width + 2 * INSET} height={m.height + 2 * INSET} aria-hidden="true">
-        <g transform={`translate(${INSET} ${INSET})`}>
-          {shapes.map((s, i) => {
-            if (s.kind === 'box') {
-              return <rect key={i} className="fc-map-box" x={s.x} y={s.y} width={s.width} height={s.height} rx={1} />;
-            }
-            const at = s.mark === 'current' || s.mark === 'running' ? ` fc-map-${s.mark}` : '';
-            return (
-              <g key={i} className={s.mark === 'unvisited' ? 'fc-unvisited' : undefined}>
-                {at !== '' ? (
-                  <rect
-                    className={`fc-map-ring${at}`}
-                    x={s.x - 2.5}
-                    y={s.y - 2.5}
-                    width={s.width + 5}
-                    height={s.height + 5}
-                    rx={2}
-                  />
-                ) : null}
-                <rect className={`fc-map-cell${at}`} x={s.x} y={s.y} width={s.width} height={s.height} rx={0.5} />
-              </g>
-            );
-          })}
-          <rect ref={frame} className="fc-map-frame" rx={1} />
-        </g>
-      </svg>
-    </div>
+    <>
+      <div className="fc-map" ref={root} role="img" aria-label={t('chart_map')}>
+        <svg ref={drawing} width={m.width + 2 * INSET} height={m.height + 2 * INSET} aria-hidden="true">
+          <g transform={`translate(${INSET} ${INSET})`}>
+            {shapes.map((s, i) => {
+              if (s.kind === 'box') {
+                return <rect key={i} className="fc-map-box" x={s.x} y={s.y} width={s.width} height={s.height} rx={1} />;
+              }
+              const at = s.mark === 'current' || s.mark === 'running' ? ` fc-map-${s.mark}` : '';
+              return (
+                <g key={i} className={s.mark === 'unvisited' ? 'fc-unvisited' : undefined}>
+                  {at !== '' ? (
+                    <rect
+                      className={`fc-map-ring${at}`}
+                      x={s.x - 2.5}
+                      y={s.y - 2.5}
+                      width={s.width + 5}
+                      height={s.height + 5}
+                      rx={2}
+                    />
+                  ) : null}
+                  {/* In the class the chart draws it in, which gives it the chart's colours. */}
+                  <g className={s.style ?? undefined}>
+                    <rect className="fc-map-cell" x={s.x} y={s.y} width={s.width} height={s.height} rx={0.5} />
+                  </g>
+                </g>
+              );
+            })}
+            <rect ref={frame} className="fc-map-frame" rx={1} />
+          </g>
+        </svg>
+      </div>
+      <div className="fc-zoom" ref={zoom} title={t('chart_zoom_title')} />
+    </>
   );
 });

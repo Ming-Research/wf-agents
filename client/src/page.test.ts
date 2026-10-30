@@ -59,7 +59,7 @@ import {
 } from './graph/flowDraw';
 import { addHops, type Box, type Laid, lengthenLast, onLine, pathOf, type Route as Routed } from './graph/flowLayout';
 import { moveWords, pickAt, type Under } from './graph/FlowChart';
-import { centredAt, draggedBy, LEAST, mapGeom, mapOf, mapShown, viewFrame } from './graph/Minimap';
+import { centredAt, draggedBy, LEAST, mapGeom, mapOf, mapShown, viewFrame, zoomText } from './graph/Minimap';
 import {
   ASKING,
   chart,
@@ -1052,18 +1052,22 @@ describe('the map of a chart', () => {
       width: 100,
       height: 200,
     };
-    const sheet = { graph: 'g', chart: c, laid, left: 1000, overlays: null };
+    const sheet = { graph: 'g', cells: graph.cells, chart: c, laid, left: 1000, overlays: null };
     // A chart of 2000 by 1000 px at a tenth; the graph's sheet at 1000 px, its drawing 20 px in, the sheets 40 px down.
     const map = mapOf({ width: 2000, height: 1000 }, [sheet], 40, 20, { laid: stores, left: 0 });
     const shapes = map.shapes.map((x) => ({ ...x, ...near(box(x.x, x.y, x.width, x.height)) }));
     expect(shapes).toEqual([
-      { kind: 'box', graph: 'g', cell: null, mark: null, x: 110, y: 12, width: 40, height: 40 },
-      { kind: 'box', graph: null, cell: null, mark: null, x: 2, y: 6, width: 10, height: 20 },
-      { kind: 'cell', graph: 'g', cell: 'a', mark: null, x: 112, y: 16, width: 20, height: 6 },
+      { kind: 'box', graph: 'g', cell: null, style: null, mark: null, x: 110, y: 12, width: 40, height: 40 },
+      { kind: 'box', graph: null, cell: null, style: null, mark: null, x: 2, y: 6, width: 10, height: 20 },
+      // Each cell and store in the class the chart draws it in, which gives it the chart's colours.
+      { kind: 'cell', graph: 'g', cell: 'a', style: 'line-engineer', mark: null, x: 112, y: 16, width: 20, height: 6 },
       // A cell thinner than the least a mark is drawn at keeps its middle.
-      { kind: 'cell', graph: 'g', cell: 'b', mark: null, x: 112, y: 35.5, width: 20, height: LEAST },
-      { kind: 'cell', graph: null, cell: null, mark: null, x: 3, y: 9.4, width: 8, height: 3 },
+      { kind: 'cell', graph: 'g', cell: 'b', style: 'line-review', mark: null, x: 112, y: 35.5, width: 20, height: LEAST },
+      { kind: 'cell', graph: null, cell: null, style: 'fc-store', mark: null, x: 3, y: 9.4, width: 8, height: 3 },
     ]);
+    expect(map.shapes.filter((x) => x.cell !== null).map((x) => x.style)).toEqual(
+      ['a', 'b'].map((id) => styleOf(graph.cells.find((x) => x.id === id) ?? cell(id, []))),
+    );
     // On a work's chart: the cell the work is at, over the rest, and the cells it never reached.
     const at = { rounds: 1, sentBack: 0, failed: 0, running: true, current: true, waits: null };
     const worked = (o: typeof at) => mapOf({ width: 2000, height: 1000 }, [{ ...sheet, overlays: new Map([['b', o]]) }], 40, 20, null);
@@ -1073,6 +1077,13 @@ describe('the map of a chart', () => {
       ['cell', 'b', 'running'],
     ]);
     expect(worked({ ...at, running: false }).shapes.find((x) => x.cell === 'b')?.mark).toBe('current');
+  });
+
+  it("says under the map the chart's zoom as a whole percentage, 100% at full size", () => {
+    expect(zoomText(1)).toBe('100%');
+    expect(zoomText(0.85)).toBe('85%');
+    expect(zoomText(0.624)).toBe('62%');
+    expect(zoomText(2.5)).toBe('250%');
   });
 });
 

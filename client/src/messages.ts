@@ -789,6 +789,8 @@ const messages = {
   chart_new_session_title: 'A new session every round: the cell is on no line, and each of its rounds starts a session of its own',
   chart_stores: 'stores',
   chart_map: 'Map of the whole chart, the part in view framed',
+  chart_zoom: '{percent}%',
+  chart_zoom_title: "The chart's zoom: 100% is full size",
   stores_project: "The project's",
   stores_item: "An item's",
   stores_work: "A work's and its rounds'",
