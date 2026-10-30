@@ -390,3 +390,131 @@ fn the_owner_s_cancel_ends_the_work_as_every_work_ends() {
     drop(base);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A data directory that holds only a database with nothing in it. The commands that read nothing else need no git
+/// repository with a configuration, whose flow check takes some 3 s of each test that has `init` make the database.
+fn empty_database(name: &str) -> PathBuf {
+    let dir = temp(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    engine::database::create(&dir).unwrap();
+    dir
+}
+
+/// Writes rows into the database of a data directory, as the engine writes them: the SQL is a batch of statements.
+fn fill(dir: &Path, rows: &str) {
+    let mut base = db::Db::open(&config::database(dir)).unwrap();
+    base.write(db::Actor::Engine, |tx| {
+        tx.execute_batch(rows)?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// What the command prints, which it does with success.
+fn printed(dir: &Path, line: &str) -> String {
+    let out = wf(dir, line);
+    assert!(out.status.success(), "`{line}`: {}", stderr(&out));
+    String::from_utf8(out.stdout).unwrap()
+}
+
+/// Items numbered `from` to `to`, each titled by its number, with no dependency, no work and no queue place.
+fn add_items(dir: &Path, from: u32, to: u32) {
+    fill(
+        dir,
+        &format!(
+            "WITH RECURSIVE n(i) AS (SELECT {from} UNION ALL SELECT i + 1 FROM n WHERE i < {to})
+             INSERT INTO items (id, project, title, problem, why, deliver, level)
+             SELECT i, 'p', 'item ' || i, 'x', 'y', 'change', 'l' FROM n;"
+        ),
+    );
+}
+
+// A table with more rows than the limit ends with a last line that says how many it leaves out, which is no row of
+// it; a table that fits, at the limit too, is exactly its rows as it was. The tables are worked out by hand from the
+// items' columns, and `item list` and `queue list` print through the one function. The items are added to the one
+// database in steps, so the tens of thousands of rows are written once.
+#[test]
+fn a_table_over_the_row_limit_says_how_many_rows_it_leaves_out() {
+    let dir = empty_database("row-limit");
+    let tables: [(&str, &str, fn(u32) -> String); 2] = [
+        (
+            "item list",
+            "id\tproject\ttitle\tdeliver\tlevel\tcancelled\tqueued\tdepends_on\twork\n",
+            |i| format!("{i}\tp\titem {i}\tchange\tl\t\t\t\t\n"),
+        ),
+        ("queue list", "item\tproject\ttitle\tlevel\tposition\n", |i| {
+            format!("{i}\tp\titem {i}\tl\t\n")
+        }),
+    ];
+    let mut have = 0;
+    for (items, left_out) in [
+        (10_000, ""),
+        (10_001, "(1 row left out after the first 10000)\n"),
+        (10_003, "(3 rows left out after the first 10000)\n"),
+        (25_003, "(15003 rows left out after the first 10000)\n"),
+    ] {
+        add_items(&dir, have + 1, items);
+        have = items;
+        for (line, head, row) in tables {
+            let expected = format!("{head}{}{left_out}", (1..=10_000).map(row).collect::<String>());
+            let text = printed(&dir, line);
+            // Compared as one text; a failure names the line, the items and the end of what was printed.
+            let end = text.get(text.len().saturating_sub(100)..).unwrap_or_default();
+            assert!(text == expected, "`{line}` with {items} items ends: {end:?}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The lines of the section of `anomalies` under a heading, up to the blank line before the next.
+fn section<'a>(text: &'a str, heading: &str) -> Vec<&'a str> {
+    text.lines()
+        .skip_while(|l| *l != heading)
+        .skip(1)
+        .take_while(|l| !l.is_empty())
+        .collect()
+}
+
+// The tables of `anomalies` are read each by a query of its own, not through the function the other commands print
+// through, and say what they leave out all the same, each at its own limit: ten thousand rows for the returns sent
+// back and the compactions, one thousand for the works paused. Two rounds more than the first limit, and one work
+// paused more than the second.
+#[test]
+fn the_tables_of_anomalies_say_how_many_rows_each_leaves_out() {
+    let dir = data_directory("anomalies-row-limit");
+    engine::database::create(&dir).unwrap();
+    fill(
+        &dir,
+        "INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
+             INSERT INTO works (id, flow_version, graph, at, paused)
+             SELECT i, 1, 'engineer', 'I1', CASE WHEN i <= 1001 THEN 'x' END FROM n;
+         INSERT INTO rounds (work, n, cell, input, rejected, compactions, config_commit, started_at)
+             SELECT id, 1, 'I1', '{}', '{\"x\": 1}', 1, 'c', 0 FROM works;",
+    );
+    let text = printed(&dir, "anomalies");
+    let table = |heading: &str, limit: usize, left_out: &str| {
+        let lines = section(&text, heading);
+        assert_eq!(
+            lines.len(),
+            limit + 2,
+            "{heading} a head, {limit} rows and the last line"
+        );
+        assert_eq!(lines[limit + 1], left_out, "{heading}");
+        lines
+    };
+    let sent_back = table("Returns sent back:", 10_000, "(2 rows left out after the first 10000)");
+    assert_eq!(sent_back[0], "work\tround\tcell\trejected");
+    assert_eq!(sent_back[10_000], "10000\tR10000-1\tI1\t{\"x\":1}");
+    let compactions = table("Compactions:", 10_000, "(2 rows left out after the first 10000)");
+    assert_eq!(compactions[10_000], "10000\tR10000-1\tI1\t1");
+    let paused = table("Works paused:", 1_000, "(1 row left out after the first 1000)");
+    assert_eq!(paused[1_000], "1000\t\tI1\tx");
+    // The tables with no row have none to leave out.
+    assert_eq!(section(&text, "Counters past the project's limits:"), ["(none)"]);
+    assert_eq!(
+        section(&text, "Keep-warm pings, each a wait of over an hour:"),
+        ["(none)"]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

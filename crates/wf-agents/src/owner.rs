@@ -7,8 +7,12 @@ use std::path::Path;
 use db::Actor;
 use db::rusqlite::{OptionalExtension, params};
 use engine::database::open;
-use engine::query_json;
+use engine::{Counted, query_json, query_json_counted};
 use serde_json::Value;
+
+/// The most rows an owner command lists from a query; a table that is longer ends there, and says how many rows it
+/// leaves out.
+const TABLE_ROWS: usize = 10_000;
 
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -289,8 +293,24 @@ pub fn pause(data: &Path, work: i64, why: &str) -> Result<String, String> {
     api::pause(&mut db, work, Some(why))
 }
 
+/// Prints rows as a table, one line per row, each value cut to `width`, and, when the query had more rows than were
+/// read, after it the line that says how many it left out.
+fn table(rows: &Counted, width: usize) -> String {
+    table_body(&rows.rows, width) + &left_out_line(rows.left_out, rows.rows.len())
+}
+
+/// The last line of a table that leaves rows out, which is no row of the table: how many, after the first `read` rows.
+/// Nothing when it leaves none.
+fn left_out_line(left_out: usize, read: usize) -> String {
+    match left_out {
+        0 => String::new(),
+        1 => format!("(1 row left out after the first {read})\n"),
+        n => format!("({n} rows left out after the first {read})\n"),
+    }
+}
+
 /// Prints rows as a table, one line per row, each value cut to `width`.
-fn table(rows: &[Value], width: usize) -> String {
+fn table_body(rows: &[Value], width: usize) -> String {
     let Some(first) = rows.first().and_then(Value::as_object) else {
         return "(none)\n".into();
     };
@@ -319,7 +339,7 @@ fn table(rows: &[Value], width: usize) -> String {
 
 fn show(data: &Path, q: &str, args: &[&dyn db::rusqlite::ToSql], width: usize) -> Result<String, String> {
     let db = open(data)?;
-    Ok(table(&query_json(db.conn(), q, args, 10_000)?, width))
+    Ok(table(&query_json_counted(db.conn(), q, args, TABLE_ROWS)?, width))
 }
 
 pub fn items(data: &Path) -> Result<String, String> {
@@ -450,35 +470,36 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
     let mut out = String::new();
     out.push_str("Returns sent back:\n");
     out.push_str(&table(
-        &query_json(
+        &query_json_counted(
             db.conn(),
             "SELECT work, 'R' || work || '-' || n AS round, cell, rejected FROM rounds WHERE rejected IS NOT NULL
              ORDER BY work, n",
             &[],
-            10_000,
+            TABLE_ROWS,
         )?,
         100,
     ));
     out.push_str("\nCompactions:\n");
     out.push_str(&table(
-        &query_json(
+        &query_json_counted(
             db.conn(),
             "SELECT work, 'R' || work || '-' || n AS round, cell, compactions FROM rounds WHERE compactions > 0
              ORDER BY work, n",
             &[],
-            10_000,
+            TABLE_ROWS,
         )?,
         40,
     ));
     out.push_str("\nCounters past the project's limits:\n");
-    let rows = query_json(
+    let counters = query_json_counted(
         db.conn(),
         "SELECT k.work, i.project, k.counter, k.times FROM work_counters k JOIN works w ON w.id = k.work
          JOIN items i ON i.id = w.item",
         &[],
-        10_000,
+        TABLE_ROWS,
     )?;
-    let over: Vec<Value> = rows
+    let over: Vec<Value> = counters
+        .rows
         .into_iter()
         .filter(|r| {
             let limit = c
@@ -488,10 +509,13 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
             limit.is_some_and(|l| r["times"].as_u64().unwrap_or(0) > *l)
         })
         .collect();
-    out.push_str(&table(&over, 40));
+    // The rows are cut before they are weighed against the limits, so the counters left out were not looked at; the
+    // table holds the ones past their limits among those read, not the rows read.
+    out.push_str(&table_body(&over, 40));
+    out.push_str(&left_out_line(counters.left_out, TABLE_ROWS));
     out.push_str("\nWorks paused:\n");
     out.push_str(&table(
-        &query_json(
+        &query_json_counted(
             db.conn(),
             "SELECT id AS work, item, at, paused FROM works WHERE paused IS NOT NULL",
             &[],
@@ -501,14 +525,14 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
     ));
     out.push_str("\nKeep-warm pings, each a wait of over an hour:\n");
     out.push_str(&table(
-        &query_json(
+        &query_json_counted(
             db.conn(),
             "SELECT s.work, s.line, json_extract(p.waited, '$.cell') AS cell, json_extract(p.waited, '$.on') AS waited_on,
                     json_extract(p.waited, '$.what') AS what, p.started_at AS at,
                     round(json_extract(p.usage, '$.cost_usd'), 4) AS cost_usd, p.error
              FROM pings p JOIN sessions s ON s.id = p.session ORDER BY s.work, p.id",
             &[],
-            10_000,
+            TABLE_ROWS,
         )?,
         100,
     ));
@@ -552,5 +576,41 @@ pub fn cost(data: &Path, work: Option<i64>) -> Result<String, String> {
             &[],
             40,
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    // A table that leaves no row out is its rows, as it always was; one that leaves rows out ends with one more line,
+    // which holds no tab so that it reads as no row, and says "1 row" for one. The text is worked out by hand: the
+    // head from the first row's keys, a newline in a value as a space, and a null as nothing.
+    #[test]
+    fn a_table_ends_with_a_line_for_the_rows_it_leaves_out() {
+        let rows = vec![json!({"a": 1, "b": "x\ny"}), json!({"a": 2, "b": null})];
+        let counted = |left_out| Counted {
+            rows: rows.clone(),
+            left_out,
+        };
+        let body = "a\tb\n1\tx y\n2\t\n";
+        assert_eq!(table(&counted(0), 40), body);
+        assert_eq!(
+            table(&counted(1), 40),
+            format!("{body}(1 row left out after the first 2)\n")
+        );
+        assert_eq!(
+            table(&counted(5), 40),
+            format!("{body}(5 rows left out after the first 2)\n")
+        );
+        assert!(!left_out_line(5, 2).contains('\t'));
+        // No rows at all is still "(none)".
+        let none = Counted {
+            rows: vec![],
+            left_out: 0,
+        };
+        assert_eq!(table(&none, 40), "(none)\n");
     }
 }
