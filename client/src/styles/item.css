@@ -19,6 +19,12 @@
   align-items: baseline;
 }
 
+/* After the title: Primer orders the title 1 among its title area's parts, which put the facts, unordered, before it,
+   and over it where the line is short. */
+.item-head .item-head-title > .item-head-facts {
+  order: 2;
+}
+
 /* The head's facts, on the title's line and under it, each run as one line that wraps between two facts where it
    must, in body text whatever the size of the title beside them, their chips in the line's size. */
 .item-head .item-head-facts {
