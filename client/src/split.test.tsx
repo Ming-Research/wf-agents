@@ -104,7 +104,6 @@ const work = (id: number, g: CompiledGraph): WorkSummary => ({
   paused_by: null,
   ended: null,
   waits: null,
-  answered: null,
   branch: null,
   pr: null,
   started_at: 1,

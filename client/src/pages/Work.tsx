@@ -192,7 +192,6 @@ function Going({ d }: { d: WorkDetail }) {
           ))}
         </p>
       ) : null}
-      {!runs && waits === null && w.answered !== null ? <p>{t('course_answered', { id: w.answered })}</p> : null}
       {c.outdated ? <p>{takeoverWords(w, status)}</p> : null}
       {runs && activity.length > 0 ? (
         <ol className="going-activity">

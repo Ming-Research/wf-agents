@@ -93,13 +93,6 @@ function State({ w, c, now }: { w: WorkSummary; c: Course; now: number }) {
       ),
     );
   }
-  if (c.running === null && waits === null && w.answered !== null) {
-    parts.push(
-      <Label key="answered" variant="secondary" title={t('course_answered_hint')}>
-        {t('course_answered', { id: w.answered })}
-      </Label>,
-    );
-  }
   // The asks and design cards waiting for the owner that what the work waits for does not name already: they are the
   // owner's to do, not what holds the work up.
   const asks = w.open_asks - (waits?.kind === 'answer' ? 1 : 0);

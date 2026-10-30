@@ -221,8 +221,6 @@ pub struct WorkSummary {
     pub ended: Option<String>,
     /// What it waits for before it goes on by itself.
     pub waits: Option<Waits>,
-    /// The ask of the owner, put at the cell it is at, whose answer came: its next step takes the answer in.
-    pub answered: Option<i64>,
     pub branch: Option<String>,
     pub pr: Option<i64>,
     /// When its first round started, and when its last round started or ended.

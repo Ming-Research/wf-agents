@@ -48,7 +48,6 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
   paused_by: null,
   ended: null,
   waits: null,
-  answered: null,
   branch: null,
   pr: null,
   started_at: id * 100,

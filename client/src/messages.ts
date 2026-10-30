@@ -406,8 +406,6 @@ const messages = {
   course_releasing_why: 'You started it: it goes on once its machine has a slot free.',
   course_note_all:
     'Every work is paused: Start runs this one on whatever the global state, Step runs one round of it, and Start all in the bar lets every work go on.',
-  course_answered: 'your answer to ask {id} is in',
-  course_answered_hint: 'The ask is answered: the next round takes the answer in and the work goes on.',
   course_outdated: 'flow {version}: older',
   course_outdated_hint:
     'On flow version {version}; the engine runs version {now}. When it goes on (Start, Step or Start all), it ends, and a new work on version {now} takes its item over from the first cell, given the rulings and answers you made.',

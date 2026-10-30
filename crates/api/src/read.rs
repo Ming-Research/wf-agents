@@ -271,16 +271,10 @@ fn waiting_row<'r>(cell: Option<&CompiledCell>, rounds: &'r [Light]) -> Option<&
 /// waits for, or the owner's ruling on its design card. A work of a flow version before blockers is read as then: the
 /// owner's answer to the ask it put, at a cell that asks, or else the architect's reply to the matter it queued; at a
 /// row that waits, the items its item depends on that are not merged, then the owner's ruling on its design card
-/// waiting for one, else the row. A paused work is said to wait too, so that the owner sees both. Beside it, the ask
-/// whose answer came, which the work's next step takes in.
-fn waits(
-    conn: &Connection,
-    w: &WorkRow,
-    rounds: &[Light],
-    g: Option<&CompiledGraph>,
-) -> Result<(Option<Waits>, Option<i64>)> {
+/// waiting for one, else the row. A paused work is said to wait too, so that the owner sees both.
+fn waits(conn: &Connection, w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>) -> Result<Option<Waits>> {
     if w.ended.is_some() {
-        return Ok((None, None));
+        return Ok(None);
     }
     if let Some(held) = held_by(conn, w.id)? {
         return Ok(held);
@@ -291,7 +285,7 @@ fn waits(
             .iter()
             .rev()
             .find(|r| r.ended_at.is_none() && r.cell.as_deref() == Some(w.at.as_str()));
-        let Some(r) = open else { return Ok((None, None)) };
+        let Some(r) = open else { return Ok(None) };
         let ask: Option<(i64, bool)> = conn
             .query_row(
                 "SELECT id, answer IS NOT NULL FROM owner_asks WHERE work = ?1 AND round = ?2 ORDER BY id DESC LIMIT 1",
@@ -300,23 +294,20 @@ fn waits(
             )
             .optional()?;
         return Ok(match ask {
-            Some((ask, false)) => (Some(Waits::Answer { ask }), None),
-            Some((ask, true)) => (None, Some(ask)),
-            None => (
-                asked_architect(conn, r)?.map(|matter| Waits::Architect { matter, project: None }),
-                None,
-            ),
+            Some((ask, false)) => Some(Waits::Answer { ask }),
+            Some((_, true)) => None,
+            None => asked_architect(conn, r)?.map(|matter| Waits::Architect { matter, project: None }),
         });
     }
     let Some(row) = waiting_row(cell, rounds) else {
-        return Ok((None, None));
+        return Ok(None);
     };
     let mut st = conn.prepare(
         "SELECT item FROM waited_items WHERE work = ?1 AND merged IS NULL AND cancelled IS NULL ORDER BY item",
     )?;
     let items: Vec<i64> = st.query_map([w.id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     if !items.is_empty() {
-        return Ok((Some(Waits::Items { items }), None));
+        return Ok(Some(Waits::Items { items }));
     }
     let card: Option<i64> = conn
         .query_row(
@@ -332,12 +323,13 @@ fn waits(
             row: row.to_string(),
         },
     };
-    Ok((Some(waits), None))
+    Ok(Some(waits))
 }
 
 /// What a work waits for by its open blocker, by who holds it; none when it has none, or one the owner holds by no ask
-/// and for no ruling, nor the advisor, whose round runs.
-fn held_by(conn: &Connection, work: i64) -> Result<Option<(Option<Waits>, Option<i64>)>> {
+/// and for no ruling, nor the advisor, whose round runs; a blocker whose ask is answered or whose matter is replied to
+/// has the work wait for nothing.
+fn held_by(conn: &Connection, work: i64) -> Result<Option<Option<Waits>>> {
     type Open = (String, String, Option<String>, Option<String>, Option<i64>, Option<i64>);
     let open: Option<Open> = conn
         .query_row(
@@ -355,11 +347,7 @@ fn held_by(conn: &Connection, work: i64) -> Result<Option<(Option<Waits>, Option
                 conn.query_row("SELECT answer IS NOT NULL FROM owner_asks WHERE id = ?1", [ask], |r| {
                     r.get(0)
                 })?;
-            Some(if answered {
-                (None, Some(ask))
-            } else {
-                (Some(Waits::Answer { ask }), None)
-            })
+            Some((!answered).then_some(Waits::Answer { ask }))
         }
         ("owner", None, _) if kind == "ruling" => {
             let card: Option<i64> = conn
@@ -369,7 +357,7 @@ fn held_by(conn: &Connection, work: i64) -> Result<Option<(Option<Waits>, Option
                     |x| x.get(0),
                 )
                 .optional()?;
-            card.map(|design_card| (Some(Waits::Ruling { design_card }), None))
+            card.map(|design_card| Some(Waits::Ruling { design_card }))
         }
         ("architect", _, Some(m)) => {
             let replied: bool = conn.query_row(
@@ -377,11 +365,7 @@ fn held_by(conn: &Connection, work: i64) -> Result<Option<(Option<Waits>, Option
                 [m],
                 |r| r.get(0),
             )?;
-            Some(if replied {
-                (None, None)
-            } else {
-                (Some(Waits::Architect { matter: m, project }), None)
-            })
+            Some((!replied).then_some(Waits::Architect { matter: m, project }))
         }
         ("items", _, _) => {
             let waited: Vec<i64> = serde_json::from_str::<Value>(items.as_deref().unwrap_or("[]"))
@@ -391,7 +375,7 @@ fn held_by(conn: &Connection, work: i64) -> Result<Option<(Option<Waits>, Option
                 .iter()
                 .filter_map(|x| x["item"].as_i64())
                 .collect();
-            Some((Some(Waits::Items { items: waited }), None))
+            Some(Some(Waits::Items { items: waited }))
         }
         _ => None,
     })
@@ -414,7 +398,7 @@ fn summary(
     rounds: &[Light],
     g: Option<&CompiledGraph>,
     open: (i64, i64),
-    (waits, answered): (Option<Waits>, Option<i64>),
+    waits: Option<Waits>,
     pinged: f64,
     tools: &HashSet<(i64, i64)>,
 ) -> WorkSummary {
@@ -454,7 +438,6 @@ fn summary(
         paused_by,
         ended: w.ended.clone(),
         waits,
-        answered,
         branch: w.branch.clone(),
         pr: w.pr,
         started_at: rounds.first().map(|r| r.started_at),
@@ -542,7 +525,7 @@ fn summaries(conn: &Connection, flows: &Flows, filter: &str, args: &[i64]) -> Re
         );
         let done = matches!(state(&w, &rounds, g.as_ref()), WorkState::Done | WorkState::Ended);
         let waits = if done {
-            (None, None)
+            None
         } else {
             waits(conn, &w, &rounds, g.as_ref())?
         };
@@ -2510,7 +2493,7 @@ mod tests {
     }
 
     // What a work waits for comes from what is open, never from the kind of cell it is at: at a cell that asks, the
-    // ask still unanswered, and once answered the work is ready and says the answer is in; at a row that waits, the
+    // ask still unanswered, and once answered the work is ready and waits for nothing; at a row that waits, the
     // items its item depends on. A paused work says both who paused it and what it waits for; one the architect
     // stopped says it was the architect, with the architect's reason.
     #[test]
@@ -2551,8 +2534,8 @@ mod tests {
         let cache = Flows::default();
         let ws = works(s.db.conn(), &cache).unwrap();
         assert_eq!(
-            (ws[1].state, &ws[1].waits, ws[1].answered),
-            (WorkState::Asking, &Some(Waits::Answer { ask: 1 }), None)
+            (ws[1].state, &ws[1].waits),
+            (WorkState::Asking, &Some(Waits::Answer { ask: 1 }))
         );
         assert_eq!(
             (ws[2].state, ws[2].paused_by, &ws[2].waits),
@@ -2568,10 +2551,7 @@ mod tests {
         })
         .unwrap();
         let ws = works(s.db.conn(), &cache).unwrap();
-        assert_eq!(
-            (ws[1].state, &ws[1].waits, ws[1].answered),
-            (WorkState::Ready, &None, Some(1))
-        );
+        assert_eq!((ws[1].state, &ws[1].waits), (WorkState::Ready, &None));
         s.db.write(Actor::Architect, |tx| {
             tx.execute(
                 "UPDATE works SET paused = ?1, paused_by = 'engine' WHERE id = 3",

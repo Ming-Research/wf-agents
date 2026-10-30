@@ -180,11 +180,7 @@ paused: string | null, paused_by: PausedBy | null, ended: string | null,
 /**
  * What it waits for before it goes on by itself.
  */
-waits: Waits | null, 
-/**
- * The ask of the owner, put at the cell it is at, whose answer came: its next step takes the answer in.
- */
-answered: number | null, branch: string | null, pr: number | null, 
+waits: Waits | null, branch: string | null, pr: number | null, 
 /**
  * When its first round started, and when its last round started or ended.
  */

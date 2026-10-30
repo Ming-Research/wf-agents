@@ -217,7 +217,6 @@ describe('how a work goes on', () => {
     paused_by: null,
     ended: null,
     waits: null,
-    answered: null,
     branch: null,
     pr: null,
     started_at: null,
