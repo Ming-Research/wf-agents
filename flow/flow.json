@@ -679,11 +679,11 @@
       "values": [
         [
           "change",
-          "The item delivers a change: code changes, merged through a PR"
+          "Code changes, merged through a PR"
         ],
         [
           "report",
-          "The item delivers only a report: research notes and measurement code, merged through a PR, with no change to the implementation"
+          "Only a report: research notes and measurement code, merged through a PR, no change to the implementation"
         ]
       ]
     },
@@ -692,11 +692,11 @@
       "values": [
         [
           "blocking",
-          "The item does not start until the other is merged: it needs what the other delivers to begin, such as a module or a library"
+          "Starts once the other is merged, needing what it delivers to begin"
         ],
         [
           "parallel",
-          "The item may start before the other is merged, and waits for it where it needs it: before it merges, or where a reply has it stop"
+          "May start sooner, waiting for the other where needed: before merging, or where a reply stops it"
         ]
       ]
     },
@@ -1176,7 +1176,7 @@
       "name": "tools",
       "title": "Tools to run",
       "type": "list",
-      "desc": "Tools for the engine to run for you, several at once if you like. Hand this in when you need their results to answer this round's question; the engine runs them, gives you the results, and you carry on.",
+      "desc": "Tools to run when you need their results to answer, several at once if you like; you carry on with them.",
       "min": 1,
       "item": {
         "type": "union",
@@ -1188,7 +1188,7 @@
       "name": "pause",
       "title": "Pause",
       "type": "obj",
-      "desc": "Only when the engine asks you to pause: this round is not finished and its conclusion has not taken shape, so stop here for now. Hand in an empty object and say how far you got in progress, with none of the conclusions this cell asks for; the work waits for the owner's Start, then comes back to the same session to have you carry on, without giving the inputs again",
+      "desc": "Only when the engine asks you to pause an unfinished round: an empty object, progress saying how far you got, none of the cell's conclusions; after the owner's Start you go on here, the inputs not given again",
       "fields": []
     },
     "progress_form": {
@@ -1565,44 +1565,44 @@
           "name": "reason",
           "title": "Why this change",
           "type": "text",
-          "desc": "Why this change: what it is for, and what follows if it is not made; where it cannot stand without another change, which. Write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
+          "desc": "Why, as the change's description says"
         }
       ],
       "branches": [
         {
           "value": "create_item",
-          "desc": "Create a new item; a split is this too: the item split depends on the new one",
+          "desc": "Create a new item, for a split too: the item split depends on it",
           "fields": [
             {
               "name": "key",
               "title": "Name in this batch",
               "type": "text",
-              "desc": "A name for the new item within this batch, such as new-cover-check, that no other change of the batch uses: later changes and your reply refer to it by this name, and the engine gives it its number when it makes it"
+              "desc": "A name unique in the batch, such as new-cover-check, by which later changes and your reply refer to it until the engine numbers it"
             },
             {
               "name": "project",
               "title": "Project",
               "type": "text",
-              "desc": "The project it belongs to"
+              "desc": "Its project"
             },
             {
               "name": "title",
               "title": "Title",
               "type": "text",
-              "desc": "Its title: what to do, as an action, in the owner's language (the setting `owner.language`), with technical terms in their English original"
+              "desc": "What to do, as an action, in `owner.language`, technical terms in English"
             },
             {
               "name": "under",
               "title": "Split from",
               "type": "obj",
-              "desc": "The item it is split from, which then depends on it; leave it out for an item nothing is to depend on. A new item goes last among its project's items in the order works start in",
+              "desc": "The item it is split from, which then depends on it; leave it out if none is to. A new item goes last in its project's start order",
               "optional": true,
               "fields": [
                 {
                   "name": "item",
                   "title": "Item",
                   "type": "text",
-                  "desc": "That item: its number, or the key of an item an earlier change of this batch creates"
+                  "desc": "That item"
                 },
                 {
                   "$ref": "dependency_kind",
@@ -1616,19 +1616,19 @@
               "name": "problem",
               "title": "The problem",
               "type": "text",
-              "desc": "The problem: one sentence on what cannot be done or is wrong, with a smallest example"
+              "desc": "What cannot be done or is wrong, in a sentence, with a smallest example"
             },
             {
               "name": "why",
               "title": "Why it is worth doing",
               "type": "text",
-              "desc": "Why it is worth doing: the cost of not doing it, and who waits"
+              "desc": "The cost of not doing it, and who waits"
             },
             {
               "name": "acceptance",
               "title": "Acceptance",
               "type": "list",
-              "desc": "Its acceptance, one condition per row, each clearly true or false",
+              "desc": "One condition per row, each clearly true or false",
               "item": {
                 "type": "text",
                 "desc": "One condition"
@@ -1639,7 +1639,7 @@
               "name": "level",
               "title": "Level",
               "type": "text",
-              "desc": "Its level, by its name in the configuration: higher for work that must make new decisions or check facts that are unsure, whatever the size of the change"
+              "desc": "Its name in the configuration: higher for new decisions or unsure facts to check, whatever the change's size"
             },
             {
               "$ref": "deliver_kind",
@@ -1651,7 +1651,7 @@
               "name": "takes",
               "title": "Conditions it takes over",
               "type": "list",
-              "desc": "The acceptance conditions of the item it is split from that go to it, by number; a condition goes to one new item at most, and those that go to none stay with that item; leave it out for an item no split makes",
+              "desc": "The numbers of the split item's acceptance conditions it takes over, each to one new item at most, the rest staying; leave it out unless a split",
               "item": {
                 "type": "text",
                 "desc": "The condition's number"
@@ -1669,13 +1669,13 @@
               "name": "item",
               "title": "Item",
               "type": "text",
-              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
+              "desc": "Which item"
             },
             {
               "name": "on",
               "title": "Waits for",
               "type": "text",
-              "desc": "The item it waits for: its number, or the key of an item an earlier change of this batch creates"
+              "desc": "The item it waits for"
             },
             {
               "$ref": "dependency_kind",
@@ -1687,13 +1687,13 @@
         },
         {
           "value": "move",
-          "desc": "Place an item elsewhere: in the order works start in, among its project's items; or, for an item others depend on, under another item, which then depends on it instead of those that do now",
+          "desc": "Place an item elsewhere: in its project's start order; or, one others depend on, under another item, which then depends on it instead of them",
           "fields": [
             {
               "name": "item",
               "title": "Item",
               "type": "text",
-              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
+              "desc": "Which item"
             },
             {
               "name": "to",
@@ -1704,35 +1704,35 @@
               "branches": [
                 {
                   "value": "first",
-                  "desc": "First among its project's items in the order works start in",
+                  "desc": "First in its project's start order",
                   "fields": []
                 },
                 {
                   "value": "last",
-                  "desc": "Last among its project's items in the order works start in",
+                  "desc": "Last in its project's start order",
                   "fields": []
                 },
                 {
                   "value": "before",
-                  "desc": "Just before another item of its project in the order works start in",
+                  "desc": "Just before another of its project's items",
                   "fields": [
                     {
                       "name": "item",
                       "title": "Before item",
                       "type": "text",
-                      "desc": "That item: its number, or the key of an item an earlier change of this batch creates"
+                      "desc": "That item"
                     }
                   ]
                 },
                 {
                   "value": "after",
-                  "desc": "Just after another item of its project in the order works start in",
+                  "desc": "Just after another of its project's items",
                   "fields": [
                     {
                       "name": "item",
                       "title": "After item",
                       "type": "text",
-                      "desc": "That item: its number, or the key of an item an earlier change of this batch creates"
+                      "desc": "That item"
                     }
                   ]
                 },
@@ -1744,7 +1744,7 @@
                       "name": "item",
                       "title": "Under item",
                       "type": "text",
-                      "desc": "That item: its number, or the key of an item an earlier change of this batch creates"
+                      "desc": "That item"
                     },
                     {
                       "$ref": "dependency_kind",
@@ -1760,22 +1760,22 @@
         },
         {
           "value": "merge",
-          "desc": "Merge duplicates into one: keep one, and merge the others into it",
+          "desc": "Merge duplicates into the one kept",
           "fields": [
             {
               "name": "keep",
               "title": "Item kept",
               "type": "text",
-              "desc": "The item kept: its number, or the key of an item an earlier change of this batch creates"
+              "desc": "The item kept"
             },
             {
               "name": "absorbed",
               "title": "Items merged in",
               "type": "list",
-              "desc": "The items merged into it, one per row",
+              "desc": "Merged into it, one per row",
               "item": {
                 "type": "text",
-                "desc": "An item: its number, or the key of an item an earlier change of this batch creates"
+                "desc": "An item"
               },
               "min": 1
             }
@@ -1783,31 +1783,31 @@
         },
         {
           "value": "cancel",
-          "desc": "This item is not to be done: it is cancelled, and its work ends",
+          "desc": "Cancel an item; its work ends",
           "fields": [
             {
               "name": "item",
               "title": "Item",
               "type": "text",
-              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
+              "desc": "Which item"
             },
             {
               "name": "goes",
               "title": "Where its work went",
               "type": "text",
-              "desc": "Where its work went: merged into which item, done by which item instead, or why it is not done"
+              "desc": "Merged into or done by which item, or why it is not done"
             }
           ]
         },
         {
           "value": "hold",
-          "desc": "Hold this item for now: no work starts on it",
+          "desc": "No work starts on it for now",
           "fields": [
             {
               "name": "item",
               "title": "Item",
               "type": "text",
-              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
+              "desc": "Which item"
             }
           ]
         },
@@ -1819,7 +1819,7 @@
               "name": "item",
               "title": "Item",
               "type": "text",
-              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
+              "desc": "Which item"
             }
           ]
         },
@@ -1831,7 +1831,7 @@
               "name": "item",
               "title": "Item",
               "type": "text",
-              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
+              "desc": "Which item"
             },
             {
               "name": "part",
@@ -1861,7 +1861,7 @@
               "name": "text",
               "title": "New text",
               "type": "text",
-              "desc": "What it becomes; a title in the owner's language (the setting `owner.language`), with technical terms in their English original"
+              "desc": "What it becomes; a title in `owner.language`, technical terms in English"
             }
           ]
         },
@@ -1873,13 +1873,13 @@
               "name": "item",
               "title": "Item",
               "type": "text",
-              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
+              "desc": "Which item"
             },
             {
               "name": "acceptance",
               "title": "New acceptance",
               "type": "list",
-              "desc": "The acceptance after the change, one condition per row",
+              "desc": "The new acceptance, one condition per row",
               "item": {
                 "type": "text",
                 "desc": "One condition"
@@ -1896,19 +1896,19 @@
               "name": "item",
               "title": "Item",
               "type": "text",
-              "desc": "Which item: its number, or the key of an item an earlier change of this batch creates"
+              "desc": "Which item"
             },
             {
               "name": "level",
               "title": "Level",
               "type": "text",
-              "desc": "The level, by its name in the configuration"
+              "desc": "Its name in the configuration"
             }
           ]
         },
         {
           "value": "add_known_red_check",
-          "desc": "Add a check known to fail for a reason outside any one work, so that full CI and the merge queue do not hold it against a work; it needs an item that fixes it",
+          "desc": "A check known to fail for a reason outside any one work, so full CI and the merge queue do not hold it against works; needs an item fixing it",
           "fields": [
             {
               "name": "project",
@@ -1920,7 +1920,7 @@
               "name": "check",
               "title": "Check",
               "type": "text",
-              "desc": "The check's name, as the CI names it"
+              "desc": "Its name, as CI names it"
             },
             {
               "name": "why",
@@ -1932,7 +1932,7 @@
               "name": "fix_item",
               "title": "Item that fixes it",
               "type": "text",
-              "desc": "The item that fixes it: its number, or the key of an item these changes create"
+              "desc": "Number, or key of an item this batch creates"
             }
           ]
         },
@@ -1956,19 +1956,19 @@
         },
         {
           "value": "fold_observations",
-          "desc": "Fold observations into an item, which takes them in: widen its scope or add to its acceptance in other changes of the same batch as it needs. They close once its work merges",
+          "desc": "Fold observations into an item, widening its scope or acceptance by other changes of the batch as needed; they close when its work merges",
           "fields": [
             {
               "name": "item",
               "title": "Item",
               "type": "text",
-              "desc": "The item: its number, or the key of an item this batch creates"
+              "desc": "Number, or key of an item this batch creates"
             },
             {
               "name": "observations",
               "title": "Observations folded in",
               "type": "list",
-              "desc": "The observations folded in, by number",
+              "desc": "Folded in, by number",
               "item": {
                 "type": "int",
                 "desc": "An observation's number"
@@ -1978,12 +1978,12 @@
           ]
         }
       ],
-      "desc": "One change to the items, with its reason"
+      "desc": "One change to the items. Its reason: what it is for, what follows without it, and any change it cannot stand without; the owner reads it, in `owner.language`, technical terms in English. An item is given by its number, or the key of an item an earlier change of the batch creates"
     },
     "observation_change": {
       "type": "union",
       "by": "kind",
-      "desc": "One change to the project's observations, with its reason",
+      "desc": "One change to the project's observations",
       "common": [
         {
           "name": "reason",
@@ -2001,13 +2001,13 @@
               "name": "what",
               "title": "What it is",
               "type": "text",
-              "desc": "What it is, why it is worth doing, and what happens if it is not done, in the owner's language (the setting `owner.language`), with technical terms in their English original"
+              "desc": "What it is, why it is worth doing, and what happens if not, in `owner.language`, technical terms in English"
             },
             {
               "name": "tags",
               "title": "Tags",
               "type": "list",
-              "desc": "Its tags, at least one once the project has a set of them, from that set only",
+              "desc": "At least one once the project has a set of tags, from it only",
               "item": {
                 "type": "text",
                 "desc": "A tag's name"
@@ -2023,7 +2023,7 @@
               "name": "refs",
               "title": "References",
               "type": "list",
-              "desc": "What it refers to: PRs, branches, design cards, the owner's words; an empty list if nothing",
+              "desc": "The PRs, branches, design cards and owner's words it refers to; empty if none",
               "item": {
                 "type": "text",
                 "desc": "One reference"
@@ -2033,25 +2033,25 @@
         },
         {
           "value": "merge",
-          "desc": "It was reported again: the observation counts it once more, and keeps what is new",
+          "desc": "Reported again: counted once more, keeping what is new",
           "fields": [
             {
               "name": "into",
               "title": "Same as observation",
               "type": "int",
-              "desc": "The observation it is the same as: its number"
+              "desc": "The same observation's number"
             },
             {
               "name": "seen",
               "title": "What is new",
               "type": "text",
-              "desc": "What is new in this report, if anything; empty if nothing"
+              "desc": "What this report adds; empty if nothing"
             },
             {
               "name": "refs",
               "title": "References to add",
               "type": "list",
-              "desc": "References to add; an empty list if none",
+              "desc": "References to add; empty if none",
               "item": {
                 "type": "text",
                 "desc": "One reference"
@@ -2067,7 +2067,7 @@
               "name": "id",
               "title": "Observation",
               "type": "int",
-              "desc": "The observation: its number"
+              "desc": "Its number"
             },
             {
               "name": "why",
@@ -2102,25 +2102,25 @@
     "arch_action": {
       "type": "union",
       "by": "kind",
-      "desc": "Something to do at once, besides changing items",
+      "desc": "Something to do at once. Its reason the owner reads on the page as yours, in `owner.language`, technical terms in English",
       "common": [
         {
           "name": "reason",
           "title": "Why",
           "type": "text",
-          "desc": "Why. The owner reads it on the page as yours: write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
+          "desc": "Why, as the action's description says"
         }
       ],
       "branches": [
         {
           "value": "pause_work",
-          "desc": "Pause the work running on an item, as your pause: only when its going on would be wasted or do harm before its engineer could act on an interjection",
+          "desc": "Pause an item's running work as yours: only when going on would waste or harm before an interjection could take effect",
           "fields": [
             {
               "name": "item",
               "title": "Item",
               "type": "int",
-              "desc": "The item: its number"
+              "desc": "Its number"
             }
           ]
         },
@@ -2132,7 +2132,7 @@
               "name": "item",
               "title": "Item",
               "type": "int",
-              "desc": "The item: its number"
+              "desc": "Its number"
             }
           ]
         },
@@ -2144,13 +2144,13 @@
               "name": "item",
               "title": "Item",
               "type": "int",
-              "desc": "The item: its number"
+              "desc": "Its number"
             }
           ]
         },
         {
           "value": "hold_starts",
-          "desc": "Start no new work of this project, while starting them would start the wrong ones; works running go on",
+          "desc": "Start no new work of this project while it would start the wrong ones; running works go on",
           "fields": []
         },
         {
@@ -2160,19 +2160,19 @@
         },
         {
           "value": "interject",
-          "desc": "Say something to the engineer of the work running on an item, which it reads at once",
+          "desc": "Say something to the engineer of an item's running work, which it reads at once",
           "fields": [
             {
               "name": "item",
               "title": "Item",
               "type": "int",
-              "desc": "The item: its number"
+              "desc": "Its number"
             },
             {
               "name": "say",
               "title": "What to say",
               "type": "text",
-              "desc": "What to say, in English, concretely enough to act on"
+              "desc": "In English, concrete enough to act on"
             }
           ]
         }
@@ -2180,7 +2180,7 @@
     },
     "arch_message": {
       "type": "obj",
-      "desc": "A message to another project's architect, which comes to its queue",
+      "desc": "To another project's architect, into its queue",
       "fields": [
         {
           "name": "project",
@@ -2200,13 +2200,13 @@
       "name": "effects",
       "title": "Effects",
       "type": "obj",
-      "desc": "What this answer changes besides itself, each with its reason, and only what changes: leave out a list that would be empty, and leave effects out when nothing changes. Item changes are collected and made after a review of the whole batch; the rest is done at once",
+      "desc": "What this answer changes besides itself, each with its reason; no empty list, and no effects when nothing changes. Item changes wait for the batch's review; the rest is done at once",
       "fields": [
         {
           "name": "item_changes",
           "title": "Item changes",
           "type": "list",
-          "desc": "Changes to the items: made once the review of the batch finds them sound",
+          "desc": "Made once the batch's review finds them sound",
           "item": {
             "$ref": "item_change"
           },
@@ -2217,7 +2217,7 @@
           "name": "observation_changes",
           "title": "Observation changes",
           "type": "list",
-          "desc": "Changes to the project's observations, made at once",
+          "desc": "Made at once",
           "item": {
             "$ref": "observation_change"
           },
@@ -2228,7 +2228,7 @@
           "name": "actions",
           "title": "Actions",
           "type": "list",
-          "desc": "What to do at once: pause, resume or start over a work, hold or release new starts, interject",
+          "desc": "Done at once",
           "item": {
             "$ref": "arch_action"
           },
@@ -2239,7 +2239,7 @@
           "name": "messages",
           "title": "Messages to other architects",
           "type": "list",
-          "desc": "Messages to other projects' architects, queued at once",
+          "desc": "To other projects' architects, queued at once",
           "item": {
             "$ref": "arch_message"
           },
@@ -2253,19 +2253,19 @@
       "name": "search",
       "title": "Search of observations",
       "type": "obj",
-      "desc": "A search of the project's open observations, which a reader of its own runs and hands back as candidates: hand it in when you must know whether this is recorded already, or which observations an item could take in, before you answer. You carry on with the candidates",
+      "desc": "Search the project's open observations before you answer: is this recorded, or what could an item take in? A reader of its own hands back candidates, and you carry on",
       "fields": [
         {
           "name": "look_for",
           "title": "What to look for",
           "type": "text",
-          "desc": "What to look for, in a sentence or two: the thing seen, or the item and what it is to do"
+          "desc": "In a sentence or two: the thing seen, or the item and what it is to do"
         },
         {
           "name": "tags",
           "title": "Tags to look under",
           "type": "list",
-          "desc": "Tags of the project's set to look under; an empty list to look under all",
+          "desc": "The project's tags to look under; empty for all",
           "item": {
             "type": "text",
             "desc": "A tag's name"
@@ -2279,11 +2279,11 @@
           "values": [
             [
               "same",
-              "Whether this same thing is recorded already"
+              "Is this recorded already"
             ],
             [
               "related",
-              "Observations an item doing this could take in"
+              "What an item doing this could take in"
             ]
           ]
         }
@@ -2404,7 +2404,7 @@
       "title": "Question for the owner",
       "type": "union",
       "by": "to",
-      "desc": "A question for the owner, when what you handle needs the owner to decide or to tell you something you cannot find out: the matter in hand is parked at this cell, the question is pinned at the bottom of the owner's one-to-one, and the matter comes back to this cell with the owner's reply, in words, before any other matter. Ask only what you cannot settle yourself, and nothing a question still pending asks already",
+      "desc": "The matter parks at this cell and comes back here first with the reply; the question is pinned in the owner's one-to-one. Ask only what you cannot settle and no pending question asks",
       "branches": "askRoles"
     },
     "notebook": {
@@ -2739,14 +2739,14 @@
     },
     {
       "name": "gh",
-      "desc": "Runs one read-only gh command for you, such as viewing a PR or the log of a run; your machine has no GitHub credentials. Only these can run: pr view, pr diff, pr checks, pr list, run view, run list, repo view, issue view, issue list, release view, search; api with GET only, without -f or -F, --method only GET, and GraphQL queries only. To push or run CI, use ci or measure; to do anything else on GitHub, ask the owner with the kind permission",
+      "desc": "One read-only gh command (your machine has no GitHub credentials): pr view/diff/checks/list, run view/list, repo view, issue view/list, release view, search; api GET only (no -f/-F, --method GET only, GraphQL queries only). To push or run CI, use ci or measure; for anything else on GitHub, ask the owner, kind permission",
       "runs": "The engine runs it with its own credentials. It lets through only commands on the allow list in the engine's configuration, runs nothing else and records the attempt; only the owner changes the allow list. The log of run view is downloaded",
       "in": [
         {
           "name": "command",
           "title": "Command",
           "type": "text",
-          "desc": "The arguments after gh, exactly as they are, such as pr view 12 --json title"
+          "desc": "The arguments after gh, as they are, such as pr view 12 --json title"
         }
       ],
       "out": [
@@ -2793,15 +2793,15 @@
     },
     {
       "name": "query",
-      "desc": "Runs one read-only SQL query (SQLite) for you on the database and returns the rows: items, design cards, rulings and the like. A statement that writes fails; each query has a time limit and a row limit and stops when it reaches either; tables such as sessions are not visible",
+      "desc": "One read-only SQLite query, giving the rows; a write fails, a query stops at its time or row limit, and some tables, such as sessions, are hidden",
       "runs": "The engine opens the database read-only (query_only) and runs the query under a time limit and a row limit; hidden tables are not on this connection; a result that is too long is saved locally and its path given. The description of the tables given to agents is generated from the database's own definition",
-      "tables": "The tables and views it reads, each with its columns and the first line of what it holds. To read one in full, with what each column holds, query `SELECT sql FROM sqlite_master WHERE name = '<name>'`:",
+      "tables": "The tables and views it reads, with their columns and the start of what each holds; for one in full, each column explained, query `SELECT sql FROM sqlite_master WHERE name = '<name>'`:",
       "in": [
         {
           "name": "sql",
           "title": "SQL query",
           "type": "text",
-          "desc": "One SQL query, exactly as it is"
+          "desc": "One SQL query, as it is"
         }
       ],
       "out": [
@@ -11670,7 +11670,7 @@
         "roles": [
           {
             "name": "owner",
-            "desc": "What only the owner can decide or tell: what the owner wants, a permission, a decision you may not make",
+            "desc": "What only the owner can decide or tell: a want, a permission, a decision not yours",
             "node": "A3",
             "row": "ask_owner",
             "fields": [
@@ -11678,7 +11678,7 @@
                 "name": "question",
                 "title": "Question",
                 "type": "text",
-                "desc": "The question, short, in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written: what you need decided or told and why, with the context the owner needs to understand it days later; options and the one you recommend when they help. The owner asks for more when it is too short"
+                "desc": "Short; the owner reads it, in `owner.language`: what you need decided or told and why, with the context to understand it days later; options and your pick when they help"
               }
             ]
           }

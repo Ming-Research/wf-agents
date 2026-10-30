@@ -56,8 +56,27 @@ pub struct Context {
     /// Every table and view of the database, with its columns.
     pub relations: BTreeMap<String, BTreeSet<String>>,
     /// Each table and view agents can read, with its columns' names and the first line of what it holds, in the order
-    /// the schema defines them: the index a tool that reads the database lists in its description.
+    /// the schema defines them: the index a tool that reads the database lists in its description, each first line
+    /// cut to [`TABLE_LINE`] characters.
     pub tables: Vec<(String, Vec<String>, String)>,
+}
+
+/// The most characters of what a table or view holds that the index of a tool reading the database gives, cut at a
+/// word: enough to tell which to read, while its name and every column stay whole and its definition reads in full.
+const TABLE_LINE: usize = 80;
+
+/// A text cut to at most `most` characters at the end of a word, an ellipsis in place of the rest, unless that leaves
+/// less than half of them; a text that fits is given whole.
+pub fn cut(text: &str, most: usize) -> String {
+    if text.chars().count() <= most {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(most.saturating_sub(1)).collect();
+    let kept = match head.rfind(' ') {
+        Some(i) if head[..i].chars().count() >= most / 2 => &head[..i],
+        _ => head.as_str(),
+    };
+    format!("{}…", kept.trim_end_matches([' ', ',', ';', ':']))
 }
 
 /// Everything wrong with a flow.
@@ -87,13 +106,13 @@ const BY: [&str; 4] = ["item", "work", "project", "matter"];
 pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
     let mut source: Source = serde_json::from_str(text).map_err(|e| fail(format!("flow.json: {e}")))?;
     // A tool that reads the database says in its description what it reads: each table and view with its columns and
-    // the first line of what it holds. It comes with the return formats, once in a session.
+    // the start of the first line of what it holds. It comes with the return formats, once in a session.
     for t in &mut source.tools {
         if let Some(lead) = &t.tables {
             let lines: Vec<String> = cx
                 .tables
                 .iter()
-                .map(|(n, cols, d)| format!("- {n} ({}): {d}", cols.join(", ")))
+                .map(|(n, cols, d)| format!("- {n} ({}): {}", cols.join(", "), cut(d, TABLE_LINE)))
                 .collect();
             t.desc = format!("{}\n\n{lead}\n{}", t.desc, lines.join("\n"));
         }

@@ -138,7 +138,8 @@ pub struct Tool {
     /// What the engine does to run it.
     pub runs: String,
     /// For a tool that reads the database: what leads the index of the tables and views it reads, which the
-    /// compiler adds to its description, one line for each with its columns and the first line of what it holds.
+    /// compiler adds to its description, one line for each with its columns and the start of the first line of what
+    /// it holds.
     pub tables: Option<String>,
     /// What the agent hands in.
     #[serde(rename = "in")]

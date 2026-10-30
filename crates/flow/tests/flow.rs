@@ -421,6 +421,37 @@ fn a_part_several_cells_hold_alike_is_given_once() {
     );
 }
 
+// The query tool lists every table and view agents read by its name and all its columns, whole, and what it holds by
+// the first line of its definition's comment, cut at a word to 80 characters: enough to tell which to read in full.
+#[test]
+fn the_query_tool_lists_every_table_whole_and_what_it_holds_in_short() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    let schema = g.cell("U1").unwrap().schema.clone().unwrap();
+    let desc = schema["properties"][&g.within]["anyOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|f| f["properties"]["tools"]["items"]["oneOf"].as_array().into_iter().flatten())
+        .find(|t| t["properties"]["tool"]["const"] == "query")
+        .and_then(|t| t["properties"]["tool"]["description"].as_str())
+        .unwrap()
+        .to_string();
+    let index = db::index_of(db::SCHEMA).unwrap();
+    assert!(index.iter().any(|(_, _, first)| first.chars().count() > 80));
+    for (name, columns, first) in index {
+        let head = format!("\n- {name} ({}): ", columns.join(", "));
+        let at = desc.find(&head).unwrap_or_else(|| panic!("{head}\n{desc}"));
+        let line = desc[at + head.len()..].lines().next().unwrap();
+        if first.chars().count() <= 80 {
+            assert_eq!(line, first);
+        } else {
+            assert!(line.ends_with('…') && line.chars().count() <= 80, "{line}");
+            assert!(first.starts_with(line.trim_end_matches('…')), "{line}");
+        }
+    }
+}
+
 // Flow feedback is a field of every agent's return that only a project asking for it is asked for: the graph as a
 // project that asks for it is asked it is the graph as compiled, and the graph as one that does not is asked it holds
 // the field in no agent's schema, does nothing at it, has no role read it and gives no format of it.
