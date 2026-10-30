@@ -49,7 +49,8 @@
 }
 
 /* The work's wall time: a block for each round of a model or of the tools, a block of its own for each stretch no
-   round ran, and its times under it. */
+   round ran, every block the track's height, as the owner asked, where a round's stood out of it above and below and
+   made the stretches between look thinner; and its times under it. */
 .us-timeline {
   margin-top: var(--base-size-8);
 }
@@ -63,8 +64,8 @@
 
 .us-block {
   position: absolute;
-  top: calc(-1 * var(--base-size-2));
-  bottom: calc(-1 * var(--base-size-2));
+  top: 0;
+  bottom: 0;
   border-radius: var(--borderRadius-small);
 }
 
@@ -76,9 +77,7 @@
   background: var(--chart-2);
 }
 
-.us-block.us-gap {
-  top: 0;
-  bottom: 0;
+.us-gap {
   background: var(--chart-idle);
 }
 
