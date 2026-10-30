@@ -8794,6 +8794,10 @@
             {
               "name": "Table to answer",
               "numbered": "F",
+              "empty": {
+                "to": "T7",
+                "note": "The table to answer has no row, so a round of the fix could answer nothing: the engine goes on, in place of the round, to choose what runs next, as after a fix that answered nothing."
+              },
               "what": "The table to answer, one row per entry, numbered F1, F2, ... across all of them, every row answered by its number: the review's findings, the columns it could not verify, the findings not fixed or insisted on; red new tests, new tests whose result before the change does not fit their kind, and tests adversarial testing insisted on; conflicts and red or flaky checks of the full CI on the draft while catching up with main; conflicts and reds in the merge queue; checks found broken by this merge, and the deployment log",
               "from": [
                 [

@@ -529,6 +529,27 @@ case!(
 case!(a_numbered_table_not_read_from_returns, "numbered with a prefix", |v| {
     node(v, "X1")["inputs"][0]["numbered"] = json!("F");
 });
+case!(
+    a_table_to_answer_with_no_way_on_when_it_has_no_row,
+    "a numbered table the cell must answer says where the work goes when it has no row",
+    |v| {
+        obj(&mut node(v, "T6")["inputs"][0]).remove("empty");
+    }
+);
+case!(
+    a_table_with_no_row_that_sends_the_work_nowhere,
+    "a table with no row sends the work to no such cell",
+    |v| {
+        node(v, "T6")["inputs"][0]["empty"]["to"] = json!("Z9");
+    }
+);
+case!(
+    a_way_on_for_no_row_on_an_input_that_is_no_table,
+    "only a numbered table says where the work goes when it has no row",
+    |v| {
+        node(v, "T6")["inputs"][1]["empty"] = json!({ "to": "T7", "note": "Nothing." });
+    }
+);
 case!(a_kind_that_needs_no_such_need, "no such need", |v| {
     graph(v)["askKinds"][0]["needs"] = json!({ "gap_under_test": "nothing_known" });
 });

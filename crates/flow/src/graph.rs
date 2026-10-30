@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::field::{Field, Resolved, Shapes, add_to_desc, by_id, head, is_path, resolve};
 use crate::format::{
-    Always, Atom, Branches, Check, Choice, Do, Flow, Form, Input, Kind, Node, NodeKind, OPEN_SESSION, PromptBy,
-    RawBranch, RawField, RawRow, ReadBy, Role, Rule, Source, Src,
+    Always, Atom, Branches, Check, Choice, Do, Empty, Flow, Form, Input, Kind, NOTHING_TO_ANSWER, Node, NodeKind,
+    OPEN_SESSION, PromptBy, RawBranch, RawField, RawRow, ReadBy, Role, Rule, Source, Src,
 };
 
 macro_rules! ensure {
@@ -63,6 +63,8 @@ pub(crate) struct In {
     /// An input every agent's cell has, which the agent knows by its name.
     pub common: bool,
     pub numbered: Option<String>,
+    /// For a numbered table the cell must answer: where the work goes when it has no row.
+    pub empty: Option<Empty>,
     pub what: String,
     pub from: Vec<Src>,
     pub maybe: bool,
@@ -245,6 +247,7 @@ fn input(x: &Input, common: bool) -> In {
         name: x.name.clone(),
         common,
         numbered: x.numbered.clone(),
+        empty: x.empty.clone(),
         what: x.what.clone(),
         from: x.from.clone(),
         maybe: x.maybe.unwrap_or(false),
@@ -640,7 +643,29 @@ impl<'s> Graph<'s> {
                     "only an agent's input read from returns is a table numbered with a prefix: {nid} {}",
                     x.what
                 );
+                // A table the cell must answer that has no row leaves its round nothing to answer: the table says where
+                // the work goes then, so that such a round is never the only way on.
+                ensure!(
+                    x.empty.is_none() || x.numbered.is_some(),
+                    "only a numbered table says where the work goes when it has no row: {nid} {}",
+                    x.what
+                );
+                ensure!(
+                    x.numbered.is_none() || x.maybe == Some(true) || x.empty.is_some(),
+                    "a numbered table the cell must answer says where the work goes when it has no row: {nid} {}",
+                    x.what
+                );
+                ensure!(
+                    x.empty.as_ref().is_none_or(|e| at.contains_key(&e.to)),
+                    "a table with no row sends the work to no such cell: {nid} {}",
+                    x.what
+                );
             }
+            ensure!(
+                n.inputs.iter().all(|x| x.empty.is_none())
+                    || !row_names.iter().any(|r| r.as_str() == NOTHING_TO_ANSWER),
+                "a row has the name of the row for a table with no row: {nid} {NOTHING_TO_ANSWER}"
+            );
             ensure!(
                 n.inputs.iter().filter(|x| x.numbered.is_some()).count() <= 1,
                 "a cell with two numbered tables: {nid}"

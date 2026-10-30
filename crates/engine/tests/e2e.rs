@@ -8913,6 +8913,41 @@ fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A work at the fix whose table to answer has no row runs no round there, which could answer nothing: the engine takes
+// the fix's row for it, recorded with why, on to choose what runs next. In the sixth trial such a work went from the
+// fix to choosing the way on, whose carry on led back to the fix, round after round.
+#[test]
+fn a_fix_with_nothing_to_answer_goes_on_without_a_round() {
+    let s = setup("nothing-to-answer");
+    let (mut e, said, item) = start(&s, scripts());
+    for _ in 0..2 {
+        e.step(None).unwrap();
+    }
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_eq!(at, "R2", "{}", said.borrow().join("\n"));
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE works SET at = 'T6' WHERE id = ?1", [work])?;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(e.advance(work).unwrap(), Advance::Moved);
+    let log = said.borrow().join("\n");
+    assert_eq!(state(&e, item).map(|x| x.1).as_deref(), Some("T7"), "{log}");
+    let (transition, session, why): (Option<String>, Option<i64>, Option<String>) =
+        e.db.conn()
+            .query_row(
+                "SELECT transition, session, json_extract(input, '$.engine.nothing_to_answer') FROM rounds
+                 WHERE work = ?1 AND cell = 'T6'",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+    assert_eq!(transition.as_deref(), Some("nothing_to_answer"), "{log}");
+    assert_eq!(session, None, "{log}");
+    assert!(why.is_some_and(|w| w.contains("could answer nothing")), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Each work follows the global pause and start unless the owner started or paused it, and the later action wins: a
 // work the owner starts goes on while every work is paused, and follows the global pause again once every work is
 // paused after; a work the owner pauses stays paused through Start all, until the owner starts it; a work the owner

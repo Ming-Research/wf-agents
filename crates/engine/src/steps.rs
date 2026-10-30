@@ -52,9 +52,12 @@ fn g_step_waits(e: &mut Engine, w: &Work, r: &Round) -> Result<bool, String> {
 }
 
 /// Whether a row is one the engine takes for a line in place of a round, when the line's session would start afresh
-/// there: a shared row on an engine's case that is not of its fallback.
+/// there: a shared row on an engine's case that is not of its fallback, nor the row for a table with no row to answer.
 pub fn anew(r: &CompiledRow) -> bool {
-    !r.fallback && r.conditions.iter().any(|a| matches!(a, flow::format::Atom::Engine(_)))
+    !r.fallback
+        && r.conditions
+            .iter()
+            .any(|a| matches!(a, flow::format::Atom::Engine(k) if k != flow::format::NOTHING_TO_ANSWER))
 }
 
 /// Why a round's session starts afresh, in words, for the round's record and the owner's page.
@@ -132,6 +135,38 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         && !project.as_ref().is_some_and(|p| need_met(p, need))
     {
         return not_applicable(e, w, g, cell, need);
+    }
+    // A table the cell must answer that has no row leaves its round nothing to answer: no round runs, and the engine
+    // takes the cell's row for it, recorded with why.
+    if let Some(row) = crate::row(cell, flow::format::NOTHING_TO_ANSWER).cloned() {
+        let gathered = inputs::gather(e, w, g, cell, item.as_ref())?;
+        if inputs::table(&gathered).is_empty() {
+            let why = format!(
+                "the table cell {} answers has no row, so its round could answer nothing",
+                cell.id
+            );
+            let input = json!({ "engine": { "nothing_to_answer": why }, "inputs": recorded_inputs(&gathered) });
+            let commit = e.config.commit.clone();
+            let round =
+                e.db.write(Actor::Engine, |tx| {
+                    work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
+                })
+                .map_err(sql)?;
+            (e.say)(&format!("work {} cell {}: {why}", w.id, cell.id));
+            return finish(
+                e,
+                w,
+                g,
+                cell,
+                round,
+                json!({}),
+                &row,
+                Ended::default(),
+                &[],
+                None,
+                &Map::new(),
+            );
+        }
     }
     let section = failed::section(e, g)?;
     let at_cell = work::rounds_at(e.db.conn(), w.id, &cell.id)?;

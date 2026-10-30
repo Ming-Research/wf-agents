@@ -775,6 +775,10 @@ pub const WITHDRAW_BLOCKER: &str = "withdraw_blocker";
 /// the holder that hands it on found.
 pub const HAND_OVER: &str = "hand_over";
 
+/// The row, and the engine's case it takes it on, of a cell whose numbered table it must answer has no row: where the
+/// table says the work goes then ([`Empty`]), in place of the cell's round.
+pub const NOTHING_TO_ANSWER: &str = "nothing_to_answer";
+
 /// Who may hold a blocker.
 pub const HOLDERS: [&str; 4] = ["advisor", "architect", "owner", "items"];
 
@@ -902,6 +906,9 @@ pub struct Input {
     /// gives the input as one table, each finding, column, test, conflict, check and entry its sources hold a row,
     /// numbered across all of them (F1, F2, ...), and the cell answers each row by its number.
     pub numbered: Option<String>,
+    /// For a numbered table the cell must answer: where the work goes when the table has no row, so that a round
+    /// that could answer nothing is never the only way on. Every such table names it.
+    pub empty: Option<Empty>,
     /// What the input is, as the agent is told.
     pub what: String,
     pub from: Vec<Src>,
@@ -912,6 +919,16 @@ pub struct Input {
     /// The input reads each place from its cell's newest answer only: a field that answer leaves out is none there,
     /// as a branch of a return is, instead of the newest answer that has it.
     pub newest: Option<bool>,
+}
+
+/// Where a work goes from a cell whose numbered table it must answer has no row: the cell's row `nothing_to_answer`
+/// ([`NOTHING_TO_ANSWER`]), which the engine takes in place of the cell's round and records with why.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Empty {
+    pub to: String,
+    /// What the row says, for people.
+    pub note: String,
 }
 
 /// Where an input comes from.

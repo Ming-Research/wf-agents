@@ -29,6 +29,30 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
+// The fix, the one cell with a table it must answer, has a way on when the table has no row, which the engine takes in
+// place of its round: on to choose what runs next, where its answer goes.
+#[test]
+fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let tables: Vec<&str> = g
+        .cells
+        .iter()
+        .filter(|c| c.inputs.iter().any(|x| x.numbered.is_some() && !x.maybe))
+        .map(|c| c.id.as_str())
+        .collect();
+    assert_eq!(tables, ["T6"]);
+    let t6 = g.cell("T6").unwrap();
+    let row = t6.rows.iter().find(|r| r.name == "nothing_to_answer").unwrap();
+    assert_eq!(row.to, "T7");
+    assert_eq!(
+        serde_json::to_value(&row.conditions).unwrap(),
+        serde_json::json!([["engine", "nothing_to_answer"]])
+    );
+    assert!(!row.common && !row.fallback && row.counts.is_none());
+    assert_eq!(t6.rows.iter().find(|r| r.name == "done").unwrap().to, "T7");
+}
+
 // The architect's graph compiles with no finding, as the design the owner approved: where it waits for a work to start
 // and the start of its work, which only a new session understands the project at (`S0`, `S1`, `U1`), the queue (`Q0`)
 // and each matter's path, the check of the policy, the writing of a new one and its taking effect (`P1`, `P2`, `P12`),

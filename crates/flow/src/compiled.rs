@@ -12,8 +12,8 @@ use ts_rs::TS;
 use crate::check::Analysis;
 use crate::field::{Field, segment};
 use crate::format::{
-    Always, Atom, BlockerCell, Blockers, Check, Choice, Counter, Do, EngineNames, EnumText, Form, Handle, Kind, Named,
-    OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src,
+    Always, Atom, BlockerCell, Blockers, Check, Choice, Counter, Do, EngineNames, EnumText, Form, Handle, Kind,
+    NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src,
 };
 use crate::graph::{Cell, CellKind, Graph, ensure};
 
@@ -982,6 +982,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                     note: r.note.clone(),
                 })
                 .chain(anew_row(g, c))
+                .chain(nothing_to_answer_row(c))
                 .chain(match (&g.flow.rounds, c.kind) {
                     (Some(r), CellKind::Agent) => no_return_rows(r),
                     _ => Vec::new(),
@@ -1114,6 +1115,29 @@ fn anew_row(g: &Graph, c: &Cell) -> Option<CompiledRow> {
         common: true,
         fallback: false,
         note: Some(a.note.clone()),
+    })
+}
+
+/// The row of a cell whose numbered table it must answer, for when the table has no row: the engine takes it in place
+/// of the cell's round, which could answer nothing, and records why; none for any other cell.
+fn nothing_to_answer_row(c: &Cell) -> Option<CompiledRow> {
+    let e = c.inputs.iter().find_map(|x| x.empty.as_ref())?;
+    Some(CompiledRow {
+        name: NOTHING_TO_ANSWER.to_string(),
+        conditions: vec![Atom::Engine(NOTHING_TO_ANSWER.to_string())],
+        to: e.to.clone(),
+        sets: BTreeMap::new(),
+        actions: Vec::new(),
+        counts: None,
+        waits: false,
+        pauses: false,
+        interject: false,
+        main: false,
+        drops: false,
+        passes: false,
+        common: false,
+        fallback: false,
+        note: Some(e.note.clone()),
     })
 }
 
