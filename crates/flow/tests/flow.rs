@@ -234,6 +234,11 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
         way(&row("B4", "check_policy")),
         to("Q0", &["queue_check_policy", "queue_group_talk"])
     );
+    // A batch with nothing to rethink goes back to the queue with no round of the rethink, still at a batch's end.
+    assert_eq!(
+        way(&row("B1", "nothing")),
+        to("Q0", &["settle_straight_hold", "queue_group_talk"])
+    );
     let into = |cell: &str| -> Vec<&str> {
         g.cells
             .iter()

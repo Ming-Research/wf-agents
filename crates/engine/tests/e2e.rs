@@ -4682,6 +4682,14 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
             .expect(&log);
     assert!(refused.contains("the owner replied to your question"), "{refused}");
     assert_eq!(rows_at(&e, arch, "P2"), ["written", "written"], "{log}");
+    // A batch that only parked the check again for the owner's reply has nothing to rethink, and runs no rethink.
+    let cells = cells_of(&e, arch);
+    let skipped = cells
+        .windows(2)
+        .filter(|x| x[0] == ("B1".to_string(), Some("nothing".to_string())))
+        .collect::<Vec<_>>();
+    assert!(!skipped.is_empty(), "{log}");
+    assert!(skipped.iter().all(|x| x[1].0 == "Q0"), "{log}");
     // The writing is given the owner's reply that brought it back; the first, which the session was given at the
     // check, by its address only.
     assert!(

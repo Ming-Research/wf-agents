@@ -880,15 +880,32 @@ fn route(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
         .ok_or_else(|| format!("matter {m} is of a kind the architect's graph has no path for: {kind}"))
 }
 
-/// Whether the batch goes on, goes to its review, or is done.
-fn next_in_batch(e: &Engine, w: &Work) -> Result<&'static str, String> {
+/// Whether the batch goes on, goes to its review, or is done; done with nothing to rethink when it handled no matter
+/// and changed no item since the last rethink, as when the matter in hand was parked again for the owner's reply, for
+/// which a flow version before ran the rethink all the same.
+fn next_in_batch(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<&'static str, String> {
     let conn = e.db.conn();
     let can = pickable(conn, project_of(w)?, w.id)?.len();
     let handled = handled_in_batch(conn, w.id)?;
+    let nothing = || -> Result<bool, String> {
+        let row = g.cells.iter().any(|c| {
+            c.inenums
+                .get("next_in_batch")
+                .is_some_and(|vs| vs.iter().any(|v| v.0 == "nothing"))
+        });
+        let changed = count(
+            conn,
+            "SELECT count(*) FROM architect_item_changes WHERE work = ?1 AND round > ?2",
+            &[&w.id, &batch_start(conn, w.id)?],
+        )?;
+        Ok(row && handled == 0 && changed == 0)
+    };
     Ok(if can > 0 && handled < BATCH {
         "more"
     } else if !collected(conn, w.id)?.is_empty() {
         "review"
+    } else if nothing()? {
+        "nothing"
     } else {
         "done"
     })
@@ -967,7 +984,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         .into(),
         "entry" => entry(e, w)?,
         "route" => route(e, w, g)?,
-        "next_in_batch" => next_in_batch(e, w)?.into(),
+        "next_in_batch" => next_in_batch(e, w, g)?.into(),
         "fixes_before" => if fixes_found(conn, w.id)? >= 2 { "two" } else { "fewer" }.into(),
         "question" => {
             let d = picked_detail(conn, w.id)?.unwrap_or_default();

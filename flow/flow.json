@@ -3036,7 +3036,7 @@
       "held": "Where the question the work put to an architect stands: replied, handed to the owner or to a related project's architect, waited past its limit of the architect's time, its architect gone, an item the work depended on cancelled, or something said to the work",
       "interjection": "Whether an interjection for the engineer is waiting to be delivered.",
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
-      "next_in_batch": "Whether the batch goes on, goes to review, or is done.",
+      "next_in_batch": "Whether the batch goes on, goes to review, is done, or is done with nothing to rethink: no matter handled and no item changed since the last rethink.",
       "question": "The kind of question an engineer asks, as its matter says.",
       "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, flow feedback, or a fault of wf-agents forwarded to the architect.",
       "review_round": "Whether the review starts with a blind review or goes straight to the table.",
@@ -3632,7 +3632,7 @@
         ]
       },
       "next_in_batch": {
-        "says": "matters left to pick; the batch's changes",
+        "says": "matters left to pick and handled; the batch's changes",
         "stores": [
           "architect_queue",
           "batch"
@@ -16384,6 +16384,25 @@
               "do": [
                 "settle_straight_hold"
               ]
+            },
+            {
+              "name": "nothing",
+              "if": [
+                [
+                  "inp",
+                  "next_in_batch",
+                  [
+                    "nothing"
+                  ]
+                ]
+              ],
+              "to": "Q0",
+              "counts": "batches",
+              "do": [
+                "settle_straight_hold",
+                "queue_group_talk"
+              ],
+              "note": "Nothing to rethink, as when the matter in hand was parked again for the owner's reply: the batch ends with no round of the rethink, and what was said in the groups is queued as at the end of every batch."
             }
           ],
           "inenums": {
@@ -16398,7 +16417,11 @@
               ],
               [
                 "done",
-                "The batch is done, and it collected no item changes"
+                "The batch is done, it collected no item changes, and it handled matters or changed items"
+              ],
+              [
+                "nothing",
+                "The batch is done, and it handled no matter and changed no item since the last rethink: there is nothing to rethink"
               ]
             ]
           }
