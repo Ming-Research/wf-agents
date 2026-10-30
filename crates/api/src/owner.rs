@@ -1,8 +1,9 @@
 //! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
 //! design card, what the owner says to a work's line, pausing a work and lifting a work's pause, the switch that keeps
-//! waiting sessions warm while every work is paused, forwarding a fault of wf-agents to an architect, and the setting
-//! that forwards each new one as it comes. Each is written as the owner, so `changes` records it as theirs, and the
-//! engine reads it as it goes on. What the owner says to the architect is `db::say_to_architect`.
+//! waiting sessions warm while every work is paused, forwarding a fault of wf-agents to an architect, the setting that
+//! forwards each new one as it comes, and ending a talk with an architect. Each is written as the owner, so `changes`
+//! records it as theirs, and the engine reads it as it goes on. What the owner says to the architect is
+//! `db::say_to_architect`.
 
 use db::rusqlite::{Connection, OptionalExtension, params};
 use db::{Actor, Db, Matter, queue_matter};
@@ -247,6 +248,18 @@ fn answer_question(db: &mut Db, work: i64, matter: i64, text: &str) -> Result<St
     ))
 }
 
+/// Ends, as the owner, the talk with a project's architect that waits for the owner (Done): the architect's next turn
+/// of it hands in what it came to and takes its way on. Refused when no talk is open.
+pub fn end_talk(db: &mut Db, project: &str) -> Result<String, String> {
+    let ended = db.write(Actor::Owner, |tx| db::end_talk(tx, project)).map_err(sql)?;
+    match ended {
+        Some(m) => Ok(format!(
+            "the talk about matter {m} ends: the architect hands in what it came to"
+        )),
+        None => Err(format!("the architect of {project} has no talk open with you")),
+    }
+}
+
 /// The option the owner chose, for an ask of the architect's that offers options.
 fn choice_of(a: &Answer) -> Option<String> {
     a.choice
@@ -266,15 +279,17 @@ fn holds_of(body: &Value) -> Vec<i64> {
 }
 
 /// Answers an ask an architect put, by its kind: the owner's view of a study or approval of a policy, with the option
-/// chosen; an answer to what the architect asked, which brings back the matters the ask holds, each to the cell that
-/// asked about it, or, for an ask that held neither a matter nor a work of the architect, comes to the architect's
-/// queue as the owner's words. An ask of the changes an earlier architect collected for approval is closed: item
+/// chosen alone, which ends the talk the architect has open with the owner; an answer to what the architect asked,
+/// which brings back the matters the ask holds, each to the cell that asked about it, or, for an ask that held neither a
+/// matter nor a work of the architect, comes to the architect's queue as the owner's words. An ask of the changes an earlier architect collected for approval is closed: item
 /// changes are reviewed now.
 fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer) -> Result<String, String> {
     let at = db::now();
     let text = a.text.trim();
     let kind = body["kind"].as_str().unwrap_or_default();
     match kind {
+        // The owner decides on a study or a text by its buttons alone, words going to the architect in their talk; a
+        // decision while the architect talks with the owner ends that talk, as Done does.
         "study" | "policy_approval" => {
             let offered: Vec<&str> = body["choices"]
                 .as_array()
@@ -285,12 +300,14 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer) -> Result<S
             let chosen = choice_of(a)
                 .filter(|c| offered.contains(&c.as_str()))
                 .ok_or_else(|| format!("the answer chooses one of: {}", offered.join(", ")))?;
-            let answer = json!({ "by": "owner", "at": at, "choice": chosen, "text": text });
+            let answer = json!({ "by": "owner", "at": at, "choice": chosen });
+            let project = body["project"].as_str().unwrap_or_default().to_string();
             db.write(Actor::Owner, |tx| {
                 tx.execute(
                     "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
                     params![ask, answer.to_string()],
                 )?;
+                db::end_talk(tx, &project)?;
                 Ok(())
             })
             .map_err(sql)?;
@@ -1133,10 +1150,21 @@ mod tests {
         }
     }
 
-    // The owner's view of the architect's study chooses one of the options the ask offers, and the answer keeps it.
+    // The owner's view of the architect's study chooses one of the options the ask offers, and the answer keeps it
+    // alone, the owner's words going to the architect in their talk; a talk with the architect that waits for the
+    // owner's reply ends with it, as Done ends it.
     #[test]
     fn the_owner_chooses_an_option_of_the_architect_s_study() {
         let mut db = setup();
+        db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, detail, what, body, at, talk_held)
+                 VALUES ('p', 'owner_words', 'said', 'The owner says: Why?', ?1, 1, 2)",
+                [json!({ "text": "Why?", "where": "page" }).to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
         let choices = json!([
             ["satisfied", "Write it"],
             ["study_on", "More"],
@@ -1154,15 +1182,13 @@ mod tests {
             .query_row("SELECT answer FROM owner_asks WHERE id = ?1", [ask], |r| r.get(0))
             .unwrap();
         let got: Value = serde_json::from_str(&got).unwrap();
-        assert_eq!(
-            (&got["choice"], &got["text"]),
-            (&json!("policy_stays"), &json!("Fine."))
-        );
-        let n: i64 = db
-            .conn()
-            .query_row("SELECT count(*) FROM architect_matters", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(n, 0);
+        assert_eq!((&got["choice"], got.get("text")), (&json!("policy_stays"), None));
+        let talks: Vec<Option<i64>> = {
+            let mut st = db.conn().prepare("SELECT talk_ended FROM architect_matters").unwrap();
+            st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+        };
+        assert!(matches!(talks.as_slice(), [Some(_)]), "{talks:?}");
+        assert!(end_talk(&mut db, "p").is_err());
     }
 
     // An ask an earlier architect put of the changes it collected for approval is not answered: the architect's item

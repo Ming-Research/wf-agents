@@ -2,11 +2,13 @@
 // engineer's ask is, with the matters it holds; an open choice, which holds no work of the architect; the study of a
 // new policy to read; and the policy to approve, with its probes and every reading of it by a new architect. Every kind
 // but the question, which the card every ask shares heads, is a block under its number, kind and the cell and round
-// that put it. In the conversation it is in, it is the architect's bubble, answered in that bubble by a button (an
-// option, or one of the choices its cell offers: satisfied, study on or no change; approved or not good enough) and the
-// owner's words in a small box, needed unless the owner agrees; elsewhere it says where it is answered. Each answer
-// goes to the interface's answer of an ask, and the engine goes on. The documents an ask is about (the study, the
-// policy to approve and what changed in it since the owner last read it) are folded, each as one document.
+// that put it. In the conversation it is in, it is the architect's bubble, answered in that bubble: a question or an
+// open choice by a button of its options and the owner's words in a small box; the study and the policy by one of the
+// three choices its cell offers alone (satisfied, study on or the policy stays; approved, fix the text or not good
+// enough), a click sending it, the owner's words on them going to the architect in their talk; elsewhere it says where
+// it is answered. Each answer goes to the interface's answer of an ask, and the engine goes on. The documents an ask is
+// about (the study, the policy to approve and what changed in it since the owner last read it) are folded, each as one
+// document.
 
 import { Label } from '@primer/react';
 

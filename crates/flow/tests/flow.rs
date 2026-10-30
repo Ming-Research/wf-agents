@@ -39,7 +39,7 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (39, 145, 205));
+    assert_eq!((s.cells, s.rows, s.states), (40, 154, 211));
     let g = c.graph("architect").unwrap();
     assert!(g.cell("X4").is_none());
     assert!(
@@ -77,7 +77,7 @@ fn the_setting_of_a_policy_is_a_stage_of_the_architect_s_work() {
     );
     let given = |k: &str, v: &str| Map::from_iter([(k.to_string(), Value::String(v.into()))]);
     let none = Map::new();
-    let ruling = |choice: &str| serde_json::json!({ "ruling": { "choice": choice, "text": "" } });
+    let ruling = |choice: &str| serde_json::json!({ "ruling": { "choice": choice } });
     for (at, ways) in [
         ("P3", [("satisfied", "P4"), ("study_on", "P2"), ("policy_stays", "N1")]),
         (
@@ -124,6 +124,78 @@ fn the_setting_of_a_policy_is_a_stage_of_the_architect_s_work() {
         e.contains("the architect's own graph stops: P3 goes on only with the owner's answer"),
         "{e}"
     );
+}
+
+// The owner's words are a talk with the architect, as the owner approved: the look at the queue takes them first,
+// without a pick (`Q0`); the cell of the owner's words (`H8`) replies and waits for the owner (`H11`), whose next words
+// or Done take the talk on in the same session, and whose silence past the installation's wait holds the talk back in
+// the queue while the architect goes on (`B1`); only the owner ends it, and its last turn takes one way on: done (`B1`),
+// what to do next again (`N1`), a new policy (`P2`, one setting at a time) or understanding the project again (`U1`).
+// The owner decides on a study or a text by its buttons alone, its ruling holding no words. A row that waits in the
+// architect's graph with no setting bounding the wait is refused, since the architect stops for no one.
+#[test]
+fn the_owner_s_words_are_a_talk_the_owner_ends() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    let row = |cell: &str, name: &str| {
+        g.cell(cell)
+            .unwrap()
+            .rows
+            .iter()
+            .find(|r| r.name == name)
+            .unwrap_or_else(|| panic!("{cell} {name}"))
+            .clone()
+    };
+    let does = |r: &flow::CompiledRow| r.actions.iter().map(|d| d.name().to_string()).collect::<Vec<_>>();
+    let none = Map::new();
+    let first = g
+        .take(
+            "Q0",
+            &serde_json::json!({ "queue": { "verdict": "owner_words", "matter": 3 } }),
+            &none,
+        )
+        .unwrap();
+    assert_eq!((first.name.as_str(), first.to.as_str()), ("owner_words", "Q2"));
+    assert_eq!(g.cell("Q0").unwrap().rows[0].name, "owner_words");
+    for (name, to, then) in [
+        ("replied", "H11", vec!["take_words", "reply_to_owner"]),
+        ("done", "B1", vec!["take_words", "close_matter"]),
+        ("re_plan", "N1", vec!["take_words", "close_matter"]),
+        (
+            "new_policy",
+            "P2",
+            vec!["take_words", "close_matter", "hold_for_policy", "start_setting"],
+        ),
+        ("to_setting", "B1", vec!["take_words", "close_matter"]),
+        ("re_understand", "U1", vec!["take_words", "close_matter"]),
+    ] {
+        let r = row("H8", name);
+        assert_eq!(
+            (r.to.as_str(), does(&r)),
+            (to, then.iter().map(|x| x.to_string()).collect()),
+            "{name}"
+        );
+    }
+    let given = |v: &str| Map::from_iter([("reply".to_string(), Value::String(v.into()))]);
+    for (value, to) in [("said", "H8"), ("ended", "H8"), ("waits", "H11"), ("no_reply", "B1")] {
+        let r = g.take("H11", &serde_json::json!({}), &given(value)).unwrap();
+        assert_eq!((r.name.as_str(), r.to.as_str(), r.waits), (value, to, value == "waits"));
+    }
+    assert_eq!(does(&row("H11", "no_reply")), ["hold_talk"]);
+    for at in ["P3", "P11"] {
+        let schema = g.cell(at).unwrap().schema.clone().unwrap();
+        assert!(schema.pointer("/properties/ruling/properties/text").is_none(), "{at}");
+    }
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    let wait = v["flows"][1]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|n| n["id"] == "H11")
+        .unwrap();
+    wait["cases"][2].as_object_mut().unwrap().remove("until");
+    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
+    assert!(e.contains("the architect's own graph stops: H11 waits"), "{e}");
 }
 
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every

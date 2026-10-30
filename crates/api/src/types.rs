@@ -1108,6 +1108,18 @@ pub struct ConversationDetail {
     pub read_to: Option<i64>,
     /// For wf-agents' own conversation: where its faults can go; none for another.
     pub forwarding: Option<Forwarding>,
+    /// For the one-to-one with an architect: the talk that waits for the owner's reply, which the owner answers in the
+    /// box at the bottom or ends with Done; none while none waits.
+    pub talk: Option<TalkWait>,
+}
+
+/// A talk with an architect that waits for the owner's reply: the owner's words it is about, and until when the
+/// architect waits before it goes on with its queue, the talk held until the owner says more or ends it; none once it
+/// went on.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct TalkWait {
+    pub matter: i64,
+    pub until: Option<i64>,
 }
 
 /// What the owner says in a work's group: to its engineer, to its project's architect, or to both. Saying it to the

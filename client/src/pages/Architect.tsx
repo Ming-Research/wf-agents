@@ -44,7 +44,7 @@ import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, time } from '../format';
 import { Labelled, words } from '../labelled';
 import { Markdown } from '../markdown';
-import { useResource, useStatus } from '../live';
+import { useNow, useResource, useStatus } from '../live';
 import { type ArchitectRoute, type ArchitectTab, architectHref, forProject, href, Link, navigate } from '../route';
 import { t, tn } from '../text';
 import { Block, By, CellTitles, ItemRef, type OpenRound, SubHeading } from '../parts';
@@ -61,17 +61,6 @@ const BARE = { overlays: null, taken: null, added: new Set<string>(), changed: n
 
 /// No rounds, for the halo while no work is shown.
 const NO_ROUNDS: RoundSummary[] = [];
-
-/// The time now, ticking every second while `ticking`.
-function useNow(ticking: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!ticking) return;
-    const tick = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(tick);
-  }, [ticking]);
-  return now;
-}
 
 /// What the architect does now, on its line, in words, with no word of its works: the matter it handles and the cell
 /// it is at, a round running and for how long, or what holds it back; else idle, or held back with matters waiting.

@@ -8,30 +8,19 @@
 
 import { ArrowLeftIcon, ReplyIcon, XCircleIcon } from '@primer/octicons-react';
 import { CounterLabel, Heading, Label } from '@primer/react';
-import { useEffect, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 
 import type { Status, WorkSummary } from '../api';
 import { type Course, course, heldName, WorkBadge, Loaded } from '../components';
 import { held, runningWords, takeoverWords, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
-import { useResource, useStatus } from '../live';
+import { useNow, useResource, useStatus } from '../live';
 import { HeadingLevel, ItemRef, LabelLink, Section } from '../parts';
 import { href, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t, tn } from '../text';
 import { Work } from './Work';
 
 const ENDED = new Set(['done', 'ended']);
-
-/// The time now, ticking every second while `ticking`, so that a running work's time goes on.
-function useNow(ticking: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!ticking) return;
-    const tick = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(tick);
-  }, [ticking]);
-  return now;
-}
 
 /// How a work goes on, on one line: a round of it running and how long it has run, or what holds it back, then what it
 /// waits for, linked to where the owner gives it, and its design cards and asks waiting for the owner as small chips;

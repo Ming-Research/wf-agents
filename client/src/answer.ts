@@ -1,8 +1,10 @@
 // How the owner answers in a conversation, the messages view being the one place the owner acts: an ask shows where it
 // was asked, as the asking agent's bubble, and is answered in that bubble, by the buttons of what it offers (the
-// options of its choice, or the choices its cell offers) and a small box of the owner's words beside an Answer button;
-// a question of an engineer's that the architect holds is answered in a small box in its bubble too. What is written
-// there answers that bubble, and the box at the bottom of the conversation only ever says something. Everything that
+// options of its choice) and a small box of the owner's words beside an Answer button; the study and the text of a new
+// policy are decided by the buttons of the choices their cell offers alone, a click sending the decision, the owner's
+// words on them going to the architect in their talk; a question of an engineer's that the architect holds is answered
+// in a small box in its bubble too. What is written there answers that bubble, and the box at the bottom of the
+// conversation only ever says something. Everything that
 // answers reads this; a view with no conversation round it (a work's page, an item's, the architect's) shows what
 // waits and where to answer it, and gives no form.
 
@@ -61,18 +63,18 @@ export function answerWay(a: OwnerAsk): Way {
 /// picked already.
 export const pickAfter = (now: string, clicked: string): string => (now === clicked ? '' : clicked);
 
-/// Whether the answer to an ask needs the owner's words with what is picked: an ask in words alone, an option ask with
-/// nothing picked, and a choice of its cell's other than the first, the one that agrees.
+/// Whether the answer to an ask needs the owner's words with what is picked: an ask in words alone and an option ask
+/// with nothing picked; a decision on a study or a text never, being its button alone.
 export function needsWords(way: Way, pick: string): boolean {
-  if (way.by === 'ruling') return pick !== '' && way.choices.length > 0 && pick !== way.choices[0][0];
+  if (way.by === 'ruling') return false;
   return pick === '';
 }
 
-/// What the box in an ask's bubble sends to answer it: an architect's choice (a study, a policy to approve) with
-/// the ruling picked and words; any other ask with the option picked and words, or the words alone, and an engineer's
-/// handed back to the architect with the words as the decision it carries out (`back`). None while it cannot be sent.
+/// What an ask's bubble sends to answer it: an architect's choice (a study, a policy to approve) with the ruling
+/// clicked alone; any other ask with the option picked and words, or the words alone, and an engineer's handed back to
+/// the architect with the words as the decision it carries out (`back`). None while it cannot be sent.
 export function askAnswer(a: OwnerAsk, pick: string, text: string, back: boolean): object | null {
-  if (isRuling(a.body)) return rulingAnswer(choicesOf(a.body), pick === '' ? null : pick, text);
+  if (isRuling(a.body)) return rulingAnswer(choicesOf(a.body), pick === '' ? null : pick);
   const words = text.trim();
   const answer = pick !== '' ? `${t('answer_chosen', { option: pick })}${words !== '' ? ` ${words}` : ''}` : words;
   if (answer === '') return null;

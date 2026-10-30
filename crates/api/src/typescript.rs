@@ -49,6 +49,7 @@ pub fn typescript() -> String {
         decl::<StageMove>(&cfg),
         decl::<MatterProgress>(&cfg),
         decl::<ConversationDetail>(&cfg),
+        decl::<TalkWait>(&cfg),
         decl::<WorkSaid>(&cfg),
         decl::<ProjectsSaid>(&cfg),
         decl::<ReadTo>(&cfg),

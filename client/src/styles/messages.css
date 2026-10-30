@@ -407,6 +407,13 @@
   gap: var(--base-size-8);
 }
 
+/* Over the box while the architect waits for the owner's reply: small and muted, the page's own words. */
+.talk-say-waits {
+  margin: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
 /* Whom the words are for, ticked in a row above the box. */
 .talk-say-to {
   display: flex;

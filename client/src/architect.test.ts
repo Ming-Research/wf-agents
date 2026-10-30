@@ -198,7 +198,7 @@ describe("the architect's page", () => {
     expect(ids(observationsShown(all, 'ui', 'CELL h3', false))).toEqual([3, 2]);
   });
 
-  it('sends a ruling with words unless the owner agrees', () => {
+  it('sends a ruling by the choice alone', () => {
     const body = { from: 'architect', kind: 'study', choices: [['satisfied', 'yes'], ['study_on', 'more'], ['no_change', 'no']] };
     const choices = choicesOf(body);
     expect(choices).toEqual([
@@ -206,11 +206,10 @@ describe("the architect's page", () => {
       ['study_on', 'more'],
       ['no_change', 'no'],
     ]);
-    expect(rulingAnswer(choices, 'satisfied', ' ')).toEqual({ choice: 'satisfied', text: '' });
-    expect(rulingAnswer(choices, 'study_on', '')).toBeNull();
-    expect(rulingAnswer(choices, 'study_on', ' the costs ')).toEqual({ choice: 'study_on', text: 'the costs' });
-    expect(rulingAnswer(choices, null, 'x')).toBeNull();
-    expect(rulingAnswer(choices, 'other', 'x')).toBeNull();
+    expect(rulingAnswer(choices, 'satisfied')).toEqual({ choice: 'satisfied', text: '' });
+    expect(rulingAnswer(choices, 'study_on')).toEqual({ choice: 'study_on', text: '' });
+    expect(rulingAnswer(choices, null)).toBeNull();
+    expect(rulingAnswer(choices, 'other')).toBeNull();
     expect(choicesOf({ kind: 'study' })).toEqual([]);
   });
 

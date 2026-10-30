@@ -124,6 +124,10 @@ pub struct Agents {
     /// `queue_slots_free`): one that found nothing to start does not come back at once.
     #[serde(default = "slots_free_wait")]
     pub slots_free_wait: u64,
+    /// The longest time, in seconds, a project's architect waits for the owner's reply in a talk with the owner (cell
+    /// `H11`) before it goes on with its queue, holding the talk until the owner says more or ends it.
+    #[serde(default = "owner_reply_wait")]
+    pub owner_reply_wait: u64,
 }
 
 fn context_limit() -> u64 {
@@ -132,6 +136,10 @@ fn context_limit() -> u64 {
 
 fn slots_free_wait() -> u64 {
     3_600
+}
+
+fn owner_reply_wait() -> u64 {
+    300
 }
 
 /// What the agents of each line may not do on this machine, besides what the CLI's own arguments say. The engine

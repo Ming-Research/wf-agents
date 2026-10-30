@@ -79,6 +79,8 @@ pub(crate) struct Row {
     pub common: bool,
     pub counts: Option<String>,
     pub waits: bool,
+    /// A row that waits no longer than an installation's setting says, the cell taking another row once it ran out.
+    pub bounded: bool,
     pub interject: bool,
     pub actions: Vec<Do>,
     pub main: bool,
@@ -579,6 +581,7 @@ impl<'s> Graph<'s> {
                             actions: Some(h.actions.clone()),
                             counts: Some(h.counts.clone()),
                             waits: None,
+                            until: None,
                             interject: None,
                             main: None,
                             drops: None,
@@ -593,6 +596,7 @@ impl<'s> Graph<'s> {
                             actions: r.actions.clone(),
                             counts: Some(flow.asking.counts.clone()),
                             waits: None,
+                            until: None,
                             interject: None,
                             main: None,
                             drops: None,
@@ -696,6 +700,11 @@ impl<'s> Graph<'s> {
                     "a row that waits counts nothing: {nid} {}",
                     r.name
                 );
+                ensure!(
+                    waits || r.until.is_none(),
+                    "only a row that waits has a setting that bounds the wait: {nid} {}",
+                    r.name
+                );
                 let interject = r.interject.unwrap_or(false);
                 // Or, from a cell that answers the cell that asked, back to it: through choosing the way on for an
                 // agent of its line.
@@ -723,6 +732,7 @@ impl<'s> Graph<'s> {
                     common: is_common,
                     counts: r.counts,
                     waits,
+                    bounded: r.until.is_some(),
                     interject,
                     actions: r.actions.unwrap_or_default(),
                     main: r.main.unwrap_or(false),
@@ -972,9 +982,9 @@ impl<'s> Graph<'s> {
         }
 
         let holders = blockers(flow, &cells, &at)?;
-        // A holder's own graph never stops: no row waits but for the owner's Start after a pause, and an ask of the
-        // owner goes on without the answer. Where its start waits for a work to start, no work stands, so a row that
-        // waits there stops none.
+        // A holder's own graph never stops: no row waits but for the owner's Start after a pause, or no longer than an
+        // installation's setting bounds the wait, and an ask of the owner goes on without the answer. Where its start
+        // waits for a work to start, no work stands, so a row that waits there stops none.
         if let Some(h) = &flow.holds {
             ensure!(
                 crate::format::HOLDERS.contains(&h.as_str()),
@@ -985,7 +995,7 @@ impl<'s> Graph<'s> {
                     let paused = c.step.as_deref() == Some(WAIT_FOR_START);
                     let no_work = i == start && r.target == Target::Cell(start);
                     ensure!(
-                        !r.waits || paused || no_work,
+                        !r.waits || paused || no_work || r.bounded,
                         "the {h}'s own graph stops: {} {} waits, and the {h} holds blockers",
                         c.id,
                         r.name
@@ -1489,6 +1499,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
             actions: None,
             counts: None,
             waits: None,
+            until: None,
             interject: None,
             main: Some(true),
             drops: None,

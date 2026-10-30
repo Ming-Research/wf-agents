@@ -1894,6 +1894,7 @@ describe("the owner's conversations", () => {
       design_cards: [],
       read_to: null,
       forwarding: null,
+      talk: null,
     };
     const held = heldCards(d);
     expect(d.entries.map((e) => voiceOf(e, held))).toEqual([

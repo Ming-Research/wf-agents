@@ -125,6 +125,75 @@ pub fn say_to_architect(
     Ok(format!("the architect of {project} has it as matter {id}"))
 }
 
+/// The talk with the owner a project's architect has open, about the words the owner said to it, which it took first
+/// (cell `H8`): the matter the architect's work that runs has in hand while it stands at that cell or waits for the
+/// owner's reply (`H11`), or else one held out of the queue for the owner's reply; none when no talk is open, or the
+/// owner ended it. Gives the matter, and whether it is held.
+pub fn open_talk(conn: &Connection, project: &str) -> Result<Option<(i64, bool)>> {
+    let running: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT id, at FROM works WHERE graph = 'architect' AND project = ?1 AND ended IS NULL
+             ORDER BY id DESC LIMIT 1",
+            [project],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    if let Some((work, at)) = running
+        && (crate::is_cell("architect", "H8", &at) || crate::is_cell("architect", "H11", &at))
+    {
+        let picked: Option<i64> = conn
+            .query_row(
+                "SELECT coalesce(json_extract(output, '$.outcome.pick.matter'), json_extract(output, '$.queue.matter'))
+                 FROM rounds WHERE work = ?1 AND transition IS NOT NULL
+                   AND coalesce(json_extract(output, '$.outcome.pick.matter'), json_extract(output, '$.queue.matter'))
+                       IS NOT NULL
+                 ORDER BY n DESC LIMIT 1",
+                [work],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+        let talk: Option<i64> = match picked {
+            Some(m) => conn
+                .query_row(
+                    "SELECT id FROM architect_matters WHERE id = ?1 AND kind = 'owner_words' AND detail = 'said'
+                       AND handled_round IS NULL AND withdrawn IS NULL AND talk_ended IS NULL",
+                    [m],
+                    |r| r.get(0),
+                )
+                .optional()?,
+            None => None,
+        };
+        if let Some(t) = talk {
+            return Ok(Some((t, false)));
+        }
+    }
+    let held: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM architect_matters WHERE project = ?1 AND kind = 'owner_words' AND detail = 'said'
+               AND talk_held IS NOT NULL AND talk_ended IS NULL AND handled_round IS NULL AND withdrawn IS NULL
+             ORDER BY id DESC LIMIT 1",
+            [project],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(held.map(|t| (t, true)))
+}
+
+/// Ends, as the owner, the talk with the owner a project's architect has open: by Done, or by the owner's decision on
+/// the study or the text of a new policy that waited meanwhile; the architect's next turn of it hands in what it came
+/// to. Gives the matter of the talk ended; none when none was open.
+pub fn end_talk(tx: &Transaction<'_>, project: &str) -> Result<Option<i64>> {
+    let Some((t, _)) = open_talk(tx, project)? else {
+        return Ok(None);
+    };
+    tx.execute(
+        "UPDATE architect_matters SET talk_ended = ?2 WHERE id = ?1 AND talk_ended IS NULL",
+        params![t, now()],
+    )?;
+    Ok(Some(t))
+}
+
 /// The detail of a report that holds a fault of wf-agents forwarded to a project's architect.
 pub const FAULT: &str = "fault";
 

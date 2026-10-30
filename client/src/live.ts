@@ -178,3 +178,14 @@ export function useResource<T>(key: string | null, path: string | null): Resourc
   }, [path, v]);
   return got.path === path ? { data: got.data, error: got.error } : { data: undefined, error: null };
 }
+
+/// The time now, ticking every second while `ticking`, so that what runs or waits shows how long it has.
+export function useNow(ticking: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!ticking) return;
+    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(tick);
+  }, [ticking]);
+  return now;
+}

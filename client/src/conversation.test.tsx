@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from './answer';
 import type { Conversation, ConversationDetail, ConversationEntry, Handled, JsonValue, MatterProgress, OwnerAsk } from './api';
 import { awayOf, streamOf } from './conversation';
-import { Stream } from './pages/Messages';
+import { Composer, Stream } from './pages/Messages';
 
 const ask = (id: number, body: JsonValue, answer: JsonValue | null = null): OwnerAsk => ({
   id,
@@ -76,6 +76,7 @@ const detail = (entries: ConversationEntry[]): ConversationDetail => ({
   design_cards: [],
   forwarding: null,
   read_to: null,
+  talk: null,
 });
 
 /// The stream as the page draws it in a conversation.
@@ -179,18 +180,14 @@ describe('an ask in its conversation', () => {
     expect(inside).not.toContain('Answer it in its conversation');
   });
 
-  it('has only the small box for an ask in words alone, and the choices its cell offers for a study', () => {
+  it('has only the small box for an ask in words alone, and only the choices its cell offers for a study', () => {
     const plain = bubble(row(drawn(detail([asked(ask(6, words))])), 'data-ask="6"')).inside;
     expect(plain).not.toContain('talk-answer-buttons');
     expect(buttons(plain.slice(plain.indexOf('class="talk-answer"')))).toEqual(['Answer (disabled)']);
     const ruled = bubble(row(drawn(detail([asked(ask(7, study), { sender: 'architect' })])), 'data-ask="7"')).inside;
     expect(ruled).toContain('talk-bubble-architect');
-    expect(buttons(ruled.slice(ruled.indexOf('class="talk-answer"')))).toEqual([
-      'Satisfied',
-      'Study on',
-      'No change',
-      'Answer (disabled)',
-    ]);
+    expect(buttons(ruled.slice(ruled.indexOf('class="talk-answer"')))).toEqual(['Satisfied', 'Study on', 'No change']);
+    expect(ruled.slice(ruled.indexOf('class="talk-answer"'))).not.toContain('<textarea');
     expect(ruled).toContain('title="Study more, saying what"');
   });
 
@@ -264,14 +261,14 @@ describe('answering an ask', () => {
     expect(pickAfter('One table', 'One table')).toBe('');
     const ruling = answerWay(ask(1, study));
     expect(needsWords(ruling, 'satisfied')).toBe(false);
-    expect(needsWords(ruling, 'study_on')).toBe(true);
+    expect(needsWords(ruling, 'study_on')).toBe(false);
     const option = answerWay(ask(2, choice));
     expect(needsWords(option, 'One table')).toBe(false);
     expect(needsWords(option, '')).toBe(true);
     expect(needsWords(answerWay(ask(4, words)), '')).toBe(true);
   });
 
-  it('sends the option picked with any words, the words alone, or the ruling with words unless the owner agrees', () => {
+  it('sends the option picked with any words, the words alone, or the ruling clicked alone', () => {
     const a = ask(4, { ...choice, to: 'owner' });
     expect(handsBack(a)).toBe(true);
     expect(handsBack(ask(5, choice))).toBe(false);
@@ -281,8 +278,7 @@ describe('answering an ask', () => {
     expect(askAnswer(a, '', ' ', false)).toBeNull();
     const s = ask(7, study);
     expect(askAnswer(s, 'satisfied', '', false)).toEqual({ choice: 'satisfied', text: '' });
-    expect(askAnswer(s, 'study_on', '', false)).toBeNull();
-    expect(askAnswer(s, 'study_on', 'The costs.', false)).toEqual({ choice: 'study_on', text: 'The costs.' });
+    expect(askAnswer(s, 'study_on', 'The costs.', false)).toEqual({ choice: 'study_on', text: '' });
     expect(askAnswer(s, '', 'x', false)).toBeNull();
   });
 
@@ -368,5 +364,23 @@ describe('a matter card in the one-to-one with an architect', () => {
     expect(html).toContain('Your words');
     expect(html).toContain('Put the parser first.');
     expect(html).not.toContain('<details');
+  });
+});
+
+describe('the box of the one-to-one with an architect', () => {
+  const one: Conversation = { ...group, key: 'architect:p', kind: 'architect', work: null, item: null, title: null };
+  const box = (talk: { matter: number; until: number | null } | null) =>
+    renderToStaticMarkup(<Composer c={one} w={null} talk={talk} />);
+
+  it('ends the talk that waits for the owner with Done, saying how long the architect waits yet', () => {
+    const waiting = box({ matter: 3, until: Date.now() + 125_000 });
+    expect(waiting).toContain('The architect waits for your reply, 2m');
+    expect(waiting).toMatch(/<button[^>]*title="End the talk[^"]*"[^>]*>.*Done/);
+    const held = box({ matter: 3, until: null });
+    expect(held).toContain('The architect went on with its queue');
+    expect(held).toContain('Done');
+    const none = box(null);
+    expect(none).not.toContain('Done');
+    expect(none).not.toContain('waits for your reply');
   });
 });

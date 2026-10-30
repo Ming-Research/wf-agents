@@ -216,18 +216,14 @@ export function choicesOf(body: JsonValue): Array<[string, string]> {
   return list.flatMap((c) => (Array.isArray(c) && typeof c[0] === 'string' ? [[c[0], str(c[1])] as [string, string]] : []));
 }
 
-/// What an answer to a choice the architect put sends (the study of a new policy, the policy to approve): the value
-/// chosen and the owner's words; none while it cannot be sent. Words are needed unless the choice is the first, the
-/// one that agrees.
+/// What a decision on a choice the architect put sends (the study of a new policy, the policy to approve): the value
+/// chosen alone, the owner's words going to the architect in their talk; none for a value the choice does not offer.
 export function rulingAnswer(
   choices: Array<[string, string]>,
   choice: string | null,
-  text: string,
 ): { choice: string; text: string } | null {
   if (choice === null || !choices.some(([v]) => v === choice)) return null;
-  const words = text.trim();
-  if (words === '' && choice !== choices[0][0]) return null;
-  return { choice, text: words };
+  return { choice, text: '' };
 }
 
 /// The articles of the constitution as the architect last checked them: those broken first, then those at risk, then

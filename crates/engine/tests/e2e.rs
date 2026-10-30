@@ -163,7 +163,14 @@ impl Agents for Scripted {
             Some(f) => f(r, n),
             None => (Vec::new(), Vec::new()),
         };
-        let pick: BTreeMap<String, String> = pick.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let mut pick: BTreeMap<String, String> =
+            pick.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        // The architect's turn in a talk with the owner: a reply while the owner talks on, done once the owner ended
+        // it, unless the script says otherwise.
+        if r.cell == "H8" && !pick.contains_key("outcome") && !pick.contains_key("outcome.talk") {
+            let ended = r.prompt.contains("The owner ended the talk");
+            pick.insert("outcome.talk".into(), if ended { "done" } else { "reply" }.into());
+        }
         let mut set: BTreeMap<String, Value> = set.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
         let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
         if let Some(e) = set.get("@error") {
@@ -2998,14 +3005,33 @@ fn an_item(e: &mut Engine) -> i64 {
     id
 }
 
-/// The owner says something to project p's architect.
+/// The owner says something to project p's architect and ends the talk at once, as Done does: the architect's first
+/// turn of it is its last.
 fn say(e: &mut Engine, text: &str) {
     db::say_to_architect(&mut e.db, "p", None, None, text).unwrap();
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE architect_matters SET talk_ended = ?1 WHERE id = (SELECT max(id) FROM architect_matters)",
+            [db::now()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// Whether a work stands at a cell, its last round having taken a row there.
+fn stands_at(e: &Engine, work: i64, cell: &str) -> bool {
+    let at: String =
+        e.db.conn()
+            .query_row("SELECT at FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap();
+    at == cell
 }
 
 // The owner's words start a work of project p's architect, which goes once through the whole graph: it starts, finds
-// its new session has not understood the project, understands it, judges the policy and what runs, takes the lone
-// matter on its path, whose item change is collected; the batch is done, its review finds the change sound, and the
+// its new session has not understood the project, understands it, judges the policy and what runs, and takes the
+// owner's words first, a talk: it replies, in the owner's one-to-one, and waits for the owner, who ends the talk; its
+// last turn hands in an item change, which is collected; the batch is done, its review finds the change sound, and the
 // engine makes it as the architect; the rethink goes on, nothing is left, and the work wraps up and ends, referred to
 // the state of things its session wrote. A field the path cell may leave out and wrote as null is taken as left out.
 #[test]
@@ -3017,9 +3043,19 @@ fn an_architect_work_goes_through_understanding_a_matter_its_review_and_its_wrap
     let given = change.clone();
     agents.insert(
         "H8",
-        Box::new(move |_: &Request, _: usize| {
+        Box::new(move |r: &Request, _: usize| {
+            if !r.prompt.contains("The owner ended the talk") {
+                let reply = vec![
+                    ("outcome.talk.text", json!("Which part is unclear?")),
+                    (
+                        "outcome.talk.if_we_end",
+                        json!("If we end here I will retitle it as an action."),
+                    ),
+                ];
+                return (vec![("outcome.talk", "reply")], reply);
+            }
             (
-                Vec::new(),
+                vec![("outcome.talk", "done")],
                 vec![(
                     "outcome.effects",
                     json!({ "item_changes": [given.clone()], "notes": null }),
@@ -3042,7 +3078,7 @@ fn an_architect_work_goes_through_understanding_a_matter_its_review_and_its_wrap
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
-    say(&mut e, "Make the parser's item clearer.");
+    db::say_to_architect(&mut e.db, "p", None, None, "Make the parser's item clearer.").unwrap();
     let started = e.step(None).unwrap();
     let log = said.borrow().join("\n");
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
@@ -3052,6 +3088,22 @@ fn an_architect_work_goes_through_understanding_a_matter_its_review_and_its_wrap
             .query_row("SELECT project FROM works WHERE id = ?1", [arch], |r| r.get(0))
             .unwrap();
     assert_eq!(project.as_deref(), Some("p"));
+    // The architect replies and waits for the owner, its reply the architect's message in the one-to-one.
+    let waits =
+        |e: &mut Engine| stands_at(e, arch, "H11") && cells_of(e, arch).last().unwrap().1.as_deref() == Some("waits");
+    assert!(steps_until(&mut e, 40, waits), "{}", said.borrow().join("\n"));
+    assert!(e.step(None).unwrap().rounds.is_empty());
+    let replied: String =
+        e.db.conn()
+            .query_row("SELECT text FROM owner_messages ORDER BY id DESC LIMIT 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(
+        replied,
+        "Which part is unclear?\n\nIf we end here I will retitle it as an action."
+    );
+    api::end_talk(&mut e.db, "p").unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
@@ -3061,14 +3113,20 @@ fn an_architect_work_goes_through_understanding_a_matter_its_review_and_its_wrap
     assert_eq!(
         path_of(&e, arch),
         [
-            "S1", "U1", "P1", "N1", "Q0", "Q2", "H8", "B1", "B2", "B4", "Q0", "E1", "E2"
+            "S1", "U1", "P1", "N1", "Q0", "Q2", "H8", "H11", "H11", "H8", "B1", "B2", "B4", "Q0", "E1", "E2"
         ],
         "{log}"
     );
     let rows: Vec<Option<String>> = cells_of(&e, arch).into_iter().map(|c| c.1).collect();
     assert_eq!(rows[0].as_deref(), Some("not_understood"));
-    assert_eq!(rows[7].as_deref(), Some("review"));
-    assert_eq!(rows[8].as_deref(), Some("ok"));
+    assert_eq!(rows[4].as_deref(), Some("owner_words"));
+    assert_eq!(
+        rows[6..9].iter().map(|r| r.as_deref()).collect::<Vec<_>>(),
+        [Some("replied"), Some("waits"), Some("ended")]
+    );
+    assert_eq!(rows[9].as_deref(), Some("done"));
+    assert_eq!(rows[10].as_deref(), Some("review"));
+    assert_eq!(rows[11].as_deref(), Some("ok"));
     // The change is made, as the architect's, and logged as made with the matter it came from.
     let title: String =
         e.db.conn()
@@ -3407,7 +3465,7 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     let mut agents = scripts();
     picks_first(&s, &mut agents);
     agents.insert(
-        "H8",
+        "H9",
         Box::new(|r: &Request, _: usize| {
             if r.prompt.contains("Hold the release?") && !r.prompt.contains("Yes, hold it.") {
                 return (
@@ -3428,8 +3486,17 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
-    say(&mut e, "Hold the release?");
-    say(&mut e, "Look at the queue.");
+    for text in ["Hold the release?", "Look at the queue."] {
+        let m = db::Matter {
+            project: "p".into(),
+            kind: "other_architect".into(),
+            detail: Some("message".into()),
+            what: format!("The architect of q says: {text}"),
+            body: json!({ "text": text }),
+            ..db::Matter::default()
+        };
+        e.db.write(Actor::Engine, |tx| db::queue_matter(tx, &m)).unwrap();
+    }
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
@@ -3441,7 +3508,7 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     let asked = path.iter().position(|c| c == "A3").expect(&log);
     assert_eq!(
         &path[asked - 1..asked + 6],
-        ["H8", "A3", "B1", "Q0", "Q2", "H8", "B1"],
+        ["H9", "A3", "B1", "Q0", "Q2", "H9", "B1"],
         "{log}"
     );
     assert_eq!(cells_of(&e, arch)[asked].1.as_deref(), Some("held"));
@@ -3455,12 +3522,12 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
             )
             .unwrap();
     let ask = held.1.expect(&log);
-    assert_eq!((held.2.as_deref(), held.3), (Some("H8"), None), "{log}");
+    assert_eq!((held.2.as_deref(), held.3), (Some("H9"), None), "{log}");
     assert_eq!(
         matters(&e),
         [
-            ("owner_words".to_string(), false, false),
-            ("owner_words".to_string(), false, true)
+            ("other_architect".to_string(), false, false),
+            ("other_architect".to_string(), false, true)
         ],
         "{log}"
     );
@@ -3483,9 +3550,9 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     let log = said.borrow().join("\n");
     let path = path_of(&e, again);
     let at = path.iter().position(|c| c == "Q2").expect(&log);
-    assert_eq!(&path[at..at + 3], ["Q2", "H8", "B1"], "{log}");
-    assert_eq!(cells_of(&e, again)[at].1.as_deref(), Some("to_owner_words"));
-    let answered = message_at(&e, again, "H8", false);
+    assert_eq!(&path[at..at + 3], ["Q2", "H9", "B1"], "{log}");
+    assert_eq!(cells_of(&e, again)[at].1.as_deref(), Some("to_answer_architect"));
+    let answered = message_at(&e, again, "H9", false);
     assert!(answered.contains("Yes, hold it."), "{answered}");
     let handled: Option<i64> =
         e.db.conn()
@@ -3496,6 +3563,84 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
             )
             .unwrap();
     assert_eq!(handled, Some(again), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's words are a talk the architect takes first: once its wait for the owner's reply runs out, the talk goes
+// back to the queue, held there, and the architect goes on; the owner's next words make it due again, first, and its
+// next turn is given them in the session that holds the talk, the words taken into the talk; only the owner ends it,
+// here while it is held, and its last turn hands in what it came to.
+#[test]
+fn a_talk_whose_wait_runs_out_is_held_until_the_owner_says_more() {
+    let s = setup("talk-held");
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(
+        &s.data,
+        "install.toml",
+        &format!("{install}\n[agents]\nowner_reply_wait = 0\n"),
+    );
+    git(&s.data, &["commit", "-q", "-am", "no wait for the owner's reply"]);
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    db::say_to_architect(&mut e.db, "p", None, None, "Should the parser come first?").unwrap();
+    let first = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, first)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let path = path_of(&e, first);
+    let at = path.iter().position(|c| c == "H8").expect(&log);
+    assert_eq!(&path[at..at + 3], ["H8", "H11", "B1"], "{log}");
+    assert_eq!(cells_of(&e, first)[at + 1].1.as_deref(), Some("no_reply"), "{log}");
+    let talk: (i64, Option<i64>, Option<i64>) =
+        e.db.conn()
+            .query_row(
+                "SELECT id, talk_held, handled_round FROM architect_matters WHERE kind = 'owner_words'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+    assert!(talk.1.is_some() && talk.2.is_none(), "{talk:?}");
+    assert_eq!(matters(&e), [("owner_words".to_string(), false, false)], "{log}");
+    assert_eq!(e.step(None).unwrap().work, None, "{log}");
+    // The owner says more: the talk is due again, first, its next turn given the new words.
+    db::say_to_architect(&mut e.db, "p", None, None, "And the tests?").unwrap();
+    let second = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, second)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(path_of(&e, second)[..5], ["S1", "Q0", "Q2", "H8", "H11"], "{log}");
+    assert!(message_at(&e, second, "H8", false).contains("And the tests?"), "{log}");
+    assert_eq!(
+        matters(&e),
+        [
+            ("owner_words".to_string(), false, false),
+            ("owner_words".to_string(), false, true)
+        ],
+        "{log}"
+    );
+    // The owner ends the talk while it is held: its last turn hands in what it came to.
+    api::end_talk(&mut e.db, "p").unwrap();
+    let third = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, third)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert_eq!(rows_at(&e, third, "H8"), ["done"], "{log}");
+    assert!(
+        message_at(&e, third, "H8", false).contains("The owner ended the talk"),
+        "{log}"
+    );
+    assert!(matters(&e).iter().all(|m| m.2), "{log}");
+    assert!(api::end_talk(&mut e.db, "p").is_err());
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

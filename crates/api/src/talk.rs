@@ -13,18 +13,20 @@ use serde_json::{Value, json};
 use crate::read::{self, Error, Flows};
 use crate::{
     Conversation, ConversationDetail, ConversationEntry, Forwarded, Forwarding, Handled, MatterProgress, Misses,
-    StageCard, StageMove,
+    StageCard, StageMove, TalkWait,
 };
 
 type Result<T> = std::result::Result<T, Error>;
 
 /// What the conversations need of the configuration: its projects, in order, the project that is wf-agents itself,
-/// and the groups of two projects or more it connects through each project's `other_projects`.
+/// the groups of two projects or more it connects through each project's `other_projects`, and how long, in seconds,
+/// an architect waits for the owner's reply in a talk (`agents.owner_reply_wait`).
 #[derive(Debug, Clone, Default)]
 pub struct Talks {
     pub projects: Vec<String>,
     pub own: Option<String>,
     pub sets: Vec<Vec<String>>,
+    pub reply_wait: u64,
 }
 
 impl Talks {
@@ -55,6 +57,7 @@ impl Talks {
             projects,
             own: c.wf_agents_project(),
             sets: sets.into_values().filter(|s| s.len() > 1).collect(),
+            reply_wait: c.install.agents.owner_reply_wait,
         }
     }
 
@@ -317,7 +320,20 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
             &[work],
         )?;
     }
+    let talk = match key.strip_prefix("architect:") {
+        Some(project) => waits_for_reply(conn, project, t.reply_wait)?,
+        None => None,
+    };
     if let Some(project) = key.strip_prefix("architect:") {
+        // The owner's words a talk is about are taken up, while the talk is open or held for the owner's reply.
+        if let Some((open, _)) = db::open_talk(conn, project).map_err(|e| Error::Failed(e.to_string()))? {
+            for e in entries
+                .iter_mut()
+                .filter(|e| e.source == "words" && e.matter == Some(open))
+            {
+                e.pending = false;
+            }
+        }
         entries.extend(matter_cards(conn, flows, project)?);
         if let Some(p) = read::policy(conn, project)? {
             entries.push(ConversationEntry {
@@ -382,7 +398,59 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
         } else {
             None
         },
+        talk,
     })
+}
+
+/// The talk with a project's architect that waits for the owner's reply: the one open, while its work waits at the
+/// cell that waits for the reply (`H11`), until its reply's end and the wait (`wait`, seconds) later, or held out of the
+/// queue once the wait ran out; none while the architect is answering, the owner said more since, or none is open.
+fn waits_for_reply(conn: &Connection, project: &str, wait: u64) -> Result<Option<TalkWait>> {
+    let Some((matter, held)) = db::open_talk(conn, project).map_err(|e| Error::Failed(e.to_string()))? else {
+        return Ok(None);
+    };
+    // The owner said more in the one-to-one since the talk was held, or since its last reply: the architect has it.
+    let since: Option<i64> = conn.query_row(
+        &format!(
+            "SELECT CASE WHEN ?2 THEN m.talk_held ELSE (
+               SELECT max(r.ended_at) FROM rounds r JOIN works w ON w.id = r.work
+               WHERE w.graph = 'architect' AND w.project = m.project AND w.ended IS NULL AND r.cell IN {}
+                 AND r.transition IS NOT NULL) END
+             FROM architect_matters m WHERE m.id = ?1",
+            db::cells_sql("architect", &["H8"])
+        ),
+        params![matter, held],
+        |r| r.get(0),
+    )?;
+    let said: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM architect_matters WHERE project = ?1 AND kind = 'owner_words'
+           AND json_extract(body, '$.where') = 'page' AND id <> ?2 AND handled_round IS NULL AND withdrawn IS NULL
+           AND at > coalesce(?3, 0))",
+        params![project, matter, since],
+        |r| r.get(0),
+    )?;
+    if said {
+        return Ok(None);
+    }
+    if held {
+        return Ok(Some(TalkWait { matter, until: None }));
+    }
+    let at: Option<String> = conn
+        .query_row(
+            "SELECT at FROM works WHERE graph = 'architect' AND project = ?1 AND ended IS NULL
+             ORDER BY id DESC LIMIT 1",
+            [project],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if !at.is_some_and(|a| db::is_cell("architect", "H11", &a)) {
+        return Ok(None);
+    }
+    let wait = i64::try_from(wait).unwrap_or(i64::MAX / 1000).saturating_mul(1000);
+    Ok(Some(TalkWait {
+        matter,
+        until: since.map(|s| s.saturating_add(wait)),
+    }))
 }
 
 /// What the owner said at once to the architect's work in hand and to its policy setting, an interjection into each,

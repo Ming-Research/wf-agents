@@ -35,7 +35,7 @@ pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives,
 /// and those of the policy being set, which [`draft_places`] names the places of.
-pub const INPUTS: [&str; 24] = [
+pub const INPUTS: [&str; 27] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -60,6 +60,9 @@ pub const INPUTS: [&str; 24] = [
     "batch_changes",
     "changes_touch",
     "group_talk",
+    "talk",
+    "setting_waits",
+    "setting_talk",
 ];
 
 /// The input that gives what the cell before this one on the matter's path answered of it, as that round's return:
@@ -100,8 +103,8 @@ fn policy_stays(e: &Engine, project: &str) -> Result<Option<Value>, String> {
 
 /// Why the policy is set again, for the setting of it: what the check of the policy in force that started it (`P1`)
 /// found of the policy in force against the constitution, article by article, and each reason it may no longer govern,
-/// as the round that raised the setting's matter handed them in; for a work with no setting in hand, the latest such
-/// round of the project's.
+/// as the round that raised the setting's matter handed them in, or what the talk with the owner that started it
+/// (`H8`) came to, with the talk; for a work with no setting in hand, the latest such round of the project's.
 fn set_again(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let raised: Option<(i64, i64)> = match setting_of(conn, w.id)? {
@@ -115,6 +118,29 @@ fn set_again(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, Strin
             .map_err(sql)?,
         None => None,
     };
+    // A talk with the owner that started the setting: what it came to, with the owner's words.
+    if let Some((work, n)) = raised {
+        let by: Option<(Option<String>, Option<String>)> = conn
+            .query_row(
+                "SELECT cell, output FROM rounds WHERE work = ?1 AND n = ?2",
+                [work, n],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(sql)?;
+        if let Some((Some(cell), output)) = by
+            && db::is_cell(ARCHITECT, TALK, &cell)
+        {
+            let turn = json_col(output)
+                .map(|o| o["outcome"]["talk"].clone())
+                .unwrap_or(Value::Null);
+            let talk = match picked_before(conn, work, Some(n))? {
+                Some(t) => talk_of(conn, project, t)?,
+                None => Value::Null,
+            };
+            return Ok(Some(json!({ "the_talk_came_to": turn["conclusion"], "talk": talk })));
+        }
+    }
     let rows = query_json(
         conn,
         &format!(
@@ -201,6 +227,15 @@ const ROUTER: &str = "Q2";
 const UNDERSTAND: &str = "U1";
 const RETHINK: &str = "B4";
 const REVIEW: &str = "B2";
+
+/// The cell of the owner's words, whose rounds are the architect's turns in a talk with the owner, and the rows of its
+/// last turn, each a way on.
+const TALK: &str = "H8";
+const TALK_ENDS: &str = "('done', 're_plan', 'new_policy', 'to_setting', 're_understand')";
+
+/// The owner's words to a project's architect said in their one-to-one, which are the next words of the talk open when
+/// they come, as a condition on `architect_matters`.
+const ONE_TO_ONE: &str = "kind = 'owner_words' AND json_extract(body, '$.where') = 'page'";
 
 /// The architect's line, whose session goes on across the architect's works; the cell that asks whether that session
 /// understood the project.
@@ -577,15 +612,26 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
 /// The matter the latest pick in a work of the architect chose before round `before`, or before none: the lone matter
 /// the queue held (cell `Q0`), or the one the architect picked (cell `Q1`); none when the latest look at the queue
 /// found none, or many with no pick after it. The check of the policy in force that sets it again (`P1`) takes the
-/// setting of a new policy in hand as a pick does: the setting's matter it raised, or the one under way.
+/// setting of a new policy in hand as a pick does: the setting's matter it raised, or the one under way; and so does a
+/// talk with the owner that ends in a new policy (`H8`), once it raised the setting's matter.
 pub fn picked_before(conn: &Connection, work: i64, before: Option<i64>) -> Result<Option<i64>, String> {
     let row: Option<(i64, String, Option<String>)> = conn
         .query_row(
-            "SELECT n, cell, output FROM rounds WHERE work = ?1 AND n < ?2 AND transition IS NOT NULL
+            "SELECT n, cell, output FROM rounds r WHERE work = ?1 AND n < ?2 AND transition IS NOT NULL
                AND (cell = ?3 OR (cell = ?4 AND json_extract(output, '$.outcome.pick.matter') IS NOT NULL)
-                 OR (cell = ?5 AND transition = 'set_again'))
+                 OR (cell = ?5 AND transition = 'set_again')
+                 OR (cell = ?6 AND transition = 'new_policy' AND EXISTS (
+                   SELECT 1 FROM architect_matters m WHERE m.work = r.work AND m.round = r.n AND m.kind = ?7)))
              ORDER BY n DESC LIMIT 1",
-            params![work, before.unwrap_or(i64::MAX), LOOK, PICK, POLICY_CHECK],
+            params![
+                work,
+                before.unwrap_or(i64::MAX),
+                LOOK,
+                PICK,
+                POLICY_CHECK,
+                TALK,
+                SETTING
+            ],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()
@@ -593,6 +639,9 @@ pub fn picked_before(conn: &Connection, work: i64, before: Option<i64>) -> Resul
     let Some((n, cell, output)) = row else { return Ok(None) };
     if cell == POLICY_CHECK {
         return setting_raised(conn, RoundId::new(work, n));
+    }
+    if cell == TALK {
+        return raised_by(conn, RoundId::new(work, n));
     }
     let o = json_col(output).unwrap_or(Value::Null);
     Ok(if cell == LOOK {
@@ -608,6 +657,17 @@ fn setting_raised(conn: &Connection, round: RoundId) -> Result<Option<i64>, Stri
     conn.query_row(
         "SELECT max(m.id) FROM architect_matters m JOIN works w ON w.id = ?1
          WHERE m.project = w.project AND m.kind = ?3 AND (m.work < ?1 OR (m.work = ?1 AND m.round <= ?2))",
+        params![round.work, round.n, SETTING],
+        |r| r.get(0),
+    )
+    .map_err(sql)
+}
+
+/// The setting of a new policy a round raised itself, as a talk with the owner that ends in a new policy does; none
+/// when it raised none.
+fn raised_by(conn: &Connection, round: RoundId) -> Result<Option<i64>, String> {
+    conn.query_row(
+        "SELECT max(id) FROM architect_matters WHERE work = ?1 AND round = ?2 AND kind = ?3",
         params![round.work, round.n, SETTING],
         |r| r.get(0),
     )
@@ -695,6 +755,11 @@ pub fn matter_rounds(conn: &Connection, project: &str, m: i64) -> Result<Vec<Mat
             Some(PICK) if chosen.is_some() => in_hand = chosen,
             Some(POLICY_CHECK) if transition.as_deref() == Some("set_again") => {
                 in_hand = setting_raised(conn, RoundId::new(work, n))?;
+            }
+            Some(TALK) if transition.as_deref() == Some("new_policy") => {
+                if let Some(m) = raised_by(conn, RoundId::new(work, n))? {
+                    in_hand = Some(m);
+                }
             }
             _ => {}
         }
@@ -983,9 +1048,10 @@ fn close_settled_cards(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<St
     Ok(closed.into_iter().map(|x| x.1).collect())
 }
 
-/// Cell `Q0`: what can be picked from the project's queue now; a lone matter is picked here, without a
-/// round. A design card matter whose card needs no look any longer is closed first (the cell's `close_settled_cards`,
-/// which a flow version before the cell named what it does did too), as the round's progress says.
+/// Cell `Q0`: what can be picked from the project's queue now; the owner's words, the oldest first, and a lone matter
+/// are picked here, without a round. A design card matter whose card needs no look any longer is closed first (the
+/// cell's `close_settled_cards`, which a flow version before the cell named what it does did too), as the round's
+/// progress says.
 pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
     let project = project_of(w)?;
     let closes = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "close_settled_cards");
@@ -997,11 +1063,15 @@ pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Va
     let conn = e.db.conn();
     let can = pickable(conn, project, w.id)?;
     let handled = handled_in_batch(conn, w.id)?;
-    let queue = match can.as_slice() {
-        [] if handled > 0 || !collected(conn, w.id)?.is_empty() => json!({ "verdict": "none_after_batch" }),
-        [] => json!({ "verdict": "none" }),
-        [one] => json!({ "verdict": "one", "matter": one["matter"] }),
-        many => json!({ "verdict": "many", "count": many.len() }),
+    // The owner's words are taken first, the oldest of them, without a pick, where the cell has the row for it.
+    let words = cell.rows.iter().any(|r| r.name == "owner_words");
+    let first = can.iter().find(|r| words && r["kind"] == "owner_words");
+    let queue = match (first, can.as_slice()) {
+        (Some(said), _) => json!({ "verdict": "owner_words", "matter": said["matter"] }),
+        (None, []) if handled > 0 || !collected(conn, w.id)?.is_empty() => json!({ "verdict": "none_after_batch" }),
+        (None, []) => json!({ "verdict": "none" }),
+        (None, [one]) => json!({ "verdict": "one", "matter": one["matter"] }),
+        (None, many) => json!({ "verdict": "many", "count": many.len() }),
     };
     let mut out = json!({ "queue": queue });
     if !closed.is_empty() {
@@ -1203,6 +1273,12 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         .into(),
         "entry" => entry(e, w, g)?,
         "route" => route(e, w, g)?,
+        "turn" => match talk_in_hand(conn, w.id)? {
+            Some(t) if talk_over(conn, t, None)? => "ended",
+            _ => "said",
+        }
+        .into(),
+        "reply" => reply_now(e, w)?.into(),
         "setting" => if setting_under_way(conn, project_of(w)?)? {
             "under_way"
         } else {
@@ -1308,6 +1384,269 @@ pub fn back_to_understanding(
     crate::steps::engine(e, &back, g, &at)
 }
 
+// A talk with the owner.
+
+/// The talk with the owner a work of the architect has in hand: the matter of the owner's words it picked; none when
+/// it has another in hand.
+pub fn talk_in_hand(conn: &Connection, work: i64) -> Result<Option<i64>, String> {
+    let Some(m) = picked(conn, work)? else { return Ok(None) };
+    let kind: Option<String> = conn
+        .query_row("SELECT kind FROM architect_matters WHERE id = ?1", [m], |r| r.get(0))
+        .optional()
+        .map_err(sql)?;
+    Ok((kind.as_deref() == Some("owner_words")).then_some(m))
+}
+
+/// Whether the talk about the owner's words `t` is over for a turn that started at `before` (now, when none): the owner
+/// ended it before then, by Done or by deciding on the setting of a policy that waited meanwhile; or the words are none
+/// the owner said to the architect (its release of a work the architect had stopped, its answer to an ask that held no
+/// matter), which take one turn and no talk.
+fn talk_over(conn: &Connection, t: i64, before: Option<i64>) -> Result<bool, String> {
+    let (detail, ended): (Option<String>, Option<i64>) = conn
+        .query_row(
+            "SELECT detail, talk_ended FROM architect_matters WHERE id = ?1",
+            [t],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(sql)?
+        .unwrap_or((None, None));
+    Ok(detail.as_deref() != Some("said") || ended.is_some_and(|at| before.is_none_or(|b| at < b)))
+}
+
+/// The owner's words to a project's architect in their one-to-one not taken yet, but `t`, the talk's own, oldest first:
+/// the next words of the talk open.
+fn words_waiting(conn: &Connection, project: &str, t: i64) -> Result<Vec<Value>, String> {
+    query_json(
+        conn,
+        &format!(
+            "SELECT id, at, json_extract(body, '$.text') AS text FROM architect_matters
+             WHERE project = ?1 AND {ONE_TO_ONE} AND id <> ?2 AND handled_round IS NULL AND withdrawn IS NULL
+             ORDER BY id"
+        ),
+        &[&project, &t],
+        ROWS,
+    )
+}
+
+/// Where the architect that waits for the owner's reply stands (cell `H11`, the value `reply`): the owner said more to
+/// it since its reply, or ended the talk; or neither yet, waiting while the wait the installation sets
+/// (`agents.owner_reply_wait`) has not run out since its reply, and no longer once it has.
+fn reply_now(e: &Engine, w: &Work) -> Result<&'static str, String> {
+    let conn = e.db.conn();
+    let Some(t) = talk_in_hand(conn, w.id)? else {
+        return Ok("no_reply");
+    };
+    if talk_over(conn, t, None)? {
+        return Ok("ended");
+    }
+    if !words_waiting(conn, project_of(w)?, t)?.is_empty() {
+        return Ok("said");
+    }
+    let replied: Option<i64> = conn
+        .query_row(
+            &format!(
+                "SELECT max(ended_at) FROM rounds WHERE work = ?1 AND cell IN {} AND transition IS NOT NULL",
+                db::cells_sql(ARCHITECT, &[TALK])
+            ),
+            [w.id],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    let wait = i64::try_from(e.config.config.install.agents.owner_reply_wait)
+        .unwrap_or(i64::MAX / 1000)
+        .saturating_mul(1000);
+    Ok(if replied.is_some_and(|at| db::now() - at < wait) {
+        "waits"
+    } else {
+        "no_reply"
+    })
+}
+
+/// The owner's words in the one-to-one a round of a talk took, which it marked handled, as entries of the talk.
+fn words_taken(conn: &Connection, round: RoundId, t: i64) -> Result<Vec<Value>, String> {
+    query_json(
+        conn,
+        &format!(
+            "SELECT id, at, json_extract(body, '$.text') AS text FROM architect_matters
+             WHERE {ONE_TO_ONE} AND handled_work = ?1 AND handled_round = ?2 AND id <> ?3 ORDER BY id"
+        ),
+        &[&round.work, &round.n, &t],
+        ROWS,
+    )
+}
+
+/// A talk with the owner, about the owner's words `t`, as the architect's cell of the owner's words is given it: the
+/// words that started it, with where they were said; then, numbered from 1, each of the owner's words since, said in
+/// the one-to-one, and each of the architect's turns, in order; and, once the owner ended it, that the owner did. An
+/// object by number, so that a session that holds the talk is given only the entries new to it.
+pub fn talk_of(conn: &Connection, project: &str, t: i64) -> Result<Value, String> {
+    let rows = query_json(
+        conn,
+        "SELECT detail, body, item, at, talk_ended, handled_round FROM architect_matters WHERE id = ?1",
+        &[&t],
+        1,
+    )?;
+    let Some(m) = rows.into_iter().next() else {
+        return Ok(Value::Null);
+    };
+    let body = &m["body"];
+    let mut started = json!({
+        "matter": t,
+        "detail": m["detail"],
+        "where": body["where"],
+        "work": body["work"],
+        "item": m["item"],
+        "at": m["at"].as_i64().map(utc_minute),
+        "words": body.get("text").or(body.get("answer")).cloned().unwrap_or(Value::Null),
+        "ask": body["ask"],
+    });
+    if let Some(o) = started.as_object_mut() {
+        o.retain(|_, v| !v.is_null());
+    }
+    let said = |x: &Value| json!({ "owner": x["text"], "at": x["at"].as_i64().map(utc_minute) });
+    let mut entries: Vec<Value> = Vec::new();
+    for r in matter_rounds(conn, project, t)?
+        .into_iter()
+        .filter(|r| r.cell.as_deref() == Some(TALK) && r.transition.is_some())
+    {
+        let output: Option<String> = conn
+            .query_row(
+                "SELECT output FROM rounds WHERE work = ?1 AND n = ?2",
+                params![r.id.work, r.id.n],
+                |x| x.get(0),
+            )
+            .map_err(sql)?;
+        let turn = json_col(output)
+            .map(|o| o["outcome"]["talk"].clone())
+            .unwrap_or(Value::Null);
+        if turn.is_null() {
+            continue;
+        }
+        entries.extend(words_taken(conn, r.id, t)?.iter().map(said));
+        entries.push(if turn["verdict"] == "reply" {
+            json!({ "you": turn["text"], "if_we_end": turn["if_we_end"] })
+        } else {
+            json!({ "you_ended_it": turn["verdict"], "it_came_to": turn["conclusion"] })
+        });
+    }
+    if m["handled_round"].is_null() {
+        entries.extend(words_waiting(conn, project, t)?.iter().map(said));
+    }
+    let mut out = Map::new();
+    out.insert("started".into(), started);
+    for (i, x) in entries.into_iter().enumerate() {
+        out.insert((i + 1).to_string(), x);
+    }
+    if let Some(at) = m["talk_ended"].as_i64() {
+        out.insert(
+            "ended".into(),
+            json!(format!("The owner ended the talk at {}", utc_minute(at))),
+        );
+    }
+    Ok(Value::Object(out))
+}
+
+/// The talk the work has in hand, as [`talk_of`] gives it; none when it has none.
+fn talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
+    match talk_in_hand(e.db.conn(), w.id)? {
+        Some(t) => talk_of(e.db.conn(), project, t).map(Some),
+        None => Ok(None),
+    }
+}
+
+/// The open matter of the setting of a project's policy, while an ask of the owner holds it: the ask's body, which
+/// holds what the owner reads (the study) or approves (the text, the probes and the readings).
+fn setting_ask(conn: &Connection, project: &str) -> Result<Option<Value>, String> {
+    Ok(query_json(
+        conn,
+        "SELECT a.body FROM architect_matters m JOIN owner_asks a ON a.id = m.asked
+         WHERE m.project = ?1 AND m.kind = ?2 AND m.handled_round IS NULL AND m.withdrawn IS NULL
+           AND a.answer IS NULL
+         ORDER BY m.id DESC LIMIT 1",
+        &[&project, &SETTING],
+        1,
+    )?
+    .into_iter()
+    .next()
+    .map(|r| r["body"].clone()))
+}
+
+/// What the setting of a new policy waits for the owner on, for a talk with the owner meanwhile: the study the owner
+/// reads (`P3`), or the text the owner approves (`P11`) with the probes, every reading and the gaps they left open;
+/// none while the setting waits for no one.
+fn setting_waits(e: &Engine, project: &str) -> Result<Option<Value>, String> {
+    let Some(body) = setting_ask(e.db.conn(), project)? else {
+        return Ok(None);
+    };
+    Ok(match body["kind"].as_str() {
+        Some("study") => Some(json!({ "waits_for": "the owner reads the study", "study": body["study"] })),
+        Some("policy_approval") => {
+            let gaps: Vec<Value> = items(body.get("readings"))
+                .iter()
+                .flat_map(|r| items(r["verdict"].get("gaps")))
+                .collect();
+            Some(json!({
+                "waits_for": "the owner approves the text",
+                "policy": body["policy"],
+                "probes": body["probes"],
+                "readings": body["readings"],
+                "gaps_left_open": gaps,
+            }))
+        }
+        _ => None,
+    })
+}
+
+/// The talks with the owner held while the setting of a new policy the work has in hand waited for the owner: since
+/// the latest of its asks of the owner, at its study (`P3`) or its approval (`P11`), or since it started when it put
+/// none; each as [`talk_of`] gives it, with the way it ended. None when there were none.
+fn setting_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
+    let conn = e.db.conn();
+    let Some(m) = setting_of(conn, w.id)? else {
+        return Ok(None);
+    };
+    let asked = matter_rounds(conn, project, m)?
+        .into_iter()
+        .rev()
+        .find(|r| r.transition.as_deref() == Some(HELD))
+        .map(|r| r.id);
+    let raised: Option<(i64, i64)> = conn
+        .query_row(
+            "SELECT work, round FROM architect_matters WHERE id = ?1 AND work IS NOT NULL",
+            [m],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    let since = asked
+        .or(raised.map(|(w, n)| RoundId::new(w, n)))
+        .unwrap_or(RoundId::new(0, 0));
+    let ends = query_json(
+        conn,
+        &format!(
+            "SELECT r.work, r.n FROM rounds r JOIN works x ON x.id = r.work
+             WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell IN {} AND r.transition IN {TALK_ENDS}
+               AND (r.work > ?2 OR (r.work = ?2 AND r.n > ?3))
+             ORDER BY r.work, r.n",
+            db::cells_sql(ARCHITECT, &[TALK])
+        ),
+        &[&project, &since.work, &since.n],
+        ROWS,
+    )?;
+    let mut talks = Vec::new();
+    for r in ends {
+        let (work, n) = (
+            r["work"].as_i64().unwrap_or_default(),
+            r["n"].as_i64().unwrap_or_default(),
+        );
+        if let Some(t) = picked_before(conn, work, Some(n))? {
+            talks.push(talk_of(conn, project, t)?);
+        }
+    }
+    Ok((!talks.is_empty()).then_some(Value::Array(talks)))
+}
+
 // Asks of the owner.
 
 /// The ask of the owner a round waits for or took, and its answer once the owner gave it: the one the round put, or the
@@ -1378,18 +1717,17 @@ fn choices(cell: &CompiledCell) -> Vec<Value> {
 }
 
 /// What an answer of the owner's comes back to an owner's cell of the architect's graph as: a ruling with the option
-/// chosen and the words, for a cell that rules; a reply with the words otherwise.
+/// chosen, and the words where the ruling has a place for them (a flow version before the owner ruled by buttons
+/// alone), for a cell that rules; a reply with the words otherwise.
 fn answered_as(cell: &CompiledCell, answer: &Value) -> Value {
     let text = answer["text"].as_str().unwrap_or_default();
-    let rules = cell
-        .schema
-        .as_ref()
-        .and_then(|s| s.pointer("/properties/ruling"))
-        .is_some();
-    if rules {
-        json!({ "ruling": { "choice": answer["choice"], "text": text } })
-    } else {
-        json!({ "reply": { "text": text } })
+    let ruling = cell.schema.as_ref().and_then(|s| s.pointer("/properties/ruling"));
+    match ruling {
+        Some(r) if r.pointer("/properties/text").is_some() => {
+            json!({ "ruling": { "choice": answer["choice"], "text": text } })
+        }
+        Some(_) => json!({ "ruling": { "choice": answer["choice"] } }),
+        None => json!({ "reply": { "text": text } }),
     }
 }
 
@@ -2198,6 +2536,56 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         "settle_straight_hold" => settle_hold(tx, w, &architect_work_of(ctx)?.1)?,
         "hold_for_policy" => hold(tx, &architect_work_of(ctx)?.1, "policy", None)?,
         "release_policy_hold" => release(tx, &architect_work_of(ctx)?.1, "policy")?,
+        "take_words" => {
+            // The owner's words in the one-to-one that came before this round started, which it was given as the next
+            // words of its talk; the talk's own matter stays open until its last turn.
+            let (_, project) = architect_work_of(ctx)?;
+            let t = matter_of(tx, w)?;
+            let started: i64 = tx
+                .query_row(
+                    "SELECT started_at FROM rounds WHERE work = ?1 AND n = ?2",
+                    params![ctx.round.work, ctx.round.n],
+                    |r| r.get(0),
+                )
+                .map_err(sql)?;
+            tx.execute(
+                &format!(
+                    "UPDATE architect_matters SET handled_work = ?1, handled_round = ?2
+                     WHERE project = ?3 AND {ONE_TO_ONE} AND id <> ?4 AND handled_round IS NULL AND withdrawn IS NULL
+                       AND at < ?5"
+                ),
+                params![ctx.round.work, ctx.round.n, project, t, started],
+            )
+            .map_err(sql)?;
+        }
+        "reply_to_owner" => {
+            // The reply is the architect's message in the owner's one-to-one, what it will do if the owner ends the
+            // talk there its last sentence; the notifications log says it too.
+            let turn = &ctx.unwrapped["talk"];
+            let said = [text(&turn["text"]).trim(), text(&turn["if_we_end"]).trim()]
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            if !said.is_empty() {
+                tx.execute(
+                    "INSERT INTO owner_messages (work, round, text) VALUES (?1, ?2, ?3)",
+                    params![ctx.round.work, ctx.round.n, said],
+                )
+                .map_err(sql)?;
+                let (_, project) = architect_work_of(ctx)?;
+                let logged = format!("The architect of {project} replies, and waits for yours: {said}");
+                actions::outbox(tx, Some(w), "notify", &json!({ "text": logged }))?;
+            }
+        }
+        "hold_talk" => {
+            let t = matter_of(tx, w)?;
+            tx.execute(
+                "UPDATE architect_matters SET talk_held = ?2 WHERE id = ?1",
+                params![t, db::now()],
+            )
+            .map_err(sql)?;
+        }
         "close_matter" => {
             let m = matter_of(tx, w)?;
             tx.execute(
@@ -2321,14 +2709,31 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             )?;
             // One setting at a time: one under way is taken up instead, as the latest raised.
             if open == 0 {
-                let reasons = items(ctx.unwrapped["verdict"].get("reasons"));
-                let why: Vec<String> = reasons.iter().map(|r| text(&r["why"]).trim().to_string()).collect();
+                // Why it is set again: the reasons the check of the policy in force found, or what the talk with the
+                // owner came to.
+                let came_to = text(&ctx.unwrapped["talk"]["conclusion"]).trim().to_string();
+                let (what, body) = if came_to.is_empty() {
+                    let reasons = items(ctx.unwrapped["verdict"].get("reasons"));
+                    let why: Vec<String> = reasons.iter().map(|r| text(&r["why"]).trim().to_string()).collect();
+                    (
+                        format!("Set a new policy for {project}: {}", db::one_sentence(&why.join("; "))),
+                        json!({ "reasons": reasons }),
+                    )
+                } else {
+                    (
+                        format!(
+                            "Set a new policy for {project}, as the owner asked: {}",
+                            db::one_sentence(&came_to)
+                        ),
+                        json!({ "talk": matter_of(tx, w)?, "conclusion": came_to }),
+                    )
+                };
                 let m = Matter {
                     project: project.clone(),
                     kind: SETTING.into(),
                     detail: None,
-                    what: format!("Set a new policy for {project}: {}", db::one_sentence(&why.join("; "))),
-                    body: json!({ "reasons": reasons }),
+                    what,
+                    body,
                     item: None,
                     raised: Some((ctx.round.work, ctx.round.n)),
                 };
@@ -3027,17 +3432,30 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
             Ok(())
         }
-        "rethink_when_asked" => {
-            let from = batch_start(conn, c.w.id)?;
-            let asked = count(
-                conn,
-                "SELECT count(*) FROM rounds WHERE work = ?1 AND n > ?2 AND cell = 'H8'
-                   AND transition IS NOT NULL AND json_extract(output, '$.outcome.take.way') = 'rethink'",
-                &[&c.w.id, &from],
-            )?;
-            let again = v.is_some_and(|r| r["verdict"] == "think_again");
-            if asked > 0 && !again {
-                return Err("the owner asked in this batch to rethink the policy: the answer is think_again".into());
+        "talk_turn" => {
+            let Some(turn) = v else { return Ok(()) };
+            let started = work::open_round(conn, c.w.id)?.map(|r| r.started_at);
+            let ended = match talk_in_hand(conn, c.w.id)? {
+                Some(t) => talk_over(conn, t, started)?,
+                None => false,
+            };
+            let reply = turn["verdict"] == "reply";
+            if ended && reply {
+                return Err(
+                    "the owner ended the talk before this round: hand in what it came to and its way on, \
+                            not a reply"
+                        .into(),
+                );
+            }
+            if !ended && !reply {
+                return Err(
+                    "only the owner ends the talk, by Done: hand in a reply, and say in if_we_end what you \
+                            will do if the owner ends it there"
+                        .into(),
+                );
+            }
+            if reply && c.unwrapped.get("effects").is_some_and(|x| !empty(x)) {
+                return Err("a reply hands in no effects: what you do waits for the owner to end the talk".into());
             }
             Ok(())
         }
@@ -3202,6 +3620,9 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "batch_changes" => batch_changes(e, w).map(Some),
         "changes_touch" => changes_touch(e, w),
         "group_talk" => group_talk(e, w, project),
+        "talk" => talk(e, w, project),
+        "setting_waits" => setting_waits(e, project),
+        "setting_talk" => setting_talk(e, w, project),
         other => Err(format!("no such engine input: {other}")),
     }
 }
@@ -3983,9 +4404,9 @@ fn queue(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
 }
 
 /// The batch so far: the numbers of the matters it handled; each, by its number, with how it ended, by the round that
-/// handled it; those held for the owner's answer; the item changes it made; whether a hold to set things straight was
-/// released in it; and whether the owner asked to rethink the policy. Each matter is by its number, so that a session
-/// given only what changed is given the matters new to it.
+/// handled it; those held for the owner's answer; the item changes it made; and whether a hold to set things straight
+/// was released in it. Each matter is by its number, so that a session given only what changed is given the matters new
+/// to it.
 fn batch(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
     let from = batch_start(conn, w.id)?;
@@ -4038,19 +4459,12 @@ fn batch(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
            AND json_extract(old_row, '$.project') = ?2 AND json_extract(old_row, '$.reason') = 'set_straight'",
         &[&since, &project],
     )? > 0;
-    let rethink = count(
-        conn,
-        "SELECT count(*) FROM rounds WHERE work = ?1 AND n > ?2 AND cell = 'H8' AND transition IS NOT NULL
-           AND json_extract(output, '$.outcome.take.way') = 'rethink'",
-        &[&w.id, &from],
-    )? > 0;
     Ok(json!({
         "handled_matters": numbers,
         "handled": by_matter(handled),
         "held_for_owner": by_matter(asked),
         "item_changes": made,
         "straight_hold_released": released,
-        "owner_asked_to_rethink": rethink,
     }))
 }
 

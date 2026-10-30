@@ -14,11 +14,12 @@
 // for the owner's words, free unless the ask or the choice asks for them, and Answer; a question the architect holds
 // has the small box in its bubble too. What is written there answers that bubble; once answered, the buttons and the
 // box give way to the owner's answer, in the same bubble and named as the owner's answer to it, which shows nowhere
-// else. While an ask that waits is out of view, a slim line over the stream says so and brings it into view. A design
-// card a work waits on to be ruled is pinned at the top. The one box at the bottom only says something, in a work's
-// group to the engineer, the architect or both, and in the one-to-one, while something of the architect runs or waits
-// for the owner, either interjects into it, which the architect answers there as it goes on, or adds to its queue.
-// Opening a conversation reads it up to its latest entry.
+// else. The study and the text of a new policy are decided by their three buttons alone, a click sending the decision.
+// While an ask that waits is out of view, a slim line over the stream says so and brings it into view. A design card a
+// work waits on to be ruled is pinned at the top. The one box at the bottom only says something, in a work's group to
+// the engineer, the architect or both, and in the one-to-one to the architect, whose words are a talk the architect
+// takes first: while it waits for the owner's reply the box says so and how long it waits yet, and Done beside Send
+// ends the talk. Opening a conversation reads it up to its latest entry.
 
 import {
   ArrowDownIcon,
@@ -54,6 +55,7 @@ import type {
   JsonValue,
   Misses,
   OwnerAsk,
+  TalkWait,
   WorkSummary,
 } from '../api';
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from '../answer';
@@ -79,10 +81,10 @@ import {
   streamOf,
   voiceOf,
 } from '../conversation';
-import { cost, time } from '../format';
+import { cost, duration, time } from '../format';
 import { postJson } from '../http';
 import { isObj, label, str, words } from '../labelled';
-import { reread, useResource } from '../live';
+import { reread, useNow, useResource } from '../live';
 import { Markdown } from '../markdown';
 import { architectHref, forProject, href, Link, navigate, workHref } from '../route';
 import { t, tn } from '../text';
@@ -278,12 +280,47 @@ function useAnswer(): {
   return { text, setText, busy, error, post };
 }
 
-/// How an ask that waits is answered, in its bubble: the buttons of what it offers (the choices its cell offers, each
-/// saying on hovering what it means and, once picked, under the buttons; or the options of its choice), a click picking
-/// one and a second clearing it, the one picked marked; then the small box of the owner's words and Answer. The words
-/// are needed for an ask in words alone and for a choice that asks for them, else they are free; an engineer's ask the
-/// owner holds can be handed back to the architect with them.
+/// How the owner decides on the study or the text of a new policy, in its bubble: the buttons of the choices its cell
+/// offers, each saying on hovering what it means, a click sending that decision; no box, the owner's words on it going
+/// to the architect in their talk.
+function RulingAnswer({ a, choices }: { a: OwnerAsk; choices: Array<[string, string]> }) {
+  const { busy, error, post } = useAnswer();
+  return (
+    <div className="talk-answer" role="group" aria-label={t('conv_answer_ask', { id: a.id })}>
+      <div className="talk-answer-buttons">
+        {choices.map(([value, means]) => (
+          <Button
+            key={value}
+            size="small"
+            title={means}
+            disabled={busy}
+            onClick={() => {
+              const answer = askAnswer(a, value, '', false);
+              if (answer !== null) post(`/api/v1/asks/${a.id}/answer`, answer);
+            }}
+          >
+            {label(value)}
+          </Button>
+        ))}
+      </div>
+      {error !== null ? <Flash variant="danger">{t('request_failed', { error })}</Flash> : null}
+    </div>
+  );
+}
+
+/// How an ask that waits is answered, in its bubble: the buttons of what it offers (the options of its choice), a click
+/// picking one and a second clearing it, the one picked marked; then the small box of the owner's words and Answer. The
+/// words are needed for an ask in words alone and for an option ask with none picked, else they are free; an
+/// engineer's ask the owner holds can be handed back to the architect with them. The study and the text of a new policy
+/// are decided by their buttons alone.
 function AskAnswer({ a }: { a: OwnerAsk }) {
+  const way = answerWay(a);
+  if (way.by === 'ruling') return <RulingAnswer a={a} choices={way.choices} />;
+  return <AskWords a={a} />;
+}
+
+/// An ask answered by an option and the owner's words, or by the words alone.
+function AskWords({ a }: { a: OwnerAsk }) {
   const way = answerWay(a);
   const [pick, setPick] = useState('');
   const [back, setBack] = useState(false);
@@ -587,11 +624,21 @@ function Pinned({ d }: { d: ConversationDetail }) {
   );
 }
 
+/// While the architect waits for the owner's reply in their talk, over the box: that it does, and how long it waits
+/// yet, ticking; or, once it went on with its queue, that the owner's next words take the talk up again.
+function TalkWaits({ talk }: { talk: TalkWait }) {
+  const now = useNow(talk.until !== null);
+  const text =
+    talk.until !== null ? t('reply_waits', { left: duration(Math.max(0, talk.until - now)) }) : t('reply_held');
+  return <p className="talk-say-waits">{text}</p>;
+}
+
 /// The one box at the bottom of a conversation: it says something, in a work's group to the engineer, the architect or
 /// both; in a group of projects to one architect or every one; in the one-to-one to the architect, as the owner's words
-/// in its queue, which it takes up in its turn. It never answers a bubble: an ask, and a question the architect holds,
-/// are answered in their bubbles. Closed, it says why: a work at its end no longer changes its way on.
-function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
+/// it takes first, its talk with the owner; while that talk waits for the owner's reply (`talk`), it says so over the
+/// box, and Done beside Send ends the talk. It never answers a bubble: an ask, and a question the architect holds, are
+/// answered in their bubbles. Closed, it says why: a work at its end no longer changes its way on.
+export function Composer({ c, w, talk }: { c: Conversation; w: WorkSummary | null; talk: TalkWait | null }) {
   const choices = sayTo(c);
   const [text, setText] = useState('');
   const [ticked, setTicked] = useState<string[]>(choices.slice(0, 1));
@@ -610,6 +657,11 @@ function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
   const failed = (e: unknown) => {
     setBusy(false);
     setError(e instanceof Error ? e.message : String(e));
+  };
+  const end = () => {
+    setBusy(true);
+    setError(null);
+    postJson(forProject('/api/v1/architect/done', c.project), {}).then(done, failed);
   };
   const send = () => {
     if (!ready) return;
@@ -630,8 +682,10 @@ function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
   };
   const toWords = (x: string) => (c.kind === 'projects' ? t('conv_to_architect_of', { project: x }) : `@${words(x)}`);
   const tick = (x: string, on: boolean) => setTicked((now) => (on ? [...now, x] : now.filter((y) => y !== x)));
+  const ends = c.kind === 'architect' && talk !== null;
   return (
     <div className="talk-say">
+      {ends ? <TalkWaits talk={talk} /> : null}
       {closed === null && choices.length > 1 ? (
         <div className="talk-say-to" role="group" aria-label={t('conv_to')}>
           <span className="talk-say-to-label">{t('conv_to')}</span>
@@ -669,6 +723,11 @@ function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
         <Button variant="primary" onClick={send} disabled={!ready || busy}>
           {t('conv_send')}
         </Button>
+        {ends ? (
+          <Button onClick={end} disabled={busy} title={t('reply_done_hint')}>
+            {t('reply_done')}
+          </Button>
+        ) : null}
       </div>
       {error !== null ? <Flash variant="danger">{t('request_failed', { error })}</Flash> : null}
     </div>
@@ -826,7 +885,7 @@ function Open({ c }: { c: Conversation }) {
             <Stream d={d} c={c} w={w} />
           </>
         )}
-        <Composer key={c.key} c={c} w={w} />
+        <Composer key={c.key} c={c} w={w} talk={d?.talk ?? null} />
       </div>
     </AnswersHere.Provider>
   );

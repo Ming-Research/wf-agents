@@ -648,6 +648,15 @@ CREATE TABLE architect_matters (
   -- Read by: architect_queue, which leaves it out; the engine, which tells a new work on the item what an earlier
   -- work asked and had withdrawn; the owner's interface, which leaves it out of the queue.
   withdrawn TEXT,
+  -- For the owner's words, which the architect talks with the owner about (cell `H8`): when the architect went on with
+  -- its queue, its wait for the owner's reply having run out (cell `H11`), holding the talk out of the queue until the
+  -- owner says more to it in their one-to-one or ends the talk; NULL while it was never held so. Read by:
+  -- architect_queue; the owner's interface, which shows the talk waiting for the owner's reply.
+  talk_held INTEGER,
+  -- For the owner's words the architect talks with the owner about: when the owner ended the talk, by Done or by
+  -- deciding on the study or the text of a new policy that waited meanwhile; NULL while the owner has not. Read by: the
+  -- engine, whose next turn of the talk hands in what it came to; architect_queue.
+  talk_ended INTEGER,
   CHECK ((work IS NULL) = (round IS NULL)),
   CHECK ((handled_work IS NULL) = (handled_round IS NULL)),
   CHECK ((asked IS NULL) = (resume_cell IS NULL)),
@@ -1116,11 +1125,13 @@ CREATE VIEW known_red_counts AS
   GROUP BY i.project;
 
 CREATE VIEW architect_queue AS
-  -- Each project's queue: the matters not handled, not withdrawn and not held by an ask of the owner still waiting,
-  -- each with who waits for it (an agent: an engineer stopped at the architect's cell for its question; the owner, for
-  -- the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
-  -- answer, and whether it is urgent. Read by: cells `S0`, `S1` and `Q0`; the engine, which takes `S0`'s rows by it
-  -- for each project whose architect runs no work, and gives the architect its queue; the owner's interface.
+  -- Each project's queue: the matters not handled, not withdrawn, not held by an ask of the owner still waiting and
+  -- not held by a talk with the owner that waits for the owner's reply, each with who waits for it (an agent: an
+  -- engineer stopped at the architect's cell for its question; the owner, for the owner's words; or no one), when it
+  -- came and how long it has waited, whether it comes back with the owner's answer, and whether it is urgent. A talk
+  -- held is due again once the owner said more to the architect in their one-to-one since, or ended it. Read by: cells
+  -- `S0`, `S1` and `Q0`; the engine, which takes `S0`'s rows by it for each project whose architect runs no work, and
+  -- gives the architect its queue; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
     CASE
       WHEN m.work IS NOT NULL AND m.reply IS NULL AND EXISTS (
@@ -1137,6 +1148,10 @@ CREATE VIEW architect_queue AS
   FROM architect_matters m
   WHERE m.handled_round IS NULL AND m.withdrawn IS NULL
     AND (m.asked IS NULL OR EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL))
+    AND (m.talk_held IS NULL OR m.talk_ended IS NOT NULL OR EXISTS (
+      SELECT 1 FROM architect_matters x
+      WHERE x.project = m.project AND x.kind = 'owner_words' AND json_extract(x.body, '$.where') = 'page'
+        AND x.handled_round IS NULL AND x.withdrawn IS NULL AND x.at > m.talk_held))
   ORDER BY m.id;
 
 CREATE VIEW architect_notes AS

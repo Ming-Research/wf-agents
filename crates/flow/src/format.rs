@@ -263,8 +263,9 @@ pub struct Flow {
     /// What a stopped task of this graph waits on: the cells it stands at while each holder holds its blocker.
     pub blockers: Option<Blockers>,
     /// The holder whose own work this graph is, as the architect's works are the architect's: a holder never stops
-    /// while it holds a blocker, so no row of this graph waits but for the owner's Start after a pause, and its start's
-    /// where no work stands yet, and an ask of the owner holds only what it is about, going on without the answer.
+    /// while it holds a blocker, so no row of this graph waits but for the owner's Start after a pause, its start's
+    /// where no work stands yet, and a wait an installation's setting bounds (`until`), and an ask of the owner holds
+    /// only what it is about, going on without the answer.
     pub holds: Option<String>,
 }
 
@@ -802,6 +803,9 @@ pub struct RawRow {
     pub counts: Option<String>,
     /// The row waits for someone, and counts nothing.
     pub waits: Option<bool>,
+    /// For a row that waits, the installation's setting that bounds the wait: the cell takes another row once it ran
+    /// out, so that a holder's own graph waits no longer than that, as the architect for the owner's reply in a talk.
+    pub until: Option<String>,
     /// The row takes an interjection to the cell that receives it.
     pub interject: Option<bool>,
     /// The row is on the main path; a work off it is an anomaly to look at.

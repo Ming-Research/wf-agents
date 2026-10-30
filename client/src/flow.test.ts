@@ -102,13 +102,16 @@ function limitsOf(m: Measures): Limits {
 /// here; for the architect graph, on the flow of 962c176 (CI run 40995651263), once the setting of a policy was a
 /// stage of it, which made it a graph of more cells and longer rows; and the length of a row, for both, on the flow of
 /// f138150 (CI run 40997637730), once each cell had the stores it reads or writes beside it, which made the cells'
-/// units taller and the rows between them longer (the engineer graph's 506 to 576, the architect graph's 1853 to 2311).
+/// units taller and the rows between them longer (the engineer graph's 506 to 576, the architect graph's 1853 to 2311);
+/// and for the architect graph's level runs, far rows and what is beside a cell, on the flow where the owner's words
+/// became a talk with the architect, a cell more that waits for the owner's reply and its rows, which measured run
+/// 5330, far 60 and beside each 29.3.
 /// Before cells were laid out so, on the flow of 6e258c1 (CI run 40855485231), the engineer graph measured rows 42384,
 /// run 1046, bends 214, far 388, beside 5522, and the architect graph rows 82062, run 1731, bends 286, far 198, beside
 /// 1539.
 const MOST: Record<string, Limits> = {
   engineer: { rowLength: 634, run: 2162, bendsPerArrow: 1.71, far: 722, besideEach: 76 },
-  architect: { rowLength: 2542, run: 4650, bendsPerArrow: 3.18, far: 49, besideEach: 24 },
+  architect: { rowLength: 2542, run: 5863, bendsPerArrow: 3.18, far: 66, besideEach: 32.3 },
 };
 const engine = compiled.engine;
 const graphs = compiled.graphs.map((g) => {

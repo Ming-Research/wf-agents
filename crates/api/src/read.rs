@@ -3133,6 +3133,7 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             own: Some("p".into()),
             sets: Vec::new(),
+            reply_wait: 300,
         };
         let all = crate::conversations(s.db.conn(), &t).unwrap();
         let keys: Vec<&str> = all.iter().map(|c| c.key.as_str()).collect();
@@ -3266,6 +3267,7 @@ mod tests {
             projects: vec!["p".into()],
             own: None,
             sets: Vec::new(),
+            reply_wait: 300,
         };
         let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
         let cards: Vec<(i64, &str, i64)> = d
@@ -3294,6 +3296,7 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             own: Some("p".into()),
             sets: Vec::new(),
+            reply_wait: 300,
         };
         let counts = |s: &Setup| {
             let all = crate::conversations(s.db.conn(), &t).unwrap();

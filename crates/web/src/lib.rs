@@ -151,6 +151,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/asks/{id}/answer", post(answer))
         .route("/api/v1/design-cards/{id}/rule", post(rule))
         .route("/api/v1/architect/say", post(say_to_architect))
+        .route("/api/v1/architect/done", post(end_talk))
         .route("/api/v1/architect/step", post(step_architect))
         .route("/api/v1/architect/start", post(start_architect))
         .route("/api/v1/architect/pause", post(pause_architect))
@@ -655,6 +656,13 @@ async fn say_to_architect(
         db::say_to_architect(db, &project, s.item, None, &s.text)
     })
     .await
+}
+
+/// Ends, as the owner, the talk with a project's architect that waits for the owner's reply (Done): the architect's next
+/// turn of it hands in what it came to.
+async fn end_talk(State(app): State<App>, Query(q): Query<OfProject>) -> Result<Json<api::Done>, Fail> {
+    let (project, _) = project_of(&app, &q)?;
+    decide(&app, move |db| api::end_talk(db, &project)).await
 }
 
 /// Runs one round of a project's architect: the next round of its work that runs, or, when none runs and its queue
