@@ -610,10 +610,17 @@ pub fn cost(data: &Path, work: Option<i64>) -> Result<String, String> {
                 &[&(TABLE_ROWS as i64)],
                 TABLE_ROWS + 1,
             )?;
-            let works: i64 = tx
-                .query_row("SELECT count(DISTINCT work) FROM rounds", [], |r| r.get(0))
-                .map_err(sql)?;
-            let left_out = (works as usize).saturating_sub(TABLE_ROWS);
+            // Up to TABLE_ROWS rows, the total among them, there are fewer works than the table lists and none is
+            // left out, so the works are counted, which reads every round again, only when the total is the row past
+            // them.
+            let left_out = if rows.len() > TABLE_ROWS {
+                let works: i64 = tx
+                    .query_row("SELECT count(DISTINCT work) FROM rounds", [], |r| r.get(0))
+                    .map_err(sql)?;
+                (works as usize).saturating_sub(TABLE_ROWS)
+            } else {
+                0
+            };
             // The total row is a row of the table, and what the table leaves out is said after it, last of all.
             Ok(table_body(&rows, 40) + &left_out_line(left_out, TABLE_ROWS))
         }
