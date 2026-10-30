@@ -92,6 +92,27 @@
   padding: 0 var(--base-size-8);
 }
 
+/* How the rows nest, to be seen at a glance: each level steps in --base-size-24, where Primer's TreeView steps in half
+   its toggle's width (8px), and Primer's level lines, one down from each row's toggle beside every row under it, show
+   always, where Primer shows them only while the pointer is over the tree or it has the focus. TreeView has no
+   setting for either: its indent is its own variable on each row's container, and the lines are set by the line's
+   colour, which each row gives every row under it, and placed by each line's width. The container and the line are
+   reached by the names Primer gives them unhashed; were those to change, the tree would fall back to Primer's own. */
+.tree-row {
+  --tree-line-color: var(--borderColor-default);
+}
+
+.items-trees .tree-row > .PRIVATE_TreeView-item-container {
+  --spacer-width: calc((var(--level) - 1) * var(--base-size-24));
+}
+
+/* Each line takes a level's step, its edge under the middle of the toggle of the row above at that level. */
+.items-trees .tree-row .PRIVATE_TreeView-item-level-line {
+  flex: none;
+  width: calc(var(--toggle-width) / 2);
+  margin-right: calc(var(--base-size-24) - var(--toggle-width) / 2);
+}
+
 /* A row: its number and title, then what it needs from the owner as chips; at its end its facts as muted words in the
    row's size, then its state's chip. */
 .tree-line {

@@ -5,11 +5,12 @@
 // the owner, the items it waits for before it starts, and at its end, as muted words joined by a bar, the kind of the
 // dependency by which the item above depends on it, how many of what it depends on are done, its place in the queue
 // and its work's stage in words where the row has room, how far through the stages on hovering; then its state, as
-// the chip a state is everywhere.
+// the chip a state is everywhere. Each level steps in a clear step, with a line down from a row's toggle beside every
+// row under it, and a double click on a row with rows under it folds or unfolds them, as its toggle does.
 
 import { CheckIcon, LinkIcon } from '@primer/octicons-react';
 import { Button, Heading, PageLayout, TreeView } from '@primer/react';
-import { Fragment, type ReactNode, useState } from 'react';
+import { Fragment, type MouseEvent, type ReactNode, useState } from 'react';
 
 import type { ItemLink, Items as ItemsData, ItemState, ItemSummary } from '../api';
 import { DependencyKind, ITEM_TONE, ItemBadge, Loaded, StateChip } from '../components';
@@ -82,6 +83,15 @@ function RowEnd({ facts, stage, state }: { facts: Array<ReactNode | null>; stage
   );
 }
 
+/// Primer's toggle of a row, its chevron, by the name Primer gives it unhashed: its own clicks fold the row already.
+const TOGGLE = '.PRIVATE_TreeView-item-toggle';
+
+/// Whether a press landed on the row itself, rather than on a row under it or on its toggle.
+function onRow(e: MouseEvent<HTMLElement>): boolean {
+  const at = e.target instanceof Element ? e.target : null;
+  return at !== null && at.closest('[role="treeitem"]') === e.currentTarget && at.closest(TOGGLE) === null;
+}
+
 function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
   const i = row.item;
   const open = () => navigate(`/items/${i.id}`);
@@ -100,6 +110,7 @@ function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
       </TreeView.Item>
     );
   }
+  const parent = row.children.length > 0;
   const deps = depsDone(i.id, data.items, data.links);
   const stage = i.state === 'done' || i.state === 'cancelled' ? null : stageAt(i.stage, i.stages);
   return (
@@ -108,8 +119,16 @@ function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
       className="tree-row"
       current={i.id === selected}
       onSelect={open}
-      expanded={row.children.length > 0 ? !folded.has(path) : null}
+      expanded={parent ? !folded.has(path) : null}
       onExpandedChange={(expanded) => onFold(path, expanded)}
+      // A double click folds or unfolds the rows under this one, into the fold its toggle keeps, and selects no word;
+      // on a row with none under it, it does what its clicks did, which open the item.
+      onMouseDown={(e) => {
+        if (parent && e.detail > 1 && onRow(e)) e.preventDefault();
+      }}
+      onDoubleClick={(e) => {
+        if (parent && onRow(e)) onFold(path, folded.has(path));
+      }}
     >
       <span className="tree-line">
         <span className="muted">#{i.id}</span> <span className="tree-title">{i.title}</span>
@@ -140,7 +159,7 @@ function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
           state={i.state}
         />
       </TreeView.TrailingVisual>
-      {row.children.length > 0 ? (
+      {parent ? (
         <TreeView.SubTree>
           {row.children.map((c) => {
             const at = `${path}/${c.item.id}${c.full ? '' : 'r'}`;
