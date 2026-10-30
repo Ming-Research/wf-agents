@@ -499,11 +499,6 @@
   margin: 0;
 }
 
-.policy-tab {
-  display: grid;
-  gap: var(--base-size-12);
-}
-
 /* Where a card waiting for the owner is ruled on or answered, and the button that answers it here. */
 .answer-there {
   margin: var(--base-size-8) 0 0;

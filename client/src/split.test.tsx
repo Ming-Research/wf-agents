@@ -191,6 +191,7 @@ describe('a round picked beside a chart', () => {
       observations: [],
       tags: [],
       own: true,
+      constitution: null,
     };
     const html = renderToStaticMarkup(
       <ArchitectChart

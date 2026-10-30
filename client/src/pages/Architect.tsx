@@ -9,7 +9,8 @@
 // stretch shown placed on it as a work is, and the column docked at its right holds the architect's panel, with what is
 // open on the chart split under it, as on a work's page. The panel's tabs, on one line: its rounds; the item changes
 // its batches made; the project's observations, each leading to the conversation it is closed in; what to do next; the
-// policy in force, as one document; and its usage over a span of time the owner picks. Each part names the cell that wrote it, and every tab draws its
+// policy in force, as one document, and beside it the project's constitution, which the architect judges by with it;
+// and its usage over a span of time the owner picks. Each part names the cell that wrote it, and every tab draws its
 // blocks, sections, items and rounds with the page's shared parts.
 
 import { BlockedIcon, SearchIcon, TriangleDownIcon } from '@primer/octicons-react';
@@ -54,7 +55,7 @@ import {
   SPANS,
 } from '../route';
 import { t, tn } from '../text';
-import { Block, By, CellTitles, ItemRef, type OpenRound, PeriodSwitch, SubHeading } from '../parts';
+import { Block, By, CellTitles, ItemRef, type OpenRound, PeriodSwitch, Section, SubHeading } from '../parts';
 import { ChangeBlock, NextView, PolicyText } from './ArchitectViews';
 import { bringIntoView } from './Decide';
 import { Held, HeadLine, OldFlow, Running } from './HeadLine';
@@ -380,21 +381,44 @@ function Observations({ a }: { a: ArchitectRead }) {
   );
 }
 
-/// The policy in force, as one document, with when it took effect and the round that wrote it; or that none has taken
-/// effect yet. Setting a new one, its study and drafts, and the owner's readings of them are in the one-to-one with the
-/// architect, where the owner answers them; the owner reads the policy here to recall it.
+/// The policy in force, as one document, with when it took effect and the round that wrote it, or that none has taken
+/// effect yet; and beside it the project's constitution, which the architect judges by with the policy, as the project's
+/// own file has it in its checkout, folded at first. Setting a new policy, its study and drafts, and the owner's readings
+/// of them are in the one-to-one with the architect, where the owner answers them; the owner reads the policy here to
+/// recall it.
 function Policy({ a, onRound }: { a: ArchitectRead; onRound: OpenRound }) {
   const p = a.policy;
-  if (p === null) return <p className="muted">{t('policy_none')}</p>;
+  const law = a.constitution;
   return (
-    <div className="policy-tab">
-      <p className="muted">
-        <By cell={p.cell} work={p.work} round={p.round} onRound={onRound}>
-          {t('policy_took_effect', { at: time(p.at) })}
-        </By>
-      </p>
-      <PolicyText value={p.policy} />
-    </div>
+    <>
+      <Section
+        title={t('policy_in_force')}
+        open
+        by={
+          p !== null ? (
+            <By cell={p.cell} work={p.work} round={p.round} onRound={onRound}>
+              {t('policy_took_effect', { at: time(p.at) })}
+            </By>
+          ) : undefined
+        }
+      >
+        {p !== null ? <PolicyText value={p.policy} /> : <p className="muted">{t('policy_none')}</p>}
+      </Section>
+      <Section
+        title={t('constitution')}
+        by={law !== null ? <span className="by">{t('constitution_at', { path: law.name })}</span> : undefined}
+      >
+        {law === null ? (
+          <p className="muted">{t('constitution_none')}</p>
+        ) : law.text.trim() === '' ? (
+          <p className="muted">{t('constitution_unread', { path: law.name })}</p>
+        ) : (
+          <div className="document">
+            <Markdown text={law.text} />
+          </div>
+        )}
+      </Section>
+    </>
   );
 }
 

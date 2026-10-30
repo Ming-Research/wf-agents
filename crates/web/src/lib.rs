@@ -510,8 +510,15 @@ async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result
         })
         .unwrap_or_default();
     let own = c.wf_agents_project().as_deref() == Some(project.as_str());
+    // The project's constitution, the file its configuration names in its checkout, as the architect reads it.
+    let constitution = c.projects.get(&project).and_then(|p| {
+        p.constitution.as_ref().map(|path| api::NamedText {
+            name: path.display().to_string(),
+            text: std::fs::read_to_string(p.checkout.join(path)).unwrap_or_default(),
+        })
+    });
     read(&app, move |conn, a| {
-        api::architect(conn, &a.flows, &project, projects, tags, own)
+        api::architect(conn, &a.flows, &project, projects, tags, own, constitution)
     })
     .await
     .map(Json)

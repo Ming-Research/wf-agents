@@ -1429,7 +1429,13 @@ tags: Array<Tag>,
  * Whether the project is wf-agents itself, whose observations wf-agents' own conversation holds; any other
  * project's are in its architect's one-to-one, where the owner closes them.
  */
-own: boolean, };
+own: boolean,
+/**
+ * The project's constitution, which the architect judges by with the policy: its path in the project's checkout,
+ * as the configuration names it, and its text there now, empty when it cannot be read; none when the project names
+ * none.
+ */
+constitution: NamedText | null, };
 
 /**
  * One work of an architect.

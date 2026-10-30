@@ -265,7 +265,8 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         post(s.port, "/api/v1/architect/start?project=q", "{}", "application/json").0,
         404
     );
-    // The architect's tab names its project, every project and the project's tags for observations.
+    // The architect's tab names its project, every project and the project's tags for observations, and no
+    // constitution for a project that names none.
     let here = format!("127.0.0.1:{}", s.port);
     let (status, tab) = get(s.port, "/api/v1/architect", &here, "");
     assert_eq!(status, 200, "{tab}");
@@ -273,6 +274,7 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         tab.contains(r#""project":"p""#) && tab.contains(r#""projects":["p"]"#) && tab.contains(r#""name":"perf""#),
         "{tab}"
     );
+    assert!(tab.contains(r#""constitution":null"#), "{tab}");
     // A work that does not go on by itself is stepped while the others go on; the status says what the owner asked.
     assert_eq!(post(s.port, "/api/v1/works/2/step", "{}", "application/json").0, 202);
     let here = format!("127.0.0.1:{}", s.port);

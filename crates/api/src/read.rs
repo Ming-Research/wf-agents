@@ -1761,8 +1761,8 @@ pub(crate) fn shown_where(conn: &Connection, flows: &Flows, filter: &str, args: 
 }
 
 /// A project's architect, as its tab shows it: `projects` are every project of the configuration, `tags` the project's
-/// tags for observations, each with what it covers, and `own` whether the project is wf-agents itself. Its cells are
-/// named as the views over its rounds name them.
+/// tags for observations, each with what it covers, `own` whether the project is wf-agents itself, and `constitution`
+/// the project's constitution as its checkout has it. Its cells are named as the views over its rounds name them.
 pub fn architect(
     conn: &Connection,
     flows: &Flows,
@@ -1770,6 +1770,7 @@ pub fn architect(
     projects: Vec<String>,
     tags: Vec<Tag>,
     own: bool,
+    constitution: Option<NamedText>,
 ) -> Result<Architect> {
     // The works of the project's architect, and the settings of its policy a flow version before ran beside them as works
     // of their own, by their numbers: the filter takes numbers only.
@@ -1829,6 +1830,7 @@ pub fn architect(
         observations: observations(conn, project)?,
         tags,
         own,
+        constitution,
     })
 }
 
@@ -3508,6 +3510,7 @@ mod tests {
             vec!["p".into(), "q".into()],
             tags,
             false,
+            None,
         )
         .unwrap();
         assert_eq!((a.project.as_str(), a.projects.len(), a.tags.len()), ("p", 2, 1));
@@ -3638,7 +3641,16 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()], Vec::new(), false).unwrap();
+        let a = architect(
+            s.db.conn(),
+            &Flows::default(),
+            "p",
+            vec!["p".into()],
+            Vec::new(),
+            false,
+            None,
+        )
+        .unwrap();
         let setting = a.setting.unwrap();
         assert_eq!(setting.matter, 5);
         assert_eq!(
