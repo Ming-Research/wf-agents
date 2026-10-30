@@ -33,7 +33,7 @@ import { OptionBoxes } from '../item/Shapes';
 import { isObj, Labelled, str, words, type Obj } from '../labelled';
 import { reread } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
-import { SendForm, SubHeading } from '../parts';
+import { RoundAt, SendForm, SubHeading } from '../parts';
 import { href, Link, navigate } from '../route';
 import { t } from '../text';
 
@@ -450,11 +450,8 @@ function CardLink({ id, item }: { id: number; item: number | null }) {
   );
 }
 
-/// A cell, with its title when known.
-const cellText = (cell: string | null, title: string | null) => (cell === null ? '' : title !== null ? `${cell} ${title}` : cell);
-
 /// A design card as the owner reads and rules on it, in the card every card shares: its head (its number, how it
-/// stands, the round that handed it in, at which cell and when, the card it replaced, and for a replaced one the card
+/// stands, the round that handed it in at its cell, when, the card it replaced, and for a replaced one the card
 /// that replaced it); the band of its rulings; what it changed from the card it replaced; each decision; and while it
 /// waits, what the owner sends. `round` is the link to the round that handed it in; a folded card is one line.
 export function DesignCardView({ c, round, folded = false }: { c: DesignCard; round: ReactNode; folded?: boolean }) {
@@ -466,19 +463,16 @@ export function DesignCardView({ c, round, folded = false }: { c: DesignCard; ro
   const given = decisions.map((_, i) => set[i] ?? UNSET);
   const setOne = (i: number) => (v: Verdict) => setSet(() => given.map((x, j) => (j === i ? v : x)));
   const r = c.replaced;
-  const where = [
-    c.cell !== null ? t('dc_at', { cell: cellText(c.cell, c.title) }) : null,
-    c.at !== null ? time(c.at) : null,
-  ].filter((x) => x !== null);
+  const when = c.at !== null ? time(c.at) : '';
   const head = (
     <>
       <span className="dc-name">{t('dc_name', { id: c.id })}</span>
       <StatusChip tone={tone}>
         {tone === 'wait' ? t('dc_waits') : tone === 'old' ? t('dc_replaced') : tone === 'no' ? t('dc_disagreed') : t('dc_confirmed')}
       </StatusChip>
-      {round}
+      <RoundAt round={round} cell={c.cell} title={c.title} />
       <span className="dc-note">
-        {where.join(' · ')}
+        {when}
         {c.replaces !== null ? (
           <>
             {' · '}

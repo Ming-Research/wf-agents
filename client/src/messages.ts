@@ -505,7 +505,6 @@ const messages = {
   dc_replaced: 'replaced',
   dc_disagreed: 'disagreed',
   dc_confirmed: 'confirmed',
-  dc_at: 'at {cell}',
   dc_replaces: 'replaces',
   dc_replaced_by: 'replaced by',
   dc_replaced_at: 'at {round}',

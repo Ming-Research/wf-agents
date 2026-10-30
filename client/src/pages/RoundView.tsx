@@ -22,7 +22,7 @@ import { getJson, getText } from '../http';
 import { empty, isObj, type Obj, words } from '../labelled';
 import { useResource } from '../live';
 import { Markdown } from '../markdown';
-import { LinkButton, RoundLink } from '../parts';
+import { LinkButton, RoundAt, RoundLink } from '../parts';
 import { brief, chars, messageParts, placeSchema, shape, type ShapeOptions, shareWords, type Shown, type ShownField, spent, titleOf } from '../round';
 import { t, tn } from '../text';
 import { charCount, FoldPart, InnerName, joined, Long, Name, Named, Overview, PanelSection, Part, Row, Rows, Said, Sheet } from '../voices';
@@ -296,21 +296,22 @@ function FieldValue({ f, level }: { f: ShownField; level: number }) {
   );
 }
 
-/// A cell, as a link that brings it into view on the chart and opens it.
-function CellLink({ f, id }: { f: Flow | null; id: string }) {
-  const c = f?.cell(id);
-  const words = (
-    <>
-      <span className="cell-id">{id}</span> {c?.title ?? ''}
-    </>
-  );
-  if (f === null) return <span>{words}</span>;
-  return <LinkButton onClick={() => f.open({ kind: 'cell', cell: id })}>{words}</LinkButton>;
-}
-
 /// A round of the work, as a round link that opens it on the chart, or on the work's page where no chart is.
 function Round({ f, work, n }: { f: Flow | null; work: number; n: number }) {
   return <RoundLink work={work} round={n} onRound={f !== null ? (_, r) => f.open({ kind: 'round', round: r }) : undefined} />;
+}
+
+/// A round of the work at its cell, as the page writes a round at a cell (`RoundAt`), or a cell no round has reached
+/// yet (`n` null): the round as [`Round`] links it, the cell a link that brings it into view on the chart and opens it.
+function RoundAtCell({ f, work, n, cell }: { f: Flow | null; work: number; n: number | null; cell: string | null }) {
+  return (
+    <RoundAt
+      round={n !== null ? <Round f={f} work={work} n={n} /> : null}
+      cell={cell}
+      title={cell !== null ? (f?.cell(cell)?.title ?? null) : null}
+      onCell={f !== null && cell !== null ? () => f.open({ kind: 'cell', cell }) : undefined}
+    />
+  );
 }
 
 /// Why a round started a new session, in a few words; none for a round that went on in its line's session.
@@ -375,11 +376,11 @@ function RoundOverview({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSu
       t('why_started')
     ) : tool ? (
       <>
-        <Round f={f} work={d.work} n={before.n} /> {before.cell !== null ? <CellLink f={f} id={before.cell} /> : null} {tn('why_asked_tools', d.tool_runs.length)}
+        <RoundAtCell f={f} work={d.work} n={before.n} cell={before.cell} /> {tn('why_asked_tools', d.tool_runs.length)}
       </>
     ) : (
       <>
-        {t('why_came')} <Round f={f} work={d.work} n={before.n} /> {before.cell !== null ? <CellLink f={f} id={before.cell} /> : null}
+        {t('why_came')} <RoundAtCell f={f} work={d.work} n={before.n} cell={before.cell} />
         {before.transition !== null ? (
           <>
             {' '}
@@ -396,18 +397,28 @@ function RoundOverview({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSu
     );
   const row = r.transition !== null ? cell?.rows.find((x) => x.name === r.transition) : undefined;
   const to = row !== undefined && !row.to.startsWith('@') ? row.to : (after?.cell ?? null);
+  // The round after at its cell, where the row led there; the cell the row led to alone while no round has run there,
+  // and before the round after where that ran at another cell.
+  const next: ReactNode =
+    after !== undefined && (to === null || after.cell === to) ? (
+      <RoundAtCell f={f} work={d.work} n={after.n} cell={after.cell} />
+    ) : (
+      <>
+        {to !== null ? <RoundAtCell f={f} work={d.work} n={null} cell={to} /> : null}
+        {after !== undefined ? (
+          <>
+            , <RoundAtCell f={f} work={d.work} n={after.n} cell={after.cell} />
+          </>
+        ) : null}
+      </>
+    );
   const led: ReactNode =
     r.outcome === 'running' ? (
       t('rp_running')
     ) : r.transition !== null ? (
       <>
         <Name>{r.transition}</Name> <span className="pp-arrow">→</span> {tool ? `${t('led_back_to')} ` : null}
-        {to !== null ? <CellLink f={f} id={to} /> : null}
-        {after !== undefined ? (
-          <>
-            , <Round f={f} work={d.work} n={after.n} />
-          </>
-        ) : null}
+        {next}
         {tool && after !== undefined ? t('led_given_results') : null}
       </>
     ) : (

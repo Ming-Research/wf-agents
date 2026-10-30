@@ -11,6 +11,7 @@ import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'rea
 import type { CompiledGraph, WorkDetail } from '../api';
 import { Bars, pct, share, Stack, Tile, useTip } from '../charts';
 import { cost, duration, roundName } from '../format';
+import { roundAtText } from '../parts';
 import { tokenCount, tokens } from '../round';
 import { t, tn } from '../text';
 import { axisTicks, clockOf, type Gap, gapsOf, type SessionRow, type Usage as UsageData, usageOf } from '../usage';
@@ -68,7 +69,7 @@ function Timeline({ u, work, gaps }: { u: UsageData; work: number; gaps: Gap[] }
               className={b.doer === 'model' ? 'us-block us-model' : 'us-block us-tool'}
               style={{ left: `${x(b.start)}%`, width: `max(${pct(b.end - b.start, u.wall)}%, 2px)` }}
               data-tip={[
-                `${roundName(work, b.n)} · ${b.cell} ${b.title}`,
+                roundAtText(roundName(work, b.n), b.cell, b.title),
                 duration(b.end - b.start),
                 b.cost !== null ? cost(b.cost) : null,
               ]

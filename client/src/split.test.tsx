@@ -164,7 +164,7 @@ describe('a round picked beside a chart', () => {
       rounds: 8,
       picked: 'R7-6',
       divider: true,
-      open: 'R7-6 · B1 cell B1',
+      open: 'R7-6 (B1 cell B1)',
       panelFirst: true,
     });
   });
@@ -208,7 +208,7 @@ describe('a round picked beside a chart', () => {
       rounds: 8,
       picked: 'R7-6',
       divider: true,
-      open: 'R7-6 · B1 cell B1',
+      open: 'R7-6 (B1 cell B1)',
       panelFirst: true,
     });
   });

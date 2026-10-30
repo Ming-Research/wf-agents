@@ -13,7 +13,7 @@ import { FlowChart, type FlowChartHandle, type Graph, type Pick } from '../graph
 import { roundName } from '../format';
 import type { Marks } from '../graph/flowDraw';
 import { actionWords, chart } from '../graph/flowModel';
-import { LinkButton } from '../parts';
+import { RoundAt } from '../parts';
 import { t } from '../text';
 import { CellPanel, type CellSection, type CellTab, cellWhere } from './CellPanel';
 import { DiffPanel } from './Changes';
@@ -424,23 +424,19 @@ export function FlowScreen(props: FlowScreenProps) {
             : null,
         };
       case 'round': {
-        // The round and its cell, which opens on the chart.
+        // The round at its cell, which opens on the chart.
         const at = rounds?.find((r) => r.n === now.round)?.cell ?? null;
         const c = at !== null ? first?.g.cells.find((x) => x.id === at) : undefined;
         return {
           flow: flowFor(undefined),
           title: (
-            <>
-              {nameOf(now.round)}
-              {c !== undefined ? (
-                <>
-                  {' · '}
-                  <LinkButton title={t('rp_open_cell')} onClick={() => open({ kind: 'cell', cell: c.id })}>
-                    <span className="cell-id">{c.id}</span> {c.title}
-                  </LinkButton>
-                </>
-              ) : null}
-            </>
+            <RoundAt
+              round={nameOf(now.round)}
+              cell={c?.id}
+              title={c?.title}
+              onCell={c !== undefined ? () => open({ kind: 'cell', cell: c.id }) : undefined}
+              hint={t('rp_open_cell')}
+            />
           ),
           who: null,
           body: renderRound?.(now.round) ?? null,

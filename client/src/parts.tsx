@@ -1,8 +1,8 @@
 // The parts the page shows like things with, each with one look wherever the page shows it, as the UI spec maps them
-// to Primer: a round, by its name; who wrote something (the cell, or who to whom), when, and its round; what an agent
-// wrote, as a block, its head and who wrote it over its text; a section under its heading and how many it holds,
-// folded or open, and a sub-heading inside it; an item, by its number and title; and the form that answers or says
-// something, its words and the button that sends them.
+// to Primer: a round, by its name; a round at a cell; who wrote something (who to whom), its round at its cell, and
+// when; what an agent wrote, as a block, its head and who wrote it over its text; a section under its heading and how
+// many it holds, folded or open, and a sub-heading inside it; an item, by its number and title; and the form that
+// answers or says something, its words and the button that sends them.
 
 import { ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
 import {
@@ -16,7 +16,7 @@ import {
   Link as PrimerLink,
   Textarea,
 } from '@primer/react';
-import { createContext, createElement, useContext, type ReactNode } from 'react';
+import { createContext, createElement, Fragment, useContext, type ReactNode } from 'react';
 
 import { roundName, time } from './format';
 import { Link, workHref } from './route';
@@ -56,12 +56,61 @@ export function RoundLink({ work, round, onRound, muted }: {
   );
 }
 
+/// The one way the page writes a round at a cell, wherever it names the two together: the round's name first, then the
+/// cell's code and title in parentheses, "R10-55 (Q0 What can be picked)"; the round alone where its cell is not known,
+/// and the cell alone where no round has run there yet. Its parts as given, so that a tip's text and the page's part
+/// ([`RoundAt`]) are written alike.
+function roundAt<T>(round: T | null, cell: T | null): (T | string)[] {
+  if (round === null) return cell === null ? [] : [cell];
+  return cell === null ? [round] : [round, ' (', cell, ')'];
+}
+
+/// A round at a cell as plain text, for a tip: "R10-55 (Q0 What can be picked)".
+export function roundAtText(round: string | null, cell: string | null | undefined, title?: string | null): string {
+  const named = cell !== undefined && cell !== null && cell !== '' ? (title ? `${cell} ${title}` : cell) : null;
+  return roundAt(round, named).join('');
+}
+
+/// A round at a cell on the page, as [`roundAt`] writes it: `round` as the place shows it, its link or, in a panel's
+/// title, its name; the cell by its code and title, a link that opens it where `onCell` is given, saying `hint` on
+/// hovering.
+export function RoundAt({ round, cell, title, onCell, hint }: {
+  round: ReactNode;
+  cell: string | null | undefined;
+  title?: string | null;
+  onCell?: () => void;
+  hint?: string;
+}) {
+  const named =
+    cell !== undefined && cell !== null && cell !== '' ? (
+      <>
+        <span className="cell-id">{cell}</span>
+        {title ? ` ${title}` : null}
+      </>
+    ) : null;
+  const shown =
+    named !== null && onCell !== undefined ? (
+      <LinkButton title={hint} onClick={onCell}>
+        {named}
+      </LinkButton>
+    ) : (
+      named
+    );
+  return (
+    <span className="round-at">
+      {roundAt(round ?? null, shown).map((x, i) => (
+        <Fragment key={i}>{x}</Fragment>
+      ))}
+    </span>
+  );
+}
+
 /// The titles of the cells of the graph a page shows, by their codes, which [`By`] gives beside a code.
 export const CellTitles = createContext<ReadonlyMap<string, string>>(new Map());
 
 /// Who wrote something: what it was first, when there is something to say (`children`); who to whom in a
-/// conversation, else the cell as the flow names it, by its code and title; when; and the round, which opens as a
-/// round link does.
+/// conversation; the round at its cell, the cell as the flow names it, by its code and title, and the round opening as
+/// a round link does; and when.
 export function By({ who, cell, at, work, round, onRound, children }: {
   who?: ReactNode;
   cell?: string | null;
@@ -73,16 +122,15 @@ export function By({ who, cell, at, work, round, onRound, children }: {
 }) {
   const titles = useContext(CellTitles);
   const title = cell !== undefined && cell !== null ? titles.get(cell) : undefined;
+  const ran = work !== undefined && work !== null && round !== undefined && round !== null;
   return (
     <span className="by">
       {children}
       {who !== undefined ? <span className="by-who">{who}</span> : null}
-      {cell !== undefined && cell !== null && cell !== '' ? <span className="cell-id">{cell}</span> : null}
-      {title !== undefined ? <span>{title}</span> : null}
-      {at !== undefined && at !== null ? <span>{time(at)}</span> : null}
-      {work !== undefined && work !== null && round !== undefined && round !== null ? (
-        <RoundLink work={work} round={round} onRound={onRound} muted />
+      {ran || (cell !== undefined && cell !== null && cell !== '') ? (
+        <RoundAt round={ran ? <RoundLink work={work} round={round} onRound={onRound} muted /> : null} cell={cell} title={title} />
       ) : null}
+      {at !== undefined && at !== null ? <span>{time(at)}</span> : null}
     </span>
   );
 }
