@@ -35,7 +35,7 @@ import type {
 import { Loaded, StateChip } from '../components';
 import { postJson } from '../http';
 import { reread, useResource } from '../live';
-import { Markdown } from '../markdown';
+import { Markdown, MarkdownInline } from '../markdown';
 import { HeadingLevel, Section, SubHeading } from '../parts';
 import { tokens } from '../round';
 import { t, tn } from '../text';
@@ -366,7 +366,9 @@ function Project({
                       aria-label={t('settings_limit_of', { counter: l.counter })}
                     />
                   </td>
-                  <td className="muted">{l.desc}</td>
+                  <td className="muted">
+                    <MarkdownInline text={l.desc} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -473,7 +475,8 @@ export function signInCommand(c: CliAccounts, name: string): string {
 function AddAccount({ c, onDone }: { c: CliAccounts; onDone: () => void }) {
   const [name, setName] = useState('');
   const n = name.trim();
-  const ok = /^[a-z0-9][a-z0-9-]*$/.test(n) && !c.accounts.some((a) => a.name === `${c.cli}-${n}`);
+  // A directory there already that is not signed in may be signed in; one signed in is taken.
+  const ok = /^[a-z0-9][a-z0-9-]*$/.test(n) && !c.accounts.some((a) => a.name === `${c.cli}-${n}` && a.email !== null);
   const command = signInCommand(c, n);
   return (
     <div className="settings-add">
@@ -517,8 +520,12 @@ function AddAccount({ c, onDone }: { c: CliAccounts; onDone: () => void }) {
 /// in use marked; another signed in is used by one click after a warning; a new one is signed in by hand.
 function CliAccountList({ c }: { c: CliAccounts }) {
   const [asking, setAsking] = useState<Account | null>(null);
-  const [adding, setAdding] = useState(false);
+  // The accounts signed in when the owner began to add one; none while the owner adds none.
+  const [addingFrom, setAddingFrom] = useState<string[] | null>(null);
   const [said, setSaid] = useState<Said>(null);
+  const signedIn = c.accounts.filter((a) => a.email !== null).map((a) => a.name);
+  // Adding is done once another account is signed in: it shows in the list.
+  const adding = addingFrom !== null && signedIn.every((n) => addingFrom.includes(n));
   // While the owner signs a new account in, the accounts are read again every few seconds, so that it shows once
   // signed in.
   useEffect(() => {
@@ -556,10 +563,10 @@ function CliAccountList({ c }: { c: CliAccounts }) {
         ))}
       </div>
       {adding ? (
-        <AddAccount c={c} onDone={() => setAdding(false)} />
+        <AddAccount c={c} onDone={() => setAddingFrom(null)} />
       ) : (
         <div>
-          <Button size="small" leadingVisual={PlusIcon} onClick={() => setAdding(true)}>
+          <Button size="small" leadingVisual={PlusIcon} onClick={() => setAddingFrom(signedIn)}>
             {t('settings_add_account')}
           </Button>
         </div>

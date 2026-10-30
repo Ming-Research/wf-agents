@@ -43,7 +43,7 @@ const messages = {
   settings_switched: 'Switched and committed; the agents run under it from their next round.',
   settings_add_account: 'Add an account',
   settings_add_name: 'Its name',
-  settings_add_bad_name: 'A name is lowercase letters, digits and dashes, and not one already there.',
+  settings_add_bad_name: 'A name is lowercase letters, digits and dashes, and not one signed in already.',
   settings_add_run: 'Run this in a terminal, then type {login} there and sign in; the account shows above once it is signed in.',
   settings_copy: 'Copy the command',
   settings_add_done: 'Done',
