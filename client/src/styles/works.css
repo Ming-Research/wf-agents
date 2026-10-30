@@ -166,23 +166,6 @@ table.list.works-table td {
   flex: 0 2 auto;
 }
 
-.work-others {
-  flex: 0 1 auto;
-  display: flex;
-  align-items: center;
-  gap: var(--base-size-12);
-  min-width: 0;
-  margin-left: auto;
-  overflow-x: auto;
-}
-
-.work-other {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--base-size-4);
-}
-
 /* A work's panel on top of the column: its tabs, and what the tab shown holds under them. */
 .drawer {
   flex: 1;

@@ -382,9 +382,8 @@ function List({ works, tab, widths, onWidths }: {
 }
 
 /// The line above an open work's chart, which only reads it: back to the list; which work it is; how it goes on; where
-/// it is, its rounds, cost and pull request; its group in the messages view, where the owner acts on it; and the other
-/// works running or waiting, each with what it needs of the owner, to go from one to the next keeping the tab open.
-function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; tab: WorkTab }) {
+/// it is, its rounds, cost and pull request; and its group in the messages view, where the owner acts on it.
+function WorkLine({ w }: { w: WorkSummary }) {
   const status = useStatus();
   const a = { c: course(w, status) };
   const now = useNow(status !== null && status.running === w.id);
@@ -436,30 +435,6 @@ function WorkLine({ w, others, tab }: { w: WorkSummary; others: WorkSummary[]; t
       <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')}>
         {t('go_to_conversation')}
       </Link>
-      {others.length > 0 ? (
-        <nav className="work-others" aria-label={t('work_others')}>
-          <span className="muted">{t('work_others')}</span>
-          {others.map((o) => {
-            const needs = [
-              o.open_design_cards > 0 ? t('open_design_cards_chip', { n: o.open_design_cards }) : null,
-              o.open_asks > 0 ? t('open_asks_chip', { n: o.open_asks }) : null,
-            ].filter((x) => x !== null);
-            const title = `#${o.id}${o.title ? ` · ${o.title}` : ''}${needs.length > 0 ? ` · ${needs.join(', ')}` : ''}`;
-            return (
-              <span key={o.id} className="work-other">
-                <Link to={workHref(o.id, { tab })} title={title}>
-                  #{o.id}
-                </Link>
-                {needs.map((x) => (
-                  <Label key={x} variant="attention">
-                    {x}
-                  </Label>
-                ))}
-              </span>
-            );
-          })}
-        </nav>
-      ) : null}
     </div>
   );
 }
@@ -512,7 +487,7 @@ export function Works({ work }: { work: WorkRoute | null }) {
       {work !== null ? (
         <>
           {open !== undefined ? (
-            <WorkLine w={open} others={active.filter((w) => w.id !== open.id)} tab={tab} />
+            <WorkLine w={open} />
           ) : (
             <div className="work-line">
               <WorksBack />

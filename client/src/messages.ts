@@ -318,7 +318,6 @@ const messages = {
   work_rounds_n: '{n} rounds',
   work_pr: 'PR #{n}',
   work_pr_hint: 'Open the pull request on GitHub',
-  work_others: 'Other works:',
   works_column_grip: 'Drag to set the width of the column; double-click for its own width',
   works_active: 'Running and waiting',
   works_ended: 'Ended',
