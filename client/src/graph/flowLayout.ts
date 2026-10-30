@@ -207,8 +207,14 @@ async function layPart(
       (order.get(e.source) ?? 0) > (order.get(cellNode(a.cell)) ?? 0)
     );
   };
+  // The rows that run up the chart, found from the first layout: given to the second turned round too, so that elkjs
+  // takes each as running down from its target into its source rather than as a row it turned round itself, which it
+  // routes out of the edge it would leave by had it not, round the cell and back, and up past the cells between in a
+  // tangle of turns back and pieces over each other's.
+  const upward = new Set<string>();
+  const given = (e: ChartEdge) => turned(e) || upward.has(e.id);
   /// A route of the layout as the chart's arrow runs, from its source to its target.
-  const along = (e: ChartEdge, ps: Point[]) => (turned(e) ? [...ps].reverse() : ps);
+  const along = (e: ChartEdge, ps: Point[]) => (given(e) ? [...ps].reverse() : ps);
   // Laid out twice: first with the arrows free to meet each unit anywhere, for which edge of its cell each meets, the
   // top or the bottom as the layout turns the rows of a loop, and in which order; then with each where that order puts
   // it in the cell's lane.
@@ -240,8 +246,8 @@ async function layPart(
         ports !== null && units.has(id) ? `${e.id}|${which}` : id;
       return {
         id: e.id,
-        sources: turned(e) ? [end(e.target, 'target')] : [end(e.source, 'source')],
-        targets: turned(e) ? [end(e.source, 'source')] : [end(e.target, 'target')],
+        sources: given(e) ? [end(e.target, 'target')] : [end(e.source, 'source')],
+        targets: given(e) ? [end(e.source, 'source')] : [end(e.target, 'target')],
         labels: l ? [{ id: `l:${e.id}`, text: e.label, ...l }] : undefined,
         layoutOptions: byId.get(e.source)?.kind === 'action' ? WAY_IN : undefined,
       };
@@ -250,6 +256,11 @@ async function layPart(
   };
   const rough = unitsWith((cell) => ({ top: ends(cell), bottom: ends(cell) }));
   const free = placement(await lay(graph(rough, null)));
+  for (const e of external) {
+    const from = free.boxes.get(e.source);
+    const to = free.boxes.get(e.target);
+    if (!turned(e) && from !== undefined && to !== undefined && to.y + to.height <= from.y) upward.add(e.id);
+  }
   // Where each arrow met each cell's unit: its top or its bottom, or for one that met a side, the way it turned from
   // there; and where along the cell from its left edge.
   const meets = new Map<string, Array<{ id: string; side: Side; at: number }>>();
@@ -264,11 +275,20 @@ async function layPart(
       const way = end === 'source' ? ps : [...ps].reverse();
       const p = way[0];
       const turn = way.find((q) => Math.abs(q.y - p.y) > 0.5);
-      const side: Side =
+      const laid: Side =
         Math.abs(p.y - unit.y) < 1 || (Math.abs(p.y - unit.y - unit.height) >= 1 && turn !== undefined && turn.y < p.y)
           ? 'NORTH'
           : 'SOUTH';
-      meets.set(e[end], [...(meets.get(e[end]) ?? []), { id: `${e.id}|${end}`, side, at: p.x - unit.x - cell.x }]);
+      // A row to or from a node wholly above the cell meets its top, and one wholly below it its bottom, whichever edge
+      // elkjs left it at: elkjs routes a row it turned round to break a loop out of the edge it would leave by had it
+      // not, then round the cell and back, and up past the cells between in a tangle; where along the edge, toward the
+      // other end.
+      const far = free.boxes.get(e[end === 'source' ? 'target' : 'source']);
+      const above = far !== undefined && far.y + far.height <= unit.y;
+      const below = far !== undefined && far.y >= unit.y + unit.height;
+      const side: Side = above ? 'NORTH' : below ? 'SOUTH' : laid;
+      const at = side === laid || far === undefined ? p.x : far.x + far.width / 2;
+      meets.set(e[end], [...(meets.get(e[end]) ?? []), { id: `${e.id}|${end}`, side, at: at - unit.x - cell.x }]);
     }
   }
   const count = (cell: string, side: Side) => (meets.get(cell) ?? []).filter((p) => p.side === side).length;

@@ -278,6 +278,59 @@ describe('the flow as the engine stores it', () => {
     expect(Object.keys(MOST).every((name) => graphs.some(({ g }) => g.name === name))).toBe(true);
   }, 30_000);
 
+  it('routes every row one way up or down the chart, with no turn back, and over no piece of another row', async () => {
+    let rows = 0;
+    for (const { g, v } of graphs) {
+      const c = chart(g, v, engine);
+      const measured = sizes(g, c, engine);
+      const edges = new Map(c.edges.map((e) => [e.id, e]));
+      const laid = await layoutChart(
+        c,
+        (id) => measured.size.get(id) ?? { width: 40, height: 40 },
+        (id) => {
+          const e = edges.get(id);
+          return e ? labelSize(e) : null;
+        },
+      );
+      type Piece = { id: string; x0: number; y0: number; x1: number; y1: number };
+      const pieces: Piece[] = [];
+      for (const e of c.edges) {
+        if (e.kind !== 'row') continue;
+        const ps = laid.edges.get(e.id)?.points ?? [];
+        ps.slice(1).forEach((q, i) => pieces.push({ id: e.id, x0: ps[i].x, y0: ps[i].y, x1: q.x, y1: q.y }));
+        // A row between two nodes one above the other runs only up or only down: one that turned back went round a
+        // node and up past the others in a tangle, as rows the layout had turned round to break a loop did.
+        const a = laid.nodes.get(e.source);
+        const b = laid.nodes.get(e.target);
+        if (a === undefined || b === undefined || !(b.y + b.height <= a.y || b.y >= a.y + a.height)) continue;
+        rows += 1;
+        const ways = new Set(ps.slice(1).flatMap((q, i) => (Math.abs(q.y - ps[i].y) > 0.5 ? [Math.sign(q.y - ps[i].y)] : [])));
+        expect(ways.size, `${g.name}: ${e.id} turns back`).toBeLessThanOrEqual(1);
+      }
+      // No piece of a row runs along a piece of another for more than a couple of pixels: the upright pieces on one
+      // line, and the level ones, compared among themselves.
+      const lines = new Map<string, Array<{ id: string; from: number; to: number }>>();
+      for (const p of pieces) {
+        const upright = Math.abs(p.x0 - p.x1) < 0.5;
+        const level = Math.abs(p.y0 - p.y1) < 0.5;
+        if (!upright && !level) continue;
+        const key = upright ? `x${Math.round(p.x0)}` : `y${Math.round(p.y0)}`;
+        const [a, b] = upright ? [p.y0, p.y1] : [p.x0, p.x1];
+        lines.set(key, [...(lines.get(key) ?? []), { id: p.id, from: Math.min(a, b), to: Math.max(a, b) }]);
+      }
+      const over: string[] = [];
+      for (const on of lines.values()) {
+        for (const [i, p] of on.entries()) {
+          for (const q of on.slice(i + 1)) {
+            if (p.id !== q.id && Math.min(p.to, q.to) - Math.max(p.from, q.from) > 2) over.push(`${p.id} over ${q.id}`);
+          }
+        }
+      }
+      expect(over, g.name).toEqual([]);
+    }
+    expect(rows).toBeGreaterThan(0);
+  }, 30_000);
+
   it("runs the line of every rule, interjection and store beside a cell past no node but its two ends", async () => {
     // Whether the straight piece from `a` to `b` passes through the inside of a box, a pixel in from its edges.
     const through = (a: { x: number; y: number }, b: { x: number; y: number }, box: Box) => {
