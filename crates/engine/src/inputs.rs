@@ -381,7 +381,8 @@ pub fn row_key(row: &Value) -> Option<&str> {
 
 /// What one source of a table holds, one entry for each row: for a review's column with findings, each finding with
 /// the column's number; for a column it could not verify, the column; for a test, the test only when it went wrong
-/// (red after the change, or a result before it that does not fit its kind); for a result with checks, each check that
+/// (red after the change, or a result before it that does not fit its kind, a test not run before it fitting either
+/// kind, for the table review to judge); for a result with checks, each check that
 /// is not green with the rest of the result, or the whole result when every check is green, as a flaky one is once
 /// run again; anything else as it is.
 fn entries(path: &str, v: &Value) -> Vec<Map<String, Value>> {
@@ -414,7 +415,7 @@ fn entries(path: &str, v: &Value) -> Vec<Map<String, Value>> {
             let at = |k: &str| o.get(k).and_then(Value::as_str);
             let (head, base) = (at("on_head"), at("on_base"));
             let unfit = if guards {
-                base != Some("green")
+                !matches!(base, Some("green" | "not_run"))
             } else {
                 base == Some("green")
             };
@@ -773,13 +774,17 @@ mod tests {
                     "new_tests",
                     json!([
                         { "name": "fails_before", "on_head": "green", "on_base": "red" },
-                        { "name": "passes_before", "on_head": "green", "on_base": "green" }
+                        { "name": "passes_before", "on_head": "green", "on_base": "green" },
+                        { "name": "not_reached", "on_head": "green", "on_base": "not_run" }
                     ]),
                 ),
                 place(
                     "T1",
                     "guard_tests",
-                    json!([{ "name": "guard", "on_head": "green", "on_base": "green" }]),
+                    json!([
+                        { "name": "guard", "on_head": "green", "on_base": "green" },
+                        { "name": "guard_not_reached", "on_head": "green", "on_base": "not_run" }
+                    ]),
                 ),
                 place(
                     "T2",

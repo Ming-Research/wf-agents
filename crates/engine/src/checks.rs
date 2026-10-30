@@ -625,7 +625,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                         "{name} passes before the change: it does not test new behaviour; fix it in this round"
                     ));
                 }
-                if !new && base != "green" {
+                if !new && !matches!(base, "green" | "not_run") {
                     return fail(format!(
                         "{name} does not pass before the change: it does not guard old behaviour; fix it in this round"
                     ));
@@ -696,7 +696,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                     let wrong = if table == "new_tests" {
                         base == "green"
                     } else {
-                        base != "green"
+                        !matches!(base, "green" | "not_run")
                     };
                     if wrong {
                         return fail(format!(
@@ -1143,6 +1143,18 @@ fn names_failing(log: &str, name: &str) -> bool {
         })
 }
 
+/// Whether every check of a run is green.
+fn all_green(checks: Option<&Value>) -> bool {
+    items(checks).iter().all(|x| x["result"] == "green")
+}
+
+/// Whether the log of a red check of a run names a test failing.
+fn names_red(checks: Option<&Value>, name: &str) -> bool {
+    items(checks)
+        .iter()
+        .any(|x| x["result"] == "red" && x["log_tail"].as_str().is_some_and(|l| names_failing(l, name)))
+}
+
 /// A test said to be green on the head while every run on the head was red names it, or said to be red while every
 /// check on the head was green, does not match the runs; the same for the code before the change.
 fn test_results_match_runs(c: &Ctx<'_>, v: Option<&Value>) -> Result<(), String> {
@@ -1153,12 +1165,6 @@ fn test_results_match_runs(c: &Ctx<'_>, v: Option<&Value>) -> Result<(), String>
         .ci_runs("ci_before")?
         .into_iter()
         .find(|r| r["ran"]["verdict"] == "ran");
-    let all_green = |checks: Option<&Value>| items(checks).iter().all(|x| x["result"] == "green");
-    let names_red = |checks: Option<&Value>, name: &str| {
-        items(checks)
-            .iter()
-            .any(|x| x["result"] == "red" && x["log_tail"].as_str().is_some_and(|l| names_failing(l, name)))
-    };
     for t in items(v) {
         let name = t["name"].as_str().unwrap_or_default();
         if let Some(run) = on_head {
@@ -1178,28 +1184,45 @@ fn test_results_match_runs(c: &Ctx<'_>, v: Option<&Value>) -> Result<(), String>
             }
         }
         if let Some(run) = &before {
-            let checks = run["ran"].get("checks");
-            match t["on_base"].as_str() {
-                Some("red") if all_green(checks) => {
-                    return fail(format!(
-                        "{name} is said to be red before the change, and every check there is green"
-                    ));
-                }
-                Some("green") if names_red(checks, name) => {
-                    return fail(format!(
-                        "{name} is said to be green before the change, and a red check's log names it"
-                    ));
-                }
-                _ => {}
-            }
+            base_matches_run(name, t["on_base"].as_str(), &run["ran"])?;
         }
     }
     Ok(())
 }
 
+/// Whether what a test is said to give before the change matches the run of ci_before that ran: said red while every
+/// check there is green, or green while a red check's log names it, it does not; nor said red or green while
+/// ci_before reports it not run, which nothing measured, nor said not run while it reports it passed or failed. A test
+/// the run was named under no such name, or a run of an engine that did not report each test, is checked by the run's
+/// checks alone.
+fn base_matches_run(name: &str, said: Option<&str>, ran: &Value) -> Result<(), String> {
+    let checks = ran.get("checks");
+    let reported = items(ran.get("tests"))
+        .iter()
+        .find(|t| t["test"].as_str() == Some(name))
+        .and_then(|t| t["result"].as_str().map(str::to_string));
+    match (said, reported.as_deref()) {
+        (Some("red"), _) if all_green(checks) => fail(format!(
+            "{name} is said to be red before the change, and every check there is green"
+        )),
+        (Some("green"), _) if names_red(checks, name) => fail(format!(
+            "{name} is said to be green before the change, and a red check's log names it"
+        )),
+        (Some(said @ ("red" | "green")), Some("not_run")) => fail(format!(
+            "{name} is said to be {said} before the change, and ci_before reports it not run, so that nothing \
+             measured it: say not_run, or cannot_run when what it tests does not exist before the change"
+        )),
+        (Some("not_run"), Some(result @ ("passed" | "failed"))) => fail(format!(
+            "{name} is said not to have run before the change, and ci_before reports it {result}"
+        )),
+        _ => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn a_log_names_a_test_failing_only_on_a_line_that_says_so() {
@@ -1209,6 +1232,34 @@ mod tests {
         assert!(names_failing(log, "breaks"));
         assert!(names_failing(log, "panics"));
         assert!(!names_failing(log, ""));
+    }
+
+    // A test ci_before did not reach, as when its job stopped at an earlier red test, is said not run, never red or
+    // green, and one it ran is not said not run: in the sixth trial a work had two such tests and no true value for
+    // them. A test the run reports nothing of is checked by the run's checks alone.
+    #[test]
+    fn a_result_before_the_change_matches_what_ci_before_reports_of_the_test() {
+        let ran = json!({
+            "checks": [{ "name": "test", "result": "red", "log_tail": "FAIL [ 0.1s] e::t first\n" }],
+            "tests": [
+                { "test": "first", "result": "failed", "ended": "FAIL" },
+                { "test": "later", "result": "not_run" }
+            ]
+        });
+        let said = |name: &str, said: &str| base_matches_run(name, Some(said), &ran);
+        assert!(said("first", "red").is_ok());
+        assert!(said("first", "not_run").unwrap_err().contains("reports it failed"));
+        assert!(said("later", "not_run").is_ok());
+        assert!(said("later", "cannot_run").is_ok());
+        for wrong in ["red", "green"] {
+            let e = said("later", wrong).unwrap_err();
+            assert!(e.contains("reports it not run"), "{e}");
+        }
+        assert!(said("unnamed", "not_run").is_ok());
+        assert!(said("unnamed", "red").is_ok());
+        let green = json!({ "checks": [{ "name": "test", "result": "green" }] });
+        assert!(base_matches_run("old", Some("red"), &green).is_err());
+        assert!(base_matches_run("old", Some("not_run"), &green).is_ok());
     }
 
     // A cited file or node is its path, whatever follows it: lines, or a note, as in the sixth trial a review cited

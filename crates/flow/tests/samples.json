@@ -699,6 +699,12 @@
        "by": "adversarial",
        "on_head": "green",
        "on_base": "green"
+      },
+      {
+       "name": "match_bool_unchanged",
+       "by": "adversarial",
+       "on_head": "green",
+       "on_base": "not_run"
       }
      ],
      "suspects": [
