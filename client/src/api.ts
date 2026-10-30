@@ -54,14 +54,14 @@ started: Array<number>,
  * The works the owner started that are still paused, until their machine has a slot free: the engine then lifts
  * their pause.
  */
-releasing: Array<number>,
+releasing: Array<number>, 
 /**
  * The works whose wait is over, the owner's or the architect's answer come or what their row waited for, that
  * wait on, holding no slot, until their machine has a slot free, as the engine's last step of each found: each
  * then goes on before any new work starts. A work's state on the page is waiting for a free slot while it is
  * named here.
  */
-waiting_for_slot: Array<number>,
+waiting_for_slot: Array<number>, 
 /**
  * The projects whose architect the owner started since every work was last paused: its works go on whatever the
  * global state.
