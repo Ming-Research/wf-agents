@@ -5,8 +5,7 @@
 // cell that lacks a move most cells that could make make, a small mark saying so. An agent's cell carries over its top
 // left corner the reasoning effort it runs at, as a badge in the level's colour, and after it, on a cell that starts a
 // new session every round, an outlined badge saying so. What the engine does on a line or every time a cell returns is a
-// purple hexagon. A circle to or from another graph names that graph and its cell, and is drawn as a circle to or from
-// another part. A cell, which a work stands at, is edged heavier than every shape beside it and titled semibold. The
+// purple hexagon. A cell, which a work stands at, is edged heavier than every shape beside it and titled semibold. The
 // cell picked, or the cell under the pointer while the pointer is on one, has its rows into it lit green and its rows
 // out of it red. Hovering an arrow or its label lights up the whole row, every arrow that draws it from its source to
 // its target.
@@ -238,11 +237,6 @@ const CIRCLE = 38;
 /// The room a hexagon's points take on each side of its text.
 const POINT = 12;
 
-/// What a circle says: the cell it leads to or comes from, after its graph when that is another.
-export function circleText(n: ChartNode): string {
-  return n.graph !== null ? `${n.graph} ${n.other ?? ''}` : (n.other ?? '');
-}
-
 /// Each node's size, each cell's lines and those of the actions a node names, and what each cell's box says under
 /// its title.
 export function sizes(
@@ -285,9 +279,8 @@ export function sizes(
       lines.set(n.id, ls);
       const width = Math.ceil(Math.max(...ls.map((l) => measure(l, chartFonts().note)))) + 2 * POINT + 8;
       size.set(n.id, { width, height: ls.length * SMALL_LINE + 12 });
-    } else if (n.kind === 'out' || n.kind === 'in' || n.kind === 'to' || n.kind === 'from') {
-      const width = Math.max(CIRCLE, Math.ceil(measure(circleText(n), chartFonts().note)) + 14);
-      size.set(n.id, { width, height: CIRCLE });
+    } else if (n.kind === 'out' || n.kind === 'in') {
+      size.set(n.id, { width: Math.max(CIRCLE, Math.ceil(measure(n.other ?? '', chartFonts().note)) + 14), height: CIRCLE });
     } else if (n.kind === 'rule') {
       size.set(n.id, { width: Math.ceil(measure(`rule:${n.other ?? ''}`, chartFonts().note)) + 40, height: 30 });
     } else {
@@ -556,8 +549,7 @@ function edgeTitle(e: ChartEdge, cells: Map<string, CompiledCell>, n: number): s
       ...e.through.map((x) => `${x.cell} ${cells.get(x.cell)?.rows[x.row]?.name ?? ''}`),
     ]),
   ].filter((x) => x !== '');
-  // A line from another graph names that graph's rows, which are not this graph's.
-  const what = rows.length > 0 ? rows.join(', ') : e.label;
+  const what = rows.join(', ');
   return n > 0 ? `${what}\n${tn('chart_taken', n)}` : what;
 }
 
@@ -607,8 +599,6 @@ export type DrawProps = {
   notes: Map<string, CellNote>;
   /// The flow's engine part, which says what each action does.
   engine: EngineNames | null;
-  /// Every graph of the flow, for the titles of the cells a circle to or from another graph names.
-  every?: CompiledGraph[];
   marks: Marks;
   /// Whether this drawing defines the arrowheads every drawing on the page refers to: the first of the graphs drawn
   /// side by side does, so that an id is defined once.
@@ -618,7 +608,7 @@ export type DrawProps = {
 };
 
 /// The chart as SVG, at the size its layout takes.
-export function FlowSvg({ g, chart, laid, lines, notes, engine, every = [], marks, defs = true, onNode }: DrawProps) {
+export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = true, onNode }: DrawProps) {
   const [hover, setHover] = useState<string | null>(null);
   // The row clicked stays lit until it is clicked again or the chart's background is clicked, for following an arrow
   // far across the chart; nothing keeps it past the page.
@@ -628,8 +618,8 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, every = [], mark
   const pointed = useRef<string | null>(null);
   const [pointedNode, setPointedNode] = useState<string | null>(null);
   const cells = new Map(g.cells.map((c) => [c.id, c]));
-  const title = (id: string, graph: string | null = null) => {
-    const c = graph === null ? cells.get(id) : every.find((x) => x.name === graph)?.cells.find((x) => x.id === id);
+  const title = (id: string) => {
+    const c = cells.get(id);
     return c ? `${c.id} ${c.title}` : id;
   };
   const hot = new Set([...related(chart.edges, hover), ...related(chart.edges, pinned)]);
@@ -706,28 +696,6 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, every = [], mark
             cls="fc-in"
             title={t('chart_in_title', { cell: title(n.other ?? '') })}
             text={[n.other ?? '']}
-          />
-        );
-      case 'to':
-        return (
-          <Circle
-            key={n.id}
-            n={n}
-            box={box}
-            cls="fc-out"
-            title={t('chart_to_title', { cell: title(n.other ?? '', n.graph), graph: n.graph ?? '' })}
-            text={[circleText(n)]}
-          />
-        );
-      case 'from':
-        return (
-          <Circle
-            key={n.id}
-            n={n}
-            box={box}
-            cls="fc-in"
-            title={t('chart_from_title', { cell: title(n.other ?? '', n.graph), graph: n.graph ?? '' })}
-            text={[circleText(n)]}
           />
         );
       case 'rule': {

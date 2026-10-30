@@ -1214,7 +1214,7 @@ changes: Array<ItemChange>,
  */
 policy: PolicyInForce | null, 
 /**
- * The policy a work of it is setting now; none while no work of it sets one.
+ * The new policy it is setting now; none while it sets none.
  */
 setting: PolicySetting | null, 
 /**
@@ -1469,15 +1469,20 @@ export type PolicyInForce = { work: number, round: number,
 cell: string, at: number | null, policy: JsonValue, };
 
 /**
- * A new policy as a work of the architect sets it: the latest study of it, and the latest text with its probes and
- * every reading of it by a new architect since, with the architect's verdict on each.
+ * A new policy as the architect sets it, a stage of its works: the latest study of it, and the latest text with its
+ * probes and every reading of it by a new architect since, with the architect's verdict on each, in whichever of its
+ * works they were.
  */
-export type PolicySetting = { work: number, study: Said | null, draft: Draft | null, };
+export type PolicySetting = { 
+/**
+ * The setting's matter, which the architect's works have in hand.
+ */
+matter: number, study: Said | null, draft: Draft | null, };
 
 /**
  * A version of the policy being set, by the round that wrote it.
  */
-export type Draft = { round: number, 
+export type Draft = { work: number, round: number, 
 /**
  * The cell of that round.
  */
@@ -1486,7 +1491,7 @@ cell: string, policy: JsonValue, probes: JsonValue, readings: Array<Reading>, };
 /**
  * A new architect's reading of the policy being set, by its round, with the verdict on it; none until judged.
  */
-export type Reading = { round: number, 
+export type Reading = { work: number, round: number, 
 /**
  * The cell of that round.
  */
@@ -2059,13 +2064,7 @@ writes?: { [key in string]: Array<string> },
  * What each of the engine's values reads, in a few words for the chart, and the stores it reads; each value has
  * an entry, and a step that reads a store no input of its cell names has one too.
  */
-reads?: { [key in string]: Reads }, 
-/**
- * The tasks of another graph an action starts, by the action: what graph, and where its end comes back. The
- * engine does nothing by it; the owner's chart draws from it where the task starts and where its end comes back
- * in. None in a flow version stored before the flow said it.
- */
-tasks?: { [key in string]: Task }, };
+reads?: { [key in string]: Reads }, };
 
 /**
  * A place the engine keeps something in, which a cell or the owner writes and a cell reads later.
@@ -2101,24 +2100,6 @@ export type Reads = {
  * What it is worked out from, in a few words, as the chart says it under the cell; every value has it.
  */
 says?: string | null, stores?: Array<string>, };
-
-/**
- * A task of another graph that an action on a row starts beside the work that took the row: a work of that graph,
- * which starts at its start cell and, as it ends, queues a matter for the graph that started it.
- */
-export type Task = { 
-/**
- * The graph the task is a work of.
- */
-graph: string, 
-/**
- * The action on that graph's rows that queues the matter as the task ends.
- */
-queues: string, 
-/**
- * The cell of the graph that started the task that the matter's path leads to.
- */
-into: string, };
 
 export type ToolUse = { name: string, runs: string, };
 

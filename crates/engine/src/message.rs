@@ -450,7 +450,7 @@ impl Context<'_> {
         let read_only = e.config.config.install.agents.permissions.read_only.contains(&line);
         let workspace = if item.is_none() && c.line.is_none() {
             None
-        } else if g.name == ARCHITECT || g.name == crate::POLICY {
+        } else if g.name == ARCHITECT {
             let text = architect_workspace(e, &g.name, named);
             Some(m.give(format!("work:{}", g.name), Value::String(text)))
         } else {

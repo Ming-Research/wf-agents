@@ -150,7 +150,6 @@ pub fn typescript() -> String {
         decl::<flow::format::Store>(&cfg),
         decl::<flow::format::Layer>(&cfg),
         decl::<flow::format::Reads>(&cfg),
-        decl::<flow::format::Task>(&cfg),
         decl::<flow::ToolUse>(&cfg),
         decl::<flow::CompiledGraph>(&cfg),
         decl::<flow::format::Counter>(&cfg),

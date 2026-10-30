@@ -151,7 +151,6 @@ fn router(app: App) -> Router {
         .route("/api/v1/asks/{id}/answer", post(answer))
         .route("/api/v1/design-cards/{id}/rule", post(rule))
         .route("/api/v1/architect/say", post(say_to_architect))
-        .route("/api/v1/architect/interject", post(interject_architect))
         .route("/api/v1/architect/step", post(step_architect))
         .route("/api/v1/architect/start", post(start_architect))
         .route("/api/v1/architect/pause", post(pause_architect))
@@ -654,29 +653,6 @@ async fn say_to_architect(
     let (project, _) = project_of(&app, &q)?;
     decide(&app, move |db| {
         db::say_to_architect(db, &project, s.item, None, &s.text)
-    })
-    .await
-}
-
-/// What the owner says to an architect while it works, and which of its works it is said to: its work in hand, its
-/// policy setting, or both.
-#[derive(Deserialize)]
-struct Interjected {
-    text: String,
-    works: Vec<i64>,
-}
-
-/// Says something to a project's architect while it works, as the owner: an interjection into each of its works named,
-/// which the architect answers in the owner's one-to-one with it, going on with what it does; the engine is woken, so
-/// that a policy setting waiting for the owner takes it at once.
-async fn interject_architect(
-    State(app): State<App>,
-    Query(q): Query<OfProject>,
-    Json(s): Json<Interjected>,
-) -> Result<Json<api::Done>, Fail> {
-    let (project, _) = project_of(&app, &q)?;
-    decide(&app, move |db| {
-        api::interject_architect(db, &project, &s.works, &s.text)
     })
     .await
 }

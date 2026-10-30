@@ -62,8 +62,9 @@ pub const ENGINEER: &str = "engineer";
 /// The graph the architect's works run, on no item, and the line its session goes on in.
 pub const ARCHITECT: &str = "architect";
 
-/// The graph the setting of a project's policy runs, a task of its own beside the project's architect works, and the
-/// line its session goes on in.
+/// The graph a flow version before the setting of a project's policy was a stage of the architect's works ran it as, a
+/// work of its own: the engine takes such a work over when it next goes on, ending it and letting go the hold on new
+/// starts it kept, and the architect's next check of the policy decides again whether to set it.
 pub const POLICY: &str = "policy";
 
 /// The line of the search of observations, which runs at the observer's level.
@@ -235,7 +236,8 @@ impl Engine {
                 .map_err(|e| e.to_string())?;
             (self.say)(&format!("work {id} stopped: {why}"));
             // An architect work stopped leaves no hold of its own behind: setting its project straight and a policy
-            // being set are the work's; the architect's next work asks its questions afresh.
+            // being set are the work's, or the setting's, a work of its own in a flow version before; the architect's
+            // next work asks its questions afresh.
             if w.graph == ARCHITECT || w.graph == POLICY {
                 let project = w.project.clone();
                 self.db
@@ -247,6 +249,15 @@ impl Engine {
                         Ok(())
                     })
                     .map_err(|e| e.to_string())?;
+            }
+            // The worktree a setting of a policy read in, as a work of its own, is no one's any longer.
+            if w.graph == POLICY
+                && let Some(p) = w.project.as_deref().and_then(|p| projects.get(p))
+            {
+                let dir = architect::worktree(&self.data, POLICY, w.project.as_deref().unwrap_or_default());
+                if let Err(x) = sessions::worktree::remove_worktree(&p.checkout, &dir) {
+                    (self.say)(&format!("work {id}: its worktree {} stays: {x}", dir.display()));
+                }
             }
             if let Some(item) = w.item.filter(|_| w.graph == ENGINEER) {
                 let held = w.paused.clone().filter(|_| w.paused_by.as_deref() == Some("owner"));
@@ -1178,7 +1189,6 @@ pub fn line_of(g: &CompiledGraph, cell: &CompiledCell) -> String {
     match &cell.line {
         Some(l) => l.clone(),
         None if g.name == ARCHITECT => ARCHITECT.to_string(),
-        None if g.name == POLICY => POLICY.to_string(),
         None => ENGINEER.to_string(),
     }
 }

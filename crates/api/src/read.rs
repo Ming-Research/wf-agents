@@ -1715,8 +1715,8 @@ pub fn architect(
     tags: Vec<Tag>,
     own: bool,
 ) -> Result<Architect> {
-    // The works of the project's architect, and the settings of its policy beside them, by their numbers: the filter
-    // takes numbers only.
+    // The works of the project's architect, and the settings of its policy a flow version before ran beside them as works
+    // of their own, by their numbers: the filter takes numbers only.
     let mine: Vec<i64> = {
         let mut st =
             conn.prepare("SELECT id FROM works WHERE graph IN ('architect', 'policy') AND project = ?1 ORDER BY id")?;
@@ -1731,36 +1731,19 @@ pub fn architect(
         "SELECT handled_work, count(*) FROM architect_matters WHERE handled_work IS NOT NULL GROUP BY handled_work",
     )?;
     let mut started = started_for(conn, project)?;
-    // The settings of the project's policy, each a task of its own beside the architect's works, and the one that runs.
-    let settings: Vec<(i64, bool)> = {
-        let mut st = conn.prepare(
-            "SELECT w.id, w.ended IS NULL AND NOT EXISTS (
-               SELECT 1 FROM rounds r WHERE r.work = w.id AND r.cell = 'E1' AND r.ended_at IS NOT NULL)
-             FROM works w WHERE w.graph = 'policy' AND w.project = ?1 ORDER BY w.id",
-        )?;
-        st.query_map([project], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<rusqlite::Result<_>>()?
-    };
-    let running = settings.iter().rev().find(|x| x.1).map(|x| x.0);
-    // A new policy is being set while a setting of it runs; before the setting was a task of its own, while the latest
-    // work of the architect, not over, was at the stage the study of one is in, past the check of the policy in force
-    // that opens it.
-    let setting = match (running, architect_works.first()) {
-        (Some(p), _) => Some(setting(conn, p)?),
-        (None, Some((_, s))) if !over(s) && s.stage.is_some() && !db::is_cell("architect", "P1", &s.at) => {
-            let study = flows.graph(conn, s.flow_version, &s.graph).and_then(|g| {
-                g.cells
-                    .iter()
-                    .find(|c| db::is_cell("architect", "P2", &c.id))
-                    .and_then(|c| c.stage.clone())
-            });
-            if study == s.stage {
-                Some(setting(conn, s.id)?)
-            } else {
-                None
-            }
-        }
-        (None, _) => None,
+    // A new policy is being set while the matter of its setting is open.
+    let open: Option<i64> = conn
+        .query_row(
+            "SELECT max(id) FROM architect_matters
+             WHERE project = ?1 AND kind = 'set_policy' AND handled_round IS NULL AND withdrawn IS NULL",
+            [project],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    let setting = match open {
+        Some(m) => Some(setting(conn, m)?),
+        None => None,
     };
     let mut out_works = Vec::new();
     for (_, s) in architect_works {
@@ -2152,68 +2135,75 @@ pub(crate) fn policy(conn: &Connection, project: &str) -> Result<Option<PolicyIn
         .optional()?)
 }
 
-/// The policy a work of the architect is setting: its latest study, and its latest text with the readings of it,
-/// unless a newer study has sent the text back to be written again.
-fn setting(conn: &Connection, work: i64) -> Result<PolicySetting> {
+/// The new policy a project's architect is setting, by the setting's matter: its latest study, and its latest text with
+/// the readings of it, unless a newer study has sent the text back to be written again, in whichever of the
+/// architect's works they were.
+fn setting(conn: &Connection, matter: i64) -> Result<PolicySetting> {
     let study = conn
         .query_row(
-            &format!(
-                "SELECT n, cell, ended_at, output FROM rounds WHERE work = ?1 AND cell IN {} AND transition IS NOT NULL
-                   AND json_extract(output, '$.outcome.study') IS NOT NULL
-                 ORDER BY n DESC LIMIT 1",
-                db::cells_sql("architect", &["P2"])
-            ),
-            [work],
+            "SELECT work, n, cell, (SELECT ended_at FROM rounds x WHERE x.work = s.work AND x.n = s.n), output
+             FROM policy_setting_rounds s
+             WHERE matter = ?1 AND cell = 'P2' AND transition IS NOT NULL
+               AND json_extract(output, '$.outcome.study') IS NOT NULL
+             ORDER BY work DESC, n DESC LIMIT 1",
+            [matter],
             |r| {
                 Ok(Said {
-                    work,
-                    round: r.get(0)?,
-                    cell: r.get(1)?,
-                    at: r.get(2)?,
-                    value: returned(r.get(3)?, Some("study")),
+                    work: r.get(0)?,
+                    round: r.get(1)?,
+                    cell: r.get(2)?,
+                    at: r.get(3)?,
+                    value: returned(r.get(4)?, Some("study")),
                 })
             },
         )
         .optional()?;
-    // The cell of each round of the work, which each part of the policy being set names.
-    let cells: HashMap<i64, String> = {
-        let mut st = conn.prepare("SELECT n, coalesce(cell, '') FROM rounds WHERE work = ?1")?;
-        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<rusqlite::Result<_>>()?
+    // The cell of a round of the setting, which each part of the policy being set names.
+    let cell = |work: i64, n: i64| -> String {
+        conn.query_row(
+            "SELECT coalesce(cell, '') FROM rounds WHERE work = ?1 AND n = ?2",
+            [work, n],
+            |r| r.get(0),
+        )
+        .unwrap_or_default()
     };
-    let cell = |n: i64| cells.get(&n).cloned().unwrap_or_default();
     let draft = conn
         .query_row(
-            "SELECT round, policy, probes, readings FROM policy_trials WHERE work = ?1",
-            [work],
+            "SELECT work, round, policy, probes, readings FROM policy_trials WHERE matter = ?1",
+            [matter],
             |r| {
-                let readings = json(r.get(3)?)
+                let readings = json(r.get(4)?)
                     .and_then(|v| v.as_array().cloned())
                     .unwrap_or_default()
                     .into_iter()
                     .map(|x| {
-                        let round = x["round"].as_i64().unwrap_or_default();
+                        let (work, round) = (
+                            x["work"].as_i64().unwrap_or_default(),
+                            x["round"].as_i64().unwrap_or_default(),
+                        );
                         Reading {
+                            work,
                             round,
-                            cell: cell(round),
+                            cell: cell(work, round),
                             reading: x["reading"].clone(),
                             verdict: x["verdict"].clone(),
                         }
                     })
                     .collect();
-                let round: i64 = r.get(0)?;
+                let (work, round): (i64, i64) = (r.get(0)?, r.get(1)?);
                 Ok(Draft {
+                    work,
                     round,
-                    cell: cell(round),
-                    policy: json(r.get(1)?).unwrap_or(Value::Null),
-                    probes: json(r.get(2)?).unwrap_or(Value::Null),
+                    cell: cell(work, round),
+                    policy: json(r.get(2)?).unwrap_or(Value::Null),
+                    probes: json(r.get(3)?).unwrap_or(Value::Null),
                     readings,
                 })
             },
         )
         .optional()?
-        .filter(|d| study.as_ref().is_none_or(|s| d.round > s.round));
-    Ok(PolicySetting { work, study, draft })
+        .filter(|d| study.as_ref().is_none_or(|s| (d.work, d.round) > (s.work, s.round)));
+    Ok(PolicySetting { matter, study, draft })
 }
 
 /// The latest round of a project's architect at a cell that answered, by what it answered.

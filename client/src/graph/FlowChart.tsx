@@ -7,9 +7,8 @@
 // flows are compared, the cells added and changed are marked. An arrow's label names its rows, with no numbers, as a
 // cell's page names them. A chart that opens on a cell opens at full size, centred on it; when a round starts running at another
 // cell than the one it last centred on, it centres on that cell at the zoom it has. A map of the whole chart over its
-// top left corner shows the part in view and moves the view, while some of the chart is out of view. A circle to or
-// from another graph leads to the cell it names there. A click on the chart's background, not a drag, lets go of what
-// is picked.
+// top left corner shows the part in view and moves the view, while some of the chart is out of view. A click on the
+// chart's background, not a drag, lets go of what is picked.
 
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
@@ -46,15 +45,6 @@ export type Pick =
   | { kind: 'store'; store: string }
   | { kind: 'out'; graph: string; cell: string; to: string }
   | { kind: 'in'; graph: string; cell: string; from: string }
-  /// A circle to or from another graph: the graph and the cell it names, and what it is beside, the actions on a line
-  /// that start a task of that graph or the cell the matter its end queues comes to.
-  | {
-      kind: 'graph';
-      graph: string;
-      to: string;
-      cell: string;
-      beside: { kind: 'action'; node: string } | { kind: 'cell'; cell: string };
-    }
   /// Nothing: the chart's background, a stage's box or a graph's name, which lets go of what is picked.
   | { kind: 'nothing' };
 
@@ -87,12 +77,6 @@ export function pickAt(target: Under, graphs: string[], models: Chart[]): Pick |
       return { kind: 'out', graph, cell: n.cell, to: n.other ?? '' };
     case 'in':
       return { kind: 'in', graph, cell: n.cell, from: n.other ?? '' };
-    case 'to': {
-      const node = models[i]?.edges.find((e) => e.target === n.id)?.source ?? '';
-      return { kind: 'graph', graph, to: n.graph ?? '', cell: n.other ?? '', beside: { kind: 'action', node } };
-    }
-    case 'from':
-      return { kind: 'graph', graph, to: n.graph ?? '', cell: n.other ?? '', beside: { kind: 'cell', cell: n.cell } };
   }
 }
 
@@ -114,9 +98,6 @@ export type FlowChartProps = {
   marks: Marks[];
   /// The flow's engine part: the stores, what each action writes and what each value reads.
   engine: EngineNames | null;
-  /// Every graph of the flow, those not drawn among them, whose cells the circles to and from another graph name;
-  /// with none, the graphs drawn.
-  every?: CompiledGraph[];
   /// The store whose panel is open.
   store?: string | null;
   /// The cell the chart opens on; with none, the top of the first graph.
@@ -201,8 +182,6 @@ function Legend({ charts, stores, legend }: {
   const acting = charts.some((x) => x.chart.nodes.some((n) => n.kind === 'action' || n.kind === 'does'));
   const reading = charts.some((x) => [...x.chart.notes.values()].some((n) => n.reads !== null));
   const lacking = charts.some((x) => [...x.chart.notes.values()].some((n) => n.lacks.length > 0));
-  const away = charts.some((x) => x.chart.nodes.some((n) => n.kind === 'to'));
-  const back = charts.some((x) => x.chart.nodes.some((n) => n.kind === 'from'));
   return (
     <details className="legend">
       <summary aria-label={t('legend')} title={t('legend')}>
@@ -457,26 +436,6 @@ function Legend({ charts, stores, legend }: {
           </Swatch>
           {t('legend_in')}
         </li>
-        {away ? (
-          <li>
-            <Swatch>
-              <g className="fc-circle fc-out">
-                <ellipse cx="17" cy="9" rx="13" ry="7" />
-              </g>
-            </Swatch>
-            {t('legend_to')}
-          </li>
-        ) : null}
-        {back ? (
-          <li>
-            <Swatch>
-              <g className="fc-circle fc-in">
-                <ellipse cx="17" cy="9" rx="13" ry="7" />
-              </g>
-            </Swatch>
-            {t('legend_from')}
-          </li>
-        ) : null}
         {!work ? (
           <>
             <li>
@@ -527,9 +486,8 @@ function Legend({ charts, stores, legend }: {
 }
 
 export function FlowChart(props: FlowChartProps) {
-  const { graphs, marks, engine, every, store = null, start, startGraph, onPick, legend, ref } = props;
-  const all = useMemo(() => every ?? graphs.map((x) => x.g), [every, graphs]);
-  const models = useMemo(() => graphs.map(({ g, view }) => build(g, view, engine, all)), [graphs, engine, all]);
+  const { graphs, marks, engine, store = null, start, startGraph, onPick, legend, ref } = props;
+  const models = useMemo(() => graphs.map(({ g, view }) => build(g, view, engine)), [graphs, engine]);
   const measured = useMemo(() => graphs.map(({ g }, i) => sizes(g, models[i])), [graphs, models]);
   // The stores, between the first two graphs or beside the one, and which node of each graph reads or writes each.
   const stores = useMemo(() => {
@@ -738,7 +696,6 @@ export function FlowChart(props: FlowChartProps) {
                       lines={measured[i].lines}
                       notes={measured[i].notes}
                       engine={engine}
-                      every={all}
                       marks={marks[i] ?? NO_MARKS}
                       defs={i === 0}
                       onNode={(n) => setPointedNode(n === null ? null : { graph: i, node: n })}

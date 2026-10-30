@@ -80,8 +80,9 @@ fn fail(p: impl Into<String>) -> Error {
     }
 }
 
-/// The columns an input from the database may be read by: the item, work or project at hand.
-const BY: [&str; 3] = ["item", "work", "project"];
+/// The columns an input from the database may be read by: the item, work or project at hand, or the matter a work of
+/// the architect has in hand.
+const BY: [&str; 4] = ["item", "work", "project", "matter"];
 
 pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
     let mut source: Source = serde_json::from_str(text).map_err(|e| fail(format!("flow.json: {e}")))?;
@@ -256,7 +257,6 @@ fn names(source: &Source, graphs: &[Graph], cx: &Context, problems: &mut Vec<Str
     both("value", &e.values, &values, problems);
     both("need", &e.needs, &needs, problems);
     stores(e, cx, problems);
-    tasks(e, graphs, problems);
     for (rel, by, at) in relations {
         let Some(cols) = cx.relations.get(&rel) else {
             problems.push(format!("{at}: no table or view {rel} in the database"));
@@ -264,7 +264,9 @@ fn names(source: &Source, graphs: &[Graph], cx: &Context, problems: &mut Vec<Str
         };
         if let Some(b) = by {
             if !BY.contains(&b.as_str()) {
-                problems.push(format!("{at}: {rel} is read by the item, work or project, not by {b}"));
+                problems.push(format!(
+                    "{at}: {rel} is read by the item, work, project or matter, not by {b}"
+                ));
             } else if !cols.contains(&b) {
                 problems.push(format!("{at}: {rel} has no column {b}"));
             }
@@ -311,42 +313,6 @@ fn stores(e: &format::EngineNames, cx: &Context, problems: &mut Vec<String>) {
         }
         for i in s.inputs.iter().filter(|i| !e.inputs.contains_key(*i)) {
             problems.push(format!("store {n}: no such engine input: {i}"));
-        }
-    }
-}
-
-/// Each task of another graph is started by an action on a row of some other graph, is a work of a graph there is,
-/// whose rows queue its matter by an action there is, and that matter's path leads to a cell of each graph that
-/// starts it, as the owner's chart draws it.
-fn tasks(e: &format::EngineNames, graphs: &[Graph], problems: &mut Vec<String>) {
-    fn on_rows(g: &Graph, action: &str) -> bool {
-        g.cells
-            .iter()
-            .any(|c| c.rows.iter().any(|r| r.actions.iter().any(|d| d.name() == action)))
-    }
-    for (start, t) in &e.tasks {
-        for a in [start, &t.queues].into_iter().filter(|a| !e.actions.contains_key(*a)) {
-            problems.push(format!("task {start}: no such engine action: {a}"));
-        }
-        let Some(task) = graphs.iter().find(|g| g.flow.name == t.graph) else {
-            problems.push(format!("task {start}: no such graph: {}", t.graph));
-            continue;
-        };
-        if !on_rows(task, &t.queues) {
-            problems.push(format!(
-                "task {start}: no row of the graph {} does {}",
-                t.graph, t.queues
-            ));
-        }
-        let starting: Vec<&Graph> = graphs
-            .iter()
-            .filter(|g| g.flow.name != t.graph && on_rows(g, start))
-            .collect();
-        if starting.is_empty() {
-            problems.push(format!("task {start}: no row of another graph does it"));
-        }
-        for g in starting.iter().filter(|g| !g.at.contains_key(&t.into)) {
-            problems.push(format!("task {start}: no cell {} in the graph {}", t.into, g.flow.name));
         }
     }
 }

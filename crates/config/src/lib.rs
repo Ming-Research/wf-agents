@@ -199,20 +199,13 @@ fn heavy() -> Vec<String> {
 }
 
 /// The review and the advisor, which look at a work's worktree, and every line of a project's architect, which reads
-/// the project in worktrees of its own at main: its work's, the review of its item changes, the search of
-/// observations and the setting of a policy.
+/// the project in a worktree of its own at main: its work's, the setting of a new policy included, the review of its
+/// item changes and the search of observations.
 fn read_only() -> Vec<String> {
-    [
-        "review",
-        "advisor",
-        "architect",
-        "architect_review",
-        "observer",
-        "policy",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+    ["review", "advisor", "architect", "architect_review", "observer"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 /// The tools that edit files, which a line that only reads is refused.
@@ -1281,20 +1274,12 @@ asks = 9
         assert_eq!(set.home(Path::new("/data"), "claude"), Path::new("/elsewhere"));
     }
 
-    // A line that only reads, as the setting of a policy and every other line of an architect, is refused every tool
-    // that edits a file and every git command that changes the repository, and may still read with git; the engineer
-    // is refused neither.
+    // A line that only reads, as every line of an architect, is refused every tool that edits a file and every git
+    // command that changes the repository, and may still read with git; the engineer is refused neither.
     #[test]
     fn a_line_that_only_reads_edits_nothing_and_changes_no_repository() {
         let p = Permissions::default();
-        for line in [
-            "policy",
-            "architect",
-            "architect_review",
-            "observer",
-            "review",
-            "advisor",
-        ] {
+        for line in ["architect", "architect_review", "observer", "review", "advisor"] {
             let refused = p.refused(line);
             for t in EDIT_TOOLS {
                 assert!(refused.iter().any(|r| r == t), "{line}: {t}");

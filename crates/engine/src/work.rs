@@ -121,7 +121,8 @@ impl Work {
 
     /// What a work on no item is, by its graph, as the owner is told it: the architect of its project for a work of the
     /// architect's graph, since to the owner the architect is always there, handling one thing after another, and its
-    /// works are how the engine runs it; the architect's policy setting for a work of the policy's.
+    /// works are how the engine runs it; the architect's policy setting for a work of the graph a flow version before
+    /// ran the setting of a policy as.
     pub fn of_architect(&self) -> String {
         let project = self.project.as_deref().unwrap_or("no project");
         match self.graph.as_str() {
@@ -204,6 +205,20 @@ pub fn rounds_at(conn: &Connection, work: i64, cell: &str) -> Result<Vec<Round>,
         .map_err(sql)?
         .collect::<rusqlite::Result<_>>()
         .map_err(sql)
+}
+
+/// The rounds named, in the order named; a round there is not is left out.
+pub fn rounds_of(conn: &Connection, ids: &[RoundId]) -> Result<Vec<Round>, String> {
+    let mut st = conn
+        .prepare(&format!("{} WHERE r.work = ?1 AND r.n = ?2", rounds_query()))
+        .map_err(sql)?;
+    let mut out = Vec::new();
+    for id in ids {
+        if let Some(r) = st.query_row(params![id.work, id.n], round).optional().map_err(sql)? {
+            out.push(r);
+        }
+    }
+    Ok(out)
 }
 
 /// All the work's rounds, oldest first.

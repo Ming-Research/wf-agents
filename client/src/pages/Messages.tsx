@@ -40,14 +40,12 @@ import {
   FormControl,
   NavList,
   PageLayout,
-  SegmentedControl,
   Textarea,
   Timeline,
 } from '@primer/react';
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
 
 import type {
-  Architect,
   Conversation,
   ConversationDetail,
   ConversationEntry,
@@ -60,22 +58,16 @@ import type {
 } from '../api';
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from '../answer';
 import {
-  architectBoxHint,
   awayOf,
-  boxModes,
-  type BoxMode,
   closedWhy,
   conversationTitle,
   type ForwardChoice,
   forwardMenu,
   forwardParts,
   heldCards,
-  interjectFirst,
   isQuestion,
   latestAt,
   listParts,
-  liveWorks,
-  type LiveWork,
   member,
   mention,
   mentions,
@@ -595,39 +587,21 @@ function Pinned({ d }: { d: ConversationDetail }) {
   );
 }
 
-/// What the box of the one-to-one with an architect does: what of the architect runs or waits for the owner, whether
-/// the words interject into it (at first) or go to its queue, and whom Interject is for: those the owner ticked, or
-/// until then the policy setting while it waits for the owner, else what runs. In any other conversation, nothing runs
-/// and the words go where they go.
-function useArchitectBox(c: Conversation) {
-  const r = useResource<Architect>('architect', c.kind === 'architect' ? forProject('/api/v1/architect', c.project) : null);
-  const live: LiveWork[] = c.kind === 'architect' && r.data !== undefined && r.data.project === c.project ? liveWorks(r.data.works) : [];
-  const modes = boxModes(live);
-  const [chosen, setMode] = useState<BoxMode>('interject');
-  const mode = modes.includes(chosen) ? chosen : modes[0];
-  const [ticked, setTicked] = useState<number[] | null>(null);
-  const to = (ticked ?? interjectFirst(live)).filter((x) => live.some((l) => l.work === x));
-  const tick = (work: number, on: boolean) => setTicked(on ? [...to.filter((x) => x !== work), work] : to.filter((x) => x !== work));
-  return { live, modes, mode, setMode, to, tick };
-}
-
 /// The one box at the bottom of a conversation: it says something, in a work's group to the engineer, the architect or
-/// both; in a group of projects to one architect or every one; in the one-to-one to the architect, interjecting into
-/// what of it runs or waits for the owner, or adding to its queue. It never answers a bubble: an ask, and a question the
-/// architect holds, are answered in their bubbles. Closed, it says why: a work at its end no longer changes its way on.
+/// both; in a group of projects to one architect or every one; in the one-to-one to the architect, as the owner's words
+/// in its queue, which it takes up in its turn. It never answers a bubble: an ask, and a question the architect holds,
+/// are answered in their bubbles. Closed, it says why: a work at its end no longer changes its way on.
 function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
   const choices = sayTo(c);
   const [text, setText] = useState('');
   const [ticked, setTicked] = useState<string[]>(choices.slice(0, 1));
-  const box = useArchitectBox(c);
-  const interjects = c.kind === 'architect' && box.mode === 'interject';
   const sendTo = sayToTicked(c, ticked);
   const to = sendTo.length === 1 ? sendTo[0] : '';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const closed = closedWhy(c, w);
   if (choices.length === 0) return null;
-  const ready = closed === null && text.trim() !== '' && sendTo.length > 0 && (!interjects || box.to.length > 0);
+  const ready = closed === null && text.trim() !== '' && sendTo.length > 0;
   const done = () => {
     setBusy(false);
     setText('');
@@ -649,8 +623,6 @@ function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
       sent = Promise.all(
         sendTo.map((x) => postJson('/api/v1/projects/say', x === 'all' ? { key: c.key, text: words } : { key: c.key, text: words, to: x })),
       ).then(() => undefined);
-    } else if (interjects) {
-      sent = postJson(forProject('/api/v1/architect/interject', c.project), { text: words, works: box.to });
     } else {
       sent = postJson(forProject('/api/v1/architect/say', c.project), { text: words });
     }
@@ -671,17 +643,6 @@ function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
           ))}
         </div>
       ) : null}
-      {closed === null && interjects && box.live.length > 1 ? (
-        <div className="talk-say-to" role="group" aria-label={t('conv_to')}>
-          <span className="talk-say-to-label">{t('conv_to')}</span>
-          {box.live.map((l) => (
-            <FormControl key={l.work} layout="horizontal">
-              <Checkbox checked={box.to.includes(l.work)} onChange={(e) => box.tick(l.work, e.target.checked)} />
-              <FormControl.Label>{`@${t(l.to === 'policy' ? 'conv_policy_setting' : 'conv_architect_short')}`}</FormControl.Label>
-            </FormControl>
-          ))}
-        </div>
-      ) : null}
       <div className="talk-say-row">
         <Textarea
           block
@@ -694,9 +655,7 @@ function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
               ? closed
               : c.kind === 'work'
                 ? t(to === 'engineer' ? 'conv_say_engineer' : to === 'architect' ? 'conv_say_architect_work' : sendTo.length === 0 ? 'conv_say_nobody' : 'conv_say_both')
-                : c.kind === 'architect'
-                  ? architectBoxHint(box.mode, box.live, box.to)
-                  : t('conv_say_architect')
+                : t('conv_say_architect')
           }
           title={t('send_keys_hint')}
           onChange={(e) => setText(e.target.value)}
@@ -707,17 +666,6 @@ function Composer({ c, w }: { c: Conversation; w: WorkSummary | null }) {
             }
           }}
         />
-        {closed === null && box.modes.length > 1 ? (
-          <span className="talk-say-mode">
-            <SegmentedControl aria-label={t('conv_mode')} size="small" onChange={(i) => box.setMode(box.modes[i])}>
-              {box.modes.map((m) => (
-                <SegmentedControl.Button key={m} selected={m === box.mode}>
-                  {t(m === 'interject' ? 'conv_mode_interject' : 'conv_mode_queue')}
-                </SegmentedControl.Button>
-              ))}
-            </SegmentedControl>
-          </span>
-        ) : null}
         <Button variant="primary" onClick={send} disabled={!ready || busy}>
           {t('conv_send')}
         </Button>

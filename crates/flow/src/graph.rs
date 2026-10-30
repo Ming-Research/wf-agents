@@ -709,9 +709,9 @@ impl<'s> Graph<'s> {
                 );
                 let drops = r.drops.unwrap_or(false);
                 ensure!(
-                    !drops || (!goto && region.contains(&idx(nid)?)),
-                    "a row that goes on without answering the cells that wait goes from the asking part to a cell: \
-                     {nid} {}",
+                    !drops || (!goto && (region.contains(&idx(nid)?) || n.kind == NodeKind::Owner)),
+                    "a row that goes on without answering the cells that wait goes from the asking part or an owner's \
+                     cell to a cell: {nid} {}",
                     r.name
                 );
                 rows.push(Row {
@@ -990,14 +990,14 @@ impl<'s> Graph<'s> {
                         c.id,
                         r.name
                     );
-                    ensure!(
-                        c.kind != CellKind::Owner || r.drops,
-                        "the {h}'s own graph stops: {} {} goes on only with the owner's answer, and the {h} holds \
-                         blockers",
-                        c.id,
-                        r.name
-                    );
                 }
+                // An ask of the owner holds only what it is about: the cell goes on without the answer by a row that
+                // drops what waits for it, and its other rows are taken once what it holds comes back with the answer.
+                ensure!(
+                    c.kind != CellKind::Owner || c.rows.iter().any(|r| r.drops),
+                    "the {h}'s own graph stops: {} goes on only with the owner's answer, and the {h} holds blockers",
+                    c.id
+                );
             }
         }
 

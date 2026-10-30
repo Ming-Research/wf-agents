@@ -1,6 +1,5 @@
 // Lays a flow's chart out with elkjs: each part of the chart on its own, top to bottom, its stage boxes as boxes that
-// hold their cells, each cell with what is drawn beside it as one node laid out on its own (`units.ts`), and so the
-// actions on a line with the circle beside them naming where a task of another graph they start begins, arrows
+// hold their cells, each cell with what is drawn beside it as one node laid out on its own (`units.ts`), arrows
 // routed at right angles around the boxes with room for their labels and meeting each cell in the lane of its edge,
 // each with a last straight piece long enough for its head; then the main part on top and the other parts in a row
 // below it. Each arrow's route also says where it crosses an arrow that runs the other way, so that it is drawn with a
@@ -151,11 +150,10 @@ async function layPart(
   const members = c.nodes.filter((n) => n.part === part);
   const ids = new Set(members.map((n) => n.id));
   const inPart = c.edges.filter((e) => ids.has(e.source) && ids.has(e.target));
-  // Each cell with what is beside it is one node of the layout, as are the actions on a line with the circle beside
-  // them; the lines among them, and a row from a cell back to itself, are drawn by the unit.
+  // Each cell with what is beside it is one node of the layout; the lines among them, and a row from a cell back to
+  // itself, are drawn by the unit.
   const byId = new Map(members.map((n) => [n.id, n]));
   const owner = attachments(members, inPart);
-  const owners = new Set(owner.values());
   const unitOf = (id: string) => owner.get(id) ?? id;
   const inside = (e: ChartEdge) =>
     unitOf(e.source) === unitOf(e.target) && (owner.has(e.source) || owner.has(e.target) || e.source === e.target);
@@ -179,7 +177,7 @@ async function layPart(
   const unitsWith = (ports: (cell: string) => { top: number; bottom: number }) =>
     new Map(
       laidOut
-        .filter((n) => n.kind === 'cell' || owners.has(n.id))
+        .filter((n) => n.kind === 'cell')
         .map((n) => [
           n.id,
           layUnit(

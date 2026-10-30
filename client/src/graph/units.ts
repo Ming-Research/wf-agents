@@ -1,14 +1,12 @@
 // A cell and what the chart draws beside it, laid out together as one node of the chart's layout, the same way for
-// every cell: the circles of rows into it from another part, and of matters that come to it from another graph, in a
-// row above it, each with its rows' names on its outer side and a line down into it; the rules given to it on its
-// left, the interjection under them, each with a line into it; a row from it back to itself as a loop on its right,
-// and what it does every time on its right; and the circles of its rows to another part in a row below it, each under
-// the actions on the row, if any. The actions on a line that start a task of another graph are laid out so too, with
-// the circle naming where that task starts on their right. The layout sees each cell, or such actions, and what is
-// beside it as one node, and the arrows to and from other nodes meet the cell itself, in a lane in the middle of its
-// top and bottom edges, with the circles' lines on either side of it, so that no arrow runs through a circle or a
-// label. The lines between a cell and what is beside it are drawn here, straight, with bends only where a line reaches
-// the cell from beyond the part of its edge it may meet.
+// every cell: the circles of rows into it from another part in a row above it, each with its row's name on its outer
+// side and a line down into it; the rules given to it on its left, the interjection under them, each with a line into
+// it; a row from it back to itself as a loop on its right, and what it does every time on its right; and the circles
+// of its rows to another part in a row below it, each under the actions on the row, if any. The layout sees each cell
+// and what is beside it as one node, and the arrows to and from other nodes meet the cell itself, in a lane in the
+// middle of its top and bottom edges, with the circles' lines on either side of it, so that no arrow runs through a
+// circle or a label. The lines between a cell and what is beside it are drawn here, straight, with bends only where a
+// line reaches the cell from beyond the part of its edge it may meet.
 
 import type { Box, Point, Route, Size } from './flowLayout';
 import { type ChartEdge, type ChartNode, cellNode } from './flowModel';
@@ -28,12 +26,10 @@ export type Unit = {
 };
 
 /// What is drawn beside a cell: its circles, its rules, its interjection and what it does every time.
-const BESIDE = new Set(['in', 'out', 'from', 'rule', 'interjection', 'does']);
+const BESIDE = new Set(['in', 'out', 'rule', 'interjection', 'does']);
 
 /// The nodes drawn beside a cell, each with the cell's node: those of a kind drawn beside a cell, and the actions on a
-/// row from a cell to a circle of its own; and the circle naming where a task of another graph starts, with the node
-/// of the actions on a line that start it, when those are laid out on their own. A node with a line to anything else
-/// is laid out on its own.
+/// row from a cell to a circle of its own; a node with a line to anything else is laid out on its own.
 export function attachments(nodes: ChartNode[], edges: ChartEdge[]): Map<string, string> {
   const ids = new Map(nodes.map((n) => [n.id, n]));
   const owner = new Map<string, string>();
@@ -50,11 +46,6 @@ export function attachments(nodes: ChartNode[], edges: ChartEdge[]): Map<string,
     if (outs.length > 0 && outs.every((e) => ids.get(e.target)?.kind === 'out' && owner.get(e.target) === from)) {
       owner.set(n.id, from);
     }
-  }
-  for (const n of nodes) {
-    if (n.kind !== 'to') continue;
-    const from = edges.find((e) => e.target === n.id)?.source;
-    if (from !== undefined && ids.get(from)?.kind === 'action' && !owner.has(from)) owner.set(n.id, from);
   }
   let changed = true;
   while (changed) {
@@ -80,9 +71,6 @@ export function attachments(nodes: ChartNode[], edges: ChartEdge[]): Map<string,
 const LEFT = 24;
 const RIGHT = 16;
 const LOOP = 26;
-/// The room between the actions on a line and the circle on their right naming where a task they start begins: an
-/// arrow with its head.
-const AWAY = 24;
 /// Between things stacked on the cell's left, and between things side by side in a row above or below it.
 const STACK = 8;
 const APART = 14;
@@ -203,11 +191,9 @@ export function layUnit(
   const left = [...of('rule'), ...of('interjection')];
   const heights = left.map((n) => size(n.id).height);
   const tall = heights.reduce((a, h) => a + h, 0) + STACK * Math.max(0, left.length - 1);
-  // The middles of nodes stacked from `top` down.
-  const centres = (top: number, stacked = left) => {
+  const centres = (top: number) => {
     let y = top;
-    return stacked.map((n) => {
-      const h = size(n.id).height;
+    return heights.map((h) => {
       const c = y + h / 2;
       y += h + STACK;
       return c;
@@ -269,39 +255,11 @@ export function layUnit(
       );
     }
   }
-  // The circles naming where a task of another graph starts, beside the actions on a line that start it, which have
-  // nothing else beside them: in a column on their right, centred on their middle, an arrow from their right point to
-  // each, straight to one level with it.
-  const away = of('to');
-  const awayTall = away.reduce((a, n) => a + size(n.id).height, 0) + STACK * Math.max(0, away.length - 1);
-  const awayAt = centres(H / 2 - awayTall / 2, away);
-  away.forEach((n, i) => {
-    const s = size(n.id);
-    boxes.set(n.id, { x: W + AWAY, y: awayAt[i] - s.height / 2, width: s.width, height: s.height });
-    const turn = Math.abs(awayAt[i] - H / 2) > 0.5;
-    for (const e of into(n.id)) {
-      route(
-        e,
-        turn
-          ? [
-              { x: W, y: H / 2 },
-              { x: W + AWAY / 2, y: H / 2 },
-              { x: W + AWAY / 2, y: awayAt[i] },
-              { x: W + AWAY, y: awayAt[i] },
-            ]
-          : [
-              { x: W, y: H / 2 },
-              { x: W + AWAY, y: H / 2 },
-            ],
-        null,
-      );
-    }
-  });
   sides.push(...[...boxes].filter(([id]) => id !== cell.id).map(([, b]) => b));
 
   // The rows: each circle above with its line and the line's label; below, a slot for each line out of the cell to
   // one of its circles, through the actions on the row where it has some, the slots of a circle side by side over it.
-  const ins = members.filter((n) => n.kind === 'in' || n.kind === 'from').map((n) => {
+  const ins = of('in').map((n) => {
     const edge = links.find((e) => e.source === n.id) ?? null;
     const label = edge ? labelSize(edge.id) : null;
     const circle = size(n.id);

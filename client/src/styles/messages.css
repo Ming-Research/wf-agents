@@ -420,11 +420,6 @@
   color: var(--fgColor-muted);
 }
 
-/* What the words do in the one-to-one with an architect, beside Send: never squeezed by the box. */
-.talk-say-mode {
-  flex: none;
-}
-
 /* What an agent handed back, word for word, wherever a card shows it: the box. */
 .agent-box {
   padding: var(--base-size-8) var(--base-size-12);

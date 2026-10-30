@@ -120,24 +120,6 @@ case!(
 case!(a_tool_cell_with_no_step, "names its step", |v| {
     obj(node(v, "X1")).remove("step");
 });
-// A task of another graph that an action starts, which the owner's chart draws, names what there is.
-case!(a_task_of_no_such_graph, "task start_policy: no such graph: nope", |v| {
-    v["engine"]["tasks"]["start_policy"]["graph"] = json!("nope");
-});
-case!(
-    a_task_whose_end_no_row_of_its_graph_queues,
-    "task start_policy: no row of the graph policy does lock_acceptance",
-    |v| {
-        v["engine"]["tasks"]["start_policy"]["queues"] = json!("lock_acceptance");
-    }
-);
-case!(
-    a_task_whose_matter_leads_to_no_cell_of_the_graph_that_starts_it,
-    "task start_policy: no cell X9 in the graph architect",
-    |v| {
-        v["engine"]["tasks"]["start_policy"]["into"] = json!("X9");
-    }
-);
 case!(
     a_form_leaving_out_what_does_not_come_every_time,
     "a form leaves out a field",
@@ -161,7 +143,7 @@ case!(
 );
 case!(
     a_row_outside_the_asking_part_leaving_the_callers_waiting,
-    "a row that goes on without answering the cells that wait goes from the asking part to a cell",
+    "a row that goes on without answering the cells that wait goes from the asking part or an owner's cell to a cell",
     |v| {
         row(v, "T7", "adversarial")["drops"] = json!(true);
     }
@@ -635,7 +617,7 @@ case!(
     a_cell_given_the_draft_without_what_a_policy_governs,
     "cell `P6` is given P5·draft.policy without the rule policy_scope that goes with it",
     |v| {
-        let read = v["flows"][2]["nodes"]
+        let read = v["flows"][1]["nodes"]
             .as_array_mut()
             .unwrap()
             .iter_mut()
@@ -656,9 +638,9 @@ case!(
 );
 case!(
     a_text_that_names_a_cell_of_the_other_graph,
-    "policy: flows.policy.nodes.P8.prompt[0] names cell `A4`, which its graph has not",
+    "architect: flows.architect.nodes.P8.prompt[0] names cell `A4`, which its graph has not",
     |v| {
-        let correct = v["flows"][2]["nodes"]
+        let correct = v["flows"][1]["nodes"]
             .as_array_mut()
             .unwrap()
             .iter_mut()

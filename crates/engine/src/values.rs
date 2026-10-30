@@ -44,8 +44,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         return Ok(v);
     }
     // An interjection waiting for the task's main line; a word that needs no answer, as the owner confirming the design
-    // card, is not one that turns the work. The owner's words to the setting of a policy are its line's.
-    if name == "interjection" || name == "owner_words" {
+    // card, is not one that turns the work.
+    if name == "interjection" {
         return Ok(if interjections(e, w)? > 0 { "yes" } else { "no" }.to_string());
     }
     let item = item.ok_or_else(|| {
@@ -197,18 +197,12 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
     }
 }
 
-/// How many words said to a work are waiting for its main line, which turn its way on: the engineer's, the
-/// architect's setting a policy, or the architect's own.
+/// How many words said to a work are waiting for its engineer's line, which turn its way on.
 pub fn interjections(e: &Engine, w: &Work) -> Result<i64, String> {
-    let line = match w.graph.as_str() {
-        crate::POLICY => crate::POLICY,
-        crate::ARCHITECT => crate::ARCHITECT,
-        _ => ENGINEER,
-    };
     e.db.conn()
         .query_row(
             "SELECT count(*) FROM interjections WHERE work = ?1 AND line = ?2 AND delivered_round IS NULL AND informs = 0",
-            db::rusqlite::params![w.id, line],
+            db::rusqlite::params![w.id, ENGINEER],
             |r| r.get(0),
         )
         .map_err(|e| e.to_string())

@@ -916,7 +916,7 @@ pub struct Architect {
     pub changes: Vec<ItemChange>,
     /// The policy in force for the project; none before the first takes effect.
     pub policy: Option<PolicyInForce>,
-    /// The policy a work of it is setting now; none while no work of it sets one.
+    /// The new policy it is setting now; none while it sets none.
     pub setting: Option<PolicySetting>,
     /// Its latest check of whether the policy in force still holds (cell `P1`); none before the first.
     pub check: Option<Said>,
@@ -1350,11 +1350,13 @@ pub struct PolicyInForce {
     pub policy: Value,
 }
 
-/// A new policy as a work of the architect sets it: the latest study of it, and the latest text with its probes and
-/// every reading of it by a new architect since, with the architect's verdict on each.
+/// A new policy as the architect sets it, a stage of its works: the latest study of it, and the latest text with its
+/// probes and every reading of it by a new architect since, with the architect's verdict on each, in whichever of its
+/// works they were.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct PolicySetting {
-    pub work: i64,
+    /// The setting's matter, which the architect's works have in hand.
+    pub matter: i64,
     pub study: Option<Said>,
     pub draft: Option<Draft>,
 }
@@ -1362,6 +1364,7 @@ pub struct PolicySetting {
 /// A version of the policy being set, by the round that wrote it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Draft {
+    pub work: i64,
     pub round: i64,
     /// The cell of that round.
     pub cell: String,
@@ -1373,6 +1376,7 @@ pub struct Draft {
 /// A new architect's reading of the policy being set, by its round, with the verdict on it; none until judged.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Reading {
+    pub work: i64,
     pub round: i64,
     /// The cell of that round.
     pub cell: String,

@@ -466,22 +466,19 @@ function Panel({ route, a, d, g, go, onRound }: {
 }
 
 /// The architect's graph filling the window, with the work shown placed on it, and the docked column: the panel on top,
-/// what is open on the chart under it. A circle to or from another graph goes to that cell on the flow page, which
-/// draws every graph.
-export function Chart({ route, a, shown, d, compiled, version, view, go }: {
+/// what is open on the chart under it.
+export function Chart({ route, a, shown, d, compiled, view, go }: {
   route: ArchitectRoute;
   a: ArchitectRead;
   shown: ArchitectWork | null;
   d: WorkDetail | null;
   compiled: Compiled;
-  /// The stored flow version the chart draws.
-  version: number | null;
   view: FlowView;
   go: (to: Partial<ArchitectRoute>) => void;
 }) {
   const status = useStatus();
-  // The chart draws the graph of the work shown: an architect work's, or a policy task's, whose cells (P2 to P12) the
-  // architect graph no longer holds, so that a round chosen of either is found on it.
+  // The chart draws the graph of the work shown, as its flow version has it: an architect work's, or the policy
+  // setting's a flow version before ran as a work of its own, so that a round chosen of either is found on it.
   const name = d?.work.graph ?? GRAPH;
   const g = compiled.graphs.find((x) => x.name === name);
   const v = view.graphs.find((x) => x.name === name);
@@ -513,9 +510,6 @@ export function Chart({ route, a, shown, d, compiled, version, view, go }: {
       onRound={(x) => go(x !== null ? { work: id, round: x, cell: null } : { round: null })}
       renderRound={id !== null && d !== null ? (x) => <RoundView work={id} n={x} rounds={d.rounds} /> : undefined}
       side={<Panel route={route} a={a} d={d} g={g} go={go} onRound={onRound} />}
-      onGraph={(graph, cell) =>
-        navigate(href({ page: 'flow', version, project: null, ref: null, from: null, graph, cell }))
-      }
     />
   );
 }
@@ -556,7 +550,7 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
             {(c) => (
               <Loaded r={view}>
                 {(v) => (
-                  <Chart route={route} a={a} shown={shown} d={d} compiled={c} version={version} view={v} go={go} />
+                  <Chart route={route} a={a} shown={shown} d={d} compiled={c} view={v} go={go} />
                 )}
               </Loaded>
             )}

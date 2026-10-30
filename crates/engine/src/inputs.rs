@@ -119,7 +119,8 @@ pub fn at_path(x: &Value, path: &str) -> Option<Value> {
 /// The returns of a cell in the work that hold a place, newest first, each with its round: for an agent's own answer,
 /// the returns of its own form; for the fields every return has, the returns that have them; for any other cell,
 /// every return that took a row. Each is given as the rows read it, an agent's form taken out of the field it sits
-/// in.
+/// in. A cell of the setting of a new policy that a work of the architect has in hand has the setting's returns, in
+/// whichever of the project's architect works the setting went on in.
 pub fn returns_holding(
     e: &Engine,
     w: &Work,
@@ -131,8 +132,12 @@ pub fn returns_holding(
         return Ok(Vec::new());
     };
     let top = path.split(['.', '[']).next().unwrap_or_default();
+    let rounds = match crate::architect::setting_rounds_at(e, w, g, cell)? {
+        Some(rs) => rs,
+        None => work::rounds_at(e.db.conn(), w.id, cell)?,
+    };
     let mut out = Vec::new();
-    for r in work::rounds_at(e.db.conn(), w.id, cell)? {
+    for r in rounds {
         let Some(ret) = r.output.filter(|_| r.transition.is_some()) else {
             continue;
         };
@@ -252,7 +257,8 @@ pub fn gather(
 /// agent's cell shares that answer the cell that went to them (the tools, the search, the owner asked, the wait for the
 /// owner's Start) and its returns hold nothing at the path, when it is the cell before them, as the work's rounds have
 /// it, which the row that brought the work to its cell came from: a round after the tools still reads what that cell
-/// handed in, and the tools' results are still read from the tools.
+/// handed in, and the tools' results are still read from the tools. A cell of the setting of a new policy that the
+/// matter's router took back to it came from the cell of the setting before it, in whichever work.
 fn came_from(e: &Engine, w: &Work, g: &CompiledGraph, path: &str) -> Result<Option<String>, String> {
     let shared = |id: &str| g.cells.iter().any(|c| c.rows.iter().any(|r| r.common && r.to == id)) && g.is_called(id);
     let Some(from) = w.pos.from.as_deref() else {
@@ -261,16 +267,24 @@ fn came_from(e: &Engine, w: &Work, g: &CompiledGraph, path: &str) -> Result<Opti
     let holds = returns_holding(e, w, g, from, path)?
         .iter()
         .any(|(_, ret)| at_path(ret, path).is_some());
-    if !shared(from) || holds {
+    let at = w.pos.at.as_str();
+    let setting = if crate::architect::in_setting(g, at) {
+        crate::architect::setting_cells(e, w, g)?
+    } else {
+        None
+    };
+    let routed = setting.is_some() && crate::architect::routed(from);
+    if (!shared(from) && !routed) || holds {
         return Ok(Some(from.to_string()));
     }
-    let at = w.pos.at.as_str();
-    Ok(work::rounds(e.db.conn(), w.id)?
-        .iter()
-        .rev()
-        .filter_map(|r| r.cell.as_deref())
-        .find(|c| *c != at && !shared(c))
-        .map(str::to_string))
+    let cells: Vec<String> = match setting {
+        Some(cells) => cells,
+        None => work::rounds(e.db.conn(), w.id)?
+            .into_iter()
+            .filter_map(|r| r.cell)
+            .collect(),
+    };
+    Ok(cells.into_iter().rev().find(|c| c != at && !shared(c)))
 }
 
 /// What one source of an input gives: none when it has nothing.
@@ -337,7 +351,7 @@ fn source(
         // What is read for the item has nothing for a work on no item; what is read for the project, for a work on no
         // item, is the work's project's.
         Src::Db { by: Some(col), .. }
-            if col != "work" && item.is_none() && (col != "project" || w.project.is_none()) =>
+            if col != "work" && col != "matter" && item.is_none() && (col != "project" || w.project.is_none()) =>
         {
             None
         }
@@ -350,11 +364,12 @@ fn source(
                 }
                 _ => rows,
             };
-            // Rows read for the work are its own: the work they are read by is the engine's bookkeeping, not given.
-            if by.as_deref() == Some("work") {
+            // Rows read for the work, or the matter in hand, are its own: what they are read by is the engine's
+            // bookkeeping, not given.
+            if let Some(col @ ("work" | "matter")) = by.as_deref() {
                 for r in &mut rows {
                     if let Some(o) = r.as_object_mut() {
-                        o.remove("work");
+                        o.remove(col);
                     }
                 }
             }
@@ -499,6 +514,11 @@ pub fn db_rows(
         Some(col) => {
             let key: Box<dyn ToSql> = match (col, item, &w.project) {
                 ("work", _, _) => Box::new(w.id),
+                // The matter a work of the architect has in hand.
+                ("matter", _, _) => match crate::architect::picked(conn, w.id)? {
+                    Some(m) => Box::new(m),
+                    None => return Ok(Vec::new()),
+                },
                 ("project", None, Some(p)) => Box::new(p.clone()),
                 (_, None, _) => return Ok(Vec::new()),
                 ("item", Some(i), _) => Box::new(i.id),

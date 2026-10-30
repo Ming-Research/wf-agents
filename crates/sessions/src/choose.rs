@@ -3,8 +3,7 @@
 //! leads there with the action `open_session`), and when
 //! the context of its session is past the configuration's limit, and when the owner asks for one; every other round
 //! goes on in the line's session. The architect's line, at its first round in a work, takes up the session the
-//! project's previous architect work left, unless it ended, as a new policy ends it. A cell on no line has a session
-//! of its own every round.
+//! project's previous architect work left, unless it ended. A cell on no line has a session of its own every round.
 
 use db::rusqlite::{Connection, OptionalExtension, params};
 use flow::CompiledCell;
@@ -160,8 +159,8 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: &
 const ARCHITECT: &str = "architect";
 
 /// The session a work of a project's architect takes up at its line's first round in the work: the one the project's
-/// previous architect work left on the line, its row and the CLI's id for it, unless it ended, as a new policy ends it;
-/// none for another line, once the work's line had a session, and at the project's first architect work.
+/// previous architect work left on the line, its row and the CLI's id for it, unless it ended; none for another line,
+/// once the work's line had a session, and at the project's first architect work.
 fn left(conn: &Connection, work: i64, line: &str) -> Result<Option<(i64, String)>, String> {
     if line != ARCHITECT {
         return Ok(None);
@@ -255,7 +254,7 @@ pub fn end(conn: &Connection, session: i64) -> Result<(), String> {
     Ok(())
 }
 
-/// Ends the session a work's line has going on: a new policy ends the architect's, and a batch made ends its review's.
+/// Ends the session a work's line has going on: a batch made ends its review's.
 pub fn end_line(conn: &Connection, work: i64, line: &str) -> Result<(), String> {
     conn.execute(
         "UPDATE sessions SET ended = ?3 WHERE work = ?1 AND line = ?2 AND ended IS NULL",

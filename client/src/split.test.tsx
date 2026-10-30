@@ -198,7 +198,6 @@ describe('a round picked beside a chart', () => {
         shown={shown}
         d={d}
         compiled={compiled}
-        version={1}
         view={view}
         go={() => {}}
       />,

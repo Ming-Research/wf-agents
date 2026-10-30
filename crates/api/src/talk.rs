@@ -297,7 +297,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
         if let Some(a) = &e.ask_detail
             && a.body["kind"] == "policy_approval"
         {
-            e.revisions = Some(revisions(conn, a.work, a.round)?);
+            e.revisions = Some(revisions(conn, a.id, &a.body, a.work, a.round)?);
         }
     }
     let waiting: Vec<_> = asks
@@ -485,8 +485,40 @@ fn forwards(conn: &Connection, entries: &mut [ConversationEntry]) -> Result<()> 
 }
 
 /// The corrections of the text of a policy being set that came before an ask to approve it, since the setting's ask
-/// before it (or since the text was written): each correcting round with why and its edits, oldest first.
-fn revisions(conn: &Connection, work: i64, round: i64) -> Result<Value> {
+/// before it (or since the text was written): each correcting round with why and its edits, oldest first. A setting
+/// that is a stage of the architect's works, whose ask holds its matter, has them in whichever of those works; one a
+/// flow version before ran in a work of its own, in that work.
+fn revisions(conn: &Connection, ask: i64, body: &Value, work: i64, round: i64) -> Result<Value> {
+    let held = body["holds"].as_array().and_then(|h| h.first()).and_then(Value::as_i64);
+    if let Some(m) = held {
+        let since: (i64, i64) = conn
+            .query_row(
+                "SELECT work, round FROM owner_asks a, json_each(a.body, '$.holds') h
+                 WHERE h.value = ?1 AND a.id < ?2 AND json_extract(a.body, '$.kind') = 'policy_approval'
+                 ORDER BY a.id DESC LIMIT 1",
+                params![m, ask],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?
+            .unwrap_or((0, 0));
+        let mut st = conn.prepare(
+            "SELECT work, n, json_extract(output, '$.outcome.revision') FROM policy_setting_rounds
+             WHERE matter = ?1 AND cell = 'P8' AND transition IS NOT NULL
+               AND (work > ?2 OR (work = ?2 AND n > ?3)) AND (work < ?4 OR (work = ?4 AND n < ?5))
+             ORDER BY work, n",
+        )?;
+        let rows = st.query_map(params![m, since.0, since.1, work, round], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<String>>(2)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (w, n, revision) = row?;
+            if let Some(v) = read::json(revision) {
+                out.push(json!({ "work": w, "round": n, "why": v["why"], "edits": v["edits"] }));
+            }
+        }
+        return Ok(Value::Array(out));
+    }
     let since: i64 = conn.query_row(
         "SELECT coalesce(max(round), 0) FROM owner_asks
          WHERE work = ?1 AND round < ?2 AND json_extract(body, '$.kind') = 'policy_approval'",

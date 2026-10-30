@@ -877,7 +877,7 @@ pub fn finish(
     let mut moved = w.clone();
     moved.pos = next;
     // What an architect's round does is the architect's; every other step the engine's.
-    let actor = if (g.name == ARCHITECT || g.name == crate::POLICY) && cell.kind == "agent" {
+    let actor = if g.name == ARCHITECT && cell.kind == "agent" {
         Actor::Architect
     } else {
         Actor::Engine
@@ -987,7 +987,7 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
     let open = close_interrupted(e, w)?;
     let step = cell.step.clone();
     match step.as_deref() {
-        Some("ask_owner") if w.graph == ARCHITECT || w.graph == crate::POLICY => {
+        Some("ask_owner") if w.graph == ARCHITECT => {
             return architect::ask_owner(e, w, g, cell, open);
         }
         Some("ask_owner") => return ask(e, w, g, cell, needed(&item, w)?, open),
@@ -1125,7 +1125,7 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
         Some("full_ci_on_draft") => tools::full_ci(e, w, needed(&item, w)?, round)?,
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
-        Some("end_work") | Some("end_architect_work") | Some("stop_work") | Some("end_policy") => json!({}),
+        Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
         Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
         Some("count_trials") => architect::count_trials(e, w)?,
         Some("put_draft_together") => architect::put_draft_together(e, w)?,
@@ -1135,7 +1135,6 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
     if cell.rows.is_empty() {
         let output = match step.as_deref() {
             Some("end_work") => end_work(e, w, cell)?,
-            Some("end_policy") => end_policy(e, w)?,
             _ => output,
         };
         return finish_end(e, w, round, output, &|_| Ok(()));
@@ -1237,17 +1236,6 @@ fn end_work(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, Stri
             db::queue_matter(tx, m)?;
         }
         Ok(())
-    })
-    .map_err(sql)?;
-    Ok(json!({}))
-}
-
-/// The end of the setting of a policy (`E1` of the graph `policy`): it ends as every work does
-/// ([`crate::ending::end`]), its open blocker withdrawn and its sessions ended.
-fn end_policy(e: &mut Engine, w: &Work) -> Result<Value, String> {
-    let projects = &e.config.config.projects;
-    e.db.write(Actor::Engine, |tx| {
-        crate::ending::end(tx, w.id, crate::ending::End::Done, projects).map_err(db::Error::Abort)
     })
     .map_err(sql)?;
     Ok(json!({}))

@@ -694,7 +694,6 @@ fn line_of(ctx: &Ctx) -> String {
     match &ctx.cell.line {
         Some(l) => l.clone(),
         None if ctx.work.graph == crate::ARCHITECT => crate::ARCHITECT.to_string(),
-        None if ctx.work.graph == crate::POLICY => crate::POLICY.to_string(),
         None => crate::ENGINEER.to_string(),
     }
 }
