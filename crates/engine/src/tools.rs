@@ -295,94 +295,95 @@ fn record_push(e: &mut Engine, w: &Work, head: Option<&str>, pr: Option<i64>) ->
     .map_err(sql)
 }
 
-/// A test binary in a cargo test log: what it is, the tests it ran and how long it took as a whole.
-struct Binary {
-    name: String,
-    tests: Vec<String>,
-    finished: Option<String>,
+/// A test as a cargo-nextest log ends it: how it ended, how long it took, its test binary and its name, read from a
+/// line such as `PASS [   1.234s] (  3/520) engine::e2e a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue`.
+struct Timed {
+    status: String,
+    time: String,
+    binary: String,
+    test: String,
 }
 
-/// The test binaries a cargo test log shows, in the order they ran. Each line is read as a reader sees it: without the
-/// job, the step and the time gh puts before it, and without colour escapes.
-fn binaries(log: &str) -> Vec<Binary> {
-    let mut out: Vec<Binary> = Vec::new();
+/// How nextest says a test ended, besides a signal (SIGSEGV and the like). Its other lines with a time (SLOW, a
+/// retry's TRY, the Summary) end no test.
+const ENDED: [&str; 6] = ["PASS", "FAIL", "TIMEOUT", "LEAK", "LEAK-FAIL", "ABORT"];
+
+/// The tests a cargo-nextest log shows ended, in the order they ended, each once. Each line is read as a reader sees
+/// it: without the job, the step and the time gh puts before it, and without colour escapes.
+fn timed(log: &str) -> Vec<Timed> {
+    let mut out: Vec<Timed> = Vec::new();
     for line in hub::clean_log(log).lines() {
-        let l = line.trim();
-        if let Some(rest) = l.strip_prefix("Running ") {
-            let (source, deps) = rest.split_once(" (").unwrap_or((rest, ""));
-            let file = deps.trim_end_matches(')').rsplit('/').next().unwrap_or_default();
-            let krate = match file.rsplit_once('-') {
-                Some((k, hash)) if hash.chars().all(|c| c.is_ascii_hexdigit()) => k,
-                _ => file,
-            };
-            let name = if krate.is_empty() {
-                source.to_string()
-            } else {
-                format!("{krate} ({source})")
-            };
-            out.push(Binary {
-                name,
-                tests: Vec::new(),
-                finished: None,
-            });
-        } else if let Some(krate) = l.strip_prefix("Doc-tests ") {
-            out.push(Binary {
-                name: format!("the doc tests of {krate}"),
-                tests: Vec::new(),
-                finished: None,
-            });
-        } else if let Some(rest) = l.strip_prefix("test result: ") {
-            if let (Some(b), Some((_, time))) = (out.last_mut(), rest.split_once("finished in ")) {
-                b.finished = Some(time.trim().to_string());
-            }
-        } else if let Some(rest) = l.strip_prefix("test ")
-            && let Some((name, _)) = rest.split_once(" ... ")
-            && let Some(b) = out.last_mut()
-        {
-            b.tests.push(name.trim().to_string());
+        let Some((status, rest)) = line.trim().split_once(" [") else {
+            continue;
+        };
+        if !ENDED.contains(&status) && !status.starts_with("SIG") {
+            continue;
         }
+        let Some((time, rest)) = rest.split_once(']') else {
+            continue;
+        };
+        let time = time.trim();
+        if time.strip_suffix('s').is_none_or(|t| t.parse::<f64>().is_err()) {
+            continue;
+        }
+        // Nextest may count the tests before each one's binary: "(  3/520)".
+        let rest = rest.trim_start();
+        let rest = match rest.strip_prefix('(').and_then(|r| r.split_once(')')) {
+            Some((_, after)) => after.trim_start(),
+            None => rest,
+        };
+        let Some((binary, test)) = rest.split_once(' ') else {
+            continue;
+        };
+        let test = test.trim();
+        // The summary at the end names the tests that did not pass again.
+        if out.iter().any(|t| t.binary == binary && t.test == test) {
+            continue;
+        }
+        out.push(Timed {
+            status: status.to_string(),
+            time: time.to_string(),
+            binary: binary.to_string(),
+            test: test.to_string(),
+        });
     }
     out
 }
 
-/// How long each named test took, as far as the logs of the fast CI's jobs tell: stable `cargo test` times no test on
-/// its own, so each named test is given the time of the whole test binary that holds it, said as that. A test not
-/// found says how many tests the logs showed, and a log that could not be read says why.
+/// How long each named test took, as the logs of the fast CI's jobs tell: cargo-nextest runs each test on its own and
+/// times it, and a test that did not pass says how it ended. A test is named by its name in its test binary, a path
+/// ending in that, or its binary and its name as nextest writes them. A test not found says how many tests the logs
+/// showed, and a log that could not be read says why.
 fn test_times(tests: &[String], logs: &[Result<String, String>]) -> Vec<Value> {
-    let found: Vec<Binary> = logs
+    let found: Vec<Timed> = logs
         .iter()
         .filter_map(|l| l.as_ref().ok())
-        .flat_map(|l| binaries(l))
+        .flat_map(|l| timed(l))
         .collect();
     let unread: Vec<&str> = logs
         .iter()
         .filter_map(|l| l.as_ref().err().map(String::as_str))
         .collect();
-    let ran: usize = found.iter().map(|b| b.tests.len()).sum();
     let missing = if found.is_empty() && !unread.is_empty() {
         format!("the logs of the fast CI could not be read: {}", unread.join("; "))
     } else {
-        format!(
-            "not found among the {ran} tests in {} test binaries the logs of the fast CI show",
-            found.len()
-        )
+        format!("not found among the {} tests the logs of the fast CI show", found.len())
     };
-    let holds = |full: &str, named: &str| {
-        full == named || full.ends_with(&format!("::{named}")) || named.ends_with(&format!("::{full}"))
+    let holds = |t: &Timed, named: &str| {
+        t.test == named
+            || format!("{} {}", t.binary, t.test) == named
+            || t.test.ends_with(&format!("::{named}"))
+            || named.ends_with(&format!("::{}", t.test))
     };
     tests
         .iter()
         .map(|named| {
             let time = found
                 .iter()
-                .find(|b| b.tests.iter().any(|t| holds(t, named)))
-                .map(|b| match &b.finished {
-                    Some(t) => format!(
-                        "{t} for the whole test binary {}, which holds it with {} tests run; cargo test does not time each test on its own",
-                        b.name,
-                        b.tests.len()
-                    ),
-                    None => format!("the test binary {} that holds it reported no time", b.name),
+                .find(|t| holds(t, named))
+                .map(|t| match t.status.as_str() {
+                    "PASS" => t.time.clone(),
+                    status => format!("{}, ended {status}", t.time),
                 })
                 .unwrap_or_else(|| missing.clone());
             json!({ "test": named, "time": time })
@@ -904,39 +905,32 @@ mod tests {
     }
 
     #[test]
-    fn a_named_test_is_given_the_time_of_the_test_binary_that_holds_it() {
-        let log = "     Running unittests src/lib.rs (target/debug/deps/engine-0a1b2c3d4e5f6789)
-running 2 tests
-test tools::tests::a_command_line_is_split_as_a_shell_would ... ok
-test tools::tests::only_allowed_gh_commands_run_and_api_only_reads ... ok
-
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
-
-     Running tests/e2e.rs (target/debug/deps/e2e-99aa88bb77cc66dd)
-running 1 test
-test a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 68.41s
+    fn a_named_test_is_given_its_own_time_from_any_job_s_log() {
+        let first = "    Starting 3 tests across 2 binaries (5 tests skipped)
+        PASS [   0.007s] (1/3) engine tools::tests::a_command_line_is_split_as_a_shell_would
+        SLOW [> 30.000s] (───────) engine::e2e a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue
+        PASS [  35.134s] (2/3) engine::e2e a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue
+     TIMEOUT [  60.003s] (3/3) engine::e2e a_work_s_pause_is_kept_across_a_restart
+------------
+     Summary [  60.010s] 3 tests run: 2 passed, 1 timed out, 5 skipped
+     TIMEOUT [  60.003s] (3/3) engine::e2e a_work_s_pause_is_kept_across_a_restart
 ";
+        let second = "        FAIL [   1.250s] (1/1) flow::negative no_such_view\n";
         let named = vec![
             "a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue".to_string(),
             "engine::tools::tests::a_command_line_is_split_as_a_shell_would".to_string(),
+            "engine::e2e a_work_s_pause_is_kept_across_a_restart".to_string(),
+            "no_such_view".to_string(),
             "missing".to_string(),
         ];
-        let times = test_times(&named, &[Ok(log.to_string())]);
+        let times = test_times(&named, &[Ok(first.to_string()), Ok(second.to_string())]);
+        assert_eq!(times[0], json!({ "test": named[0], "time": "35.134s" }));
+        assert_eq!(times[1]["time"], "0.007s");
+        assert_eq!(times[2]["time"], "60.003s, ended TIMEOUT");
+        assert_eq!(times[3]["time"], "1.250s, ended FAIL");
         assert_eq!(
-            times[0]["time"],
-            "68.41s for the whole test binary e2e (tests/e2e.rs), which holds it with 1 tests run; cargo test does not time each test on its own"
-        );
-        assert!(
-            times[1]["time"]
-                .as_str()
-                .unwrap()
-                .starts_with("0.01s for the whole test binary engine (unittests src/lib.rs)")
-        );
-        assert_eq!(
-            times[2],
-            json!({ "test": "missing", "time": "not found among the 3 tests in 2 test binaries the logs of the fast CI show" })
+            times[4]["time"],
+            "not found among the 4 tests the logs of the fast CI show"
         );
         let unread = test_times(&named[..1], &[Err("check: HTTP 404".to_string())]);
         assert_eq!(
@@ -946,23 +940,23 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; fin
     }
 
     // Lines copied from a real job log, as gh gives it: the job, the step and the time before each line, and the
-    // colour escapes cargo writes, their escape character written "^[" by gh.
+    // colour escapes nextest writes, their escape character written "^[" by gh.
     #[test]
     fn a_named_test_is_found_in_a_real_job_log() {
         let log = concat!(
-            "check\tSet up job\t\u{feff}2026-10-27T11:11:11.3443351Z Current runner version: '2.338.0'\n",
-            "check\tTest\t2026-10-27T11:12:23.7450531Z ^[[1m^[[92m     Running^[[0m unittests src/lib.rs (target/debug/deps/api-665d544996ddbb0e)\n",
-            "check\tTest\t2026-10-27T11:12:23.7464421Z \n",
-            "check\tTest\t2026-10-27T11:12:23.7464632Z running 21 tests\n",
-            "check\tTest\t2026-10-27T11:12:23.7470165Z test control::tests::a_round_of_one_work_is_asked_only_while_holding_and_once_at_a_time ... ok\n",
-            "check\tTest\t2026-10-27T11:12:53.2568286Z test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.51s\n",
+            "test 1 of 3\tSet up job\t\u{feff}2026-10-30T00:54:03.1443351Z Current runner version: '2.338.0'\n",
+            "test 1 of 3\tTest\t2026-10-30T00:56:55.6846661Z ^[[32;1m    Starting^[[0m ^[[1m141^[[0m tests across ^[[1m14^[[0m binaries (^[[1m270^[[0m tests ^[[33;1mskipped^[[0m)\n",
+            "test 1 of 3\tTest\t2026-10-30T00:57:30.8321137Z ^[[32;1m        PASS^[[0m [   0.007s] ( 41/141) ^[[35;1mengine^[[0m ^[[36mtools::tests^[[0m^[[36m::^[[0m^[[34;1ma_command_line_is_split_as_a_shell_would^[[0m\n",
+            "test 1 of 3\tTest\t2026-10-30T00:59:08.9861466Z ^[[33;1m        SLOW^[[0m [> 30.000s] (───────) ^[[35;1mengine::e2e^[[0m ^[[34;1ma_takeover_waits_for_a_free_slot_at_the_head_of_the_queue^[[0m\n",
+            "test 1 of 3\tTest\t2026-10-30T00:59:14.1170419Z ^[[32;1m        PASS^[[0m [  35.134s] ( 64/141) ^[[35;1mengine::e2e^[[0m ^[[34;1ma_takeover_waits_for_a_free_slot_at_the_head_of_the_queue^[[0m\n",
         );
-        let named = ["a_round_of_one_work_is_asked_only_while_holding_and_once_at_a_time".to_string()];
+        let named = [
+            "tools::tests::a_command_line_is_split_as_a_shell_would".to_string(),
+            "a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue".to_string(),
+        ];
         let times = test_times(&named, &[Ok(log.to_string())]);
-        assert_eq!(
-            times[0]["time"],
-            "29.51s for the whole test binary api (unittests src/lib.rs), which holds it with 1 tests run; cargo test does not time each test on its own"
-        );
+        assert_eq!(times[0]["time"], "0.007s");
+        assert_eq!(times[1]["time"], "35.134s");
     }
 
     #[test]

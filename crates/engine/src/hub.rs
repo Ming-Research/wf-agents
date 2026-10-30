@@ -398,10 +398,10 @@ mod tests {
                    plain line";
         assert_eq!(clean_log(log), "error: test failed\n\nplain line");
         // As gh gives a job's log, with the escape character written "^[".
-        let real = "check\tTest\t2026-10-27T11:12:23.7450531Z ^[[1m^[[92m     Running^[[0m unittests src/lib.rs (target/debug/deps/api-665d544996ddbb0e)";
+        let real = "test 1 of 3\tTest\t2026-10-30T00:57:30.8321137Z ^[[32;1m        PASS^[[0m [   0.007s] ( 41/141) ^[[35;1mengine^[[0m ^[[36mtools::tests^[[0m^[[36m::^[[0m^[[34;1ma_command_line_is_split_as_a_shell_would^[[0m";
         assert_eq!(
             clean_log(real),
-            "     Running unittests src/lib.rs (target/debug/deps/api-665d544996ddbb0e)"
+            "        PASS [   0.007s] ( 41/141) engine tools::tests::a_command_line_is_split_as_a_shell_would"
         );
         let link = "https://github.com/o/r/actions/runs/40483126002/job/118000000001";
         assert_eq!(
