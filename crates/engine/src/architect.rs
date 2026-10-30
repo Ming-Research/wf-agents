@@ -4176,22 +4176,6 @@ fn ids_of(v: &Value, ids: &mut BTreeSet<i64>) {
     }
 }
 
-/// The numbers a text names as items, written `#12` or `item 12`.
-fn named_items(text: &str, ids: &mut BTreeSet<i64>) {
-    let words: Vec<&str> = text
-        .split(|c: char| c.is_whitespace() || ",.;:()".contains(c))
-        .collect();
-    for (i, w) in words.iter().enumerate() {
-        if let Some(n) = w.strip_prefix('#').and_then(|n| n.parse::<i64>().ok()) {
-            ids.insert(n);
-        } else if w.eq_ignore_ascii_case("item")
-            && let Some(n) = words.get(i + 1).and_then(|n| n.parse::<i64>().ok())
-        {
-            ids.insert(n);
-        }
-    }
-}
-
 /// One item in full: as its creator wrote it, its locked acceptance, its dependencies and who waits for it, each with
 /// the dependency's kind, its design cards, and its latest work's cell, state and what it waits for.
 fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
@@ -4239,26 +4223,40 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
     Ok(Some(out))
 }
 
-/// The items and works the matter picked concerns, each in full: the item it names, those its material names by number,
-/// and the item of a work it names.
+/// The items and works the matter picked concerns, each in full, as the fields of the matter and of its material name
+/// them: the item it concerns; in its material, and in the place to set straight or the cancelled item it holds, an
+/// item, items, and the item of a work or of works. A number in a text, its words' or a step's, names no item: by
+/// "matter #2" or "item 1 to 5" there, it concerns none.
 fn matter_items(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let Some(m) = picked(conn, w.id)? else {
         return Ok(None);
     };
-    let row = query_json(
-        conn,
-        "SELECT item, what, body FROM architect_matters WHERE id = ?1",
-        &[&m],
-        1,
-    )?;
+    let row = query_json(conn, "SELECT item, body FROM architect_matters WHERE id = ?1", &[&m], 1)?;
     let Some(r) = row.first() else { return Ok(None) };
     let mut ids = BTreeSet::new();
     ids_of(&r["item"], &mut ids);
-    ids_of(&r["body"]["fix"]["item"], &mut ids);
-    named_items(text(&r["what"]), &mut ids);
-    for step in texts(&r["body"]["fix"]["steps"]) {
-        named_items(&step, &mut ids);
+    let body = &r["body"];
+    for part in [body, &body["fix"], &body["cancelled"]] {
+        ids_of(&part["item"], &mut ids);
+        for i in items(part.get("items")) {
+            ids_of(&i, &mut ids);
+        }
+        let mut works = BTreeSet::new();
+        ids_of(&part["work"], &mut works);
+        for x in items(part.get("works")) {
+            ids_of(&x, &mut works);
+        }
+        for work in works {
+            let item: Option<i64> = conn
+                .query_row("SELECT item FROM works WHERE id = ?1", [work], |r| {
+                    r.get::<_, Option<i64>>(0)
+                })
+                .optional()
+                .map_err(sql)?
+                .flatten();
+            ids.extend(item);
+        }
     }
     let mut out = Map::new();
     for id in ids.into_iter().take(12) {

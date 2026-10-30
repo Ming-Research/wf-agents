@@ -6498,19 +6498,30 @@ fn a_design_card_confirmed_or_replaced_is_closed_without_a_look() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The items a matter concerns are the one it names, the one its fix names and those its words name: a number in its
-// material, such as a pull request's, brings in no item.
+// The items a matter concerns are read from its fields only: the item it concerns, and in its fix the item, the items
+// and the item of each work it names. A number in a text, its words', a step's or a pull request's, brings in no item.
 #[test]
-fn a_matter_s_items_are_not_taken_from_numbers_in_its_material() {
+fn a_matter_s_items_are_read_from_its_fields_never_its_text() {
     let s = setup("matter-items");
     let (mut e, _) = engine(&s, scripts());
     quiet(&mut e);
-    let named = a_ready_item(&mut e, "Lex it");
-    let other = a_ready_item(&mut e, "Print it");
+    let concerned = a_ready_item(&mut e, "Lex it");
+    let fixed = a_ready_item(&mut e, "Parse it");
+    let listed = a_ready_item(&mut e, "Check it");
+    let worked = a_ready_item(&mut e, "Run it");
+    let only_said = a_ready_item(&mut e, "Print it");
     let arch = architect_work_at(&mut e, "H8");
+    let v = e.flow_now;
     e.db.write(Actor::Engine, |tx| {
-        let body = json!({ "said": format!("See PR #{other} for the parser.") });
-        let m = a_matter(tx, &format!("Look at item {named}."), None, body)?;
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'R1')",
+            params![worked, v],
+        )?;
+        let work = tx.last_insert_rowid();
+        let fix = json!({ "item": fixed, "items": [listed], "works": [work],
+                          "steps": [format!("Move item {only_said} first, as matter #{only_said} said.")] });
+        let body = json!({ "fix": fix, "said": format!("See PR #{only_said} for the parser.") });
+        let m = a_matter(tx, &format!("Look at item {only_said}."), Some(concerned), body)?;
         record_round(
             tx,
             arch,
@@ -6524,7 +6535,11 @@ fn a_matter_s_items_are_not_taken_from_numbers_in_its_material() {
     let m = engine::next_message(&mut e, arch).unwrap().text;
     let items = given_value(&m, "·engine·matter_items").expect(&m);
     let keys: Vec<&String> = items.as_object().unwrap().keys().collect();
-    assert_eq!(keys, [&format!("#{named}")], "{items}");
+    let want: Vec<String> = [concerned, fixed, listed, worked]
+        .iter()
+        .map(|i| format!("#{i}"))
+        .collect();
+    assert_eq!(keys, want.iter().collect::<Vec<_>>(), "{items}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
