@@ -248,18 +248,6 @@ fn answer_question(db: &mut Db, work: i64, matter: i64, text: &str) -> Result<St
     ))
 }
 
-/// Ends, as the owner, the talk with a project's architect that waits for the owner (Done): the architect's next turn
-/// of it hands in what it came to and takes its way on. Refused when no talk is open.
-pub fn end_talk(db: &mut Db, project: &str) -> Result<String, String> {
-    let ended = db.write(Actor::Owner, |tx| db::end_talk(tx, project)).map_err(sql)?;
-    match ended {
-        Some(m) => Ok(format!(
-            "the talk about matter {m} ends: the architect hands in what it came to"
-        )),
-        None => Err(format!("the architect of {project} has no talk open with you")),
-    }
-}
-
 /// Replies, as the owner, to a question a project's architect pinned in their one-to-one: the owner's words, said with
 /// the question ticked, answer it, and its matter comes back to the architect's queue with them, first, to the cell
 /// that asked. A question whose matter is gone (handled, or withdrawn as its item was cancelled or its work taken over)

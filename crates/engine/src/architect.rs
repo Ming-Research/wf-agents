@@ -34,7 +34,7 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives.
-pub const INPUTS: [&str; 25] = [
+pub const INPUTS: [&str; 24] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -57,7 +57,6 @@ pub const INPUTS: [&str; 25] = [
     "batch_changes",
     "changes_touch",
     "group_talk",
-    "talk",
     "told_owner",
     "questions",
 ];
@@ -117,12 +116,9 @@ const UNDERSTAND: &str = "U1";
 const RETHINK: &str = "B4";
 const REVIEW: &str = "B2";
 
-/// The cell of the owner's words, whose rounds are the architect's turns in a talk with the owner.
+/// The cell of the owner's words, which a matter back with the owner's reply goes to when the flow no longer has the
+/// cell that asked.
 const TALK: &str = "H8";
-
-/// The owner's words to a project's architect said in their one-to-one as matters of their own, as a condition on
-/// `architect_matters`: an engine before made them so while a talk was open too, and the talk's turn took them.
-const ONE_TO_ONE: &str = "kind = 'owner_words' AND json_extract(body, '$.where') = 'page'";
 
 /// The architect's line, whose session goes on across the architect's works; the cell that asks whether that session
 /// understood the project.
@@ -513,72 +509,6 @@ pub fn picked_before(conn: &Connection, work: i64, before: Option<i64>) -> Resul
     } else {
         o["outcome"]["pick"]["matter"].as_i64()
     })
-}
-
-/// A round a matter was in hand at: the round, its cell and the row it took.
-pub struct MatterRound {
-    pub id: RoundId,
-    pub cell: Option<String>,
-    pub transition: Option<String>,
-}
-
-/// The rounds of a project's architect works that had matter `m` in hand, oldest first, in whichever works: after the
-/// round that raised it, for a matter an architect's round raised, and after each pick of it; as [`picked_before`]
-/// tells the matter in hand.
-pub fn matter_rounds(conn: &Connection, project: &str, m: i64) -> Result<Vec<MatterRound>, String> {
-    let raised: Option<(Option<i64>, Option<i64>)> = conn
-        .query_row("SELECT work, round FROM architect_matters WHERE id = ?1", [m], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
-        .optional()
-        .map_err(sql)?;
-    let from = match raised {
-        Some((Some(w), Some(n))) => RoundId::new(w, n),
-        _ => RoundId::new(0, 0),
-    };
-    type Row = (i64, i64, Option<String>, Option<String>, Option<i64>, Option<i64>);
-    let rows: Vec<Row> = {
-        let mut st = conn
-            .prepare(
-                "SELECT r.work, r.n, r.cell, r.transition, json_extract(r.output, '$.queue.matter'),
-                        json_extract(r.output, '$.outcome.pick.matter')
-                 FROM rounds r JOIN works x ON x.id = r.work
-                 WHERE x.graph = 'architect' AND x.project = ?1 AND (r.work > ?2 OR (r.work = ?2 AND r.n > ?3))
-                 ORDER BY r.work, r.n",
-            )
-            .map_err(sql)?;
-        st.query_map(params![project, from.work, from.n], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
-        })
-        .map_err(sql)?
-        .collect::<db::rusqlite::Result<_>>()
-        .map_err(sql)?
-    };
-    let mut out = Vec::new();
-    let mut in_hand: Option<i64> = None;
-    let mut at_work = None;
-    for (work, n, cell, transition, queued, chosen) in rows {
-        if at_work != Some(work) {
-            at_work = Some(work);
-            in_hand = (work == from.work).then_some(m);
-        }
-        if in_hand == Some(m) {
-            out.push(MatterRound {
-                id: RoundId::new(work, n),
-                cell: cell.clone(),
-                transition: transition.clone(),
-            });
-        }
-        if transition.is_none() {
-            continue;
-        }
-        match cell.as_deref() {
-            Some(LOOK) => in_hand = queued,
-            Some(PICK) if chosen.is_some() => in_hand = chosen,
-            _ => {}
-        }
-    }
-    Ok(out)
 }
 
 /// The matter an architect work's latest pick chose.
@@ -1007,12 +937,6 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         .into(),
         "entry" => entry(e, w)?,
         "route" => route(e, w, g)?,
-        "talk_turn" => match talk_in_hand(conn, w.id)? {
-            Some(t) if talk_over(conn, t, None)? => "ended",
-            _ => "said",
-        }
-        .into(),
-        "reply" => reply_now(e, w)?.into(),
         "next_in_batch" => next_in_batch(e, w)?.into(),
         "fixes_before" => if fixes_found(conn, w.id)? >= 2 { "two" } else { "fewer" }.into(),
         "question" => {
@@ -1105,168 +1029,7 @@ pub fn back_to_understanding(
     crate::steps::engine(e, &back, g, &at)
 }
 
-// A talk with the owner.
-
-/// The talk with the owner a work of the architect has in hand: the matter of the owner's words it picked; none when
-/// it has another in hand.
-pub fn talk_in_hand(conn: &Connection, work: i64) -> Result<Option<i64>, String> {
-    let Some(m) = picked(conn, work)? else { return Ok(None) };
-    let kind: Option<String> = conn
-        .query_row("SELECT kind FROM architect_matters WHERE id = ?1", [m], |r| r.get(0))
-        .optional()
-        .map_err(sql)?;
-    Ok((kind.as_deref() == Some("owner_words")).then_some(m))
-}
-
-/// Whether the talk about the owner's words `t` is over for a turn that started at `before` (now, when none): the owner
-/// ended it before then, by Done; or the words are none the owner said to the architect (its release of a work the architect had stopped, its answer to an ask that held no
-/// matter), which take one turn and no talk.
-fn talk_over(conn: &Connection, t: i64, before: Option<i64>) -> Result<bool, String> {
-    let (detail, ended): (Option<String>, Option<i64>) = conn
-        .query_row(
-            "SELECT detail, talk_ended FROM architect_matters WHERE id = ?1",
-            [t],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()
-        .map_err(sql)?
-        .unwrap_or((None, None));
-    Ok(detail.as_deref() != Some("said") || ended.is_some_and(|at| before.is_none_or(|b| at < b)))
-}
-
-/// The entries the owner added to the talk about the owner's words `t` that no turn of it took yet, oldest first: the
-/// next words of the talk.
-fn words_waiting(conn: &Connection, t: i64) -> Result<Vec<Value>, String> {
-    query_json(
-        conn,
-        "SELECT id, at, text FROM talk_entries WHERE matter = ?1 AND taken_round IS NULL ORDER BY id",
-        &[&t],
-        ROWS,
-    )
-}
-
-/// Where the architect that waits for the owner's reply stands (cell `H11`, the value `reply`): the owner said more to
-/// it since its reply, or ended the talk; or neither yet, waiting while the wait the installation sets
-/// (`agents.owner_reply_wait`) has not run out since its reply, and no longer once it has.
-fn reply_now(e: &Engine, w: &Work) -> Result<&'static str, String> {
-    let conn = e.db.conn();
-    let Some(t) = talk_in_hand(conn, w.id)? else {
-        return Ok("no_reply");
-    };
-    if talk_over(conn, t, None)? {
-        return Ok("ended");
-    }
-    if !words_waiting(conn, t)?.is_empty() {
-        return Ok("said");
-    }
-    let replied: Option<i64> = conn
-        .query_row(
-            &format!(
-                "SELECT max(ended_at) FROM rounds WHERE work = ?1 AND cell IN {} AND transition IS NOT NULL",
-                db::cells_sql(ARCHITECT, &[TALK])
-            ),
-            [w.id],
-            |r| r.get(0),
-        )
-        .map_err(sql)?;
-    let wait = i64::try_from(e.config.config.install.agents.owner_reply_wait)
-        .unwrap_or(i64::MAX / 1000)
-        .saturating_mul(1000);
-    Ok(if replied.is_some_and(|at| db::now() - at < wait) {
-        "waits"
-    } else {
-        "no_reply"
-    })
-}
-
-/// The entries of the talk about the owner's words `t` a round of it took, in order; with them, the owner's words in
-/// the one-to-one an engine before made matters of their own while the talk was open, which the round marked handled.
-fn words_taken(conn: &Connection, round: RoundId, t: i64) -> Result<Vec<Value>, String> {
-    query_json(
-        conn,
-        &format!(
-            "SELECT at, text FROM (
-               SELECT at, text, id FROM talk_entries WHERE matter = ?3 AND taken_work = ?1 AND taken_round = ?2
-               UNION ALL
-               SELECT at, json_extract(body, '$.text'), id FROM architect_matters
-               WHERE {ONE_TO_ONE} AND handled_work = ?1 AND handled_round = ?2 AND id <> ?3)
-             ORDER BY at, id"
-        ),
-        &[&round.work, &round.n, &t],
-        ROWS,
-    )
-}
-
-/// A talk with the owner, about the owner's words `t`, as the architect's cell of the owner's words is given it: the
-/// words that started it, with where they were said; then, numbered from 1, each of the owner's words since, said in
-/// the one-to-one, and each of the architect's turns, in order; and, once the owner ended it, that the owner did. An
-/// object by number, so that a session that holds the talk is given only the entries new to it.
-pub fn talk_of(conn: &Connection, project: &str, t: i64) -> Result<Value, String> {
-    let rows = query_json(
-        conn,
-        "SELECT detail, body, item, at, talk_ended, handled_round FROM architect_matters WHERE id = ?1",
-        &[&t],
-        1,
-    )?;
-    let Some(m) = rows.into_iter().next() else {
-        return Ok(Value::Null);
-    };
-    let body = &m["body"];
-    let mut started = json!({
-        "matter": t,
-        "detail": m["detail"],
-        "where": body["where"],
-        "work": body["work"],
-        "item": m["item"],
-        "at": m["at"].as_i64().map(utc_minute),
-        "words": body.get("text").or(body.get("answer")).cloned().unwrap_or(Value::Null),
-        "ask": body["ask"],
-    });
-    if let Some(o) = started.as_object_mut() {
-        o.retain(|_, v| !v.is_null());
-    }
-    let said = |x: &Value| json!({ "owner": x["text"], "at": x["at"].as_i64().map(utc_minute) });
-    let mut entries: Vec<Value> = Vec::new();
-    for r in matter_rounds(conn, project, t)?
-        .into_iter()
-        .filter(|r| r.cell.as_deref() == Some(TALK) && r.transition.is_some())
-    {
-        let output: Option<String> = conn
-            .query_row(
-                "SELECT output FROM rounds WHERE work = ?1 AND n = ?2",
-                params![r.id.work, r.id.n],
-                |x| x.get(0),
-            )
-            .map_err(sql)?;
-        let turn = json_col(output)
-            .map(|o| o["outcome"]["talk"].clone())
-            .unwrap_or(Value::Null);
-        if turn.is_null() {
-            continue;
-        }
-        entries.extend(words_taken(conn, r.id, t)?.iter().map(said));
-        entries.push(if turn["verdict"] == "reply" {
-            json!({ "you": turn["text"], "if_we_end": turn["if_we_end"] })
-        } else {
-            json!({ "you_ended_it": turn["verdict"], "it_came_to": turn["conclusion"] })
-        });
-    }
-    if m["handled_round"].is_null() {
-        entries.extend(words_waiting(conn, t)?.iter().map(said));
-    }
-    let mut out = Map::new();
-    out.insert("started".into(), started);
-    for (i, x) in entries.into_iter().enumerate() {
-        out.insert((i + 1).to_string(), x);
-    }
-    if let Some(at) = m["talk_ended"].as_i64() {
-        out.insert(
-            "ended".into(),
-            json!(format!("The owner ended the talk at {}", utc_minute(at))),
-        );
-    }
-    Ok(Value::Object(out))
-}
+// What the architect told the owner.
 
 /// What a project's architect told the owner lately: its latest messages to the owner, by their numbers, each with when
 /// and at which cell, oldest first, as an object by number, so that a session that holds them is given only those new
@@ -1293,14 +1056,6 @@ fn told_owner(e: &Engine, project: &str) -> Result<Option<Value>, String> {
         })
         .collect();
     Ok((!told.is_empty()).then_some(Value::Object(told)))
-}
-
-/// The talk the work has in hand, as [`talk_of`] gives it; none when it has none.
-fn talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
-    match talk_in_hand(e.db.conn(), w.id)? {
-        Some(t) => talk_of(e.db.conn(), project, t).map(Some),
-        None => Ok(None),
-    }
 }
 
 // Asks of the owner.
@@ -2227,51 +1982,20 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 &format!("The architect of {project} asks you: {APPROVAL} (ask {ask})"),
             )?;
         }
-        "take_words" => {
-            // The entries the owner added to the talk before this round started, which it was given as the next words
-            // of its talk; the talk's own matter stays open until its last turn.
-            let t = matter_of(tx, w)?;
-            let started: i64 = tx
-                .query_row(
-                    "SELECT started_at FROM rounds WHERE work = ?1 AND n = ?2",
-                    params![ctx.round.work, ctx.round.n],
-                    |r| r.get(0),
-                )
-                .map_err(sql)?;
-            tx.execute(
-                "UPDATE talk_entries SET taken_work = ?1, taken_round = ?2
-                 WHERE matter = ?3 AND taken_round IS NULL AND at < ?4",
-                params![ctx.round.work, ctx.round.n, t, started],
-            )
-            .map_err(sql)?;
-        }
         "reply_to_owner" => {
-            // The reply is the architect's message in the owner's one-to-one, what it will do if the owner ends the
-            // talk there its last sentence; the notifications log says it too.
-            let turn = &ctx.unwrapped["talk"];
-            let said = [text(&turn["text"]).trim(), text(&turn["if_we_end"]).trim()]
-                .into_iter()
-                .filter(|s| !s.is_empty())
-                .collect::<Vec<_>>()
-                .join("\n\n");
-            if !said.is_empty() {
-                tx.execute(
-                    "INSERT INTO owner_messages (work, round, text) VALUES (?1, ?2, ?3)",
-                    params![ctx.round.work, ctx.round.n, said],
-                )
-                .map_err(sql)?;
-                let (_, project) = architect_work_of(ctx)?;
-                let logged = format!("The architect of {project} replies, and waits for yours: {said}");
-                actions::outbox(tx, Some(w), "notify", &json!({ "text": logged }))?;
-            }
-        }
-        "hold_talk" => {
-            let t = matter_of(tx, w)?;
+            // The reply to the owner's words is the architect's message in the conversation they were said in, which
+            // the conversations work out from the matter the round had in hand; the notifications log says it too.
+            let Some(said) = at.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) else {
+                return Ok(true);
+            };
             tx.execute(
-                "UPDATE architect_matters SET talk_held = ?2 WHERE id = ?1",
-                params![t, db::now()],
+                "INSERT INTO owner_messages (work, round, text) VALUES (?1, ?2, ?3)",
+                params![ctx.round.work, ctx.round.n, said],
             )
             .map_err(sql)?;
+            let (_, project) = architect_work_of(ctx)?;
+            let logged = format!("The architect of {project} replies: {said}");
+            actions::outbox(tx, Some(w), "notify", &json!({ "text": logged }))?;
         }
         "close_matter" => {
             let m = matter_of(tx, w)?;
@@ -2881,33 +2605,6 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
             Ok(())
         }
-        "talk_turn" => {
-            let Some(turn) = v else { return Ok(()) };
-            let started = work::open_round(conn, c.w.id)?.map(|r| r.started_at);
-            let ended = match talk_in_hand(conn, c.w.id)? {
-                Some(t) => talk_over(conn, t, started)?,
-                None => false,
-            };
-            let reply = turn["verdict"] == "reply";
-            if ended && reply {
-                return Err(
-                    "the owner ended the talk before this round: hand in what it came to and its way on, \
-                            not a reply"
-                        .into(),
-                );
-            }
-            if !ended && !reply {
-                return Err(
-                    "only the owner ends the talk, by Done: hand in a reply, and say in if_we_end what you \
-                            will do if the owner ends it there"
-                        .into(),
-                );
-            }
-            if reply && c.unwrapped.get("effects").is_some_and(|x| !empty(x)) {
-                return Err("a reply hands in no effects: what you do waits for the owner to end the talk".into());
-            }
-            Ok(())
-        }
         "no_holds_after_reply" => {
             if v.is_none_or(|x| x["verdict"] != "holds") {
                 return Ok(());
@@ -2986,7 +2683,6 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "batch_changes" => batch_changes(e, w).map(Some),
         "changes_touch" => changes_touch(e, w),
         "group_talk" => group_talk(e, w, project),
-        "talk" => talk(e, w, project),
         "told_owner" => told_owner(e, project),
         "questions" => questions(e, project),
         other => Err(format!("no such engine input: {other}")),

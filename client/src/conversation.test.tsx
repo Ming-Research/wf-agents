@@ -86,7 +86,6 @@ const detail = (entries: ConversationEntry[]): ConversationDetail => ({
   design_cards: [],
   forwarding: null,
   read_to: null,
-  talk: null,
 });
 
 /// The stream as the page draws it in a conversation.
@@ -371,11 +370,8 @@ describe("the owner's words in the one-to-one with an architect", () => {
     expect(r).not.toContain('not taken up yet');
   });
 
-  it('wait for the reply, went on, or were replied to, with no link once the architect no longer handles them', () => {
+  it('were replied to, with no link once the architect no longer handles them', () => {
     const line = (w: WordsState) => bubble(row(drawnIn(said(w)), '>hi<')).after;
-    expect(line(state({ state: 'waits', cell: 'H11' }))).toContain('waiting for your reply');
-    const held = line(state({ state: 'held', architect_work: null, round: null, cell: null }));
-    expect(held).toMatch(/^<p class="talk-line-more">went on with its queue<\/p><\/div>/);
     const replied = line(state({ state: 'replied', architect_work: null, round: null, cell: null }));
     expect(replied).toMatch(/^<p class="talk-line-more">replied<\/p><\/div>/);
   });
@@ -389,18 +385,11 @@ describe("the owner's words in the one-to-one with an architect", () => {
 
 describe('the box of the one-to-one with an architect', () => {
   const one: Conversation = { ...group, key: 'architect:p', kind: 'architect', work: null, item: null, title: null };
-  const box = (talk: { matter: number; until: number | null } | null) =>
-    renderToStaticMarkup(<Composer c={one} w={null} talk={talk} />);
 
-  it('ends the talk that waits for the owner with Done, saying how long the architect waits yet', () => {
-    const waiting = box({ matter: 3, until: Date.now() + 125_000 });
-    expect(waiting).toContain('The architect waits for your reply, 2m');
-    expect(waiting).toMatch(/<button[^>]*title="End the talk[^"]*"[^>]*>.*Done/);
-    const held = box({ matter: 3, until: null });
-    expect(held).toContain('The architect went on with its queue');
-    expect(held).toContain('Done');
-    const none = box(null);
-    expect(none).not.toContain('Done');
-    expect(none).not.toContain('waits for your reply');
+  it('says something to the architect, and ends no talk', () => {
+    const box = renderToStaticMarkup(<Composer c={one} w={null} />);
+    expect(box).toContain('<textarea');
+    expect(box).not.toContain('Done');
+    expect(box).not.toContain('waits for your reply');
   });
 });

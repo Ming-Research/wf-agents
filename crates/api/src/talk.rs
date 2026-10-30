@@ -8,25 +8,23 @@
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use db::rusqlite::{Connection, OptionalExtension, params};
+use db::rusqlite::{Connection, OptionalExtension};
 
 use crate::read::{self, Error, Flows};
 use crate::{
     Conversation, ConversationDetail, ConversationEntry, Forwarded, Forwarding, Handled, MatterProgress, Misses,
-    StageCard, StageMove, TalkWait, WordsState,
+    StageCard, StageMove, WordsState,
 };
 
 type Result<T> = std::result::Result<T, Error>;
 
-/// What the conversations need of the configuration: its projects, in order, the project that is wf-agents itself,
-/// the groups of two projects or more it connects through each project's `other_projects`, and how long, in seconds,
-/// an architect waits for the owner's reply in a talk (`agents.owner_reply_wait`).
+/// What the conversations need of the configuration: its projects, in order, the project that is wf-agents itself, and
+/// the groups of two projects or more it connects through each project's `other_projects`.
 #[derive(Debug, Clone, Default)]
 pub struct Talks {
     pub projects: Vec<String>,
     pub own: Option<String>,
     pub sets: Vec<Vec<String>>,
-    pub reply_wait: u64,
 }
 
 impl Talks {
@@ -57,7 +55,6 @@ impl Talks {
             projects,
             own: c.wf_agents_project(),
             sets: sets.into_values().filter(|s| s.len() > 1).collect(),
-            reply_wait: c.install.agents.owner_reply_wait,
         }
     }
 
@@ -283,7 +280,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
     }
     misses(conn, &mut entries)?;
     forwards(conn, &mut entries)?;
-    words_states(conn, t, &mut entries)?;
+    words_states(conn, &mut entries)?;
     // Each ask in full.
     let ids: Vec<String> = entries
         .iter()
@@ -315,10 +312,6 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
             &[work],
         )?;
     }
-    let talk = match key.strip_prefix("architect:") {
-        Some(project) => waits_for_reply(conn, project, t.reply_wait)?,
-        None => None,
-    };
     if let Some(project) = key.strip_prefix("architect:") {
         entries.extend(matter_cards(conn, flows, project)?);
         if let Some(p) = read::policy(conn, project)? {
@@ -384,73 +377,17 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
         } else {
             None
         },
-        talk,
     })
 }
 
-/// The talk with a project's architect that waits for the owner's reply: the one open, while its work waits at the
-/// cell that waits for the reply (`H11`), until its reply's end and the wait (`wait`, seconds) later, or held out of the
-/// queue once the wait ran out; none while the architect is answering, the owner said more since, or none is open.
-fn waits_for_reply(conn: &Connection, project: &str, wait: u64) -> Result<Option<TalkWait>> {
-    let Some((matter, held)) = db::open_talk(conn, project).map_err(|e| Error::Failed(e.to_string()))? else {
-        return Ok(None);
-    };
-    // The owner added an entry to the talk since it was held, or since its last reply: the architect has it.
-    let since: Option<i64> = conn.query_row(
-        &format!(
-            "SELECT CASE WHEN ?2 THEN m.talk_held ELSE (
-               SELECT max(r.ended_at) FROM rounds r JOIN works w ON w.id = r.work
-               WHERE w.graph = 'architect' AND w.project = m.project AND w.ended IS NULL AND r.cell IN {}
-                 AND r.transition IS NOT NULL) END
-             FROM architect_matters m WHERE m.id = ?1",
-            db::cells_sql("architect", &["H8"])
-        ),
-        params![matter, held],
-        |r| r.get(0),
-    )?;
-    let said: bool = conn.query_row(
-        "SELECT EXISTS (SELECT 1 FROM talk_entries WHERE matter = ?1 AND taken_round IS NULL AND at > coalesce(?2, 0))",
-        params![matter, since],
-        |r| r.get(0),
-    )?;
-    if said {
-        return Ok(None);
-    }
-    if held {
-        return Ok(Some(TalkWait { matter, until: None }));
-    }
-    let at: Option<String> = conn
-        .query_row(
-            "SELECT at FROM works WHERE graph = 'architect' AND project = ?1 AND ended IS NULL
-             ORDER BY id DESC LIMIT 1",
-            [project],
-            |r| r.get(0),
-        )
-        .optional()?;
-    if !at.is_some_and(|a| db::is_cell("architect", "H11", &a)) {
-        return Ok(None);
-    }
-    let wait = i64::try_from(wait).unwrap_or(i64::MAX / 1000).saturating_mul(1000);
-    Ok(Some(TalkWait {
-        matter,
-        until: since.map(|s| s.saturating_add(wait)),
-    }))
-}
-
 /// What a project's architect does now with the owner's words: the matter its work going on has in hand, with that
-/// work, its latest round and the cell it is at; when the turn of a talk under way there started, and whether a turn of
-/// the talk about that matter ended, a reply given; the talk it holds for the owner's next words; and the talk in which
-/// it waits for the owner's reply.
+/// work, its latest round and the cell it is at.
 struct WithWords {
     in_hand: Option<(i64, i64, Option<i64>, String)>,
-    turn: Option<i64>,
-    replied: bool,
-    held: Option<i64>,
-    waits: Option<i64>,
 }
 
 /// What the architect of `project` does now with the owner's words, read once for a conversation.
-fn with_words(conn: &Connection, project: &str, wait: u64) -> Result<WithWords> {
+fn with_words(conn: &Connection, project: &str) -> Result<WithWords> {
     let work: Option<(i64, String)> = conn
         .query_row(
             "SELECT id, at FROM works WHERE graph = 'architect' AND project = ?1 AND ended IS NULL
@@ -459,68 +396,29 @@ fn with_words(conn: &Connection, project: &str, wait: u64) -> Result<WithWords> 
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?;
-    let (mut in_hand, mut turn, mut replied) = (None, None, false);
+    let mut in_hand = None;
     if let Some((w, at)) = work
         && let Some(m) = read::handling(conn, w)?
     {
-        let talk = db::cells_sql("architect", &["H8"]);
         let round: Option<i64> = conn.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [w], |r| r.get(0))?;
-        turn = conn
-            .query_row(
-                &format!(
-                    "SELECT started_at FROM rounds WHERE work = ?1 AND ended_at IS NULL AND cell IN {talk}
-                     ORDER BY n DESC LIMIT 1"
-                ),
-                [w],
-                |r| r.get(0),
-            )
-            .optional()?;
-        // A turn of the talk ended since the round that picked its matter.
-        replied = conn.query_row(
-            &format!(
-                "SELECT EXISTS (SELECT 1 FROM rounds WHERE work = ?1 AND cell IN {talk} AND transition IS NOT NULL
-                   AND n > coalesce((SELECT max(n) FROM rounds WHERE work = ?1 AND transition IS NOT NULL
-                     AND coalesce(json_extract(output, '$.outcome.pick.matter'),
-                                  json_extract(output, '$.queue.matter')) = ?2), 0))"
-            ),
-            params![w, m],
-            |r| r.get(0),
-        )?;
         in_hand = Some((m, w, round, at));
     }
-    let held = match db::open_talk(conn, project).map_err(|e| Error::Failed(e.to_string()))? {
-        Some((m, true)) => Some(m),
-        _ => None,
-    };
-    let waits = waits_for_reply(conn, project, wait)?.map(|w| w.matter);
-    Ok(WithWords {
-        in_hand,
-        turn,
-        replied,
-        held,
-        waits,
-    })
+    Ok(WithWords { in_hand })
 }
 
-/// Where the owner's words of one matter stand with the architect they were said to, once it took them up: the talk
-/// they started, with the entries the owner added to it.
+/// Where the owner's words of one matter stand with the architect they were said to, once it took them up.
 struct WordsNow {
     project: String,
     state: &'static str,
     /// While the architect has them in hand: its work, the work's latest round and the cell it is at.
     chart: Option<(i64, Option<i64>, String)>,
-    /// The latest entry of the talk the architect has: taken by a turn, or given to the turn under way.
+    /// For a talk a flow version before held about them, the latest entry of it a turn took.
     last_entry: Option<i64>,
 }
 
 /// Where the owner's words of `matter` stand, as [`words_states`] says it; none for a matter of another kind, or one
 /// that waits in the queue untaken.
-fn words_now(
-    conn: &Connection,
-    t: &Talks,
-    architects: &mut HashMap<String, WithWords>,
-    matter: i64,
-) -> Result<Option<WordsNow>> {
+fn words_now(conn: &Connection, architects: &mut HashMap<String, WithWords>, matter: i64) -> Result<Option<WordsNow>> {
     let Some((project, handled, withdrawn, asked)) = conn
         .query_row(
             "SELECT m.project, m.handled_round IS NOT NULL, m.withdrawn IS NOT NULL,
@@ -543,37 +441,24 @@ fn words_now(
     };
     let a = match architects.entry(project.clone()) {
         Entry::Occupied(o) => o.into_mut(),
-        Entry::Vacant(v) => v.insert(with_words(conn, &project, t.reply_wait)?),
+        Entry::Vacant(v) => v.insert(with_words(conn, &project)?),
     };
     let now = a.in_hand.as_ref().filter(|h| h.0 == matter);
     let state = if handled {
         "replied"
     } else if withdrawn {
         "withdrawn"
-    } else if a.held == Some(matter) {
-        "held"
-    } else if a.waits == Some(matter) {
-        "waits"
     } else if now.is_some() {
-        // Between two turns of the talk, its latest words the architect has were replied to; its next turn takes
-        // the owner's words added since.
-        if a.turn.is_none() && a.replied {
-            "replied"
-        } else {
-            "replying"
-        }
+        "replying"
     } else if asked {
         "asked"
     } else {
         return Ok(None);
     };
-    let chart = now
-        .filter(|_| state == "replying" || state == "waits")
-        .map(|h| (h.1, h.2, h.3.clone()));
-    let turn = if state == "replying" { a.turn } else { None };
+    let chart = now.filter(|_| state == "replying").map(|h| (h.1, h.2, h.3.clone()));
     let last_entry: Option<i64> = conn.query_row(
-        "SELECT max(id) FROM talk_entries WHERE matter = ?1 AND (taken_round IS NOT NULL OR at < ?2)",
-        params![matter, turn.unwrap_or(0)],
+        "SELECT max(id) FROM talk_entries WHERE matter = ?1 AND taken_round IS NOT NULL",
+        [matter],
         |r| r.get(0),
     )?;
     Ok(Some(WordsNow {
@@ -584,15 +469,14 @@ fn words_now(
     }))
 }
 
-/// Where the owner's words in a conversation stand with the architect they were said to, once it took them up, for the
-/// one line under their bubble, since they have no matter card: replying while it has them in hand and has not
-/// replied yet, waits while it waits for the owner's reply in their talk, held once it went on with its queue and holds
-/// the talk for the owner's next words, replied once handled or answered in a turn of the talk, asked while an ask of
-/// the owner holds them, withdrawn. A talk says so under the owner's latest words in it that the architect has, the words that
-/// started it or an entry added since; words it does not have yet, which their bubble says are not taken up, have none,
-/// as have words said to every architect of a group at once, each of which takes them on its own. Words the architect
-/// has are no longer pending.
-fn words_states(conn: &Connection, t: &Talks, entries: &mut [ConversationEntry]) -> Result<()> {
+/// Where the owner's words in a conversation stand with the architect they were said to, once it took them up, in the
+/// one-to-one and in a work's group alike, for the one line under their bubble, since they have no matter card:
+/// replying while it has them in hand and has not replied yet, replied once handled, asked while a question of the
+/// architect's to the owner holds them, withdrawn. The line is under the owner's words; for a talk a flow version
+/// before held about them, under the latest of its entries a turn took. Words it does not have yet, which their bubble
+/// says are not taken up, have none, as have words said to every architect of a group at once, each of which takes them
+/// on its own. Words the architect has are no longer pending.
+fn words_states(conn: &Connection, entries: &mut [ConversationEntry]) -> Result<()> {
     let mut architects: HashMap<String, WithWords> = HashMap::new();
     let mut talks: HashMap<i64, Option<WordsNow>> = HashMap::new();
     for e in entries.iter_mut() {
@@ -604,7 +488,7 @@ fn words_states(conn: &Connection, t: &Talks, entries: &mut [ConversationEntry])
         };
         let now = match talks.entry(matter) {
             Entry::Occupied(o) => o.into_mut(),
-            Entry::Vacant(v) => v.insert(words_now(conn, t, &mut architects, matter)?),
+            Entry::Vacant(v) => v.insert(words_now(conn, &mut architects, matter)?),
         };
         let Some(now) = now else {
             continue;

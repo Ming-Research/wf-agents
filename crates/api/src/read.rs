@@ -3082,7 +3082,6 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             own: Some("p".into()),
             sets: Vec::new(),
-            reply_wait: 300,
         };
         let all = crate::conversations(s.db.conn(), &t).unwrap();
         let keys: Vec<&str> = all.iter().map(|c| c.key.as_str()).collect();
@@ -3216,7 +3215,6 @@ mod tests {
             projects: vec!["p".into()],
             own: None,
             sets: Vec::new(),
-            reply_wait: 300,
         };
         let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
         let cards: Vec<(i64, &str, i64)> = d
@@ -3236,14 +3234,13 @@ mod tests {
         assert_eq!(five.and_then(|m| m.fix.clone()), Some(fix("missing")["fix"].clone()));
     }
 
-    /// Each of the owner's words in the one-to-one with project p's architect, the words that started a matter or an
-    /// entry added to its talk: its source and row, where it stands as the line under its bubble says it, the
-    /// architect's work, round and cell the line leads to on the chart, and whether it is pending; with the talk that
-    /// waits for the owner's reply. No matter card is the owner's words'.
+    /// Each of the owner's words in a conversation of project p's architect: its source and row, where it stands as the
+    /// line under its bubble says it, the architect's work, round and cell the line leads to on the chart, and whether
+    /// it is pending; with what the architect said there. No matter card is the owner's words'.
     type WordsLine = (String, i64, Option<String>, Option<(i64, i64, String)>, bool);
 
-    fn words_lines(s: &Setup, t: &crate::Talks) -> (Vec<WordsLine>, Option<crate::TalkWait>) {
-        let d = crate::conversation(s.db.conn(), &Flows::default(), t, "architect:p").unwrap();
+    fn words_lines(s: &Setup, t: &crate::Talks, key: &str) -> (Vec<WordsLine>, Vec<String>) {
+        let d = crate::conversation(s.db.conn(), &Flows::default(), t, key).unwrap();
         assert!(
             d.entries
                 .iter()
@@ -3254,14 +3251,20 @@ mod tests {
         let lines = d
             .entries
             .iter()
-            .filter(|e| e.source == "words" || e.source == "talk")
+            .filter(|e| (e.source == "words" || e.source == "interjection") && e.matter.is_some())
             .map(|e| {
                 let w = e.words_state.as_ref();
                 let chart = w.and_then(|w| Some((w.architect_work?, w.round?, w.cell.clone()?)));
                 (e.source.clone(), e.id, w.map(|w| w.state.clone()), chart, e.pending)
             })
             .collect();
-        (lines, d.talk)
+        let said = d
+            .entries
+            .iter()
+            .filter(|e| e.source == "message" && e.sender == "architect")
+            .map(|e| e.text.clone())
+            .collect();
+        (lines, said)
     }
 
     /// A line of the owner's words, as [`words_lines`] gives it.
@@ -3276,12 +3279,10 @@ mod tests {
     }
 
     // The owner's words have no matter card, which would repeat their bubble: once the architect took them up, a line
-    // under the bubble says where they stand, under the latest words of a talk the architect has. Words it has in hand
-    // and has not replied to yet are being replied to, leading to the cell it is at on its chart; words it waits for
-    // the owner's reply on wait for it there; words added to the talk since wait to be taken up, the words before them
-    // replied to, until the talk's next turn takes them; words it went on from hold their talk for the owner's next
-    // words; words handled were replied to; words still in the queue are pending and have no line. Words said to the
-    // architect in a work's group say the same under their bubble there.
+    // under the bubble says where they stand. Words it has in hand and has not replied to yet are being replied to,
+    // leading to the cell it is at on its chart; words handled were replied to; words still in the queue are pending
+    // and have no line. Its reply, in one round, is its message in the conversation the words were said in: the
+    // one-to-one, or the work's group, where the words to the architect say the same under their bubble.
     #[test]
     fn the_owner_s_words_say_where_they_stand_under_their_bubble() {
         let mut s = architect_setup("words_state");
@@ -3307,6 +3308,7 @@ mod tests {
                 (10_i64, "Hi.", json!({ "where": "page" }), 500_i64),
                 (11, "Thanks.", json!({ "where": "page" }), 400),
                 (13, "Mind the cache.", json!({ "where": "work", "work": 1 }), 450),
+                (14, "Look at the tests.", json!({ "where": "work", "work": 1 }), 550),
             ] {
                 run(
                     "INSERT INTO architect_matters (id, project, kind, detail, what, body, at)
@@ -3330,7 +3332,6 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             own: None,
             sets: Vec::new(),
-            reply_wait: 300,
         };
         let step = |s: &mut Setup, sql: &[&str]| {
             s.db.write(Actor::Engine, |tx| {
@@ -3346,102 +3347,72 @@ mod tests {
             line("words", 2, None, None, true),
             line("words", 11, Some("replied"), None, false),
         ];
-        let (lines, talk) = words_lines(&s, &t);
+        let (lines, _) = words_lines(&s, &t, "architect:p");
         assert_eq!(lines[..2], earlier);
         assert_eq!(
             lines[2..],
             [line("words", 10, Some("replying"), Some((5, 2, "H8")), false)]
         );
-        assert_eq!(talk, None);
-        // It replied and waits for the owner's reply.
+        // It replied in one round, which handled them: its reply is its message in the one-to-one.
         step(
             &mut s,
             &[
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (5, 3, 'H8', '{}', '{}', 'replied', 'c', 690, 700)",
-                "UPDATE works SET at = 'H11' WHERE id = 5",
-            ],
-        );
-        let (lines, talk) = words_lines(&s, &t);
-        assert_eq!(
-            lines[2..],
-            [line("words", 10, Some("waits"), Some((5, 3, "H11")), false)]
-        );
-        assert_eq!(
-            talk,
-            Some(crate::TalkWait {
-                matter: 10,
-                until: Some(300_700)
-            })
-        );
-        // The owner said more in the talk: the words before were replied to, the new ones wait for the next turn.
-        step(
-            &mut s,
-            &["INSERT INTO talk_entries (id, matter, text, at) VALUES (1, 10, 'And the tests?', 750)"],
-        );
-        let (lines, talk) = words_lines(&s, &t);
-        assert_eq!(
-            lines[2..],
-            [
-                line("words", 10, Some("replied"), None, false),
-                line("talk", 1, None, None, true)
-            ]
-        );
-        assert_eq!(talk, None);
-        // The next turn has them: it is replying to them.
-        step(
-            &mut s,
-            &[
-                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (5, 4, 'H11', '{}', '{}', 'said', 'c', 760, 760)",
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (5, 5, 'H8', '{}', 'c', 770)",
-                "UPDATE works SET at = 'H8' WHERE id = 5",
-            ],
-        );
-        let (lines, _) = words_lines(&s, &t);
-        assert_eq!(
-            lines[2..],
-            [
-                line("words", 10, None, None, false),
-                line("talk", 1, Some("replying"), Some((5, 5, "H8")), false)
-            ]
-        );
-        // It replied, its wait ran out and it went on with its queue, holding the talk.
-        step(
-            &mut s,
-            &[
-                "UPDATE rounds SET output = '{}', transition = 'replied', ended_at = 800 WHERE work = 5 AND n = 5",
-                "UPDATE talk_entries SET taken_work = 5, taken_round = 5 WHERE id = 1",
-                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (5, 6, 'H11', '{}', '{}', 'no_reply', 'c', 900, 900)",
+                 VALUES (5, 3, 'H8', '{}', '{}', 'done', 'c', 690, 700)",
+                "INSERT INTO owner_messages (work, round, text) VALUES (5, 3, 'Hello.')",
+                "UPDATE architect_matters SET handled_work = 5, handled_round = 3 WHERE id = 10",
                 "UPDATE works SET at = 'B1' WHERE id = 5",
-                "UPDATE architect_matters SET talk_held = 900 WHERE id = 10",
             ],
         );
-        let (lines, talk) = words_lines(&s, &t);
+        let (lines, said) = words_lines(&s, &t, "architect:p");
+        assert_eq!(lines[2..], [line("words", 10, Some("replied"), None, false)]);
+        assert!(said.contains(&"Hello.".to_string()), "{said:?}");
+        // In the work's group, the owner's words to its architect: those said to both replied to, those said to it
+        // alone in hand, then replied to there.
+        let picked = json!({ "queue": { "verdict": "owner_words", "matter": 14 } }).to_string();
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (5, 4, 'Q0', '{}', ?1, 'owner_words', 'c', 710, 710),
+                 (5, 5, 'Q2', '{}', '{}', 'to_owner_words', 'c', 720, 720)",
+                [&picked],
+            )?;
+            tx.execute("UPDATE works SET at = 'H8' WHERE id = 5", [])?;
+            Ok(())
+        })
+        .unwrap();
+        type InGroup = (String, Option<String>, Option<(i64, i64, String)>);
+        let group = |s: &Setup| -> (Vec<InGroup>, Vec<String>) {
+            let (lines, said) = words_lines(s, &t, "work:1");
+            (lines.into_iter().map(|l| (l.0, l.2, l.3)).collect(), said)
+        };
+        let (lines, _) = group(&s);
         assert_eq!(
-            lines[2..],
+            lines,
             [
-                line("words", 10, None, None, false),
-                line("talk", 1, Some("held"), None, false)
+                ("interjection".to_string(), Some("replied".to_string()), None),
+                (
+                    "words".to_string(),
+                    Some("replying".to_string()),
+                    Some((5, 5, "H8".to_string()))
+                )
             ]
         );
-        assert_eq!(
-            talk,
-            Some(crate::TalkWait {
-                matter: 10,
-                until: None
-            })
+        step(
+            &mut s,
+            &[
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (5, 6, 'H8', '{}', '{}', 'done', 'c', 730, 740)",
+                "INSERT INTO owner_messages (work, round, text) VALUES (5, 6, 'On it.')",
+                "UPDATE architect_matters SET handled_work = 5, handled_round = 6 WHERE id = 14",
+                "UPDATE works SET at = 'B1' WHERE id = 5",
+            ],
         );
-        // In the work's group, the owner's words to its architect.
-        let work = crate::conversation(s.db.conn(), &Flows::default(), &t, "work:1").unwrap();
-        let group: Vec<(&str, Option<&str>)> = work
-            .entries
-            .iter()
-            .filter(|e| e.matter == Some(13))
-            .map(|e| (e.source.as_str(), e.words_state.as_ref().map(|w| w.state.as_str())))
-            .collect();
-        assert_eq!(group, [("interjection", Some("replied"))]);
+        let (lines, said) = group(&s);
+        assert_eq!(lines[1], ("words".to_string(), Some("replied".to_string()), None));
+        assert!(said.contains(&"On it.".to_string()), "{said:?}");
+        let (_, said) = words_lines(&s, &t, "architect:p");
+        assert!(!said.contains(&"On it.".to_string()), "{said:?}");
     }
 
     // An ask the owner answered is one entry of its conversation, the ask, which holds the answer: the answer is no
@@ -3453,7 +3424,6 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             own: Some("p".into()),
             sets: Vec::new(),
-            reply_wait: 300,
         };
         let counts = |s: &Setup| {
             let all = crate::conversations(s.db.conn(), &t).unwrap();

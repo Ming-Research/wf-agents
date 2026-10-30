@@ -2852,7 +2852,7 @@
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wait_for_matter": "No work of the project's architect runs: the engine takes this cell's rows for each project whose architect runs none, without a round, and one that takes `due` gets a work of the architect's graph, on no item, which starts at the cell that row leads to. The work holds no slot, and one runs at a time for each project; once it ends, the project waits here again.",
       "end_architect_work": "Ends the architect's work.",
-      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to or held by a talk that waits for the owner's reply, due, flow feedback, its own or forwarded by another project's architect, only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round.",
+      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session.",
       "stop_work": "A work cancelled, or taken over by a work on a newer flow version because the cell it stands at or the shape of a return it handed in is not the same there (else it moves to that version and goes on where it stands), ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over."
@@ -2904,9 +2904,7 @@
       "withdraw_blocker": "Withdraws the task's blocker, saying why, and tells its holder: its matter leaves the architect's queue, and its ask of the owner needs no answer.",
       "withdraw_blockers": "Withdraws the open blocker of the work that ends, with the end's reason, and tells its holder; a resolution that comes for it later is recorded with it and moves nothing.",
       "withdraw_matters": "Withdraws from the architect's queue what the work raised and still waits on it: its questions, its failures and its design cards, saying why.",
-      "take_words": "Marks as taken by this round the entries the owner added to its talk in the one-to-one before the round started, which it was given as the next words of the talk; the matter in hand stays open.",
-      "reply_to_owner": "Puts the reply in the owner's one-to-one with the architect, with what it will do if the owner ends the talk there, as the architect's message, and notifies the owner.",
-      "hold_talk": "Holds the talk out of the queue, waiting for the owner's reply: the owner's next words to the architect, or Done, make it due again, first, back to its talk.",
+      "reply_to_owner": "Puts the reply to the owner's words, as the architect's message, in the conversation the words were said in: the group of the work they were said in, else the owner's one-to-one with the architect; and notifies the owner.",
       "queue_measures": "Queues each new measure the signals of the policy being written need as a matter of the kind set_straight, something missing, whose path makes an item that has the engine measure it.",
       "queue_check_policy": "Queues the check of whether the policy in force still holds, a matter of the kind check_policy at the head of the queue, with why: what the cell's place given says, or why the cell asks for it. One open already, queued or parked for the owner's reply, stands instead, and takes the why.",
       "queue_make_plan": "Queues the plan of what to do next, a matter of the kind make_plan at the head of the queue, after the check of the policy, with why: what the cell's place given says, or why the cell asks for it. One open already stands instead, and takes the why.",
@@ -2954,7 +2952,6 @@
       "review_covers_changes": "There is exactly one row for each change of the batch, by its number.",
       "changes_valid": "The revised changes hold, as effects_valid checks item changes, and each comes from a matter of this batch.",
       "candidates_known": "At most ten candidates, each an open observation of the project.",
-      "talk_turn": "Before the owner ended the talk, the answer is a reply and hands in no effects; once the owner ended it, the answer is what the talk came to and its way on.",
       "fix_not_queued_again": "A thing missing or a place to set straight that the queue holds already, as a matter not handled of the same kind and the same place or the same items, is not handed in again unless it names that matter in queued; a matter it names so is one the queue holds.",
       "no_holds_after_reply": "Once the owner replied to the question whether to research a new policy, the check of the policy does not hand in that it holds: it writes the policy by the owner's stance, or asks again."
     },
@@ -2989,7 +2986,6 @@
       "batch_changes": "The item changes of the batch, numbered, each with its reason and the matter it came from.",
       "changes_touch": "The items the batch's changes touch, each with its rank, who waits for it and what it waits for, each blocking or parallel.",
       "group_talk": "What was said in the groups of the project's works since the architect last read it, at its last pick, other than to it: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item.",
-      "talk": "The talk with the owner the matter picked is: the owner's words that started it, with where they were said, then each of the owner's words to the architect in the one-to-one and each of the architect's replies, in order; and whether the owner ended it.",
       "told_owner": "What the project's architect told the owner lately: its latest messages to the owner, each with when and at which cell, oldest first.",
       "questions": "The questions the project's architect put to the owner that wait for the owner's reply, newest first: each question, the cell that asked and when, and the matter it parked."
     },
@@ -3007,13 +3003,11 @@
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
       "next_in_batch": "Whether the batch goes on, goes to review, or is done.",
       "question": "The kind of question an engineer asks, as its matter says.",
-      "reply": "Whether the owner said more to the architect since its reply, ended the talk, or neither yet, and whether the wait for the owner's reply ran out.",
       "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, flow feedback, or a fault of wf-agents forwarded to the architect.",
       "review_round": "Whether the review starts with a blind review or goes straight to the table.",
       "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's reply, the cell of the owner's words when the flow no longer has that cell; a check of the policy back with the owner's reply to its draft takes effect when the reply is exactly approved, and is written again otherwise.",
       "split": "Whether the reply brought back split off sub-items, and whether this work keeps a part.",
       "start": "What holds an item back from starting, if anything.",
-      "talk_turn": "Whether the owner said something the architect has not answered yet, or ended the talk.",
       "tree": "Whether the change to review touches design tree nodes.",
       "turn": "Whether the work is first in its project's merge queue.",
       "understanding": "Whether the session the architect's work goes on in is the one its previous work left, or a new one.",
@@ -3059,8 +3053,7 @@
           "queue",
           "matter",
           "matter_items",
-          "cross_project",
-          "talk"
+          "cross_project"
         ],
         "owner": "says something to the architect, or starts a work the architect paused"
       },
@@ -3497,14 +3490,8 @@
       "withdraw_matters": [
         "architect_queue"
       ],
-      "take_words": [
-        "architect_queue"
-      ],
       "reply_to_owner": [
         "owner_messages"
-      ],
-      "hold_talk": [
-        "architect_queue"
       ],
       "queue_measures": [
         "architect_queue"
@@ -3616,12 +3603,6 @@
           "architect_queue"
         ]
       },
-      "reply": {
-        "says": "the owner's words since the reply; Done; how long it has waited",
-        "stores": [
-          "architect_queue"
-        ]
-      },
       "report": {
         "says": "the kind of report picked: beside a work, what to do next, an answer, flow feedback, or a fault",
         "stores": [
@@ -3649,12 +3630,6 @@
           "merge_record",
           "holds",
           "batch"
-        ]
-      },
-      "talk_turn": {
-        "says": "the talk: Done, or a decision on the setting that waited",
-        "stores": [
-          "architect_queue"
         ]
       },
       "tree": {
@@ -11443,7 +11418,6 @@
             "H8",
             "H9",
             "H10",
-            "H11",
             "B1"
           ],
           "entries": [
@@ -11614,7 +11588,7 @@
           },
           {
             "name": "handle",
-            "desc": "Handling the matter picked, by its kind; the owner's words as a talk, which waits for the owner's reply",
+            "desc": "Handling the matter picked, by its kind",
             "nodes": [
               "H1",
               "H2",
@@ -11625,8 +11599,7 @@
               "H7",
               "H8",
               "H9",
-              "H10",
-              "H11"
+              "H10"
             ]
           },
           {
@@ -11713,12 +11686,8 @@
             "desc": "The batches that ended with nothing to plan or check again"
           },
           {
-            "name": "replies",
-            "desc": "The times the architect replied to the owner in a talk and waited for the owner's reply"
-          },
-          {
             "name": "talk_rethinks",
-            "desc": "The times a talk with the owner ended with the plan of what to do next to be made again"
+            "desc": "The times the owner's words had the plan of what to do next made again"
           },
           {
             "name": "policies_set",
@@ -14969,11 +14938,11 @@
           ],
           "inputs": [
             {
-              "name": "The talk",
-              "what": "The talk with the owner so far: the owner's words that started it and where they were said, then each of the owner's words and each of your replies, in order; and whether the owner ended it, by Done",
+              "name": "The owner's words",
+              "what": "The owner's words you answer, with where they were said: in your one-to-one with the owner, or in the group of a work, which your reply goes to",
               "from": [
                 {
-                  "engine": "talk"
+                  "engine": "matter"
                 }
               ]
             },
@@ -15006,6 +14975,26 @@
               ]
             },
             {
+              "name": "The owner's reply",
+              "what": "The owner's reply to what you asked of these words, with the question, when they come back with it; none otherwise",
+              "from": [
+                {
+                  "engine": "owner_answer"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -15017,55 +15006,39 @@
             }
           ],
           "prompt": [
-            "This round is your turn in a talk with the owner, as in a chat: the owner reads each reply and answers it, and only the owner ends the talk. Find out what the owner asks and what for: when the owner wants one thing done, ask yourself what it is for; ask back where the words leave it open, and say what you see that the owner may not."
+            "This round answers the owner's words, in one round: find out what the owner asks and what for; when the owner wants one thing done, ask yourself what it is for, and say what you see that the owner may not. Hand in your reply to the owner and one way on: done, when it is done now in effects, or is about how you work and kept as a standing instruction in your notes about the whole, with the owner's words and since when; re_plan, when it changes what comes first, and what to do next is planned again under the policy in force; or new_policy, when it touches the direction itself, and whether the policy still holds is checked. You do not change the constitution or the policy yourself.",
+            "Your reply goes where the owner said the words: in a work's group, there; else in your one-to-one. When the words leave open what the owner wants, ask the owner, and the reply comes back here. When the words are clearly meant as the answer to one of the questions pending, say in your reply that the owner ticks that question and replies there; never take them as its answer yourself."
           ],
           "out": [
             {
-              "name": "talk",
-              "title": "Your turn in the talk",
+              "name": "answer",
+              "title": "Your answer",
               "type": "union",
-              "by": "verdict",
-              "desc": "Your turn in the talk: a reply while the owner talks on; once the owner ended it, what it came to and the way on",
-              "branches": [
+              "by": "way",
+              "desc": "Your reply to the owner's words, and the way on",
+              "common": [
                 {
-                  "value": "reply",
-                  "desc": "A reply to the owner, who answers it or ends the talk",
-                  "fields": [
-                    {
-                      "name": "text",
-                      "title": "Reply",
-                      "type": "text",
-                      "desc": "Your reply to what the owner said, in the owner's language (the setting `owner.language`)"
-                    },
-                    {
-                      "name": "if_we_end",
-                      "title": "If we end here",
-                      "type": "text",
-                      "desc": "One sentence, in the owner's language (the setting `owner.language`), saying what you will do if the owner ends the talk here"
-                    }
-                  ]
-                },
+                  "name": "reply",
+                  "title": "Reply",
+                  "type": "text",
+                  "desc": "Your reply to the owner's words, in the owner's language (the setting `owner.language`)"
+                }
+              ],
+              "branches": [
                 {
                   "value": "done",
                   "desc": "Done now in effects, or kept as a standing instruction in your notes about the whole",
-                  "fields": [
-                    {
-                      "name": "conclusion",
-                      "title": "What the talk came to",
-                      "type": "text",
-                      "desc": "What the owner asks and what for, as the talk settled it, and why this way on, in the owner's language (the setting `owner.language`)"
-                    }
-                  ]
+                  "fields": []
                 },
                 {
                   "value": "re_plan",
                   "desc": "What to do next is planned again under the policy in force, as a matter at the head of the queue",
                   "fields": [
                     {
-                      "name": "conclusion",
-                      "title": "What the talk came to",
+                      "name": "why",
+                      "title": "Why to plan again",
                       "type": "text",
-                      "desc": "What the owner asks and what for, as the talk settled it, and why this way on, in the owner's language (the setting `owner.language`)"
+                      "desc": "What the owner asks of what to do next, and what for"
                     }
                   ]
                 },
@@ -15074,10 +15047,10 @@
                   "desc": "Whether the policy still holds is checked, as a matter at the head of the queue",
                   "fields": [
                     {
-                      "name": "conclusion",
-                      "title": "What the talk came to",
+                      "name": "why",
+                      "title": "Why to check the policy",
                       "type": "text",
-                      "desc": "What the owner asks and what for, as the talk settled it, and why this way on, in the owner's language (the setting `owner.language`)"
+                      "desc": "What the owner asks of the direction, and what for"
                     }
                   ]
                 }
@@ -15089,30 +15062,11 @@
           ],
           "cases": [
             {
-              "name": "replied",
-              "if": [
-                [
-                  "is",
-                  "talk.verdict",
-                  [
-                    "reply"
-                  ]
-                ]
-              ],
-              "to": "H11",
-              "main": true,
-              "do": [
-                "take_words",
-                "reply_to_owner"
-              ],
-              "counts": "replies"
-            },
-            {
               "name": "done",
               "if": [
                 [
                   "is",
-                  "talk.verdict",
+                  "answer.way",
                   [
                     "done"
                   ]
@@ -15121,7 +15075,6 @@
               "to": "B1",
               "main": true,
               "do": [
-                "take_words",
                 "close_matter"
               ]
             },
@@ -15130,7 +15083,7 @@
               "if": [
                 [
                   "is",
-                  "talk.verdict",
+                  "answer.way",
                   [
                     "re_plan"
                   ]
@@ -15138,14 +15091,13 @@
               ],
               "to": "B1",
               "do": [
-                "take_words",
                 {
-                  "at": "talk[re_plan].conclusion",
+                  "at": "answer[re_plan].why",
                   "do": "queue_make_plan"
                 },
                 "close_matter"
               ],
-              "note": "The plan of what to do next is made again, as a matter at the head of the queue, why being what the talk came to.",
+              "note": "The plan of what to do next is made again, as a matter at the head of the queue, why being what the owner asks of it.",
               "counts": "talk_rethinks"
             },
             {
@@ -15153,7 +15105,7 @@
               "if": [
                 [
                   "is",
-                  "talk.verdict",
+                  "answer.way",
                   [
                     "new_policy"
                   ]
@@ -15161,63 +15113,36 @@
               ],
               "to": "B1",
               "do": [
-                "take_words",
                 {
-                  "at": "talk[new_policy].conclusion",
+                  "at": "answer[new_policy].why",
                   "do": "queue_check_policy"
                 },
                 "close_matter"
               ],
-              "note": "Whether the policy still holds is checked, as a matter at the head of the queue, why being what the talk came to with the owner's words."
+              "note": "Whether the policy still holds is checked, as a matter at the head of the queue, why being what the owner asks of the direction."
             }
           ],
           "always": [
             {
               "at": "effects",
               "do": "apply_effects"
+            },
+            {
+              "at": "answer.reply",
+              "do": "reply_to_owner"
             }
           ],
           "checks": [
-            {
-              "at": "talk",
-              "check": "talk_turn"
-            },
             {
               "at": "effects",
               "check": "effects_valid"
             }
           ],
           "shown": [
-            "talk"
+            "answer"
           ],
           "rules": [
             "policy_scope"
-          ],
-          "promptBy": {
-            "by": "talk_turn",
-            "cases": {
-              "said": [
-                "The owner said something you have not answered yet, the latest words in the talk: answer it in reply, and say in if_we_end, in one sentence, what you will do if the owner ends the talk here. Hand in no effects and leave tell_owner empty: the reply is your message to the owner, and what you do waits for the talk to end."
-              ],
-              "ended": [
-                "The owner ended the talk, or the owner's words are none said to you, such as the owner letting go on a work you had stopped, which take this one turn. Hand in what it came to and the way on it takes: done, when it is done now in effects, or is about how you work and kept as a standing instruction in your notes about the whole, with the owner's words and since when; re_plan, when it changes what comes first, and what to do next is planned again under the policy in force; or new_policy, when it touches the direction itself, and whether the policy still holds is checked. You do not change the constitution or the policy yourself. Tell the owner in tell_owner what you did."
-              ]
-            }
-          },
-          "inenums": {
-            "talk_turn": [
-              [
-                "said",
-                "The owner said something to you that you have not answered yet: the words that started the talk, or a reply"
-              ],
-              [
-                "ended",
-                "The owner ended the talk, by Done; or the owner's words were none said to you (a release of a work you had stopped), which take this one turn"
-              ]
-            ]
-          },
-          "without": [
-            "ask"
           ]
         },
         {
@@ -15504,107 +15429,6 @@
           "rules": [
             "policy_scope"
           ]
-        },
-        {
-          "id": "H11",
-          "kind": "engine",
-          "title": "Waits for your reply",
-          "inputs": [
-            {
-              "name": "The talk",
-              "what": "The talk with the owner so far, with what the owner said since your last reply and whether the owner ended it",
-              "from": [
-                {
-                  "engine": "talk"
-                }
-              ]
-            }
-          ],
-          "cases": [
-            {
-              "name": "said",
-              "if": [
-                [
-                  "inp",
-                  "reply",
-                  [
-                    "said"
-                  ]
-                ]
-              ],
-              "to": "H8",
-              "main": true,
-              "note": "The owner answered: the next turn of the talk, in the same session."
-            },
-            {
-              "name": "ended",
-              "if": [
-                [
-                  "inp",
-                  "reply",
-                  [
-                    "ended"
-                  ]
-                ]
-              ],
-              "to": "H8",
-              "main": true,
-              "note": "The owner ended the talk: its last turn hands in what it came to and takes a way on."
-            },
-            {
-              "name": "waits",
-              "if": [
-                [
-                  "inp",
-                  "reply",
-                  [
-                    "waits"
-                  ]
-                ]
-              ],
-              "to": "H11",
-              "waits": true,
-              "until": "agents.owner_reply_wait",
-              "note": "The architect waits for the owner's reply, five minutes unless the installation sets another wait (`agents.owner_reply_wait`); nothing else of it goes on meanwhile."
-            },
-            {
-              "name": "no_reply",
-              "if": [
-                [
-                  "inp",
-                  "reply",
-                  [
-                    "no_reply"
-                  ]
-                ]
-              ],
-              "to": "B1",
-              "do": [
-                "hold_talk"
-              ],
-              "note": "The wait ran out: the talk goes back to the queue, held until the owner says more to the architect or ends it, and the architect goes on; the owner's next words take it up first, in the session that holds it."
-            }
-          ],
-          "inenums": {
-            "reply": [
-              [
-                "said",
-                "The owner said more to the architect since its reply"
-              ],
-              [
-                "ended",
-                "The owner ended the talk"
-              ],
-              [
-                "waits",
-                "Neither yet, and the wait for the owner's reply has not run out"
-              ],
-              [
-                "no_reply",
-                "Neither, and the wait for the owner's reply ran out"
-              ]
-            ]
-          }
         },
         {
           "id": "B1",

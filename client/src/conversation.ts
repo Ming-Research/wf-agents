@@ -160,8 +160,6 @@ export function latestAt(d: ConversationDetail): number | null {
 /// What the line under the owner's words says of where they stand with the architect they were said to.
 const WORDS_STATES: Record<string, Key> = {
   replying: 'words_replying',
-  waits: 'words_waits',
-  held: 'words_held',
   replied: 'words_replied',
   asked: 'matter_held',
   withdrawn: 'matter_withdrawn',

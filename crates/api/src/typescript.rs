@@ -50,7 +50,6 @@ pub fn typescript() -> String {
         decl::<MatterProgress>(&cfg),
         decl::<WordsState>(&cfg),
         decl::<ConversationDetail>(&cfg),
-        decl::<TalkWait>(&cfg),
         decl::<WorkSaid>(&cfg),
         decl::<ProjectsSaid>(&cfg),
         decl::<ReadTo>(&cfg),

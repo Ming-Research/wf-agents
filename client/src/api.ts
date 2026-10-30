@@ -693,9 +693,9 @@ fix: JsonValue | null, };
  */
 export type WordsState = { 
 /**
- * replying while the architect has them in hand; waits while it waits for the owner's reply in their talk; held
- * once it went on with its queue, the talk held for the owner's next words; replied once handled; asked while an
- * ask of the owner holds them; withdrawn.
+ * replying while the architect has them in hand; replied once handled; asked while a question of the architect's
+ * to the owner holds them; withdrawn. (waits and held, a talk's wait for the owner's reply, a flow version before
+ * had.)
  */
 state: string, 
 /**
@@ -717,19 +717,7 @@ read_to: number | null,
 /**
  * For wf-agents' own conversation: where its faults can go; none for another.
  */
-forwarding: Forwarding | null, 
-/**
- * For the one-to-one with an architect: the talk that waits for the owner's reply, which the owner answers in the
- * box at the bottom or ends with Done; none while none waits.
- */
-talk: TalkWait | null, };
-
-/**
- * A talk with an architect that waits for the owner's reply: the owner's words it is about, and until when the
- * architect waits before it goes on with its queue, the talk held until the owner says more or ends it; none once it
- * went on.
- */
-export type TalkWait = { matter: number, until: number | null, };
+forwarding: Forwarding | null, };
 
 /**
  * What the owner says in a work's group: to its engineer, to its project's architect, or to both. Saying it to the
