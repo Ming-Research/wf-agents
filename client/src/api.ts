@@ -509,7 +509,7 @@ export type ConversationEntry = {
  * architect), question, report, reply, card, ruling, between; stage, matter, policy or observation. The owner's
  * answer to an ask is in the ask's entry, never one of its own.
  */
-source: string,
+source: string, 
 /**
  * Its row in the table it comes from; for a stage card, its number in the work's stage cards, from 1.
  */
@@ -527,7 +527,7 @@ work: number | null, round: number | null,
  * For an ask, the ask; for a design card and a ruling on it, the card; for what is or holds an
  * architect's matter, or is an entry of the talk about it, the matter.
  */
-ask: number | null, design_card: number | null, matter: number | null,
+ask: number | null, design_card: number | null, matter: number | null, 
 /**
  * For a message or a notice: when the owner marked it read; none while it is unread.
  */
