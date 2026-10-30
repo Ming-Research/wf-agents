@@ -833,6 +833,6 @@ fn revert_in(e: &Engine, dir: &Path, repo: &str, main: &str, sha: &str, branch: 
         .github
         .pull_request(repo, branch, main, Some((&title, &body)), None)
         .map_err(|f| f.what)?;
-    e.github.merge(repo, pr).map_err(|f| f.what)?;
+    crate::hub::merge_into(e.github.as_ref(), repo, pr, main).map_err(|f| f.what)?;
     Ok(())
 }

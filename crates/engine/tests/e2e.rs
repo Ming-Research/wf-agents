@@ -352,12 +352,22 @@ impl Scripted {
     }
 }
 
-/// GitHub as the engine sees it, over a bare repository: CI is always green, and a merge squashes the branch onto
-/// main.
+/// A pull request on the fake GitHub: the branch it is from and the branch it merges into.
+#[derive(Clone)]
+struct Pr {
+    branch: String,
+    base: String,
+}
+
+/// The pull requests of the fake GitHub, by number, which a test can read and change as GitHub keeps them.
+type Prs = Rc<RefCell<BTreeMap<i64, Pr>>>;
+
+/// GitHub as the engine sees it, over a bare repository: CI is always green, a pull request keeps the base it was
+/// opened with until it is set, and a merge squashes the branch onto the pull request's base.
 struct FakeHub {
     origin: PathBuf,
     scratch: PathBuf,
-    prs: RefCell<BTreeMap<i64, String>>,
+    prs: Prs,
 }
 
 impl GitHub for FakeHub {
@@ -365,7 +375,7 @@ impl GitHub for FakeHub {
         &self,
         _repo: &str,
         branch: &str,
-        _base: &str,
+        base: &str,
         _title_body: Option<(&str, &str)>,
         existing: Option<i64>,
     ) -> Result<i64, Failure> {
@@ -373,12 +383,33 @@ impl GitHub for FakeHub {
             return Ok(n);
         }
         let mut prs = self.prs.borrow_mut();
-        if let Some((n, _)) = prs.iter().find(|(_, b)| *b == branch) {
+        if let Some((n, _)) = prs.iter().find(|(_, p)| p.branch == branch) {
             return Ok(*n);
         }
-        let n = prs.len() as i64 + 1;
-        prs.insert(n, branch.to_string());
+        let n = prs.last_key_value().map_or(1, |(n, _)| n + 1);
+        prs.insert(
+            n,
+            Pr {
+                branch: branch.to_string(),
+                base: base.to_string(),
+            },
+        );
         Ok(n)
+    }
+
+    fn base(&self, _repo: &str, pr: i64) -> Result<String, Failure> {
+        self.prs
+            .borrow()
+            .get(&pr)
+            .map(|p| p.base.clone())
+            .ok_or_else(|| Failure::other("no such PR"))
+    }
+
+    fn set_base(&self, _repo: &str, pr: i64, base: &str) -> Result<(), Failure> {
+        let mut prs = self.prs.borrow_mut();
+        let p = prs.get_mut(&pr).ok_or_else(|| Failure::other("no such PR"))?;
+        p.base = base.to_string();
+        Ok(())
     }
 
     fn checks(&self, _repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
@@ -396,7 +427,7 @@ impl GitHub for FakeHub {
     }
 
     fn merge(&self, _repo: &str, pr: i64) -> Result<String, Failure> {
-        let branch = self
+        let Pr { branch, base } = self
             .prs
             .borrow()
             .get(&pr)
@@ -405,11 +436,18 @@ impl GitHub for FakeHub {
         let dir = self.scratch.join(format!("merge-{pr}"));
         git(
             &self.scratch,
-            &["clone", "-q", &self.origin.to_string_lossy(), &dir.to_string_lossy()],
+            &[
+                "clone",
+                "-q",
+                "-b",
+                &base,
+                &self.origin.to_string_lossy(),
+                &dir.to_string_lossy(),
+            ],
         );
         git(&dir, &["merge", "--squash", &format!("origin/{branch}")]);
         git(&dir, &["commit", "-q", "-m", &format!("Merge PR {pr}")]);
-        git(&dir, &["push", "-q", "origin", "HEAD:main"]);
+        git(&dir, &["push", "-q", "origin", &format!("HEAD:{base}")]);
         Ok(git(&dir, &["rev-parse", "HEAD"]))
     }
 
@@ -441,6 +479,8 @@ struct Setup {
     root: PathBuf,
     data: PathBuf,
     origin: PathBuf,
+    /// The pull requests on the fake GitHub, kept across the engines a test starts, as GitHub keeps them.
+    prs: Prs,
 }
 
 fn setup(name: &str) -> Setup {
@@ -515,7 +555,12 @@ merge_checks = ["check"]
     git(&data, &["add", "-A"]);
     git(&data, &["commit", "-q", "-m", "configuration"]);
     engine::database::create(&data).unwrap();
-    Setup { root, data, origin }
+    Setup {
+        root,
+        data,
+        origin,
+        prs: Prs::default(),
+    }
 }
 
 fn scripts() -> BTreeMap<&'static str, Script> {
@@ -639,7 +684,7 @@ fn engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Rc<Ref
     let hub = FakeHub {
         origin: s.origin.clone(),
         scratch: s.root.clone(),
-        prs: RefCell::new(BTreeMap::new()),
+        prs: s.prs.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let mut e = Engine::new(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
@@ -816,7 +861,7 @@ fn building_a_message_writes_nothing() {
     let hub = FakeHub {
         origin: s.origin.clone(),
         scratch: s.root.clone(),
-        prs: RefCell::new(BTreeMap::new()),
+        prs: s.prs.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
@@ -1912,6 +1957,76 @@ fn an_imported_item_takes_over_its_branch_and_pull_request() {
         "{m}"
     );
     assert!(m.contains("pr view 9 --comments"), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A pull request keeps the base it was opened with, and a work merges it into the project's main and nowhere else: the
+// pull request an imported item takes over, opened against another branch, is set to merge into main as the work
+// first pushes to it, and, its base another branch again by the time it merges, is set again before the merge; the
+// branch it was opened against gets nothing.
+#[test]
+fn a_pull_request_opened_against_another_branch_merges_into_main_only() {
+    let s = setup("base");
+    let checkout = s.root.join("checkout");
+    let origin = s.origin.to_string_lossy().to_string();
+    git(&checkout, &["push", "-q", "origin", "HEAD:first-version"]);
+    let first_version = git(&s.root, &["--git-dir", &origin, "rev-parse", "first-version"]);
+    git(&checkout, &["checkout", "-q", "-b", "outside/feature"]);
+    write(&checkout, "src/lib.txt", "half done\n");
+    git(&checkout, &["commit", "-q", "-am", "Half of the feature"]);
+    git(&checkout, &["push", "-q", "origin", "outside/feature"]);
+    git(&checkout, &["checkout", "-q", "main"]);
+    git(&checkout, &["branch", "-q", "-D", "outside/feature"]);
+    let elsewhere = Pr {
+        branch: "outside/feature".into(),
+        base: "first-version".into(),
+    };
+    s.prs.borrow_mut().insert(9, elsewhere.clone());
+    let (mut e, said, item) = start(&s, scripts());
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE items SET imported_from = 'item 41 of the earlier board', imported_branch = 'outside/feature',
+             imported_pr = 9 WHERE id = ?1",
+            [item],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let base_of = |n: i64| s.prs.borrow()[&n].base.clone();
+    let mut pushed = false;
+    for _ in 0..100 {
+        if state(&e, item).is_some_and(|(_, at, _)| at == "M2") {
+            break;
+        }
+        e.step(None).unwrap();
+        pushed |= !ended_at(&e, item, "X1").is_empty();
+        if !pushed {
+            assert_eq!(base_of(9), "first-version");
+        }
+    }
+    let log = said.borrow().join("\n");
+    assert_eq!(state(&e, item).map(|(_, at, _)| at).as_deref(), Some("M2"), "{log}");
+    assert!(pushed, "{log}");
+    assert_eq!(base_of(9), "main", "{log}");
+    // Its base is set again before it merges, whatever changed it since.
+    s.prs.borrow_mut().insert(9, elsewhere);
+    for _ in 0..20 {
+        if !ended_at(&e, item, "M2").is_empty() {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = said.borrow().join("\n");
+    assert_eq!(ended_at(&e, item, "M2"), [(Some("merged".to_string()), None)], "{log}");
+    assert_eq!(base_of(9), "main", "{log}");
+    assert_eq!(
+        git(&s.root, &["--git-dir", &origin, "show", "main:src/lib.txt"]),
+        "old\nfeature"
+    );
+    assert_eq!(
+        git(&s.root, &["--git-dir", &origin, "rev-parse", "first-version"]),
+        first_version
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

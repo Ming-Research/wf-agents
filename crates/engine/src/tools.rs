@@ -557,6 +557,8 @@ fn ci(
             pr.get(),
         )?;
         pr.set(Some(n));
+        // A pull request that was open already, one a work took over among them, keeps the base it was opened with.
+        hub::ensure_base(e.github.as_ref(), &repo(project), n, &project.main)?;
         let checks = e.github.checks(&repo(project), &sha, &project.ci.fast)?;
         let logs: Vec<Result<String, String>> = checks
             .iter()
@@ -734,13 +736,16 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<
         }
         if pr.get().is_none() {
             let body = format!("{}\n\nWhy: {}", item.problem, item.why);
-            pr.set(Some(e.github.pull_request(
+            let n = e.github.pull_request(
                 &repo(&project),
                 &branch,
                 &project.main,
                 Some((item.title.as_str(), body.as_str())),
                 None,
-            )?));
+            )?;
+            pr.set(Some(n));
+            // The pull request found open from the branch, when a run that stopped had opened it, keeps its base.
+            hub::ensure_base(e.github.as_ref(), &repo(&project), n, &project.main)?;
         }
         let first = full_checks(e, &project, &head)?;
         Ok(json!({ "first": checks_json(&first) }))
@@ -809,8 +814,9 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
             return Ok(json!({ "result": { "kind": "red", "checks": checks_json(&checks) } }));
         }
     }
+    // The pull request merges into the project's main, whatever base it was opened with, or does not merge.
     match attempts(e, round, "merge", &args, || {
-        e.github.merge(&repo(&project), pr).map(Value::String)
+        hub::merge_into(e.github.as_ref(), &repo(&project), pr, &project.main).map(Value::String)
     }) {
         Ok(Value::String(sha)) => Ok(json!({ "result": { "kind": "merged", "merge_commit": sha } })),
         Ok(other) => Err(format!("the merge gave {other}")),

@@ -48,7 +48,8 @@ impl Failure {
 
 pub trait GitHub {
     /// Opens a draft pull request from `branch` into `base`, or, given its number, updates its title and body when
-    /// new ones are given; gives its number.
+    /// new ones are given; gives its number. A pull request that was open already keeps its base: the engine sets it
+    /// with [`ensure_base`].
     fn pull_request(
         &self,
         repo: &str,
@@ -61,7 +62,12 @@ pub trait GitHub {
     fn checks(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure>;
     /// Runs the red checks of the workflow's run on a commit once more, waits, and gives each check's result.
     fn rerun(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure>;
-    /// Marks the pull request ready and merges it; gives the commit it made on the base branch.
+    /// The branch a pull request merges into: its base.
+    fn base(&self, repo: &str, pr: i64) -> Result<String, Failure>;
+    /// Sets the branch a pull request merges into.
+    fn set_base(&self, repo: &str, pr: i64, base: &str) -> Result<(), Failure>;
+    /// Marks the pull request ready and merges it into its base, whichever branch that is; gives the commit it made
+    /// there. The engine merges only through [`merge_into`], which makes the base the project's main first.
     fn merge(&self, repo: &str, pr: i64) -> Result<String, Failure>;
     /// Closes a pull request with a comment.
     fn close(&self, repo: &str, pr: i64, comment: &str) -> Result<(), Failure>;
@@ -72,6 +78,36 @@ pub trait GitHub {
     fn job_log(&self, _repo: &str, _check: &CheckRun) -> Result<String, Failure> {
         Err(Failure::other("no job logs here"))
     }
+}
+
+/// Makes a pull request merge into `main`, the project's main: when its base is another branch, sets it to `main` and
+/// reads it again; fails, naming both branches, when the base is not `main` after that. A pull request keeps the base
+/// it was opened with, while a work taken over keeps the pull request of the work before it and a project's main may
+/// change, so its base may be a branch that is not, or no longer, the project's main.
+pub fn ensure_base(github: &dyn GitHub, repo: &str, pr: i64, main: &str) -> Result<(), Failure> {
+    let was = github.base(repo, pr)?;
+    if was == main {
+        return Ok(());
+    }
+    let refused = |why: String| format!("PR {pr} merges into {was}, not the project's main {main}: {why}");
+    github.set_base(repo, pr, main).map_err(|f| Failure {
+        kind: f.kind,
+        what: refused(format!("setting its base failed: {}", f.what)),
+    })?;
+    let now = github.base(repo, pr)?;
+    if now != main {
+        return Err(Failure::other(refused(format!(
+            "setting its base to {main} did not take; it is {now}"
+        ))));
+    }
+    Ok(())
+}
+
+/// Merges a pull request into `main`, the project's main, and nowhere else: makes `main` its base first, and merges
+/// nothing when it cannot; gives the merge commit.
+pub fn merge_into(github: &dyn GitHub, repo: &str, pr: i64, main: &str) -> Result<String, Failure> {
+    ensure_base(github, repo, pr, main)?;
+    github.merge(repo, pr)
 }
 
 /// GitHub through the gh CLI.
@@ -341,6 +377,20 @@ impl GitHub for Gh {
         self.jobs(repo, &run)
     }
 
+    fn base(&self, repo: &str, pr: i64) -> Result<String, Failure> {
+        let n = pr.to_string();
+        let v = self.json(&["pr", "view", &n, "-R", repo, "--json", "baseRefName"])?;
+        v["baseRefName"]
+            .as_str()
+            .map(str::to_string)
+            .ok_or_else(|| Failure::other(format!("gh gave no base for PR {n}")))
+    }
+
+    fn set_base(&self, repo: &str, pr: i64, base: &str) -> Result<(), Failure> {
+        self.run(&["pr", "edit", &pr.to_string(), "-R", repo, "--base", base])
+            .map(|_| ())
+    }
+
     fn merge(&self, repo: &str, pr: i64) -> Result<String, Failure> {
         let n = pr.to_string();
         self.run(&["pr", "ready", &n, "-R", repo])?;
@@ -409,5 +459,100 @@ mod tests {
             Some(("40483126002".to_string(), "118000000001".to_string()))
         );
         assert_eq!(run_and_job("https://github.com/o/r/pull/3"), None);
+    }
+
+    /// What setting a pull request's base does on [`OnePr`].
+    #[derive(Clone, Copy)]
+    enum Setting {
+        Takes,
+        Fails,
+        /// gh says it was set, and the base is the same.
+        Ignored,
+    }
+
+    /// GitHub with one pull request: its base, what setting it does, and which branch it merged into.
+    struct OnePr {
+        base: std::cell::RefCell<String>,
+        setting: Setting,
+        merged_into: std::cell::RefCell<Option<String>>,
+    }
+
+    impl GitHub for OnePr {
+        fn pull_request(
+            &self,
+            _repo: &str,
+            _branch: &str,
+            _base: &str,
+            _title_body: Option<(&str, &str)>,
+            _existing: Option<i64>,
+        ) -> Result<i64, Failure> {
+            unreachable!("no pull request is opened here")
+        }
+
+        fn checks(&self, _repo: &str, _sha: &str, _workflow: &str) -> Result<Vec<CheckRun>, Failure> {
+            unreachable!("no check runs here")
+        }
+
+        fn rerun(&self, _repo: &str, _sha: &str, _workflow: &str) -> Result<Vec<CheckRun>, Failure> {
+            unreachable!("no check runs here")
+        }
+
+        fn base(&self, _repo: &str, _pr: i64) -> Result<String, Failure> {
+            Ok(self.base.borrow().clone())
+        }
+
+        fn set_base(&self, _repo: &str, _pr: i64, base: &str) -> Result<(), Failure> {
+            match self.setting {
+                Setting::Takes => {
+                    *self.base.borrow_mut() = base.to_string();
+                    Ok(())
+                }
+                Setting::Fails => Err(Failure::network("HTTP 422: the base cannot be changed")),
+                Setting::Ignored => Ok(()),
+            }
+        }
+
+        fn merge(&self, _repo: &str, _pr: i64) -> Result<String, Failure> {
+            *self.merged_into.borrow_mut() = Some(self.base.borrow().clone());
+            Ok("merged".to_string())
+        }
+
+        fn close(&self, _repo: &str, _pr: i64, _comment: &str) -> Result<(), Failure> {
+            unreachable!("no pull request is closed here")
+        }
+
+        fn gh(&self, _dir: &Path, _args: &[String]) -> Result<(i32, String), Failure> {
+            unreachable!("no gh command runs here")
+        }
+    }
+
+    // A pull request opened against another branch than the project's main, as a work taken over may hold, is set to
+    // merge into main before it merges, and one already on main is left as it is; when its base cannot be set, nothing
+    // merges, and the failure names both branches.
+    #[test]
+    fn a_pull_request_merges_into_the_project_s_main_and_nowhere_else() {
+        let hub = |base: &str, setting| OnePr {
+            base: std::cell::RefCell::new(base.to_string()),
+            setting,
+            merged_into: std::cell::RefCell::new(None),
+        };
+        // Setting the base would fail, and is not asked.
+        let on_main = hub("trial-main", Setting::Fails);
+        assert_eq!(merge_into(&on_main, "o/r", 4, "trial-main"), Ok("merged".to_string()));
+        assert_eq!(on_main.merged_into.take().as_deref(), Some("trial-main"));
+        let elsewhere = hub("first-version", Setting::Takes);
+        assert_eq!(merge_into(&elsewhere, "o/r", 4, "trial-main"), Ok("merged".to_string()));
+        assert_eq!(elsewhere.merged_into.take().as_deref(), Some("trial-main"));
+        for setting in [Setting::Fails, Setting::Ignored] {
+            let stuck = hub("first-version", setting);
+            let f = merge_into(&stuck, "o/r", 4, "trial-main").unwrap_err();
+            assert!(
+                f.what
+                    .starts_with("PR 4 merges into first-version, not the project's main trial-main: "),
+                "{}",
+                f.what
+            );
+            assert_eq!(stuck.merged_into.take(), None);
+        }
     }
 }
