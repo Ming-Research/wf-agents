@@ -869,19 +869,20 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let wt = c.wt()?;
             for ev in items(v) {
                 for f in strs(ev.get("files")) {
-                    let p = f
-                        .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/')))
-                        .next()
-                        .unwrap_or_default()
-                        .trim_end_matches('.');
+                    let p = path_in(&f);
                     let looks = (p.contains('/') || p.contains('.')) && !p.starts_with('/');
                     if looks && !wt.join(p).exists() {
                         return fail(format!("{p} is not in the worktree"));
                     }
                 }
+                // A node is named by its path, which a note may follow, as a file is.
                 for n in strs(ev.get("nodes")) {
-                    if !wt.join(n.trim_end_matches('/')).exists() {
-                        return fail(format!("the node {n} does not exist"));
+                    let p = path_in(&n).trim_end_matches('/');
+                    if p.is_empty() || p.starts_with('/') || !wt.join(p).exists() {
+                        return fail(format!(
+                            "the node {n} is not in the worktree: name a node by its path from the repository's \
+                             root, such as design/flow.md, as the head under review has it"
+                        ));
                     }
                 }
             }
@@ -1099,6 +1100,17 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
     }
 }
 
+/// The path a cited file or node begins with, before the lines or a note that may follow it, as in
+/// `crates/x.rs:12-30` or `design/flow.md (the index entry)`.
+fn path_in(cited: &str) -> &str {
+    cited
+        .trim()
+        .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/')))
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches('.')
+}
+
 /// Whether a round's return names an id.
 fn mentions(r: &Round, id: &str) -> bool {
     r.output
@@ -1197,5 +1209,18 @@ mod tests {
         assert!(names_failing(log, "breaks"));
         assert!(names_failing(log, "panics"));
         assert!(!names_failing(log, ""));
+    }
+
+    // A cited file or node is its path, whatever follows it: lines, or a note, as in the sixth trial a review cited
+    // `design/engine/session-manager.md (read through the index entry …)`, which the check took whole and refused.
+    #[test]
+    fn a_cited_path_is_read_before_what_follows_it() {
+        assert_eq!(path_in("crates/x.rs:12-30"), "crates/x.rs");
+        assert_eq!(
+            path_in("design/engine/session-manager.md (read through the index entry …)"),
+            "design/engine/session-manager.md"
+        );
+        assert_eq!(path_in(" design/flow.md."), "design/flow.md");
+        assert_eq!(path_in("(nothing)"), "");
     }
 }

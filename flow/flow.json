@@ -347,7 +347,7 @@
           "desc": "Which design tree nodes you read",
           "item": {
             "type": "text",
-            "desc": "The node's path"
+            "desc": "The node's path from the repository's root, such as design/flow.md, as the head under review has it; a note may follow it"
           }
         }
       ]
@@ -3075,7 +3075,7 @@
       "fact_basis_ran": "A basis of fact names a run the engine recorded, and its result is what that run gave.",
       "conclusions_cover_questions": "A report hands in a conclusion for each report_answer condition; other work hands in none.",
       "columns_answered": "There is exactly one row for each column the engine listed in this round; with no column listed, none is handed in.",
-      "evidence_holds": "The evidence is there; the files and lines cited are in the diff; the nodes listed exist; for a changed node, its ancestors were read too.",
+      "evidence_holds": "The evidence is there; the files and lines cited are in the diff; the nodes listed exist, each read by the path it begins with, from the repository's root; for a changed node, its ancestors were read too.",
       "previous_findings_answered": "At a re-review, there is a row for each finding of last time.",
       "unverified_decided": "At a re-review, a column the engineer could not verify either, answering cannot_verify to the last review's cannot_verify, is decided: a pass or findings, not cannot_verify again.",
       "no_adversarial_when_due": "At the first review of a change whose design chose no adversarial testing and ran none late, no_adversarial is handed in; at a re-review, only does_not_stand; otherwise none.",
