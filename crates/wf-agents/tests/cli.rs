@@ -391,11 +391,12 @@ fn the_owner_s_cancel_ends_the_work_as_every_work_ends() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A data directory with a database made by `init`, which holds nothing yet.
-fn initialised(name: &str) -> PathBuf {
-    let dir = data_directory(name);
-    let out = wf(&dir, "init");
-    assert!(out.status.success(), "`init`: {}", stderr(&out));
+/// A data directory that holds only a database with nothing in it. `cost` reads nothing else, so the directory is not
+/// the git repository with a configuration that `init` asks for, whose flow check takes some 3 s of each test.
+fn empty_database(name: &str) -> PathBuf {
+    let dir = temp(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    engine::database::create(&dir).unwrap();
     dir
 }
 
@@ -434,7 +435,7 @@ const TWO_WORKS: &str = r#"
 // rounds, 100 + 20 seconds, and 1.0 + 0.5 of work 1 (the ping's included) and 0.5 of work 2.
 #[test]
 fn cost_ends_with_a_total_row() {
-    let dir = initialised("cost-total");
+    let dir = empty_database("cost-total");
     fill(&dir, TWO_WORKS);
     assert_eq!(
         printed(&dir, "cost"),
@@ -447,7 +448,7 @@ fn cost_ends_with_a_total_row() {
 // comes last and counts the work left out. Each work is one round of 2 s for 0.25, a cost every sum of is exact.
 #[test]
 fn cost_total_adds_the_works_the_table_leaves_out() {
-    let dir = initialised("cost-total-all");
+    let dir = empty_database("cost-total-all");
     fill(
         &dir,
         r#"
@@ -472,7 +473,7 @@ fn cost_total_adds_the_works_the_table_leaves_out() {
 // them 0.002 in a round and 0.002 in a ping, show 0.0 in their rows, and the total is 0.01, not 0.0.
 #[test]
 fn cost_total_rounds_the_sum_once() {
-    let dir = initialised("cost-total-rounding");
+    let dir = empty_database("cost-total-rounding");
     fill(
         &dir,
         r#"
@@ -499,7 +500,7 @@ fn cost_total_rounds_the_sum_once() {
 // worked out by hand from `TWO_WORKS`.
 #[test]
 fn cost_prints_as_before_where_there_is_no_total() {
-    let dir = initialised("cost-before");
+    let dir = empty_database("cost-before");
     assert_eq!(printed(&dir, "cost"), "(none)\n");
     fill(&dir, TWO_WORKS);
     assert_eq!(
