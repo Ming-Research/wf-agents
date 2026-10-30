@@ -1783,7 +1783,7 @@
               "name": "title",
               "title": "Title",
               "type": "text",
-              "desc": "Its title: what to do, as an action"
+              "desc": "Its title: what to do, as an action, in the owner's language (the setting `owner.language`), with technical terms in their English original"
             },
             {
               "name": "under",
@@ -2055,7 +2055,7 @@
               "name": "text",
               "title": "New text",
               "type": "text",
-              "desc": "What it becomes"
+              "desc": "What it becomes; a title in the owner's language (the setting `owner.language`), with technical terms in their English original"
             }
           ]
         },
@@ -2195,7 +2195,7 @@
               "name": "what",
               "title": "What it is",
               "type": "text",
-              "desc": "What it is, why it is worth doing, and what happens if it is not done"
+              "desc": "What it is, why it is worth doing, and what happens if it is not done, in the owner's language (the setting `owner.language`), with technical terms in their English original"
             },
             {
               "name": "tags",
@@ -11784,7 +11784,7 @@
           "name": "item_writing",
           "desc": "How items and changes to them are written",
           "text": [
-            "An item says what to do as an action (its title), the problem in one sentence with a smallest example, why it is worth doing (the cost of not doing it, and who waits), and its acceptance, one condition per row, each clearly true or false.",
+            "An item says what to do as an action (its title, written in the owner's language, the setting `owner.language`, as an observation is), the problem in one sentence with a smallest example, why it is worth doing (the cost of not doing it, and who waits), and its acceptance, one condition per row, each clearly true or false.",
             "An item is worth an engineer, a branch, a CI run and a merge: one too small joins another; one with parts that could each merge alone is split. Its level fits the judgment it needs: higher for work that must make new decisions or check facts that are unsure, whatever the size of the change.",
             "A split makes new items and has the item depend on them; each acceptance condition of the item goes to one new item at most, and those that go to none stay with it. A dependency says what the item needs the other to deliver, and its kind: blocking when the item cannot start before the other is merged, as when it needs a module or a library the other makes; parallel when it can start and wait where it needs the other. A blocking dependency added later does not stop a work already running.",
             "One decision per change, its reason saying what it is for and what follows if it is not made; where a change cannot stand without another, such as one that refers to an item these changes create, its reason says which. An item is cancelled only when its work is not to be done, saying where its work went."
