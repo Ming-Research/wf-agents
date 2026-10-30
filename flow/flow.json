@@ -4723,7 +4723,7 @@
             "name": "tell_owner",
             "title": "Told to the owner",
             "type": "list",
-            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
+            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return, nor a routine result the page shows already, such as tests passing, a review or a test that found nothing, or a step done as planned. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
             "item": {
               "type": "text",
               "desc": "One message"
@@ -12071,7 +12071,7 @@
             "name": "tell_owner",
             "title": "Told to the owner",
             "type": "list",
-            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return or of what you told the owner before and has not changed since, and nothing this return does not do: that you put something in your notebook, will make or change an item, or will do anything else is said only by a return that does it. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
+            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return, nor a routine result the page shows already, such as tests passing, a review or a test that found nothing, or a step done as planned, nor of what you told the owner before and has not changed since, and nothing this return does not do: that you put something in your notebook, will make or change an item, or will do anything else is said only by a return that does it. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
             "item": {
               "type": "text",
               "desc": "One message"
