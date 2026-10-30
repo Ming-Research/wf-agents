@@ -15153,7 +15153,7 @@
               "main": true
             },
             {
-              "name": "to_ways",
+              "name": "back_with_answer_to_ways",
               "if": [
                 [
                   "inp",
@@ -15164,7 +15164,8 @@
                 ]
               ],
               "to": "H3",
-              "main": false
+              "main": false,
+              "note": "A matter coming back with the owner's answer goes on at the cell that asked, without its first cell again."
             },
             {
               "name": "to_what_is_it",
@@ -15181,7 +15182,7 @@
               "main": true
             },
             {
-              "name": "to_take_in",
+              "name": "back_with_answer_to_take_in",
               "if": [
                 [
                   "inp",
@@ -15192,7 +15193,8 @@
                 ]
               ],
               "to": "H5",
-              "main": false
+              "main": false,
+              "note": "A matter coming back with the owner's answer goes on at the cell that asked, without its first cell again."
             },
             {
               "name": "to_card_sound",
@@ -15265,7 +15267,7 @@
               "main": true
             },
             {
-              "name": "to_study",
+              "name": "back_to_study",
               "if": [
                 [
                   "inp",
@@ -15275,10 +15277,11 @@
                   ]
                 ]
               ],
-              "to": "P2"
+              "to": "P2",
+              "note": "The setting of a new policy taken again goes on at the cell it stood at, with the owner's answer to what that cell asked, or where a new session would have started there: a matter coming back with the owner's answer goes on at the cell that asked, without its first cell again."
             },
             {
-              "name": "to_read_study",
+              "name": "back_with_answer_to_read_study",
               "if": [
                 [
                   "inp",
@@ -15288,10 +15291,11 @@
                   ]
                 ]
               ],
-              "to": "P3"
+              "to": "P3",
+              "note": "A matter coming back with the owner's answer goes on at the cell that asked, without its first cell again."
             },
             {
-              "name": "to_write",
+              "name": "back_to_write",
               "if": [
                 [
                   "inp",
@@ -15301,10 +15305,11 @@
                   ]
                 ]
               ],
-              "to": "P4"
+              "to": "P4",
+              "note": "The setting of a new policy taken again goes on at the cell it stood at, with the owner's answer to what that cell asked, or where a new session would have started there: a matter coming back with the owner's answer goes on at the cell that asked, without its first cell again."
             },
             {
-              "name": "to_judge_reading",
+              "name": "back_to_judge_reading",
               "if": [
                 [
                   "inp",
@@ -15314,10 +15319,11 @@
                   ]
                 ]
               ],
-              "to": "P7"
+              "to": "P7",
+              "note": "The setting of a new policy taken again goes on at the cell it stood at, with the owner's answer to what that cell asked, or where a new session would have started there: a matter coming back with the owner's answer goes on at the cell that asked, without its first cell again."
             },
             {
-              "name": "to_correct",
+              "name": "back_to_correct",
               "if": [
                 [
                   "inp",
@@ -15327,10 +15333,11 @@
                   ]
                 ]
               ],
-              "to": "P8"
+              "to": "P8",
+              "note": "The setting of a new policy taken again goes on at the cell it stood at, with the owner's answer to what that cell asked, or where a new session would have started there: a matter coming back with the owner's answer goes on at the cell that asked, without its first cell again."
             },
             {
-              "name": "to_draft_holds",
+              "name": "back_to_draft_holds",
               "if": [
                 [
                   "inp",
@@ -15340,10 +15347,11 @@
                   ]
                 ]
               ],
-              "to": "P10"
+              "to": "P10",
+              "note": "The setting of a new policy taken again goes on at the cell it stood at, with the owner's answer to what that cell asked, or where a new session would have started there: a matter coming back with the owner's answer goes on at the cell that asked, without its first cell again."
             },
             {
-              "name": "to_approve",
+              "name": "back_with_answer_to_approve",
               "if": [
                 [
                   "inp",
@@ -15353,7 +15361,8 @@
                   ]
                 ]
               ],
-              "to": "P11"
+              "to": "P11",
+              "note": "A matter coming back with the owner's answer goes on at the cell that asked, without its first cell again."
             }
           ],
           "inenums": {
