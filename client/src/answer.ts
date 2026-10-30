@@ -10,8 +10,8 @@
 
 import { createContext, useContext } from 'react';
 
-import type { JsonValue, OwnerAsk } from './api';
-import { choicesOf, rulingAnswer } from './architect';
+import type { Choice, JsonValue, OwnerAsk } from './api';
+import { rulingAnswer } from './architect';
 import { isObj, str, type Obj } from './labelled';
 import { t } from './messages';
 
@@ -43,15 +43,16 @@ export function askChoice(body: JsonValue): Obj | null {
 const isRuling = (body: JsonValue): boolean =>
   isObj(body) && body.from === 'architect' && (body.kind === 'study' || body.kind === 'policy_approval');
 
-/// How an ask is answered, which the buttons in its bubble offer: by one of the choices its cell offers, each with
-/// what it means; by one of the options of its choice, by name, or in words alone; or in words alone.
+/// How an ask is answered, which the buttons in its bubble offer: by one of the choices its cell offers, each saying
+/// what it does and what happens next; by one of the options of its choice, by name, or in words alone; or in words
+/// alone.
 export type Way =
-  | { by: 'ruling'; choices: Array<[string, string]> }
+  | { by: 'ruling'; choices: Choice[] }
   | { by: 'option'; options: string[] }
   | { by: 'words' };
 
 export function answerWay(a: OwnerAsk): Way {
-  if (isRuling(a.body)) return { by: 'ruling', choices: choicesOf(a.body) };
+  if (isRuling(a.body)) return { by: 'ruling', choices: a.choices };
   const choice = askChoice(a.body);
   const options = (choice !== null && Array.isArray(choice.options) ? choice.options.filter(isObj) : [])
     .map((o) => str(o.name))
@@ -74,7 +75,7 @@ export function needsWords(way: Way, pick: string): boolean {
 /// clicked alone; any other ask with the option picked and words, or the words alone, and an engineer's handed back to
 /// the architect with the words as the decision it carries out (`back`). None while it cannot be sent.
 export function askAnswer(a: OwnerAsk, pick: string, text: string, back: boolean): object | null {
-  if (isRuling(a.body)) return rulingAnswer(choicesOf(a.body), pick === '' ? null : pick);
+  if (isRuling(a.body)) return rulingAnswer(a.choices, pick === '' ? null : pick);
   const words = text.trim();
   const answer = pick !== '' ? `${t('answer_chosen', { option: pick })}${words !== '' ? ` ${words}` : ''}` : words;
   if (answer === '') return null;

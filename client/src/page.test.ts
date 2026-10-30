@@ -1891,7 +1891,7 @@ describe("the owner's conversations", () => {
         entry('reply', { id: 2, matter: 2, sender: 'owner', recipient: 'engineer' }),
         entry('message', { id: 10, sender: 'policy' }),
       ],
-      asks: [{ id: 4, round: 2, work: 5, item: null, body: {}, kinds: [], answer: null, asked_at: 0 }],
+      asks: [{ id: 4, round: 2, work: 5, item: null, body: {}, kinds: [], choices: [], answer: null, asked_at: 0 }],
       design_cards: [],
       read_to: null,
       forwarding: null,

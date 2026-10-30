@@ -5,6 +5,7 @@
 
 import type {
   ArchitectWork,
+  Choice,
   Handled,
   JsonValue,
   Matter,
@@ -210,19 +211,10 @@ export function observationsShown(all: Observation[], tag: string, search: strin
   );
 }
 
-/// The choices an ask of the architect's offers, each value with what it means, as the engine read them from its cell.
-export function choicesOf(body: JsonValue): Array<[string, string]> {
-  const list = isObj(body) && Array.isArray(body.choices) ? body.choices : [];
-  return list.flatMap((c) => (Array.isArray(c) && typeof c[0] === 'string' ? [[c[0], str(c[1])] as [string, string]] : []));
-}
-
 /// What a decision on a choice the architect put sends (the study of a new policy, the policy to approve): the value
 /// chosen alone, the owner's words going to the architect in their talk; none for a value the choice does not offer.
-export function rulingAnswer(
-  choices: Array<[string, string]>,
-  choice: string | null,
-): { choice: string; text: string } | null {
-  if (choice === null || !choices.some(([v]) => v === choice)) return null;
+export function rulingAnswer(choices: Choice[], choice: string | null): { choice: string; text: string } | null {
+  if (choice === null || !choices.some((c) => c.value === choice)) return null;
   return { choice, text: '' };
 }
 

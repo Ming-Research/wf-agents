@@ -14,7 +14,8 @@
 // for the owner's words, free unless the ask or the choice asks for them, and Answer; a question the architect holds
 // has the small box in its bubble too. What is written there answers that bubble; once answered, the buttons and the
 // box give way to the owner's answer, in the same bubble and named as the owner's answer to it, which shows nowhere
-// else. The study and the text of a new policy are decided by their three buttons alone, a click sending the decision.
+// else. The study and the text of a new policy are decided by their three buttons alone, each saying what it does over
+// a line that says what happens next, as the flow says them, a click sending the decision.
 // While an ask that waits is out of view, a slim line over the stream says so and brings it into view. A design card a
 // work waits on to be ruled is pinned at the top. The one box at the bottom only says something, in a work's group to
 // the engineer, the architect or both, and in the one-to-one to the architect, whose words are a talk the architect
@@ -47,6 +48,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
 
 import type {
+  Choice,
   Conversation,
   ConversationDetail,
   ConversationEntry,
@@ -280,27 +282,28 @@ function useAnswer(): {
   return { text, setText, busy, error, post };
 }
 
-/// How the owner decides on the study or the text of a new policy, in its bubble: the buttons of the choices its cell
-/// offers, each saying on hovering what it means, a click sending that decision; no box, the owner's words on it going
-/// to the architect in their talk.
-function RulingAnswer({ a, choices }: { a: OwnerAsk; choices: Array<[string, string]> }) {
+/// How the owner decides on the study or the text of a new policy, in its bubble: a button for each choice its cell
+/// offers, saying what it does, over a line that says what happens next, both as the flow says them; a click sends that
+/// decision. No box: the owner's words on it go to the architect in their talk.
+function RulingAnswer({ a, choices }: { a: OwnerAsk; choices: Choice[] }) {
   const { busy, error, post } = useAnswer();
   return (
     <div className="talk-answer" role="group" aria-label={t('conv_answer_ask', { id: a.id })}>
-      <div className="talk-answer-buttons">
-        {choices.map(([value, means]) => (
-          <Button
-            key={value}
-            size="small"
-            title={means}
-            disabled={busy}
-            onClick={() => {
-              const answer = askAnswer(a, value, '', false);
-              if (answer !== null) post(`/api/v1/asks/${a.id}/answer`, answer);
-            }}
-          >
-            {label(value)}
-          </Button>
+      <div className="talk-choices">
+        {choices.map((c) => (
+          <div key={c.value} className="talk-choice">
+            <Button
+              size="small"
+              disabled={busy}
+              onClick={() => {
+                const answer = askAnswer(a, c.value, '', false);
+                if (answer !== null) post(`/api/v1/asks/${a.id}/answer`, answer);
+              }}
+            >
+              {c.title}
+            </Button>
+            <p className="talk-said-note">{c.desc}</p>
+          </div>
         ))}
       </div>
       {error !== null ? <Flash variant="danger">{t('request_failed', { error })}</Flash> : null}
@@ -326,7 +329,7 @@ function AskWords({ a }: { a: OwnerAsk }) {
   const [back, setBack] = useState(false);
   const { text, setText, busy, error, post } = useAnswer();
   const answer = askAnswer(a, pick, text, handsBack(a) && back);
-  const meaning = way.by === 'ruling' ? (way.choices.find(([v]) => v === pick)?.[1] ?? '') : '';
+  const meaning = way.by === 'ruling' ? (way.choices.find((c) => c.value === pick)?.desc ?? '') : '';
   const button = (value: string, name: string, title?: string) => (
     <Button
       key={value}
@@ -343,7 +346,7 @@ function AskWords({ a }: { a: OwnerAsk }) {
     <div className="talk-answer" role="group" aria-label={t('conv_answer_ask', { id: a.id })}>
       {way.by !== 'words' ? (
         <div className="talk-answer-buttons">
-          {way.by === 'ruling' ? way.choices.map(([v, m]) => button(v, label(v), m)) : way.options.map((o) => button(o, o))}
+          {way.by === 'ruling' ? way.choices.map((c) => button(c.value, c.title, c.desc)) : way.options.map((o) => button(o, o))}
         </div>
       ) : null}
       {meaning !== '' ? <p className="talk-said-note">{meaning}</p> : null}

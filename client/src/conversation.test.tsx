@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from './answer';
-import type { Conversation, ConversationDetail, ConversationEntry, Handled, JsonValue, MatterProgress, OwnerAsk } from './api';
+import type { Choice, Conversation, ConversationDetail, ConversationEntry, Handled, JsonValue, MatterProgress, OwnerAsk } from './api';
 import { awayOf, streamOf } from './conversation';
 import { Composer, Stream } from './pages/Messages';
 
@@ -18,6 +18,7 @@ const ask = (id: number, body: JsonValue, answer: JsonValue | null = null): Owne
   item: 3,
   body,
   kinds: [],
+  choices: [],
   answer,
   asked_at: 0,
 });
@@ -152,6 +153,15 @@ const study = {
   ],
 };
 
+// The buttons of the study, as the interface says them from the flow.
+const studyChoices: Choice[] = [
+  { value: 'satisfied', title: 'Satisfied: write the policy', desc: 'The architect writes the policy from this study.' },
+  { value: 'study_on', title: 'Study again', desc: 'The architect studies the direction again.' },
+  { value: 'no_change', title: 'Keep the policy in force', desc: 'The setting ends.' },
+];
+
+const studyAsk = (id: number, answer: JsonValue | null = null): OwnerAsk => ({ ...ask(id, study, answer), choices: studyChoices });
+
 const words = { asked: [{ kind: 'ask', value: { points: [{ kind: 'environment', what: 'Run the probe?' }] } }] };
 
 describe('an ask in its conversation', () => {
@@ -185,15 +195,17 @@ describe('an ask in its conversation', () => {
     const plain = bubble(row(drawn(detail([asked(ask(6, words))])), 'data-ask="6"')).inside;
     expect(plain).not.toContain('talk-answer-buttons');
     expect(buttons(plain.slice(plain.indexOf('class="talk-answer"')))).toEqual(['Answer (disabled)']);
-    const ruled = bubble(row(drawn(detail([asked(ask(7, study), { sender: 'architect' })])), 'data-ask="7"')).inside;
+    const ruled = bubble(row(drawn(detail([asked(studyAsk(7), { sender: 'architect' })])), 'data-ask="7"')).inside;
     expect(ruled).toContain('talk-bubble-architect');
-    expect(buttons(ruled.slice(ruled.indexOf('class="talk-answer"')))).toEqual(['Satisfied', 'Study on', 'No change']);
-    expect(ruled.slice(ruled.indexOf('class="talk-answer"'))).not.toContain('<textarea');
-    expect(ruled).toContain('title="Study more, saying what"');
+    const answer = ruled.slice(ruled.indexOf('class="talk-answer"'));
+    expect(buttons(answer)).toEqual(['Satisfied: write the policy', 'Study again', 'Keep the policy in force']);
+    expect(answer).not.toContain('<textarea');
+    // Under each button, what happens next.
+    expect(answer).toMatch(/Study again(<\/[^>]+>)+<p class="talk-said-note">The architect studies the direction again\.<\/p>/);
   });
 
   it('once answered is one entry, one bubble, the owner’s answer in it with the choice made', () => {
-    const a = ask(7, study, { by: 'owner', at: 9, choice: 'satisfied', text: 'Good enough.' });
+    const a = studyAsk(7, { by: 'owner', at: 9, choice: 'satisfied', text: 'Good enough.' });
     const d = detail([asked(a, { sender: 'architect' })]);
     expect(streamOf(d)).toHaveLength(1);
     const html = drawn(d);
@@ -241,14 +253,7 @@ describe('a question the architect holds', () => {
 
 describe('answering an ask', () => {
   it('answers by the choices its cell offers, by its options, or in words alone', () => {
-    expect(answerWay(ask(1, study))).toEqual({
-      by: 'ruling',
-      choices: [
-        ['satisfied', 'The study is enough'],
-        ['study_on', 'Study more, saying what'],
-        ['no_change', 'Keep the policy'],
-      ],
-    });
+    expect(answerWay(studyAsk(1))).toEqual({ by: 'ruling', choices: studyChoices });
     expect(answerWay(ask(2, choice))).toEqual({ by: 'option', options: ['One table', 'Two tables'] });
     // An open choice of the architect's is its own choice.
     const open = { from: 'architect', kind: 'open', choice: { question: 'Now?', options: [{ name: 'Yes' }, { name: 'Later' }] } };
@@ -260,7 +265,7 @@ describe('answering an ask', () => {
     expect(pickAfter('', 'One table')).toBe('One table');
     expect(pickAfter('One table', 'Two tables')).toBe('Two tables');
     expect(pickAfter('One table', 'One table')).toBe('');
-    const ruling = answerWay(ask(1, study));
+    const ruling = answerWay(studyAsk(1));
     expect(needsWords(ruling, 'satisfied')).toBe(false);
     expect(needsWords(ruling, 'study_on')).toBe(false);
     const option = answerWay(ask(2, choice));
@@ -277,7 +282,7 @@ describe('answering an ask', () => {
     expect(askAnswer(a, 'One table', '', false)).toEqual({ text: 'Chosen option: One table.' });
     expect(askAnswer(a, '', 'Neither.', true)).toEqual({ text: 'Neither.', to: 'architect' });
     expect(askAnswer(a, '', ' ', false)).toBeNull();
-    const s = ask(7, study);
+    const s = studyAsk(7);
     expect(askAnswer(s, 'satisfied', '', false)).toEqual({ choice: 'satisfied', text: '' });
     expect(askAnswer(s, 'study_on', 'The costs.', false)).toEqual({ choice: 'study_on', text: '' });
     expect(askAnswer(s, '', 'x', false)).toBeNull();

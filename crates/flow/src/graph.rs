@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::field::{Field, Resolved, Shapes, add_to_desc, by_id, head, is_path, resolve};
 use crate::format::{
-    Always, Atom, Branches, Check, Do, Flow, Form, Input, Kind, Node, NodeKind, OPEN_SESSION, PromptBy, RawBranch,
-    RawField, RawRow, ReadBy, Role, Rule, Source, Src,
+    Always, Atom, Branches, Check, Choice, Do, Flow, Form, Input, Kind, Node, NodeKind, OPEN_SESSION, PromptBy,
+    RawBranch, RawField, RawRow, ReadBy, Role, Rule, Source, Src,
 };
 
 macro_rules! ensure {
@@ -120,6 +120,8 @@ pub(crate) struct Cell {
     pub actions: Vec<String>,
     /// A gate's two outcomes, by name: the one that goes on, and the problem.
     pub outcomes: Vec<String>,
+    /// The buttons an owner's cell rules by, one for each value of its `ruling.choice`.
+    pub choices: Vec<Choice>,
     pub checks: Vec<Check>,
     pub handoff: Vec<String>,
     /// What the owner's page shows on the item: the owner reads it there.
@@ -863,6 +865,30 @@ impl<'s> Graph<'s> {
                     );
                 }
             }
+            // An owner's cell that rules by a `ruling.choice` has a button for each of its values, in order, each
+            // saying what it does and what happens next; no other cell has buttons.
+            let choices = n.choices.clone().unwrap_or_default();
+            let ruled: Vec<&String> = main
+                .iter()
+                .filter(|f| f.name == "ruling")
+                .flat_map(|f| &f.fields)
+                .filter(|f| f.name == "choice" && f.kind == Kind::Enum)
+                .flat_map(|f| f.values.iter().map(|(v, _)| v))
+                .collect();
+            ensure!(
+                n.kind == NodeKind::Owner || n.choices.is_none(),
+                "only an owner's cell rules by buttons: {nid}"
+            );
+            ensure!(
+                n.kind != NodeKind::Owner || choices.iter().map(|c| &c.value).eq(ruled.iter().copied()),
+                "an owner's cell's buttons are not the values of its ruling.choice, in order: {nid}"
+            );
+            ensure!(
+                choices
+                    .iter()
+                    .all(|c| !c.title.trim().is_empty() && !c.desc.trim().is_empty()),
+                "a button that does not say what it does and what happens next: {nid}"
+            );
             cells.push(Cell {
                 id: nid.clone(),
                 kind,
@@ -891,6 +917,7 @@ impl<'s> Graph<'s> {
                     .and_then(|m| m.outcomes.as_ref())
                     .map(|o| vec![o.on.0.clone(), o.problem.0.clone()])
                     .unwrap_or_default(),
+                choices,
                 checks,
                 handoff: n.handoff.clone().unwrap_or_default(),
                 shown,
@@ -1578,6 +1605,7 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
         without: None,
         about: n.about.clone(),
         outcomes: None,
+        choices: None,
         actions: None,
         needs: n.needs.clone(),
         question: None,

@@ -1011,6 +1011,8 @@ const messages = {
   back_fallback: 'When a return is sent back or the round fails',
   back_fallback_facts: "the engine's fallback, the same for every agent cell",
   back_rows: 'Where each row leads',
+  back_buttons: "The owner's buttons",
+  back_buttons_facts: 'each as the owner reads it in the ask, over the line under it',
   back_fields: 'What it hands back',
   branch_of: 'as its {disc}',
   field_shown: 'shown on the item',

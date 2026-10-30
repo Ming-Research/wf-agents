@@ -373,6 +373,12 @@ round: number, work: number, item: number | null, body: JsonValue,
  */
 kinds: Array<AskKind>, 
 /**
+ * The buttons the owner rules on it by (the study of a new policy, the policy to approve), one for each value it
+ * offers, each saying what it does and what happens next as the flow built into this program says it for the cell
+ * that put the ask; none for an ask answered otherwise.
+ */
+choices: Array<Choice>, 
+/**
  * None while it waits.
  */
 answer: JsonValue | null, 
@@ -2317,7 +2323,12 @@ actions?: Array<string>,
  * A gate's two outcomes, by name: the one it hands in to go on, whose row is named after it, and the problem,
  * which it asks about.
  */
-outcomes?: Array<string>, checks?: Array<Check>, handoff?: Array<string>, 
+outcomes?: Array<string>, 
+/**
+ * An owner's cell that rules by buttons: one for each value of its `ruling.choice`, in order, saying what it does
+ * and what happens next. No agent is sent these.
+ */
+choices?: Array<Choice>, checks?: Array<Check>, handoff?: Array<string>, 
 /**
  * Paths of the return the owner's page shows on the item the work is on.
  */
@@ -2363,6 +2374,13 @@ export type RuleUse = { name: string,
 shared: boolean, };
 
 export type PromptBy = { by: string, cases: { [key in string]: Array<string> }, };
+
+/**
+ * A button an owner's cell rules by: the value of `ruling.choice` it hands back, what the button says it does, and
+ * what happens next, in one line under it. The owner's page shows them where the owner rules and on the cell's panel;
+ * no agent is sent them.
+ */
+export type Choice = { value: string, title: string, desc: string, };
 
 /**
  * One form of an agent's return: the cell's own answer, or one of the common fields.

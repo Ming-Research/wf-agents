@@ -9,7 +9,7 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use db::rusqlite::types::ValueRef;
 use db::rusqlite::{self, Connection, OptionalExtension, Row, params, params_from_iter};
-use flow::format::Src;
+use flow::format::{Choice, Src};
 use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::Value;
 
@@ -720,11 +720,57 @@ pub(crate) fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args:
 }
 
 /// An ask of the owner, with when the owner was told of it, from which it waits: the engine's notice of it, or else the
-/// start of the round that put it, as the owner's conversations date it.
+/// start of the round that put it, as the owner's conversations date it; and the graph of the work that put it, whose
+/// cell says its buttons.
 const ASK: &str = "SELECT a.id, a.round, a.work, w.item, a.body, a.answer,
        coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id),
-                (SELECT r.started_at FROM rounds r WHERE r.work = a.work AND r.n = a.round), 0)
+                (SELECT r.started_at FROM rounds r WHERE r.work = a.work AND r.n = a.round), 0), w.graph
 FROM owner_asks a JOIN works w ON w.id = a.work";
+
+/// The buttons of each owner's cell that rules by them, by its graph and its id, as the flow built into this program
+/// says them: an ask keeps the values it offers, and the page says them as the flow does.
+static CHOICES: LazyLock<HashMap<(String, String), Vec<Choice>>> = LazyLock::new(|| {
+    let Ok(source) = serde_json::from_str::<flow::format::Source>(flow::FLOW) else {
+        return HashMap::new();
+    };
+    source
+        .flows
+        .iter()
+        .flat_map(|f| {
+            f.nodes
+                .iter()
+                .filter_map(move |n| Some(((f.name.clone(), n.id.clone()), n.choices.clone()?)))
+        })
+        .collect()
+});
+
+/// The buttons the owner rules on an ask by: one for each value the ask offers, as the flow says it for the cell that
+/// put the ask, or, for a value the flow no longer has, the value in words with what the ask says it means.
+fn ask_choices(graph: &str, body: &Value) -> Vec<Choice> {
+    let cell = body["cell"].as_str().unwrap_or_default();
+    let said = CHOICES.get(&(graph.to_string(), cell.to_string()));
+    body["choices"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| {
+            let value = c[0].as_str()?;
+            let worded = said.and_then(|xs| xs.iter().find(|x| x.value == value)).cloned();
+            Some(worded.unwrap_or_else(|| {
+                let words = value.replace('_', " ");
+                let mut chars = words.chars();
+                Choice {
+                    value: value.to_string(),
+                    title: chars
+                        .next()
+                        .map(|first| first.to_uppercase().chain(chars).collect())
+                        .unwrap_or_default(),
+                    desc: c[1].as_str().unwrap_or_default().to_string(),
+                }
+            }))
+        })
+        .collect()
+}
 
 /// The group of each kind of question an agent may ask, by kind, as the flow built into this program groups them: a
 /// compiled flow version keeps the kinds, not their groups.
@@ -764,12 +810,14 @@ pub(crate) fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<
     let mut st = conn.prepare(&format!("{ASK} {filter} ORDER BY a.id"))?;
     let rows = st.query_map(params_from_iter(args), |r| {
         let body = json(r.get(4)?).unwrap_or(Value::Null);
+        let graph: String = r.get(7)?;
         Ok(OwnerAsk {
             id: r.get(0)?,
             round: r.get(1)?,
             work: r.get(2)?,
             item: r.get(3)?,
             kinds: ask_kinds(&body),
+            choices: ask_choices(&graph, &body),
             body,
             answer: json(r.get(5)?),
             asked_at: r.get(6)?,
@@ -3332,6 +3380,19 @@ mod tests {
         assert_eq!(answer.map(|a| a["choice"].clone()), Some(json!("satisfied")));
         assert_eq!(d.asks.iter().map(|a| a.id).collect::<Vec<_>>(), [2]);
         assert_eq!(counts(&s), (1, 0));
+    }
+
+    // The owner rules on an ask by its buttons as the flow says them for the cell that put it, one for each value the
+    // ask offers; a value the flow no longer has reads as its words, with what the ask says it means. An ask answered
+    // otherwise has none.
+    #[test]
+    fn an_ask_s_buttons_say_what_the_flow_says() {
+        let body = json!({ "cell": "P3", "choices": [["satisfied", "s"], ["no_change", "n"]] });
+        let got = ask_choices("architect", &body);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0], CHOICES[&("architect".to_string(), "P3".to_string())][0]);
+        assert_eq!((got[1].title.as_str(), got[1].desc.as_str()), ("No change", "n"));
+        assert!(ask_choices("architect", &json!({ "cell": "A3", "asked": [] })).is_empty());
     }
 
     // A place to set straight comes into the queue with the place as the check of what runs found it, and a design card

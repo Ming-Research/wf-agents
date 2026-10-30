@@ -636,6 +636,22 @@ case!(
     }
 );
 
+// An owner's cell that rules by buttons has one for each value of its ruling, in order, each saying what it does and
+// what happens next, so that the owner's page shows every value the cell takes, as the flow says it.
+case!(
+    an_owner_s_cell_with_a_button_for_no_value_of_its_ruling,
+    "an owner's cell's buttons are not the values of its ruling.choice, in order: P3",
+    |v| {
+        let read = v["flows"][1]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|n| n["id"] == "P3")
+            .unwrap();
+        read["choices"][1]["value"] = json!("study_more");
+    }
+);
+
 // Every cell a text names is a cell of its graph: a rename or a removal that leaves a text naming the cell as it was is
 // refused, saying where the text is and what it names.
 case!(

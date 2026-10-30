@@ -735,6 +735,8 @@ pub struct Node {
     pub about: Option<String>,
     /// A gate's two outcomes.
     pub outcomes: Option<Outcomes>,
+    /// An owner's cell that rules by buttons: one for each value of its `ruling.choice`, in order.
+    pub choices: Option<Vec<Choice>>,
     /// What the engine does at the cell besides what its step works out and its rows do, in order: at an end, how
     /// the work ends; elsewhere, before the step. Each is one of `engine.actions`.
     #[serde(rename = "do")]
@@ -777,6 +779,17 @@ pub const HOLDERS: [&str; 4] = ["advisor", "architect", "owner", "items"];
 
 /// The reasoning efforts an agent's cell may run at, as the command line names them.
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// A button an owner's cell rules by: the value of `ruling.choice` it hands back, what the button says it does, and
+/// what happens next, in one line under it. The owner's page shows them where the owner rules and on the cell's panel;
+/// no agent is sent them.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct Choice {
+    pub value: String,
+    pub title: String,
+    pub desc: String,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(deny_unknown_fields)]

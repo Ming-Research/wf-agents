@@ -12,7 +12,7 @@ use ts_rs::TS;
 use crate::check::Analysis;
 use crate::field::{Field, segment};
 use crate::format::{
-    Always, Atom, BlockerCell, Blockers, Check, Counter, Do, EngineNames, EnumText, Form, Handle, Kind, Named,
+    Always, Atom, BlockerCell, Blockers, Check, Choice, Counter, Do, EngineNames, EnumText, Form, Handle, Kind, Named,
     OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src,
 };
 use crate::graph::{Cell, CellKind, Graph, ensure};
@@ -223,6 +223,10 @@ pub struct CompiledCell {
     /// which it asks about.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub outcomes: Vec<String>,
+    /// An owner's cell that rules by buttons: one for each value of its `ruling.choice`, in order, saying what it does
+    /// and what happens next. No agent is sent these.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<Choice>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub checks: Vec<Check>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -982,6 +986,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             always: c.always.clone(),
             actions: c.actions.clone(),
             outcomes: c.outcomes.clone(),
+            choices: c.choices.clone(),
             checks: c.checks.clone(),
             handoff: c.handoff.clone(),
             shown: c.shown.clone(),

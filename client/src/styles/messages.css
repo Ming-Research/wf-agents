@@ -281,6 +281,22 @@
   gap: var(--base-size-4);
 }
 
+/* The choices a decision on a study or a text offers, side by side and wrapping where the bubble is narrow: each a
+   button that says what it does over the line that says what happens next. */
+.talk-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-8) var(--base-size-16);
+}
+
+.talk-choice {
+  display: grid;
+  flex: 1 1 0;
+  align-content: start;
+  justify-items: start;
+  gap: var(--base-size-4);
+}
+
 /* What answers a bubble, in it under what it says, a line of the box apart: the buttons of what an ask offers, the
    small box of the owner's words with Answer; once answered, the owner's answer, headed by what it answers. */
 .talk-answer {

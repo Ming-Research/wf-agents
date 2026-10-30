@@ -171,6 +171,7 @@ pub fn typescript() -> String {
         decl::<flow::format::Src>(&cfg),
         decl::<flow::RuleUse>(&cfg),
         decl::<flow::format::PromptBy>(&cfg),
+        decl::<flow::format::Choice>(&cfg),
         decl::<flow::format::Form>(&cfg),
         decl::<flow::CompiledRow>(&cfg),
         decl::<flow::format::Atom>(&cfg),

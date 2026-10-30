@@ -13421,6 +13421,23 @@
               "optional": true
             }
           ],
+          "choices": [
+            {
+              "value": "satisfied",
+              "title": "Satisfied: write the policy",
+              "desc": "The architect writes the policy's text from this study, and it comes back to you to approve."
+            },
+            {
+              "value": "study_on",
+              "title": "Study again",
+              "desc": "The architect studies the direction again, taking in what you said in the talk."
+            },
+            {
+              "value": "policy_stays",
+              "title": "Keep the policy in force",
+              "desc": "No new policy: the setting ends, and the architect goes on with the policy it has, or with no policy if it has none."
+            }
+          ],
           "cases": [
             {
               "name": "held",
@@ -14738,6 +14755,23 @@
                 }
               ],
               "optional": true
+            }
+          ],
+          "choices": [
+            {
+              "value": "approved",
+              "title": "Approve: it takes effect",
+              "desc": "This version becomes the policy in force, and the architect goes on under it."
+            },
+            {
+              "value": "fix_text",
+              "title": "Fix the wording",
+              "desc": "A fault of the text only: the architect corrects it, and new architects read it again, with no new study."
+            },
+            {
+              "value": "not_good_enough",
+              "title": "Not good enough: study again",
+              "desc": "The architect studies the direction again, taking in what you said in the talk."
             }
           ],
           "cases": [

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type {
   ArchitectWork,
+  Choice,
   CompiledGraph,
   FlowDiff,
   GraphView,
@@ -14,7 +15,6 @@ import {
   againstInOrder,
   architectState,
   cardWords,
-  choicesOf,
   holdWords,
   observationsShown,
   outcomes,
@@ -200,18 +200,16 @@ describe("the architect's page", () => {
   });
 
   it('sends a ruling by the choice alone', () => {
-    const body = { from: 'architect', kind: 'study', choices: [['satisfied', 'yes'], ['study_on', 'more'], ['no_change', 'no']] };
-    const choices = choicesOf(body);
-    expect(choices).toEqual([
-      ['satisfied', 'yes'],
-      ['study_on', 'more'],
-      ['no_change', 'no'],
-    ]);
+    const choices: Choice[] = [
+      { value: 'satisfied', title: 'Satisfied: write the policy', desc: 'yes' },
+      { value: 'study_on', title: 'Study again', desc: 'more' },
+      { value: 'no_change', title: 'Keep the policy in force', desc: 'no' },
+    ];
     expect(rulingAnswer(choices, 'satisfied')).toEqual({ choice: 'satisfied', text: '' });
     expect(rulingAnswer(choices, 'study_on')).toEqual({ choice: 'study_on', text: '' });
     expect(rulingAnswer(choices, null)).toBeNull();
     expect(rulingAnswer(choices, 'other')).toBeNull();
-    expect(choicesOf({ kind: 'study' })).toEqual([]);
+    expect(rulingAnswer([], 'satisfied')).toBeNull();
   });
 
   it('puts the articles broken first, then those at risk, then those kept', () => {

@@ -380,6 +380,10 @@ pub struct OwnerAsk {
     pub body: Value,
     /// The kind of each point it asks about, in order, with the kind's group.
     pub kinds: Vec<AskKind>,
+    /// The buttons the owner rules on it by (the study of a new policy, the policy to approve), one for each value it
+    /// offers, each saying what it does and what happens next as the flow built into this program says it for the cell
+    /// that put the ask; none for an ask answered otherwise.
+    pub choices: Vec<flow::format::Choice>,
     /// None while it waits.
     pub answer: Option<Value>,
     /// When the owner was told of it, from which it waits: the engine's notice of it, or else the start of the round

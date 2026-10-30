@@ -418,15 +418,29 @@ export function AgentReturns({ c }: { c: CompiledCell }) {
   );
 }
 
-/// What a step that is no agent's round comes to: where each of its rows leads, what it hands back, and what the
-/// engine does every time.
+/// What a step that is no agent's round comes to: the buttons the owner rules by, as the ask says them, where each of
+/// its rows leads, what it hands back, and what the engine does every time.
 export function StepReturns({ c }: { c: CompiledCell }) {
   const f = useFlow();
   const r = f.cellView(c.id)?.returns;
   const rows = c.rows.map((_, i) => i);
   const does = c.actions ?? [];
+  const buttons = c.choices ?? [];
   return (
     <>
+      {buttons.length > 0 ? (
+        <Part title={t('back_buttons')} facts={t('back_buttons_facts')}>
+          <Pairs
+            rows={buttons.map((b) => [
+              <Name key="n">{b.value}</Name>,
+              <span key="w">
+                {b.title}
+                <span className="pp-facts"> {b.desc}</span>
+              </span>,
+            ])}
+          />
+        </Part>
+      ) : null}
       <Part title={t('back_rows')}>{rows.length > 0 ? <Leads c={c} rows={rows} /> : <p className="pp-note">{t('leaves_none')}</p>}</Part>
       {r !== undefined && r.every.length > 0 ? (
         <Part title={t('back_fields')}>
