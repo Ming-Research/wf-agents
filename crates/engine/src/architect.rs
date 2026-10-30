@@ -2556,6 +2556,41 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 }
             }
         }
+        "queue_measures" => {
+            // Each number a signal of the policy being written needs that the engine does not measure yet: something
+            // missing, which its path makes an item of.
+            let (_, project) = architect_work_of(ctx)?;
+            for x in items(at) {
+                let measure = text(&x["measure"]).trim().to_string();
+                if measure.is_empty() {
+                    continue;
+                }
+                let fix = json!({
+                    "where": "The numbers the engine measures",
+                    "items": [],
+                    "works": [],
+                    "kind": "missing",
+                    "wrong": format!(
+                        "A signal of the policy being set needs a number the engine does not measure: {}",
+                        text(&x["signal"]).trim()
+                    ),
+                    "steps": [format!("Make an item that has the engine measure {measure}")],
+                });
+                let m = Matter {
+                    project: project.clone(),
+                    kind: "set_straight".into(),
+                    detail: Some("missing".into()),
+                    what: format!(
+                        "A new measure a signal of the policy needs: {}",
+                        db::one_sentence(&measure)
+                    ),
+                    body: json!({ "fix": fix, "measure": x }),
+                    item: None,
+                    raised: Some((ctx.round.work, ctx.round.n)),
+                };
+                queue_matter(tx, &m).map_err(sql)?;
+            }
+        }
         "hold_to_set_straight" => hold(tx, &architect_work_of(ctx)?.1, "set_straight", None)?,
         "release_straight_hold" => release(tx, &architect_work_of(ctx)?.1, "set_straight")?,
         "settle_straight_hold" => settle_hold(tx, w, &architect_work_of(ctx)?.1)?,
@@ -5066,9 +5101,18 @@ mod tests {
         let queued = json!({ "kind": "order", "where": "The parser  before the lexer", "items": [4, 5] });
         let again = json!({ "kind": "order", "where": "the parser before the lexer", "items": [] });
         assert!(same_place(&queued, &again));
-        assert!(same_place(&queued, &json!({ "kind": "order", "where": "Elsewhere", "items": [5, 4] })));
-        assert!(!same_place(&queued, &json!({ "kind": "split", "where": "The parser before the lexer" })));
-        assert!(!same_place(&queued, &json!({ "kind": "order", "where": "Elsewhere", "items": [4] })));
+        assert!(same_place(
+            &queued,
+            &json!({ "kind": "order", "where": "Elsewhere", "items": [5, 4] })
+        ));
+        assert!(!same_place(
+            &queued,
+            &json!({ "kind": "split", "where": "The parser before the lexer" })
+        ));
+        assert!(!same_place(
+            &queued,
+            &json!({ "kind": "order", "where": "Elsewhere", "items": [4] })
+        ));
         assert!(!same_place(
             &json!({ "kind": "missing", "where": "a", "items": [] }),
             &json!({ "kind": "missing", "where": "b", "items": [] })

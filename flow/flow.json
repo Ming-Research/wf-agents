@@ -1670,7 +1670,7 @@
                 "name": "how",
                 "title": "How it shows",
                 "type": "text",
-                "desc": "How it shows: a number the engine measures, named as the numbers name it (such as `merged` or `design_bytes`), and its line; or something that happens"
+                "desc": "How it shows: a number the engine measures, named as the numbers name it (such as `merged` or `design_bytes`), and its line; or something that happens; a number the engine does not measure yet is written as needs a new measure, saying which"
               }
             ]
           },
@@ -3097,7 +3097,8 @@
       "withdraw_matters": "Withdraws from the architect's queue what the work raised and still waits on it: its questions, its failures and its design cards, saying why.",
       "take_words": "Marks as handled by this round the owner's words to the architect in the one-to-one that came before the round started, which it was given as the next words of its talk; the matter in hand stays open.",
       "reply_to_owner": "Puts the reply in the owner's one-to-one with the architect, with what it will do if the owner ends the talk there, as the architect's message, and notifies the owner.",
-      "hold_talk": "Holds the talk out of the queue, waiting for the owner's reply: the owner's next words to the architect, or Done, make it due again, first, back to its talk."
+      "hold_talk": "Holds the talk out of the queue, waiting for the owner's reply: the owner's next words to the architect, or Done, make it due again, first, back to its talk.",
+      "queue_measures": "Queues each new measure the signals of the policy being written need as a matter of the kind set_straight, something missing, whose path makes an item that has the engine measure it."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -3722,6 +3723,9 @@
         "owner_messages"
       ],
       "hold_talk": [
+        "architect_queue"
+      ],
+      "queue_measures": [
         "architect_queue"
       ]
     },
@@ -13487,11 +13491,21 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Numbers the engine measures",
+              "what": "The numbers the engine measures for the project, each now and earlier, by the names a signal names them; a signal uses only these, or something that happens",
+              "from": [
+                {
+                  "engine": "numbers"
+                }
+              ]
             }
           ],
           "prompt": [
             "The owner is satisfied. This round writes the policy's text, then sets the probes. Write the text in the owner's language (the setting `owner.language`), with technical terms in their English original. Every architect session started later gets only this text and the constitution: it does not see the study or the discussion, cannot ask the owner, and must judge by it, so the text must stand on its own. Quote none of the owner's words, and write none of the discussion.",
             "The text has four parts: the direction, where to take the project in the near-to-middle term and how to tell it got there; why, written fully: the situation, the lessons, the directions ruled out and the articles of the constitution it rests on, so that a reader meeting a situation never seen can still work it out; the principles for judging what matters and what comes first, from which what to do next is thought out; and the signals that the direction may have to change. It names no item, no order of work, no hold or release, and no number the owner did not give: those are what to do next, which the architect thinks out under the policy.",
+            "A signal shows by a number the engine measures, given here and named as it names it, or by something that happens. A signal that needs a number the engine does not measure yet says so, needs a new measure, and you hand that measure in under new_measures: the engine queues it as a matter of yours, to have an item make the engine measure it.",
             "The probes test whether a new architect understood the direction, and are not written into the text: each gives a situation written out in full and asks which way the policy leans and why, picking cases on the edge, where two principles or two articles of the constitution meet, or where reading the words literally judges wrong. For each probe, write the answer you hold right. Every principle has at least one probe."
           ],
           "out": [
@@ -13500,6 +13514,29 @@
             },
             {
               "$ref": "policy_probes"
+            },
+            {
+              "name": "new_measures",
+              "title": "New measures the signals need",
+              "type": "list",
+              "desc": "Each number a signal needs that the engine does not measure yet, one per row; an empty list when every signal shows by a number it measures or by something that happens",
+              "item": {
+                "type": "obj",
+                "fields": [
+                  {
+                    "name": "measure",
+                    "title": "Measure",
+                    "type": "text",
+                    "desc": "What the engine would measure, and how"
+                  },
+                  {
+                    "name": "signal",
+                    "title": "Signal",
+                    "type": "text",
+                    "desc": "Which signal needs it, and the line it would show by"
+                  }
+                ]
+              }
             }
           ],
           "cases": [
@@ -13511,7 +13548,13 @@
                 ]
               ],
               "to": "P5",
-              "main": true
+              "main": true,
+              "do": [
+                {
+                  "at": "new_measures",
+                  "do": "queue_measures"
+                }
+              ]
             }
           ],
           "checks": [
