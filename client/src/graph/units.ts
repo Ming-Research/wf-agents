@@ -192,7 +192,8 @@ export function layUnit(
 
   // The rules, then the interjection, on the left, their right edges in line and each line level into the cell where
   // its middle is beside the cell, below the tag beside the cell's top left corner where they all fit there too; under
-  // them the stores it reads or writes, each line into the cell for a read and out to the store for a write.
+  // them the stores it reads or writes, their lines into the cell's edge below the rules, a read's into the cell and a
+  // write's out to the store, its first piece long enough for a head at the store.
   // A stack on the left, its things' middles: under the tag beside the cell's top left corner where they all fit
   // beside the cell, else round the cell's middle; or, `from` set, from there down.
   const stack = (things: ChartNode[], from: number | null, gap = STACK) => {
@@ -210,31 +211,37 @@ export function layUnit(
     const beside = (cs: number[]) => cs.every((c) => c >= 6 && c <= H - 6);
     return centres(beside(centres(UNDER_TAG)) ? Math.max(UNDER_TAG, (H - tall) / 2) : (H - tall) / 2);
   };
-  // Lays a stack out `gap` left of the cell, its lines into the cell's left edge at `land`, a store's line turned round
-  // for a write.
+  // Lays a stack out left of the cell, as far as its lines need, each line into the cell's left edge at `land`, a
+  // store's turned round for a write.
   const place = (things: ChartNode[], at: number[], land: number[], first: number) => {
     const gap = Math.max(LEFT, band(at, land, first, INTO_CELL - 6));
     const lines = bundle(at, land, -gap, 0, INTO_CELL - 6);
     things.forEach((n, i) => {
       const s = size(n.id);
       boxes.set(n.id, { x: -gap - s.width, y: at[i] - s.height / 2, width: s.width, height: s.height });
-      for (const e of links.filter((x) => x.source === n.id || x.target === n.id)) {
+      for (const e of links.filter((l) => l.source === n.id || l.target === n.id)) {
         const ps = points(lines[i], false);
         route(e, e.source === n.id ? ps : [...ps].reverse(), null);
       }
     });
   };
   const rules = [...of('rule'), ...of('interjection')];
-  const ruleAt = stack(rules, null);
+  const stores = of('store');
+  let ruleAt = stack(rules, null);
+  const bottomOf = (at: number[]) => Math.max(...rules.map((n, i) => at[i] + size(n.id).height / 2));
+  // With stores under them, the rules end no lower than the cell's middle, so that the stores' lines come into the
+  // cell's edge below the rules and every line runs clear of every box.
+  if (rules.length > 0 && stores.length > 0) {
+    const lift = bottomOf(ruleAt) - (H / 2 - 2);
+    if (lift > 0) ruleAt = ruleAt.map((c) => c - lift);
+  }
   const ruleLand = landings(ruleAt, 6, H - 6, STEP);
   place(rules, ruleAt, ruleLand, 6);
-  // The stores under them, or where they would be, their lines meeting the cell's edge under the rules' lines, with a
-  // first piece long enough for a head at the store.
-  const stores = of('store');
   if (stores.length > 0) {
-    const lowest = rules.length > 0 ? Math.max(...rules.map((n) => (boxes.get(n.id)?.y ?? 0) + size(n.id).height)) : null;
-    const storeAt = stack(stores, lowest !== null ? lowest + STACK : null, CHIPS);
-    const storeLand = landings(storeAt, ruleLand.length > 0 ? ruleLand[ruleLand.length - 1] + STEP : 6, H - 6, STEP);
+    const under = rules.length > 0 ? bottomOf(ruleAt) : null;
+    const storeAt = stack(stores, under !== null ? under + STACK : null, CHIPS);
+    const from = under !== null ? Math.max(under + 3, ruleLand[ruleLand.length - 1] + STEP) : 6;
+    const storeLand = landings(storeAt, from, H - 6, STEP);
     place(stores, storeAt, storeLand, stores.some((n) => n.use !== 'read') ? OUT_OF : 6);
   }
 

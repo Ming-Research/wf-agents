@@ -278,6 +278,61 @@ describe('the flow as the engine stores it', () => {
     expect(Object.keys(MOST).every((name) => graphs.some(({ g }) => g.name === name))).toBe(true);
   }, 30_000);
 
+  it("runs the line of every rule, interjection and store beside a cell past no node but its two ends", async () => {
+    // Whether the straight piece from `a` to `b` passes through the inside of a box, a pixel in from its edges.
+    const through = (a: { x: number; y: number }, b: { x: number; y: number }, box: Box) => {
+      const x0 = box.x + 1;
+      const y0 = box.y + 1;
+      const x1 = box.x + box.width - 1;
+      const y1 = box.y + box.height - 1;
+      let t0 = 0;
+      let t1 = 1;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      for (const [p, q] of [
+        [-dx, a.x - x0],
+        [dx, x1 - a.x],
+        [-dy, a.y - y0],
+        [dy, y1 - a.y],
+      ]) {
+        if (p === 0) {
+          if (q < 0) return false;
+        } else {
+          const r = q / p;
+          if (p < 0) t0 = Math.max(t0, r);
+          else t1 = Math.min(t1, r);
+        }
+      }
+      return t0 < t1;
+    };
+    let lines = 0;
+    for (const { g, v } of graphs) {
+      const c = chart(g, v, engine);
+      const measured = sizes(g, c, engine);
+      const edges = new Map(c.edges.map((e) => [e.id, e]));
+      const laid = await layoutChart(
+        c,
+        (id) => measured.size.get(id) ?? { width: 40, height: 40 },
+        (id) => {
+          const e = edges.get(id);
+          return e ? labelSize(e) : null;
+        },
+      );
+      for (const e of c.edges) {
+        if (e.kind !== 'store' && e.kind !== 'rule' && e.kind !== 'interjection') continue;
+        const ps = laid.edges.get(e.id)?.points ?? [];
+        lines += 1;
+        for (const [n, box] of laid.nodes) {
+          if (n === e.source || n === e.target) continue;
+          for (let i = 0; i + 1 < ps.length; i++) {
+            expect(through(ps[i], ps[i + 1], box), `${g.name}: ${e.id} through ${n}`).toBe(false);
+          }
+        }
+      }
+    }
+    expect(lines).toBeGreaterThan(0);
+  }, 30_000);
+
   it("puts each row's label near where its arrow leaves the cell, clear of every node and of every other label", async () => {
     for (const { g, v } of graphs) {
       const c = chart(g, v, engine);

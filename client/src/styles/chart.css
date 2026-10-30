@@ -517,10 +517,9 @@ svg.fc {
   stroke-width: var(--chart-line-rule);
 }
 
-/* The rows a work took: their dashes flow the way the work went, at their own width. */
+/* The rows a work took: their dashes flow the way the work went, as thin as any arrow. */
 .fc-edge-taken {
   stroke: var(--fc-taken);
-  stroke-width: var(--chart-line-taken);
   stroke-dasharray: var(--chart-dash-flow);
   animation: fc-flow var(--chart-flow-time) linear infinite;
 }
