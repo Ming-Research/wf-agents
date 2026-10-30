@@ -351,7 +351,7 @@ function newSession(r: RoundSummary): string | null {
   }
 }
 
-/// Who did the round's work, in a few words: for an agent its line, model, level and effort, and whether it went on in
+/// Who did the round's work, in a few words: for an agent its line, model, tier and effort, and whether it went on in
 /// its session or started one and why; else the tools, the engine's step or the owner.
 function ranWords(d: RoundDetail, cell: CompiledCell | undefined): string {
   const r = d.round;
@@ -361,7 +361,7 @@ function ranWords(d: RoundDetail, cell: CompiledCell | undefined): string {
     return joinedWords([
       r.line,
       r.model !== null ? modelName(r.model) : null,
-      d.level !== null ? t('run_level', { level: d.level }) : null,
+      d.level !== null ? t('run_tier', { tier: d.level }) : null,
       d.effort !== null ? t('run_effort', { effort: d.effort }) : null,
       newSession(r) ?? ('started' in session ? t('run_started') : 'resumed' in session ? t('run_continued') : null),
       r.compactions > 0 ? t('run_compacted') : null,

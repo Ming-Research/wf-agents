@@ -432,7 +432,7 @@ function Head({ d }: { d: ItemDetail }) {
   const changes = d.level_changes.map((c) => t('tier_changed', { from: c.from, to: c.to, by: c.by, at: time(c.at) }));
   const facts = factsAfter([
     i.project,
-    <span title={changes.length > 0 ? changes.join('\n') : undefined}>{t('item_tier', { level: i.level })}</span>,
+    <span title={changes.length > 0 ? changes.join('\n') : undefined}>{t('item_tier', { tier: i.level })}</span>,
     <span className="item-head-pair">
       <ItemBadge state={i.state} />
       {i.blocked_by.length > 0 ? (

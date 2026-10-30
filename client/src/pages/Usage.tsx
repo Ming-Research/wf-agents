@@ -1,6 +1,6 @@
 // The usage tab, a work's and an architect's alike, as the owner's approved mock drew it from work 9: tiles of the cost,
 // time, rounds, tokens and compactions; where the time went, as one stacked bar and as a timeline of the wall time with
-// a block per round; the models, each at the level and effort it ran at; where the cost went, by kind of token and by
+// a block per round; the models, each at the tier and effort it ran at; where the cost went, by kind of token and by
 // cell; the sessions, each with why it started and its context after each round; the keep-warm pings sent to them
 // while the work waited; and how long each tool ran. An architect's counts the rounds of its works over the span of
 // time the owner picks, as one. Every mark says what it is on hovering; labels are in HTML so that they keep their size
@@ -344,7 +344,7 @@ export function Usage({ works, cells, since = null }: { works: WorkDetail[]; cel
                 <td>
                   {modelName(m.model)}
                   <div className="us-sub">
-                    {m.level !== null ? t('us_level', { level: m.level }) : t('us_level_unrecorded')}
+                    {m.level !== null ? t('us_tier', { tier: m.level }) : t('us_tier_unrecorded')}
                     {m.effort !== null ? `${SEP}${t('us_effort', { effort: m.effort })}` : ''}
                   </div>
                 </td>

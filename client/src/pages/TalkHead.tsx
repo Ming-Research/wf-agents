@@ -51,7 +51,7 @@ function Tier({ item, level }: { item: number; level: string }) {
   const options = allowed.includes(level) ? allowed : [...allowed, level];
   return (
     <span className="talk-head-tier">
-      <label htmlFor={`tier-${item}`}>{t('col_level')}</label>
+      <label htmlFor={`tier-${item}`}>{t('col_tier')}</label>
       <Select
         id={`tier-${item}`}
         size="small"
