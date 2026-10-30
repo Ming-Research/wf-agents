@@ -543,15 +543,16 @@ pub fn anomalies(data: &Path) -> Result<String, String> {
 pub fn cost(data: &Path, work: Option<i64>) -> Result<String, String> {
     match work {
         Some(w) => {
-            let mut out = show(
-                data,
+            let db = open(data)?;
+            let cells = query_json_counted(
+                db.conn(),
                 "SELECT cell, count(*) AS rounds, sum(ended_at - started_at) / 1000 AS secs,
                         round(sum(coalesce(json_extract(usage, '$.cost_usd'), 0)), 2) AS cost_usd
                  FROM rounds WHERE work = ?1 GROUP BY cell ORDER BY min(n)",
                 &[&w],
-                40,
+                TABLE_ROWS,
             )?;
-            let db = open(data)?;
+            let mut out = table_body(&cells.rows, 40);
             let (pings, cost): (i64, f64) = db
                 .conn()
                 .query_row(
@@ -564,6 +565,8 @@ pub fn cost(data: &Path, work: Option<i64>) -> Result<String, String> {
             if pings > 0 {
                 out.push_str(&format!("keep-warm pings\t{pings}\t\t{cost:.2}\n"));
             }
+            // The pings row is no row of the table either, and what the table leaves out is said last of all.
+            out.push_str(&left_out_line(cells.left_out, cells.rows.len()));
             Ok(out)
         }
         None => show(

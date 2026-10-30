@@ -521,3 +521,40 @@ fn the_tables_of_anomalies_say_how_many_rows_each_leaves_out() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// Both tables of `cost` say what they leave out, and the line is the last of the output: of every work's, which has
+// three works more than the limit, and of one work's by cell, which has two cells more and, after its table, the row
+// of its keep-warm pings that comes before the line. Work 1 has a round at each of 10,002 cells, a ping, and a
+// round of 2 s for 0.25 at its first cell; every other work has that one round.
+#[test]
+fn the_tables_of_cost_say_how_many_rows_each_leaves_out() {
+    let dir = empty_database("cost-row-limit");
+    fill(
+        &dir,
+        "INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10003)
+             INSERT INTO works (id, flow_version, graph, at) SELECT i, 1, 'engineer', 'I1' FROM n;
+         INSERT INTO rounds (work, n, cell, input, config_commit, usage, started_at, ended_at)
+             SELECT id, 1, 'I1', '{}', 'c', '{\"cost_usd\": 0.25}', 0, 2000 FROM works;
+         WITH RECURSIVE n(i) AS (SELECT 2 UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
+             INSERT INTO rounds (work, n, cell, input, config_commit, started_at, ended_at)
+             SELECT 1, i, 'C' || i, '{}', 'c', 0, 1000 FROM n;
+         INSERT INTO sessions (id, work, line, cli, cli_session) VALUES (1, 1, 'engineer', 'claude', 's1');
+         INSERT INTO pings (session, waited, usage, started_at) VALUES (1, '{}', '{\"cost_usd\": 0.5}', 70000);",
+    );
+    let text = printed(&dir, "cost");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 10_002, "a head, 10,000 works and the last line");
+    assert_eq!(lines[0], "work\trounds\tsecs\tcost_usd");
+    assert_eq!(lines[10_000], "10000\t1\t2\t0.25");
+    assert_eq!(lines[10_001], "(3 rows left out after the first 10000)");
+    let text = printed(&dir, "cost 1");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 10_003, "a head, 10,000 cells, the pings and the last line");
+    assert_eq!(lines[0], "cell\trounds\tsecs\tcost_usd");
+    assert_eq!(lines[1], "I1\t1\t2\t0.25");
+    assert!(lines[10_000].starts_with("C10000\t"), "{}", lines[10_000]);
+    assert_eq!(lines[10_001], "keep-warm pings\t1\t\t0.50");
+    assert_eq!(lines[10_002], "(2 rows left out after the first 10000)");
+    let _ = std::fs::remove_dir_all(&dir);
+}
