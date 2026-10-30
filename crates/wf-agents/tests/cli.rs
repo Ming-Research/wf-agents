@@ -552,6 +552,7 @@ fn cost_total_adds_awkward_rows_as_the_rows_show_them() {
         "work\trounds\tsecs\tcost_usd\n2\t2\t4\t0.8\n9\t1\t0\t0.0\n10\t1\t1\t0.5\n12\t1\t1\t0.25\ntotal\t5\t6\t1.55\n"
     );
     let _ = std::fs::remove_dir_all(&dir);
+    assert_a_tie_total_rounds_as_a_row_does();
 }
 
 // At the edge of the table: exactly as many works as it lists (10,000) has every work and the total after them, with
@@ -580,8 +581,7 @@ fn cost_total_follows_exactly_the_rows_the_table_has_room_for() {
 // A total that falls on a tie is rounded as a work's cost is: two works of 0.0625 each add to 0.125 (exact in binary,
 // a tie at two decimals), and the total shows what the one work of 0.125 shows in its row, whichever way SQLite breaks
 // the tie; so the sum is rounded once by the same function as the rows, not by another rule.
-#[test]
-fn cost_total_on_a_tie_rounds_as_a_row_does() {
+fn assert_a_tie_total_rounds_as_a_row_does() {
     let last_column = |text: &str, first: &str| -> String {
         let line = text
             .lines()
