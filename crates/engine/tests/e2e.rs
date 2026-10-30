@@ -3567,8 +3567,11 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// What a script hands in: the branches it picks and the values it sets, by their paths.
+type Hands = (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>);
+
 /// What a scripted architect's cell hands in to ask the owner a question.
-fn asks_the_owner(question: &str) -> (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>) {
+fn asks_the_owner(question: &str) -> Hands {
     (
         vec![("outcome", "ask"), ("outcome.ask", "owner")],
         vec![("outcome.ask.question", json!(question))],
@@ -5047,7 +5050,6 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
 #[test]
 fn the_architect_runs_at_the_level_the_installation_names() {
     let s = setup("architect-level");
-    no_reply_wait(&s);
     let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
     let levels = "[agents.levels.2]\ndesc = \"testing\"\ncli = \"claude\"\nmodel = \"m-two\"\n\
                   [agents.levels.4]\ndesc = \"running\"\ncli = \"claude\"\nmodel = \"m-four\"\n\
