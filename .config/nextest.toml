@@ -1,0 +1,6 @@
+# How cargo-nextest runs the tests. CI runs them with the profile ci (.github/workflows/ci.yml).
+
+[profile.ci]
+# A test still running after 60 s is stopped and fails under its own name, instead of holding the job until its time
+# limit: no test needs that long. Nextest says at 30 s which tests are getting slow.
+slow-timeout = { period = "30s", terminate-after = 2 }

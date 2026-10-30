@@ -16,3 +16,14 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# The profile CI builds the tests with (`cargo nextest run --cargo-profile ci`); no local build uses it. The
+# dependencies are optimized, because unoptimized they run the tests many times slower (SQLite, built from source,
+# above all), and CI's cache keeps them built; the workspace's own crates are built as for any test, since they are
+# rebuilt on every push. Line tables are enough for a failing test's backtrace.
+[profile.ci]
+inherits = "test"
+debug = "line-tables-only"
+
+[profile.ci.package."*"]
+opt-level = 3

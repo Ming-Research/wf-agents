@@ -15,10 +15,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/first-version' }}
 
+# The Rust tests take most of the time, so they run split across three jobs, beside a job for everything else; the
+# job `check` is red whenever any of them is, which is the check the projects' configuration waits for to merge.
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -62,8 +64,6 @@ jobs:
         run: npm run build
       - name: Lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Test
-        run: cargo test --workspace --locked
       - name: The page's types are current
         run: git diff --exit-code -- client/src/api.ts
       # What the Rust types generate, to commit when the step before fails.
@@ -73,3 +73,52 @@ jobs:
           name: page-types
           path: client/src/api.ts
           if-no-files-found: ignore
+
+  test:
+    name: test ${{ matrix.shard }} of 3
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-nextest@0.9.146
+      # The three jobs build the same, so one of them keeps the cache.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ matrix.shard == 1 }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      # Before any cargo step that compiles the crate the page is built into.
+      - name: Build the page
+        working-directory: client
+        run: |
+          npm ci
+          npm run build
+      # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test
+      # at 60 s; each job runs a third of every test binary's tests.
+      - name: Test
+        run: cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition count:${{ matrix.shard }}/3
+
+  check:
+    needs: [lint, test]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Every other job passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "lint and test: $RESULTS"
+          for r in $RESULTS; do [ "$r" = success ] || exit 1; done
