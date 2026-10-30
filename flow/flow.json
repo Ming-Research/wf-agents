@@ -3159,7 +3159,8 @@
       "group_talk": "What was said in the groups of the project's works since the architect last read it, at its last pick or wrap-up, other than to it: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item.",
       "talk": "The talk with the owner the matter picked is: the owner's words that started it, with where they were said, then each of the owner's words to the architect in the one-to-one and each of the architect's replies, in order; and whether the owner ended it.",
       "setting_waits": "While the setting of a new policy waits for the owner at its study (`P3`) or its approval (`P11`): the study, or the text with the probes, every reading and the gaps left open.",
-      "setting_talk": "The talks with the owner held while the setting of the policy being set waited for the owner, since it last went to the owner, or since it started when it never did: each the owner's words, the architect's replies and what it came to."
+      "setting_talk": "The talks with the owner held while the setting of the policy being set waited for the owner, since it last went to the owner, or since it started when it never did: each the owner's words, the architect's replies and what it came to.",
+      "open_gaps": "The gaps of the text of the policy being set that the readings of its version left open: each reading's, those that passed included, as the judgment of it found them."
     },
     "values": {
       "came_by": "How the work came to choose the way on.",
@@ -3285,7 +3286,8 @@
           "policy_stays",
           "draft_text",
           "draft_probes",
-          "setting_waits"
+          "setting_waits",
+          "open_gaps"
         ]
       },
       "state_of_things": {
@@ -14404,10 +14406,20 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Gaps left open",
+              "what": "The gaps of this version's text that its readings left open, every reading's, those that passed included, each as the judgment of the reading found them; none when they left none",
+              "from": [
+                {
+                  "engine": "open_gaps"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
-            "This round asks of the draft, as if it were in force, the question whether the policy is right: would it need setting again at once? Look for the kinds `kind` lists, a situation queued or running included, and a draft that oversteps what a policy governs; the engine measures no signal of a draft. If you see any, hand in needs_setting_again: you correct the text, and it is read afresh. Most of the time there is none: say in one sentence why it holds."
+            "This round asks of the draft, as if it were in force, the question whether the policy is right: would it need setting again at once? Look for the kinds `kind` lists, a situation queued or running included, a gap the readings left open, and a draft that oversteps what a policy governs; the engine measures no signal of a draft. If you see any, hand in needs_setting_again: you correct the text, and it is read afresh. Most of the time there is none: say in one sentence why it holds."
           ],
           "out": [
             {
@@ -14537,12 +14549,11 @@
             },
             {
               "name": "Gaps left open",
-              "what": "The gaps the readings left open: what the last reading's judgment found, once the text had been corrected three times; none otherwise",
+              "what": "The gaps of this version's text that its readings left open, every reading's, those that passed included, each as the judgment of the reading found them; none when they left none",
               "from": [
-                [
-                  "P7",
-                  "verdict[gaps]"
-                ]
+                {
+                  "engine": "open_gaps"
+                }
               ],
               "maybe": true
             }

@@ -35,7 +35,7 @@ pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives,
 /// and those of the policy being set, which [`draft_places`] names the places of.
-pub const INPUTS: [&str; 27] = [
+pub const INPUTS: [&str; 28] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -63,6 +63,7 @@ pub const INPUTS: [&str; 27] = [
     "talk",
     "setting_waits",
     "setting_talk",
+    "open_gaps",
 ];
 
 /// The input that gives what the cell before this one on the matter's path answered of it, as that round's return:
@@ -1581,21 +1582,44 @@ fn setting_waits(e: &Engine, project: &str) -> Result<Option<Value>, String> {
     };
     Ok(match body["kind"].as_str() {
         Some("study") => Some(json!({ "waits_for": "the owner reads the study", "study": body["study"] })),
-        Some("policy_approval") => {
-            let gaps: Vec<Value> = items(body.get("readings"))
-                .iter()
-                .flat_map(|r| items(r["verdict"].get("gaps")))
-                .collect();
-            Some(json!({
-                "waits_for": "the owner approves the text",
-                "policy": body["policy"],
-                "probes": body["probes"],
-                "readings": body["readings"],
-                "gaps_left_open": gaps,
-            }))
-        }
+        Some("policy_approval") => Some(json!({
+            "waits_for": "the owner approves the text",
+            "policy": body["policy"],
+            "probes": body["probes"],
+            "readings": body["readings"],
+            "gaps_left_open": gaps_of(&items(body.get("readings"))),
+        })),
         _ => None,
     })
+}
+
+/// The gaps of a version's text its readings left open, each reading's, those that passed included, as the judgment of
+/// it found them: by the reading, its round and its verdict.
+fn gaps_of(readings: &[Value]) -> Vec<Value> {
+    readings
+        .iter()
+        .enumerate()
+        .filter_map(|(i, r)| {
+            let gaps = items(r["verdict"].get("gaps"));
+            (!gaps.is_empty()).then(|| {
+                json!({
+                    "reading": i + 1,
+                    "round": format!("R{}-{}", r["work"], r["round"]),
+                    "verdict": r["verdict"]["verdict"],
+                    "gaps": gaps,
+                })
+            })
+        })
+        .collect()
+}
+
+/// The gaps of the text of the policy being set, the setting's matter `m`, that every reading of its version left open,
+/// those that passed included; none when they left none.
+fn open_gaps(conn: &Connection, m: i64) -> Result<Option<Value>, String> {
+    let rows = query_json(conn, "SELECT readings FROM policy_trials WHERE matter = ?1", &[&m], 1)?;
+    let readings = rows.first().map(|r| items(r.get("readings"))).unwrap_or_default();
+    let gaps = gaps_of(&readings);
+    Ok((!gaps.is_empty()).then_some(Value::Array(gaps)))
 }
 
 /// The talks with the owner held while the setting of a new policy the work has in hand waited for the owner: since
@@ -3623,6 +3647,10 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "talk" => talk(e, w, project),
         "setting_waits" => setting_waits(e, project),
         "setting_talk" => setting_talk(e, w, project),
+        "open_gaps" => match setting_of(e.db.conn(), w.id)? {
+            Some(m) => open_gaps(e.db.conn(), m),
+            None => Ok(None),
+        },
         other => Err(format!("no such engine input: {other}")),
     }
 }
