@@ -692,7 +692,14 @@ fn activity_of_value(v: &Value) -> Option<String> {
 /// and `search` leave out, so that a return of the architect's `B4` without it, which a trial's engine sent back, is
 /// refused by the command line); and it takes no field beyond those it lists when none of its alternatives does, the
 /// field of the forms included, so that a field written inside the form it does not belong to is refused, and a field
-/// every return holds written inside the field of the forms is too. The command line
+/// every return holds written inside the field of the forms is too. Each form that has a field no other form of the
+/// graph has is told apart by it, and then requires what that form requires and takes no field it does not take
+/// ([`told_apart`]), so that a return of a cell's own answer without a field the answer requires is refused naming it,
+/// as `why` of the engineer's `D2`, which no other form has and which the shape of every form taken together cannot
+/// require. A form all of whose fields other forms have too, such as the engineer's `I1`, whose fields `T6`'s form has
+/// as well, `T5`, whose `columns` `T4`'s has, or the architect's `U1`, whose `notebook` most of its forms have, is told
+/// apart by no field of its own and is checked by the shape of every form taken together alone: which form a return of
+/// it is cannot be told from its fields, and a rule read from the fields it lacks would be a guess. The command line
 /// refuses such a return saying where and why, and the model hands it in again within the run, one more call that
 /// rewrites the return, where the engine would send it back and run the round again: in a trial one round handed in no
 /// `tell_owner`, and another wrote `effects` inside `take` instead of beside it. When the command line gives up after
@@ -740,6 +747,10 @@ pub fn envelope(g: &flow::CompiledGraph) -> Value {
         if let Some(v) = forms.as_ref().and_then(|f| f.get(k)) {
             within.insert(k.into(), v.clone());
         }
+    }
+    let rules = told_apart(&forms_of(&schemas, &g.within));
+    if !rules.is_empty() {
+        within.insert("allOf".into(), Value::Array(rules));
     }
     props.insert(g.within.clone(), Value::Object(within));
     let required: Vec<String> = props
@@ -803,6 +814,76 @@ fn unless_left_out(within: &str, groups: &[(Vec<String>, Vec<String>)]) -> Optio
     }
     rule.insert("then".into(), then);
     Some(rule)
+}
+
+/// Every form of the agents' cells of a graph, each as its [`shape`], in the order the cells give them: each of the
+/// alternatives of a cell's field of the forms, those with the same fields taken together as one ([`merged`]), as the
+/// `tools` of cells that may run different tools.
+fn forms_of(schemas: &[&Value], within: &str) -> Vec<Value> {
+    let mut out: Vec<(Vec<String>, Value)> = Vec::new();
+    for s in schemas.iter().filter_map(|s| s.get("properties")?.get(within)) {
+        let alts: Vec<&Value> = match ["anyOf", "oneOf"].iter().find_map(|k| s.get(*k)?.as_array()) {
+            Some(xs) => xs.iter().collect(),
+            None => vec![s],
+        };
+        for a in alts {
+            let form = shape(a);
+            let mut fields = fields_of(&form);
+            fields.sort();
+            match out.iter_mut().find(|(f, _)| *f == fields) {
+                Some((_, x)) => *x = merged(x, &form),
+                None => out.push((fields, form)),
+            }
+        }
+    }
+    out.into_iter().map(|(_, f)| f).collect()
+}
+
+/// The fields a shape lists, in its order.
+fn fields_of(s: &Value) -> Vec<String> {
+    s.get("properties")
+        .and_then(Value::as_object)
+        .map(|p| p.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// For each form with a field no other form has, the rule that a value of the field of the forms holding one of those
+/// fields is that form: an `if` that it does, and a `then` with the fields the form requires and, when it takes no
+/// other, the fields it takes; in an `allOf` inside the field of the forms, where the API takes it. The command line
+/// refuses a return of that form without a field it requires naming the field ("/outcome: must have required property
+/// 'why', /outcome: must match \"then\" schema", as tried with 2.1.312), where an `anyOf` of the forms is refused with
+/// the faults of every form (some 150 for a return of `D2` without `why` in the engineer's graph). A form all of whose
+/// fields another form has too has no rule. An object a keyword reads says it is one, as in [`unless_left_out`].
+fn told_apart(forms: &[Value]) -> Vec<Value> {
+    let fields: Vec<Vec<String>> = forms.iter().map(fields_of).collect();
+    let mut rules = Vec::new();
+    for (i, form) in forms.iter().enumerate() {
+        let own: Vec<&String> = fields[i]
+            .iter()
+            .filter(|k| fields.iter().enumerate().all(|(j, o)| j == i || !o.contains(k)))
+            .collect();
+        let has = |k: &&String| json!({ "type": "object", "required": [k] });
+        let when = match own.as_slice() {
+            [] => continue,
+            [one] => has(one),
+            _ => json!({ "type": "object", "anyOf": own.iter().map(has).collect::<Vec<_>>() }),
+        };
+        let mut then = serde_json::Map::new();
+        then.insert("type".into(), json!("object"));
+        let required = required_of(form);
+        if !required.is_empty() {
+            then.insert("required".into(), json!(required));
+        }
+        if closed(form) {
+            let taken: serde_json::Map<String, Value> = fields[i].iter().map(|k| (k.clone(), json!({}))).collect();
+            then.insert("properties".into(), Value::Object(taken));
+            then.insert("additionalProperties".into(), json!(false));
+        }
+        if then.len() > 1 {
+            rules.push(json!({ "if": when, "then": then }));
+        }
+    }
+    rules
 }
 
 /// The shape of a part of a cell's schema: the type of each value, each object with all its fields, those it requires
@@ -1380,13 +1461,18 @@ mod tests {
 
     /// Where a return does not fit the envelope, as the command line checks it and in its words: a value of a type the
     /// schema does not name, a field required and missing, or a field its object takes no more of, and what the `then`
-    /// or the `else` of an `if` requires; none when it fits. A value fits `not` when it does not fit what it holds, and
-    /// `anyOf` when it fits one of them.
+    /// or the `else` of an `if` requires; none when it fits. A value fits `not` when it does not fit what it holds,
+    /// `anyOf` when it fits one of them, and `allOf` when it fits each.
     fn refused(s: &Value, x: &Value, at: &str) -> Option<String> {
         let here = if at.is_empty() { "root" } else { at };
         if let Some(c) = s.get("if") {
             let branch = if refused(c, x, at).is_none() { "then" } else { "else" };
             if let Some(why) = s.get(branch).and_then(|b| refused(b, x, at)) {
+                return Some(why);
+            }
+        }
+        for each in s.get("allOf").and_then(Value::as_array).into_iter().flatten() {
+            if let Some(why) = refused(each, x, at) {
                 return Some(why);
             }
         }
@@ -1552,6 +1638,107 @@ mod tests {
                 .filter(|c| c.kind == "agent" && c.forms.iter().any(|x| x.field.as_deref() == Some("tools")))
                 .any(|c| flow::valid(c.schema.as_ref().unwrap(), &tools));
             assert!(takes, "graph {}: no cell takes {tools}", g.name);
+        }
+    }
+
+    // In the engineer's trial a return of cell D2 handed in its answer without `why`, which the answer requires and no
+    // other form of the graph has, and the engine sent it back, which cost a round (R18-6, $0.34): the shape of every
+    // form taken together could not require it. A form with a field of its own is now told apart by it, and the command
+    // line refuses such a return naming the missing field, as the installed one did when tried (2.1.312: "/outcome: must
+    // have required property 'why', /outcome: must match \"then\" schema"). So D2's answer without `why` is refused
+    // naming it, with it passes the envelope and the cell's schema, and beside a field of another form it is refused.
+    #[test]
+    fn a_cell_s_own_answer_without_a_field_it_requires_is_refused_by_the_command_line() {
+        let f = compiled();
+        let g = f.graph("engineer").unwrap();
+        let s = envelope(g);
+        let schema = g.cell("D2").unwrap().schema.clone().unwrap();
+        let mut ret = json!({
+            "tell_owner": [],
+            "side_reports": [],
+            "flow_feedback": "none",
+            "progress": "Chose one SQL statement with a total row",
+            "outcome": {
+                "chosen": "One SQL statement with a total row",
+                "why": "The total and the rows come from one read of the data",
+                "measure": { "verdict": "not_measured", "why": "Nothing here is slow" },
+                "design": {
+                    "solution": "Add a total row to the query",
+                    "where": "The cost command",
+                    "excluded": "A second query",
+                    "pitfalls": "The row limit must not cut the total",
+                },
+                "design_tree": { "verdict": "unchanged", "why": "No decision of the tree changes" },
+                "acceptance": [{ "by": "test", "id": "A1", "condition": "The total row is shown past the limit" }],
+                "estimate": "One test file and one query",
+            },
+        });
+        assert!(flow::valid(&schema, &ret), "{ret}");
+        assert_eq!(refused(&s, &ret, ""), None);
+        let why = ret["outcome"].as_object_mut().unwrap().shift_remove("why").unwrap();
+        assert!(!flow::valid(&schema, &ret));
+        assert_eq!(
+            refused(&s, &ret, "").as_deref(),
+            Some("/outcome: must have required property 'why'")
+        );
+        ret["outcome"]["why"] = why;
+        ret["outcome"]["pause"] = json!({});
+        let mixed = refused(&s, &ret, "").unwrap_or_default();
+        assert!(mixed.contains("is not allowed"), "{mixed}");
+    }
+
+    // The rules that tell the forms apart refuse nothing a cell takes: for each form of each agent's cell of each graph,
+    // the rule of every form whose own fields it holds requires no field the form does not require and, when it takes
+    // no other field, takes every field the form takes. Each graph has such rules.
+    #[test]
+    fn the_rules_that_tell_the_forms_apart_refuse_nothing_a_cell_takes() {
+        let f = compiled();
+        for g in &f.graphs {
+            let s = envelope(g);
+            let rules = s["properties"][&g.within]["allOf"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            assert!(!rules.is_empty(), "graph {}", g.name);
+            for c in g.cells.iter().filter(|c| c.kind == "agent") {
+                let within = &c.schema.as_ref().unwrap()["properties"][&g.within];
+                let alts = within["anyOf"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_else(|| vec![within.clone()]);
+                for form in alts.iter().map(shape) {
+                    let fields = fields_of(&form);
+                    for r in &rules {
+                        let when = &r["if"];
+                        let names: Vec<&str> = match when.get("anyOf").and_then(Value::as_array) {
+                            Some(xs) => xs.iter().flat_map(required_of).collect(),
+                            None => required_of(when),
+                        };
+                        if !names.iter().any(|n| fields.iter().any(|k| k == n)) {
+                            continue;
+                        }
+                        let then = &r["then"];
+                        for k in required_of(then) {
+                            assert!(
+                                required_of(&form).contains(&k),
+                                "graph {}, cell {}: {k} required by {r}",
+                                g.name,
+                                c.id
+                            );
+                        }
+                        if closed(then) {
+                            for k in &fields {
+                                assert!(
+                                    then["properties"].get(k).is_some(),
+                                    "graph {}, cell {}: {k} refused by {r}",
+                                    g.name,
+                                    c.id
+                                );
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
