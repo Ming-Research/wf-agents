@@ -1,21 +1,22 @@
-//! A return whose JSON the command line could not parse, after all its attempts at it (`unparsed`, a kind of failed
-//! run whose handling is to repair): never a passing failure, so the round is never run again from its start. Within
-//! the round the engine first takes a whole return whose form the agent wrote as the JSON text of it, which the
-//! command line refused, then closes a text that only lacks the brackets that close it, then has the installation's
-//! lowest level repair any other fault of its syntax, once, a repair taken only when it keeps every other character as
-//! it was, and then asks the agent to hand its return in again in its own session; what any of them gives is taken as
-//! any return. Every return, repaired or not, has its form taken from the JSON text of it when the agent wrote it so,
-//! and the fields every return holds that it wrote inside the field its forms are under moved up beside it, since the
-//! command line no longer refuses them there.
+//! A return the command line gave up on after all its attempts at it, refusing each, because its JSON could not be
+//! parsed or because it does not fit the schema the command line is given (`unparsed`, a kind of failed run whose
+//! handling is to repair): never a passing failure, so the round is never run again from its start. Within the round
+//! the engine first takes the last attempt as it is when its text is whole JSON, as any return, which it repairs or
+//! sends back as it does any; then closes a text that only lacks the brackets that close it, then has the
+//! installation's lowest level repair any other fault of its syntax, once, a repair taken only when it keeps every
+//! other character as it was, and then asks the agent to hand its return in again in its own session; what any of them
+//! gives is taken as any return. Every return, repaired or not, has its form taken from the JSON text of it when the
+//! agent wrote it so, and the fields every return holds that it wrote inside the field its forms are under moved up
+//! beside it, which a return the command line gave up on may hold.
 
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::{Value, json};
 
 use crate::Engine;
-use crate::agent::{self, Reply, Request, Unparsed};
+use crate::agent::{self, Refused, Reply, Request};
 use crate::work::RoundId;
 
-/// The kind of failed run, as the flow's rounds section names it, of a return the command line could not parse.
+/// The kind of failed run, as the flow's rounds section names it, of a return the command line gave up on.
 pub const KIND: &str = "unparsed";
 
 /// The characters JSON's syntax uses, which a repair may add, remove or move, beside whitespace.
@@ -23,7 +24,8 @@ const SYNTAX: &str = "\"\\,:[]{}";
 
 /// A return with each field every return holds that it wrote inside the field its forms are under (as `tell_owner`
 /// and `progress` inside `outcome`) moved up beside that field, where the cell's schema has it, unless it is there
-/// already; nothing else changes.
+/// already; nothing else changes. The command line refuses such a return, so only one it gave up on reaches the engine
+/// with them there.
 pub fn lifted(g: &CompiledGraph, cell: &CompiledCell, mut out: Value) -> Value {
     let common: Vec<String> = cell
         .schema
@@ -186,10 +188,9 @@ fn json_text(answer: &str) -> &str {
     t
 }
 
-/// What the engine's repair of a return the command line could not parse came to.
+/// What the engine's repair of a return the command line gave up on came to.
 pub struct Recovery {
-    /// The return to take: the last attempt whose form is the JSON text of it, closed, repaired or handed in again;
-    /// none when nothing gave one.
+    /// The return to take: the last attempt as it is, closed, repaired or handed in again; none when nothing gave one.
     pub output: Option<Value>,
     /// The agent's run that handed its return in again, when it was asked to.
     pub again: Option<Reply>,
@@ -199,12 +200,12 @@ pub struct Recovery {
     pub repair_cost: f64,
 }
 
-/// Repairs, within its round, a return whose JSON the command line could not parse: takes the last attempt as it is
-/// when its text is whole JSON whose form is the JSON text of it ([`form_from_text`]); closes the last attempt's text
-/// when it only lacks closing brackets; else has the lowest level repair its syntax, taking the repair only when it
-/// parses, keeps the content and `accepts` it (the cell's schema and checks, giving the return as it is taken); and
-/// when neither applies to a text that is whole, or the repair is refused, asks the agent to hand its return in again
-/// in its session. A text cut off, or none rebuilt, goes straight to the agent.
+/// Repairs, within its round, a return the command line gave up on: takes the last attempt as it is when its text is
+/// whole JSON, which the command line refused for its shape or a value's type and the engine takes as any return;
+/// closes the last attempt's text when it only lacks closing brackets; else has the lowest level repair its syntax,
+/// taking the repair only when it parses, keeps the content and `accepts` it (the cell's schema and checks, giving the
+/// return as it is taken); and when the repair is refused, asks the agent to hand its return in again in its session.
+/// A text cut off, or none rebuilt, goes straight to the agent.
 pub fn recover(
     e: &Engine,
     req: &Request,
@@ -215,29 +216,27 @@ pub fn recover(
     accepts: &dyn Fn(&Engine, &Value) -> Result<Value, String>,
 ) -> Recovery {
     let attempts: Vec<Value> = reply
-        .unparsed
+        .refused
         .iter()
         .map(|u| json!({ "id": u.id, "text": u.raw, "length": u.length, "why": u.why }))
         .collect();
     let mut record = json!({ "attempts": attempts });
     let mut repair_cost = 0.0;
-    let last = reply.unparsed.last();
-    let whole = last.and_then(|u| serde_json::from_str::<Value>(&u.raw).ok());
+    let last = reply.refused.last();
+    let whole = last.and_then(|u| serde_json::from_str::<Value>(&u.raw).ok().filter(Value::is_object));
     match last.filter(|u| !cut_off(&u.raw, u.length)) {
-        // A whole return the command line refused for its form held as the JSON text of it is taken as it is, its form
-        // taken from the text as any return's is; any other whole return has no syntax to repair, and is handed in
-        // again.
+        // A whole return has no syntax to repair: the command line refused it for its shape, such as a field written
+        // inside the field of the forms, or for a value of another type, such as its form held as the JSON text of it.
+        // It is taken as it is, as any return: its form taken from the text, a field every return holds moved up beside
+        // the field of the forms, and sent back when it does not fit the cell.
         Some(_) if whole.is_some() => {
-            if let Some(v) = whole.filter(|v| form_from_text(g, v).is_some()) {
-                record["form_as_text"] = json!(true);
-                return Recovery {
-                    output: Some(v),
-                    again: None,
-                    record,
-                    repair_cost,
-                };
-            }
-            record["repair"] = json!({ "not_tried": "the last attempt's text is whole JSON" });
+            record["as_it_is"] = json!(true);
+            return Recovery {
+                output: whole,
+                again: None,
+                record,
+                repair_cost,
+            };
         }
         Some(u) => {
             if let Some(fixed) = closes(&u.raw)
@@ -307,7 +306,7 @@ fn repair(
     e: &Engine,
     req: &Request,
     round: RoundId,
-    u: &Unparsed,
+    u: &Refused,
     cell: &CompiledCell,
     accepts: &dyn Fn(&Engine, &Value) -> Result<Value, String>,
 ) -> (Value, f64, Option<Value>) {
@@ -366,7 +365,7 @@ fn repair(
 fn taken(
     e: &Engine,
     r: &Reply,
-    u: &Unparsed,
+    u: &Refused,
     accepts: &dyn Fn(&Engine, &Value) -> Result<Value, String>,
 ) -> Result<Value, String> {
     let answer = r

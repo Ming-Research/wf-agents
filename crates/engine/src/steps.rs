@@ -386,8 +386,22 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     }
     let mut reply = reply;
     let mut ended = ended;
-    // A return whose JSON the command line could not parse is repaired within the round, or handed in again by the
-    // agent, as the flow's kind of failed run says; the round never runs again from its start.
+    // The attempts the command line refused in a run that handed a return in at last are kept on the round, each by
+    // why: the faults of shape the agent put right within the run, which no return sent back shows.
+    if reply.output.is_some() && !reply.refused.is_empty() {
+        let why = Value::Array(reply.refused.iter().map(|a| json!(a.why)).collect()).to_string();
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE rounds SET input = json_set(input, '$.engine.refused', json(?3))
+                 WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
+                params![round.work, round.n, why],
+            )?;
+            Ok(())
+        })
+        .map_err(sql)?;
+    }
+    // A return the command line gave up on is repaired within the round, or handed in again by the agent, as the flow's
+    // kind of failed run says; the round never runs again from its start.
     let repairs = section
         .failed
         .kinds
@@ -525,9 +539,9 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         }
         None => output,
     };
-    // A field every return holds that the agent wrote inside the field its forms are under is moved up beside it,
-    // which the command line no longer refuses; a field the flow lets the return leave out that the agent wrote as
-    // null is left out.
+    // A field every return holds that the agent wrote inside the field its forms are under is moved up beside it, as a
+    // return the command line gave up on may hold it; a field the flow lets the return leave out that the agent wrote
+    // as null is left out.
     let mut output = crate::unparsed::lifted(g, cell, output);
     if let Some(s) = &cell.schema {
         flow::without_null_options(s, &mut output);

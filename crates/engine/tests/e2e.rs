@@ -190,11 +190,26 @@ impl Agents for Scripted {
             .or_insert(json!(format!("round {n} at {}", r.cell)));
         let fault = set.remove("@unparsed");
         let as_text = set.remove("@outcome_text").is_some();
+        // Attempts the command line refused before it took the return, each by why.
+        let refused: Vec<engine::agent::Refused> = set
+            .remove("@refused")
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .enumerate()
+            .map(|(i, why)| engine::agent::Refused {
+                id: format!("toolu_{i}"),
+                raw: "{}".into(),
+                length: None,
+                why: why.as_str().map(str::to_string),
+            })
+            .collect();
         let mut output = example(&r.schema, "", &pick, &set);
         if let Some(fault) = fault.as_ref().and_then(Value::as_str) {
             let raw = broken(&output, fault);
             let why = match fault {
                 "outcome_text" => "Output does not match required schema: /outcome: must be object",
+                "inside" => "Output does not match required schema: root: must have required property 'tell_owner'",
                 _ => "StructuredOutput was called with input that could not be parsed as JSON.",
             };
             return Reply {
@@ -205,7 +220,7 @@ impl Agents for Scripted {
                     "error_max_structured_output_retries: Failed to provide valid structured output after 3 attempts"
                         .into(),
                 ),
-                unparsed: vec![engine::agent::Unparsed {
+                refused: vec![engine::agent::Refused {
                     id: "toolu_1".into(),
                     length: Some(raw.chars().count()),
                     why: Some(why.into()),
@@ -224,6 +239,7 @@ impl Agents for Scripted {
             model: Some(r.model.clone()),
             usage,
             compactions,
+            refused,
             ..Reply::default()
         }
     }
@@ -233,25 +249,29 @@ impl Agents for Scripted {
     }
 }
 
-/// A return as an agent would have broken it writing it by hand: `drop_last_brace`, with the fields every return holds
-/// inside `outcome` and its last brace left out; `unescaped_quote`, with a bare quote in its progress; `cut_off`, half
-/// of it; `outcome_text`, with `outcome` a string holding its JSON; `whole`, as it is.
+/// A return as an agent would have broken it writing it by hand: `inside`, with the fields every return holds inside
+/// `outcome`; `drop_last_brace`, so and with its last brace left out; `unescaped_quote`, with a bare quote in its
+/// progress; `cut_off`, half of it; `outcome_text`, with `outcome` a string holding its JSON; `whole`, as it is.
 fn broken(output: &Value, fault: &str) -> String {
+    let inside = || {
+        let mut v = output.clone();
+        let o = v.as_object_mut().unwrap();
+        let moved: Vec<(String, Value)> = ["tell_owner", "progress"]
+            .iter()
+            .filter_map(|k| o.shift_remove(*k).map(|x| (k.to_string(), x)))
+            .collect();
+        o["outcome"].as_object_mut().unwrap().extend(moved);
+        v.to_string()
+    };
     match fault {
         "outcome_text" => {
             let mut v = output.clone();
             v["outcome"] = json!(v["outcome"].to_string());
             v.to_string()
         }
+        "inside" => inside(),
         "drop_last_brace" => {
-            let mut v = output.clone();
-            let o = v.as_object_mut().unwrap();
-            let moved: Vec<(String, Value)> = ["tell_owner", "progress"]
-                .iter()
-                .filter_map(|k| o.shift_remove(*k).map(|x| (k.to_string(), x)))
-                .collect();
-            o["outcome"].as_object_mut().unwrap().extend(moved);
-            let t = v.to_string();
+            let t = inside();
             t[..t.len() - 1].to_string()
         }
         "unescaped_quote" => output.to_string().replacen(" at ", " \"at\" ", 1),
@@ -2631,12 +2651,62 @@ fn an_attempt_refused_for_its_outcome_as_json_text_is_taken_within_its_round() {
     assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
     assert!(failed_kinds(&e).is_empty(), "{log}");
     let (record, _) = repair_record(&e, work);
-    assert_eq!(record["form_as_text"], true, "{record}");
+    assert_eq!(record["as_it_is"], true, "{record}");
     assert!(
         record.get("repair").is_none() && record.get("again").is_none(),
         "{record}"
     );
     assert_eq!(taken_from_text(&e, work).as_deref(), Some("outcome"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The attempts the command line refused in a run that handed a return in at last are kept on its round, each by why,
+// and the round takes its row as any: nothing is sent back.
+#[test]
+fn the_attempts_the_command_line_refused_before_it_took_a_return_are_recorded() {
+    let s = setup("refused-before-taken");
+    let mut agents = scripts();
+    let why = "Output does not match required schema: /outcome: must NOT have additional properties ('tell_owner' is \
+               not allowed)";
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| match n {
+            1 => (Vec::new(), vec![("@refused", json!([why]))]),
+            _ => (Vec::new(), Vec::new()),
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    past_r1(&mut e, item);
+    let log = said.borrow().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
+    assert_eq!(sent_back(&e), 0, "{log}");
+    let sql = "SELECT json_extract(input, '$.engine.refused') FROM rounds WHERE work = ?1 AND cell = 'R1' ORDER BY n";
+    let refused: Option<String> = e.db.conn().query_row(sql, [work], |r| r.get(0)).unwrap();
+    let refused = refused.map(|r| serde_json::from_str::<Value>(&r).unwrap());
+    assert_eq!(refused, Some(json!([why])), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A run the command line gave up on because its last attempt held the fields every return holds inside `outcome`,
+// which it refused for one missing beside it, is taken from that attempt as it is within its round, with those fields
+// moved up beside `outcome`: the round takes its row, and nothing is repaired, handed in again or sent back.
+#[test]
+fn an_attempt_refused_for_its_shape_is_taken_as_it_is_within_its_round() {
+    let (s, mut e, said, item) = unparsed_at_r1("unparsed-inside", "inside", None, None);
+    past_r1(&mut e, item);
+    let log = said.borrow().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
+    assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+    assert!(failed_kinds(&e).is_empty(), "{log}");
+    assert_eq!(sent_back(&e), 0, "{log}");
+    let (record, _) = repair_record(&e, work);
+    assert_eq!(record["as_it_is"], true, "{record}");
+    assert!(
+        record.get("repair").is_none() && record.get("again").is_none(),
+        "{record}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
