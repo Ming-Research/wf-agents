@@ -214,7 +214,9 @@ impl Agents for Scripted {
         if let Some(fault) = fault.as_ref().and_then(Value::as_str) {
             let raw = broken(&output, fault);
             let why = match fault {
-                "outcome_text" => "Output does not match required schema: /outcome: must be object",
+                "outcome_text" | "outcome_text_brace" => {
+                    "Output does not match required schema: /outcome: must be object"
+                }
                 "inside" => "Output does not match required schema: root: must have required property 'tell_owner'",
                 _ => "StructuredOutput was called with input that could not be parsed as JSON.",
             };
@@ -257,8 +259,16 @@ impl Agents for Scripted {
 
 /// A return as an agent would have broken it writing it by hand: `inside`, with the fields every return holds inside
 /// `outcome`; `drop_last_brace`, so and with its last brace left out; `unescaped_quote`, with a bare quote in its
-/// progress; `cut_off`, half of it; `outcome_text`, with `outcome` a string holding its JSON; `whole`, as it is.
+/// progress; `cut_off`, half of it; `outcome_text`, with `outcome` a string holding its JSON; `outcome_text_brace`, so
+/// and with a closing brace too many after that JSON, as a form whose JSON did not parse reaches the command line;
+/// `unescaped_quote_outcome_text`, with a bare quote in its progress and `outcome` a string holding its JSON; `whole`,
+/// as it is.
 fn broken(output: &Value, fault: &str) -> String {
+    let as_text = |after: &str| {
+        let mut v = output.clone();
+        v["outcome"] = json!(format!("{}{after}", v["outcome"]));
+        v.to_string()
+    };
     let inside = || {
         let mut v = output.clone();
         let o = v.as_object_mut().unwrap();
@@ -270,11 +280,9 @@ fn broken(output: &Value, fault: &str) -> String {
         v.to_string()
     };
     match fault {
-        "outcome_text" => {
-            let mut v = output.clone();
-            v["outcome"] = json!(v["outcome"].to_string());
-            v.to_string()
-        }
+        "outcome_text" => as_text(""),
+        "outcome_text_brace" => as_text("}"),
+        "unescaped_quote_outcome_text" => as_text("").replacen(" at ", " \"at\" ", 1),
         "inside" => inside(),
         "drop_last_brace" => {
             let t = inside();
@@ -2777,6 +2785,54 @@ fn an_attempt_refused_for_its_outcome_as_json_text_is_taken_within_its_round() {
         record.get("repair").is_none() && record.get("again").is_none(),
         "{record}"
     );
+    assert_eq!(taken_from_text(&e, work).as_deref(), Some("outcome"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// In the engineer's trial (R18-5, R18-10 and R18-11, cell D2) every attempt the command line refused for its outcome as
+// a string held the JSON of the outcome with a closing brace too many after it: the model wrote the form as an object
+// whose JSON did not parse, which reached the command line as text. A run the command line gave up on so is taken from
+// its last attempt within its round, with the outcome that JSON holds, and the round records that its outcome was taken
+// from the text, as for a string that holds the JSON alone.
+#[test]
+fn an_attempt_refused_for_its_outcome_as_json_text_with_a_brace_too_many_is_taken_within_its_round() {
+    let (s, mut e, said, item) = unparsed_at_r1("unparsed-outcome-brace", "outcome_text_brace", None, None);
+    past_r1(&mut e, item);
+    let log = said.borrow().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
+    assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
+    assert_eq!(sent_back(&e), 0, "{log}");
+    let (record, _) = repair_record(&e, work);
+    assert_eq!(record["as_it_is"], true, "{record}");
+    assert_eq!(taken_from_text(&e, work).as_deref(), Some("outcome"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A repair is checked as the return it gives is taken: a repaired return whose outcome is a string holding its JSON is
+// taken with that outcome, and the round records that it was taken from the text, instead of the repair being refused
+// for an outcome that is no object and the agent asked to hand its return in again.
+#[test]
+fn a_repair_whose_outcome_is_its_json_text_is_taken_as_any_return() {
+    let escapes: Script = Box::new(|r: &Request, _: usize| {
+        let text = r.prompt.split("The text:\n").nth(1).unwrap_or_default().trim();
+        let fixed = text.replacen(" \"at\" ", " \\\"at\\\" ", 1);
+        (Vec::new(), vec![("@result", json!(fixed))])
+    });
+    let (s, mut e, said, item) = unparsed_at_r1(
+        "unparsed-repair-text",
+        "unescaped_quote_outcome_text",
+        Some(escapes),
+        None,
+    );
+    past_r1(&mut e, item);
+    let log = said.borrow().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
+    assert_eq!(sent_back(&e), 0, "{log}");
+    let (record, _) = repair_record(&e, work);
+    assert_eq!(record["repair"]["taken"], true, "{record}");
+    assert!(record.get("again").is_none(), "{record}");
     assert_eq!(taken_from_text(&e, work).as_deref(), Some("outcome"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

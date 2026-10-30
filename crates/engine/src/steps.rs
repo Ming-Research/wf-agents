@@ -438,11 +438,9 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         && repairs
         && agent::failure_kind(reply.error.as_deref().unwrap_or_default()) == crate::unparsed::KIND
     {
-        let accepts = |e: &Engine, candidate: &Value| -> Result<Value, String> {
-            let mut out = crate::unparsed::lifted(g, cell, candidate.clone());
-            if let Some(s) = &cell.schema {
-                flow::without_null_options(s, &mut out);
-            }
+        // A repair is checked as the return it gives would be taken.
+        let accepts = |e: &Engine, candidate: &Value| -> Result<(), String> {
+            let (out, _) = crate::unparsed::as_taken(g, cell, candidate.clone());
             g.take(&cell.id, &out, &given)?;
             let ctx = checks::Ctx {
                 e,
@@ -458,10 +456,9 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 table: &table,
                 interjections: &interjections,
             };
-            checks::run(&ctx)?;
-            Ok(out)
+            checks::run(&ctx)
         };
-        let r = crate::unparsed::recover(e, &req, &reply, round, g, cell, &accepts);
+        let r = crate::unparsed::recover(e, &req, &reply, round, cell, &accepts);
         let mut record = r.record;
         if let Some(again) = r.again {
             // The hand-in again resumed the round's session: it cost what the session grew by since the first run.
@@ -545,33 +542,25 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return f.handle(e, ended, &reply);
     };
     e.returned();
-    // A form the agent wrote as a string holding its JSON is taken as the form, and the round records that it was, so
+    // Every return is taken one way, whichever way it came: a form the agent wrote as a string holding its JSON taken as
+    // the form, a field every return holds that it wrote inside the field its forms are under moved up beside it, and a
+    // field the flow lets it leave out that it wrote as null left out. The round records a form taken from text, so
     // that how often models still write it shows.
-    let output = match crate::unparsed::form_from_text(g, &output) {
-        Some(taken) => {
-            (e.say)(&format!(
-                "{round}: its {} was handed in as the JSON text of it, and is taken as the object",
-                g.within
-            ));
-            e.db.write(Actor::Engine, |tx| {
-                tx.execute(
-                    "UPDATE rounds SET input = json_set(input, '$.engine.taken_from_text', ?3)
-                     WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
-                    params![round.work, round.n, g.within],
-                )?;
-                Ok(())
-            })
-            .map_err(sql)?;
-            taken
-        }
-        None => output,
-    };
-    // A field every return holds that the agent wrote inside the field its forms are under is moved up beside it, as a
-    // return the command line gave up on may hold it; a field the flow lets the return leave out that the agent wrote
-    // as null is left out.
-    let mut output = crate::unparsed::lifted(g, cell, output);
-    if let Some(s) = &cell.schema {
-        flow::without_null_options(s, &mut output);
+    let (output, from_text) = crate::unparsed::as_taken(g, cell, output);
+    if from_text {
+        (e.say)(&format!(
+            "{round}: its {} was handed in as the JSON text of it, and is taken as the object",
+            g.within
+        ));
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE rounds SET input = json_set(input, '$.engine.taken_from_text', ?3)
+                 WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
+                params![round.work, round.n, g.within],
+            )?;
+            Ok(())
+        })
+        .map_err(sql)?;
     }
     let row = match g.take(&cell.id, &output, &given) {
         Ok(r) => r.clone(),

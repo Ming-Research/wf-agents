@@ -5,9 +5,9 @@
 //! sends back as it does any; then closes a text that only lacks the brackets that close it, then has the
 //! installation's lowest level repair any other fault of its syntax, once, a repair taken only when it keeps every
 //! other character as it was, and then asks the agent to hand its return in again in its own session; what any of them
-//! gives is taken as any return. Every return, repaired or not, has its form taken from the JSON text of it when the
-//! agent wrote it so, and the fields every return holds that it wrote inside the field its forms are under moved up
-//! beside it, which a return the command line gave up on may hold.
+//! gives is taken as any return ([`as_taken`]): its form taken from the JSON text of it when the agent wrote it so, and
+//! the fields every return holds that it wrote inside the field its forms are under moved up beside it, which a return
+//! the command line gave up on may hold.
 
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::{Value, json};
@@ -47,16 +47,38 @@ pub fn lifted(g: &CompiledGraph, cell: &CompiledCell, mut out: Value) -> Value {
     out
 }
 
+/// A return as the engine takes it, whichever way it came (the command line's, the last attempt of a run it gave up on,
+/// closed, repaired or handed in again): its form taken from the JSON text of it when the agent wrote it so
+/// ([`form_from_text`]), each field every return holds that it wrote inside the field of the forms moved up beside it
+/// ([`lifted`]), and a field the cell lets it leave out that it holds as null left out; with whether its form was taken
+/// from text, which the round records. Every return is taken this way, and the repair of one is checked as it is taken.
+pub fn as_taken(g: &CompiledGraph, cell: &CompiledCell, out: Value) -> (Value, bool) {
+    let (out, from_text) = match form_from_text(g, &out) {
+        Some(taken) => (taken, true),
+        None => (out, false),
+    };
+    let mut out = lifted(g, cell, out);
+    if let Some(s) = &cell.schema {
+        flow::without_null_options(s, &mut out);
+    }
+    (out, from_text)
+}
+
 /// A return whose field the forms are under holds a string holding the JSON of an object, as the model writes it at
-/// times in place of the object, with that field the object; none when the field holds no such string. The command
-/// line refuses the string, and the engine takes the object when it is handed it, from a run the command line gave up
-/// on or another way, recording that it did (`engine.taken_from_text` on the round), for as long as the record shows
-/// models still writing it.
+/// times in place of the object, with that field the object; none when the field holds no such string. The object may
+/// be followed by closing brackets alone, which are dropped: the model wrote the form as an object with a closing
+/// brace too many, so that its JSON did not parse and it reached the command line as text (every such string of the
+/// engineer's trial ended so). The command line refuses the string, and the engine takes the object when it is handed
+/// it, from a run the command line gave up on or another way, recording that it did (`engine.taken_from_text` on the
+/// round), for as long as the record shows models still writing it.
 pub fn form_from_text(g: &CompiledGraph, out: &Value) -> Option<Value> {
-    let text = out.get(&g.within)?.as_str()?;
-    let form = serde_json::from_str::<Value>(text.trim())
-        .ok()
-        .filter(Value::is_object)?;
+    let text = out.get(&g.within)?.as_str()?.trim();
+    let mut values = serde_json::Deserializer::from_str(text).into_iter::<Value>();
+    let form = values.next()?.ok().filter(Value::is_object)?;
+    let rest = &text[values.byte_offset()..];
+    if !rest.chars().all(|c| c.is_whitespace() || c == '}' || c == ']') {
+        return None;
+    }
     let mut out = out.clone();
     out[g.within.as_str()] = form;
     Some(out)
@@ -203,17 +225,17 @@ pub struct Recovery {
 /// Repairs, within its round, a return the command line gave up on: takes the last attempt as it is when its text is
 /// whole JSON, which the command line refused for its shape or a value's type and the engine takes as any return;
 /// closes the last attempt's text when it only lacks closing brackets; else has the lowest level repair its syntax,
-/// taking the repair only when it parses, keeps the content and `accepts` it (the cell's schema and checks, giving the
-/// return as it is taken); and when the repair is refused, asks the agent to hand its return in again in its session.
-/// A text cut off, or none rebuilt, goes straight to the agent.
+/// taking the repair only when it parses, keeps the content and `accepts` it (the cell's schema and checks, the return
+/// taken as any is); and when the repair is refused, asks the agent to hand its return in again in its session. A text
+/// cut off, or none rebuilt, goes straight to the agent. What it gives is the return as the agent's text holds it, which
+/// the engine then takes as any return.
 pub fn recover(
     e: &Engine,
     req: &Request,
     reply: &Reply,
     round: RoundId,
-    g: &CompiledGraph,
     cell: &CompiledCell,
-    accepts: &dyn Fn(&Engine, &Value) -> Result<Value, String>,
+    accepts: &dyn Fn(&Engine, &Value) -> Result<(), String>,
 ) -> Recovery {
     let attempts: Vec<Value> = reply
         .refused
@@ -244,7 +266,7 @@ pub fn recover(
             {
                 record["closed"] = json!({ "added": fixed[u.raw.trim_end().len()..] });
                 return Recovery {
-                    output: Some(lifted(g, cell, v)),
+                    output: Some(v),
                     again: None,
                     record,
                     repair_cost,
@@ -295,7 +317,7 @@ pub fn recover(
         "failed": again.error.as_deref().map(agent::failure_kind),
     });
     Recovery {
-        output: again.output.clone().map(|v| lifted(g, cell, v)),
+        output: again.output.clone(),
         again: Some(again),
         record,
         repair_cost,
@@ -310,7 +332,7 @@ fn repair(
     round: RoundId,
     u: &Refused,
     cell: &CompiledCell,
-    accepts: &dyn Fn(&Engine, &Value) -> Result<Value, String>,
+    accepts: &dyn Fn(&Engine, &Value) -> Result<(), String>,
 ) -> (Value, f64, Option<Value>) {
     let name = e.config.config.lowest_level();
     let Some((level, cli)) = e.config.config.level(&name).map(|(l, c)| (l.clone(), c.clone())) else {
@@ -352,7 +374,7 @@ fn repair(
         .run(&ask, &|what: &str| (e.activity)(round.work, round.n, what));
     let cost = r.usage["session_cost_usd"].as_f64().unwrap_or(0.0);
     let mut record = json!({ "level": name, "model": level.model, "session": r.session, "cost_usd": cost });
-    match taken(e, &r, u, accepts) {
+    match repaired(e, &r, u, accepts) {
         Ok(v) => {
             record["taken"] = json!(true);
             (record, cost, Some(v))
@@ -365,11 +387,11 @@ fn repair(
 }
 
 /// The return a repair gives, when it is taken: it parses, keeps the content of the text it repairs, and is accepted.
-fn taken(
+fn repaired(
     e: &Engine,
     r: &Reply,
     u: &Refused,
-    accepts: &dyn Fn(&Engine, &Value) -> Result<Value, String>,
+    accepts: &dyn Fn(&Engine, &Value) -> Result<(), String>,
 ) -> Result<Value, String> {
     let answer = r
         .result
@@ -380,7 +402,8 @@ fn taken(
     if !same_content(&u.raw, text) {
         return Err("the repair changed the text beyond its syntax".into());
     }
-    accepts(e, &v)
+    accepts(e, &v)?;
+    Ok(v)
 }
 
 #[cfg(test)]
@@ -494,5 +517,60 @@ mod tests {
         assert!(cut_off(&short, Some(n)));
         assert!(!cut_off(BESIDE, Some(n)));
         assert!(!cut_off(BESIDE, None));
+    }
+
+    // In the engineer's trial every form of cell D2 handed in as a string (R18-5, R18-10 and R18-11) held the JSON of the
+    // form with a closing brace too many after it, the form the model wrote as an object whose JSON did not parse. It is
+    // taken with the brackets after it dropped, as one that holds the JSON alone, and the return is taken as any; a text
+    // with anything else after its object, or that holds no object, is not taken.
+    #[test]
+    fn a_form_written_as_its_json_text_is_taken_with_the_closing_brackets_after_it_dropped() {
+        let f = compiled();
+        let g = f.graph("engineer").unwrap();
+        let cell = g.cell("D2").unwrap();
+        let schema = cell.schema.clone().unwrap();
+        let answer = json!({
+            "chosen": "One SQL statement with a total row",
+            "why": "The total and the rows come from one read of the data",
+            "measure": { "verdict": "not_measured", "why": "Nothing here is slow" },
+            "design": {
+                "solution": "Add a total row to the query",
+                "where": "The cost command",
+                "excluded": "A second query",
+                "pitfalls": "The row limit must not cut the total",
+            },
+            "design_tree": { "verdict": "unchanged", "why": "No decision of the tree changes" },
+            "acceptance": [{ "by": "test", "id": "A1", "condition": "The total row is shown past the limit" }],
+            "estimate": "One test file and one query",
+        });
+        let with = |text: String| {
+            json!({
+                "tell_owner": [],
+                "side_reports": [],
+                "flow_feedback": "none",
+                "progress": "Chose one SQL statement with a total row",
+                "outcome": text,
+            })
+        };
+        for after in ["", "}", " }\n", "}]", "}}"] {
+            let ret = with(format!("{answer}{after}"));
+            assert!(!flow::valid(&schema, &ret));
+            let (taken, from_text) = as_taken(g, cell, ret);
+            assert!(from_text, "{after:?}");
+            assert_eq!(taken["outcome"], answer, "{after:?}");
+            assert!(flow::valid(&schema, &taken), "{taken}");
+        }
+        for after in ["}x", ",", "{}", "\"\""] {
+            let ret = with(format!("{answer}{after}"));
+            assert_eq!(form_from_text(g, &ret), None, "{after:?}");
+            let (taken, from_text) = as_taken(g, cell, ret.clone());
+            assert!(!from_text && taken == ret, "{after:?}");
+        }
+        assert_eq!(form_from_text(g, &with("[1, 2]".into())), None);
+        assert_eq!(form_from_text(g, &with("the design".into())), None);
+        // A form handed in as an object is taken as it is.
+        let mut whole = with(String::new());
+        whole["outcome"] = answer;
+        assert_eq!(as_taken(g, cell, whole.clone()), (whole, false));
     }
 }
