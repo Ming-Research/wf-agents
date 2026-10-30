@@ -3061,6 +3061,246 @@ fn a_step_takes_a_work_on_an_older_flow_version_over_and_keeps_it_paused() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The owner starts a work over while a round of it runs, after pausing it: what the round hands in is not taken, and the
+// takeover cuts the round off with the owner's reason, what it cost kept on it. The work ends as taken over, saying the
+// owner started it over, as the group's notice says too; its question to the architect leaves the queue, its ask the
+// owner answered keeps the owner's answer and the other needs none, and its design card is replaced with the owner's
+// ruling kept. A new work on the item starts at the first cell, paused as the owner had paused the old one: it takes
+// over the branch, the worktree with what the cut-off round left uncommitted in it, and the pull request, and its cell
+// `R1` is told what exists, the old work's design cards and asks with their rulings and answers included. The work
+// over and a work of the architect cannot be started over.
+#[test]
+fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
+    let s = setup("start-over");
+    let mut agents = scripts();
+    let implement = agents.remove("I1").unwrap();
+    let path = config::database(&s.data);
+    // The owner pauses the work and starts it over while its second round at cell `I1` runs, which leaves a file it
+    // does not commit.
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            if n == 2 {
+                write(&r.worktree, "notes.txt", "half done\n");
+                let mut db = db::Db::open(&path).unwrap();
+                let work: i64 = db
+                    .conn()
+                    .query_row(
+                        "SELECT id FROM works WHERE graph = 'engineer' AND ended IS NULL",
+                        [],
+                        |x| x.get(0),
+                    )
+                    .unwrap();
+                api::pause(&mut db, work, None).unwrap();
+                assert_eq!(
+                    api::start_over(&mut db, work).unwrap(),
+                    format!("work {work} is started over")
+                );
+            }
+            implement(r, n)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    for _ in 0..80 {
+        e.step(None).unwrap();
+        if works_of(&e, item)[0].4.is_some() {
+            break;
+        }
+    }
+    let log = said.borrow().join("\n");
+    let (old, _, worktree, branch, pr, _) = works_of(&e, item)[0].clone();
+    assert!(pr.is_some() && worktree.is_some() && branch.is_some(), "{log}");
+    // It put two asks to the owner, a design card and a question to the architect; the owner answers one ask and rules
+    // on the card.
+    let (asks, card) =
+        e.db.write(Actor::Engine, |tx| {
+            let round: i64 = tx.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [old], |r| r.get(0))?;
+            let mut asks = Vec::new();
+            for _ in 0..2 {
+                tx.execute(
+                    "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\": \"owner\"}')",
+                    [old, round],
+                )?;
+                asks.push(tx.last_insert_rowid());
+            }
+            tx.execute(
+                "INSERT INTO design_cards (work, round, body, status) VALUES (?1, ?2, '[]', 'open')",
+                [old, round],
+            )?;
+            let card = tx.last_insert_rowid();
+            db::queue_matter(
+                tx,
+                &db::Matter {
+                    project: "p".into(),
+                    kind: "engineer_question".into(),
+                    detail: Some("other_question".into()),
+                    what: format!("Work {old} on item {item} asks which name to keep"),
+                    body: json!({ "to": "architect", "work": old }),
+                    item: Some(item),
+                    raised: Some((old, round)),
+                },
+            )?;
+            Ok((asks, card))
+        })
+        .unwrap();
+    let answer = api::Answer {
+        text: "Keep the old name.".into(),
+        why: None,
+        reply: None,
+        to: None,
+    };
+    api::answer(&mut e.db, asks[0], &answer).unwrap();
+    let ruling = api::Ruling {
+        decisions: vec![api::DecisionRuling {
+            decision: 1,
+            verdict: "disagree".into(),
+            text: Some("Name it after the feature.".into()),
+            option: None,
+        }],
+    };
+    api::rule(&mut e.db, card, &ruling).unwrap();
+    // The owner's step of the work runs its round, in which the owner starts it over.
+    let stepped = e.step_work(old).unwrap();
+    let log = said.borrow().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}\n{log}");
+    let why = "stopped: the owner started it over, and a new work on it takes the item over";
+    assert_eq!(works[0].5.as_deref(), Some(why), "{log}");
+    let (n, cut, usage): (i64, String, Option<String>) =
+        e.db.conn()
+            .query_row(
+                "SELECT n, json_extract(rejected, '$.interrupted'), usage FROM rounds
+                 WHERE work = ?1 AND cell = 'I1' AND transition IS NULL",
+                [old],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+    assert_eq!(stepped.rounds, [engine::RoundId::new(old, n)], "{log}");
+    assert_eq!(cut, why);
+    assert!(usage.is_some_and(|u| u.contains("cost_usd")));
+    let notice: String =
+        e.db.conn()
+            .query_row(
+                "SELECT text FROM engine_notices WHERE work = ?1 ORDER BY id DESC LIMIT 1",
+                [old],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(
+        notice,
+        format!("Work {old} stopped: the owner started it over, and a new work on it takes the item over.")
+    );
+    let withdrawn: String =
+        e.db.conn()
+            .query_row("SELECT withdrawn FROM architect_matters WHERE work = ?1", [old], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(withdrawn, format!("the work that raised it ended ({why})"));
+    let by = |e: &Engine, ask: i64| -> String {
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(answer, '$.by') FROM owner_asks WHERE id = ?1",
+                [ask],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!((by(&e, asks[0]), by(&e, asks[1])), ("owner".into(), "engine".into()));
+    let (status, rulings): (String, String) =
+        e.db.conn()
+            .query_row(
+                "SELECT status, rulings FROM item_design_cards WHERE work = ?1",
+                [old],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!(status, "replaced");
+    assert!(rulings.contains("Name it after the feature."), "{rulings}");
+    // The new work is at the first cell, paused as the old one was.
+    let new = works[1].0;
+    assert_eq!(works[1].1, "S1");
+    assert_eq!(paused_by(&e, new).as_deref(), Some("owner"));
+    // Stepped, it takes over the branch, the worktree with what was left in it, and the pull request, and is told what
+    // exists.
+    e.step_work(new).unwrap();
+    e.step_work(new).unwrap();
+    let log = said.borrow().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(
+        (&works[1].2, &works[1].3, works[1].4),
+        (&worktree, &branch, pr),
+        "{log}"
+    );
+    let left = std::fs::read_to_string(PathBuf::from(worktree.unwrap()).join("notes.txt")).unwrap();
+    assert_eq!(left, "half done\n");
+    let input: String =
+        e.db.conn()
+            .query_row("SELECT input FROM rounds WHERE work = ?1 AND cell = 'R1'", [new], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    let input: Value = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
+    let m = input["message"].as_str().unwrap();
+    for want in [
+        "This item was worked on before.".to_string(),
+        format!("- Work {old} "),
+        format!("when it ended: {why}."),
+        format!("the views `item_design_cards` and `item_asks` with `work = {old}`"),
+        "what is not committed is `git status`".to_string(),
+        format!("pr view {} --comments", pr.unwrap()),
+        format!("- Work {old} asked the architect, and had no answer when it ended, so the question was withdrawn"),
+    ] {
+        assert!(m.contains(&want), "{want}\n{m}");
+    }
+    // The work over cannot be started over again, nor can a work of the architect.
+    assert_eq!(api::start_over(&mut e.db, old), Err(format!("work {old} has ended")));
+    let v = e.flow_now;
+    let arch: i64 =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (?1, 'architect', 'Q0', 'p')",
+                [v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    assert_eq!(
+        api::start_over(&mut e.db, arch),
+        Err(format!(
+            "work {arch} is the architect's: only a work on an item can be started over"
+        ))
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// While every work is paused, the owner's start over of a work the owner started is carried out at once, and the
+// owner's Start goes on in the new work, which goes on as the old one did.
+#[test]
+fn the_owner_s_start_goes_on_in_the_work_that_starts_a_work_over() {
+    let s = setup("start-over-started");
+    let (mut e, said, item) = start(&s, scripts());
+    let c = api::Control::default();
+    let work = e.create_work(item).unwrap();
+    c.start(api::Fresh::Work(work), false);
+    assert_eq!(turns(&mut e, &c, 2), [work, work], "{}", said.borrow().join("\n"));
+    api::start_over(&mut e.db, work).unwrap();
+    let moved = turns(&mut e, &c, 1);
+    let log = said.borrow().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}\n{log}");
+    let new = works[1].0;
+    assert!(works[0].5.is_some(), "{log}");
+    assert_eq!(moved, [new], "{log}");
+    let asked = c.asked();
+    assert!(
+        asked.started.contains(&new) && !asked.started.contains(&work),
+        "{asked:?}"
+    );
+    assert_eq!(paused_by(&e, new), None);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The architects' works.
 
 /// The project an architect's round is for, by the directory it works in, `worktrees/architect/<project>`.
@@ -5185,6 +5425,76 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     assert_eq!(
         told,
         format!("I started work {work}, which you had stopped (It waits for the parser): it goes on.")
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The architect starts a work over in its effects: the engine takes it over as it takes over a work the owner started
+// over, saying the architect started it over and why, in the work's end and in the group's notice, and a new work on
+// the item takes it over. An item with no work running cannot be started over, and the return naming one is sent back;
+// nor can a work of the architect.
+#[test]
+fn the_architect_starts_a_work_over() {
+    let s = setup("architect-start-over");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            let item = if n == 1 { 2 } else { 1 };
+            let over = json!({ "kind": "start_work_over", "item": item, "reason": "Its design went the wrong way." });
+            (Vec::new(), vec![("outcome.effects", json!({ "actions": [over] }))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let gone =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level, cancelled)
+                 VALUES ('p', 'Gone', 'x', 'y', 'change', 'l', 'not needed')",
+                [],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    assert_eq!(gone, 2);
+    let work = e.step(None).unwrap().work.unwrap();
+    say(&mut e, "Begin the feature again, and keep what it built.");
+    let started = e.step(Some(work)).unwrap();
+    let log = said.borrow().join("\n");
+    assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
+    let arch = started.work.unwrap();
+    let over = |e: &mut Engine| works_of(e, item).len() == 2;
+    assert!(steps_until(&mut e, 40, over), "{}", said.borrow().join("\n"));
+    let why = "stopped: the architect started it over, and a new work on it takes the item over: Its design went the \
+               wrong way";
+    let works = works_of(&e, item);
+    assert_eq!((works[0].0, works[0].5.as_deref()), (work, Some(why)));
+    let notice: String =
+        e.db.conn()
+            .query_row(
+                "SELECT text FROM engine_notices WHERE work = ?1 ORDER BY id DESC LIMIT 1",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(notice, format!("Work {work} stopped: {}.", &why["stopped: ".len()..]));
+    let sent_back: String =
+        e.db.conn()
+            .query_row(
+                "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H8' AND rejected IS NOT NULL",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(
+        sent_back.contains("action 1: item 2 has no work running"),
+        "{sent_back}"
+    );
+    assert_eq!(
+        api::start_over(&mut e.db, arch),
+        Err(format!(
+            "work {arch} is the architect's: only a work on an item can be started over"
+        ))
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -7509,10 +7819,15 @@ fn an_observation_with_no_tag_is_sent_back() {
 
 // The owner's Start, Pause and Step of a work and of a project's architect, beside the global pause and start.
 
-/// One turn of the engine's loop as `wf-agents run` takes it, which these tests play: the new sessions the owner asked
-/// for handed to the session manager, the pauses of the works the owner started lifted once each may hold a slot, then
-/// the step the owner's asks call for.
+/// One turn of the engine's loop as `wf-agents run` takes it, which these tests play: the starts over asked carried out,
+/// the owner's Start of a work taken over handed to the work that took it over, the new sessions the owner asked for
+/// handed to the session manager, the pauses of the works the owner started lifted once each may hold a slot, then the
+/// step the owner's asks call for.
 fn turn(e: &mut Engine, c: &api::Control, after: Option<i64>) -> engine::Stepped {
+    e.start_overs().unwrap();
+    for (old, new) in e.replaced() {
+        c.replaced(old, new);
+    }
     let asked = c.asked();
     for w in c.take_new_sessions() {
         e.sessions.ask_new(w);

@@ -1581,6 +1581,16 @@ fn act_now(tx: &Transaction<'_>, project: &str, a: &Value) -> Result<(), String>
             }
             Ok(())
         }
+        "start_work_over" => {
+            let item = a["item"].as_i64().unwrap_or_default();
+            let Some((work, _, _)) = running_work(tx, item)? else {
+                return Ok(());
+            };
+            if db::cannot_start_over(tx, work).map_err(sql)?.is_some() {
+                return Ok(());
+            }
+            db::start_over(tx, work, db::Actor::Architect, Some(reason)).map_err(sql)
+        }
         "hold_starts" => hold(tx, project, "architect", Some(reason)),
         "release_starts" => release(tx, project, "architect"),
         "interject" => {
@@ -2453,10 +2463,15 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
             continue;
         }
         match (text(&a["kind"]), &running) {
-            ("pause_work" | "interject", None) | ("resume_work", None) => problems.push(format!(
+            ("pause_work" | "interject" | "start_work_over", None) | ("resume_work", None) => problems.push(format!(
                 "action {n}: item {} has no work running",
                 item.unwrap_or_default()
             )),
+            ("start_work_over", Some((work, _, _))) => {
+                if let Some(no) = db::cannot_start_over(conn, *work).map_err(sql)? {
+                    problems.push(format!("action {n}: {no}"));
+                }
+            }
             ("pause_work", Some((_, Some(_), _))) => problems.push(format!(
                 "action {n}: the work on item {} is paused already",
                 item.unwrap_or_default()

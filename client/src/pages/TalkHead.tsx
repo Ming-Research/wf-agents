@@ -1,6 +1,7 @@
 // The head of a conversation, as a chat app's group information: what the conversation is about and the owner's
 // controls of it, which are here and nowhere else. A work's group says its work and item, the stage it is at, how it
-// goes on and what it cost so far, with the work's Start, Pause and Step first in its row and the tier its item is at;
+// goes on and what it cost so far, with the work's Start, Pause, Step and Start over first in its row and the tier its
+// item is at;
 // the one-to-one with an architect is one row: its Start, Pause and Step first, its name leading to its page, what it
 // handles now, at which cell, or that it is idle, paused or waits for the owner, and at the row's end the holds on the
 // project's new works and its queue (how many matters are left, the oldest wait and how many it handled today), which
@@ -16,7 +17,17 @@ import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary
 import { architectNow, architectState, holdWords, matterSentence, queueParts } from '../architect';
 import { course, heldName, RunningMark, StateChip, WORK_TONE } from '../components';
 import { forwardNewChoices } from '../conversation';
-import { Control, Controls, runningWords, SessionChoice, useActions, useNewSession, useOpenStepped, waitsWords } from '../course';
+import {
+  Control,
+  Controls,
+  runningWords,
+  SessionChoice,
+  StartOver,
+  useActions,
+  useNewSession,
+  useOpenStepped,
+  waitsWords,
+} from '../course';
 import { cost, duration, time } from '../format';
 import { postJson } from '../http';
 import { reread, useResource, useStatus } from '../live';
@@ -85,8 +96,8 @@ function WorkState({ w, status }: { w: WorkSummary; status: Status | null }) {
   return <StateChip tone="neutral">{t('state_ready')}</StateChip>;
 }
 
-/// The head of a work's group, one line with nothing on it said twice: its Start, Pause and Step while it goes on, the
-/// work by its number with its item's title, how it goes on, then after a bar its facts: its item, its rounds and what
+/// The head of a work's group, one line with nothing on it said twice: its Start, Pause, Step and Start over while it
+/// goes on, the work by its number with its item's title, how it goes on, then after a bar its facts: its item, its rounds and what
 /// it cost, and while it goes on its stage, what it waits for and the tier its item is at, which the owner sets here.
 export function WorkHead({ c, w }: { c: Conversation; w: WorkSummary | null }) {
   const status = useStatus();
@@ -119,8 +130,8 @@ export function WorkHead({ c, w }: { c: Conversation; w: WorkSummary | null }) {
   );
 }
 
-/// A work's Start, Pause and Step, with the session they run its next round in; Step opens the round it ran on the
-/// work's page once it has ended.
+/// A work's Start, Pause and Step, with the session they run its next round in, and its Start over; Step opens the round
+/// it ran on the work's page once it has ended.
 function WorkControls({ w, status }: { w: WorkSummary; status: Status | null }) {
   const a = useActions(w, status, true);
   const stepped = useOpenStepped(status, w.id, (work, round) => navigate(workHref(work, { round })));
@@ -135,6 +146,7 @@ function WorkControls({ w, status }: { w: WorkSummary; status: Status | null }) 
           a.step(() => stepped(at));
         }}
       />
+      <StartOver a={a} w={w} status={status} />
       {a.error !== null ? <span className="bad">{t('request_failed', { error: a.error })}</span> : null}
     </span>
   );

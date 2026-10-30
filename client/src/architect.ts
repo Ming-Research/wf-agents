@@ -194,6 +194,7 @@ export type Outcome = { key: string; label: string; text: string; tab: Architect
 const ACTIONS: Record<string, Key> = {
   pause_work: 'handled_pause_work',
   resume_work: 'handled_resume_work',
+  start_work_over: 'handled_start_work_over',
   hold_starts: 'handled_hold_starts',
   release_starts: 'handled_release_starts',
   interject: 'handled_interject',

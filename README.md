@@ -79,7 +79,9 @@ looked at against a copy of the data; Pause all stops every work at the end of t
 switch keeps waiting sessions warm meanwhile. Each work has its own Start, Pause and Step in the head of its
 group in the Messages view, which win over the global state when they come later, Start all aside, which lifts no
 work's own pause; Step runs one round of a work, after showing what it will be, and leaves it paused; Start and Step
-resume the work's session or start a new one, as the owner chooses.
+resume the work's session or start a new one, as the owner chooses. Start over, after asking, ends a work on an item
+at once, a round of it under way cut off, and a new work begins the item again from the first cell, taking over its
+branch, worktree and pull request; the item's architect can start a work over too.
 
 The Messages view is the one place the owner acts: the one-to-one with each project's architect, wf-agents' own
 conversation (its faults and observations), a group for each work of the owner, its engineer and its project's

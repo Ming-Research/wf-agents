@@ -192,6 +192,20 @@ impl Control {
         }
     }
 
+    /// The engine took a work over by a new work on its item, as when the owner started it over: the owner's Start of the
+    /// old one goes on in the new one, and so does the lifting of its pause that Start asked.
+    pub fn replaced(&self, old: i64, new: i64) {
+        let mut a = lock(&self.asked);
+        if a.started.remove(&old) {
+            a.started.insert(new);
+        }
+        if a.releasing.remove(&old) {
+            a.releasing.insert(new);
+        }
+        drop(a);
+        self.changed.notify_all();
+    }
+
     /// The new sessions asked for that the loop has not handed on yet.
     pub fn take_new_sessions(&self) -> Vec<Fresh> {
         std::mem::take(&mut *lock(&self.fresh))
@@ -351,6 +365,19 @@ mod tests {
         c.ask_step(5, false).unwrap();
         c.stepped(Some(5));
         assert!(!c.asked().started.contains(&5) && !c.asked().releasing.contains(&5));
+    }
+
+    // The owner's Start of a work taken over goes on in the work that took its item over, its pause still to lift with
+    // it; a work the owner did not start hands on nothing.
+    #[test]
+    fn the_owner_s_start_goes_on_in_the_work_that_takes_a_work_over() {
+        let c = Control::default();
+        c.start(Fresh::Work(3), false);
+        c.replaced(3, 7);
+        c.replaced(4, 8);
+        let a = c.asked();
+        assert_eq!(a.started, BTreeSet::from([7]));
+        assert_eq!(a.releasing, BTreeSet::from([7]));
     }
 
     // A round or a Start asked in a new session hands the session manager its ask, the architect's with no work, once;

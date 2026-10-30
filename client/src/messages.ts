@@ -466,6 +466,16 @@ const messages = {
   work_start: 'Start',
   work_pause: 'Pause',
   work_step: 'Step',
+  work_start_over: 'Start over',
+  work_start_over_hint:
+    'Ends this work, and a new work begins its item again from the first cell, taking over its branch, worktree and pull request. Asks first.',
+  start_over_title: 'Start work {id} over?',
+  start_over_cut: "The round under way is cut off, and its agent's process finishes before the new work begins.",
+  start_over_new:
+    'A new work on item #{item} takes over the branch, the worktree and the pull request, starts from the first cell and is given your rulings and answers.',
+  start_over_paused: 'It starts paused, as you paused this one.',
+  start_over_goes_on: 'It goes on as this one does.',
+  start_over_not_paused: 'It starts with no pause: only a pause of yours carries over.',
   work_start_hint:
     'It goes on round after round, whatever the global state, its own pause lifted, until you pause it or pause every work; it still needs a free slot.',
   work_start_engine_hint:
@@ -1261,6 +1271,7 @@ const messages = {
   handled_did: 'Did at once:',
   handled_pause_work: 'paused the work on #{item}',
   handled_resume_work: 'let the work on #{item} go on',
+  handled_start_work_over: 'started the work on #{item} over',
   handled_hold_starts: 'held new works',
   handled_release_starts: 'let new works start',
   handled_interject: 'told the engineer of #{item}',

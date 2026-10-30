@@ -23,7 +23,7 @@ import type {
   WorkSummary,
 } from './api';
 import { controls, course, heldName, heldWords } from './components';
-import { held, runningWords, stepWhyNot, waitOf } from './course';
+import { held, runningWords, StartOver, startOverWords, stepWhyNot, waitOf } from './course';
 import { cellTab, cellTabs, cellWhere, numbered } from './flow/CellPanel';
 import { inputName } from './flow/CellGiven';
 import { fieldActions, titleOf } from './flow/Returns';
@@ -342,6 +342,50 @@ describe('how a work goes on', () => {
     expect(controls(architect, status({ paused: true })).start).toBe(true);
     // An ended work goes on no more.
     expect(controls(course(work({ state: 'ended', ended: 'x' }), status({})), status({})).pause).toBe(false);
+  });
+
+  // Start over is an icon button beside a work's Start, Pause and Step, only while a work on an item goes on, saying
+  // on hovering what it does; its question says what follows: the round under way cut off while one runs, the new work
+  // and what it takes over, and whether it starts paused.
+  it('offers Start over on a work on an item that goes on, and asks first what follows', () => {
+    const actions = (w: WorkSummary, s: Status) => {
+      const c = course(w, s);
+      return {
+        c,
+        can: controls(c, s),
+        busy: false,
+        error: null,
+        pause: () => {},
+        start: () => {},
+        step: () => {},
+        startOver: () => {},
+        newSession: false,
+        setNewSession: () => {},
+      };
+    };
+    const button = (w: WorkSummary, s: Status) =>
+      renderToStaticMarkup(createElement(StartOver, { a: actions(w, s), w, status: s }));
+    const shown = button(work({}), status({}));
+    expect(shown).toContain('aria-label="Start over"');
+    expect(shown).toContain(
+      'title="Start over\nEnds this work, and a new work begins its item again from the first cell, taking over its branch, worktree and pull request. Asks first."',
+    );
+    expect(button(work({ graph: 'architect', item: null, project: 'p' }), status({}))).toBe('');
+    expect(button(work({ state: 'ended', ended: 'x' }), status({}))).toBe('');
+    expect(startOverWords(work({}), status({ running: 5 }))).toEqual({
+      title: 'Start work 5 over?',
+      body:
+        "The round under way is cut off, and its agent's process finishes before the new work begins. A new work on " +
+        'item #1 takes over the branch, the worktree and the pull request, starts from the first cell and is given ' +
+        'your rulings and answers. It goes on as this one does.',
+    });
+    expect(startOverWords(work({ paused: 'x', paused_by: 'owner' }), status({})).body).toBe(
+      'A new work on item #1 takes over the branch, the worktree and the pull request, starts from the first cell and ' +
+        'is given your rulings and answers. It starts paused, as you paused this one.',
+    );
+    expect(startOverWords(work({ paused: 'cell R1: no', paused_by: 'engine' }), status({})).body).toMatch(
+      /It starts with no pause: only a pause of yours carries over\.$/,
+    );
   });
 });
 

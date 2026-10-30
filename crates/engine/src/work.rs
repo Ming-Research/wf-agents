@@ -333,9 +333,11 @@ pub struct Ended {
     pub command: Option<Vec<String>>,
 }
 
+/// Ends a round still open as `e` says; what it cost, when already kept on it and `e` says nothing of it, stays, as for
+/// a round whose work is to be started over, which the takeover cuts off.
 pub fn finish_round(conn: &Connection, id: RoundId, e: &Ended) -> Result<(), String> {
     conn.execute(
-        "UPDATE rounds SET output = ?3, transition = ?4, rejected = ?5, usage = ?6, compactions = ?7,
+        "UPDATE rounds SET output = ?3, transition = ?4, rejected = ?5, usage = coalesce(?6, usage), compactions = ?7,
                 model = coalesce(?8, model), ended_at = ?9
          WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
         params![

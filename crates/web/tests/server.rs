@@ -247,6 +247,16 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
     assert!(!s.control.asked().paused);
     assert_eq!(paused_by(&db, 1).as_deref(), Some("owner"));
     assert_eq!(paused_by(&db, 2).as_deref(), Some("engine"));
+    // The owner starts a work over: the engine is asked to, once, and wakes.
+    let woken = s.control.asked().woken;
+    let (status, done) = post(s.port, "/api/v1/works/1/start-over", "{}", "application/json");
+    assert_eq!(status, 200, "{done}");
+    assert!(done.ends_with(r#"{"done":"work 1 is started over"}"#), "{done}");
+    assert!(db::start_over_asked(db.conn(), 1).unwrap());
+    assert_eq!(s.control.asked().woken, woken + 1);
+    let (status, done) = post(s.port, "/api/v1/works/1/start-over", "{}", "application/json");
+    assert_eq!(status, 422, "{done}");
+    assert!(done.contains("work 1 is being started over already"), "{done}");
     // A project's architect is started and paused the same way; the configuration's one project is the default, and a
     // project there is not is refused.
     let (status, done) = post(

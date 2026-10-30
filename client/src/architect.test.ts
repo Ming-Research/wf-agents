@@ -282,7 +282,10 @@ describe("the architect's page", () => {
         made: 2,
         dropped: 1,
         observations: ['new', 'close'],
-        actions: [{ kind: 'pause_work', item: 3 }],
+        actions: [
+          { kind: 'pause_work', item: 3 },
+          { kind: 'start_work_over', item: 4 },
+        ],
         messages: ['q', 'q'],
       }),
     );
@@ -290,7 +293,7 @@ describe("the architect's page", () => {
       ['reply', 'Replied to work 7:', 'Split it in two.', null],
       ['changes', 'Item changes:', '2 made, 1 dropped', 'changes'],
       ['observations', 'Observations:', '1 recorded, 1 closed', 'observations'],
-      ['actions', 'Did at once:', 'paused the work on #3', null],
+      ['actions', 'Did at once:', 'paused the work on #3; started the work on #4 over', null],
       ['messages', 'Wrote to the architect of:', 'q', null],
     ]);
     expect(outcomes(handled({ why: 'Already done by #2.' })).map((o) => [o.key, o.text])).toEqual([

@@ -1,9 +1,10 @@
 //! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
-//! design card, what the owner says to a work's line, pausing a work and lifting a work's pause, the switch that keeps
-//! waiting sessions warm while every work is paused, forwarding a fault of wf-agents to an architect, the setting that
-//! forwards each new one as it comes, and ending a talk with an architect. Each is written as the owner, so `changes`
-//! records it as theirs, and the engine reads it as it goes on. What the owner says to the architect is
-//! `db::say_to_architect`.
+//! design card, what the owner says to a work's line, pausing a work and lifting a work's pause, starting a work over,
+//! the switch that keeps waiting sessions warm while every work is paused, forwarding a fault of wf-agents to an
+//! architect, the setting that forwards each new one as it comes, and ending a talk with an architect. Each is written
+//! as the owner, so `changes` records it as theirs, and the engine reads it as it goes on; a start over is an action of
+//! the outbox, which the engine carries out and records as the owner's in the end it writes. What the owner says to the
+//! architect is `db::say_to_architect`.
 
 use db::rusqlite::{Connection, OptionalExtension, params};
 use db::{Actor, Db, Matter, queue_matter};
@@ -605,6 +606,17 @@ pub fn pause(db: &mut Db, work: i64, why: Option<&str>) -> Result<String, String
     })
     .map_err(sql)?;
     Ok(format!("work {work} pauses"))
+}
+
+/// Starts a work over, as the owner: the engine takes it over as it takes over a work on an older flow version, saying
+/// the owner started it over. A round of it under way is cut off, what it hands in not taken, once its agent's process
+/// has ended; a new work on its item, on the flow version the engine runs, takes over its branch, worktree and pull
+/// request from the first cell and is told what exists, the owner's rulings and answers included; it is paused as the
+/// owner had paused this one. Only a work on an item that goes on can be started over ([`db::cannot_start_over`]).
+pub fn start_over(db: &mut Db, work: i64) -> Result<String, String> {
+    db.write(Actor::Owner, |tx| db::start_over(tx, work, Actor::Owner, None))
+        .map_err(sql)?;
+    Ok(format!("work {work} is started over"))
 }
 
 /// What the owner's Start of a work says, once the work is one that can go on: not ended.

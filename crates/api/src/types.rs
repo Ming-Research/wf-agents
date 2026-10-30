@@ -1433,8 +1433,8 @@ pub struct Handled {
     pub why: Option<String>,
 }
 
-/// Something a matter's path did at once: its kind (pause_work, resume_work, hold_starts, release_starts,
-/// interject), with the item it was about.
+/// Something a matter's path did at once: its kind (pause_work, resume_work, start_work_over, hold_starts,
+/// release_starts, interject), with the item it was about.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct HandledAction {
     pub kind: String,

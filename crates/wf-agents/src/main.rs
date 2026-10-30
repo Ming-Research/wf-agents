@@ -603,12 +603,13 @@ fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
 
 /// Runs the engine on the data directory with `claude -p` and the gh CLI, and serves the owner's page beside it. Every
 /// work starts paused, whatever the owner had started before the engine stopped: the owner starts them on the page;
-/// a work's own pause is kept. Between two steps the loop answers what the page asked, hands the session manager the
-/// new sessions the owner asked for, lifts the pause of the works the owner started once each may hold a slot, keeps
-/// waiting sessions warm unless the owner switched that off while every work is paused, tells how the engine stands,
-/// and takes the round of a work the owner asked for, or else the next step of the works that go on: every work but
-/// those paused by themselves, or while every work is paused, those the owner started. So a pause takes effect as
-/// soon as the round under way has ended.
+/// a work's own pause is kept. Between two steps the loop answers what the page asked: it carries out the starts over
+/// asked, whatever the global state, the owner's Start of a work taken over going on in the work that took its item
+/// over; hands the session manager the new sessions the owner asked for, lifts the pause of the works the owner
+/// started once each may hold a slot, keeps waiting sessions warm unless the owner switched that off while every work
+/// is paused, tells how the engine stands, and takes the round of a work the owner asked for, or else the next step of
+/// the works that go on: every work but those paused by themselves, or while every work is paused, those the owner
+/// started. So a pause takes effect as soon as the round under way has ended.
 fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
     let github = engine::hub::Gh::new(d.join("logs"));
@@ -672,6 +673,12 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     // The work the last step took, from which the next step goes round the works.
     let mut after: Option<i64> = None;
     while !stop.exists() {
+        if let Err(x) = e.start_overs() {
+            (e.say)(&format!("starting works over: {x}"));
+        }
+        for (old, new) in e.replaced() {
+            control.replaced(old, new);
+        }
         let asked = control.asked();
         for work in control.take_new_sessions() {
             e.sessions.ask_new(work);

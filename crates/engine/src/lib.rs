@@ -117,6 +117,9 @@ pub struct Engine {
     /// How long a run that failed in passing waits before it runs again the first time; twice as long each time
     /// after, up to five minutes.
     pub retry_wait: Duration,
+    /// The works taken over, each with the new work that took its item over, until the engine's loop has read them
+    /// ([`Engine::replaced`]): the owner's Start of a work goes on in the work that replaced it.
+    replaced: Vec<(i64, i64)>,
 }
 
 impl Engine {
@@ -161,6 +164,7 @@ impl Engine {
             halt: None,
             told: None,
             retry_wait: Duration::from_secs(10),
+            replaced: Vec::new(),
         };
         let names: Vec<String> = e.config.config.install.agents.clis.keys().cloned().collect();
         for name in names {
@@ -207,6 +211,7 @@ impl Engine {
             halt: None,
             told: None,
             retry_wait: Duration::from_secs(10),
+            replaced: Vec::new(),
         })
     }
 
@@ -218,7 +223,7 @@ impl Engine {
         for w in works {
             match self.cannot_move(w)? {
                 None => self.move_up(w)?,
-                Some(why) => over.push((w.clone(), why)),
+                Some(cannot) => over.push((w.clone(), self.moved_on(&cannot))),
             }
         }
         Ok(Brought {
@@ -274,25 +279,32 @@ impl Engine {
         Ok(())
     }
 
-    /// Takes over works on an older flow version that cannot move, each with why, which the engine does when each next
-    /// goes on, instead of taking its step: each stops, saying why, as every work ends ([`ending::end`]: the round it
-    /// was in is cut off, its design cards are replaced, its asks of the owner need no answer, its questions to the
-    /// architect are withdrawn and its sessions end), and its item gets a new work on this version, whose cell `S1`
-    /// takes over the stopped work's branch, worktree and pull request and whose cell `R1` is told what exists, the
-    /// questions withdrawn included. Until then the owner still rules on its design cards and answers its asks, and the
-    /// new work is given them. A new work is paused as the owner had paused the old one, so that a work the owner steps
-    /// stays in the owner's hands. Every work given is stopped before any new one starts, so that the slots they held
+    /// Why a work on an older flow version that cannot move is taken over: the version, and what changed there.
+    fn moved_on(&self, cannot: &str) -> String {
+        format!(
+            "the flow moved to version {}, where {cannot}, and a new work on it takes the item over",
+            self.flow_now
+        )
+    }
+
+    /// Takes works over, each with why: a work on an older flow version that cannot move, which the engine does when
+    /// it next goes on, instead of taking its step, and a work the owner or its project's architect started over
+    /// ([`Engine::start_over`]). Each stops, saying why, as every work ends ([`ending::end`]: the round it was in is
+    /// cut off, its design cards are replaced, its asks of the owner need no answer, its questions to the architect are
+    /// withdrawn and its sessions end), and its item gets a new work on the version the engine runs, whose cell `S1`
+    /// takes over the stopped work's branch, worktree (with what is not committed in it) and pull request and whose
+    /// cell `R1` is told what exists, the questions withdrawn included. Until then the owner still rules on its design
+    /// cards and answers its asks, and the new work is given them. A new work is paused as the owner had paused the old
+    /// one, so that a work the owner steps stays in the owner's hands, and goes on under the owner's Start of the old
+    /// one ([`Engine::replaced`]). Every work given is stopped before any new one starts, so that the slots they held
     /// are free; a new work takes a slot only when one is free: in the order of the works stopped, those that find one
     /// start now, and the items of the rest go to the head of the queue, ahead of the items queued before, in the same
     /// order, to start as slots free. Gives the new works started.
     fn take_over(&mut self, works: &[(Work, String)]) -> Result<Vec<i64>, String> {
-        let now = self.flow_now;
         let mut takeovers = Vec::new();
         let projects = self.config.config.projects.clone();
-        for (w, cannot) in works {
+        for (w, why) in works {
             let id = w.id;
-            let why =
-                format!("the flow moved to version {now}, where {cannot}, and a new work on it takes the item over");
             let stopped = format!("stopped: {why}");
             self.db
                 .write(Actor::Engine, |tx| {
@@ -338,6 +350,7 @@ impl Engine {
             if waiting.is_empty() && self.free_slots()? > 0 {
                 let new = self.start_work(item, held.as_deref())?;
                 (self.say)(&format!("work {new} started on item {item}, after work {id}"));
+                self.replaced.push((id, new));
                 started.push(new);
             } else {
                 waiting.push((id, item));
@@ -368,6 +381,40 @@ impl Engine {
             ));
         }
         Ok(started)
+    }
+
+    /// Starts a work over, as the owner or its project's architect asked ([`db::start_over`]), by taking it over as a
+    /// work on an older flow version is taken over ([`Engine::take_over`]), saying who started it over and, for the
+    /// architect, why. A work that can no longer be started over, as one that ended since it was asked, is left as it is.
+    fn start_over(&mut self, id: i64, by: &str, why: Option<&str>) -> Result<(), String> {
+        let w = self.work(id)?;
+        if w.ended.is_some() || w.graph != ENGINEER || self.done(&w)? {
+            (self.say)(&format!("work {id} is not started over: it is over"));
+            return Ok(());
+        }
+        let who = if by == db::Actor::Architect.name() {
+            "the architect"
+        } else {
+            "the owner"
+        };
+        let why = match why.map(|w| w.trim().trim_end_matches(['.', '\u{3002}'])) {
+            Some(why) => format!("{who} started it over, and a new work on it takes the item over: {why}"),
+            None => format!("{who} started it over, and a new work on it takes the item over"),
+        };
+        self.take_over(&[(w, why)])?;
+        Ok(())
+    }
+
+    /// Carries out the starts over asked, whatever the global state, as the engine's loop does at each turn: the owner
+    /// asks one on the page while every work may be paused, and nothing else of the outbox is carried out then. Gives
+    /// whether any was.
+    pub fn start_overs(&mut self) -> Result<bool, String> {
+        actions::run_start_overs(self)
+    }
+
+    /// The works taken over since the engine's loop last read them, each with the new work that took its item over.
+    pub fn replaced(&mut self) -> Vec<(i64, i64)> {
+        std::mem::take(&mut self.replaced)
     }
 
     /// The works that go on by themselves on an older flow version, in the order of their ids: each moves or is taken
@@ -615,9 +662,15 @@ impl Engine {
         if w.ended.is_some() || (w.paused.is_some() && !asked) || self.done(&w)? {
             return Ok(Advance::Stopped);
         }
+        // A work asked to be started over is started over instead of going on.
+        if db::start_over_asked(self.db.conn(), id).map_err(|e| e.to_string())? {
+            actions::run_start_overs(self)?;
+            return Ok(Advance::Stopped);
+        }
         if w.flow_version != self.flow_now {
             match self.cannot_move(&w)? {
-                Some(why) => {
+                Some(cannot) => {
+                    let why = self.moved_on(&cannot);
                     self.take_over(&[(w, why)])?;
                     return Ok(Advance::Stopped);
                 }
@@ -1059,8 +1112,9 @@ impl Engine {
         let mut started_item = None;
         let outdated = w.ended.is_none() && w.flow_version != self.flow_now && !self.done(&w)?;
         let cannot = if outdated { self.cannot_move(&w)? } else { None };
-        if let Some(why) = cannot {
+        if let Some(cannot) = cannot {
             let item = w.item;
+            let why = self.moved_on(&cannot);
             if let Some(new) = self.take_over(&[(w, why)])?.first().copied() {
                 self.take_step(new, true)?;
                 stepped = new;

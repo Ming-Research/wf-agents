@@ -1,8 +1,8 @@
 // How a work goes on, in words and controls, as its row in the list of works and its window show them: whether a
 // round of it runs, what holds it back and what it waits for, and the owner's Start, Pause and Step, with the session
-// Start and Step run the next round in.
+// Start and Step run the next round in, and Start over.
 
-import { IconButton } from '@primer/react';
+import { ConfirmationDialog, IconButton } from '@primer/react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Status, Waits, WorkSummary } from './api';
@@ -69,10 +69,10 @@ export function sessionKey(w: WorkSummary): string {
   return w.graph === 'architect' ? 'architect' : `work:${w.id}`;
 }
 
-/// The owner's Start, Pause and Step of a work, each a request, and what failed. With `ask`, Start and Step ask first
-/// what they will do (the cell that runs again, the round that runs, the takeover, the architect's stop the owner
-/// lifts); without, the place they are pressed from has said it. A work of the architect is started and paused as the
-/// architect is: its later works go on the same way.
+/// The owner's Start, Pause and Step of a work, each a request, its Start over, which `StartOver` asks first, and what
+/// failed. With `ask`, Start and Step ask first what they will do (the cell that runs again, the round that runs, the
+/// takeover, the architect's stop the owner lifts); without, the place they are pressed from has said it. A work of the
+/// architect is started and paused as the architect is: its later works go on the same way.
 export function useActions(w: WorkSummary, status: Status | null, ask: boolean) {
   const c = course(w, status);
   const can = controls(c, status);
@@ -116,7 +116,55 @@ export function useActions(w: WorkSummary, status: Status | null, ask: boolean) 
       then?.();
     });
   };
-  return { c, can, busy, error, pause, start, step, newSession, setNewSession };
+  const startOver = () => post(`/api/v1/works/${w.id}/start-over`, {}, () => reread('messages', 'items'));
+  return { c, can, busy, error, pause, start, step, startOver, newSession, setNewSession };
+}
+
+/// What the owner's Start over of a work asks first: its question, and what follows in plain words: a round under way
+/// is cut off, and its agent's process finishes before the new work begins; a new work on the item takes over its
+/// branch, worktree and pull request from the first cell, given the owner's rulings and answers; and it is paused only
+/// as the owner had paused this one.
+export function startOverWords(w: WorkSummary, status: Status | null): { title: string; body: string } {
+  const c = course(w, status);
+  const pause =
+    c.held === 'you'
+      ? t('start_over_paused')
+      : c.held === 'engine' || c.held === 'architect'
+        ? t('start_over_not_paused')
+        : t('start_over_goes_on');
+  const parts = [c.running !== null ? t('start_over_cut') : null, t('start_over_new', { item: w.item ?? '' }), pause];
+  return { title: t('start_over_title', { id: w.id }), body: parts.filter((x) => x !== null).join(' ') };
+}
+
+/// The owner's Start over of a work on an item that goes on, beside its Start, Pause and Step, in its group's head only:
+/// a small IconButton saying on hovering what it does, which asks first in Primer's confirmation dialog, the request
+/// sent only once the owner confirms.
+export function StartOver({ a, w, status }: {
+  a: ReturnType<typeof useActions>;
+  w: WorkSummary;
+  status: Status | null;
+}) {
+  const [asking, setAsking] = useState(false);
+  if (w.graph === 'architect' || !(a.can.start || a.can.pause)) return null;
+  const q = startOverWords(w, status);
+  return (
+    <>
+      <Control icon="over" hint={t('work_start_over_hint')} onClick={() => setAsking(true)} disabled={a.busy} />
+      {asking ? (
+        <ConfirmationDialog
+          title={q.title}
+          confirmButtonContent={t('work_start_over')}
+          confirmButtonType="danger"
+          onClose={(gesture) => {
+            setAsking(false);
+            if (gesture === 'confirm') a.startOver();
+          }}
+        >
+          {q.body}
+        </ConfirmationDialog>
+      ) : null}
+    </>
+  );
 }
 
 /// What opens the round the owner's Step asked for once it has ended, where it ran: in the work that took the asked
@@ -142,15 +190,22 @@ export function useOpenStepped(
 }
 
 /// The icons of the owner's controls, at Octicons' size and drawn in the colour of their button's text: Start a
-/// triangle, Pause two bars, Step a triangle against a bar, and the new session a speech bubble holding a plus. Octicons
-/// has no step and no new session, and its play and pause are in circles, so the four are drawn alike here.
-function glyph(of: 'start' | 'pause' | 'step' | 'session') {
+/// triangle, Pause two bars, Step a triangle against a bar, the new session a speech bubble holding a plus, and Start
+/// over an arrow that turns back round to where it began. Octicons has no step, no new session and no start over, and
+/// its play and pause are in circles, so the five are drawn alike here.
+function glyph(of: 'start' | 'pause' | 'step' | 'session' | 'over') {
   return function ControlIcon() {
     return (
       <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true" focusable="false">
         {of === 'start' ? <path d="M5 3.2v9.6l7.6-4.8z" /> : null}
         {of === 'pause' ? <path d="M4.5 3.5h2.4v9H4.5zM9.1 3.5h2.4v9H9.1z" /> : null}
         {of === 'step' ? <path d="M3.5 3.5v9l6.4-4.5zM10.6 3.5h2v9h-2z" /> : null}
+        {of === 'over' ? (
+          <g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 3.5a4.5 4.5 0 1 1-4.5 4.5" />
+            <path d="M9.75 1.75 8 3.5l1.75 1.75" />
+          </g>
+        ) : null}
         {of === 'session' ? (
           <g fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
             <path d="M2.5 4q0-1.5 1.5-1.5h8q1.5 0 1.5 1.5v5.5q0 1.5-1.5 1.5H7l-3 2.5V11q-1.5 0-1.5-1.5z" />
@@ -162,15 +217,21 @@ function glyph(of: 'start' | 'pause' | 'step' | 'session') {
   };
 }
 
-const ICONS = { start: glyph('start'), pause: glyph('pause'), step: glyph('step'), session: glyph('session') };
+const ICONS = {
+  start: glyph('start'),
+  pause: glyph('pause'),
+  step: glyph('step'),
+  session: glyph('session'),
+  over: glyph('over'),
+};
 
-/// The names of Start, Pause and Step, said on hovering each and to a screen reader.
-const NAMES = { start: 'work_start', pause: 'work_pause', step: 'work_step' } as const;
+/// The names of Start, Pause, Step and Start over, said on hovering each and to a screen reader.
+const NAMES = { start: 'work_start', pause: 'work_pause', step: 'work_step', over: 'work_start_over' } as const;
 
-/// One of the owner's Start, Pause and Step, a small IconButton: hovering says its name and what it does, or why it
-/// cannot now, and a screen reader is told its name.
+/// One of the owner's Start, Pause, Step and Start over, a small IconButton: hovering says its name and what it does,
+/// or why it cannot now, and a screen reader is told its name.
 export function Control({ icon, hint, onClick, disabled }: {
-  icon: 'start' | 'pause' | 'step';
+  icon: 'start' | 'pause' | 'step' | 'over';
   hint: string;
   onClick: () => void;
   disabled: boolean;

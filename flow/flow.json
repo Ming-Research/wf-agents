@@ -2137,6 +2137,18 @@
           ]
         },
         {
+          "value": "start_work_over",
+          "desc": "End the work running on an item and have a new work on it begin from the first cell, taking over its branch, worktree and pull request and told what exists: only when it went wrong in a way that letting it go on or resuming it will not mend, and what it built is still worth keeping",
+          "fields": [
+            {
+              "name": "item",
+              "title": "Item",
+              "type": "int",
+              "desc": "The item: its number"
+            }
+          ]
+        },
+        {
           "value": "hold_starts",
           "desc": "Start no new work of this project, while starting them would start the wrong ones; works running go on",
           "fields": []
@@ -2216,7 +2228,7 @@
           "name": "actions",
           "title": "Actions",
           "type": "list",
-          "desc": "What to do at once: pause or resume a work, hold or release new starts, interject",
+          "desc": "What to do at once: pause, resume or start over a work, hold or release new starts, interject",
           "item": {
             "$ref": "arch_action"
           },
@@ -2868,7 +2880,7 @@
       "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, and what was said in the works' groups only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session.",
-      "stop_work": "A work cancelled, or taken over by a work on a newer flow version because the cell it stands at or the shape of a return it handed in is not the same there (else it moves to that version and goes on where it stands), ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over."
+      "stop_work": "A work cancelled, taken over by a work on a newer flow version because the cell it stands at or the shape of a return it handed in is not the same there (else it moves to that version and goes on where it stands), or started over by the owner or its project's architect, which a new work on the version the engine runs takes over as it would on a newer one, ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off, and a round running when it is started over hands in nothing. A work taken over leaves its worktree and pull request to the work that takes it over."
     },
     "actions": {
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
@@ -3731,7 +3743,7 @@
         "The engineers' work: look at a work where it meets the whole: whether it still serves the policy's direction; whether it duplicates another work, collides with one or waits on one; whether its problem changed under it. Two works that would change the same code in ways that conflict run one after the other, by a dependency: blocking when the later must not start before the earlier is merged, parallel when it may start and wait before it merges. When a work others wait on changes its approach or its result, or stops, look at those waiting: whether the dependency still holds, and whether their approach or acceptance must change.",
         "The engineers' work: engineers do not see the policy. What it requires of a work reaches it only through what you write: the item's problem, why and acceptance, your replies and your interjections. Write the requirement out in concrete terms; never tell an engineer only \"by the policy\".",
         "Design cards: the owner rules on design cards, not you. Nothing you write, in an interjection, a reply or anywhere else, confirms, refuses or forecasts the owner's ruling on a decision. Wherever you meet a card, look only at whether the card itself is sound and whether the approaches it chose by default are reasonable in the whole; act when one is not, and leave the card alone when both are. A card the owner has confirmed is not yours to look at.",
-        "Acting: pause a work only when its going on would be wasted, or do harm, before its engineer could act on an interjection; otherwise interject, so that the work does not stand idle. Hold new starts only while starting them would start the wrong ones. Say why in each pause and hold: the owner reads it on the page as yours.",
+        "Acting: pause a work only when its going on would be wasted, or do harm, before its engineer could act on an interjection; otherwise interject, so that the work does not stand idle. Start a work over only when it went wrong in a way resuming will not mend, and what it built is still worth keeping. Hold new starts only while starting them would start the wrong ones. Say why in each pause, start over and hold: the owner reads it on the page as yours.",
         "Acting: a pause or a hold you make lasts until you end it; the owner's Start all does not end it. End it when it should end, in the work you are in, or write it in your notebook: no work of yours starts for what your notebook holds, so what you must come back to is in your notebook, not in your memory.",
         "Never: you push, merge and change no code, configuration, flow or rule, and the database changes only by your effects, as the engine carries them out. Do not reach an item change by another way before it is made: no interjection or reply has an engineer act as if it were made, and a pause holds a work only until the change is made; it does not stand in for a cancellation.",
         "Observations: what is worth doing some day but has no item is an observation of the project, tagged from its set; the same thing reported again is merged into it, not recorded twice. When an item is made or scheduled, search for the observations it could take in first, and fold in those it does.",

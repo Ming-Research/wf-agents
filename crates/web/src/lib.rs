@@ -125,6 +125,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/works/{id}/step", post(step))
         .route("/api/v1/works/{id}/start", post(start_work))
         .route("/api/v1/works/{id}/pause", post(pause))
+        .route("/api/v1/works/{id}/start-over", post(start_over))
         .route("/api/v1/works/{id}/say", post(say_to_work))
         .route("/api/v1/works/{id}/rounds/{n}", get(round))
         .route("/api/v1/works/{id}/contents/{hash}", get(content))
@@ -734,6 +735,13 @@ async fn pause(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::
         r => r,
     })
     .await
+}
+
+/// Starts a work over, as the owner: the engine takes it over at once, whatever the global state, as it takes over a
+/// work on an older flow version, a round of it under way cut off once its agent's process has ended; the owner's Start
+/// of it goes on in the new work.
+async fn start_over(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::Done>, Fail> {
+    decide(&app, move |db| api::start_over(db, id)).await
 }
 
 /// Pauses a project's architect, as the owner: its work that runs is paused as a work is, and the owner's Start of the

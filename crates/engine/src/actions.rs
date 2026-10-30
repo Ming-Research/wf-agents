@@ -713,10 +713,21 @@ fn line_of(ctx: &Ctx) -> String {
 /// Carries out what is due in the outbox; an action that fails is tried again later, waiting longer each time.
 /// Gives whether anything was done.
 pub fn run_outbox(e: &mut Engine) -> Result<bool, String> {
+    carry_out(e, None)
+}
+
+/// Carries out the starts over due in the outbox, and nothing else of it.
+pub fn run_start_overs(e: &mut Engine) -> Result<bool, String> {
+    carry_out(e, Some(db::START_OVER))
+}
+
+/// Carries out what is due in the outbox, only the actions of one kind when `only` names it.
+fn carry_out(e: &mut Engine, only: Option<&str>) -> Result<bool, String> {
     let due = query_json(
         e.db.conn(),
-        "SELECT id, work, kind, args, attempts FROM outbox WHERE run_after <= ?1 ORDER BY id",
-        &[&db::now()],
+        "SELECT id, work, kind, args, attempts FROM outbox WHERE run_after <= ?1 AND (?2 IS NULL OR kind = ?2)
+         ORDER BY id",
+        &[&db::now(), &only],
         100,
     )?;
     let mut did = false;
@@ -724,6 +735,11 @@ pub fn run_outbox(e: &mut Engine) -> Result<bool, String> {
         let id = row["id"].as_i64().unwrap_or_default();
         let args = &row["args"];
         let result = match row["kind"].as_str().unwrap_or_default() {
+            db::START_OVER => e.start_over(
+                row["work"].as_i64().unwrap_or_default(),
+                args["by"].as_str().unwrap_or_default(),
+                args["why"].as_str(),
+            ),
             "notify" => notify_owner(e, args["text"].as_str().unwrap_or_default()),
             "remove_worktree" => {
                 let checkout = PathBuf::from(args["checkout"].as_str().unwrap_or_default());
