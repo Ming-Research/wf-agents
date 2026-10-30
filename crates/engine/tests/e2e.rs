@@ -3766,6 +3766,20 @@ fn a_new_policy_takes_effect_and_the_architect_goes_on_in_its_session() {
         n.is_some()
     };
     assert!(steps_until(&mut e, 40, settled), "{}", said.borrow().join("\n"));
+    // The work that ended the setting goes on to what to do next.
+    let (work, n): (i64, i64) =
+        e.db.conn()
+            .query_row(
+                "SELECT handled_work, handled_round FROM architect_matters WHERE id = ?1",
+                [m],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert!(
+        steps_until(&mut e, 5, |e| path_of(e, work).len() > n as usize),
+        "{}",
+        said.borrow().join("\n")
+    );
     let log = said.borrow().join("\n");
     assert_eq!(setting_rows(&e, "P3"), ["held", "satisfied"], "{log}");
     assert_eq!(setting_rows(&e, "P11"), ["held", "approved"], "{log}");
@@ -3901,11 +3915,14 @@ fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
         for g in config::GIT_CHANGES {
             assert!(p2.r.refused.contains(&format!("Bash(git {g} *)")), "git {g}");
         }
+        // The session is told where it works at its first round, and the study, in the same session, is pointed to
+        // it.
         assert!(
-            p2.r.prompt.contains(&p2.r.worktree.display().to_string()),
+            u1.r.prompt.contains(&u1.r.worktree.display().to_string()),
             "{}",
-            p2.r.prompt
+            u1.r.prompt
         );
+        assert!(p2.r.prompt.contains("Worktree: work:architect"), "{}", p2.r.prompt);
     }
     assert!(!worktrees.join("policy").exists());
     e.advance(arch).unwrap();
