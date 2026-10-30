@@ -3185,15 +3185,6 @@ fn say(e: &mut Engine, text: &str) {
     db::say_to_architect(&mut e.db, "p", None, None, text).unwrap();
 }
 
-/// Whether a work stands at a cell, its last round having taken a row there.
-fn stands_at(e: &Engine, work: i64, cell: &str) -> bool {
-    let at: String =
-        e.db.conn()
-            .query_row("SELECT at FROM works WHERE id = ?1", [work], |r| r.get(0))
-            .unwrap();
-    at == cell
-}
-
 // The owner's words start a work of project p's architect, which goes once through the whole graph: it starts, finds
 // its new session has not understood the project, understands it, which queues the check of the policy and the plan of
 // what to do next at the head of the queue, and takes the owner's words first, in one round: it replies, in the owner's

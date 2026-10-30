@@ -3390,12 +3390,12 @@ mod tests {
         assert_eq!(
             lines,
             [
-                ("interjection".to_string(), Some("replied".to_string()), None),
                 (
                     "words".to_string(),
                     Some("replying".to_string()),
                     Some((5, 5, "H8".to_string()))
-                )
+                ),
+                ("interjection".to_string(), Some("replied".to_string()), None)
             ]
         );
         step(
@@ -3409,7 +3409,7 @@ mod tests {
             ],
         );
         let (lines, said) = group(&s);
-        assert_eq!(lines[1], ("words".to_string(), Some("replied".to_string()), None));
+        assert_eq!(lines[0], ("words".to_string(), Some("replied".to_string()), None));
         assert!(said.contains(&"On it.".to_string()), "{said:?}");
         let (_, said) = words_lines(&s, &t, "architect:p");
         assert!(!said.contains(&"On it.".to_string()), "{said:?}");
