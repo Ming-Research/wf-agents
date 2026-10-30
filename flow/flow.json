@@ -15325,6 +15325,15 @@
                   "engine": "guide"
                 }
               ]
+            },
+            {
+              "name": "The batch so far",
+              "what": "The batch so far: the matters handled in it and how each ended",
+              "from": [
+                {
+                  "engine": "batch"
+                }
+              ]
             }
           ],
           "prompt": [
@@ -15660,6 +15669,15 @@
                   "engine": "before"
                 }
               ]
+            },
+            {
+              "name": "The batch so far",
+              "what": "The batch so far: the matters handled in it and how each ended",
+              "from": [
+                {
+                  "engine": "batch"
+                }
+              ]
             }
           ],
           "prompt": [
@@ -15954,6 +15972,15 @@
                   "engine": "observation_tags"
                 }
               ]
+            },
+            {
+              "name": "The batch so far",
+              "what": "The batch so far: the matters handled in it and how each ended",
+              "from": [
+                {
+                  "engine": "batch"
+                }
+              ]
             }
           ],
           "prompt": [
@@ -16158,6 +16185,15 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "The batch so far",
+              "what": "The batch so far: the matters handled in it and how each ended",
+              "from": [
+                {
+                  "engine": "batch"
+                }
+              ]
             }
           ],
           "prompt": [
@@ -16278,6 +16314,15 @@
                 {
                   "db": "known_red_checks",
                   "by": "project"
+                }
+              ]
+            },
+            {
+              "name": "The batch so far",
+              "what": "The batch so far: the matters handled in it and how each ended",
+              "from": [
+                {
+                  "engine": "batch"
                 }
               ]
             }
@@ -16419,6 +16464,15 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "The batch so far",
+              "what": "The batch so far: the matters handled in it and how each ended",
+              "from": [
+                {
+                  "engine": "batch"
+                }
+              ]
             }
           ],
           "prompt": [
@@ -16730,6 +16784,15 @@
                   "engine": "cross_project"
                 }
               ]
+            },
+            {
+              "name": "The batch so far",
+              "what": "The batch so far: the matters handled in it and how each ended",
+              "from": [
+                {
+                  "engine": "batch"
+                }
+              ]
             }
           ],
           "prompt": [
@@ -16843,6 +16906,15 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "The batch so far",
+              "what": "The batch so far: the matters handled in it and how each ended",
+              "from": [
+                {
+                  "engine": "batch"
+                }
+              ]
             }
           ],
           "prompt": [
