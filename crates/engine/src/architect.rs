@@ -4316,7 +4316,9 @@ struct RoundSpan {
 }
 
 /// The rounds of the engineer's works on a project's items that were under way at some time from `from` to `to`, but
-/// those at which a work waits for an answer, which stay open for as long as the answer takes.
+/// those at which a work waits for an answer, which stay open for as long as the answer takes. A round with no end is
+/// trusted to be under way: the engine closes one cut off by its stopping only when it next steps the work, so that
+/// after a crash a work left paused or never stepped again keeps counting as running until then.
 fn rounds_running(conn: &Connection, project: &str, from: i64, to: i64) -> Result<Vec<RoundSpan>, String> {
     let mut st = conn
         .prepare(&format!(
@@ -4374,9 +4376,10 @@ fn running_together(runs: &[RoundSpan], from: i64, to: i64) -> (i64, i64) {
 
 /// The works of the engineer's graph on a project's items that ended without a merge, each with its kind and when it
 /// ended, from `from` to `to`: a work stopped before the end of its graph, by the kind it records, when the change
-/// to its `ended` was made; a work that reached the end of its graph and never merged, which the flow has only when
-/// all of its work went to sub-items, by the end of its last round. A work with a round that merged never counts,
-/// even when its item was cancelled after it, and a work that delivers a report is merged as any other.
+/// to its `ended` was made; a work that stood at the end of its graph and never merged, which the flow has only when
+/// all of its work went to sub-items, by the end of its last round, whether or not its item was cancelled after (a
+/// stop does not move a work from the end cell, where it had ended already). A work with a round that merged never
+/// counts, even when its item was cancelled after it, and a work that delivers a report is merged as any other.
 fn unmerged_ends(conn: &Connection, project: &str, from: i64, to: i64) -> Result<Vec<(&'static str, i64)>, String> {
     let merged = format!(
         "NOT EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.cell IN {} AND r.transition = 'merged')",
@@ -4387,13 +4390,14 @@ fn unmerged_ends(conn: &Connection, project: &str, from: i64, to: i64) -> Result
                 (SELECT min(c.at) FROM changes c WHERE c.table_name = 'works' AND c.row_key = json_object('id', w.id)
                    AND json_extract(c.new_row, '$.ended') IS NOT NULL AND json_extract(c.old_row, '$.ended') IS NULL)
          FROM works w JOIN items i ON i.id = w.item
-         WHERE i.project = ?1 AND w.graph = 'engineer' AND w.ended IS NOT NULL AND {merged}"
+         WHERE i.project = ?1 AND w.graph = 'engineer' AND w.ended IS NOT NULL AND w.at NOT IN {} AND {merged}",
+        db::cells_sql(ENGINEER, &[ENGINEER_END])
     );
     let at_the_end = format!(
         "SELECT 'no_merge_at_end',
                 (SELECT coalesce(r.ended_at, r.started_at) FROM rounds r WHERE r.work = w.id ORDER BY r.n DESC LIMIT 1)
          FROM works w JOIN items i ON i.id = w.item
-         WHERE i.project = ?1 AND w.graph = 'engineer' AND w.ended IS NULL AND w.at IN {} AND {merged}",
+         WHERE i.project = ?1 AND w.graph = 'engineer' AND w.at IN {} AND {merged}",
         db::cells_sql(ENGINEER, &[ENGINEER_END])
     );
     let mut out = Vec::new();
@@ -5615,6 +5619,21 @@ mod tests {
         let to_sub_items = an_engineer_work(&mut db, "p", "E1");
         a_round(&mut db, to_sub_items, 1, "T7", Some("all_to_sub_items"), 100, Some(700));
         a_round(&mut db, to_sub_items, 2, "E1", None, 700, Some(777));
+        // The same, with its item cancelled after: still one end at the end of its graph, by its last round, and not
+        // another under the cancellation, since the stop does not move the work from the end cell.
+        let cancelled_after = an_engineer_work(&mut db, "p", "E1");
+        a_round(&mut db, cancelled_after, 1, "T7", Some("all_to_sub_items"), 100, Some(800));
+        a_round(&mut db, cancelled_after, 2, "E1", None, 800, Some(888));
+        db.write(Actor::Engine, |tx| {
+            end(
+                tx,
+                cancelled_after,
+                End::Stopped(EndKind::ItemCancelled, "item cancelled: z"),
+                &projects,
+            )
+            .map_err(db::Error::Abort)
+        })
+        .unwrap();
         let report = an_engineer_work(&mut db, "p", "E1");
         db.write(Actor::Engine, |tx| {
             tx.execute(
@@ -5640,6 +5659,7 @@ mod tests {
                 "item_cancelled",
                 "item_cancelled",
                 "no_merge_at_end",
+                "no_merge_at_end",
                 "other",
                 "other",
                 "started_over"
@@ -5647,9 +5667,12 @@ mod tests {
         );
         // The end of its last round is when a work at the end of its graph ended, both ends of the range included.
         let at_end = |from, to| unmerged_ends(db.conn(), "p", from, to).unwrap();
-        assert_eq!(at_end(0, 1_000), [("no_merge_at_end", 777)]);
+        let mut both = at_end(0, 1_000);
+        both.sort();
+        assert_eq!(both, [("no_merge_at_end", 777), ("no_merge_at_end", 888)]);
         assert_eq!(at_end(777, 777), [("no_merge_at_end", 777)]);
-        assert!(at_end(778, 1_000).is_empty());
+        assert_eq!(at_end(778, 1_000), [("no_merge_at_end", 888)]);
+        assert!(at_end(889, 1_000).is_empty());
         assert!(at_end(0, 776).is_empty());
     }
 

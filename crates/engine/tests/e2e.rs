@@ -5671,172 +5671,11 @@ fn a_work_that_ran(
     Ok(work)
 }
 
-// The numbers the architect is given say, week by week, the most works of the project that ran together and for how
-// long two or more did, and how many of its works ended without a merge, by kind. A work waiting for the architect or
-// the owner does not run, whatever the version's id for the cell; a work that merged never ends unmerged, whatever
-// becomes of its item; another project's works count for nothing; and a week with none has zeros, not missing values.
-#[test]
-fn the_numbers_say_how_many_works_ran_together_and_ended_without_a_merge() {
-    use engine::ending::{End, EndKind, end};
-    let s = setup("numbers-together");
-    let (mut e, said) = engine(&s, scripts());
-    quiet(&mut e);
-    an_item(&mut e);
-    let v = e.flow_now;
-    let projects = e.config.config.projects.clone();
-    let (hour, day) = (3_600_000, 24 * 3_600_000);
-    let now = db::now();
-    e.db.write(Actor::Engine, |tx| {
-        // Two that run, for two of their hours together; a third waits for the owner, a fourth by the id the cell had
-        // before, both under way for longer; and another project's runs beside them.
-        a_work_that_ran(
-            tx,
-            v,
-            "p",
-            "I1",
-            &[("I1", Some("tools"), now - 10 * hour, Some(now - 6 * hour))],
-        )?;
-        a_work_that_ran(
-            tx,
-            v,
-            "p",
-            "I1",
-            &[("I1", Some("tools"), now - 8 * hour, Some(now - 4 * hour))],
-        )?;
-        a_work_that_ran(tx, v, "p", "A3", &[("A3", None, now - 9 * hour, None)])?;
-        a_work_that_ran(tx, v, "p", "16", &[("16", None, now - 30 * hour, None)])?;
-        a_work_that_ran(
-            tx,
-            v,
-            "q",
-            "I1",
-            &[("I1", Some("tools"), now - 9 * hour, Some(now - 5 * hour))],
-        )?;
-        // The week before: one that ran alone.
-        a_work_that_ran(
-            tx,
-            v,
-            "p",
-            "I1",
-            &[("I1", None, now - 8 * day, Some(now - 8 * day + hour))],
-        )?;
-        // Ended: by the flow moving, by its item cancelled, one that merged and then had its item cancelled, and
-        // another project's.
-        let moved = a_work_that_ran(tx, v, "p", "I1", &[])?;
-        end(
-            tx,
-            moved,
-            End::TakenOver(EndKind::FlowMoved, "stopped: moved"),
-            &projects,
-        )
-        .map_err(db::Error::Abort)?;
-        let cancelled = a_work_that_ran(tx, v, "p", "I1", &[])?;
-        end(
-            tx,
-            cancelled,
-            End::Stopped(EndKind::ItemCancelled, "item cancelled: x"),
-            &projects,
-        )
-        .map_err(db::Error::Abort)?;
-        let merged = a_work_that_ran(
-            tx,
-            v,
-            "p",
-            "I1",
-            &[("M2", Some("merged"), now - 3 * hour, Some(now - 3 * hour))],
-        )?;
-        end(
-            tx,
-            merged,
-            End::Stopped(EndKind::ItemCancelled, "item cancelled: y"),
-            &projects,
-        )
-        .map_err(db::Error::Abort)?;
-        let other = a_work_that_ran(tx, v, "q", "I1", &[])?;
-        end(
-            tx,
-            other,
-            End::TakenOver(EndKind::FlowMoved, "stopped: moved"),
-            &projects,
-        )
-        .map_err(db::Error::Abort)?;
-        // At the end of the graph with all the work given to sub-items, so with no merge, this week and the week
-        // before; and one that delivers a report, which is merged through a pull request and has its merged round.
-        let to_sub_items = |from: i64, to: i64| {
-            [
-                ("T7", Some("all_to_sub_items"), from - hour, Some(from)),
-                ("E1", None, from, Some(to)),
-            ]
-        };
-        a_work_that_ran(tx, v, "p", "E1", &to_sub_items(now - 3 * hour, now - 2 * hour))?;
-        a_work_that_ran(tx, v, "p", "E1", &to_sub_items(now - 8 * day, now - 8 * day))?;
-        let report = a_work_that_ran(
-            tx,
-            v,
-            "p",
-            "E1",
-            &[
-                ("M2", Some("merged"), now - 3 * hour, Some(now - 3 * hour)),
-                ("E1", None, now - hour, Some(now - hour)),
-            ],
-        )?;
-        tx.execute(
-            "UPDATE items SET deliver = 'report' WHERE id = (SELECT item FROM works WHERE id = ?1)",
-            [report],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-    say(&mut e, "Look at the numbers.");
-    let arch = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 10, |e| path_of(e, arch).iter().any(|c| c == "N1")),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let understanding = message_at(&e, arch, "U1", false);
-    let numbers = given_value(&understanding, "·engine·numbers").expect(&understanding);
-    let weeks = |key: &str| -> Vec<Value> { (0..4).map(|k| numbers["weeks"][k][key].clone()).collect() };
-    let together = |most: i64, seconds: f64| json!({ "most_works": most, "seconds_two_or_more": seconds });
-    let zeros = json!({ "flow_moved": 0, "item_cancelled": 0, "started_over": 0, "no_merge_at_end": 0, "other": 0,
-                        "total": 0 });
-    assert_eq!(
-        weeks("running_together"),
-        [
-            together(2, 7200.0),
-            together(1, 0.0),
-            together(0, 0.0),
-            together(0, 0.0)
-        ],
-        "{numbers}"
-    );
-    let ended = |kinds: Value| {
-        let mut x = zeros.clone();
-        let mut total = 0;
-        for (k, n) in kinds.as_object().unwrap() {
-            x[k] = n.clone();
-            total += n.as_i64().unwrap();
-        }
-        x["total"] = json!(total);
-        x
-    };
-    assert_eq!(
-        weeks("ended_unmerged"),
-        [
-            ended(json!({ "flow_moved": 1, "item_cancelled": 1, "no_merge_at_end": 1 })),
-            ended(json!({ "no_merge_at_end": 1 })),
-            zeros.clone(),
-            zeros.clone()
-        ],
-        "{numbers}"
-    );
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 // The seams of the numbers. Two rounds that overlap across the line between two weeks give, between the two weeks, all
 // of the overlap and no more (a day, three in all, here); a work stopped is placed in the week its end was written in,
 // one written more than four weeks before is in none; a work given to sub-items that stands at the end of its graph and
-// whose item is cancelled after is one work ended, under the cancellation; and the end closes the round a work was in.
+// whose item is cancelled after is one work ended, at the end of its graph and not under the cancellation; the end
+// closes the round a work was in; and works waiting for an answer, and another project's, make no run together here.
 #[test]
 fn the_numbers_split_a_run_at_the_seam_of_two_weeks_and_place_an_end_by_when_it_was_written() {
     use engine::ending::{End, EndKind, end};
@@ -5854,6 +5693,11 @@ fn the_numbers_split_a_run_at_the_seam_of_two_weeks_and_place_an_end_by_when_it_
             // the week before's second day to the week's first.
             a_work_that_ran(tx, v, "p", "I1", &[("I1", None, now - 10 * day, Some(now - 6 * day))])?;
             a_work_that_ran(tx, v, "p", "I1", &[("I1", None, now - 9 * day, Some(now - 5 * day))])?;
+            // Neither makes a third: one waiting for the owner, and one waiting under the id the cell had in an
+            // earlier version, both open all that time; and another project's work running beside them.
+            a_work_that_ran(tx, v, "p", "A3", &[("A3", None, now - 10 * day, None)])?;
+            a_work_that_ran(tx, v, "p", "16", &[("16", None, now - 10 * day, None)])?;
+            a_work_that_ran(tx, v, "q", "I1", &[("I1", None, now - 9 * day, Some(now - 5 * day))])?;
             // Stopped in the week before, in the third week before, and more than four weeks before: the times of the
             // writes are set, since a test cannot have the engine write them in the past.
             let stopped = [
@@ -5924,10 +5768,11 @@ fn the_numbers_split_a_run_at_the_seam_of_two_weeks_and_place_an_end_by_when_it_
     assert_eq!((seconds(2), seconds(3)), (0.0, 0.0), "{numbers}");
     let total = |k: usize| numbers["weeks"][k]["ended_unmerged"].clone();
     let kind = |k: usize, name: &str| numbers["weeks"][k]["ended_unmerged"][name].as_i64().unwrap();
-    // This week: the cancelled one given to sub-items once, not also as an end of its graph, and the one stopped open.
+    // This week: the one given to sub-items, once, as an end of its graph and not also under the cancellation after it,
+    // and the one stopped open.
     assert_eq!(total(0)["total"], json!(2), "{numbers}");
-    assert_eq!((kind(0, "item_cancelled"), kind(0, "other")), (1, 1), "{numbers}");
-    assert_eq!(kind(0, "no_merge_at_end"), 0, "{numbers}");
+    assert_eq!((kind(0, "no_merge_at_end"), kind(0, "other")), (1, 1), "{numbers}");
+    assert_eq!(kind(0, "item_cancelled"), 0, "{numbers}");
     // The week before and the third before have their one each; the one written more than four weeks before is in none.
     assert_eq!(
         (total(1)["total"].clone(), kind(1, "other")),

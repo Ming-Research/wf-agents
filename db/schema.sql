@@ -297,7 +297,8 @@ CREATE TABLE works (
   -- new version, and a new work on it took the item over), started_over (the architect or the owner had the item
   -- started over) or other; NULL while `ended` is NULL. Written in the same update as `ended`, with the kind that
   -- the caller of the one function that ends a work names. A work stopped before this column existed has the kind its
-  -- text tells, read once by the migration. Read by: the engine, which counts the works that ended without a merge by
+  -- text tells, read once by the migration. No caller names started_over or other now: they are for the works an
+  -- earlier engine stopped, and a way of stopping not yet named; a new way of ending a work adds a kind and its caller. Read by: the engine, which counts the works that ended without a merge by
   -- kind, week by week, among the numbers it measures for a project.
   ended_kind TEXT CHECK (ended_kind IS NULL OR ended_kind IN ('item_cancelled', 'flow_moved', 'started_over', 'other'))
 ) STRICT;
