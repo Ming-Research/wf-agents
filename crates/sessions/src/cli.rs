@@ -6,7 +6,7 @@
 //! configuration; the flags that shape a session's context belong here. It is a trait so that the engine's tests can
 //! script the agents; [`Claude`] runs `claude -p`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -687,10 +687,12 @@ fn activity_of_value(v: &Value) -> Option<String> {
 /// last, so that only closing brackets come after the long answer; that field with the [`shape`] of every form of every
 /// agent's cell of the graph taken together ([`merged`]), each object with its fields and each list with its items,
 /// down to every value. It refuses what no agent's cell of the graph takes, as far as types and fields tell: an object
-/// requires the fields every one of its alternatives requires, at the top those every agent's cell requires, so not a
-/// field some form leaves out (`progress`, which `tools` leaves out); and it takes no field beyond those it lists when
-/// none of its alternatives does, the field of the forms included, so that a field written inside the form it does not
-/// belong to is refused, and a field every return holds written inside the field of the forms is too. The command line
+/// requires the fields every one of its alternatives requires, at the top those every agent's cell requires, and a
+/// field some forms leave out unless the return is one of those forms ([`unless_left_out`]: `progress`, which `tools`
+/// and `search` leave out, so that a return of the architect's `B4` without it, which a trial's engine sent back, is
+/// refused by the command line); and it takes no field beyond those it lists when none of its alternatives does, the
+/// field of the forms included, so that a field written inside the form it does not belong to is refused, and a field
+/// every return holds written inside the field of the forms is too. The command line
 /// refuses such a return saying where and why, and the model hands it in again within the run, one more call that
 /// rewrites the return, where the engine would send it back and run the round again: in a trial one round handed in no
 /// `tell_owner`, and another wrote `effects` inside `take` instead of beside it. When the command line gives up after
@@ -745,12 +747,62 @@ pub fn envelope(g: &flow::CompiledGraph) -> Value {
         .filter(|k| **k == g.within || schemas.iter().all(|s| required_of(s).contains(&k.as_str())))
         .cloned()
         .collect();
-    json!({
+    let mut out = json!({
         "type": "object",
         "properties": props,
         "required": required,
         "additionalProperties": false,
-    })
+    });
+    // The fields some forms leave out, which every agent's cell has and requires of its other forms, as the engine
+    // checks: grouped by the forms that leave them out.
+    let mut left: BTreeMap<Vec<String>, Vec<String>> = BTreeMap::new();
+    for k in beside.iter().filter(|k| !required_of(&out).contains(&k.as_str())) {
+        let has = |s: &&Value| s.get("properties").is_some_and(|p| p.get(k.as_str()).is_some());
+        let forms: BTreeSet<String> = g
+            .cells
+            .iter()
+            .filter(|c| c.kind == "agent")
+            .flat_map(|c| &c.forms)
+            .filter(|f| f.without.contains(k))
+            .filter_map(|f| f.field.clone())
+            .collect();
+        if !forms.is_empty() && schemas.iter().all(has) {
+            left.entry(forms.into_iter().collect()).or_default().push(k.clone());
+        }
+    }
+    let groups: Vec<(Vec<String>, Vec<String>)> = left.into_iter().collect();
+    if let (Some(rule), Some(o)) = (unless_left_out(&g.within, &groups), out.as_object_mut()) {
+        o.extend(rule);
+    }
+    out
+}
+
+/// The rule that a return holds each field of a group unless its form is one of the group's, which leave the fields
+/// out, for every group: an `if` and `then` at the top, a later group's in the `then` of an earlier and in its `else`,
+/// since the API takes no `anyOf` or `allOf` at the top of the schema of the tool a return is handed in with (as tried
+/// with 2.1.312: "input_schema does not support oneOf, allOf, or anyOf at the top level"). An object a keyword reads
+/// says it is one, which the command line's strict check otherwise warns of. None for no group.
+fn unless_left_out(within: &str, groups: &[(Vec<String>, Vec<String>)]) -> Option<serde_json::Map<String, Value>> {
+    let ((forms, fields), rest) = groups.split_first()?;
+    let rest = unless_left_out(within, rest);
+    let leaving: Vec<Value> = forms
+        .iter()
+        .map(|f| json!({ "type": "object", "required": [f] }))
+        .collect();
+    let mut then = json!({ "required": fields });
+    let mut rule = serde_json::Map::new();
+    rule.insert(
+        "if".into(),
+        json!({ "properties": { within: { "type": "object", "not": { "anyOf": leaving } } } }),
+    );
+    if let Some(r) = rest {
+        if let Some(t) = then.as_object_mut() {
+            t.extend(r.clone());
+        }
+        rule.insert("else".into(), Value::Object(r));
+    }
+    rule.insert("then".into(), then);
+    Some(rule)
 }
 
 /// The shape of a part of a cell's schema: the type of each value, each object with all its fields, those it requires
@@ -1327,9 +1379,25 @@ mod tests {
     }
 
     /// Where a return does not fit the envelope, as the command line checks it and in its words: a value of a type the
-    /// schema does not name, a field required and missing, or a field its object takes no more of; none when it fits.
+    /// schema does not name, a field required and missing, or a field its object takes no more of, and what the `then`
+    /// or the `else` of an `if` requires; none when it fits. A value fits `not` when it does not fit what it holds, and
+    /// `anyOf` when it fits one of them.
     fn refused(s: &Value, x: &Value, at: &str) -> Option<String> {
         let here = if at.is_empty() { "root" } else { at };
+        if let Some(c) = s.get("if") {
+            let branch = if refused(c, x, at).is_none() { "then" } else { "else" };
+            if let Some(why) = s.get(branch).and_then(|b| refused(b, x, at)) {
+                return Some(why);
+            }
+        }
+        if s.get("not").is_some_and(|n| refused(n, x, at).is_none()) {
+            return Some(format!("{here}: must NOT be valid"));
+        }
+        if let Some(alts) = s.get("anyOf").and_then(Value::as_array)
+            && alts.iter().all(|a| refused(a, x, at).is_some())
+        {
+            return Some(format!("{here}: must match a schema in anyOf"));
+        }
         if let Some(t) = s.get("type") {
             let kind = match x {
                 Value::Null => "null",
@@ -1435,6 +1503,56 @@ mod tests {
         ret["outcome"] = json!({ "take": take, "effects": {} });
         assert!(flow::valid(&schema, &ret), "{ret}");
         assert_eq!(refused(&s, &ret, ""), None);
+    }
+
+    // In the sixth trial a return of the architect's cell B4 handed in no `progress`, which every return holds but one of
+    // the forms that leave it out, `tools` and `search`, and the engine sent it back, which cost a whole round: the
+    // schema the command line was given had left it out. It now requires it unless the return is one of those forms,
+    // and the command line refuses a return without it, naming it, as the installed one did when tried (2.1.312:
+    // "root: must have required property 'progress', root: must match \"then\" schema"), while a return asking for
+    // tools without it passed. So in each graph: a pause without it is refused, and a return asking for tools is not.
+    #[test]
+    fn a_return_without_progress_is_refused_unless_its_form_leaves_it_out() {
+        let f = compiled();
+        let g = f.graph("architect").unwrap();
+        let s = envelope(g);
+        let schema = g.cell("B4").unwrap().schema.clone().unwrap();
+        let mut ret = json!({
+            "tell_owner": [],
+            "flow_feedback": "none",
+            "outcome": { "rethink": { "verdict": "go_on", "why": "Nothing the batch changed calls for it." } },
+        });
+        assert_eq!(
+            refused(&s, &ret, "").as_deref(),
+            Some("root: must have required property 'progress'")
+        );
+        ret["progress"] = json!("Judged what the batch changed");
+        assert!(flow::valid(&schema, &ret), "{ret}");
+        assert_eq!(refused(&s, &ret, ""), None);
+        for g in &f.graphs {
+            let s = envelope(g);
+            let mut base = json!({});
+            for k in required_of(&s).into_iter().filter(|k| *k != g.within) {
+                base[k] = if k == "flow_feedback" { json!("none") } else { json!([]) };
+            }
+            let mut pause = base.clone();
+            pause[&g.within] = json!({ "pause": {} });
+            assert_eq!(
+                refused(&s, &pause, "").as_deref(),
+                Some("root: must have required property 'progress'"),
+                "graph {}",
+                g.name
+            );
+            let mut tools = base.clone();
+            tools[&g.within] = json!({ "tools": [{ "tool": "query", "sql": "SELECT id FROM items" }] });
+            assert_eq!(refused(&s, &tools, ""), None, "graph {}", g.name);
+            let takes = g
+                .cells
+                .iter()
+                .filter(|c| c.kind == "agent" && c.forms.iter().any(|x| x.field.as_deref() == Some("tools")))
+                .any(|c| flow::valid(c.schema.as_ref().unwrap(), &tools));
+            assert!(takes, "graph {}: no cell takes {tools}", g.name);
+        }
     }
 
     /// The first place of a shape where another does not take every value it takes: a type it lacks, a field or the
