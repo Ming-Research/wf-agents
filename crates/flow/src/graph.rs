@@ -66,6 +66,8 @@ pub(crate) struct In {
     pub what: String,
     pub from: Vec<Src>,
     pub maybe: bool,
+    /// It reads each place from its cell's newest answer only.
+    pub newest: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -246,6 +248,7 @@ fn input(x: &Input, common: bool) -> In {
         what: x.what.clone(),
         from: x.from.clone(),
         maybe: x.maybe.unwrap_or(false),
+        newest: x.newest.unwrap_or(false),
     }
 }
 

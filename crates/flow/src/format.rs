@@ -909,6 +909,9 @@ pub struct Input {
     pub maybe: Option<bool>,
     /// A common input given only to the cells that have this form.
     pub with: Option<String>,
+    /// The input reads each place from its cell's newest answer only: a field that answer leaves out is none there,
+    /// as a branch of a return is, instead of the newest answer that has it.
+    pub newest: Option<bool>,
 }
 
 /// Where an input comes from.

@@ -116,6 +116,9 @@ pub struct CompiledInput {
     pub what: String,
     pub from: Vec<Src>,
     pub maybe: bool,
+    /// It reads each place from its cell's newest answer only: a field that answer leaves out is none there.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub newest: bool,
 }
 
 /// A kind of question only a project meeting a need can meet.
@@ -940,6 +943,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                     what: x.what.clone(),
                     from: x.from.clone(),
                     maybe: x.maybe,
+                    newest: x.newest,
                 })
                 .collect(),
             rules: c

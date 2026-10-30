@@ -200,7 +200,7 @@ pub fn gather(
     for x in &cell.inputs {
         let mut parts: Vec<Part> = Vec::new();
         for s in &x.from {
-            parts.extend(source(e, w, g, cell, item, s)?);
+            parts.extend(source(e, w, g, cell, item, s, x.newest)?);
         }
         let value = match parts.as_slice() {
             [] => None,
@@ -250,6 +250,7 @@ fn source(
     cell: &CompiledCell,
     item: Option<&Item>,
     s: &Src,
+    newest: bool,
 ) -> Result<Option<Part>, String> {
     Ok(match s {
         Src::Place(c, p) => {
@@ -265,8 +266,9 @@ fn source(
                 return Ok(None);
             };
             // A value of one branch, such as `result[conflict]` or `columns[findings]`, is the cell as its newest
-            // return left it: when a newer return took another branch, the older value no longer holds.
-            if p.contains('[') && held.first().map(|(r, _)| *r) != Some(round) {
+            // return left it: when a newer return took another branch, the older value no longer holds; and so is
+            // every place of an input that reads the newest answer only.
+            if (newest || p.contains('[')) && held.first().map(|(r, _)| *r) != Some(round) {
                 return Ok(None);
             }
             // The same value an earlier return gave is the one thing it was then.
@@ -724,6 +726,7 @@ mod tests {
                 what: "The table to answer".into(),
                 from: Vec::new(),
                 maybe: true,
+                newest: false,
             },
             parts: vec![
                 place(

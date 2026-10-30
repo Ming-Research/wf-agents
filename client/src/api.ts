@@ -2599,7 +2599,11 @@ common?: boolean,
 /**
  * For a table the cell answers row by row: the prefix the engine numbers its rows with, across all its sources.
  */
-numbered?: string | null, what: string, from: Array<Src>, maybe: boolean, };
+numbered?: string | null, what: string, from: Array<Src>, maybe: boolean,
+/**
+ * It reads each place from its cell's newest answer only: a field that answer leaves out is none there.
+ */
+newest?: boolean, };
 
 /**
  * Where an input comes from.

@@ -3034,7 +3034,6 @@
       "due": "Whether a matter in the project's queue is due for its architect, which starts a work of it.",
       "entry": "How the work came to the understanding question: the architect's first work on the project, or another new session.",
       "fixes_before": "How many earlier reviews of the batch found something to fix.",
-      "to_fix": "Whether the fix would have a row of the reviews to answer, as its table reads them now: each from the newest answer of its review.",
       "gates": "Whether the items depended on are merged and every decision of the design card is gone through.",
       "held": "Where the question the work put to an architect stands: replied, handed to the owner or to a related project's architect, waited past its limit of the architect's time, its architect gone, an item the work depended on cancelled, or something said to the work",
       "interjection": "Whether an interjection for the engineer is waiting to be delivered.",
@@ -3599,12 +3598,6 @@
         "says": "the batch's earlier reviews",
         "stores": [
           "batch"
-        ]
-      },
-      "to_fix": {
-        "says": "the newest reviews: rows left to fix",
-        "stores": [
-          "place"
         ]
       },
       "gates": {
@@ -8119,16 +8112,56 @@
           "title": "Judge whether it may enter the merge queue",
           "inputs": [
             {
-              "id": "skip",
-              "name": "Skipping adversarial testing not accepted",
-              "what": "The newest table review's judgment that skipping dedicated adversarial testing does not stand, with why; none when the design chose adversarial testing, the review accepted the skip, the work delivers a report or a change to the design paths only, or the newest review did not judge it",
+              "id": "review",
+              "name": "Review table",
+              "what": "The review table: the verdict of each column the table review listed; none at a re-review that looked only at disputes",
               "from": [
                 [
                   "T4",
-                  "no_adversarial[does_not_stand]"
+                  "columns"
                 ]
               ],
-              "maybe": true
+              "maybe": true,
+              "newest": true
+            },
+            {
+              "id": "tree",
+              "name": "Design tree review table",
+              "what": "The design tree review's table: the verdict of each column; none when the change to review touched no design tree node",
+              "from": [
+                [
+                  "T5",
+                  "columns"
+                ]
+              ],
+              "maybe": true,
+              "newest": true
+            },
+            {
+              "id": "re",
+              "name": "Answers to earlier findings",
+              "what": "At a re-review, the answer to each finding of the round before; none at the first round",
+              "from": [
+                [
+                  "T4",
+                  "previous"
+                ]
+              ],
+              "maybe": true,
+              "newest": true
+            },
+            {
+              "id": "skip",
+              "name": "Judgment on skipping adversarial testing",
+              "what": "The review's judgment on skipping dedicated adversarial testing; none if the design chose adversarial testing, for a report or a change to the design paths only, after late adversarial testing, or at a re-review that did not change the judgment",
+              "from": [
+                [
+                  "T4",
+                  "no_adversarial"
+                ]
+              ],
+              "maybe": true,
+              "newest": true
             },
             {
               "name": "Dependencies, card rulings and tree change",
@@ -8165,10 +8198,32 @@
               "name": "fix_and_adversarial",
               "if": [
                 [
-                  "inp",
-                  "to_fix",
+                  "or",
                   [
-                    "rows"
+                    [
+                      "any",
+                      "@review.verdict",
+                      [
+                        "findings",
+                        "cannot_verify"
+                      ]
+                    ],
+                    [
+                      "any",
+                      "@tree.verdict",
+                      [
+                        "findings",
+                        "cannot_verify"
+                      ]
+                    ],
+                    [
+                      "any",
+                      "@re.verdict",
+                      [
+                        "not_fixed",
+                        "insist"
+                      ]
+                    ]
                   ]
                 ],
                 [
@@ -8203,10 +8258,27 @@
               "name": "adversarial_only",
               "if": [
                 [
-                  "inp",
-                  "to_fix",
+                  "none",
+                  "@review.verdict",
                   [
-                    "none"
+                    "findings",
+                    "cannot_verify"
+                  ]
+                ],
+                [
+                  "none",
+                  "@tree.verdict",
+                  [
+                    "findings",
+                    "cannot_verify"
+                  ]
+                ],
+                [
+                  "none",
+                  "@re.verdict",
+                  [
+                    "not_fixed",
+                    "insist"
                   ]
                 ],
                 [
@@ -8239,10 +8311,32 @@
               "name": "fix",
               "if": [
                 [
-                  "inp",
-                  "to_fix",
+                  "or",
                   [
-                    "rows"
+                    [
+                      "any",
+                      "@review.verdict",
+                      [
+                        "findings",
+                        "cannot_verify"
+                      ]
+                    ],
+                    [
+                      "any",
+                      "@tree.verdict",
+                      [
+                        "findings",
+                        "cannot_verify"
+                      ]
+                    ],
+                    [
+                      "any",
+                      "@re.verdict",
+                      [
+                        "not_fixed",
+                        "insist"
+                      ]
+                    ]
                   ]
                 ],
                 [
@@ -8276,10 +8370,27 @@
               "name": "wait",
               "if": [
                 [
-                  "inp",
-                  "to_fix",
+                  "none",
+                  "@review.verdict",
                   [
-                    "none"
+                    "findings",
+                    "cannot_verify"
+                  ]
+                ],
+                [
+                  "none",
+                  "@tree.verdict",
+                  [
+                    "findings",
+                    "cannot_verify"
+                  ]
+                ],
+                [
+                  "none",
+                  "@re.verdict",
+                  [
+                    "not_fixed",
+                    "insist"
                   ]
                 ],
                 [
@@ -8324,10 +8435,27 @@
               "name": "wait_ruling",
               "if": [
                 [
-                  "inp",
-                  "to_fix",
+                  "none",
+                  "@review.verdict",
                   [
-                    "none"
+                    "findings",
+                    "cannot_verify"
+                  ]
+                ],
+                [
+                  "none",
+                  "@tree.verdict",
+                  [
+                    "findings",
+                    "cannot_verify"
+                  ]
+                ],
+                [
+                  "none",
+                  "@re.verdict",
+                  [
+                    "not_fixed",
+                    "insist"
                   ]
                 ],
                 [
@@ -8371,10 +8499,27 @@
               "name": "clear",
               "if": [
                 [
-                  "inp",
-                  "to_fix",
+                  "none",
+                  "@review.verdict",
                   [
-                    "none"
+                    "findings",
+                    "cannot_verify"
+                  ]
+                ],
+                [
+                  "none",
+                  "@tree.verdict",
+                  [
+                    "findings",
+                    "cannot_verify"
+                  ]
+                ],
+                [
+                  "none",
+                  "@re.verdict",
+                  [
+                    "not_fixed",
+                    "insist"
                   ]
                 ],
                 [
@@ -8459,16 +8604,6 @@
             }
           ],
           "inenums": {
-            "to_fix": [
-              [
-                "rows",
-                "The fix would have rows of the reviews to answer: a column of the newest table review or design tree review with findings or not verified, or a finding it found not fixed or insists on"
-              ],
-              [
-                "none",
-                "The newest reviews leave the fix nothing to answer"
-              ]
-            ],
             "gates": [
               [
                 "clear",
