@@ -139,7 +139,9 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
         .iter_mut()
         .find(|n| n["id"] == "A3")
         .unwrap();
+    // Back to the cell that asked with the answer, and no row that goes on without it.
     ask["cases"][0].as_object_mut().unwrap().remove("drops");
+    ask["cases"][0]["to"] = Value::String("@asker".into());
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
     assert!(
         e.contains("the architect's own graph stops: A3 goes on only with the owner's answer"),

@@ -4287,7 +4287,8 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
             .expect(&log);
     assert!(refused.contains("the owner replied to your question"), "{refused}");
     assert_eq!(rows_at(&e, arch, "P2"), ["written", "written"], "{log}");
-    assert!(message_at(&e, arch, "P2", false).contains("Yes, research it."), "{log}");
+    // The writing is given the owner's reply that brought it back; the first, which the session was given at the
+    // check, by its address only.
     assert!(
         message_at(&e, arch, "P2", true).contains("Make the why shorter."),
         "{log}"

@@ -154,9 +154,12 @@ describe('the flow as the engine stores it', () => {
     expect(levels.length).toBeGreaterThan(1);
   });
 
+  // A cell on no line, which starts a new session every round, the flow has none of since the new architect that read a
+  // policy went: the badge is drawn from the cell's line alone.
   it('badges a cell that starts a new session every round, and not one that starts it at its first round in a work', () => {
     const cells = compiled.graphs.flatMap((g) => g.cells);
-    expect(cells.some(startsAnew)).toBe(true);
+    const fresh = { ...cells.find((c) => c.kind === 'agent')!, line: null };
+    expect(startsAnew(fresh)).toBe(true);
     expect(cells.some((c) => c.new_session)).toBe(true);
     expect(cells.filter((c) => c.new_session && startsAnew(c)).map((c) => c.id)).toEqual([]);
     // The badges over a cell's top left corner end inside it, with a cell's side padding to spare.
