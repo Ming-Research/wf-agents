@@ -1,24 +1,32 @@
 // How what the owner is asked is answered in a conversation: an ask shows once, where it was asked, as the asking
 // agent's bubble, never pinned; it is answered in that bubble, by the buttons of what it offers and a small box of the
 // owner's words beside Answer, and once answered the owner's answer is in that bubble and nowhere else; a question the
-// architect holds alike. And what is sent, and which asks that wait are out of view.
+// architect holds alike. And what is sent, which asks that wait are out of view, and how the list marks each work's
+// group and each architect's one-to-one by how that work or that architect stands.
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from './answer';
 import type {
+  Architect,
   Conversation,
   ConversationDetail,
   ConversationEntry,
   Handled,
   JsonValue,
+  Matter,
   MatterProgress,
   OwnerAsk,
+  Status,
   WordsState,
+  WorkState,
+  WorkSummary,
 } from './api';
+import { architectMark } from './architect';
+import { StateMark } from './components';
 import { awayOf, streamOf } from './conversation';
-import { Composer, Stream } from './pages/Messages';
+import { Composer, Stream, workMark } from './pages/Messages';
 
 const ask = (id: number, body: JsonValue, answer: JsonValue | null = null): OwnerAsk => ({
   id,
@@ -391,5 +399,165 @@ describe('the box of the one-to-one with an architect', () => {
     expect(box).toContain('<textarea');
     expect(box).not.toContain('Done');
     expect(box).not.toContain('waits for your reply');
+  });
+});
+
+describe('the marks of the list of conversations', () => {
+  const status = (extra: Partial<Status> = {}): Status => ({
+    paused: false,
+    keep_warm: true,
+    started: [],
+    releasing: [],
+    architects_started: [],
+    running: null,
+    stepping: null,
+    last_step: null,
+    slots: 1,
+    slots_used: 0,
+    flow_version: 2,
+    config_commit: 'c',
+    repos: {},
+    started_at: 0,
+    version: 'v',
+    halt: null,
+    ...extra,
+  });
+  const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
+    id,
+    item: null,
+    title: null,
+    project: 'p',
+    graph: 'architect',
+    flow_version: 2,
+    moved_from: null,
+    at: 'Q1',
+    at_title: 'Pick the next matter',
+    stage: null,
+    state: 'ready',
+    paused: null,
+    paused_by: null,
+    ended: null,
+    waits: null,
+    branch: null,
+    pr: null,
+    started_at: 0,
+    last_at: 50,
+    rounds: 1,
+    sent_back: 0,
+    failed: 0,
+    running: null,
+    cost_usd: 0,
+    open_asks: 0,
+    open_design_cards: 0,
+    ...extra,
+  });
+  const matter = (id: number): Matter => ({
+    id,
+    kind: 'owner_words',
+    detail: null,
+    what: `matter ${id}`,
+    source: 'owner',
+    item: null,
+    title: null,
+    work: null,
+    round: null,
+    at: id,
+    asked: null,
+    resume_cell: null,
+    answered: false,
+    waits: 'owner',
+    waited_ms: 0,
+    urgent: false,
+    fix: null,
+    card: null,
+  });
+  /// An architect with its works, newest first, and what more is given.
+  const architect = (works: WorkSummary[], extra: Partial<Architect> = {}): Architect => ({
+    project: 'p',
+    projects: ['p'],
+    works: works.map((w) => ({ work: w, started_for: [], handled: 0, handling: null })),
+    queue: [],
+    holds: [],
+    asks: [],
+    handled: [],
+    changes: [],
+    policy: null,
+    draft: null,
+    check: null,
+    next: { plan: null, matters: [] },
+    notebook: [],
+    observations: [],
+    tags: [],
+    own: false,
+    constitution: null,
+    ...extra,
+  });
+  /// The Octicon a mark draws, by its name, its tone and what it says on hovering; `halo` for the running halo.
+  const markOf = (html: string) => ({
+    icon: html.includes('fc-halo') ? 'halo' : (/octicon-([a-z-]+)/.exec(html)?.[1] ?? null),
+    tone: /state-mark-([a-z]+)/.exec(html)?.[1] ?? null,
+    says: /title="([^"]*)"/.exec(html)?.[1] ?? null,
+  });
+
+  it('marks each state of a work by one Octicon in its chip’s colour, saying its chip’s words, and a round running by the halo', () => {
+    const marks: Record<WorkState, { icon: string; tone: string; says: string }> = {
+      running: { icon: 'halo', tone: 'accent', says: 'running' },
+      ready: { icon: 'circle', tone: 'neutral', says: 'ready' },
+      asking: { icon: 'question', tone: 'attention', says: 'asking' },
+      waiting: { icon: 'clock', tone: 'attention', says: 'waiting' },
+      paused: { icon: 'pause', tone: 'attention', says: 'paused' },
+      done: { icon: 'check-circle', tone: 'success', says: 'done' },
+      ended: { icon: 'stop', tone: 'danger', says: 'ended' },
+    };
+    for (const [state, mark] of Object.entries(marks)) {
+      expect(markOf(renderToStaticMarkup(<StateMark state={state as WorkState} />))).toEqual(mark);
+    }
+    // The halo is the chart's, its three arcs at an icon's size, and is the only mark that moves.
+    const running = renderToStaticMarkup(<StateMark state="running" />);
+    expect(running).toContain('<svg class="running-mark" width="16" height="16"');
+    expect(running.match(/fc-halo-arc/g)).toHaveLength(3);
+    // Nothing known yet: the mark's room, empty, so that the rows stay in line.
+    expect(renderToStaticMarkup(<StateMark state={null} />)).toBe('<span class="state-mark" aria-hidden="true"></span>');
+  });
+
+  it('marks a work’s group by how its work stands now, and nothing before the works are read', () => {
+    const works = [work(5, { graph: 'engineer', state: 'running' }), work(6, { graph: 'engineer', state: 'ended' })];
+    expect(workMark(5, works, status({ running: 5 }))).toBe('running');
+    // A round left open that the engine runs no more: ready, its next round closing it first.
+    expect(workMark(5, works, status())).toBe('ready');
+    expect(workMark(6, works, status())).toBe('ended');
+    expect(workMark(7, works, status())).toBeNull();
+    expect(workMark(5, undefined, status())).toBeNull();
+  });
+
+  it('marks an architect as a work in the same state, with the words its head says it in', () => {
+    const asked = ask(8, { from: 'architect' });
+    const marked = (a: Architect, s: Status) => {
+      const m = architectMark(a, s);
+      return { ...m, ...markOf(renderToStaticMarkup(<StateMark state={m.state} words={m.words} />)) };
+    };
+    // Never run, or idle at its start: ready, saying whether matters wait for it.
+    expect(marked(architect([]), status())).toMatchObject({ state: 'ready', icon: 'circle', says: 'idle: nothing in its queue' });
+    const idle = architect([work(9, { state: 'done', at: 'E2' })], { queue: [matter(1)] });
+    expect(architectMark(idle, status())).toEqual({ state: 'ready', words: 'takes up the matters waiting' });
+    // Every work paused while matters wait for it, and the owner has not started it: paused; started, ready again.
+    expect(marked(idle, status({ paused: true }))).toMatchObject({ state: 'paused', icon: 'pause', says: 'held back: every work is paused' });
+    expect(architectMark(idle, status({ paused: true, architects_started: ['p'] })).state).toBe('ready');
+    // A round of it running: the halo.
+    const going = architect([work(10, { state: 'running' }), work(9, { state: 'done', at: 'E2' })]);
+    expect(marked(going, status({ running: 10 }))).toMatchObject({ state: 'running', icon: 'halo', says: 'working' });
+    // Held back while it works, by the owner's pause or every work paused: paused, as its head says why.
+    const stopped = architect([work(10, { state: 'paused', paused: 'the owner paused it', paused_by: 'owner' })]);
+    expect(marked(stopped, status())).toMatchObject({ state: 'paused', icon: 'pause', says: 'stopped (you paused it)' });
+    expect(architectMark(going, status({ paused: true })).state).toBe('paused');
+    // Between rounds: ready.
+    expect(architectMark(going, status())).toEqual({ state: 'ready', words: 'between rounds' });
+    // A question of its own pinned for the owner's reply: asking while it neither runs nor is held back.
+    expect(marked(architect([], { asks: [asked] }), status())).toMatchObject({ state: 'asking', icon: 'question', says: 'asking' });
+    expect(architectMark({ ...going, asks: [asked] }, status()).state).toBe('asking');
+    expect(architectMark({ ...going, asks: [asked] }, status({ running: 10 })).state).toBe('running');
+    expect(architectMark({ ...stopped, asks: [asked] }, status()).state).toBe('paused');
+    // Once answered, it asks no more.
+    expect(architectMark(architect([], { asks: [ask(8, { from: 'architect' }, { text: 'yes' })] }), status()).state).toBe('ready');
   });
 });

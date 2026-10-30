@@ -39,10 +39,13 @@
   --chart-flow-time: 0.9s;
   --chart-flow-step: -16;
 
-  /* The halo round the cell a round runs at: three arcs, their width (a narrower one at a small cell), the share of the
-     way round each covers, and how long they take to go round, which the owner chose. */
+  /* The halo round the cell a round runs at: three arcs, their width (a narrower one at a small cell, and a wider one
+     as the mark of a round running at an icon's size, in the list of conversations and a conversation's head, where
+     the owner asked for it plainly in motion and a narrower one read fainter than the Octicons beside it), the share
+     of the way round each covers, and how long they take to go round, which the owner chose. */
   --chart-halo-width: 6;
   --chart-halo-width-small: 2;
+  --chart-halo-width-mark: 3;
   --chart-halo-dash: 20 80;
   --chart-halo-time: 2.4s;
 

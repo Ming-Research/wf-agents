@@ -1,9 +1,19 @@
 // Small parts every view uses.
 
+import {
+  CheckCircleIcon,
+  CircleIcon,
+  ClockIcon,
+  type Icon,
+  PauseIcon,
+  QuestionIcon,
+  StopIcon,
+} from '@primer/octicons-react';
 import { Flash, Label, type LabelColorOptions } from '@primer/react';
 import type { ReactNode } from 'react';
 
 import type { ItemState, RoundOutcome, Status, Waits, WorkState, WorkSummary } from './api';
+import { Halo } from './graph/flowDraw';
 import type { Resource } from './live';
 import { t } from './text';
 
@@ -167,7 +177,8 @@ export function TagChip({ title, children }: { title?: string; children: ReactNo
   );
 }
 
-const WORK_TONE: Record<WorkState, Tone> = {
+/// A work's state's tone, which an architect takes for the state it stands in too.
+export const WORK_TONE: Record<WorkState, Tone> = {
   running: 'accent',
   ready: 'neutral',
   asking: 'attention',
@@ -176,6 +187,44 @@ const WORK_TONE: Record<WorkState, Tone> = {
   done: 'success',
   ended: 'danger',
 };
+
+/// The Octicon of each state of a work but running, whose mark is the running halo: the one map for every place that
+/// shows a work's state as an icon, as the UI spec names it. Ready is a ring at rest, the running halo's ring still;
+/// asking a question; waiting a clock; paused two bars; done a tick in a ring; ended GitHub's mark of a run stopped
+/// before its end.
+export const WORK_MARK: Record<Exclude<WorkState, 'running'>, Icon> = {
+  ready: CircleIcon,
+  asking: QuestionIcon,
+  waiting: ClockIcon,
+  paused: PauseIcon,
+  done: CheckCircleIcon,
+  ended: StopIcon,
+};
+
+/// The mark of a round running: the halo the chart draws round the cell a round runs at, at an icon's size round
+/// nothing, its arcs as wide as they must be to read beside an Octicon's strokes; the one mark of a state that moves,
+/// so that what runs looks the same on the chart and wherever else it shows.
+export function RunningMark() {
+  return (
+    <svg className="running-mark" width={16} height={16} viewBox="0 0 16 16" aria-hidden="true">
+      <Halo box={{ x: 5.5, y: 5.5, width: 5, height: 5 }} round small />
+    </svg>
+  );
+}
+
+/// A state as a mark, where a row has room for an icon and not for a chip (the list of conversations): a round running
+/// as the running halo, every other state as its Octicon in the colour of its chip, saying on hovering what its chip
+/// says (a work's state by default). Nothing known yet keeps the mark's room empty, so that the rows stay in line.
+export function StateMark({ state, words }: { state: WorkState | null; words?: string }) {
+  if (state === null) return <span className="state-mark" aria-hidden="true" />;
+  const said = words ?? t(`state_${state}`);
+  const Mark = state === 'running' ? null : WORK_MARK[state];
+  return (
+    <span className={`state-mark state-mark-${WORK_TONE[state]}`} title={said} role="img" aria-label={said}>
+      {Mark === null ? <RunningMark /> : <Mark />}
+    </span>
+  );
+}
 
 /// An item's state's tone, which the items' tree gives the button that shows or hides the items in that state too.
 export const ITEM_TONE: Record<ItemState, Tone> = {

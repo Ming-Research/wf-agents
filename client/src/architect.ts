@@ -4,14 +4,19 @@
 // in the order the owner reads them.
 
 import type {
+  Architect,
   ArchitectWork,
   Handled,
   JsonValue,
   Matter,
   MatterCard,
   Observation,
+  Status,
+  WorkState,
   WorkSummary,
 } from './api';
+import { course, heldName } from './components';
+import { runningWords } from './course';
 import { isObj, str, words, type Obj } from './labelled';
 import { type Key, t, tn } from './messages';
 import type { ArchitectTab } from './route';
@@ -146,6 +151,40 @@ export function architectState(works: ArchitectWork[], queue: Matter[]): Archite
   }
   if (works.length === 0) return { kind: 'never', waiting };
   return { kind: 'idle', since: works[0].work.last_at, waiting };
+}
+
+/// How an architect stands, as the state of a work it stands as, which gives its colour and its mark, and in the words
+/// its chip says it in.
+export type Standing = { state: WorkState; words: string };
+
+/// How an architect stands now, as the head of its one-to-one says it: a round of it running; held back while it works
+/// (paused by the owner, with every work or by itself, or stopped by the engine or by itself); between rounds; or, with
+/// no work of it running, held back by every work paused while matters wait for it, else idle with nothing in its queue
+/// or about to take up the matters waiting.
+export function architectNow(a: Architect, status: Status | null): Standing {
+  const state = architectState(a.works, a.queue);
+  if (state.kind === 'working') {
+    const c = course(state.work, status);
+    if (c.running !== null) {
+      return { state: 'running', words: c.running === 'step' ? runningWords(c) : t('talk_architect_working') };
+    }
+    if (c.held !== null) return { state: 'paused', words: heldName(c).name };
+    return { state: 'ready', words: t('talk_architect_between') };
+  }
+  const started = status !== null && status.architects_started.includes(a.project);
+  if (state.waiting > 0 && status !== null && status.paused && !started) {
+    return { state: 'paused', words: t('talk_architect_held') };
+  }
+  return { state: 'ready', words: t(state.waiting > 0 ? 'talk_architect_takes_up' : 'talk_architect_idle') };
+}
+
+/// How an architect stands as its mark in the list of conversations shows it, a work's mark for the same state: as its
+/// head says, except that while it neither runs a round nor is held back, a question of its own pinned for the owner's
+/// reply marks it asking, as a work that asked is.
+export function architectMark(a: Architect, status: Status | null): Standing {
+  const now = architectNow(a, status);
+  if (now.state === 'ready' && a.asks.some((x) => x.answer === null)) return { state: 'asking', words: t('state_asking') };
+  return now;
 }
 
 /// One kind of outcome of a matter handled, on one line: what it is, what came of it, and the tab that holds the rest of

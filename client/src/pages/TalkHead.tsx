@@ -13,8 +13,8 @@ import { Button, Label, Select } from '@primer/react';
 import { Fragment, useState } from 'react';
 
 import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
-import { architectState, holdWords, matterSentence, queueParts } from '../architect';
-import { course, heldName, StateChip } from '../components';
+import { architectNow, architectState, holdWords, matterSentence, queueParts } from '../architect';
+import { course, heldName, RunningMark, StateChip, WORK_TONE } from '../components';
 import { forwardNewChoices } from '../conversation';
 import { Control, Controls, runningWords, SessionChoice, useActions, useNewSession, useOpenStepped, waitsWords } from '../course';
 import { cost, duration, time } from '../format';
@@ -24,7 +24,6 @@ import { architectHref, forProject, Link, navigate, workHref } from '../route';
 import { t, tn } from '../text';
 import { factsAfter, joinedWords } from '../voices';
 import { MatterWhat, stageName } from './TalkCards';
-import { Halo } from '../graph/flowDraw';
 
 /// The tiers an item may be put at: those up to the highest an item may be at, in order.
 export function tiersAllowed(s: Settings): string[] {
@@ -215,40 +214,19 @@ function IdleControls({ a, status, waiting }: { a: Architect; status: Status | n
 /// take them up. Its works are never named.
 function ArchitectNow({ a, status }: { a: Architect; status: Status | null }) {
   const state = architectState(a.works, a.queue);
-  if (state.kind === 'working') {
-    const c = course(state.work, status);
-    const at = `${state.work.at} ${state.work.at_title ?? ''}`;
-    const what = state.handling !== null ? matterSentence(state.handling) : null;
-    return (
-      <>
-        {c.running !== null ? (
-          <Label variant="accent">{c.running === 'step' ? runningWords(c) : t('talk_architect_working')}</Label>
-        ) : c.held !== null ? (
-          <Label variant="attention">{heldName(c).name}</Label>
-        ) : (
-          <StateChip tone="neutral">{t('talk_architect_between')}</StateChip>
-        )}
-        <span className="talk-head-now" title={what ?? undefined}>
-          {c.running !== null ? <RunningMark /> : null}
-          {what !== null ? t('talk_architect_handles', { what, at }) : t('talk_architect_at', { at })}
-        </span>
-      </>
-    );
-  }
-  const started = status !== null && status.architects_started.includes(a.project);
-  if (state.waiting > 0 && status !== null && status.paused && !started) {
-    return <Label variant="attention">{t('talk_architect_held')}</Label>;
-  }
-  return <StateChip tone="neutral">{state.waiting > 0 ? t('talk_architect_takes_up') : t('talk_architect_idle')}</StateChip>;
-}
-
-/// The mark beside the cell a round runs at, in a conversation's head: the chart's halo drawn small round a dot, the one
-/// animation the page has, so that what runs looks the same on the chart and here.
-export function RunningMark() {
+  const now = architectNow(a, status);
+  const chip = <StateChip tone={WORK_TONE[now.state]}>{now.words}</StateChip>;
+  if (state.kind !== 'working') return chip;
+  const at = `${state.work.at} ${state.work.at_title ?? ''}`;
+  const what = state.handling !== null ? matterSentence(state.handling) : null;
   return (
-    <svg className="running-mark" width={16} height={16} viewBox="0 0 16 16" aria-hidden="true">
-      <Halo box={{ x: 4, y: 4, width: 8, height: 8 }} round small />
-    </svg>
+    <>
+      {chip}
+      <span className="talk-head-now" title={what ?? undefined}>
+        {now.state === 'running' ? <RunningMark /> : null}
+        {what !== null ? t('talk_architect_handles', { what, at }) : t('talk_architect_at', { at })}
+      </span>
+    </>
   );
 }
 

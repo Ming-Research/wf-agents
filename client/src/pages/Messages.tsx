@@ -1,7 +1,8 @@
 // The owner's conversations, the one place on the page the owner acts: their list on the left, the one open on the
 // right. The list's order never changes for what waits: the one-to-one with each project's architect and wf-agents'
 // own first, then a group for each work, newest first, which greys out in place once the work ends, then the groups of
-// projects the configuration connects; what waits for the owner and what is unread are marks on each, red and grey.
+// projects the configuration connects; each architect's and each work's marked by how that architect or that work
+// stands, a round running in motion; what waits for the owner and what is unread are counts on each, red and grey.
 // A work's group holds the owner, its engineer and its project's architect: everything said in it reaches all three,
 // each agent's message beside its avatar in its colour and headed by whom it is for, the owner's on the right; the
 // engine's notices are grey lines, and its stage cards, one for each stretch of the work at a stage, updated in place,
@@ -20,15 +21,7 @@
 // the engineer, the architect or both, and in the one-to-one to the architect, whose words it takes first and answers
 // in one round. Opening a conversation reads it up to its latest entry.
 
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  CheckIcon,
-  CommentDiscussionIcon,
-  CpuIcon,
-  ProjectRoadmapIcon,
-  StackIcon,
-} from '@primer/octicons-react';
+import { ArrowDownIcon, ArrowUpIcon, CheckIcon, CpuIcon, StackIcon } from '@primer/octicons-react';
 import {
   ActionList,
   ActionMenu,
@@ -44,6 +37,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
 
 import type {
+  Architect,
   Conversation,
   ConversationDetail,
   ConversationEntry,
@@ -51,10 +45,14 @@ import type {
   Forwarding,
   Misses,
   OwnerAsk,
+  Status,
   WordsState,
+  WorkState,
   WorkSummary,
 } from '../api';
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from '../answer';
+import { architectMark } from '../architect';
+import { liveState, StateMark } from '../components';
 import {
   awayOf,
   closedWhy,
@@ -81,7 +79,7 @@ import {
 import { cost, time } from '../format';
 import { postJson } from '../http';
 import { isObj, label, str, words } from '../labelled';
-import { reread, useResource } from '../live';
+import { reread, useResource, useStatus } from '../live';
 import { Markdown } from '../markdown';
 import { SayBox } from '../parts';
 import { architectHref, forProject, href, Link, navigate, workHref } from '../route';
@@ -99,18 +97,32 @@ async function markFault(id: number): Promise<void> {
   reread('messages');
 }
 
-/// The mark beside a conversation in the list, by its kind: an architect's plan, wf-agents' processor, a group's
-/// discussion, the stack of connected projects.
-function KindIcon({ kind }: { kind: string }) {
-  if (kind === 'architect') return <ProjectRoadmapIcon />;
-  if (kind === 'wf_agents') return <CpuIcon />;
-  if (kind === 'projects') return <StackIcon />;
-  return <CommentDiscussionIcon />;
+/// How the work of a work's group stands now, for its mark; nothing while the works are not read yet.
+export function workMark(work: number | null, works: WorkSummary[] | undefined, status: Status | null): WorkState | null {
+  const w = works?.find((x) => x.id === work);
+  return w !== undefined ? liveState(w, status) : null;
 }
 
-/// The list of conversations in its fixed order, each with what waits for the owner in it (red) and what is unread
-/// (grey); a work's group over greyed in place.
-function List({ list, open }: { list: Conversation[]; open: string | null }) {
+/// The mark of an architect's one-to-one: how the architect stands, from what its head reads.
+function ArchitectMark({ project, status }: { project: string; status: Status | null }) {
+  const r = useResource<Architect>('architect', forProject('/api/v1/architect', project));
+  const m = r.data !== undefined && r.data.project === project ? architectMark(r.data, status) : null;
+  return <StateMark state={m?.state ?? null} words={m?.words} />;
+}
+
+/// The mark beside a conversation in the list: for an architect's one-to-one and a work's group, how that architect or
+/// that work stands, a round running in motion, since the list's headings and the row's name say what kind of row it
+/// is; for wf-agents' own its processor, for a group of connected projects their stack.
+function RowMark({ c, works, status }: { c: Conversation; works: WorkSummary[] | undefined; status: Status | null }) {
+  if (c.kind === 'architect') return <ArchitectMark project={c.project ?? ''} status={status} />;
+  if (c.kind === 'work') return <StateMark state={workMark(c.work, works, status)} />;
+  return c.kind === 'projects' ? <StackIcon /> : <CpuIcon />;
+}
+
+/// The list of conversations in its fixed order, each with its mark, what waits for the owner in it (red) and what is
+/// unread (grey); a work's group over greyed in place.
+function List({ list, open, works }: { list: Conversation[]; open: string | null; works: WorkSummary[] | undefined }) {
+  const status = useStatus();
   return (
     <NavList aria-label={t('nav_messages')} className="talks-list">
       {listParts(list).map((p) => (
@@ -128,7 +140,7 @@ function List({ list, open }: { list: Conversation[]; open: string | null }) {
               }}
             >
               <NavList.LeadingVisual>
-                <KindIcon kind={c.kind} />
+                <RowMark c={c} works={works} status={status} />
               </NavList.LeadingVisual>
               <span className="talks-title" title={conversationTitle(c)}>
                 {conversationTitle(c)}
@@ -803,11 +815,10 @@ export function Stream({ d, c, w }: { d: ConversationDetail; c: Conversation; w:
 
 /// One conversation: its head with the owner's controls, the design card a work waits on pinned under it, the stream,
 /// and the one box at the bottom; reading it marks it read up to its latest entry.
-function Open({ c }: { c: Conversation }) {
+function Open({ c, works }: { c: Conversation; works: WorkSummary[] | undefined }) {
   const r = useResource<ConversationDetail>('messages', `/api/v1/conversation?key=${encodeURIComponent(c.key)}`);
-  const works = useResource<WorkSummary[]>('works', '/api/v1/works');
   const d = r.data !== undefined && r.data.key === c.key ? r.data : null;
-  const w = c.work !== null ? ((works.data ?? []).find((x) => x.id === c.work) ?? null) : null;
+  const w = c.work !== null ? ((works ?? []).find((x) => x.id === c.work) ?? null) : null;
   const latest = d !== null ? latestAt(d) : null;
   const readTo = d?.read_to ?? null;
   useEffect(() => {
@@ -848,9 +859,11 @@ function Open({ c }: { c: Conversation }) {
 }
 
 /// The owner's conversations: the list on the left, in its fixed order, its width dragged and kept in the browser; the
-/// conversation open on the right, the first in the list when the address names none.
+/// conversation open on the right, the first in the list when the address names none. The works are read once for
+/// both: the list's marks and the work of the group open.
 export function Messages({ open }: { open: string | null }) {
   const r = useResource<Conversation[]>('messages', '/api/v1/conversations');
+  const works = useResource<WorkSummary[]>('works', '/api/v1/works').data;
   const list = r.data ?? [];
   const shown = list.find((c) => c.key === open) ?? list[0] ?? null;
   return (
@@ -867,10 +880,10 @@ export function Messages({ open }: { open: string | null }) {
       >
         {r.error !== null ? <Flash variant="danger">{r.error}</Flash> : null}
         {r.data !== undefined && list.length === 0 ? <p className="talk-none">{t('conv_list_none')}</p> : null}
-        <List list={list} open={shown?.key ?? null} />
+        <List list={list} open={shown?.key ?? null} works={works} />
       </PageLayout.Pane>
       <PageLayout.Content padding="none" width="full" className="talks-content">
-        {shown !== null ? <Open key={shown.key} c={shown} /> : null}
+        {shown !== null ? <Open key={shown.key} c={shown} works={works} /> : null}
       </PageLayout.Content>
     </PageLayout>
   );

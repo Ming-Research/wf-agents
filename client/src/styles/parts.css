@@ -168,6 +168,52 @@
   color: var(--fgColor-onEmphasis);
 }
 
+/* A state as a mark, where a row has room for an icon and not for a chip (StateMark): an icon's room, the state's
+   Octicon in the foreground colour of its chip, or the mark of a round running. */
+.state-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--base-size-16);
+  height: var(--base-size-16);
+}
+
+.state-mark-accent {
+  color: var(--fgColor-accent);
+}
+
+.state-mark-success {
+  color: var(--fgColor-success);
+}
+
+.state-mark-attention {
+  color: var(--fgColor-attention);
+}
+
+.state-mark-danger {
+  color: var(--fgColor-danger);
+}
+
+.state-mark-done {
+  color: var(--fgColor-done);
+}
+
+.state-mark-neutral {
+  color: var(--fgColor-neutral);
+}
+
+/* The mark of a round running (RunningMark): the chart's halo at an icon's size, in line with the text, its arcs
+   wider than the chart's small halo's, so that it reads beside an Octicon. */
+.running-mark {
+  flex: none;
+  vertical-align: middle;
+}
+
+.running-mark .fc-halo-small .fc-halo-arc {
+  stroke-width: var(--chart-halo-width-mark);
+}
+
 /* A Label that leads where the owner acts on it: its words underlined under the pointer, as a link's are. */
 .label-link,
 .label-link:hover {

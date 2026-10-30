@@ -534,10 +534,8 @@
   margin: 0 0 var(--base-size-4);
 }
 
-/* The mark beside what runs now in a conversation's head: the chart's halo, small, in line with the text. */
-.running-mark {
-  flex: none;
-  vertical-align: middle;
+/* The mark beside what runs now in a conversation's head, before the words it marks. */
+.talk-head .running-mark {
   margin-right: var(--base-size-4);
 }
 
