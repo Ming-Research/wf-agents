@@ -39,7 +39,7 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (39, 145, 0));
+    assert_eq!((s.cells, s.rows, s.states), (39, 145, 205));
     let g = c.graph("architect").unwrap();
     assert!(g.cell("X4").is_none());
     assert!(

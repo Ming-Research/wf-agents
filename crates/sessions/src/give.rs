@@ -253,14 +253,22 @@ impl<'a> Giver<'a> {
     }
 
     /// The address of what the engine read or computed for a round under a name: the earliest round it was the same
-    /// for.
+    /// for; or, when it never was before and the session got the same content under another address, that address,
+    /// as the text of a new policy the session wrote and read is the policy in force once the owner approved it.
     pub fn computed(&self, round: RoundId, name: &str, content: &Value) -> String {
+        let h = hash(content);
         let suffix = format!("·engine·{name}");
-        self.registry
-            .get(&hash(content))
+        if let Some(a) = self
+            .registry
+            .get(&h)
             .and_then(|known| known.iter().find(|a| a.ends_with(&suffix) && round_of(a).is_some()))
-            .cloned()
-            .unwrap_or_else(|| format!("{round}{suffix}"))
+        {
+            return a.clone();
+        }
+        match self.held.got.get(&h) {
+            Some((_, at)) if copied(content) => at.clone(),
+            _ => format!("{round}{suffix}"),
+        }
     }
 
     /// What changed in an input of the standard context since the latest version the session holds, when that is
@@ -422,6 +430,31 @@ mod tests {
         assert_eq!(
             m.computed(RoundId::new(4, 9), "other", &json!("no")),
             "R4-9·engine·other"
+        );
+    }
+
+    // What the engine reads for a round that the session got before under another address, as a round's value, is
+    // referred to by that address and not given again; a word it got alike keeps the engine's own address.
+    #[test]
+    fn what_the_engine_reads_that_the_session_got_elsewhere_is_referred_to() {
+        let policy = json!({ "direction": "Ship the parser.", "principles": [] });
+        let mut held = Held::default();
+        held.rounds.insert(RoundId::new(3, 5));
+        held.got
+            .insert(hash(&policy), (RoundId::new(3, 8), "R3-5·P4·policy".to_string()));
+        held.got
+            .insert(hash(&json!("no")), (RoundId::new(3, 8), "R3-5·P4·verdict".to_string()));
+        let registry = HashMap::new();
+        let conn = Connection::open_in_memory().unwrap();
+        let mut m = Giver::new(&held, &registry, &conn, &[]);
+        let at = m.computed(RoundId::new(3, 21), "policy", &policy);
+        assert_eq!(at, "R3-5·P4·policy");
+        assert_eq!(m.give(at, policy), "R3-5·P4·policy");
+        assert!(!m.list[0].given);
+        assert!(repeats(&held, &m.list).is_empty());
+        assert_eq!(
+            m.computed(RoundId::new(3, 21), "rethought", &json!("no")),
+            "R3-21·engine·rethought"
         );
     }
 
