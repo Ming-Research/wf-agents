@@ -658,7 +658,8 @@ CREATE TABLE architect_matters (
   handled_work INTEGER,
   handled_round INTEGER,
   -- Why it left the queue unhandled: the work it waits on, which raised it (a question, a failure, a design card),
-  -- ended, saying how; the owner answered the question in the work's group, the reply saying what; it said that a
+  -- ended, saying how; the owner ruled the design card it was to look at, or another card replaced it, saying which;
+  -- the owner answered the question in the work's group, the reply saying what; it said that a
   -- setting of the policy, a work of its own then, had ended, when the setting became a stage of the architect's
   -- works; or it was a setting of the policy as a stage of its own, which runs so no longer. NULL otherwise.
   -- Read by: architect_queue, which leaves it out; the engine, which tells a new work on the item what an earlier

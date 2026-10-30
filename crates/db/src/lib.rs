@@ -24,7 +24,7 @@ mod start_over;
 pub use cells::{cells_sql, code_of, is_cell};
 pub use matters::{
     FAULT, Forwarder, Matter, fault_forwarding, forward_fault, forward_new_fault, lift_pause, one_sentence,
-    project_of_item, queue_matter, say_to_architect, set_fault_forwarding,
+    project_of_item, queue_matter, say_to_architect, set_fault_forwarding, withdraw_card_looks,
 };
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use start_over::{START_OVER, cannot_start_over, start_over, start_over_asked};
@@ -91,6 +91,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0053.sql"),
     include_str!("../../../db/migrations/0054.sql"),
     include_str!("../../../db/migrations/0055.sql"),
+    include_str!("../../../db/migrations/0056.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1285,6 +1286,56 @@ mod tests {
             old.conn()
                 .execute("UPDATE architect_matters SET what = 'x' WHERE id = 3", [])
                 .is_err()
+        );
+    }
+
+    // Taken to version 56, a database withdraws each look of the architect's at a design card the owner ruled or another
+    // replaced that is still in its queue, saying why, as the owner's ruling and a card replacing another do since.
+    #[test]
+    fn a_look_at_a_design_card_ruled_or_replaced_is_withdrawn() {
+        let mut old = at_version(55);
+        old.write(Actor::Engine, |tx| {
+            item(tx, "t")?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'I1')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'I1', '{}', 'c', 1)",
+                [],
+            )?;
+            let cards = [("ruled", None), ("open", None), ("replaced", Some(2)), ("replaced", None)];
+            for (status, by) in cards {
+                tx.execute(
+                    "INSERT INTO design_cards (work, round, body, status, replaced_by) VALUES (1, 1, '[]', ?1, ?2)",
+                    params![status, by],
+                )?;
+            }
+            for card in 1..=4 {
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, what, body, item, at)
+                     VALUES ('p', 'design_card', 'Design card to look at', json_object('design_card', ?1), 1, 1)",
+                    [card],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let mut st = old
+            .conn()
+            .prepare("SELECT withdrawn FROM architect_matters ORDER BY id")
+            .unwrap();
+        let withdrawn: Vec<Option<String>> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
+        assert_eq!(
+            withdrawn,
+            [
+                Some("the owner ruled design card 1".to_string()),
+                None,
+                Some("design card 3 was replaced by design card 2".to_string()),
+                Some("design card 4 was replaced".to_string()),
+            ]
         );
     }
 

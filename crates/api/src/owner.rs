@@ -494,8 +494,8 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
 /// rulings, and it is ruled. The card counts as confirmed only when every decision is. The decisions disagreed with
 /// reach the work's engineer as one interjection, each with the approach chosen instead and why; a ruling that
 /// confirms every decision is a word to the engineer that needs no answer and turns nothing (`informs`). The owner
-/// alone rules on a design card; once the owner confirms every decision, the architect has nothing to look at in it:
-/// the card leaves the architect's queue, unless a work of the architect has it in hand.
+/// alone rules on a design card; once the owner ruled, confirming every decision or not, the architect's look at it,
+/// which is for the owner to have before ruling, leaves its queue, withdrawn saying so ([`db::withdraw_card_looks`]).
 pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String> {
     let found: Option<(String, i64, String)> = db
         .conn()
@@ -591,6 +591,7 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
             "UPDATE design_cards SET rulings = ?2, status = 'ruled' WHERE id = ?1",
             params![design_card, Value::Array(list).to_string()],
         )?;
+        db::withdraw_card_looks(tx, work)?;
         if disagree {
             let lines: Vec<String> = said.iter().map(|s| format!("- {s}")).collect();
             let text = format!("{} {design_card}:\n{}", db::DESIGN_CARD_RULING, lines.join("\n"));
@@ -606,20 +607,6 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
                     work,
                     format!("The owner confirmed every decision of design card {design_card}: nothing changes.")
                 ],
-            )?;
-            tx.execute(
-                &format!(
-                    "DELETE FROM architect_matters
-                     WHERE kind = 'design_card' AND json_extract(body, '$.design_card') = ?1 AND handled_round IS NULL
-                       AND asked IS NULL AND id NOT IN (
-                         SELECT coalesce(json_extract(p.output, '$.queue.matter'),
-                                         json_extract(p.output, '$.outcome.pick.matter')) FROM rounds p
-                         JOIN works w ON w.id = p.work
-                         WHERE w.graph = 'architect' AND w.ended IS NULL AND p.cell IN {}
-                           AND p.transition IS NOT NULL)",
-                    db::cells_sql("architect", &["Q0", "Q1"])
-                ),
-                [design_card],
             )?;
         }
         Ok(())
@@ -1145,8 +1132,8 @@ mod tests {
     }
 
     // A disagreement needs a reason or another approach and reaches the engineer as an interjection; a ruling that
-    // confirms every decision reaches it as a word that needs no answer. Once the owner confirms every decision, the
-    // card waits no longer for the architect to look at it.
+    // confirms every decision reaches it as a word that needs no answer. Once the owner ruled, confirming every decision
+    // or not, the card waits no longer for the architect to look at it: its matter is withdrawn, saying so.
     #[test]
     fn the_owner_rules_on_a_design_card() {
         let mut db = setup();
@@ -1180,7 +1167,12 @@ mod tests {
         let rulings: Value = serde_json::from_str(&rulings).unwrap();
         assert_eq!(status, "ruled");
         assert_eq!(rulings[0]["decisions"][0]["text"], "Keep the old name.");
-        assert_eq!(looks(&db), 1);
+        assert_eq!(looks(&db), 0);
+        let withdrawn: String = db
+            .conn()
+            .query_row("SELECT withdrawn FROM architect_matters WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(withdrawn, "the owner ruled design card 1");
         let said: String = db
             .conn()
             .query_row("SELECT text FROM interjections WHERE work = 1", [], |r| r.get(0))

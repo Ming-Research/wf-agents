@@ -157,13 +157,14 @@ fn withdraw_matters(tx: &Transaction<'_>, work: i64, why: Option<&str>) -> Resul
     Ok(())
 }
 
-/// `replace_design_cards`: the owner can no longer rule on the work's design cards.
+/// `replace_design_cards`: the owner can no longer rule on the work's design cards, nor the architect look at them.
 fn replace_design_cards(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
     tx.execute(
         "UPDATE design_cards SET status = 'replaced' WHERE status <> 'replaced' AND work = ?1",
         [work],
     )
     .map_err(sql)?;
+    db::withdraw_card_looks(tx, work).map_err(sql)?;
     Ok(())
 }
 

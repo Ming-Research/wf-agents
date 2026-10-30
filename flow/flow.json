@@ -2890,7 +2890,6 @@
       "close_asks": "Answers the work's open asks of the owner: no answer is needed, since the work ended.",
       "close_matter": "Marks the matter picked as handled by this round.",
       "close_pr": "Closes the work's pull request, when it never merged, saying why the work ended. A work taken over leaves it to the new work.",
-      "close_settled_cards": "Closes, without a look and before anything is picked, the design card matters whose card the owner confirmed or another replaced, as handled by this work of the architect.",
       "deliver_answers": "Sends each answer back to the side that interjected: to the owner's conversation, as the agent's message, or to the architect's queue as a report of the kind answer; and records it on the work: those of the answers form, those a redirect carries, and a cell's own answer to the owner's words.",
       "end_sessions": "Ends the work's sessions.",
       "hand_over": "Hands the task's blocker on to the holder of the cell the row passes the work on to, recording the move with why and what the holder that hands it on found: to the owner, who is put an ask; to an architect, whose queue gets a matter saying which project and work it is for; the holder handing it on holds nothing then.",
@@ -3382,9 +3381,6 @@
       ],
       "close_pr": [
         "branch"
-      ],
-      "close_settled_cards": [
-        "architect_queue"
       ],
       "deliver_answers": [
         "owner_messages",
@@ -11230,7 +11226,7 @@
         "The design card is a gate before merging: the change to the design tree is merged only after the owner confirms it. It asks the owner nothing; anything to ask the owner goes through ask.",
         "The design card holds this change to the design tree: each decision added, changed or removed, before, after and why; at least three approaches compared, the chosen one the recommendation and why each other was not chosen; how sure, on what grounds, and what would overturn it; provisional or to check for what cannot be settled. One design card per work, one section per decision. Its content is shown in the design section of the item's research; the design card in the owner's interface shows only the decisions' names and links.",
         "The design card follows the design tree on the branch: written and committed on the branch during design, the design card appears then and blocks nothing; whenever a later round changes the design tree again, its return must carry the new design card, which the engine checks against the change on the branch.",
-        "Each new design card (the first, from design, or a new one from a later round that changed the design tree) is queued for the architect to look at: is the card itself sound, and are the approaches it chose by default reasonable in the whole? This does not block the engineer, and nothing waits for the architect. The architect does not rule on the card: if the card or a default does not hold, it acts, such as telling the engineer with an interjection; if they hold, it leaves the card to the owner. A card the owner has confirmed is not sent to the architect. Without a design card, the architect has nothing to do.",
+        "Each new design card (the first, from design, or a new one from a later round that changed the design tree) is queued for the architect to look at: is the card itself sound, and are the approaches it chose by default reasonable in the whole? This does not block the engineer, and nothing waits for the architect. The architect does not rule on the card: if the card or a default does not hold, it acts, such as telling the engineer with an interjection; if they hold, it leaves the card to the owner. Once the owner rules on the card, or another replaces it, the architect's look at it leaves its queue, withdrawn saying why. Without a design card, the architect has nothing to do.",
         "The engine records by decision which version of each decision the owner went through. When the design card changes, only the changed decisions go through again, the owner being shown how each changed since last seen. When a decision the owner confirmed changes, the engine tells the owner at once, without waiting for cell `M1`.",
         "The owner's ruling is an interjection, carrying which version of each decision the owner saw. Before sending it, the engine compares: for a decision changed since, it does not send that part but tells the owner it changed and how, and asks the owner to look at the new one; the rest is sent.",
         "The owner rules on each decision of the design card, and sends the verdicts on all of them at once: confirm it, disagree with it saying why, or choose another of its approaches. A decision confirmed is only recorded; a ruling that confirms every decision is a word to the engineer, given at its next round, and the way on does not change. The design card is confirmed when every decision on it is. Once confirmed it is settled and cannot be withdrawn; to change it, open a new work.",
@@ -13189,13 +13185,6 @@
                   ]
                 }
               ]
-            },
-            {
-              "name": "progress",
-              "title": "Design card matters closed",
-              "type": "text",
-              "optional": true,
-              "desc": "The design card matters closed without a look, their card confirmed by the owner or replaced, each with why; left out when none"
             }
           ],
           "cases": [
@@ -13318,11 +13307,7 @@
             }
           ],
           "shown": [
-            "queue",
-            "progress"
-          ],
-          "do": [
-            "close_settled_cards"
+            "queue"
           ]
         },
         {

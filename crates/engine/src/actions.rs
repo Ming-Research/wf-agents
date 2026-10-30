@@ -386,6 +386,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     )
                     .map_err(sql)?;
                 }
+                db::withdraw_card_looks(tx, w).map_err(sql)?;
                 let again = if before.iter().any(|(_, status)| status == "ruled") {
                     " A decision you ruled on changed: it must be confirmed again."
                 } else {
@@ -412,6 +413,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 [w],
             )
             .map_err(sql)?;
+            db::withdraw_card_looks(tx, w).map_err(sql)?;
         }
         "notify_pending_approvers" => {
             let why = match current_design_card(tx, w)? {

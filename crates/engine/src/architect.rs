@@ -622,7 +622,8 @@ fn batch_start(conn: &Connection, work: i64) -> Result<i64, String> {
     )
 }
 
-/// How many matters an architect work's batch handled, those the look at the queue closed without a look left out.
+/// How many matters an architect work's batch handled, those the look at the queue closed without a look, as a flow
+/// version before did, left out.
 fn handled_in_batch(conn: &Connection, work: i64) -> Result<i64, String> {
     let from = batch_start(conn, work)?;
     count(
@@ -736,50 +737,6 @@ fn straight_first(conn: &Connection, project: &str, rows: Vec<Value>) -> Result<
     Ok(if first.is_empty() { rows } else { first })
 }
 
-/// Closes the design card matters of a project's queue whose card needs no look any longer, confirmed by the owner or
-/// replaced by another, as handled in this work's round that runs now; gives each, with why.
-fn close_settled_cards(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<String>, String> {
-    let conn = e.db.conn();
-    let rows = query_json(
-        conn,
-        "SELECT q.matter, c.id AS card, c.status, c.rulings, max(1, coalesce(json_array_length(c.body), 1)) AS decisions
-         FROM architect_queue q JOIN architect_matters m ON m.id = q.matter
-         JOIN design_cards c ON c.id = json_extract(m.body, '$.design_card')
-         WHERE q.project = ?1 AND q.kind = 'design_card' ORDER BY q.matter",
-        &[&project],
-        ROWS,
-    )?;
-    let mut closed: Vec<(i64, String)> = Vec::new();
-    for r in rows {
-        let decisions = r["decisions"].as_u64().unwrap_or(1) as usize;
-        let confirmed = items(r.get("rulings"))
-            .last()
-            .is_some_and(|x| x["by"] == "owner" && db::ruling_confirms(x, decisions));
-        let why = match r["status"].as_str() {
-            Some("replaced") => "replaced by another",
-            Some("ruled") if confirmed => "confirmed by the owner",
-            _ => continue,
-        };
-        let m = r["matter"].as_i64().unwrap_or_default();
-        closed.push((m, format!("matter {m}, design card {} {why}", r["card"])));
-    }
-    if closed.is_empty() {
-        return Ok(Vec::new());
-    }
-    let round = count(conn, "SELECT max(n) FROM rounds WHERE work = ?1", &[&w.id])?;
-    e.db.write(Actor::Engine, |tx| {
-        for (m, _) in &closed {
-            tx.execute(
-                "UPDATE architect_matters SET handled_work = ?2, handled_round = ?3 WHERE id = ?1 AND handled_round IS NULL",
-                params![m, w.id, round],
-            )?;
-        }
-        Ok(())
-    })
-    .map_err(sql)?;
-    Ok(closed.into_iter().map(|x| x.1).collect())
-}
-
 /// The questions a project's architect put to the owner that wait for the owner's reply, newest first, as the owner's
 /// interface reads them too ([`db::QUESTIONS_PENDING`]): with the question, the cell that asked, when it was put and the
 /// matter it parked.
@@ -854,17 +811,11 @@ pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<bool, Str
 /// since, the architect waits for the reply ([`waits_on`]) before the matters at the head of the queue, which a flow
 /// version before did not. The owner's words, a matter back with the reply and the wait come from all the work can
 /// take ([`queued`]), never held back by the hold to set the project straight, which holds back only the matters from
-/// the head of the queue on ([`pickable`]). A design card matter whose card needs no look any longer is closed first
-/// (the cell's `close_settled_cards`, which a flow version before the cell named what it does did too), as the round's
-/// progress says.
+/// the head of the queue on ([`pickable`]). A design card matter whose card the owner ruled or another replaced left
+/// the queue as that happened ([`db::withdraw_card_looks`]); a flow version before closed it here, as the cell's
+/// `close_settled_cards`, which a database migrated since has none of left to close.
 pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
     let project = project_of(w)?;
-    let closes = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "close_settled_cards");
-    let closed = if closes {
-        close_settled_cards(e, w, project)?
-    } else {
-        Vec::new()
-    };
     let conn = e.db.conn();
     let all = queued(conn, project, w.id)?;
     let can = straight_first(conn, project, all.clone())?;
@@ -888,11 +839,7 @@ pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Va
         (None, None, None, None, [one]) => json!({ "verdict": "one", "matter": one["matter"] }),
         (None, None, None, None, many) => json!({ "verdict": "many", "count": many.len() }),
     };
-    let mut out = json!({ "queue": queue });
-    if !closed.is_empty() {
-        out["progress"] = json!(format!("Closed without a look: {}.", closed.join("; ")));
-    }
-    Ok(out)
+    Ok(json!({ "queue": queue }))
 }
 
 /// The owner's answer to the ask of the owner that held a matter; none while it has none.

@@ -50,6 +50,25 @@ pub fn queue_matter(tx: &Transaction<'_>, m: &Matter) -> Result<i64> {
     Ok(tx.last_insert_rowid())
 }
 
+/// Withdraws from the architect's queue the look at each design card of a work that the owner ruled or another
+/// replaced, saying why, as a matter whose reason went: the owner rules on a design card, and the architect's look at
+/// one is for the owner to have before ruling. Called wherever a card is ruled or replaced, in that write.
+pub fn withdraw_card_looks(tx: &Transaction<'_>, work: i64) -> Result<()> {
+    tx.execute(
+        "UPDATE architect_matters SET withdrawn = (
+           SELECT CASE WHEN c.status = 'ruled' THEN 'the owner ruled design card ' || c.id
+                       WHEN c.replaced_by IS NOT NULL THEN 'design card ' || c.id || ' was replaced by design card '
+                         || c.replaced_by
+                       ELSE 'design card ' || c.id || ' was replaced' END
+           FROM design_cards c WHERE c.id = json_extract(architect_matters.body, '$.design_card'))
+         WHERE kind = 'design_card' AND handled_round IS NULL AND withdrawn IS NULL
+           AND json_extract(body, '$.design_card') IN (
+             SELECT id FROM design_cards WHERE work = ?1 AND status IN ('ruled', 'replaced'))",
+        [work],
+    )?;
+    Ok(())
+}
+
 /// The project of an item, which its architect's matters go to; none for an item there is not.
 pub fn project_of_item(tx: &Transaction<'_>, item: i64) -> Result<Option<String>> {
     Ok(tx

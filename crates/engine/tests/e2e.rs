@@ -7764,78 +7764,93 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A design card matter whose card needs no look any longer, confirmed by the owner or replaced by another, is closed by
-// the engine as it looks at the queue, saying why, and never reaches `H6`.
+// The architect's look at a design card leaves its queue as the owner rules the card, disagreeing with a decision as
+// much as confirming them all, or as another card replaces it, withdrawn saying why, and never reaches `H6`: in the
+// sixth trial a look queued two days before reached `H6` after the owner had ruled the card, disagreeing with a
+// decision, and `H6` had nothing to look at.
 #[test]
-fn a_design_card_confirmed_or_replaced_is_closed_without_a_look() {
+fn a_design_card_s_look_leaves_the_queue_once_the_owner_ruled_or_it_was_replaced() {
     let s = setup("settled-card");
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     let item = an_item(&mut e);
     let v = e.flow_now;
+    let work = e
+        .db
+        .write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', 'I1', 'stopped: by hand')",
+                params![item, v],
+            )?;
+            let work = tx.last_insert_rowid();
+            record_round(tx, work, 1, "I1", &json!({}), "done")?;
+            for _ in [1, 2, 3] {
+                tx.execute(
+                    "INSERT INTO design_cards (work, round, body, status) VALUES (?1, 1, '[{\"node\":\"a\"}]', 'open')",
+                    [work],
+                )?;
+            }
+            for card in [1, 2] {
+                db::queue_matter(
+                    tx,
+                    &db::Matter {
+                        project: "p".into(),
+                        kind: "design_card".into(),
+                        detail: None,
+                        what: format!("Design card {card} to look at"),
+                        body: json!({ "design_card": card }),
+                        item: Some(item),
+                        raised: None,
+                    },
+                )?;
+            }
+            Ok(work)
+        })
+        .unwrap();
+    let disagree = api::Ruling {
+        decisions: vec![api::DecisionRuling {
+            decision: 1,
+            verdict: "disagree".into(),
+            text: Some("Keep the old name.".into()),
+            option: None,
+        }],
+    };
+    api::rule(&mut e.db, 1, &disagree).unwrap();
+    // As a card that changes the design tree again replaces the work's card.
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
-            "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', 'I1', 'stopped: by hand')",
-            params![item, v],
+            "UPDATE design_cards SET status = 'replaced', replaced_by = 3 WHERE id = 2",
+            [],
         )?;
-        let work = tx.last_insert_rowid();
-        record_round(tx, work, 1, "I1", &json!({}), "done")?;
-        let confirmed = json!([{ "by": "owner", "at": 1, "decisions": [{ "decision": 1, "verdict": "confirm" }] }]);
-        tx.execute(
-            "INSERT INTO design_cards (work, round, body, status, rulings) VALUES (?1, 1, '[{\"node\":\"a\"}]', 'ruled', ?2)",
-            params![work, confirmed.to_string()],
-        )?;
-        tx.execute(
-            "INSERT INTO design_cards (work, round, body, status) VALUES (?1, 1, '[{\"node\":\"a\"}]', 'replaced')",
-            [work],
-        )?;
-        for card in [1, 2] {
-            db::queue_matter(
-                tx,
-                &db::Matter {
-                    project: "p".into(),
-                    kind: "design_card".into(),
-                    detail: None,
-                    what: format!("Design card {card} to look at"),
-                    body: json!({ "design_card": card }),
-                    item: Some(item),
-                    raised: None,
-                },
-            )?;
-        }
-        Ok(())
+        db::withdraw_card_looks(tx, work)
     })
     .unwrap();
-    let arch = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 30, |e| architect_work_done(e, arch)),
-        "{}",
-        said.borrow().join("\n")
-    );
-    let log = said.borrow().join("\n");
-    assert!(!path_of(&e, arch).contains(&"H6".to_string()), "{log}");
-    let closed: Vec<(String, String)> = engine::query_json(
+    let withdrawn: Vec<String> = engine::query_json(
         e.db.conn(),
-        "SELECT r.cell, json_extract(r.output, '$.progress') AS said FROM architect_matters m
-         JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round WHERE m.kind = 'design_card'",
+        "SELECT withdrawn FROM architect_matters WHERE kind = 'design_card' ORDER BY id",
         &[],
         10,
     )
     .unwrap()
     .iter()
-    .map(|r| {
-        (
-            r["cell"].as_str().unwrap().to_string(),
-            r["said"].as_str().unwrap_or_default().to_string(),
-        )
-    })
+    .map(|r| r["withdrawn"].as_str().unwrap_or_default().to_string())
     .collect();
-    assert_eq!(closed.len(), 2, "{log}");
-    assert!(closed.iter().all(|c| c.0 == "Q0"), "{closed:?}");
-    assert!(
-        closed[0].1.contains("confirmed by the owner") && closed[0].1.contains("replaced by another"),
-        "{closed:?}"
+    assert_eq!(
+        withdrawn,
+        [
+            "the owner ruled design card 1",
+            "design card 2 was replaced by design card 3"
+        ]
     );
+    say(&mut e, "Look.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    assert!(!path_of(&e, arch).contains(&"H6".to_string()), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
