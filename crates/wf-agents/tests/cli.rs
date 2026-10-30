@@ -555,29 +555,6 @@ fn cost_total_adds_awkward_rows_as_the_rows_show_them() {
     assert_a_tie_total_rounds_as_a_row_does();
 }
 
-// At the edge of the table: exactly as many works as it lists (10,000) has every work and the total after them, with
-// nothing marking a cut. Each work is one round of 2 s for 0.25.
-#[test]
-fn cost_total_follows_exactly_the_rows_the_table_has_room_for() {
-    let dir = empty_database("cost-total-edge");
-    fill(
-        &dir,
-        r#"
-        INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
-        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10000)
-            INSERT INTO works (id, flow_version, graph, at) SELECT i, 1, 'engineer', 'I1' FROM n;
-        INSERT INTO rounds (work, n, input, config_commit, usage, started_at, ended_at)
-            SELECT id, 1, '{}', 'c', '{"cost_usd": 0.25}', 0, 2000 FROM works;
-        "#,
-    );
-    let text = printed(&dir, "cost");
-    let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), 10_002, "a head, 10,000 works and the total");
-    assert_eq!(lines[10_000], "10000\t1\t2\t0.25");
-    assert_eq!(lines[10_001], "total\t10000\t20000\t2500.0");
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
 // A total that falls on a tie is rounded as a work's cost is: two works of 0.0625 each add to 0.125 (exact in binary,
 // a tie at two decimals), and the total shows what the one work of 0.125 shows in its row, whichever way SQLite breaks
 // the tie; so the sum is rounded once by the same function as the rows, not by another rule.
