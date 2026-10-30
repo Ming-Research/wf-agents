@@ -157,14 +157,15 @@ function Engine() {
 /// A view of the bar: its place, the pages that are it, and its name.
 type View = { to: string; pages: Route['page'][]; name: Key };
 
+/// The views in the bar's order, Messages first, as the owner asked, the place the owner works from.
 const VIEWS: View[] = [
+  { to: '/messages', pages: ['messages'], name: 'nav_messages' },
   { to: '/works', pages: ['works', 'work'], name: 'nav_works' },
   { to: '/architect', pages: ['architect'], name: 'nav_architect' },
   { to: '/items', pages: ['items', 'item'], name: 'nav_items' },
   { to: '/flow', pages: ['flow'], name: 'nav_flow' },
   { to: '/system', pages: ['system'], name: 'nav_system' },
   { to: '/settings', pages: ['settings'], name: 'nav_settings' },
-  { to: '/messages', pages: ['messages'], name: 'nav_messages' },
 ];
 
 /// Moves to a view within the page; a click with a modifier key opens it as the browser would.
