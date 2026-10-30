@@ -224,9 +224,15 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
             ("B1", Some("close_matter"))
         );
     }
-    assert_eq!(way(&row("B4", "go_on")), to("Q0", &[]));
-    assert_eq!(way(&row("B4", "re_plan")), to("Q0", &["queue_make_plan"]));
-    assert_eq!(way(&row("B4", "check_policy")), to("Q0", &["queue_check_policy"]));
+    assert_eq!(way(&row("B4", "go_on")), to("Q0", &["queue_group_talk"]));
+    assert_eq!(
+        way(&row("B4", "re_plan")),
+        to("Q0", &["queue_make_plan", "queue_group_talk"])
+    );
+    assert_eq!(
+        way(&row("B4", "check_policy")),
+        to("Q0", &["queue_check_policy", "queue_group_talk"])
+    );
     let into = |cell: &str| -> Vec<&str> {
         g.cells
             .iter()
@@ -329,8 +335,8 @@ fn the_owner_s_words_are_answered_in_one_round() {
 }
 
 // What was said in the works' groups, other than to the architect, is a matter of its own (`group_talk`), which the
-// cell the architect waits at to start queues (`S0`'s `queue_group_talk`), and the rethink that ends each batch while a
-// work runs (`B4`, every time it returns), and the router sends to its cell (`H12`): it
+// cell the architect waits at to start queues (`S0`'s `queue_group_talk`), and each row out of the rethink that ends
+// each batch while a work runs (`B4`), and the router sends to its cell (`H12`): it
 // may do nothing more, interject in its effects, plan again or check the policy, each a matter it queues at the head of
 // the queue, back to the batch; the pick is given it no longer.
 #[test]
@@ -374,14 +380,12 @@ fn what_was_said_in_the_groups_is_a_matter_of_its_own() {
     };
     assert!(reads("H12"));
     assert!(!reads("Q1"));
-    // The rethink every batch ends at queues it too, every time it returns, for the work that runs.
-    assert!(
-        g.cell("B4")
-            .unwrap()
-            .always
-            .iter()
-            .any(|a| a.at == "rethink" && a.action.as_deref() == Some("queue_group_talk"))
-    );
+    // Each row out of the rethink every batch ends at queues it too, for the work that runs.
+    for r in &g.cell("B4").unwrap().rows {
+        if !r.common {
+            assert!(r.actions.iter().any(|d| d.name() == "queue_group_talk"), "{}", r.name);
+        }
+    }
 }
 
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every

@@ -16928,7 +16928,10 @@
               ],
               "to": "Q0",
               "main": true,
-              "counts": "batches"
+              "counts": "batches",
+              "do": [
+                "queue_group_talk"
+              ]
             },
             {
               "name": "re_plan",
@@ -16946,7 +16949,8 @@
                 {
                   "at": "rethink[re_plan].why",
                   "do": "queue_make_plan"
-                }
+                },
+                "queue_group_talk"
               ],
               "counts": "rethinks",
               "note": "The plan of what to do next is made again, as a matter at the head of the queue, the plan in the queue taking the why when one is open."
@@ -16967,7 +16971,8 @@
                 {
                   "at": "rethink[check_policy].why",
                   "do": "queue_check_policy"
-                }
+                },
+                "queue_group_talk"
               ],
               "counts": "policy_doubts",
               "note": "Whether the policy still holds is checked, as a matter at the head of the queue, the check in the queue taking the why when one is open."
@@ -16985,10 +16990,6 @@
             {
               "at": "notebook",
               "do": "edit_notebook"
-            },
-            {
-              "at": "rethink",
-              "do": "queue_group_talk"
             }
           ],
           "checks": [
