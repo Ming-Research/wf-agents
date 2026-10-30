@@ -2915,7 +2915,7 @@
       "reopen_with_fix": "Opens a new PR under the same item with the original change plus the fix; the original change is reviewed only where the fix touches it.",
       "replace_design_card": "Marks the work's open and ruled design cards as replaced: the owner can no longer rule on them. A new design brings a new design card; without one there is nothing to mark.",
       "replace_design_cards": "Marks the work's design cards replaced: the owner can no longer rule on them.",
-      "reply_to_engineer": "Gives the reply to the engineer waiting at its question: at once, or, when the round's item changes are what it says, once the review lets them be made, with the numbers of the items they make.",
+      "reply_to_engineer": "Gives the reply to the engineer waiting at its question: at once, or, when the round's item changes are what it says, once the review lets them be made, with the numbers of the items they make; a reply that names an item no change made (the review dropped the change that creates it, the revision left it out, or a cancel in the same batch cancelled it out) does not go out, and its matter goes back to the queue, not handled, with that reply and why, to be answered again.",
       "report_missing_check": "Tells the architect that the full CI in the project's configuration missed the check that broke main, so that it is added.",
       "resolve_blocker": "Resolves the task's blocker with what its holder decided and did: the reply, the answer, or the items delivered.",
       "revert_merge": "Opens a PR that reverts the merge and puts it first in this repository's merge queue, so that main recovers within minutes.",
@@ -3008,7 +3008,7 @@
       "slots": "The machines' slots, which every project shares: how many there are, used and free, and how many items are ready; and whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run's cause stops every work.",
       "queue": "The project's queue: the numbers of the matters that can be picked now, and each matter with its kind, item, who waits and since when, and what it is; those held by an ask; whether new starts are held to set things straight.",
       "batch": "The batch so far: the numbers of the matters handled, and each with how it ended; its item changes, those collected so far each whole with the key of an item it creates, made only once the review finds them sound, and those made or dropped; and whether a hold to set things straight was released.",
-      "matter": "The matter picked, with its material by its kind.",
+      "matter": "The matter picked, with its material by its kind, and, for a question whose reply was not sent since an item it named was not made, that reply, the items it named that were made and why each other one was not.",
       "matter_items": "The items and works the matter picked concerns, in full.",
       "item_log": "The architect's recent log entries on the item the matter concerns.",
       "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
@@ -14040,7 +14040,7 @@
           "inputs": [
             {
               "name": "The question",
-              "what": "The question: the ask the engineer handed in, and its work: the problem, why, the plan, the acceptance, a summary of what it did, its design cards",
+              "what": "The question: the ask the engineer handed in, and its work: the problem, why, the plan, the acceptance, a summary of what it did, its design cards; when a reply of yours to it was not sent, since an item it named was not made, that reply, the items it named that were made, by their numbers, and why each other one was not: answer it again knowing it",
               "from": [
                 {
                   "engine": "matter"
@@ -14269,7 +14269,7 @@
           "inputs": [
             {
               "name": "The question",
-              "what": "The question: the ask the engineer handed in, and its work: the problem, why, the plan, the acceptance, a summary of what it did, its design cards",
+              "what": "The question: the ask the engineer handed in, and its work: the problem, why, the plan, the acceptance, a summary of what it did, its design cards; when a reply of yours to it was not sent, since an item it named was not made, that reply, the items it named that were made, by their numbers, and why each other one was not: answer it again knowing it",
               "from": [
                 {
                   "engine": "matter"
@@ -14421,7 +14421,7 @@
           ],
           "prompt": [
             "This round weighs the ways for this question. The crux is answered: think by it, and do not go back to the question on the surface. See which articles of the constitution it touches and what each implies; then which items it touches and how (a duplicate, a dependency, blocking others, a root in another item or project), and who waits. Think of at least three ways, with what follows from each, choose one, and say why it and why not the others. A conclusion deduced from reading code is said to be deduced; an inference that decides the direction and is not checked is checked first by an item, and the structure is not changed on it.",
-            "Reply to the engineer concretely enough to carry on from: if sub-items were split off, say plainly that the work must redesign for the part that remains; if it must stop now and wait for other items to deliver, list them in the reply's waits, while a parallel dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this batch creates by its key: the engine puts its number there once it is made. The reply goes at once, or, when your item changes are what it says, once the review lets them be made.",
+            "Reply to the engineer concretely enough to carry on from: if sub-items were split off, say plainly that the work must redesign for the part that remains; if it must stop now and wait for other items to deliver, list them in the reply's waits, while a parallel dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this batch creates by its key: the engine puts its number there once it is made. The reply goes at once, or, when your item changes are what it says, once the review lets them be made; if an item it names is not made after all, it does not go out, and the question comes back to you with why.",
             "Works start in the order you give: first the items the owner queued, then each project's items by their rank. A new item goes last among its project's items, and moving one puts it first, last, or just before or after another item of its project. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them.",
             "What the constitution, the policy or what goes outside decides, hand to the owner with the reply's hand_over, saying why and, in its text, what you found; what belongs to a related project's architect, hand to it the same way. You never ask and wait: whoever you hand it to answers the engineer."
           ],
@@ -15267,7 +15267,7 @@
           "inputs": [
             {
               "name": "The failure",
-              "what": "The failure: the tool, the error word for word, what was tried and how many retries; for main gone red after a merge, the red checks and the run on main's commit before it. The work that met it waits at its question",
+              "what": "The failure: the tool, the error word for word, what was tried and how many retries; for main gone red after a merge, the red checks and the run on main's commit before it. The work that met it waits at its question; when a reply of yours to it was not sent, since an item it named was not made, that reply, the items it named that were made, by their numbers, and why each other one was not: answer it again knowing it",
               "from": [
                 {
                   "engine": "matter"

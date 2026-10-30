@@ -1732,30 +1732,119 @@ fn make(
     Ok(keys)
 }
 
-/// Sends the replies that waited for the item changes of their matters, once those are made.
-fn send_held_replies(
+/// The keys of items the batch was to create that a reply names, in its children and its waits: those that are no
+/// item's number.
+fn keys_named(reply: &Value) -> Vec<String> {
+    ["children", "waits"]
+        .iter()
+        .flat_map(|list| items(reply.get(*list)))
+        .filter_map(|x| x["key"].as_str().map(|k| k.trim().trim_start_matches('#').to_string()))
+        .filter(|k| !k.is_empty() && k.parse::<i64>().is_err())
+        .collect()
+}
+
+/// The replies of an architect work's matters held for their item changes, once the batch is made: each goes out with
+/// the numbers of the items made in place of their keys; one that names an item no change made, as when the review
+/// dropped the change that creates it or the revision left it out, does not go out ([`not_sent`]). The matters in
+/// `except` keep theirs: an ask of the owner holds them.
+fn release_held_replies(
     tx: &Transaction<'_>,
-    matters: &BTreeSet<i64>,
+    work: i64,
     keys: &BTreeMap<String, i64>,
+    except: &BTreeSet<i64>,
 ) -> Result<(), String> {
-    for m in matters {
-        let held: Option<String> = tx
-            .query_row("SELECT reply_held FROM architect_matters WHERE id = ?1", [m], |r| {
-                r.get(0)
-            })
-            .map_err(sql)?;
-        let Some(reply) = json_col(held) else { continue };
-        let reply = numbered(&reply, keys);
+    let held = query_json(
+        tx,
+        "SELECT id, reply_held FROM architect_matters WHERE handled_work = ?1 AND reply_held IS NOT NULL ORDER BY id",
+        &[&work],
+        10_000,
+    )?;
+    for h in held {
+        let Some(m) = h["id"].as_i64().filter(|m| !except.contains(m)) else {
+            continue;
+        };
+        let reply = &h["reply_held"];
+        let named = keys_named(reply);
+        if named.iter().any(|k| !keys.contains_key(k)) {
+            not_sent(tx, work, m, reply, keys)?;
+            continue;
+        }
+        let reply = numbered(reply, keys);
         tx.execute(
             "UPDATE architect_matters SET reply = ?2, reply_held = NULL WHERE id = ?1",
             params![m, reply.to_string()],
         )
         .map_err(sql)?;
-        if let Some(b) = crate::blockers::of_matter(tx, *m)?
+        if let Some(b) = crate::blockers::of_matter(tx, m)?
             && b.ended.is_some()
         {
             crate::blockers::say(tx, b.id, "architect", "late", &reply)?;
         }
+    }
+    Ok(())
+}
+
+/// Why the item a matter's change was to create under a key was not made, as the batch's record of that change says:
+/// what the review found when it dropped it, or why the batch dropped it, such as a cancel of it in the same batch;
+/// that the revision left it out; or that no change of the batch was to create it.
+fn why_not_made(tx: &Transaction<'_>, work: i64, matter: i64, key: &str) -> Result<Value, String> {
+    let row = query_json(
+        tx,
+        "SELECT state, outcome FROM architect_item_changes
+         WHERE work = ?1 AND matter = ?2 AND json_extract(change, '$.kind') = 'create_item'
+           AND trim(json_extract(change, '$.key')) = ?3
+         ORDER BY id DESC LIMIT 1",
+        &[&work, &matter, &key],
+        1,
+    )?;
+    Ok(match row.first().map(|r| (r["state"].as_str(), &r["outcome"])) {
+        Some((Some("dropped"), outcome)) if !outcome.is_null() => outcome.clone(),
+        Some((Some("revised"), _)) => {
+            json!({ "what": "The revision of the batch left out the change that creates it" })
+        }
+        _ => json!({ "what": "No change of the batch made it" }),
+    })
+}
+
+/// A held reply that names an item no change made does not go out, since the engineer must not go on from an item
+/// that is not there: its matter goes back to the queue, not handled, with the reply that was not sent, the items it
+/// named that were made, by their numbers, and why each other one was not, for its path to answer it again; the
+/// question's blocker says so.
+fn not_sent(
+    tx: &Transaction<'_>,
+    work: i64,
+    matter: i64,
+    reply: &Value,
+    keys: &BTreeMap<String, i64>,
+) -> Result<(), String> {
+    let mut made = Map::new();
+    let mut not_made = Vec::new();
+    for k in keys_named(reply) {
+        match keys.get(&k) {
+            Some(n) => {
+                made.insert(k, json!(n));
+            }
+            None => not_made.push(json!({ "key": k, "why": why_not_made(tx, work, matter, &k)? })),
+        }
+    }
+    let record = json!({ "reply": reply, "made": made, "not_made": not_made });
+    tx.execute(
+        "UPDATE architect_matters SET handled_work = NULL, handled_round = NULL, reply_held = NULL,
+           body = json_set(body, '$.reply_not_sent', json(?2))
+         WHERE id = ?1",
+        params![matter, record.to_string()],
+    )
+    .map_err(sql)?;
+    if let Some(b) = crate::blockers::of_matter(tx, matter)?
+        && b.ended.is_none()
+    {
+        crate::blockers::say(
+            tx,
+            b.id,
+            "architect",
+            "reply_not_sent",
+            &json!({ "not_made": not_made }),
+        )?;
     }
     Ok(())
 }
@@ -1832,7 +1921,8 @@ fn drop_rows(tx: &Transaction<'_>, rows: &[(Change, Value)]) -> Result<(), Strin
 /// A cancel the batch collected of an item a create of the same batch makes, named by its key, cancels that create
 /// out: the item is never made, so the create, every change of the batch that names its key and the cancel are
 /// dropped, saying so, before the review looks at the batch, instead of the review being given an item made, moved
-/// and cancelled in one batch, as in the sixth trial.
+/// and cancelled in one batch, as in the sixth trial. A reply held for the batch that names such an item does not go
+/// out ([`not_sent`]), and the rest of its answer's changes are dropped with it, since its matter is answered again.
 fn cancel_within_batch(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
     let rows = collected(tx, work)?;
     let created: BTreeSet<String> = rows
@@ -1858,7 +1948,45 @@ fn cancel_within_batch(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
             }
         }
     }
-    drop_rows(tx, &gone)
+    // A reply held for the batch that names an item cancelled out does not go out: its matter is answered again, and
+    // the rest of its answer's changes go with the answer.
+    let cancelled: BTreeSet<String> = rows
+        .iter()
+        .filter(|r| r.3["kind"] == "cancel")
+        .map(|r| text(&r.3["item"]).trim().to_string())
+        .filter(|k| created.contains(k))
+        .collect();
+    let held = query_json(
+        tx,
+        "SELECT id, reply_held FROM architect_matters WHERE handled_work = ?1 AND reply_held IS NOT NULL ORDER BY id",
+        &[&work],
+        10_000,
+    )?;
+    let again: Vec<(i64, Value)> = held
+        .into_iter()
+        .filter_map(|h| {
+            let m = h["id"].as_i64()?;
+            let names = keys_named(&h["reply_held"]).iter().any(|k| cancelled.contains(k));
+            names.then(|| (m, h["reply_held"].clone()))
+        })
+        .collect();
+    for (m, _) in &again {
+        let why = json!({
+            "what": format!(
+                "Matter {m} is answered again: its reply named an item the batch cancelled in the same batch"
+            ),
+        });
+        for r in rows.iter().filter(|r| r.2 == *m) {
+            if !gone.iter().any(|(g, _)| g.0 == r.0) {
+                gone.push((r.clone(), why.clone()));
+            }
+        }
+    }
+    drop_rows(tx, &gone)?;
+    for (m, reply) in &again {
+        not_sent(tx, work, *m, reply, &BTreeMap::new())?;
+    }
+    Ok(())
 }
 
 /// The review gave up on what it still found to fix at its third look: the changes it found sound are made, those it
@@ -1870,15 +1998,10 @@ fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let (sound, left_out) = sorted_by_review(collected(tx, w)?, &review);
     let keys = make(tx, &sound, &ctx.projects)?;
     drop_rows(tx, &left_out)?;
-    let matters: BTreeSet<i64> = sound
-        .iter()
-        .chain(left_out.iter().map(|(r, _)| r))
-        .map(|r| r.2)
-        .collect();
     // What the review drops is left out, and what it still finds to fix is put to the owner.
     let dropped: Vec<(Change, Value)> = left_out.into_iter().filter(|(_, f)| f["verdict"] == "fix").collect();
     let held: BTreeSet<i64> = dropped.iter().map(|(r, _)| r.2).collect();
-    send_held_replies(tx, &matters.difference(&held).copied().collect(), &keys)?;
+    release_held_replies(tx, w, &keys, &held)?;
     if !dropped.is_empty() {
         let asked: Vec<Value> = dropped
             .iter()
@@ -2294,8 +2417,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             let (rows, dropped) = sorted_by_review(collected(tx, w)?, &items(at));
             let keys = make(tx, &rows, &ctx.projects)?;
             drop_rows(tx, &dropped)?;
-            let matters: BTreeSet<i64> = rows.iter().chain(dropped.iter().map(|(r, _)| r)).map(|r| r.2).collect();
-            send_held_replies(tx, &matters, &keys)?;
+            release_held_replies(tx, w, &keys, &BTreeSet::new())?;
             batch_over(tx, w, &project)?;
         }
         "apply_reviewed" => give_up(ctx, tx)?,
@@ -4711,5 +4833,175 @@ mod tests {
             .map(|r| (r.0.0, r.1["verdict"].as_str().unwrap()))
             .collect();
         assert_eq!(verdicts, [(1, "drop"), (2, "drop"), (4, "drop")]);
+    }
+
+    /// A database with a work of project p's architect, its rounds 1 to 4, and matter 1, an engineer's question the
+    /// work handled at round 2 whose reply, naming the items the batch was to create as `cover` and `split`, is held
+    /// for the batch; and the changes of the batch, each with its matter and state.
+    fn held_for(changes: &[(i64, Value, &str, Value)]) -> db::Db {
+        let mut db = db::Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B2', 'p')",
+                [],
+            )?;
+            for n in 1..=4 {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, ?1, 'H3', '{}', 'c', ?1)",
+                    [n],
+                )?;
+            }
+            let waits = json!([{ "key": "cover", "title": "c", "delivers": "d" }, { "key": "#12", "title": "x" }]);
+            let reply = json!({ "text": "Wait for the new items.", "children": [{ "key": "split", "title": "s" }],
+                                "waits": waits });
+            for m in [1, 2] {
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, what, body, at, handled_work, handled_round)
+                     VALUES ('p', 'engineer_question', 'Asks', '{}', 1, 1, ?1)",
+                    [m + 1],
+                )?;
+            }
+            tx.execute(
+                "UPDATE architect_matters SET reply_held = ?1 WHERE id = 1",
+                [reply.to_string()],
+            )?;
+            for (matter, change, state, outcome) in changes {
+                tx.execute(
+                    "INSERT INTO architect_item_changes (work, round, matter, change, state, outcome)
+                     VALUES (1, 2, ?1, ?2, ?3, ?4)",
+                    params![matter, change.to_string(), state, (!outcome.is_null()).then(|| outcome.to_string())],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        db
+    }
+
+    fn create(key: &str) -> Value {
+        json!({ "kind": "create_item", "key": key, "title": key })
+    }
+
+    /// Matter 1 as it stands: whether it is handled, its reply sent and held, and the reply not sent.
+    fn matter_one(db: &db::Db) -> (Option<i64>, Option<String>, Option<String>, Value) {
+        db.conn()
+            .query_row(
+                "SELECT handled_round, reply, reply_held, json_extract(body, '$.reply_not_sent') FROM architect_matters
+                 WHERE id = 1",
+                [],
+                |r| {
+                    let not_sent: Option<String> = r.get(3)?;
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        not_sent.map_or(Value::Null, |s| serde_json::from_str(&s).unwrap()),
+                    ))
+                },
+            )
+            .unwrap()
+    }
+
+    // A held reply whose named items were all made goes out with their numbers; one naming an item the review dropped,
+    // or the revision left out, does not: its matter goes back to the queue, not handled, with the reply, the items
+    // made by their numbers and why the other was not.
+    #[test]
+    fn a_held_reply_goes_out_only_when_every_item_it_names_was_made() {
+        let release = |db: &mut db::Db, keys: &[(&str, i64)]| {
+            let keys: BTreeMap<String, i64> = keys.iter().map(|(k, n)| (k.to_string(), *n)).collect();
+            db.write(Actor::Engine, |tx| {
+                release_held_replies(tx, 1, &keys, &BTreeSet::new()).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        };
+        let mut made = held_for(&[
+            (1, create("cover"), "made", Value::Null),
+            (1, create("split"), "made", Value::Null),
+        ]);
+        release(&mut made, &[("cover", 41), ("split", 42)]);
+        let (handled, reply, held, _) = matter_one(&made);
+        assert_eq!((handled, held), (Some(2), None));
+        let reply: Value = serde_json::from_str(&reply.unwrap()).unwrap();
+        assert_eq!(
+            (&reply["waits"][0]["key"], &reply["children"][0]["key"]),
+            (&json!("41"), &json!("42"))
+        );
+
+        let finding = json!({ "change": 1, "verdict": "drop", "why": "Item 5 covers it already." });
+        let mut dropped = held_for(&[
+            (1, create("cover"), "dropped", finding.clone()),
+            (1, create("split"), "made", Value::Null),
+        ]);
+        release(&mut dropped, &[("split", 42)]);
+        let (handled, reply, held, not_sent) = matter_one(&dropped);
+        assert_eq!((handled, reply, held), (None, None, None));
+        assert_eq!(not_sent["made"], json!({ "split": 42 }));
+        assert_eq!(not_sent["not_made"], json!([{ "key": "cover", "why": finding }]));
+        assert_eq!(not_sent["reply"]["waits"][0]["key"], "cover");
+
+        let mut revised = held_for(&[
+            (1, create("cover"), "revised", Value::Null),
+            (1, create("split"), "made", Value::Null),
+        ]);
+        release(&mut revised, &[("split", 42)]);
+        let (handled, _, _, not_sent) = matter_one(&revised);
+        assert_eq!(handled, None);
+        assert!(
+            not_sent["not_made"][0]["why"]["what"]
+                .as_str()
+                .unwrap()
+                .contains("revision"),
+            "{not_sent}"
+        );
+    }
+
+    // A cancel of an item the batch creates, by another matter, cancels its create out, and the reply held that names
+    // it does not go out: its matter goes back to the queue with why, and the rest of its answer's changes go with it.
+    #[test]
+    fn a_held_reply_naming_an_item_cancelled_out_goes_back_to_the_queue() {
+        let mut db = held_for(&[
+            (1, create("cover"), "collected", Value::Null),
+            (1, create("split"), "collected", Value::Null),
+            (
+                1,
+                json!({ "kind": "move", "item": 3, "to": { "place": "first" } }),
+                "collected",
+                Value::Null,
+            ),
+            (
+                2,
+                json!({ "kind": "cancel", "item": "cover", "reason": "Not needed." }),
+                "collected",
+                Value::Null,
+            ),
+            (
+                2,
+                json!({ "kind": "move", "item": 4, "to": { "place": "last" } }),
+                "collected",
+                Value::Null,
+            ),
+        ]);
+        db.write(Actor::Engine, |tx| cancel_within_batch(tx, 1).map_err(db::Error::Abort))
+            .unwrap();
+        let states: Vec<String> = {
+            let mut st = db
+                .conn()
+                .prepare("SELECT state FROM architect_item_changes ORDER BY id")
+                .unwrap();
+            st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+        };
+        assert_eq!(states, ["dropped", "dropped", "dropped", "dropped", "collected"]);
+        let (handled, reply, held, not_sent) = matter_one(&db);
+        assert_eq!((handled, reply, held), (None, None, None));
+        let why = |k: usize| {
+            not_sent["not_made"][k]["why"]["what"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        };
+        assert_eq!(not_sent["not_made"][1]["key"], "cover", "{not_sent}");
+        assert!(why(1).contains("cancelled in the same batch"), "{not_sent}");
+        assert!(why(0).contains("answered again"), "{not_sent}");
     }
 }
