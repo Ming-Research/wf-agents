@@ -82,7 +82,8 @@ export type ShapeOptions = {
   titles?: Record<string, string>;
 };
 
-const props = (s: Obj): Obj => (isObj(s.properties) ? s.properties : {});
+/// The fields an object's schema names, by their keys.
+export const props = (s: Obj): Obj => (isObj(s.properties) ? s.properties : {});
 
 /// The alternatives of a schema that is one of several, if it is.
 function alternatives(s: Obj): Obj[] | null {
@@ -147,7 +148,7 @@ export function branch(s: Obj, v: JsonValue): { schema: Obj; at: number; value?:
 
 /// The schema a value is read by: the alternative it is of one of several, the schema itself when the value is of
 /// the type it names, none when the schema does not describe the value.
-function resolve(s: Obj | null, v: JsonValue): { schema: Obj; at: number; value?: string } | null {
+export function resolve(s: Obj | null, v: JsonValue): { schema: Obj; at: number; value?: string } | null {
   if (s === null) return null;
   if (alternatives(s) !== null) return branch(s, v);
   return typeFits(s, v) || 'const' in s || Array.isArray(s.enum) ? { schema: s, at: -1 } : null;
@@ -170,7 +171,7 @@ export function shape(value: JsonValue, schema: JsonValue | null | undefined, o:
 }
 
 /// The path of a place under a branch: the branch's fixed value in brackets.
-const under = (path: string, r: { value?: string } | null) => (r?.value !== undefined ? `${path}[${r.value}]` : path);
+export const under = (path: string, r: { value?: string } | null) => (r?.value !== undefined ? `${path}[${r.value}]` : path);
 
 function shapeAt(v: JsonValue, s: Obj | null, o: ShapeOptions, path: string, depth: number): Shown {
   if (typeof v === 'string') {

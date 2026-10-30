@@ -3,10 +3,15 @@
 // --test typescript` writes both to `stored-flow.json`, as CI does before the page's tests. The made-up flows of the
 // other tests say what each part does; these, that it does it on the real flow.
 
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import type { Compiled, FlowView } from './api';
-import { cellWhere, enteredFrom, leavesTo, ownMoves } from './flow/CellPanel';
+import { cellWhere } from './flow/CellPanel';
+import { flowOf, FlowContext } from './flow/context';
+import { ReturnPattern } from './flow/Returns';
+import { enteredFrom, FromTable, lacksMoves, leavesTo, ToTable } from './flow/Rows';
 import { moveWords } from './graph/FlowChart';
 import { cellRadius, cornerWidth, EFFORTS, effortOf, effortsOf, labelSize, sizes, startsAnew, textBoxes } from './graph/flowDraw';
 import { besides, type Box, type Laid, layoutChart, overlap, type Route } from './graph/flowLayout';
@@ -526,12 +531,9 @@ describe('the flow as the engine stores it', () => {
         }
       });
 
-      it("lists in a cell's panel every move of its own, or names it as in the legend", () => {
+      it("says under a cell's rows only the moves it lacks", () => {
         for (const c of g.cells) {
-          const own = ownMoves(g, c);
-          const listed = new Set([...own.rows.map((i) => c.rows[i].name), ...own.legend]);
-          for (const i of leavesTo(c).moves) expect(listed.has(c.rows[i].name), `${c.id} ${c.rows[i].name}`).toBe(true);
-          for (const m of own.lacks) expect(c.rows.some((r) => r.name === m.row), `${c.id} ${m.row}`).toBe(false);
+          for (const m of lacksMoves(g, c)) expect(c.rows.some((r) => r.name === m.row), `${c.id} ${m.row}`).toBe(false);
         }
       });
 
@@ -544,6 +546,19 @@ describe('the flow as the engine stores it', () => {
           const all = [...leaves.answers, ...leaves.moves, ...leaves.fallback].sort((a, b) => a - b);
           expect(all, c.id).toEqual(c.rows.map((_, i) => i));
           expect(() => enteredFrom(g, cv?.entered_from ?? [], c.id), c.id).not.toThrow();
+        }
+      });
+
+      it("draws every cell's rows in and out and the pattern of what it hands back", () => {
+        const f = flowOf(compiled, g, v, () => {});
+        for (const c of g.cells) {
+          const html = renderToStaticMarkup(
+            createElement(FlowContext.Provider, { value: f }, createElement(FromTable, { c }), createElement(ToTable, { c }), createElement(ReturnPattern, { c })),
+          );
+          expect(html, c.id).not.toMatch(/undefined|NaN|\[object Object\]/);
+          // Every row of its own is a line of To, the engine's fallback folded under one.
+          const fallback = c.rows.filter((r) => r.fallback === true).length;
+          expect([...html.matchAll(/<tr[ >]/g)].length, c.id).toBeGreaterThanOrEqual(c.rows.length - fallback);
         }
       });
 

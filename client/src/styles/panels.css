@@ -1,7 +1,8 @@
 /* The panels about one thing beside a chart (a cell, a round, a rule, a store) and the three voices their texts are in
    (voices.tsx), as the UI spec draws them: the page's words plain; what is sent to an agent a sheet, filled, with a
-   thick edge at its left; what an agent handed back a box with a thin border; the overview, the sections folded at
-   first, the parts inside them and the rows that open. */
+   thick edge at its left; what an agent handed back a box with a thin border; a round's head of label and value
+   pairs, the four sections In, Out, From and To, what comes out as JSON and the two tables of rows, the parts inside
+   the sections and the rows that open. */
 
 /* ---- The two voices that are not the page's. */
 
@@ -403,4 +404,101 @@
   grid-template-columns: minmax(0, 1fr);
   gap: var(--base-size-12);
   min-width: 0;
+}
+
+/* ---- In, Out, From and To (flow/Sides.tsx), on a cell's panel and a round's. */
+
+/* What comes out, as JSON: pretty-printed in the code's type, keys, texts and other values in GitHub's syntax colours,
+   a text's line breaks kept and long lines wrapped, each object and list one level in, the control that folds it in
+   the gutter at its left. */
+.json {
+  min-width: 0;
+  padding-left: var(--base-size-16);
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeBlock-size);
+  line-height: var(--text-codeBlock-lineHeight);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.json-line {
+  position: relative;
+  min-width: 0;
+}
+
+.json-in {
+  padding-left: var(--base-size-16);
+}
+
+.json-fold {
+  position: absolute;
+  top: 0;
+  left: calc(-1 * var(--base-size-16));
+  display: inline-flex;
+  align-items: center;
+  height: var(--text-codeBlock-lineHeight);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fgColor-muted);
+  cursor: pointer;
+}
+
+.json-key {
+  color: var(--prettylights-syntax-entity-tag);
+}
+
+/* A key the flow says something of: what it says on hovering, the key underlined with dots to show there is a tip. */
+.json-tip {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--borderColor-default);
+  cursor: help;
+}
+
+.json-string {
+  color: var(--prettylights-syntax-string);
+}
+
+.json-constant {
+  color: var(--prettylights-syntax-constant);
+}
+
+.json-or {
+  color: var(--fgColor-muted);
+}
+
+/* From and To: the transition tables, their words wrapping between words, a row's name after an underscore; on a round,
+   the row taken marked as the row picked, every other row greyed, its links too. */
+.side-table td {
+  overflow-wrap: break-word;
+}
+
+.side-taken > td {
+  background: var(--bgColor-accent-muted);
+}
+
+.side-other > td,
+.side-other .link-button,
+.side-other .round-link {
+  color: var(--fgColor-muted);
+}
+
+/* What a row does besides leading on, under where it leads. */
+.side-does {
+  display: block;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.side-fold > td {
+  padding-top: var(--base-size-4);
+  padding-bottom: var(--base-size-4);
+}
+
+.side-fold .link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  font-size: var(--text-body-size-small);
 }

@@ -6,6 +6,7 @@ import { Fragment, type ReactNode } from 'react';
 
 import type { Atom, CompiledCell } from '../api';
 import { LinkButton } from '../parts';
+import { placeSchema } from '../round';
 import { t, tn } from '../text';
 import { useFlow } from './context';
 
@@ -36,24 +37,36 @@ export function valuesWords(vs: string[]): string {
   return t('words_or', { list: q.slice(0, -1).join(', '), last: q[q.length - 1] });
 }
 
+/// How a row's condition names a place of its cell's return, as the return holds it: an agent's form and the fields of
+/// its own answer sit in the field that holds one form (`outcome`), which the engine reads them out of, so the row's
+/// `take.way` is the return's `outcome.take.way`; a field every return holds, a step's field and what the cell read by
+/// its id (`@…`) as the row names them.
+export function placeIn(c: CompiledCell, within: string): (path: string) => string {
+  const inner = c.kind === 'agent' ? placeSchema(c.schema, within) : null;
+  return (p) => {
+    if (inner === null || p.startsWith('@')) return p;
+    return placeSchema(inner, p.split('.')[0]) !== null ? `${within}.${p}` : p;
+  };
+}
+
 /// A row's condition in words. `known` names the values the engine itself knows; any other value a condition reads
-/// by name is one rows recorded.
-export function conditionWords(a: Atom, known: Set<string>): string {
+/// by name is one rows recorded. `at` writes a place of the return as the return holds it ([`placeIn`]).
+export function conditionWords(a: Atom, known: Set<string>, at: (path: string) => string = (p) => p): string {
   switch (a[0]) {
     case 'all':
       return t('cond_all');
     case 'own':
       return t('cond_own');
     case 'or':
-      return a[1].map((x) => conditionWords(x, known)).join(t('cond_or'));
+      return a[1].map((x) => conditionWords(x, known, at)).join(t('cond_or'));
     case 'has':
-      return t('cond_has', { path: `\`${a[1]}\`` });
+      return t('cond_has', { path: `\`${at(a[1])}\`` });
     case 'is':
-      return t('cond_is', { path: `\`${a[1]}\``, values: valuesWords(a[2]) });
+      return t('cond_is', { path: `\`${at(a[1])}\``, values: valuesWords(a[2]) });
     case 'any':
-      return t('cond_any', { path: `\`${a[1]}\``, values: valuesWords(a[2]) });
+      return t('cond_any', { path: `\`${at(a[1])}\``, values: valuesWords(a[2]) });
     case 'none':
-      return t('cond_none', { path: `\`${a[1]}\``, values: valuesWords(a[2]) });
+      return t('cond_none', { path: `\`${at(a[1])}\``, values: valuesWords(a[2]) });
     case 'inp':
       return t(known.has(a[1]) ? 'cond_engine' : 'cond_recorded', { name: `\`${a[1]}\``, values: valuesWords(a[2]) });
     case 'sent_back':
@@ -66,8 +79,8 @@ export function conditionWords(a: Atom, known: Set<string>): string {
 }
 
 /// A row's conditions, all of which hold for it to be taken.
-export function conditionsWords(atoms: Atom[], known: Set<string>): string {
-  return atoms.map((a) => conditionWords(a, known)).join(t('cond_and'));
+export function conditionsWords(atoms: Atom[], known: Set<string>, at?: (path: string) => string): string {
+  return atoms.map((a) => conditionWords(a, known, at)).join(t('cond_and'));
 }
 
 /// The words for a target the engine keeps track of, or none for a cell.

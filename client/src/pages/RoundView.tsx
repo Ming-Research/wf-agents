@@ -1,31 +1,33 @@
-// A round, as its panel shows it: what the round was and why it ran, what the agent was given, what it handed back and
-// what it cost, each text in its voice's look (voices.tsx), the page's words never inside the other two. Under the
-// panel's title (the round and its cell), an overview of four rows: Ran, Why, Led to, Cost. Then two sections, folded
-// at first and kept open or folded from round to round as the owner leaves them: what it was given (the inputs new
-// this round, those already in its session, folded under their count and opening to what the session held, and the
-// message as sent, exactly, in one sheet, its long parts folded with their size and share), and what it handed back
-// (the form the return holds, then each field under its title with its code after it, its value in the box of what an
-// agent handed back, a list of objects as rows of one box, and the return as JSON folded at the bottom). A round of the
-// tools shows each tool's question and its answer together; a round of an engine's step what it read and what it came
-// to in the page's own words, a box only for what an agent handed back.
+// A round, as its panel shows it: under the panel's title (the round and its cell), a short head of who ran it and
+// what it cost, then the four sections every cell's panel has too, from the same parts (flow/Sides.tsx), each text in
+// its voice's look (voices.tsx), the page's words never inside the other two. In: what the round was given, the inputs
+// new this round, those already in its session, folded under their count and opening to what the session held, and
+// the message as sent, exactly, in one sheet, its long parts folded with their size and share; for the tools, what
+// each was asked; for an engine's step, what it read. Out: what came out, as JSON, in the box of what an agent handed
+// back (flow/Returns.tsx). From and To: the cell's two tables of rows (flow/Rows.tsx), the row the round came in by and
+// the row it left by marked, the round on the other side beside each, every other row greyed. The cells are those of
+// the flow version the round's work ran on, whichever version the chart beside it shows. In and Out are folded at
+// first, From and To open, and each stays as the owner leaves it from round to round.
 
 import { Flash, Label } from '@primer/react';
-import { type ReactNode, useContext, useEffect, useState } from 'react';
+import { type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 
-import type { CompiledCell, JsonValue, RoundDetail, RoundSummary, ToolRun } from '../api';
+import type { Compiled, CompiledCell, FlowView, JsonValue, RoundDetail, RoundSummary, ToolRun } from '../api';
 import { Loaded } from '../components';
 import { inputName, numbered } from '../flow/CellGiven';
-import { type Flow, FlowContext } from '../flow/context';
-import { inline } from '../flow/words';
+import { type Flow, FlowContext, flowOf } from '../flow/context';
+import { Json } from '../flow/Returns';
+import { FromTable, leftBy, type Taken, ToTable } from '../flow/Rows';
+import { OPEN_FIRST, type Side, Sides, toggled } from '../flow/Sides';
 import { cost, duration, time } from '../format';
 import { getJson, getText } from '../http';
 import { empty, isObj, type Obj, words } from '../labelled';
 import { useResource } from '../live';
 import { Markdown } from '../markdown';
 import { LinkButton, RoundAt, RoundLink } from '../parts';
-import { brief, chars, messageParts, placeSchema, shape, type ShapeOptions, shareWords, type Shown, type ShownField, spent, titleOf } from '../round';
+import { brief, chars, messageParts, placeSchema, shape, shareWords, type Shown, type ShownField, spent, titleOf } from '../round';
 import { t, tn } from '../text';
-import { charCount, FoldPart, InnerName, joined, Long, Name, Named, Overview, PanelSection, Part, Row, Rows, Said, Sheet } from '../voices';
+import { charCount, FoldPart, InnerName, joined, Long, Name, Named, Overview, Part, Row, Rows, Said, Sheet } from '../voices';
 import { AskView } from './Decide';
 
 /// A message, as the engine writes one: its given inputs by address, its task and its list of inputs to work from.
@@ -144,7 +146,7 @@ function addressWords(address: string, cell: CompiledCell | undefined, f: Flow |
 }
 
 /// The kept state of the round panel's sections: which the owner left open, from round to round.
-let roundOpen = new Set<string>();
+let roundOpen: ReadonlySet<Side> = OPEN_FIRST;
 
 /// A text an agent handed back, as markdown reads it, folded past 1,000 characters.
 function SaidText({ text }: { text: string }) {
@@ -362,68 +364,10 @@ function tookWords(r: RoundSummary): string {
   return t('took_ended', { took: duration(r.ended_at - r.started_at), at: time(r.ended_at) });
 }
 
-/// The overview of a round: who ran it and how long, why it ran, what it led to, and what it cost.
-function RoundOverview({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSummary[]; f: Flow | null; cell: CompiledCell | undefined }) {
+/// The head of a round: who ran it and how long, and what it cost; then, for a return sent back or a run that ended
+/// without one, why.
+function RoundHead({ d, cell }: { d: RoundDetail; cell: CompiledCell | undefined }) {
   const r = d.round;
-  const at = rounds.findIndex((x) => x.n === r.n);
-  const before = at > 0 ? rounds[at - 1] : undefined;
-  const earlier = at > 1 ? rounds[at - 2] : undefined;
-  const after = at >= 0 ? rounds[at + 1] : undefined;
-  const tool = cell?.kind === 'tool';
-  const beforeCell = before?.cell != null ? f?.cell(before.cell) : undefined;
-  const why: ReactNode =
-    before === undefined ? (
-      t('why_started')
-    ) : tool ? (
-      <>
-        <RoundAtCell f={f} work={d.work} n={before.n} cell={before.cell} /> {tn('why_asked_tools', d.tool_runs.length)}
-      </>
-    ) : (
-      <>
-        {t('why_came')} <RoundAtCell f={f} work={d.work} n={before.n} cell={before.cell} />
-        {before.transition !== null ? (
-          <>
-            {' '}
-            {t('why_by')} <Name>{before.transition}</Name>
-          </>
-        ) : null}
-        {beforeCell?.kind === 'tool' && earlier !== undefined ? (
-          <>
-            {t('why_with_results')} <Round f={f} work={d.work} n={earlier.n} />
-          </>
-        ) : null}
-        {d.interjections.length > 0 ? t('why_with_words') : null}
-      </>
-    );
-  const row = r.transition !== null ? cell?.rows.find((x) => x.name === r.transition) : undefined;
-  const to = row !== undefined && !row.to.startsWith('@') ? row.to : (after?.cell ?? null);
-  // The round after at its cell, where the row led there; the cell the row led to alone while no round has run there,
-  // and before the round after where that ran at another cell.
-  const next: ReactNode =
-    after !== undefined && (to === null || after.cell === to) ? (
-      <RoundAtCell f={f} work={d.work} n={after.n} cell={after.cell} />
-    ) : (
-      <>
-        {to !== null ? <RoundAtCell f={f} work={d.work} n={null} cell={to} /> : null}
-        {after !== undefined ? (
-          <>
-            , <RoundAtCell f={f} work={d.work} n={after.n} cell={after.cell} />
-          </>
-        ) : null}
-      </>
-    );
-  const led: ReactNode =
-    r.outcome === 'running' ? (
-      t('rp_running')
-    ) : r.transition !== null ? (
-      <>
-        <Name>{r.transition}</Name> <span className="pp-arrow">→</span> {tool ? `${t('led_back_to')} ` : null}
-        {next}
-        {tool && after !== undefined ? t('led_given_results') : null}
-      </>
-    ) : (
-      t('led_nothing')
-    );
   const flash =
     r.outcome === 'sent_back' ? (
       <Flash variant="warning">{t('rp_sent_back', { why: r.why ?? '' })}</Flash>
@@ -438,8 +382,6 @@ function RoundOverview({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSu
       <Overview
         rows={[
           { label: t('ov_ran'), value: ranWords(d, cell), sub: tookWords(r) },
-          { label: t('ov_why'), value: why },
-          { label: t('ov_led'), value: led },
           {
             label: t('ov_cost'),
             value:
@@ -674,80 +616,36 @@ function AgentGiven({ d, rounds, f, cell }: { d: RoundDetail; rounds: RoundSumma
   );
 }
 
-/// The fields of what an agent's round handed back: each field of its form under its title, then the fields every
-/// return holds.
-function ReturnedFields({ form, rest, cell }: { form: ShownField | undefined; rest: ShownField[]; cell: CompiledCell | undefined }) {
-  return (
-    <>
-      {form !== undefined && form.value.kind === 'fields'
-        ? form.value.fields.map((x) => (
-            <div key={x.key} className="pp-part">
-              <Named title={x.title ?? titleOf(cell?.titles, x.key, x.key)} code={x.key} as="h3" n={x.value.kind === 'list' ? x.value.items.length : undefined} />
-              <Value v={x.value} level={3} />
-            </div>
-          ))
-        : null}
-      {rest.length > 0 ? (
-        <Part title={form !== undefined ? t('back_every') : t('returned_fields')}>
-          {rest.map((x) => (
-            <FieldValue key={x.key} f={x} level={4} />
-          ))}
-        </Part>
-      ) : null}
-    </>
-  );
-}
-
-/// What an agent's round handed back, word for word, as its panel shows it, for a place that shows it outside the
-/// panel (a helper's thread with the engineer): each field of its form under its title, then the fields every return
-/// holds; that it handed back nothing, or nothing yet.
+/// What an agent's round handed back, word for word, as JSON in the box of what an agent handed back, as its panel
+/// shows it, for the panel and for a place that shows it outside the panel (a helper's thread with the engineer), a key
+/// saying on hovering what the flow says of its place; that it handed back nothing, or nothing yet.
 export function HandedBack({ d, cell, within }: { d: RoundDetail; cell: CompiledCell | undefined; within: string }) {
   if (d.output === null) {
     return <p className="pp-note">{d.round.outcome === 'running' ? t('rp_running') : t('returned_nothing')}</p>;
   }
-  const shown = shape(d.output, cell?.schema, { within, titles: cell?.titles });
-  const fields = shown.kind === 'fields' ? shown.fields : [];
-  const form = fields.find((x) => x.key === within);
-  return <ReturnedFields form={form} rest={fields.filter((x) => x !== form)} cell={cell} />;
+  return (
+    <Said mono>
+      <Json value={d.output} schema={cell?.schema} titles={cell?.titles} within={within} />
+    </Said>
+  );
 }
 
-/// What an agent's round handed back: the form its return holds, each field of the form under its title, the fields
-/// every return holds, and the return as JSON, folded.
-function AgentReturned({ d, cell, f }: { d: RoundDetail; cell: CompiledCell | undefined; f: Flow | null }) {
-  const within = f?.g.within ?? 'outcome';
+/// What came out of a round, as JSON: an agent's return as it handed it back, the tools' results in the sheet of what
+/// is sent to the agent that asked, an engine's step's in the page's own words; while it runs, or when nothing came
+/// out, so.
+function Out({ d, cell, f }: { d: RoundDetail; cell: CompiledCell | undefined; f: Flow | null }) {
+  if (d.message !== null) return <HandedBack d={d} cell={cell} within={f?.g.within ?? 'outcome'} />;
   if (d.output === null) {
     return <p className="pp-note">{d.round.outcome === 'running' ? t('rp_running') : t('returned_nothing')}</p>;
   }
-  const options: ShapeOptions = { within, titles: cell?.titles };
-  const shown = shape(d.output, cell?.schema, options);
-  const fields = shown.kind === 'fields' ? shown.fields : [];
-  const form = fields.find((x) => x.key === within);
-  const rest = fields.filter((x) => x !== form);
-  const schema = isObj(cell?.schema) && isObj(cell.schema.properties) ? cell.schema.properties[within] : undefined;
-  const alts = isObj(schema) && Array.isArray(schema.anyOf) ? schema.anyOf : [];
-  const value = isObj(d.output) ? d.output[within] : undefined;
-  const at = value !== undefined ? alts.findIndex((a) => isObj(a) && isObj(a.properties) && isObj(value) && Object.keys(value).every((k) => k in (a.properties as Obj))) : -1;
-  const which = at >= 0 ? cell?.forms?.[at] : undefined;
-  const json = JSON.stringify(d.output, null, 2);
-  return (
-    <>
-      {form !== undefined ? (
-        <p className="pp-note">
-          {inline(
-            which === undefined || which.own
-              ? t('returned_form_own', { within: `\`${within}\`` })
-              : t('returned_form', { form: words(which.field ?? ''), within: `\`${within}\`` }),
-          )}
-        </p>
-      ) : null}
-      <ReturnedFields form={form} rest={rest} cell={cell} />
-      <FoldPart title={t('returned_json')} facts={charCount(chars(json))}>
-        <Said mono>
-          <Long text={json} />
-        </Said>
-      </FoldPart>
-    </>
-  );
+  if (cell?.kind === 'tool') {
+    return (
+      <Sheet mono>
+        <Json value={d.output} />
+      </Sheet>
+    );
+  }
+  return <Json value={d.output} schema={cell?.schema} titles={cell?.titles} />;
 }
 
 /// What a tool was asked, as the agent that asked handed it back: its one text as it is, else each of its values
@@ -855,8 +753,24 @@ function KeptFile({ file, path }: { file: string; path: string }) {
   );
 }
 
-/// Each tool's question and answer together, one tool under another.
-function Tools({ runs, asker }: { runs: ToolRun[]; asker: CompiledCell | undefined }) {
+/// The files the tools kept, each read when opened.
+function KeptFiles({ runs }: { runs: ToolRun[] }) {
+  const files = runs.flatMap((r) => r.files);
+  if (files.length === 0) return null;
+  return (
+    <Part title={t('rp_files')}>
+      <Rows>
+        {files.map((x) => (
+          <KeptFile key={x.file} file={x.file} path={x.path} />
+        ))}
+      </Rows>
+    </Part>
+  );
+}
+
+/// Each tool's question, one tool under another; for the tools an engine's step ran, its answer and the files it kept
+/// under it (`answers`).
+function Tools({ runs, asker, answers }: { runs: ToolRun[]; asker: CompiledCell | undefined; answers: boolean }) {
   return (
     <>
       {runs.map((run, i) => {
@@ -874,16 +788,18 @@ function Tools({ runs, asker }: { runs: ToolRun[]; asker: CompiledCell | undefin
               </span>
             </div>
             <div className="pp-tool-pair">
-              <span className="pp-over">{t('tool_asked')}</span>
+              {answers ? <span className="pp-over">{t('tool_asked')}</span> : null}
               <Asked args={run.args} titles={asker?.titles} tool={run.tool} />
             </div>
-            <div className="pp-tool-pair">
-              <span className="pp-over">
-                {run.result === null ? t('tool_running') : size > 0 ? t('tool_returned_n', { chars: charCount(size) }) : t('tool_returned_nothing')}
-              </span>
-              {run.result !== null ? <Returned result={run.result} /> : null}
-            </div>
-            {run.files.length > 0 ? (
+            {answers ? (
+              <div className="pp-tool-pair">
+                <span className="pp-over">
+                  {run.result === null ? t('tool_running') : size > 0 ? t('tool_returned_n', { chars: charCount(size) }) : t('tool_returned_nothing')}
+                </span>
+                {run.result !== null ? <Returned result={run.result} /> : null}
+              </div>
+            ) : null}
+            {answers && run.files.length > 0 ? (
               <div className="pp-tool-pair">
                 <span className="pp-over">{t('rp_files')}</span>
                 <Rows>
@@ -958,6 +874,83 @@ function stepInputName(x: RoundDetail['inputs'][number], cell: CompiledCell | un
   return own !== undefined ? inputName(own) : brief(x.what);
 }
 
+/// What a round took, for From and To to mark: the row it came in by, from the round before it in the work, and the
+/// row it left by; what to say where none of a table's rows is the one; and the rounds on either side, as the page
+/// writes a round at a cell.
+function takenBy(d: RoundDetail, rounds: RoundSummary[], f: Flow | null, cell: CompiledCell | undefined): Taken {
+  const r = d.round;
+  const at = rounds.findIndex((x) => x.n === r.n);
+  const before = at > 0 ? rounds[at - 1] : undefined;
+  const after = at >= 0 ? rounds[at + 1] : undefined;
+  const came = before?.cell != null ? leftBy(f?.cell(before.cell), before, rounds) : null;
+  const round = (x: RoundSummary | undefined, withCell: boolean) =>
+    x !== undefined ? <RoundAtCell f={f} work={d.work} n={x.n} cell={withCell ? x.cell : null} /> : null;
+  return {
+    from: before?.cell != null && came !== null ? { cell: before.cell, row: came } : null,
+    to: leftBy(cell, r, rounds),
+    came:
+      before === undefined ? (
+        t('why_started')
+      ) : (
+        <>
+          {t('why_came')} {round(before, true)}
+        </>
+      ),
+    went:
+      r.outcome === 'running' ? (
+        t('rp_running')
+      ) : after !== undefined ? (
+        <>
+          {t('side_led')} {round(after, true)}
+        </>
+      ) : null,
+    before: (withCell) => round(before, withCell),
+    after: (withCell) => round(after, withCell),
+  };
+}
+
+/// What the tools were asked: what an agent handed back that they run after, such as the architect's reply to a
+/// failure, and each tool's question.
+function ToolsAsked({ d, f, cell, before }: { d: RoundDetail; f: Flow | null; cell: CompiledCell | undefined; before: RoundSummary | undefined }) {
+  const asker = before?.cell != null ? f?.cell(before.cell) : undefined;
+  return (
+    <>
+      {d.inputs
+        .filter((x) => !empty(x.value) && Array.isArray(x.from[0]) && !String(x.from[0][1]).startsWith('tools'))
+        .map((x, i) => {
+          const s = inputSchema(x, before, f);
+          return (
+            <div key={i} className="pp-part">
+              <Named title={stepInputName(x, cell)} />
+              <Value v={shape(x.value, s.schema, { titles: s.titles })} level={3} />
+            </div>
+          );
+        })}
+      <Tools runs={d.tool_runs} asker={asker} answers={false} />
+    </>
+  );
+}
+
+/// What an engine's step read, each input under its name: what an agent handed back in its box, the rest in the page's
+/// own words.
+function StepRead({ d, f, cell, before }: { d: RoundDetail; f: Flow | null; cell: CompiledCell | undefined; before: RoundSummary | undefined }) {
+  if (d.inputs.length === 0) return <p className="pp-note">{t('none')}</p>;
+  return (
+    <>
+      {d.inputs.map((x, i) => {
+        const s = inputSchema(x, before, f);
+        const v = shape(x.value, s.schema, { titles: s.titles });
+        return (
+          <div key={i} className="pp-part">
+            <Named title={stepInputName(x, cell)} />
+            {s.agent ? <Value v={v} level={3} /> : <PageValue v={v} />}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
   const f = useContext(FlowContext);
   const r = d.round;
@@ -966,123 +959,54 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
   const tool = cell?.kind === 'tool';
   const at = rounds.findIndex((x) => x.n === r.n);
   const before = at > 0 ? rounds[at - 1] : undefined;
-  const after = at >= 0 ? rounds[at + 1] : undefined;
-  const asker = before?.cell != null ? f?.cell(before.cell) : undefined;
-  const [open, setOpen] = useState<Set<string>>(() => new Set(roundOpen));
+  const [open, setOpen] = useState<ReadonlySet<Side>>(() => roundOpen);
   useEffect(() => {
     roundOpen = open;
   }, [open]);
-  const section = (key: string) => ({
-    open: open.has(key),
-    onOpen: (o: boolean) =>
-      setOpen((was) => {
-        if (was.has(key) === o) return was;
-        const n = new Set(was);
-        if (o) n.add(key);
-        else n.delete(key);
-        return n;
-      }),
-  });
   const sent = d.conditional.filter((c) => c.given).length;
   const held = d.conditional.length - sent;
-  const json = d.output !== null ? JSON.stringify(d.output, null, 2) : '';
+  const json = d.output !== null ? JSON.stringify(d.output, null, 2) : null;
+  const taken = takenBy(d, rounds, f, cell);
   return (
     <div className="pp-page">
-      <RoundOverview d={d} rounds={rounds} f={f} cell={cell} />
-      {agent ? (
-        <>
-          <PanelSection title={t('rp_given')} facts={joined([t('given_new_n', { n: sent }), held > 0 ? t('given_held_n', { n: held }) : null])} {...section('given')}>
-            <AgentGiven d={d} rounds={rounds} f={f} cell={cell} />
-          </PanelSection>
-          <PanelSection
-            title={t('rp_returned')}
-            facts={
-              r.transition !== null
-                ? t('returned_took', { row: r.transition })
-                : r.outcome === 'sent_back'
-                  ? t('outcome_sent_back')
-                  : undefined
-            }
-            {...section('returned')}
-          >
-            <AgentReturned d={d} cell={cell} f={f} />
-          </PanelSection>
-        </>
-      ) : tool ? (
-        <PanelSection
-          title={t('rp_tools')}
-          n={d.tool_runs.length}
-          facts={
-            before !== undefined ? (
+      <RoundHead d={d} cell={cell} />
+      <Sides
+        open={open}
+        onOpen={(s, o) => setOpen((was) => toggled(was, s, o))}
+        parts={{
+          in: agent
+            ? {
+                facts: joined([t('given_new_n', { n: sent }), held > 0 ? t('given_held_n', { n: held }) : null]),
+                body: <AgentGiven d={d} rounds={rounds} f={f} cell={cell} />,
+              }
+            : tool
+              ? { n: d.tool_runs.length, body: <ToolsAsked d={d} f={f} cell={cell} before={before} /> }
+              : { n: d.inputs.length, body: <StepRead d={d} f={f} cell={cell} before={before} /> },
+          out: {
+            facts: json !== null ? charCount(chars(json)) : undefined,
+            body: (
               <>
-                {t('tools_as_asked')} <Round f={f} work={d.work} n={before.n} />
-                {t('tools_asked_them')}
-                {after !== undefined ? (
-                  <>
-                    {t('tools_given_back')} <Round f={f} work={d.work} n={after.n} />
-                    {t('tools_word_for_word')}
-                  </>
+                <Out d={d} cell={cell} f={f} />
+                {tool ? <KeptFiles runs={d.tool_runs} /> : null}
+                {!agent && !tool && d.tool_runs.length > 0 ? (
+                  <Part title={t('rp_step_tools')}>
+                    <Tools runs={d.tool_runs} asker={undefined} answers />
+                  </Part>
                 ) : null}
+                {!agent && !tool ? d.asks.map((a) => <AskView key={a.id} a={a} />) : null}
               </>
-            ) : undefined
-          }
-          {...section('tools')}
-        >
-          {/* What an agent handed back that the tools run after, such as the architect's reply to a failure. */}
-          {d.inputs
-            .filter((x) => !empty(x.value) && Array.isArray(x.from[0]) && !String(x.from[0][1]).startsWith('tools'))
-            .map((x, i) => {
-              const s = inputSchema(x, before, f);
-              return (
-                <div key={i} className="pp-part">
-                  <Named title={stepInputName(x, cell)} />
-                  <Value v={shape(x.value, s.schema, { titles: s.titles })} level={3} />
-                </div>
-              );
-            })}
-          <Tools runs={d.tool_runs} asker={asker} />
-          {d.output !== null ? (
-            <FoldPart title={t('tools_json')} facts={charCount(chars(json))}>
-              <Sheet mono>
-                <Long text={json} />
-              </Sheet>
-            </FoldPart>
-          ) : null}
-        </PanelSection>
-      ) : (
-        <>
-          {d.inputs.length > 0 ? (
-            <PanelSection title={t('rp_step_read')} n={d.inputs.length} {...section('read')}>
-              {d.inputs.map((x, i) => {
-                const s = inputSchema(x, before, f);
-                const v = shape(x.value, s.schema, { titles: s.titles });
-                return (
-                  <div key={i} className="pp-part">
-                    <Named title={stepInputName(x, cell)} />
-                    {s.agent ? <Value v={v} level={3} /> : <PageValue v={v} />}
-                  </div>
-                );
-              })}
-            </PanelSection>
-          ) : null}
-          <PanelSection title={t('rp_step_came')} {...section('came')}>
-            {d.output !== null ? <PageValue v={shape(d.output, cell?.schema, { titles: cell?.titles })} /> : <p className="pp-note">{t('returned_nothing')}</p>}
-            {d.tool_runs.length > 0 ? (
-              <Part title={t('rp_step_tools')}>
-                <Tools runs={d.tool_runs} asker={undefined} />
-              </Part>
-            ) : null}
-            {d.asks.map((a) => (
-              <AskView key={a.id} a={a} />
-            ))}
-            {d.output !== null ? (
-              <FoldPart title={t('returned_json_step')} facts={charCount(chars(json))}>
-                <pre className="code-block">{json}</pre>
-              </FoldPart>
-            ) : null}
-          </PanelSection>
-        </>
-      )}
+            ),
+          },
+          from: {
+            facts: taken.from !== null ? <Name>{taken.from.row}</Name> : undefined,
+            body: f !== null && cell !== undefined ? <FromTable c={cell} taken={taken} /> : <p className="pp-plain">{taken.came}</p>,
+          },
+          to: {
+            facts: taken.to !== null ? <Name>{taken.to}</Name> : undefined,
+            body: f !== null && cell !== undefined ? <ToTable c={cell} taken={taken} /> : <p className="pp-plain">{taken.went}</p>,
+          },
+        }}
+      />
     </div>
   );
 }
@@ -1092,8 +1016,36 @@ export function roundUrl(work: number, n: number): string {
   return `/api/v1/works/${work}/rounds/${n}`;
 }
 
+/// The lookups of a round's graph in the flow version its work ran on, none when that version has no such graph; a
+/// cell or a round it opens opens on the chart beside it.
+export function roundFlow(compiled: Compiled, view: FlowView, graph: string, chart: Flow | null): Flow | null {
+  const g = compiled.graphs.find((x) => x.name === graph);
+  const v = view.graphs.find((x) => x.name === graph);
+  if (g === undefined || v === undefined) return null;
+  return flowOf(compiled, g, v, (s) => chart?.open(s));
+}
+
+/// A round with its cells as the flow version its work ran on has them, read as stored, whichever version the chart
+/// beside it shows.
+function AtVersion({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
+  const chart = useContext(FlowContext);
+  const compiled = useResource<Compiled>(null, `/api/v1/flows/${d.flow_version}`);
+  const view = useResource<FlowView>(null, `/api/v1/flows/${d.flow_version}/view`);
+  const f = useMemo(
+    () => (compiled.data !== undefined && view.data !== undefined ? roundFlow(compiled.data, view.data, d.graph, chart) : undefined),
+    [compiled.data, view.data, d.graph, chart],
+  );
+  if (compiled.data === undefined) return <Loaded r={compiled}>{() => null}</Loaded>;
+  if (f === undefined) return <Loaded r={view}>{() => null}</Loaded>;
+  return (
+    <FlowContext.Provider value={f}>
+      <Detail d={d} rounds={rounds} />
+    </FlowContext.Provider>
+  );
+}
+
 /// A round of a work, by its number in the work, with the work's rounds around it.
 export function RoundView({ work, n, rounds = [] }: { work: number; n: number; rounds?: RoundSummary[] }) {
   const round = useResource<RoundDetail>(`round:${work}-${n}`, roundUrl(work, n));
-  return <Loaded r={round}>{(d) => <Detail d={d} rounds={rounds} />}</Loaded>;
+  return <Loaded r={round}>{(d) => <AtVersion d={d} rounds={rounds} />}</Loaded>;
 }

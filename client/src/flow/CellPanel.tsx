@@ -1,30 +1,28 @@
 // A cell, as its panel explains it on one page: under its title (and where it stands when the chart does not show it
-// plainly), an overview of three rows, what it is given, what it hands back and where it is entered from; then three
-// sections, folded at first, those the owner opens staying open from cell to cell: what it is given (CellGiven.tsx),
-// what it hands back and where each answer leads (Returns.tsx), and where it comes from. An engine's step, a tool or
-// the owner answers the same three questions with what its step reads, what it comes to and where each of its rows
-// leads. On a work's chart its rounds there, and in a comparison what changed, are tabs beside it.
+// plainly), the four sections every cell's panel and every round's has (Sides.tsx): In, what it is given
+// (CellGiven.tsx); Out, the pattern of what it hands back, as JSON (Returns.tsx); From, the rows that lead into it; and
+// To, its own rows, each with what of its return it is worked out from and where it leads (Rows.tsx). An engine's
+// step, a tool or the owner answers the same with what its step reads and what it comes to. On a work's chart its
+// rounds there, and in a comparison what changed, are tabs beside it.
 
-import { Label } from '@primer/react';
 import { UnderlinePanels } from '@primer/react/experimental';
-import { Fragment, type ReactNode, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import type { CellDiff, CompiledCell, CompiledGraph, RoundSummary, RowRef } from '../api';
+import type { CellDiff, CompiledCell, CompiledGraph, RoundSummary } from '../api';
 import { OutcomeBadge } from '../components';
 import { roundName, time } from '../format';
 import { styleOf } from '../graph/flowDraw';
-import { actionWords, fallback, letterOf, mainPath } from '../graph/flowModel';
-import { words } from '../labelled';
+import { letterOf } from '../graph/flowModel';
 import { LinkButton } from '../parts';
 import { type Key, t, tn } from '../text';
-import { Name, Overview, Pairs, PanelSection, Part } from '../voices';
-import { AgentGiven, inputName, numbered, StepGiven } from './CellGiven';
+import { Sheet } from '../voices';
+import { AgentGiven, numbered, StepGiven } from './CellGiven';
 import { Changes } from './Changes';
 import { useFlow } from './context';
-import { AgentReturns, leavesTo, StepReturns, telling, titleOf } from './Returns';
-import { CellCode, CellLink, conditionsWords, inline, Target } from './words';
+import { OwnerButtons, ReturnChecks, ReturnPattern } from './Returns';
+import { FromTable, intoRows, ToTable } from './Rows';
+import { type Side, Sides } from './Sides';
 
-export { counterFirst, fallbackWords, leavesTo, ownMoves, telling } from './Returns';
 export { numbered, projectOwn } from './CellGiven';
 
 /// Where a cell stands, as its title's parenthesis says it: its stage, as the box around it on the chart names it, or
@@ -64,242 +62,11 @@ export function cellTab(tabs: CellTab[], chosen: CellTab | null): CellTab {
 
 const TAB_NAMES: Record<CellTab, Key> = { changes: 'sec_changes', rounds: 'tab_rounds', cell: 'tab_cell' };
 
-/// The sections of a cell's page, which the owner opens and folds, kept from cell to cell.
-export type CellSection = 'given' | 'back' | 'from';
-
-/// Where a cell is entered from, by kind: other cells' own answers that lead here, and the cell's own back to itself;
-/// the rows back here after a move (from the tools, a pause, answers, an ask, or to where the work stopped); the
-/// moves of other cells that lead here, each with the cells that make it; and whether the engine's fallback brings the
-/// cell back to itself.
-export type EnteredFrom = {
-  answers: RowRef[];
-  back: RowRef[];
-  moves: Array<{ row: string; cells: string[] }>;
-  fallback: boolean;
-};
-
-export function enteredFrom(g: CompiledGraph, refs: RowRef[], id: string): EnteredFrom {
-  const out: EnteredFrom = { answers: [], back: [], moves: [], fallback: false };
-  for (const ref of refs) {
-    const row = g.cells.find((x) => x.id === ref.cell)?.rows[ref.row];
-    if (row === undefined) continue;
-    if (fallback(row)) {
-      if (ref.cell === id) out.fallback = true;
-    } else if (row.common) {
-      if (ref.cell === id) continue;
-      const m = out.moves.find((x) => x.row === row.name);
-      if (m === undefined) out.moves.push({ row: row.name, cells: [ref.cell] });
-      else if (!m.cells.includes(ref.cell)) m.cells.push(ref.cell);
-    } else if (row.to.startsWith('@') && ref.cell !== id) {
-      out.back.push(ref);
-    } else {
-      out.answers.push(ref);
-    }
-  }
-  return out;
-}
-
-/// Things joined as a list is: a, b and c; or, as names a line starts with, a, b, c (`commas`).
-function Listed({ items, commas }: { items: ReactNode[]; commas?: boolean }) {
-  return (
-    <>
-      {items.map((x, i) => (
-        <Fragment key={i}>
-          {i > 0 ? (i === items.length - 1 && !commas ? ` ${t('and_word')} ` : ', ') : null}
-          {x}
-        </Fragment>
-      ))}
-    </>
-  );
-}
-
-/// Where the cell is entered from: the rows of other cells that lead here, the ways back after its own moves, the
-/// moves of other cells that lead here, and the engine's fallback.
-function From({ c }: { c: CompiledCell }) {
-  const f = useFlow();
-  const into = enteredFrom(f.g, f.cellView(c.id)?.entered_from ?? [], c.id);
-  const known = new Set(Object.keys(f.compiled.engine.values));
-  const none = into.answers.length + into.back.length + into.moves.length === 0 && !into.fallback;
-  return (
-    <>
-      {none ? <p className="pp-note">{t('entered_none')}</p> : null}
-      {into.answers.length > 0 ? (
-        <Pairs
-          rows={into.answers.map((ref) => {
-            const row = f.cell(ref.cell)?.rows[ref.row];
-            if (row === undefined) return null;
-            const cond = telling(row);
-            return [
-              ref.cell === c.id ? <span key="c">{t('entered_itself')}</span> : <CellLink key="c" id={ref.cell} />,
-              <span key="r">
-                <Name>{row.name}</Name>
-                {cond.length > 0 ? <span className="pp-facts"> {inline(t('row_when', { when: conditionsWords(cond, known) }))}</span> : null}
-              </span>,
-            ];
-          })}
-        />
-      ) : null}
-      {into.back.length > 0 ? (
-        <Part title={t('entered_back')} facts={t('entered_back_facts')}>
-          <Pairs
-            rows={into.back.map((ref) => [
-              <CellLink key="c" id={ref.cell} />,
-              <Name key="r">{f.cell(ref.cell)?.rows[ref.row]?.name ?? ''}</Name>,
-            ])}
-          />
-        </Part>
-      ) : null}
-      {into.moves.length > 0 ? (
-        <Part title={t('entered_moves')} facts={t('entered_moves_facts')}>
-          <Pairs
-            rows={into.moves.map((m) => [
-              <Name key="r">{m.row}</Name>,
-              <span key="c">
-                {t('entered_moves_from')} <Listed items={m.cells.map((x) => <CellCode key={x} id={x} />)} />
-              </span>,
-            ])}
-          />
-        </Part>
-      ) : null}
-      {into.fallback ? <p className="pp-note">{t('entered_fallback')}</p> : null}
-    </>
-  );
-}
-
-/// The overview of a cell: what it is given, what it hands back and where it is entered from, each in a line, what
-/// the line leaves out in a second, small one.
-function CellOverview({ c, onInput }: { c: CompiledCell; onInput: (i: number) => void }) {
-  const f = useFlow();
-  const agent = c.kind === 'agent';
-  const view = f.cellView(c.id);
-  const inputs = numbered(c).filter(({ no }) => no !== null || !agent);
-  const given = (
-    <Listed
-      commas
-      items={inputs.map(({ x, i }) => (
-        <span key={i}>
-          <LinkButton onClick={() => onInput(i)}>{inputName(x)}</LinkButton>
-          {x.maybe ? <span className="pp-facts"> {t('input_if_any')}</span> : null}
-        </span>
-      ))}
-    />
-  );
-  const others = (view?.inputs ?? []).filter((m) => m.of.kind !== 'input');
-  const rules = others.flatMap((m) => (m.of.kind === 'rule' ? [m.of.name] : []));
-  const once = [
-    rules.length > 0 ? t(rules.length === 1 ? 'given_once_rule' : 'given_once_rules', { rules: listWords(rules) }) : null,
-    others.some((m) => m.of.kind === 'project_rules') ? t('given_once_project_rules') : null,
-    others.some((m) => m.of.kind === 'common_format' || m.of.kind === 'cell_format') ? t('given_once_formats') : null,
-    others.some((m) => m.of.kind === 'workspace') ? t('given_once_worktree') : null,
-  ].filter((x) => x !== null);
-  const out = leavesTo(c);
-  const own = view?.returns.forms.find((x) => x.field === null)?.fields ?? [];
-  const forms = (c.forms ?? []).filter((x) => !x.own && x.field != null).map((x) => words(x.field ?? ''));
-  const into = enteredFrom(f.g, view?.entered_from ?? [], c.id);
-  const from = [...new Set(into.answers.map((r) => r.cell))];
-  const back = [...new Set(into.back.map((r) => r.cell))];
-  // Each place the rows lead, once, after the rows that lead there; the cell's own answer by its fields' titles.
-  const answers = agent ? out.answers : c.rows.map((_, i) => i);
-  const byTarget: number[][] = [];
-  for (const i of answers) {
-    const same = byTarget.find((g) => c.rows[g[0]].to === c.rows[i].to);
-    if (same !== undefined) same.push(i);
-    else byTarget.push([i]);
-  }
-  const lead = (rows: number[]) => (
-    <span key={rows[0]}>
-      {answers.length > 1 || !agent ? (
-        <>
-          <Listed commas items={rows.map((i) => <Name key={i}>{c.rows[i].name}</Name>)} />{' '}
-        </>
-      ) : null}
-      <span className="pp-arrow">→</span> <Target c={c} row={rows[0]} />
-      {rows.some((i) => mainPath(c.rows[i])) ? (
-        <>
-          {' '}
-          <Label variant="secondary">{t('row_main')}</Label>
-        </>
-      ) : null}
-    </span>
-  );
-  return (
-    <Overview
-      rows={[
-        {
-          label: t('ov_given'),
-          value: inputs.length > 0 ? given : t('none_given'),
-          sub: agent
-            ? once.length > 0
-              ? t('given_once', { what: listWords(once) })
-              : undefined
-            : c.step
-              ? inline(t('given_by_step', { step: `\`${c.step}\`` }))
-              : undefined,
-        },
-        {
-          label: t('ov_back'),
-          value: (
-            <>
-              {agent && own.length > 0
-                ? `${own.map((x) => titleOf(c.titles, x.path, x.name)).join(', ')}${answers.length > 1 ? ': ' : ' '}`
-                : null}
-              {byTarget.length > 0 ? <Listed commas items={byTarget.map(lead)} /> : t('leaves_none')}
-            </>
-          ),
-          sub: forms.length > 0 ? t('back_or_forms', { forms: forms.join(', ') }) : undefined,
-        },
-        {
-          label: t('ov_from'),
-          value:
-            from.length > 0 ? (
-              <Listed commas items={from.map((x) => (x === c.id ? <span key={x}>{t('entered_itself')}</span> : <CellLink key={x} id={x} />))} />
-            ) : into.moves.length > 0 ? (
-              t('from_moves_only', { moves: listWords(into.moves.map((m) => actionWords(m.row))) })
-            ) : back.length > 0 ? (
-              t('from_only_back')
-            ) : (
-              t('entered_none')
-            ),
-          sub:
-            back.length > 0 || (into.moves.length > 0 && from.length > 0) ? (
-              <>
-                {back.length > 0 ? (
-                  <>
-                    {t('from_back')} <Listed items={back.map((x) => <CellCode key={x} id={x} />)} />
-                  </>
-                ) : null}
-                {back.length > 0 && into.moves.length > 0 && from.length > 0 ? '; ' : null}
-                {into.moves.length > 0 && from.length > 0 ? (
-                  <>
-                    {t('from_moves')} <Listed items={into.moves.map((m) => actionWords(m.row))} />
-                  </>
-                ) : null}
-              </>
-            ) : undefined,
-        },
-      ]}
-    />
-  );
-}
-
-/// Names as a list is written: a, b and c.
-function listWords(xs: string[]): string {
-  if (xs.length <= 1) return xs.join('');
-  return `${xs.slice(0, -1).join(', ')} ${t('and_word')} ${xs[xs.length - 1]}`;
-}
-
-/// The cell's own page: its overview and its three sections.
-function CellPage({ c, open, onOpen }: { c: CompiledCell; open: Set<CellSection>; onOpen: (s: CellSection, open: boolean) => void }) {
+/// The cell's own page: the four sections, In, Out, From and To.
+function CellPage({ c, open, onOpen }: { c: CompiledCell; open: ReadonlySet<Side>; onOpen: (s: Side, open: boolean) => void }) {
   const f = useFlow();
   const agent = c.kind === 'agent';
   const [inputs, setInputs] = useState<Set<number>>(new Set());
-  const [focus, setFocus] = useState<number | null>(null);
-  // An input picked in the overview opens in its section and comes into view.
-  useEffect(() => {
-    if (focus === null) return;
-    document.getElementById(`cell-input-${focus}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    setFocus(null);
-  }, [focus]);
   useEffect(() => {
     setInputs(new Set());
   }, [c.id]);
@@ -313,49 +80,40 @@ function CellPage({ c, open, onOpen }: { c: CompiledCell; open: Set<CellSection>
   const view = f.cellView(c.id);
   const own = numbered(c).filter(({ no }) => no !== null);
   const rules = (view?.inputs ?? []).filter((m) => m.of.kind === 'rule').length;
-  const into = enteredFrom(f.g, view?.entered_from ?? [], c.id);
-  const fromCells = new Set(into.answers.map((r) => r.cell)).size;
-  const back = new Set(into.back.map((r) => r.cell)).size;
-  const forms = (c.forms ?? []).length;
+  const into = intoRows(f, c);
+  const sources = new Set(into.flatMap((x) => x.cells)).size;
+  const forms = view?.returns.within != null ? view.returns.forms.length : 0;
   return (
     <div className="pp-page">
-      <CellOverview
-        c={c}
-        onInput={(i) => {
-          onOpen('given', true);
-          onOpened(i, true);
-          setFocus(i);
+      <Sides
+        open={open}
+        onOpen={onOpen}
+        parts={{
+          in: {
+            n: agent ? own.length : c.inputs.length,
+            facts: agent ? t('given_facts', { inputs: tn('n_inputs', own.length), rules: tn('n_rules', rules) }) : t('given_step_facts'),
+            body: agent ? <AgentGiven c={c} opened={inputs} onOpened={onOpened} /> : <StepGiven c={c} opened={inputs} onOpened={onOpened} />,
+          },
+          out: {
+            facts: forms > 1 ? tn('out_forms', forms) : undefined,
+            body: (
+              <>
+                <OwnerButtons c={c} />
+                {agent ? (
+                  <Sheet mono>
+                    <ReturnPattern c={c} />
+                  </Sheet>
+                ) : (
+                  <ReturnPattern c={c} />
+                )}
+                <ReturnChecks c={c} />
+              </>
+            ),
+          },
+          from: { n: into.length, facts: sources > 0 ? tn('n_cells', sources) : undefined, body: <FromTable c={c} /> },
+          to: { n: c.rows.length, body: <ToTable c={c} /> },
         }}
       />
-      <PanelSection
-        title={t('sec_given')}
-        n={agent ? own.length : c.inputs.length}
-        facts={agent ? t('given_facts', { inputs: tn('n_inputs', own.length), rules: tn('n_rules', rules) }) : t('given_step_facts')}
-        open={open.has('given')}
-        onOpen={(o) => onOpen('given', o)}
-      >
-        {agent ? <AgentGiven c={c} opened={inputs} onOpened={onOpened} /> : <StepGiven c={c} opened={inputs} onOpened={onOpened} />}
-      </PanelSection>
-      <PanelSection
-        title={t('sec_back')}
-        n={agent ? forms : c.rows.length}
-        facts={agent ? t('back_facts') : t('back_step_facts')}
-        open={open.has('back')}
-        onOpen={(o) => onOpen('back', o)}
-      >
-        {agent ? <AgentReturns c={c} /> : <StepReturns c={c} />}
-      </PanelSection>
-      <PanelSection
-        title={t('sec_from')}
-        n={into.answers.length + into.back.length + into.moves.length}
-        facts={[fromCells > 0 ? tn('n_cells', fromCells) : null, back > 0 ? t('from_facts_back', { n: back }) : null]
-          .filter((x) => x !== null)
-          .join(', ')}
-        open={open.has('from')}
-        onOpen={(o) => onOpen('from', o)}
-      >
-        <From c={c} />
-      </PanelSection>
     </div>
   );
 }
@@ -397,8 +155,8 @@ export function CellPanel(props: {
   tab: CellTab | null;
   onTab: (tab: CellTab) => void;
   /// The sections the owner opened, kept from cell to cell.
-  open: Set<CellSection>;
-  onOpen: (s: CellSection, open: boolean) => void;
+  open: ReadonlySet<Side>;
+  onOpen: (s: Side, open: boolean) => void;
 }) {
   const { c, work, rounds, onRound, diff, tab: chosen, onTab, open, onOpen } = props;
   const tabs = cellTabs({

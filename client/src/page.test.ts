@@ -24,21 +24,11 @@ import type {
 } from './api';
 import { controls, course, heldName, heldWords } from './components';
 import { held, runningWords, stepWhyNot, waitOf } from './course';
-import {
-  cellTab,
-  cellTabs,
-  cellWhere,
-  counterFirst,
-  enteredFrom,
-  fallbackWords,
-  leavesTo,
-  numbered,
-  ownMoves,
-  telling,
-} from './flow/CellPanel';
+import { cellTab, cellTabs, cellWhere, numbered } from './flow/CellPanel';
 import { inputName } from './flow/CellGiven';
-import { fieldActions, shownNote, titleOf } from './flow/Returns';
-import { conditionsWords, conditionWords, targetWords, valuesWords } from './flow/words';
+import { fieldActions, titleOf } from './flow/Returns';
+import { enteredFrom, fallbackWords, lacksMoves, leavesTo, leftBy } from './flow/Rows';
+import { conditionsWords, conditionWords, placeIn, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
 import { pickedOnChart } from './flow/FlowScreen';
 import {
@@ -137,10 +127,10 @@ describe('the message catalog', () => {
       expect(catalog[base], base).toContain('{n}');
       expect(catalog[k], k).not.toContain('{n}');
     }
-    // A count before a plural word: "{n} matters left", "{n} keep-warm pings", "reported {n} times". The two whose
-    // words read right for one have none.
+    // A count before a plural word: "{n} matters left", "{n} keep-warm pings", "reported {n} times". The one whose
+    // words read right for one has none.
     const plural = /\{n\} (?:[\w-]+ )?(?:[\w-]+s|times)\b/;
-    const right = ['from_facts_back', 'given_new_n'];
+    const right = ['given_new_n'];
     for (const k of keys) {
       if (!k.endsWith('_one') && !right.includes(k) && plural.test(catalog[k])) expect(keys, k).toContain(`${k}_one`);
     }
@@ -1208,15 +1198,9 @@ describe("a cell's panel", () => {
     expect(fallbackWords(graph, sentBack)).toBe('Sent back to be written again.');
   });
 
-  it('lists only the moves of its own the legend does not say, and the rest in one line', () => {
-    // A search is drawn as a line and listed; asks, tools and pauses are as in the legend.
-    expect(ownMoves(graph, cellOf('a'))).toEqual({ rows: [5], legend: ['ask_q', 'tools', 'pause'], lacks: [] });
-    // A cell the legend marks as not asking says so.
-    const d = ownMoves(graph, cellOf('d'));
-    expect([d.rows, d.legend, d.lacks.map((m) => m.row)]).toEqual([[], ['tools', 'pause'], ['ask_q']]);
-    // A counter's description once, on the first row that counts it.
-    const k = cell('k', [row('x', 'a', { counts: 'asks' }), row('y', 'b', { counts: 'asks' }), row('z', 'c', { counts: 'turns' })]);
-    expect(counterFirst(k, [1, 0, 2])).toEqual(new Set([1, 2]));
+  it('says under its rows the moves the legend gives most cells that could make them, which it lacks', () => {
+    expect(lacksMoves(graph, cellOf('a'))).toEqual([]);
+    expect(lacksMoves(graph, cellOf('d')).map((m) => m.row)).toEqual(['ask_q']);
   });
 
   it('puts what the engine does every time the return holds a field beside that field, and the rest as what reads it', () => {
@@ -1229,10 +1213,47 @@ describe("a cell's panel", () => {
     expect(fieldActions(uses, 'h')).toEqual(['apply_effects']);
   });
 
-  it('shows a condition only where it says more than the row', () => {
-    expect(telling(cellOf('a').rows[1])).toEqual([]);
-    expect(telling(asks)).toEqual([]);
-    expect(telling(cellOf('m').rows[0])).toEqual([['inp', 'gates', ['waiting']]]);
+  it("words a condition by the place of the return it reads, as the return holds it, or by the engine's value", () => {
+    const schema: JsonValue = {
+      type: 'object',
+      properties: {
+        outcome: {
+          anyOf: [
+            { type: 'object', properties: { take: { type: 'object', properties: { way: { enum: ['do_now', 'later'] } } } } },
+            { type: 'object', properties: { tools: { type: 'array' } } },
+          ],
+        },
+        progress: { type: 'string' },
+      },
+    };
+    const h = cell('h', [], { schema });
+    const known = new Set(['gates']);
+    // A field of its own answer and a form sit in `outcome`, a field every return holds beside it.
+    expect(conditionsWords([['is', 'take.way', ['do_now', 'later']]], known, placeIn(h, 'outcome'))).toBe(
+      '`outcome.take.way` is `do_now` or `later`',
+    );
+    expect(conditionWords(['has', 'tools'], known, placeIn(h, 'outcome'))).toBe('the return has `outcome.tools`');
+    expect(conditionWords(['has', 'progress'], known, placeIn(h, 'outcome'))).toBe('the return has `progress`');
+    // A step's return is read as it is, and the engine's value by its name.
+    expect(conditionWords(['is', 'verdict', ['ok']], known, placeIn(cellOf('m'), 'outcome'))).toBe('`verdict` is `ok`');
+    expect(conditionsWords(cellOf('m').rows[0].if, known, placeIn(cellOf('m'), 'outcome'))).toBe(
+      "the engine's value `gates` is `waiting`",
+    );
+  });
+
+  it("finds the row a round left its cell by, a return sent back and a round cut off by the fallback's rows", () => {
+    const tooOften = row('sent_back_too_often', '@self', { if: [['sent_back', 2]], pauses: true, fallback: true });
+    const cut = row('cut_off', '@self', { if: [['engine', 'cut_off']], fallback: true });
+    const h = cell('h', [row('done', 'b'), tooOften, sentBack, cut]);
+    const rounds = [round(1, 'h', 'sent_back', null), round(2, 'h', 'sent_back', null), round(3, 'h', 'took', 'done')];
+    expect(leftBy(h, rounds[2], rounds)).toBe('done');
+    expect(leftBy(h, rounds[0], rounds)).toBe('sent_back');
+    // The second return in a row sent back pauses the work.
+    expect(leftBy(h, rounds[1], rounds)).toBe('sent_back_too_often');
+    expect(leftBy(h, round(4, 'h', 'interrupted', null), rounds)).toBe('cut_off');
+    // A run that failed does not record its kind; a round that runs has left by none yet.
+    expect(leftBy(h, round(4, 'h', 'failed', null), rounds)).toBeNull();
+    expect(leftBy(h, round(4, 'h', 'running', null), rounds)).toBeNull();
   });
 
   it('numbers the inputs as the message does, leaving out those the agent reads itself', () => {
@@ -1260,18 +1281,6 @@ describe("a cell's panel", () => {
     expect(titleOf(titles, 'understanding.grounds[inferred].claim', 'claim')).toBe('Claim');
     // A flow version stored before fields had titles: the key in words.
     expect(titleOf(undefined, 'understanding.vs_item', 'vs_item')).toBe('Vs item');
-  });
-
-  it('gives once the note every field shown on the item is told, and none when fewer than two fields say it', () => {
-    const note = 'Write it in the owner\'s language. Keep technical terms in their English original.';
-    const descs: Record<string, string> = {
-      'a:understanding': `How you understand this work. ${note}`,
-      'b:design': `The design you chose. ${note}`,
-    };
-    const g = { ...graph, cells: [cell('a', [], { kind: 'agent', shown: ['understanding'] }), cell('b', [], { kind: 'agent', shown: ['design'] })] };
-    expect(shownNote(g, (c, p) => descs[`${c}:${p}`] ?? null)).toBe(note);
-    const one = { ...graph, cells: [cell('a', [], { kind: 'agent', shown: ['understanding'] })] };
-    expect(shownNote(one, (c, p) => descs[`${c}:${p}`] ?? null)).toBeNull();
   });
 });
 

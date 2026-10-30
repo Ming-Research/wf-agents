@@ -15,11 +15,12 @@ import type { Marks } from '../graph/flowDraw';
 import { actionWords, chart } from '../graph/flowModel';
 import { RoundAt } from '../parts';
 import { t } from '../text';
-import { CellPanel, type CellSection, type CellTab, cellWhere } from './CellPanel';
+import { CellPanel, type CellTab, cellWhere } from './CellPanel';
 import { DiffPanel } from './Changes';
 import { ActionPanel, StorePanel, storeWho } from './EnginePanels';
 import { type Flow, flowOf, FlowContext, type Subject, subjectKey } from './context';
 import { Grip, Panel, savedSize, useTrail } from './Panel';
+import { OPEN_FIRST, type Side, toggled } from './Sides';
 import { CellLinks, inline, sheetText } from './words';
 import { charCount, chars, Name, Part, Sheet } from '../voices';
 
@@ -187,15 +188,8 @@ export function FlowScreen(props: FlowScreenProps) {
   // The tab of a cell's panel the owner chose last: going to another cell keeps it.
   const [cellTab, setCellTab] = useState<CellTab | null>(null);
   // The sections of a cell's page the owner opened: going to another cell keeps them.
-  const [cellOpen, setCellOpen] = useState<Set<CellSection>>(new Set());
-  const onCellOpen = (x: CellSection, o: boolean) =>
-    setCellOpen((was) => {
-      if (was.has(x) === o) return was;
-      const n = new Set(was);
-      if (o) n.add(x);
-      else n.delete(x);
-      return n;
-    });
+  const [cellOpen, setCellOpen] = useState<ReadonlySet<Side>>(OPEN_FIRST);
+  const onCellOpen = (x: Side, o: boolean) => setCellOpen((was) => toggled(was, x, o));
   const open = (s: Subject, from?: Subject) =>
     trail.open(withGraph(s, graphs), from !== undefined ? withGraph(from, graphs) : undefined);
   const pickCell = (graph: string | undefined, c: string) =>

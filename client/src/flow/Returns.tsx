@@ -1,21 +1,25 @@
-// What a cell hands back, as its panel's second section shows it. For an agent's cell: its own answer, each row it
-// takes with where it leads, the main path and what it records; the fields of its form as a tree of titles, each
-// opening to what the agent is told it is and what reads it, and the note every field shown on the item is told,
-// given once; then the forms every agent cell may hand in, a line each with where it leads; the fields every return
-// holds, folded; the checks on the return; and the engine's fallback, folded. For an engine's step, a tool or the
-// owner: where each of its rows leads, what it hands back and what the engine does every time.
+// What comes out of a cell, in the one JSON look both panels draw it in (ui-spec.md). On a round, the return as it was
+// handed back, pretty-printed: its keys, its texts and its other values each in their syntax colour, a text's line
+// breaks kept and a text over 1,000 characters folded to its first lines, each object and list folding at its opening
+// line, and a key saying on hovering what the flow says of its place. On a cell, the pattern of what it hands back, in
+// the same look, what each round fills in as a placeholder: for an agent's cell the forms its return may hold, one at
+// a time, in the field that holds one, beside the fields every return holds; a field of fixed values those values; a
+// key saying on hovering what the agent is told it is and what reads it. Under an agent cell's pattern, the checks the
+// engine makes on a return before it takes a row.
 
-import { Label } from '@primer/react';
-import { Fragment, type ReactNode } from 'react';
+import { ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
+import { type ReactNode, useState } from 'react';
 
-import type { Atom, CompiledCell, CompiledGraph, CompiledRow, Field, FieldKind, Use } from '../api';
-import { actionWords, fallback, mainPath, type Move, moves, rowActions, rowField } from '../graph/flowModel';
-import { words } from '../labelled';
-import { titleOf } from '../round';
-import { type Key, t } from '../text';
-import { FoldPart, joined, Name, Over, Pairs, Part, Row, Rows, Sheet } from '../voices';
+import type { CompiledCell, EngineNames, Field, FieldKind, JsonValue, Use } from '../api';
+import { actionWords } from '../graph/flowModel';
+import { isObj, type Obj } from '../labelled';
+import { chars, FOLD_AT, placeSchema, props, resolve, titleOf, under } from '../round';
+import { type Key, t, tn } from '../text';
+import { Hole, InnerName, Long, Name, Pairs, Part } from '../voices';
 import { useFlow } from './context';
-import { CellCode, conditionsWords, inline, sheetText, Target } from './words';
+import { inline } from './words';
+
+export { titleOf } from '../round';
 
 const KIND: Record<FieldKind, Key> = {
   text: 'kind_text',
@@ -29,72 +33,201 @@ const KIND: Record<FieldKind, Key> = {
   any: 'kind_any',
 };
 
-export { titleOf } from '../round';
+/// How deep a cell's pattern is open at first: its forms, their fields and the shapes a field may take, and one level
+/// inside them.
+const PATTERN_OPEN = 5;
 
-/// The parts of a row's condition that say something its name and kind do not: not that the return is the cell's own
-/// answer, nor what a move or the engine's fallback turns on, which their names and the list they are in say, nor a
-/// value that is the row's own name.
-export function telling(r: CompiledRow): Atom[] {
-  if (r.common) return [];
-  return r.if.filter((a) => {
-    if (a[0] === 'own' || a[0] === 'all') return false;
-    if (a[0] === 'is' && a[2].length === 1 && a[2][0] === r.name) return false;
-    return true;
-  });
+/// One line of the JSON look: the control that folds or opens it in the gutter, where it opens an object or a list.
+function Line({ fold, children }: { fold?: [boolean, (open: boolean) => void]; children: ReactNode }) {
+  return (
+    <div className="json-line">
+      {fold !== undefined ? (
+        <button
+          type="button"
+          className="json-fold"
+          aria-expanded={fold[0]}
+          aria-label={t(fold[0] ? 'json_fold' : 'json_unfold')}
+          onClick={() => fold[1](!fold[0])}
+        >
+          {fold[0] ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+        </button>
+      ) : null}
+      {children}
+    </div>
+  );
 }
 
-/// What the engine does for a row of its fallback, as the flow's section on rounds says it; none in a flow version
-/// stored before it said it so.
-export function fallbackWords(g: CompiledGraph, r: CompiledRow): string | null {
-  const rounds = g.rounds;
-  const a = r.if[0];
-  if (rounds == null || a === undefined) return null;
-  if (a[0] === 'sent_back') return a.length === 2 ? rounds.sentBack.pause : rounds.sentBack.desc;
-  if (a[0] === 'failed') return rounds.failed.kinds.find((k) => k.name === a[1])?.desc ?? null;
-  if (a[0] === 'engine') return rounds.engine?.find((k) => k.name === a[1])?.desc ?? null;
-  return null;
+/// A key and its colon, saying on hovering what the flow says of its place.
+function KeyName({ k, tip }: { k: string; tip?: string }) {
+  return (
+    <>
+      <span className={tip !== undefined ? 'json-key json-tip' : 'json-key'} title={tip}>
+        &quot;{k}&quot;
+      </span>
+      {': '}
+    </>
+  );
 }
 
-/// The rows of a cell whose counter's description its panel gives, in the order it lists them: the first row of each
-/// counter; the others name the counter alone.
-export function counterFirst(c: CompiledCell, listed: number[]): Set<number> {
-  const seen = new Set<string>();
-  const out = new Set<number>();
-  for (const i of listed) {
-    const k = c.rows[i]?.counts;
-    if (k == null || seen.has(k)) continue;
-    seen.add(k);
-    out.add(i);
+/// A text as the return holds it, its line breaks kept; over 1,000 characters, its first three lines and what opens it.
+function Text({ s, tip }: { s: string; tip?: string }) {
+  const shown = (x: string) => (
+    <span className="json-string" title={tip}>
+      &quot;{x}&quot;
+    </span>
+  );
+  return chars(s) > FOLD_AT ? <Long text={s}>{shown}</Long> : shown(s);
+}
+
+/// An object or a list: open, its opening line, its members one level in and its closing line; folded, one line, with
+/// how many it holds where that is known. `note` follows the opening, `tail` the closing.
+function Nest(p: {
+  head: ReactNode;
+  list: boolean;
+  n: number | null;
+  open: boolean;
+  note?: ReactNode;
+  tail: string;
+  children: () => ReactNode;
+}) {
+  const { head, list, n, note, tail, children } = p;
+  const [open, setOpen] = useState(p.open);
+  const [l, r] = list ? ['[', ']'] : ['{', '}'];
+  if (!open) {
+    return (
+      <Line fold={[false, setOpen]}>
+        {head}
+        {`${l}…${r}${tail}`}
+        {note}
+        {n !== null ? (
+          <>
+            {' '}
+            <InnerName>{tn(list ? 'json_items' : 'json_fields', n)}</InnerName>
+          </>
+        ) : null}
+      </Line>
+    );
   }
-  return out;
+  return (
+    <>
+      <Line fold={[true, setOpen]}>
+        {head}
+        {l}
+        {note}
+      </Line>
+      <div className="json-in">{children()}</div>
+      <Line>{`${r}${tail}`}</Line>
+    </>
+  );
 }
 
-/// Where a cell leaves to, by kind, each a list of its rows by their places: its own answers, those on the main path
-/// first; the moves it makes of its own; and the engine's fallback.
-export function leavesTo(c: CompiledCell): { answers: number[]; moves: number[]; fallback: number[] } {
-  const all = c.rows.map((_, i) => i);
-  const answers = all.filter((i) => !c.rows[i].common && !fallback(c.rows[i]));
-  return {
-    answers: [...answers.filter((i) => c.rows[i].main), ...answers.filter((i) => !c.rows[i].main)],
-    moves: all.filter((i) => c.rows[i].common && !fallback(c.rows[i])),
-    fallback: all.filter((i) => fallback(c.rows[i])),
-  };
+/// What the flow says of a place of a return, for its key's tip: its title and its description.
+function placeTip(s: Obj | null, titles: Record<string, string> | undefined, path: string): string | undefined {
+  const title = path !== '' ? titleOf(titles, path, '') : '';
+  const desc = s !== null && typeof s.description === 'string' ? s.description : '';
+  const tip = [title, desc].filter((x) => x !== '').join('\n');
+  return tip !== '' ? tip : undefined;
 }
 
-/// The moves of its own a cell's panel lists, apart from what the legend says of every cell: the rows of the moves
-/// drawn as lines, and of any the legend does not name, by their places; the moves the legend gives this cell with the
-/// others, by name; and the moves the legend gives most cells that could make them, which this one does not.
-export function ownMoves(g: CompiledGraph, c: CompiledCell): { rows: number[]; legend: string[]; lacks: Move[] } {
-  const all = moves(g);
-  const rows: number[] = [];
-  const legend: string[] = [];
-  for (const i of leavesTo(c).moves) {
-    const m = all.find((x) => x.row === c.rows[i].name);
-    if (m === undefined || m.tier === 'lines' || !m.cells.includes(c.id)) rows.push(i);
-    else if (!legend.includes(m.row)) legend.push(m.row);
+type Reading = { titles?: Record<string, string>; within?: string };
+
+/// A value of a return at a place, read by the schema of the place (`s`), whose path the titles go by (`path`).
+function ValueAt({ v, s, path, depth, o, head, tail }: {
+  v: JsonValue;
+  s: Obj | null;
+  path: string;
+  depth: number;
+  o: Reading;
+  head: ReactNode;
+  tail: string;
+}) {
+  if (typeof v === 'string') {
+    return (
+      <Line>
+        {head}
+        <Text s={v} />
+        {tail}
+      </Line>
+    );
   }
-  const lacks = all.filter((m) => m.tier === 'marked' && m.could.includes(c.id) && !m.cells.includes(c.id));
-  return { rows, legend, lacks };
+  if (v === null || typeof v !== 'object') {
+    return (
+      <Line>
+        {head}
+        <span className="json-constant">{JSON.stringify(v)}</span>
+        {tail}
+      </Line>
+    );
+  }
+  const r = resolve(s, v);
+  const at = under(path, r);
+  const schema = r?.schema ?? null;
+  if (Array.isArray(v)) {
+    if (v.length === 0) {
+      return (
+        <Line>
+          {head}
+          {`[]${tail}`}
+        </Line>
+      );
+    }
+    const items = schema !== null && isObj(schema.items) ? schema.items : null;
+    return (
+      <Nest head={head} list n={v.length} open tail={tail}>
+        {() => v.map((x, i) => <ValueAt key={i} v={x} s={items} path={at} depth={depth + 1} o={o} head={null} tail={i < v.length - 1 ? ',' : ''} />)}
+      </Nest>
+    );
+  }
+  const keys = Object.keys(v);
+  if (keys.length === 0) {
+    return (
+      <Line>
+        {head}
+        {`{}${tail}`}
+      </Line>
+    );
+  }
+  const p = schema !== null ? props(schema) : {};
+  return (
+    <Nest head={head} list={false} n={keys.length} open tail={tail}>
+      {() =>
+        keys.map((k, i) => {
+          const own = p[k];
+          const ks = isObj(own) ? own : null;
+          // The forms of an agent's return are at the places' root: their fields are named as the cell's own.
+          const form = depth === 0 && k === o.within;
+          const kp = form ? '' : at === '' ? k : `${at}.${k}`;
+          return (
+            <ValueAt
+              key={k}
+              v={v[k]}
+              s={ks}
+              path={kp}
+              depth={depth + 1}
+              o={o}
+              head={<KeyName k={k} tip={placeTip(ks, o.titles, kp)} />}
+              tail={i < keys.length - 1 ? ',' : ''}
+            />
+          );
+        })
+      }
+    </Nest>
+  );
+}
+
+/// A return as JSON, in the look above: every object and list open at first, and a key's tip read from the schema of
+/// the cell that handed it back, by the titles of its places and the field that holds an agent's form.
+export function Json({ value, schema, titles, within }: {
+  value: JsonValue;
+  schema?: JsonValue | null;
+  titles?: Record<string, string>;
+  within?: string;
+}) {
+  return (
+    <div className="json">
+      <ValueAt v={value} s={isObj(schema) ? schema : null} path="" depth={0} o={{ titles, within }} head={null} tail="" />
+    </div>
+  );
 }
 
 /// What the engine does every time `here`'s return holds a field, by the field's uses.
@@ -102,356 +235,245 @@ export function fieldActions(uses: Use[], here: string): string[] {
   return uses.flatMap((u) => (u.kind === 'always' && u.cell === here && u.action != null ? [u.action] : []));
 }
 
-/// The note every field shown on the item is told after its own description, which the flow adds to each: the
-/// sentence the descriptions of the fields shown on the items of the graph's cells all end with; none when fewer
-/// than two say it.
-export function shownNote(g: CompiledGraph, descOf: (cell: string, path: string) => string | null): string | null {
-  const descs: string[] = [];
-  for (const c of g.cells) {
-    if (c.kind !== 'agent') continue;
-    for (const p of c.shown ?? []) {
-      const d = descOf(c.id, p);
-      if (d !== null) descs.push(d);
-    }
-  }
-  if (descs.length < 2) return null;
-  let common = descs[0];
-  for (const d of descs.slice(1)) {
-    while (common !== '' && !d.endsWith(common)) common = common.slice(1);
-  }
-  // From the first sentence that starts in it.
-  const at = common.search(/(?<=^|[.!?] )[A-Z]/);
-  const note = at >= 0 ? common.slice(at).trim() : '';
-  return note.length >= 20 ? note : null;
-}
-
-/// A field's description without the note every field shown on the item is told.
-function own(desc: string | null, note: string | null): string | null {
-  if (desc === null || note === null || !desc.endsWith(note)) return desc;
-  return desc.slice(0, desc.length - note.length).trim().replace(/\.$/, '') || null;
-}
-
-/// What a field's facts say of it: its type, whether it may be left out and its fewest items, whether the item shows
-/// it, what reads it, and what the engine does every time the return holds it.
-function FieldFacts({ f, here, shown }: { f: Field; here: string; shown: boolean }) {
-  const engine = useFlow().compiled.engine;
-  const kind = f.kind === 'list' && f.item !== null && f.item !== 'object' && f.item !== 'union' ? t('kind_list_of', { item: t(KIND[f.item]) }) : t(KIND[f.kind]);
+/// What a field of a cell's return is, for its key's tip: its title, what the agent is told it is, and in a line what
+/// the page knows of it besides: its fewest items, whether the item shows it, what reads it, what the engine does every
+/// time the return holds it, and what checks it.
+function fieldTip(f: Field, c: CompiledCell, engine: EngineNames): string | undefined {
   const uses = [...f.used_by, ...f.disc_used_by];
-  const cells = [...new Set(uses.flatMap((u) => (u.kind === 'input' || (u.kind === 'condition' && u.cell !== here) ? [u.cell] : [])))];
-  const roles = [...new Set(uses.flatMap((u) => (u.kind === 'role' ? [u.role] : [])))];
-  const checks = [...new Set(uses.flatMap((u) => (u.kind === 'check' ? [u.check] : [])))];
-  const actions = fieldActions(uses, here);
-  const handoff = uses.some((u) => u.kind === 'handoff');
+  const once = <T,>(xs: T[]) => [...new Set(xs)];
+  const cells = once(uses.flatMap((u) => (u.kind === 'input' || (u.kind === 'condition' && u.cell !== c.id) ? [u.cell] : [])));
+  const roles = once(uses.flatMap((u) => (u.kind === 'role' ? [u.role] : [])));
+  const checks = once(uses.flatMap((u) => (u.kind === 'check' ? [u.check] : [])));
+  const facts = [
+    f.min !== null && f.min > 0 ? t('field_min', { n: f.min }) : null,
+    (c.shown ?? []).includes(f.path) || uses.some((u) => u.kind === 'shown') ? t('field_shown') : null,
+    cells.length > 0 ? `${t('field_read_by')} ${cells.join(', ')}` : null,
+    ...roles.map((r) => t('field_read_by_role', { role: r })),
+    uses.some((u) => u.kind === 'handoff') ? t('use_handoff') : null,
+    ...fieldActions(uses, c.id).map((a) => (engine.actions[a] ?? actionWords(a)).replaceAll('`', '')),
+    ...checks.map((k) => t('field_checked', { check: k })),
+  ].filter((x) => x !== null);
+  const tip = [titleOf(c.titles, f.path, ''), f.desc ?? '', facts.join(' · ')].filter((x) => x !== '').join('\n');
+  return tip !== '' ? tip : undefined;
+}
+
+/// The values a field of fixed values may take, each saying on hovering what it means; else what each round fills in
+/// for a value of its kind, as a placeholder.
+function Fill({ f, kind }: { f: Field; kind: FieldKind }) {
+  if (f.values.length === 0) return <Hole>{t(KIND[kind])}</Hole>;
   return (
     <>
-      {joined([
-        kind,
-        f.optional ? t('field_optional') : null,
-        f.min !== null && f.min > 0 ? t('field_min', { n: f.min }) : null,
-        shown || uses.some((u) => u.kind === 'shown') ? t('field_shown') : null,
-        cells.length > 0 ? (
-          <span key="cells">
-            {t('field_read_by')}{' '}
-            {cells.map((c, i) => (
-              <Fragment key={c}>
-                {i > 0 ? ', ' : null}
-                <CellCode id={c} />
-              </Fragment>
-            ))}
-          </span>
-        ) : null,
-        ...roles.map((r) => t('field_read_by_role', { role: r })),
-        handoff ? t('use_handoff') : null,
-        ...actions.map((a) => <span key={a}>{inline(engine.actions[a] ?? actionWords(a))}</span>),
-        ...checks.map((k) => (
-          <span key={k} title={engine.checks[k]}>
-            {t('field_checked', { check: k })}
-          </span>
-        )),
-      ])}
+      {f.values.map(([v, means], i) => (
+        <span key={v}>
+          {i > 0 ? <span className="json-or"> | </span> : null}
+          <Text s={v} tip={means ?? undefined} />
+        </span>
+      ))}
     </>
   );
 }
 
-/// Fields as a tree of titles, each opening to what the agent is told it is (or, for a step no agent runs, what the
-/// flow says it is), its values, and what it holds.
-function FieldTree({ fs, c, agent, note }: { fs: Field[]; c: CompiledCell; agent: boolean; note: string | null }) {
+/// The fields of an object of a pattern, one under another, the key that tells its shape first where it is one of
+/// several.
+function Members({ head, fields, lead, c, depth, note, tail }: {
+  head: ReactNode;
+  fields: Field[];
+  lead?: ReactNode;
+  c: CompiledCell;
+  depth: number;
+  note?: ReactNode;
+  tail: string;
+}) {
+  if (fields.length === 0 && lead === undefined) {
+    return (
+      <Line>
+        {head}
+        {`{}${tail}`}
+        {note}
+      </Line>
+    );
+  }
   return (
-    <Rows>
-      {fs.map((f) => (
-        <FieldRow key={f.path} f={f} c={c} agent={agent} note={note} />
-      ))}
-    </Rows>
-  );
-}
-
-/// What a field is, as said to its agent: in the sheet of what is sent; a step's own in the page's words.
-function Told({ text, agent }: { text: string | null; agent: boolean }) {
-  if (text === null || text === '') return null;
-  if (!agent) return <p className="pp-note">{inline(text)}</p>;
-  return (
-    <>
-      <Over>{t('told_field')}</Over>
-      <Sheet>{sheetText(text)}</Sheet>
-    </>
-  );
-}
-
-function FieldRow({ f, c, agent, note }: { f: Field; c: CompiledCell; agent: boolean; note: string | null }) {
-  const shown = (c.shown ?? []).includes(f.path);
-  const desc = shown ? own(f.desc, note) : f.desc;
-  const values = f.values.length > 0 && (
-    <Sheet>
-      {f.values.map(([v, means]) => (
-        <p key={v}>
-          <Name>{v}</Name>
-          {means ? <>: {sheetText(means)}</> : null}
-        </p>
-      ))}
-    </Sheet>
-  );
-  return (
-    <Row name={titleOf(c.titles, f.path, f.name)} code={f.name} facts={<FieldFacts f={f} here={c.id} shown={shown} />}>
-      <Told text={desc} agent={agent} />
-      {values}
-      {f.fields.length > 0 ? <FieldTree fs={f.fields} c={c} agent={agent} note={note} /> : null}
-      {f.common.length > 0 ? <FieldTree fs={f.common} c={c} agent={agent} note={note} /> : null}
-      {f.branches.length > 0 ? (
-        <Rows>
-          {f.branches.map((b) => (
-            <Row
-              key={b.path}
-              name={
-                <>
-                  <Name>{b.value}</Name>
-                  {f.disc ? <span className="pp-facts"> {t('branch_of', { disc: f.disc })}</span> : null}
-                </>
-              }
-              facts={joined(b.fields.map((x) => titleOf(c.titles, x.path, x.name)))}
-            >
-              <Told text={b.desc} agent={agent} />
-              {b.fields.length > 0 ? <FieldTree fs={b.fields} c={c} agent={agent} note={note} /> : <p className="pp-note">{t('shape_empty')}</p>}
-            </Row>
-          ))}
-        </Rows>
-      ) : null}
-    </Row>
-  );
-}
-
-/// Where a row leads and what it records, counts, waits for and carries out, and its condition where it says more
-/// than its name.
-function RowLeads({ c, i, counter }: { c: CompiledCell; i: number; counter: boolean }) {
-  const f = useFlow();
-  const r = c.rows[i];
-  const known = new Set(Object.keys(f.compiled.engine.values));
-  const cond = telling(r);
-  const sets = Object.entries(r.sets ?? {});
-  const counted = counter ? (f.g.counters.find((k) => k.name === r.counts)?.desc ?? '') : '';
-  return (
-    <span>
-      <span className="pp-arrow">→</span> <Target c={c} row={i} />
-      {mainPath(r) ? (
+    <Nest head={head} list={false} n={fields.length + (lead !== undefined ? 1 : 0)} open={depth < PATTERN_OPEN} note={note} tail={tail}>
+      {() => (
         <>
-          {' '}
-          <Label variant="secondary">{t('row_main')}</Label>
+          {lead}
+          {fields.map((x, i) => (
+            <FieldAt key={x.path} f={x} c={c} depth={depth + 1} tail={i < fields.length - 1 ? ',' : ''} />
+          ))}
         </>
-      ) : null}{' '}
-      <span className="pp-facts">
-        {joined([
-          cond.length > 0 ? inline(t('row_when', { when: conditionsWords(cond, known) })) : null,
-          sets.length > 0 ? inline(t('row_records_words', { what: sets.map(([k, v]) => `\`${k} = ${v}\``).join(', ') })) : null,
-          r.counts ? inline(t('row_counts_words', { counter: `\`${r.counts}\`` }) + (counted !== '' ? `: ${counted}` : '')) : null,
-          r.waits ? t('row_waits') : null,
-          r.pauses ? t('row_pauses') : null,
-          r.interject ? t('row_interjection') : null,
-          ...rowActions(r).map((a) => (
-            <span key={a} title={f.compiled.engine.actions[a] ?? ''}>
-              {actionWords(a)}
-            </span>
-          )),
-          r.note ? inline(r.note) : null,
-        ])}
-      </span>
-    </span>
-  );
-}
-
-/// The rows of the cell's own answer, or of a step, each with where it leads.
-function Leads({ c, rows }: { c: CompiledCell; rows: number[] }) {
-  const counter = counterFirst(c, rows);
-  return <Pairs rows={rows.map((i) => [<Name key="n">{c.rows[i].name}</Name>, <RowLeads key="l" c={c} i={i} counter={counter.has(i)} />])} />;
-}
-
-/// The cells a set of rows leads to, each by its code, joined with "or".
-function Targets({ c, rows }: { c: CompiledCell; rows: number[] }) {
-  const f = useFlow();
-  const cells = [...new Set(rows.flatMap((i) => f.cellView(c.id)?.targets[i] ?? [c.rows[i].to]))].filter((x) => !x.startsWith('@'));
-  return (
-    <span>
-      <span className="pp-arrow">→</span>{' '}
-      {cells.length === 1 ? (
-        <CellTitled id={cells[0]} />
-      ) : (
-        cells.map((x, i) => (
-          <Fragment key={x}>
-            {i > 0 ? (i === cells.length - 1 ? ` ${t('or_word')} ` : ', ') : null}
-            <CellCode id={x} />
-          </Fragment>
-        ))
       )}
-    </span>
+    </Nest>
   );
 }
 
-function CellTitled({ id }: { id: string }) {
-  const f = useFlow();
+/// The shapes a value of several shapes may take, one under another, after "one of".
+function Shapes({ head, f, c, depth, note, tail }: { head: ReactNode; f: Field; c: CompiledCell; depth: number; note?: ReactNode; tail: string }) {
+  const [open, setOpen] = useState(depth < PATTERN_OPEN);
+  const n = f.branches.length;
+  if (!open) {
+    return (
+      <Line fold={[false, setOpen]}>
+        {head}
+        <InnerName>{tn('json_one_of_n', n)}</InnerName>
+        {tail}
+        {note}
+      </Line>
+    );
+  }
   return (
     <>
-      <CellCode id={id} /> {f.cell(id)?.title ?? ''}
+      <Line fold={[true, setOpen]}>
+        {head}
+        <InnerName>{t('json_one_of')}</InnerName>
+        {note}
+      </Line>
+      <div className="json-in">
+        {f.branches.map((b, i) => (
+          <Members
+            key={b.path}
+            head={null}
+            fields={[...f.common, ...b.fields]}
+            lead={
+              f.disc !== null ? (
+                <Line>
+                  <KeyName k={f.disc} />
+                  <Text s={b.value} tip={b.desc ?? undefined} />
+                  {f.common.length + b.fields.length > 0 ? ',' : ''}
+                </Line>
+              ) : undefined
+            }
+            c={c}
+            depth={depth + 1}
+            tail={i === n - 1 ? tail : ''}
+          />
+        ))}
+      </div>
     </>
   );
 }
 
-/// The forms every agent cell may hand in besides its own answer, a line each with where its rows lead.
-function OtherForms({ c }: { c: CompiledCell }) {
-  const f = useFlow();
-  const forms = (c.forms ?? []).filter((x) => !x.own && x.field != null);
-  const moves = leavesTo(c).moves;
-  const rows: Array<[ReactNode, ReactNode]> = forms.map((form) => {
-    const field = form.field ?? '';
-    const its = moves.filter((i) => rowField(c.rows[i]) === field);
-    const w = words(field);
-    return [
-      <span key="n">
-        {w.charAt(0).toUpperCase() + w.slice(1)}
-        {field === 'tools' && (c.tools ?? []).length > 0 ? <span className="pp-facts"> {(c.tools ?? []).join(', ')}</span> : null}
-      </span>,
-      its.length > 0 ? <Targets key="t" c={c} rows={its} /> : <span key="t" />,
-    ];
-  });
-  // A move that turns on no form of the return, such as one the engine takes for the cell's line.
-  const formless = moves.filter((i) => {
-    const field = rowField(c.rows[i]);
-    return field === null || !forms.some((x) => x.field === field);
-  });
-  for (const i of formless) rows.push([<Name key="n">{c.rows[i].name}</Name>, <Targets key="t" c={c} rows={[i]} />]);
-  // The moves the legend gives most cells that could make them, which this one does not.
-  const lacks = ownMoves(f.g, c).lacks;
-  if (rows.length === 0 && lacks.length === 0) return null;
+/// A field of a cell's pattern: its key, saying on hovering what it is, and its value by its kind; whether it may be
+/// left out after it.
+function FieldAt({ f, c, depth, tail }: { f: Field; c: CompiledCell; depth: number; tail: string }) {
+  const engine = useFlow().compiled.engine;
+  const head = <KeyName k={f.name} tip={fieldTip(f, c, engine)} />;
+  const note = f.optional ? (
+    <>
+      {' '}
+      <InnerName>{t('field_optional')}</InnerName>
+    </>
+  ) : null;
+  if (f.kind === 'object') return <Members head={head} fields={f.fields} c={c} depth={depth} note={note} tail={tail} />;
+  if (f.kind === 'union') return <Shapes head={head} f={f} c={c} depth={depth} note={note} tail={tail} />;
+  if (f.kind === 'list' && (f.item === 'object' || f.item === 'union')) {
+    return (
+      <Nest head={head} list n={null} open={depth < PATTERN_OPEN} note={note} tail={tail}>
+        {() =>
+          f.item === 'object' ? (
+            <Members head={null} fields={f.fields} c={c} depth={depth + 1} tail="" />
+          ) : (
+            <Shapes head={null} f={f} c={c} depth={depth + 1} tail="" />
+          )
+        }
+      </Nest>
+    );
+  }
   return (
-    <Part title={t('back_forms')} facts={t('back_forms_facts')}>
-      {rows.length > 0 ? <Pairs rows={rows} /> : null}
-      {lacks.map((m) => (
-        <p key={m.row} className="pp-note">
-          {t(m.engine ? 'leaves_lacks_engine' : 'chart_lacks_title', { cell: c.id, move: actionWords(m.row), to: m.to })}
-        </p>
-      ))}
+    <Line>
+      {head}
+      {f.kind === 'list' ? (
+        <>
+          [<Fill f={f} kind={f.item ?? 'any'} />]
+        </>
+      ) : (
+        <Fill f={f} kind={f.kind} />
+      )}
+      {tail}
+      {note}
+    </Line>
+  );
+}
+
+/// What a cell hands back, as a pattern in the JSON look: an agent's return, one of its forms in the field that holds
+/// one, beside the fields every return holds; any other cell's, its fields.
+export function ReturnPattern({ c }: { c: CompiledCell }) {
+  const f = useFlow();
+  const r = f.cellView(c.id)?.returns;
+  const every = r?.every ?? [];
+  const forms = r?.within != null ? r.forms : [];
+  if (every.length === 0 && forms.length === 0) return <p className="pp-note">{t('out_nothing')}</p>;
+  const within = r?.within ?? '';
+  return (
+    <div className="json">
+      <Line>{'{'}</Line>
+      <div className="json-in">
+        {forms.length > 0 ? (
+          <>
+            <Line>
+              <KeyName k={within} tip={placeTip(placeSchema(c.schema, within), undefined, '')} />
+              <InnerName>{t('json_one_of')}</InnerName>
+            </Line>
+            <div className="json-in">
+              {forms.map((form, i) => (
+                <Members
+                  key={form.field ?? ''}
+                  head={null}
+                  fields={form.fields}
+                  c={c}
+                  depth={2}
+                  tail={i === forms.length - 1 && every.length > 0 ? ',' : ''}
+                />
+              ))}
+            </div>
+          </>
+        ) : null}
+        {every.map((x, i) => (
+          <FieldAt key={x.path} f={x} c={c} depth={1} tail={i < every.length - 1 ? ',' : ''} />
+        ))}
+      </div>
+      <Line>{'}'}</Line>
+    </div>
+  );
+}
+
+/// The checks the engine makes on a cell's return before it takes a row, each with what it checks and where.
+export function ReturnChecks({ c }: { c: CompiledCell }) {
+  const f = useFlow();
+  const checks = c.checks ?? [];
+  if (checks.length === 0) return null;
+  return (
+    <Part title={t('out_checks')}>
+      <Pairs
+        rows={checks.map((k) => [
+          <Name key="n">{k.check}</Name>,
+          <span key="w">
+            {inline(f.compiled.engine.checks[k.check] ?? '')}
+            {k.at ? <span className="pp-facts"> {inline(t('out_check_at', { at: `\`${k.at}\`` }))}</span> : null}
+          </span>,
+        ])}
+      />
+      <p className="pp-note">{t('checks_note')}</p>
     </Part>
   );
 }
 
-/// What an agent's cell hands back.
-export function AgentReturns({ c }: { c: CompiledCell }) {
-  const f = useFlow();
-  const r = f.cellView(c.id)?.returns;
-  const out = leavesTo(c);
-  const ownFields = r?.forms.find((x) => x.field === null)?.fields ?? [];
-  const descOf = (cell: string, path: string) => {
-    const find = (fs: Field[]): Field | undefined => {
-      for (const x of fs) {
-        if (x.path === path) return x;
-        const hit = find([...x.fields, ...x.common, ...x.branches.flatMap((b) => b.fields)]);
-        if (hit !== undefined) return hit;
-      }
-      return undefined;
-    };
-    const v = f.cellView(cell)?.returns;
-    return find([...(v?.forms.flatMap((x) => x.fields) ?? []), ...(v?.every ?? [])])?.desc ?? null;
-  };
-  const note = shownNote(f.g, descOf);
-  const anyShown = (c.shown ?? []).length > 0 && note !== null;
-  const checks = c.checks ?? [];
-  return (
-    <>
-      <Part title={t('back_own')}>
-        {out.answers.length > 0 ? <Leads c={c} rows={out.answers} /> : null}
-        {ownFields.length > 0 ? <FieldTree fs={ownFields} c={c} agent note={note} /> : null}
-        {anyShown ? (
-          <>
-            <Over>{t('back_shown_note')}</Over>
-            <Sheet>{sheetText(note)}</Sheet>
-          </>
-        ) : null}
-      </Part>
-      <OtherForms c={c} />
-      {r !== undefined && r.every.length > 0 ? (
-        <FoldPart title={t('back_every')} n={r.every.length} facts={t('back_every_facts')}>
-          <FieldTree fs={r.every} c={c} agent note={note} />
-        </FoldPart>
-      ) : null}
-      {checks.length > 0 ? (
-        <Part title={t('back_checks')}>
-          <Pairs
-            rows={checks.map((k) => [
-              <Name key="n">{k.check}</Name>,
-              <span key="w">
-                {inline(f.compiled.engine.checks[k.check] ?? '')}
-                {k.at ? <span className="pp-facts"> {inline(t('back_check_at', { at: `\`${k.at}\`` }))}</span> : null}
-              </span>,
-            ])}
-          />
-          <p className="pp-note">{t('checks_note')}</p>
-        </Part>
-      ) : null}
-      {out.fallback.length > 0 ? (
-        <FoldPart title={t('back_fallback')} n={out.fallback.length} facts={t('back_fallback_facts')}>
-          <Pairs
-            rows={out.fallback.map((i) => [
-              <Name key="n">{c.rows[i].name}</Name>,
-              <span key="w">{inline(fallbackWords(f.g, c.rows[i]) ?? conditionsWords(c.rows[i].if, new Set()))}</span>,
-            ])}
-          />
-        </FoldPart>
-      ) : null}
-    </>
-  );
-}
-
-/// What a step that is no agent's round comes to: the buttons the owner rules by, as the ask says them, where each of
-/// its rows leads, what it hands back, and what the engine does every time.
-export function StepReturns({ c }: { c: CompiledCell }) {
-  const f = useFlow();
-  const r = f.cellView(c.id)?.returns;
-  const rows = c.rows.map((_, i) => i);
-  const does = c.actions ?? [];
+/// The buttons the owner rules by at an owner's cell, each its value, its title and the line under it, as the ask says
+/// them: what the owner can hand back there.
+export function OwnerButtons({ c }: { c: CompiledCell }) {
   const buttons = c.choices ?? [];
+  if (buttons.length === 0) return null;
   return (
-    <>
-      {buttons.length > 0 ? (
-        <Part title={t('back_buttons')} facts={t('back_buttons_facts')}>
-          <Pairs
-            rows={buttons.map((b) => [
-              <Name key="n">{b.value}</Name>,
-              <span key="w">
-                {b.title}
-                <span className="pp-facts"> {b.desc}</span>
-              </span>,
-            ])}
-          />
-        </Part>
-      ) : null}
-      <Part title={t('back_rows')}>{rows.length > 0 ? <Leads c={c} rows={rows} /> : <p className="pp-note">{t('leaves_none')}</p>}</Part>
-      {r !== undefined && r.every.length > 0 ? (
-        <Part title={t('back_fields')}>
-          <FieldTree fs={r.every} c={c} agent={c.kind === 'tool'} note={null} />
-        </Part>
-      ) : null}
-      {does.length > 0 ? (
-        <Part title={t('leaves_does')}>
-          <Pairs rows={does.map((a) => [<Name key="n">{actionWords(a)}</Name>, <span key="w">{inline(f.compiled.engine.actions[a] ?? '')}</span>])} />
-        </Part>
-      ) : null}
-    </>
+    <Part title={t('back_buttons')} facts={t('back_buttons_facts')}>
+      <Pairs
+        rows={buttons.map((b) => [
+          <Name key="n">{b.value}</Name>,
+          <span key="w">
+            {b.title}
+            <span className="pp-facts"> {b.desc}</span>
+          </span>,
+        ])}
+      />
+    </Part>
   );
 }
