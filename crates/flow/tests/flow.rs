@@ -39,7 +39,7 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (40, 155, 211));
+    assert_eq!((s.cells, s.rows, s.states), (40, 156, 212));
     let g = c.graph("architect").unwrap();
     assert!(g.cell("X4").is_none());
     assert!(
@@ -156,7 +156,18 @@ fn the_owner_s_words_are_a_talk_the_owner_ends() {
         )
         .unwrap();
     assert_eq!((first.name.as_str(), first.to.as_str()), ("owner_words", "Q2"));
-    assert_eq!(g.cell("Q0").unwrap().rows[0].name, "owner_words");
+    // The owner's words come first, then a matter back with the owner's reply; a question just put waits for the
+    // reply, no longer than the installation's wait.
+    let q0: Vec<&str> = g.cell("Q0").unwrap().rows.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(q0[..3], ["owner_words", "answered", "waits"]);
+    let wait = g
+        .take(
+            "Q0",
+            &serde_json::json!({ "queue": { "verdict": "waits", "question": 4 } }),
+            &none,
+        )
+        .unwrap();
+    assert_eq!((wait.to.as_str(), wait.waits), ("Q0", true));
     for (name, to, then) in [
         ("replied", "H11", vec!["take_words", "reply_to_owner"]),
         ("done", "B1", vec!["take_words", "close_matter"]),

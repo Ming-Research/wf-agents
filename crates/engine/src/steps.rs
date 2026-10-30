@@ -1135,6 +1135,15 @@ pub fn engine(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) 
             .map_err(sql)?;
         return finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given);
     }
+    // The look at the queue that would wait again for the owner's reply to a question, as it waited last, records no
+    // new round.
+    if step.as_deref() == Some("look_at_queue")
+        && let Some(row) = cell.rows.iter().find(|r| r.waits)
+        && waits_again(e, w, cell, row)?
+        && architect::would_wait(e, w, cell)?
+    {
+        return Ok(Advance::Waits(format!("cell {} \"{}\"", cell.id, row.name)));
+    }
     // A step that acts outside the database starts its round first, so what it does is recorded under it.
     let round =
         e.db.write(Actor::Engine, |tx| {

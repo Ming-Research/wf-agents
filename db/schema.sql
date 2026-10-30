@@ -1477,7 +1477,8 @@ CREATE VIEW conversation_entries AS
          ELSE coalesce((SELECT s.line FROM rounds x JOIN sessions s ON s.id = x.session
                         WHERE x.work = a.work AND x.n < a.round ORDER BY x.n DESC LIMIT 1), 'engineer') END,
     'owner',
-    coalesce((SELECT group_concat(json_extract(p.value, '$.what'), char(10))
+    coalesce(json_extract(a.body, '$.question'),
+             (SELECT group_concat(json_extract(p.value, '$.what'), char(10))
               FROM json_each(a.body, '$.asked') q, json_each(q.value, '$.value.points') p),
              (SELECT n.text FROM engine_notices n WHERE n.ask = a.id ORDER BY n.id LIMIT 1), ''),
     coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id), r.started_at), a.work, a.round, a.id, NULL,

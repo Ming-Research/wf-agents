@@ -658,12 +658,15 @@ async fn rule(
     decide(&app, move |db| api::rule(db, id, &r)).await
 }
 
-/// What the owner says to an architect, and the item it is about, if any.
+/// What the owner says to an architect, the item it is about, if any, and the question pinned in their one-to-one the
+/// words reply to, when the owner ticked one.
 #[derive(Deserialize)]
 struct Said {
     text: String,
     #[serde(default)]
     item: Option<i64>,
+    #[serde(default)]
+    reply_to: Option<i64>,
 }
 
 /// Says something to a project's architect, as the owner, as the command line does: it comes to its queue, and the
@@ -674,8 +677,9 @@ async fn say_to_architect(
     Json(s): Json<Said>,
 ) -> Result<Json<api::Done>, Fail> {
     let (project, _) = project_of(&app, &q)?;
-    decide(&app, move |db| {
-        db::say_to_architect(db, &project, s.item, None, &s.text)
+    decide(&app, move |db| match s.reply_to {
+        Some(ask) => api::reply_to_question(db, &project, ask, &s.text),
+        None => db::say_to_architect(db, &project, s.item, None, &s.text),
     })
     .await
 }

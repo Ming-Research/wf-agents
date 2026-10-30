@@ -26,6 +26,7 @@ const objs = (v: JsonValue | undefined): Obj[] => (Array.isArray(v) ? v.filter(i
 
 const KINDS: Record<string, Key> = {
   ask: 'ask_kind_ask',
+  question: 'ask_kind_ask',
   open: 'ask_kind_open',
   study: 'ask_kind_study',
   policy_approval: 'ask_kind_policy_approval',
@@ -184,6 +185,13 @@ function PolicyAsk({ a, body, onRound, revisions }: {
 export function ArchitectAsk({ a, onRound, revisions = null }: { a: OwnerAsk; onRound?: OpenRound; revisions?: JsonValue }) {
   const body = isObj(a.body) ? a.body : {};
   switch (str(body.kind)) {
+    case 'question':
+      return (
+        <div className="card-view">
+          <Markdown text={str(body.question)} />
+          <AnswerPart a={a} given={<Answered a={a} />} />
+        </div>
+      );
     case 'open':
       return <OpenAsk a={a} body={body} />;
     case 'study':

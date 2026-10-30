@@ -260,6 +260,75 @@ pub fn end_talk(db: &mut Db, project: &str) -> Result<String, String> {
     }
 }
 
+/// Replies, as the owner, to a question a project's architect pinned in their one-to-one: the owner's words, said with
+/// the question ticked, answer it, and its matter comes back to the architect's queue with them, first, to the cell
+/// that asked. A question whose matter is gone (handled, or withdrawn as its item was cancelled or its work taken over)
+/// is no longer pinned: the reply then comes to the architect's queue as the owner's words, with the question, and the
+/// architect tells the owner. Refused for a question of no architect of the project, or one replied to already.
+pub fn reply_to_question(db: &mut Db, project: &str, ask: i64, text: &str) -> Result<String, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("a reply says something".into());
+    }
+    let asked: Option<(String, Option<String>, String, Option<String>)> = db
+        .conn()
+        .query_row(
+            "SELECT a.body, a.answer, w.graph, w.project FROM owner_asks a JOIN works w ON w.id = a.work
+             WHERE a.id = ?1",
+            [ask],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    let Some((body, answered, graph, of)) = asked else {
+        return Err(format!("no question {ask}"));
+    };
+    if graph != "architect" || of.as_deref() != Some(project) {
+        return Err(format!("question {ask} is not one the architect of {project} put"));
+    }
+    if answered.is_some() {
+        return Err(format!("question {ask} is replied to already"));
+    }
+    let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+    let parked: Option<i64> = db
+        .conn()
+        .query_row(
+            "SELECT id FROM architect_matters WHERE asked = ?1 AND handled_round IS NULL AND withdrawn IS NULL",
+            [ask],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(sql)?;
+    let answer = json!({ "by": "owner", "at": db::now(), "text": text });
+    db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
+            params![ask, answer.to_string()],
+        )?;
+        if parked.is_none() {
+            let question = body["question"].clone();
+            let m = Matter {
+                project: project.to_string(),
+                kind: "owner_words".into(),
+                detail: Some("answer".into()),
+                what: format!("The owner replied to question {ask}: {}", db::one_sentence(text)),
+                body: json!({ "text": text, "where": "page", "question": question, "owner_ask": ask,
+                              "gone": "the matter the question parked is closed" }),
+                ..Matter::default()
+            };
+            queue_matter(tx, &m)?;
+        }
+        Ok(())
+    })
+    .map_err(sql)?;
+    Ok(match parked {
+        Some(m) => format!("question {ask} is replied to: matter {m} comes back to the architect with the reply"),
+        None => {
+            format!("question {ask} is replied to: its matter is closed, so the architect has the reply as your words")
+        }
+    })
+}
+
 /// The option the owner chose, for an ask of the architect's that offers options.
 fn choice_of(a: &Answer) -> Option<String> {
     a.choice

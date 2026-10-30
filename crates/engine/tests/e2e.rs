@@ -3567,29 +3567,40 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// An ask of the owner from a cell on a matter's path holds only that matter: the architect's work goes on with the next
-// and ends; the owner's answer puts the matter back in the queue, which starts a work of the architect, and it goes
-// back to the cell that asked, which is given the answer.
+/// What a scripted architect's cell hands in to ask the owner a question.
+fn asks_the_owner(question: &str) -> (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>) {
+    (
+        vec![("outcome", "ask"), ("outcome.ask", "owner")],
+        vec![("outcome.ask.question", json!(question))],
+    )
+}
+
+/// Sets the installation's wait for the owner's reply to none, so that a question the architect puts waits at the back
+/// of its queue at once.
+fn no_reply_wait(s: &Setup) {
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(
+        &s.data,
+        "install.toml",
+        &format!("{install}\n[agents]\nowner_reply_wait = 0\n"),
+    );
+    git(&s.data, &["commit", "-q", "-am", "no wait for the owner's reply"]);
+}
+
+// A question to the owner from a cell on a matter's path parks only that matter: once the wait for the owner's reply
+// ran out, the architect's work goes on with the next and ends; the owner's reply puts the matter back in the queue,
+// which starts a work of the architect, and it goes back to the cell that asked, which is given the reply.
 #[test]
 fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked() {
     let s = setup("ask-holds");
+    no_reply_wait(&s);
     let mut agents = scripts();
     picks_first(&s, &mut agents);
     agents.insert(
         "H9",
         Box::new(|r: &Request, _: usize| {
             if r.prompt.contains("Hold the release?") && !r.prompt.contains("Yes, hold it.") {
-                return (
-                    vec![
-                        ("outcome", "ask"),
-                        ("outcome.ask", "owner"),
-                        ("outcome.ask.points[].kind", "other"),
-                    ],
-                    vec![(
-                        "outcome.ask.points[].what",
-                        json!("Should the release wait for the parser?"),
-                    )],
-                );
+                return asks_the_owner("Should the release wait for the parser?");
             }
             (Vec::new(), Vec::new())
         }),
@@ -3642,15 +3653,26 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
         ],
         "{log}"
     );
-    // The owner answers: the matter is back, an architect work starts, and the matter goes back to the cell that asked.
-    let yes = api::Answer {
-        text: "Yes, hold it.".into(),
-        why: None,
-        reply: None,
-        choice: None,
-        to: None,
-    };
-    api::answer(&mut e.db, ask, &yes).unwrap();
+    // The question is pinned for the owner, as the question the cell asked.
+    let pinned: (String, String) =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(body, '$.kind'), json_extract(body, '$.question') FROM owner_asks WHERE id = ?1",
+                [ask],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!(
+        pinned,
+        (
+            "question".to_string(),
+            "Should the release wait for the parser?".to_string()
+        )
+    );
+    // The owner replies with the question ticked: the matter is back, an architect work starts, and the matter goes
+    // back to the cell that asked.
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.").unwrap();
+    assert!(api::reply_to_question(&mut e.db, "p", ask, "Again.").is_err());
     let again = e.step(None).unwrap().work.unwrap();
     assert_ne!(again, arch);
     assert!(
@@ -3677,11 +3699,12 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A matter back with the owner's answer is taken first, after the owner's words, before the other matters waiting in
+// A matter back with the owner's reply is taken first, after the owner's words, before the other matters waiting in
 // the queue and without a pick: the look at the queue takes it, and the router sends it back to the cell that asked.
 #[test]
 fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
     let s = setup("answered-first");
+    no_reply_wait(&s);
     let mut agents = scripts();
     picks_first(&s, &mut agents);
     agents.insert(
@@ -3689,17 +3712,7 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
         Box::new(|_: &Request, n: usize| {
             // Its first round, on the only matter queued then, asks the owner.
             if n == 1 {
-                return (
-                    vec![
-                        ("outcome", "ask"),
-                        ("outcome.ask", "owner"),
-                        ("outcome.ask.points[].kind", "other"),
-                    ],
-                    vec![(
-                        "outcome.ask.points[].what",
-                        json!("Should the release wait for the parser?"),
-                    )],
-                );
+                return asks_the_owner("Should the release wait for the parser?");
             }
             (Vec::new(), Vec::new())
         }),
@@ -3763,6 +3776,184 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
         matters(&e),
         vec![("other_architect".to_string(), false, true); 3],
         "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Queues a message from project q's architect to project p's.
+fn from_q(e: &mut Engine, text: &str) -> i64 {
+    let m = db::Matter {
+        project: "p".into(),
+        kind: "other_architect".into(),
+        detail: Some("message".into()),
+        what: format!("The architect of q says: {text}"),
+        body: json!({ "text": text }),
+        ..db::Matter::default()
+    };
+    e.db.write(Actor::Engine, |tx| db::queue_matter(tx, &m)).unwrap()
+}
+
+/// The question a matter is parked by.
+fn parked_by(e: &Engine, matter: i64) -> i64 {
+    e.db.conn()
+        .query_row("SELECT asked FROM architect_matters WHERE id = ?1", [matter], |r| {
+            r.get(0)
+        })
+        .unwrap()
+}
+
+// A question just put waits at the look at the queue for the owner's reply, before any other matter, and taking the
+// wait again records nothing new; the reply, given with the question ticked, comes back at once to the cell that
+// asked, in the same work.
+#[test]
+fn a_question_just_put_waits_at_the_queue_for_the_owner_s_reply() {
+    let s = setup("question-waits");
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    agents.insert(
+        "H9",
+        Box::new(|r: &Request, _: usize| {
+            if r.prompt.contains("Hold the release?") && !r.prompt.contains("Yes, hold it.") {
+                return asks_the_owner("Should the release wait for the parser?");
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    let held = from_q(&mut e, "Hold the release?");
+    from_q(&mut e, "Look at the queue.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    let waits = |e: &mut Engine| {
+        cells_of(e, arch)
+            .last()
+            .is_some_and(|c| c == &("Q0".into(), Some("waits".into())))
+    };
+    assert!(steps_until(&mut e, 40, waits), "{}", said.borrow().join("\n"));
+    let rounds = cells_of(&e, arch).len();
+    assert!(e.step(None).unwrap().rounds.is_empty());
+    assert_eq!(cells_of(&e, arch).len(), rounds);
+    // The other matter waits behind the question.
+    assert_eq!(
+        matters(&e),
+        [
+            ("other_architect".to_string(), false, false),
+            ("other_architect".to_string(), true, false)
+        ]
+    );
+    let ask = parked_by(&e, held);
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.").unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let cells = cells_of(&e, arch);
+    let waited = cells.iter().position(|c| c.1.as_deref() == Some("waits")).expect(&log);
+    assert_eq!(
+        cells[waited + 1..waited + 4]
+            .iter()
+            .map(|c| (c.0.as_str(), c.1.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            ("Q0", Some("answered")),
+            ("Q2", Some("to_answer_architect")),
+            ("H9", Some("done"))
+        ],
+        "{cells:?}\n{log}"
+    );
+    assert_eq!(
+        matters(&e),
+        vec![("other_architect".to_string(), false, true); 2],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's words said while the architect waits for the reply to a question end the wait: the words are taken, the
+// question waits at the back of the queue, blocking nothing, and the work ends with it pending. A reply to a question
+// whose matter is gone comes to the architect as the owner's words, with the question.
+#[test]
+fn the_owner_s_words_end_the_wait_and_a_reply_to_a_closed_question_is_the_owner_s_words() {
+    let s = setup("question-words");
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    agents.insert(
+        "H9",
+        Box::new(|r: &Request, _: usize| {
+            if r.prompt.contains("Hold the release?") {
+                return asks_the_owner("Should the release wait for the parser?");
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    let held = from_q(&mut e, "Hold the release?");
+    let arch = e.step(None).unwrap().work.unwrap();
+    let waits = |e: &mut Engine| {
+        cells_of(e, arch)
+            .last()
+            .is_some_and(|c| c == &("Q0".into(), Some("waits".into())))
+    };
+    assert!(steps_until(&mut e, 40, waits), "{}", said.borrow().join("\n"));
+    say(&mut e, "What about the parser?");
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let cells = cells_of(&e, arch);
+    let waited = cells.iter().position(|c| c.1.as_deref() == Some("waits")).expect(&log);
+    assert_eq!(
+        cells[waited + 1],
+        ("Q0".to_string(), Some("owner_words".to_string())),
+        "{log}"
+    );
+    assert_eq!(cells.last().map(|c| c.0.as_str()), Some("E2"), "{log}");
+    // The question still waits, its matter parked.
+    let ask = parked_by(&e, held);
+    let pending = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM owner_asks a JOIN architect_matters m ON m.asked = a.id
+                 WHERE a.answer IS NULL AND m.handled_round IS NULL AND m.withdrawn IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(pending(&e), 1);
+    // Its matter is withdrawn: a reply to it is the owner's words, which tell the architect the question.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE architect_matters SET withdrawn = 'its item was cancelled' WHERE id = ?1",
+            [held],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(pending(&e), 0);
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.").unwrap();
+    let words: (String, String) =
+        e.db.conn()
+            .query_row(
+                "SELECT detail, json_extract(body, '$.question') FROM architect_matters
+                 WHERE kind = 'owner_words' ORDER BY id DESC LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!(
+        words,
+        (
+            "answer".to_string(),
+            "Should the release wait for the parser?".to_string()
+        )
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }

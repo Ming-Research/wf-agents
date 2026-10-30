@@ -35,7 +35,7 @@ pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives,
 /// and those of the policy being set, which [`draft_places`] names the places of.
-pub const INPUTS: [&str; 29] = [
+pub const INPUTS: [&str; 30] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -65,6 +65,7 @@ pub const INPUTS: [&str; 29] = [
     "setting_talk",
     "open_gaps",
     "told_owner",
+    "questions",
 ];
 
 /// The input that gives what the cell before this one on the matter's path answered of it, as that round's return:
@@ -1050,10 +1051,103 @@ fn close_settled_cards(e: &mut Engine, w: &Work, project: &str) -> Result<Vec<St
     Ok(closed.into_iter().map(|x| x.1).collect())
 }
 
+/// The questions a project's architect put to the owner that wait for the owner's reply, newest first: each an ask of
+/// the owner a cell of the architect's graph put, not answered, that parks a matter still open; with the question, the
+/// cell that asked, when it was put and the matter it parked.
+pub fn questions_pending(conn: &Connection, project: &str) -> Result<Vec<Value>, String> {
+    query_json(
+        conn,
+        "SELECT a.id AS question, json_extract(a.body, '$.question') AS text, m.resume_cell AS cell,
+                coalesce((SELECT min(n.at) FROM engine_notices n WHERE n.ask = a.id), r.started_at) AS at,
+                m.id AS matter, m.what AS about
+         FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round JOIN works w ON w.id = a.work
+         JOIN architect_matters m ON m.asked = a.id
+         WHERE w.graph = 'architect' AND w.project = ?1 AND a.answer IS NULL
+           AND m.handled_round IS NULL AND m.withdrawn IS NULL
+         ORDER BY at DESC, a.id DESC",
+        &[&project],
+        ROWS,
+    )
+}
+
+/// The questions pending, as the cells that may ask are given them; none when none waits.
+fn questions(e: &Engine, project: &str) -> Result<Option<Value>, String> {
+    let rows: Vec<Value> = questions_pending(e.db.conn(), project)?
+        .into_iter()
+        .map(|mut q| {
+            q["at"] = json!(q["at"].as_i64().map(utc_minute));
+            q
+        })
+        .collect();
+    Ok((!rows.is_empty()).then_some(Value::Array(rows)))
+}
+
+/// The question the architect waits for the owner's reply to at the look at the queue (`Q0`): the newest question
+/// pending, when it was put less than the installation's wait for the owner's reply (`agents.owner_reply_wait`) ago and
+/// the owner said nothing to the architect since in their one-to-one: no words, no entry of a talk, and no reply to
+/// another question. None otherwise: the question then waits at the back of the queue, and blocks nothing.
+pub fn waits_on(e: &Engine, project: &str) -> Result<Option<i64>, String> {
+    let conn = e.db.conn();
+    let Some(newest) = questions_pending(conn, project)?.into_iter().next() else {
+        return Ok(None);
+    };
+    let (Some(id), Some(at)) = (newest["question"].as_i64(), newest["at"].as_i64()) else {
+        return Ok(None);
+    };
+    let wait = i64::try_from(e.config.config.install.agents.owner_reply_wait)
+        .unwrap_or(i64::MAX / 1000)
+        .saturating_mul(1000);
+    if db::now() - at >= wait {
+        return Ok(None);
+    }
+    let said = count(
+        conn,
+        "SELECT (SELECT count(*) FROM architect_matters
+                 WHERE project = ?1 AND kind = 'owner_words' AND json_extract(body, '$.where') = 'page' AND at > ?2)
+              + (SELECT count(*) FROM talk_entries e JOIN architect_matters m ON m.id = e.matter
+                 WHERE m.project = ?1 AND e.at > ?2)
+              + (SELECT count(*) FROM owner_asks a JOIN works w ON w.id = a.work
+                 WHERE w.graph = 'architect' AND w.project = ?1 AND json_extract(a.answer, '$.at') > ?2)",
+        &[&project, &at],
+    )?;
+    Ok((said == 0).then_some(id))
+}
+
+/// Whether a cell has a row of that name.
+fn has_row(cell: &CompiledCell, row: &str) -> bool {
+    cell.rows.iter().any(|r| r.name == row)
+}
+
+/// The matters the look at the queue takes before any other, where the cell has the row for them: the oldest of the
+/// owner's words, and the oldest matter back with the owner's reply.
+fn taken_first<'a>(cell: &CompiledCell, can: &'a [Value]) -> (Option<&'a Value>, Option<&'a Value>) {
+    let said = can
+        .iter()
+        .find(|r| has_row(cell, "owner_words") && r["kind"] == "owner_words");
+    let back = can
+        .iter()
+        .find(|r| has_row(cell, "answered") && (r["answered"] == json!(1) || r["answered"] == json!(true)));
+    (said, back)
+}
+
+/// Whether the look at the queue would wait for the owner's reply to a question now, as [`look_at_queue`] works it
+/// out, without closing anything: so that a wait taken again records no new round.
+pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<bool, String> {
+    if !has_row(cell, "waits") {
+        return Ok(false);
+    }
+    let project = project_of(w)?;
+    let can = pickable(e.db.conn(), project, w.id)?;
+    let (said, back) = taken_first(cell, &can);
+    Ok(said.is_none() && back.is_none() && waits_on(e, project)?.is_some())
+}
+
 /// Cell `Q0`: what can be picked from the project's queue now; the owner's words, the oldest first, then a matter back
-/// with the owner's answer, the oldest first, and a lone matter are picked here, without a round. A design card matter
-/// whose card needs no look any longer is closed first (the cell's `close_settled_cards`, which a flow version before
-/// the cell named what it does did too), as the round's progress says.
+/// with the owner's reply, the oldest first, and a lone matter are picked here, without a round; while the newest
+/// question pending was put just now and the owner said nothing since, the architect waits for the reply
+/// ([`waits_on`]), which a flow version before did not. A design card matter whose card needs no look any longer is closed first (the cell's
+/// `close_settled_cards`, which a flow version before the cell named what it does did too), as the round's progress
+/// says.
 pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
     let project = project_of(w)?;
     let closes = cell.actions.is_empty() || cell.actions.iter().any(|a| a == "close_settled_cards");
@@ -1065,22 +1159,22 @@ pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Va
     let conn = e.db.conn();
     let can = pickable(conn, project, w.id)?;
     let handled = handled_in_batch(conn, w.id)?;
-    // The owner's words are taken first, the oldest of them, then a matter back with the owner's answer, the oldest of
-    // them, each without a pick, where the cell has the row for it.
-    let has = |row: &str| cell.rows.iter().any(|r| r.name == row);
-    let said = can.iter().find(|r| has("owner_words") && r["kind"] == "owner_words");
-    let back = can
-        .iter()
-        .find(|r| has("answered") && (r["answered"] == json!(1) || r["answered"] == json!(true)));
-    let queue = match (said, back, can.as_slice()) {
-        (Some(said), _, _) => json!({ "verdict": "owner_words", "matter": said["matter"] }),
-        (None, Some(back), _) => json!({ "verdict": "answered", "matter": back["matter"] }),
-        (None, None, []) if handled > 0 || !collected(conn, w.id)?.is_empty() => {
+    let (said, back) = taken_first(cell, &can);
+    let waits = if said.is_none() && back.is_none() && has_row(cell, "waits") {
+        waits_on(e, project)?
+    } else {
+        None
+    };
+    let queue = match (said, back, waits, can.as_slice()) {
+        (Some(said), _, _, _) => json!({ "verdict": "owner_words", "matter": said["matter"] }),
+        (None, Some(back), _, _) => json!({ "verdict": "answered", "matter": back["matter"] }),
+        (None, None, Some(q), _) => json!({ "verdict": "waits", "question": q }),
+        (None, None, None, []) if handled > 0 || !collected(conn, w.id)?.is_empty() => {
             json!({ "verdict": "none_after_batch" })
         }
-        (None, None, []) => json!({ "verdict": "none" }),
-        (None, None, [one]) => json!({ "verdict": "one", "matter": one["matter"] }),
-        (None, None, many) => json!({ "verdict": "many", "count": many.len() }),
+        (None, None, None, []) => json!({ "verdict": "none" }),
+        (None, None, None, [one]) => json!({ "verdict": "one", "matter": one["matter"] }),
+        (None, None, None, many) => json!({ "verdict": "many", "count": many.len() }),
     };
     let mut out = json!({ "queue": queue });
     if !closed.is_empty() {
@@ -1117,7 +1211,7 @@ fn route(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
     if let (Some(a), Some(cell)) = (asked, resume)
         && answered(conn, a)?
     {
-        return Ok(cell);
+        return Ok(if g.cell(&cell).is_some() { cell } else { TALK.into() });
     }
     KINDS
         .iter()
@@ -1871,8 +1965,17 @@ pub fn ask_owner(
         format!("The study of a new policy by the architect of {project} is ready for you to read")
     } else {
         let asked = asked_of(&gathered);
-        let about = what_is_asked(&asked);
-        body["kind"] = json!("ask");
+        let question = asked
+            .iter()
+            .find_map(|a| a["value"]["question"].as_str().map(str::to_string));
+        let about = match &question {
+            Some(q) => format!(": {}", db::one_sentence(q)),
+            None => what_is_asked(&asked),
+        };
+        body["kind"] = json!(if question.is_some() { "question" } else { "ask" });
+        if let Some(q) = question {
+            body["question"] = json!(q);
+        }
         body["asked"] = Value::Array(asked);
         format!("The architect of {project} asks you{about}")
     };
@@ -3780,6 +3883,7 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "setting_waits" => setting_waits(e, project),
         "setting_talk" => setting_talk(e, w, project),
         "told_owner" => told_owner(e, project),
+        "questions" => questions(e, project),
         "open_gaps" => match setting_of(e.db.conn(), w.id)? {
             Some(m) => open_gaps(e.db.conn(), m),
             None => Ok(None),
@@ -4993,12 +5097,17 @@ fn owner_answer(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Value>
         1,
     )?;
     Ok(row.into_iter().next().map(|r| {
-        json!({
+        let mut back = json!({
             "ask": r["ask"],
             "asked": r["body"]["asked"],
             "answer": r["answer"]["text"],
             "answered_at": r["answer"]["at"].as_i64().map(utc_minute),
-        })
+        });
+        if let (Some(q), Some(o)) = (r["body"].get("question"), back.as_object_mut()) {
+            o.remove("asked");
+            o.insert("question".into(), q.clone());
+        }
+        back
     }))
 }
 

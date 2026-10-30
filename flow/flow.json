@@ -2610,6 +2610,14 @@
           "desc": "When your queue holds this place already, as a matter of yours not handled yet: that matter's number; the engine queues it not again"
         }
       ]
+    },
+    "question_form": {
+      "name": "ask",
+      "title": "Question for the owner",
+      "type": "union",
+      "by": "to",
+      "desc": "A question for the owner, when what you handle needs the owner to decide or to tell you something you cannot find out: the matter in hand is parked at this cell, the question is pinned at the bottom of the owner's one-to-one, and the matter comes back to this cell with the owner's reply, in words, before any other matter. Ask only what you cannot settle yourself, and nothing a question still pending asks already",
+      "branches": "askRoles"
     }
   },
   "tools": [
@@ -3040,7 +3048,7 @@
       "end_architect_work": "Ends the architect's work.",
       "count_trials": "Counts how many new sessions in a row read this version of the policy's text and answered every probe rightly, a minor fix found in between included: two pass it, one asks for another.",
       "put_draft_together": "Puts this version of the policy's text and probes together, for a new architect to read, and records them: as the architect wrote them; after a correction, the text before with each of the correction's edits applied in order, and the probes it keeps with those it adds or changes; after a minor fix a reading found, the text with the fix's edits applied.",
-      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not held by an ask or by a talk that waits for the owner's reply, due, flow feedback, its own or forwarded by another project's architect, only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's answer, the oldest of them, and exactly one matter that can be picked is taken here, each without a round.",
+      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to or held by a talk that waits for the owner's reply, due, flow feedback, its own or forwarded by another project's architect, only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply; and exactly one matter that can be picked is taken here, each without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session.",
       "stop_work": "A work cancelled, or taken over by a work on a newer flow version because the cell it stands at or the shape of a return it handed in is not the same there (else it moves to that version and goes on where it stands), ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off. A work taken over leaves its worktree and pull request to the work that takes it over."
@@ -3190,7 +3198,8 @@
       "setting_waits": "While the setting of a new policy waits for the owner at its study (`P3`) or its approval (`P11`): the study, or the text with the probes, every reading and the gaps left open.",
       "setting_talk": "The talks with the owner held while the setting of the policy being set waited for the owner, since it last went to the owner, or since it started when it never did: each the owner's words, the architect's replies and what it came to.",
       "open_gaps": "The gaps of the text of the policy being set that the readings of its version left open: each reading's, those that passed included, as the judgment of it found them.",
-      "told_owner": "What the project's architect told the owner lately: its latest messages to the owner, each with when and at which cell, oldest first."
+      "told_owner": "What the project's architect told the owner lately: its latest messages to the owner, each with when and at which cell, oldest first.",
+      "questions": "The questions the project's architect put to the owner that wait for the owner's reply, newest first: each question, the cell that asked and when, and the matter it parked."
     },
     "values": {
       "came_by": "How the work came to choose the way on.",
@@ -3211,7 +3220,7 @@
       "reply": "Whether the owner said more to the architect since its reply, ended the talk, or neither yet, and whether the wait for the owner's reply ran out.",
       "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, flow feedback, or a fault of wf-agents forwarded to the architect.",
       "review_round": "Whether the review starts with a blind review or goes straight to the table.",
-      "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's answer; the setting of a new policy goes on from the cell it stood at when a new session would have started there.",
+      "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's reply, the cell of the owner's words when the flow no longer has that cell; the setting of a new policy goes on from the cell it stood at when a new session would have started there.",
       "setting": "Whether a new policy is being set for the project: the matter of its setting is open.",
       "split": "Whether the reply brought back split off sub-items, and whether this work keeps a part.",
       "start": "What holds an item back from starting, if anything.",
@@ -3477,7 +3486,8 @@
           "item_asks"
         ],
         "inputs": [
-          "owner_answer"
+          "owner_answer",
+          "questions"
         ],
         "owner": "answers"
       },
@@ -11919,14 +11929,15 @@
         "roles": [
           {
             "name": "owner",
-            "desc": "What only the owner can decide or do: the constitution and the policy, and the kinds of the owner_only group",
+            "desc": "What only the owner can decide or tell: what the owner wants, a permission, a decision you may not make",
             "node": "A3",
             "row": "ask_owner",
             "fields": [
               {
-                "$ref": "choice",
-                "optional": true,
-                "desc": "For something the owner must decide, the choice: options, a recommendation, how sure you are; not for something the owner only has to do (a permission, credentials). Write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
+                "name": "question",
+                "title": "Question",
+                "type": "text",
+                "desc": "The question, short, in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written: what you need decided or told and why, with the context the owner needs to understand it days later; options and the one you recommend when they help. The owner asks for more when it is too short"
               }
             ]
           }
@@ -12005,55 +12016,7 @@
           }
         ]
       },
-      "askKinds": [
-        {
-          "group": "owner_only",
-          "only": "owner",
-          "kinds": [
-            [
-              "constitution_and_policy",
-              "The constitution must change, or the policy must be set again: write it as a choice, with options and a recommendation"
-            ],
-            [
-              "big_direction",
-              "A large direction across projects must change, such as how standards are set"
-            ],
-            [
-              "irreversible_action",
-              "The next step cannot be undone"
-            ],
-            [
-              "publish_or_send",
-              "Something must be published, posted or sent outside"
-            ],
-            [
-              "change_live_data",
-              "Live data must change"
-            ],
-            [
-              "other_machine",
-              "Another of the owner's machines is needed (CI does not count)"
-            ],
-            [
-              "permission",
-              "The owner must grant a permission or approve"
-            ],
-            [
-              "return_format_unfit",
-              "A field of what this cell asks you to return cannot be filled in the situation at hand, or would mean nothing if filled. When you meet this you must ask; never force a value, invent one or fill in something empty to get past it. In what, say which field, what the situation is, and why it does not fit"
-            ]
-          ]
-        },
-        {
-          "group": "unclear",
-          "kinds": [
-            [
-              "other",
-              "None of the kinds above, and only the owner can answer it. Say it clearly in what"
-            ]
-          ]
-        }
-      ],
+      "askKinds": [],
       "agentCommon": {
         "returns": {
           "forms": [
@@ -12177,7 +12140,7 @@
           },
           {
             "name": "Owner's answer",
-            "what": "The owner's answer to what you asked, when the matter you asked about comes back to you with it; none when you did not ask",
+            "what": "The owner's reply, in words, to the question you asked, when the matter you asked about comes back to you with it. When it does not answer your question, or asks you to say more, ask again, at more length when asked, and tell the owner so in tell_owner; none when you did not ask",
             "from": [
               {
                 "engine": "owner_answer"
@@ -12201,7 +12164,7 @@
         ],
         "out": [
           {
-            "$ref": "ask_form"
+            "$ref": "question_form"
           },
           {
             "$ref": "tools_form"
@@ -13330,6 +13293,16 @@
               "maybe": true
             },
             {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -13559,6 +13532,16 @@
                   "engine": "numbers"
                 }
               ]
+            },
+            {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
             },
             {
               "name": "What you told the owner",
@@ -13895,6 +13878,16 @@
                   "engine": "draft_probes"
                 }
               ]
+            },
+            {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
             },
             {
               "name": "What you told the owner",
@@ -14245,6 +14238,16 @@
               ]
             },
             {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -14577,6 +14580,16 @@
               "maybe": true
             },
             {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -14884,11 +14897,14 @@
           "inputs": [
             {
               "name": "The queue as it stands",
-              "what": "The project's queue as it stands: the matters due and not held by an ask or by a talk that waits for the owner's reply, the owner's words and the matters back with the owner's answer among them",
+              "what": "The project's queue as it stands: the matters due and not parked by a question the owner has not replied to, the matters back with the owner's reply and the owner's words among them; and the questions pending, the newest first, with when each was put",
               "from": [
                 {
                   "db": "architect_queue",
                   "by": "project"
+                },
+                {
+                  "engine": "questions"
                 }
               ]
             }
@@ -14915,13 +14931,25 @@
                 },
                 {
                   "value": "answered",
-                  "desc": "No words of the owner's wait, and a matter is back with the owner's answer: the oldest is taken next, before any other matter, without a pick",
+                  "desc": "No words of the owner's wait, and a matter is back with the owner's reply: the oldest is taken next, before any other matter, without a pick",
                   "fields": [
                     {
                       "name": "matter",
                       "title": "Matter picked",
                       "type": "int",
                       "desc": "The matter back with the owner's answer taken"
+                    }
+                  ]
+                },
+                {
+                  "value": "waits",
+                  "desc": "Neither, and the newest question pending was put to the owner less than the wait for the owner's reply ago, with nothing said to the architect since: the architect waits for the reply",
+                  "fields": [
+                    {
+                      "name": "question",
+                      "title": "Question waited on",
+                      "type": "int",
+                      "desc": "The question waited on, by its number"
                     }
                   ]
                 },
@@ -14998,7 +15026,23 @@
               ],
               "to": "Q2",
               "main": true,
-              "note": "A matter back with the owner's answer is taken next, after the owner's words and before any other matter, without a pick; the router sends it back to the cell that asked, with the answer."
+              "note": "A matter back with the owner's reply is taken next, after the owner's words and before any other matter, without a pick; the router sends it back to the cell that asked, with the reply."
+            },
+            {
+              "name": "waits",
+              "if": [
+                [
+                  "is",
+                  "queue.verdict",
+                  [
+                    "waits"
+                  ]
+                ]
+              ],
+              "to": "Q0",
+              "waits": true,
+              "until": "agents.owner_reply_wait",
+              "note": "The architect waits for the owner's reply to the question it just put, five minutes unless the installation sets another wait (`agents.owner_reply_wait`): the reply comes back at once. Once the wait ran out, or the owner said anything else to the architect, the question waits at the back of the queue and blocks nothing, and the architect goes on."
             },
             {
               "name": "one",
@@ -15492,7 +15536,7 @@
               ],
               [
                 "H8",
-                "The owner's words, or a matter of them back with the owner's answer"
+                "The owner's words, or a matter of them back with the owner's reply; or a matter back with the owner's reply whose asking cell the flow no longer has"
               ],
               [
                 "H9",
@@ -15599,6 +15643,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
             },
             {
               "name": "What you told the owner",
@@ -16126,6 +16180,16 @@
               ]
             },
             {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -16286,6 +16350,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
             },
             {
               "name": "What you told the owner",
@@ -16509,6 +16583,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
             },
             {
               "name": "What you told the owner",
@@ -17140,6 +17224,16 @@
               ]
             },
             {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "What you told the owner",
               "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
               "from": [
@@ -17270,6 +17364,16 @@
                   "engine": "batch"
                 }
               ]
+            },
+            {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
             },
             {
               "name": "What you told the owner",
@@ -18091,12 +18195,12 @@
         {
           "id": "A3",
           "kind": "owner",
-          "title": "Owner answers",
+          "title": "Pinned for your reply",
           "step": "ask_owner",
           "inputs": [
             {
               "name": "What is asked",
-              "what": "What is asked: the ask the architect handed in, with its choice when it has one",
+              "what": "What is asked: the question the architect handed in",
               "from": [
                 [
                   "@from",
@@ -18110,13 +18214,13 @@
               "name": "reply",
               "title": "Owner's answer",
               "type": "obj",
-              "desc": "The owner's answer or ruling",
+              "desc": "The owner's reply, in words",
               "fields": [
                 {
                   "name": "text",
                   "title": "Answer",
                   "type": "text",
-                  "desc": "The answer, or which option of the choice was chosen"
+                  "desc": "The owner's reply"
                 }
               ]
             }
@@ -18132,7 +18236,7 @@
               "to": "B1",
               "drops": true,
               "main": true,
-              "note": "The ask holds only the matter of the path that asked: the architect's work goes on with the next, and the matter comes back to the queue with the owner's answer, to the cell that asked."
+              "note": "The question is pinned at the bottom of the owner's one-to-one, and holds only the matter of the path that asked: the architect's work goes on with the next, and the matter comes back to the queue with the owner's reply, first, to the cell that asked."
             }
           ],
           "shown": [
