@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type {
   CompiledCell,
@@ -71,7 +71,7 @@ import {
   ways,
 } from './graph/flowModel';
 import { layStores, storeLinks, storeUses } from './graph/stores';
-import { named } from './live';
+import { connect, named, REOPEN_MS } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { currentCard, firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
 import {
@@ -388,6 +388,44 @@ describe('events', () => {
     expect(named({ kind: 'ready' })).toEqual([]);
     expect(named({ kind: 'ask', ask: 4, work: 2 })).toEqual(['works', 'work:2', 'item:*', 'messages', 'system']);
     expect(named({ kind: 'owner_message', message: 7, work: 2 })).toEqual(['messages', 'work:2', 'system']);
+  });
+
+  // A stream the browser gave up on (answered with an error while wf-agents run restarts behind a proxy) left the page
+  // without events until a reload: the one-to-one never showed that the architect waits for the owner's reply.
+  it('come again on a stream the page opens again from the last event it saw, once the browser gave up on it', () => {
+    vi.useFakeTimers();
+    const opened: Source[] = [];
+    class Source {
+      static readonly CLOSED = 2;
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((m: { data: string; lastEventId: string }) => void) | null = null;
+      readonly url: string;
+      constructor(url: string) {
+        this.url = url;
+        opened.push(this);
+      }
+    }
+    vi.stubGlobal('EventSource', Source);
+    try {
+      connect();
+      opened[0].onmessage?.({ data: '{"kind":"ready"}', lastEventId: '7-3' });
+      // Cut off, the browser opens it again itself.
+      opened[0].readyState = 0;
+      opened[0].onerror?.();
+      vi.advanceTimersByTime(REOPEN_MS);
+      expect(opened.length).toBe(1);
+      // Answered with an error, the browser gives up on it: the page opens it again, from event 7-3.
+      opened[0].readyState = Source.CLOSED;
+      opened[0].onerror?.();
+      expect(opened.length).toBe(1);
+      vi.advanceTimersByTime(REOPEN_MS);
+      expect(opened.map((x) => x.url)).toEqual(['/api/v1/events', '/api/v1/events?after=7-3']);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -2005,6 +2043,7 @@ describe("the owner's conversations", () => {
     revisions: null,
     stage: null,
     matter_card: null,
+    words_state: null,
     policy: null,
     observation: null,
     ...extra,

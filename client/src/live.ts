@@ -80,17 +80,33 @@ function readStatus() {
 
 let source: EventSource | null = null;
 let ready = false;
+/// The id of the last event the stream gave, from which a stream opened again goes on.
+let last = '';
 
-/// Opens the event stream, once for the page's life; the browser reconnects it, sending the last id it saw.
+/// How long the page waits before it opens the stream again once the browser gave up on it.
+export const REOPEN_MS = 3000;
+
+/// Opens the event stream, once for the page's life; the browser reconnects it, sending the last id it saw. A stream
+/// the browser gives up on, which it does when it is answered with an error (as a proxy in front of `wf-agents run`
+/// answers while it restarts) instead of being cut off, the page opens again itself, from the last event it saw, so
+/// that nothing it shows stays behind until the owner reloads it.
 export function connect(): void {
   if (source) return;
-  source = new EventSource('/api/v1/events');
-  source.onopen = () => {
+  const es = new EventSource(last === '' ? '/api/v1/events' : `/api/v1/events?after=${encodeURIComponent(last)}`);
+  source = es;
+  es.onopen = () => {
     set({ online: true });
     readStatus();
   };
-  source.onerror = () => set({ online: false });
-  source.onmessage = (m: MessageEvent<string>) => {
+  es.onerror = () => {
+    set({ online: false });
+    if (es.readyState === EventSource.CLOSED && source === es) {
+      source = null;
+      setTimeout(connect, REOPEN_MS);
+    }
+  };
+  es.onmessage = (m: MessageEvent<string>) => {
+    if (m.lastEventId !== '') last = m.lastEventId;
     let e: Event;
     try {
       e = JSON.parse(m.data) as Event;

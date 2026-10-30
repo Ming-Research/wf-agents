@@ -57,6 +57,7 @@ import type {
   Misses,
   OwnerAsk,
   TalkWait,
+  WordsState,
   WorkSummary,
 } from '../api';
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from '../answer';
@@ -81,6 +82,7 @@ import {
   sayToTicked,
   streamOf,
   voiceOf,
+  wordsStateText,
 } from '../conversation';
 import { cost, duration, time } from '../format';
 import { postJson } from '../http';
@@ -432,9 +434,10 @@ function AskAnswered({ a }: { a: OwnerAsk }) {
 /// One message of the owner's or an agent's: who it is from, to whom (in a group, at its head), when, its round, and
 /// what it says; the owner's on the right in the look of what is sent to an agent, an agent's beside its avatar in the
 /// look of what an agent handed back, in its colour; what the architect's policy setting says, as the architect's. The
-/// owner's words not taken up yet, and those never taken in, say so on themselves. Each answer to a bubble is in that
-/// bubble: an ask holds what answers it while it waits, then the owner's answer; a question the architect holds, the
-/// box that answers it, then the owner's answer (`reply`).
+/// owner's words not taken up yet, and those never taken in, say so on themselves; once the architect took them up,
+/// where they stand with it is a line under them. Each answer to a bubble is in that bubble: an ask holds what answers
+/// it while it waits, then the owner's answer; a question the architect holds, the box that answers it, then the
+/// owner's answer (`reply`).
 function Message({ e, to, reply }: { e: ConversationEntry; to: string | null; reply: ConversationEntry | null }) {
   const own = e.sender === 'owner';
   const from = e.source === 'between' ? `architect:${e.sender}` : member(e.sender);
@@ -468,6 +471,7 @@ function Message({ e, to, reply }: { e: ConversationEntry; to: string | null; re
           {reply !== null ? <AnswerIn head={t('conv_your_reply')} at={reply.at} text={reply.text} /> : null}
         </>
       }
+      under={own && e.words_state !== null ? <WordsLine w={e.words_state} /> : undefined}
     >
       <Words e={e} />
     </Bubble>
@@ -522,6 +526,29 @@ function ForwardMenu({ notice, choices, failed }: { notice: number; choices: For
         </ActionList>
       </ActionMenu.Overlay>
     </ActionMenu>
+  );
+}
+
+/// Where the owner's words stand with the architect they were said to, once it took them up, in place of a matter card
+/// that would repeat them: one line of the page's own under them, leading to the cell on the architect's chart where it
+/// handles them while it does.
+function WordsLine({ w }: { w: WordsState }) {
+  const chart =
+    w.architect_work !== null && w.cell !== null
+      ? architectHref({ project: w.project, work: w.architect_work, round: w.round, cell: w.cell })
+      : null;
+  return (
+    <p className="talk-line-more">
+      {wordsStateText(w)}
+      {chart !== null ? (
+        <>
+          {' · '}
+          <Link to={chart} muted>
+            {t('matter_on_chart')}
+          </Link>
+        </>
+      ) : null}
+    </p>
   );
 }
 

@@ -48,6 +48,7 @@ pub fn typescript() -> String {
         decl::<StageCard>(&cfg),
         decl::<StageMove>(&cfg),
         decl::<MatterProgress>(&cfg),
+        decl::<WordsState>(&cfg),
         decl::<ConversationDetail>(&cfg),
         decl::<TalkWait>(&cfg),
         decl::<WorkSaid>(&cfg),

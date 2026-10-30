@@ -1153,6 +1153,9 @@ pub struct ConversationEntry {
     pub stage: Option<StageCard>,
     /// For a matter card: where the matter stands with the architect.
     pub matter_card: Option<MatterProgress>,
+    /// For the owner's words the architect they were said to took up, which have no matter card: where they stand
+    /// with it, shown under their bubble.
+    pub words_state: Option<WordsState>,
     /// For the policy taking effect: the policy in force.
     pub policy: Option<PolicyInForce>,
     /// For an observation of wf-agents: the observation.
@@ -1238,6 +1241,22 @@ pub struct MatterProgress {
     /// For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
     /// steps to set it straight); none for a matter of another kind.
     pub fix: Option<Value>,
+}
+
+/// Where the owner's words stand with the architect they were said to, once it took them up, as one line under their
+/// bubble says it, in place of a matter card that would repeat them.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct WordsState {
+    /// replying while the architect has them in hand; waits while it waits for the owner's reply in their talk; held
+    /// once it went on with its queue, the talk held for the owner's next words; replied once handled; asked while an
+    /// ask of the owner holds them; withdrawn.
+    pub state: String,
+    /// The project of the architect they were said to; while it has them in hand, its work, the work's latest round
+    /// and the cell it is at, where its chart shows them handled.
+    pub project: String,
+    pub architect_work: Option<i64>,
+    pub round: Option<i64>,
+    pub cell: Option<String>,
 }
 
 /// A conversation in full: its entries in time order; what waits for the owner in it, the open blockers the owner

@@ -3,7 +3,7 @@
 // of what an agent handed back, filled and edged in its side's display colour, beside its avatar; the owner's in the
 // sheet of what is sent to an agent, on the right; and in a thread between two agents, the side across from the
 // engineer on the right, its avatar after it. Its head (who, to whom, when, its round) over what it says, and under it
-// what answers it there.
+// what answers it there; under the owner's sheet, outside it, a line of the page's own may say where the words stand.
 
 import { BugIcon, CodeReviewIcon, LightBulbIcon, ProjectRoadmapIcon, ToolsIcon } from '@primer/octicons-react';
 import type { ReactNode } from 'react';
@@ -41,8 +41,9 @@ export function Avatar({ who }: { who: string }) {
 }
 
 /// One message: `who` says it (an agent's line, or `owner`), on the right for the owner and where `right` is given,
-/// across the row where `wide` (a message the owner answers in it); `head` over what it says, `after` under it.
-export function Bubble({ who, right = false, wide = false, ask, head, after, children }: {
+/// across the row where `wide` (a message the owner answers in it); `head` over what it says, `after` under it; for the
+/// owner's, `under` a line of the page's own under the sheet.
+export function Bubble({ who, right = false, wide = false, ask, head, after, under, children }: {
   who: string;
   right?: boolean;
   wide?: boolean;
@@ -50,6 +51,7 @@ export function Bubble({ who, right = false, wide = false, ask, head, after, chi
   ask?: number;
   head: ReactNode;
   after?: ReactNode;
+  under?: ReactNode;
   children: ReactNode;
 }) {
   const own = who === 'owner';
@@ -62,6 +64,7 @@ export function Bubble({ who, right = false, wide = false, ask, head, after, chi
         <div className="talk-bubble-body">{children}</div>
         {after}
       </div>
+      {own ? under : null}
       {right && !own ? <Avatar who={who} /> : null}
     </div>
   );

@@ -7,7 +7,17 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from './answer';
-import type { Choice, Conversation, ConversationDetail, ConversationEntry, Handled, JsonValue, MatterProgress, OwnerAsk } from './api';
+import type {
+  Choice,
+  Conversation,
+  ConversationDetail,
+  ConversationEntry,
+  Handled,
+  JsonValue,
+  MatterProgress,
+  OwnerAsk,
+  WordsState,
+} from './api';
 import { awayOf, streamOf } from './conversation';
 import { Composer, Stream } from './pages/Messages';
 
@@ -46,6 +56,7 @@ const entry = (source: string, extra: Partial<ConversationEntry> = {}): Conversa
   revisions: null,
   stage: null,
   matter_card: null,
+  words_state: null,
   policy: null,
   observation: null,
   forwards: [],
@@ -366,10 +377,55 @@ describe('a matter card in the one-to-one with an architect', () => {
   });
 
   it('has no fold for a matter with no steps', () => {
-    const html = shown(card({ kind: 'owner_words', detail: 'said', what: 'Put the parser first.', fix: null, handled: null, state: 'working' }));
-    expect(html).toContain('Your words');
-    expect(html).toContain('Put the parser first.');
+    const html = shown(card({ kind: 'failure', detail: null, what: 'Work 4 failed its tests.', fix: null, handled: null, state: 'working' }));
+    expect(html).toContain('Have a failure fixed');
+    expect(html).toContain('Work 4 failed its tests.');
     expect(html).not.toContain('<details');
+  });
+});
+
+describe("the owner's words in the one-to-one with an architect", () => {
+  const one: Conversation = { ...group, key: 'architect:p', kind: 'architect', work: null, item: null, title: null };
+  const state = (extra: Partial<WordsState> = {}): WordsState => ({
+    state: 'replying',
+    project: 'p',
+    architect_work: 9,
+    round: 31,
+    cell: 'H8',
+    ...extra,
+  });
+  const said = (w: WordsState | null, extra: Partial<ConversationEntry> = {}): ConversationEntry =>
+    entry('words', { id: 6, sender: 'owner', recipient: 'architect', text: 'hi', work: null, round: null, matter: 6, words_state: w, ...extra });
+  const drawnIn = (e: ConversationEntry): string =>
+    renderToStaticMarkup(
+      <AnswersHere.Provider value={true}>
+        <Stream d={{ ...detail([e]), key: one.key }} c={one} w={null} />
+      </AnswersHere.Provider>,
+    );
+
+  it('say where they stand in one small line under their bubble, leading to the cell on the chart while it handles them', () => {
+    const r = row(drawnIn(said(state())), '>hi<');
+    expect(r).toMatch(/^<div class="talk-row talk-row-owner">/);
+    const { after } = bubble(r);
+    expect(after).toMatch(/^<p class="talk-line-more">the architect is replying · <a [^>]*href="\/architect\?project=p&amp;work=9[^"]*"[^>]*>On the chart<\/a><\/p>/);
+    expect(after).toContain('cell=H8');
+    expect(r).not.toContain('Your words');
+    expect(r).not.toContain('not taken up yet');
+  });
+
+  it('wait for the reply, went on, or were replied to, with no link once the architect no longer handles them', () => {
+    const line = (w: WordsState) => bubble(row(drawnIn(said(w)), '>hi<')).after;
+    expect(line(state({ state: 'waits', cell: 'H11' }))).toContain('waiting for your reply');
+    const held = line(state({ state: 'held', architect_work: null, round: null, cell: null }));
+    expect(held).toMatch(/^<p class="talk-line-more">went on with its queue<\/p><\/div>/);
+    const replied = line(state({ state: 'replied', architect_work: null, round: null, cell: null }));
+    expect(replied).toMatch(/^<p class="talk-line-more">replied<\/p><\/div>/);
+  });
+
+  it('have no line while they wait to be taken up, which their head says', () => {
+    const r = row(drawnIn(said(null, { pending: true })), '>hi<');
+    expect(r).toContain('not taken up yet');
+    expect(bubble(r).after).not.toContain('talk-line-more');
   });
 });
 

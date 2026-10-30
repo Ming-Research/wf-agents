@@ -576,6 +576,11 @@ stage: StageCard | null,
  */
 matter_card: MatterProgress | null, 
 /**
+ * For the owner's words the architect they were said to took up, which have no matter card: where they stand
+ * with it, shown under their bubble.
+ */
+words_state: WordsState | null, 
+/**
  * For the policy taking effect: the policy in force.
  */
 policy: PolicyInForce | null, 
@@ -688,6 +693,23 @@ asked: number | null,
  * steps to set it straight); none for a matter of another kind.
  */
 fix: JsonValue | null, };
+
+/**
+ * Where the owner's words stand with the architect they were said to, once it took them up, as one line under their
+ * bubble says it, in place of a matter card that would repeat them.
+ */
+export type WordsState = { 
+/**
+ * replying while the architect has them in hand; waits while it waits for the owner's reply in their talk; held
+ * once it went on with its queue, the talk held for the owner's next words; replied once handled; asked while an
+ * ask of the owner holds them; withdrawn.
+ */
+state: string, 
+/**
+ * The project of the architect they were said to; while it has them in hand, its work, the work's latest round
+ * and the cell it is at, where its chart shows them handled.
+ */
+project: string, architect_work: number | null, round: number | null, cell: string | null, };
 
 /**
  * A conversation in full: its entries in time order; what waits for the owner in it, the open blockers the owner

@@ -2,9 +2,10 @@
 //! that never changes for what waits (the one-to-ones with the architects and wf-agents' own first, then a group for
 //! each work, newest first, then the groups of connected projects), with what waits for the owner in each and what is
 //! unread; and one in full, its entries in time order, with what the engine writes from the flow beside what was said
-//! (a work's stage cards, an architect's matter cards, the policy taking effect, wf-agents' observations), what waits
-//! for the owner, and how far the owner has read it.
+//! (a work's stage cards, an architect's matter cards, the policy taking effect, wf-agents' observations) and where the
+//! owner's words stand with the architect, what waits for the owner, and how far the owner has read it.
 
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use db::rusqlite::{Connection, OptionalExtension, params};
@@ -13,7 +14,7 @@ use serde_json::{Value, json};
 use crate::read::{self, Error, Flows};
 use crate::{
     Conversation, ConversationDetail, ConversationEntry, Forwarded, Forwarding, Handled, MatterProgress, Misses,
-    StageCard, StageMove, TalkWait,
+    StageCard, StageMove, TalkWait, WordsState,
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -225,8 +226,8 @@ pub fn conversations(conn: &Connection, t: &Talks) -> Result<Vec<Conversation>> 
 
 /// One of the owner's conversations in full: its entries in time order, with what the engine writes from the flow
 /// beside what was said (a work's stage cards; an architect's matter cards and the policy in force, with the documents
-/// of its asks; wf-agents' observations); the open blockers the owner holds in it, with their forms; and how far the
-/// owner has read it.
+/// of its asks; wf-agents' observations), and where the owner's words in it stand with the architect; the open
+/// blockers the owner holds in it, with their forms; and how far the owner has read it.
 pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> Result<ConversationDetail> {
     let select = "SELECT conversation, source, id, sender, recipient, text, at, work, round, ask, design_card, matter,
                     read_at, waiting, pending, undelivered, answerable, fault
@@ -264,6 +265,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
                 revisions: None,
                 stage: None,
                 matter_card: None,
+                words_state: None,
                 policy: None,
                 observation: None,
             },
@@ -283,6 +285,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
     }
     misses(conn, &mut entries)?;
     forwards(conn, &mut entries)?;
+    words_states(conn, t, &mut entries)?;
     // Each ask in full, with its documents: the study of a new policy, the policy to approve with the corrections of
     // its text since the owner last read it.
     let ids: Vec<String> = entries
@@ -325,15 +328,6 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
         None => None,
     };
     if let Some(project) = key.strip_prefix("architect:") {
-        // The owner's words a talk is about are taken up, while the talk is open or held for the owner's reply.
-        if let Some((open, _)) = db::open_talk(conn, project).map_err(|e| Error::Failed(e.to_string()))? {
-            for e in entries
-                .iter_mut()
-                .filter(|e| e.source == "words" && e.matter == Some(open))
-            {
-                e.pending = false;
-            }
-        }
         entries.extend(matter_cards(conn, flows, project)?);
         if let Some(p) = read::policy(conn, project)? {
             entries.push(ConversationEntry {
@@ -451,6 +445,204 @@ fn waits_for_reply(conn: &Connection, project: &str, wait: u64) -> Result<Option
     }))
 }
 
+/// What a project's architect does now with the owner's words: the matter its work going on has in hand, with that
+/// work, its latest round and the cell it is at; when the turn of a talk under way there started, and whether a turn of
+/// the talk about that matter ended, a reply given; the talk it holds for the owner's next words; and the talk in which
+/// it waits for the owner's reply.
+struct WithWords {
+    in_hand: Option<(i64, i64, Option<i64>, String)>,
+    turn: Option<i64>,
+    replied: bool,
+    held: Option<i64>,
+    waits: Option<i64>,
+}
+
+/// What the architect of `project` does now with the owner's words, read once for a conversation.
+fn with_words(conn: &Connection, project: &str, wait: u64) -> Result<WithWords> {
+    let work: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT id, at FROM works WHERE graph = 'architect' AND project = ?1 AND ended IS NULL
+             ORDER BY id DESC LIMIT 1",
+            [project],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let (mut in_hand, mut turn, mut replied) = (None, None, false);
+    if let Some((w, at)) = work
+        && let Some(m) = read::handling(conn, w)?
+    {
+        let talk = db::cells_sql("architect", &["H8"]);
+        let round: Option<i64> = conn.query_row("SELECT max(n) FROM rounds WHERE work = ?1", [w], |r| r.get(0))?;
+        turn = conn
+            .query_row(
+                &format!(
+                    "SELECT started_at FROM rounds WHERE work = ?1 AND ended_at IS NULL AND cell IN {talk}
+                     ORDER BY n DESC LIMIT 1"
+                ),
+                [w],
+                |r| r.get(0),
+            )
+            .optional()?;
+        // A turn of the talk ended since the round that picked its matter.
+        replied = conn.query_row(
+            &format!(
+                "SELECT EXISTS (SELECT 1 FROM rounds WHERE work = ?1 AND cell IN {talk} AND transition IS NOT NULL
+                   AND n > coalesce((SELECT max(n) FROM rounds WHERE work = ?1 AND transition IS NOT NULL
+                     AND coalesce(json_extract(output, '$.outcome.pick.matter'),
+                                  json_extract(output, '$.queue.matter')) = ?2), 0))"
+            ),
+            params![w, m],
+            |r| r.get(0),
+        )?;
+        in_hand = Some((m, w, round, at));
+    }
+    let held = match db::open_talk(conn, project).map_err(|e| Error::Failed(e.to_string()))? {
+        Some((m, true)) => Some(m),
+        _ => None,
+    };
+    let waits = waits_for_reply(conn, project, wait)?.map(|w| w.matter);
+    Ok(WithWords {
+        in_hand,
+        turn,
+        replied,
+        held,
+        waits,
+    })
+}
+
+/// Where the owner's words of one matter stand with the architect they were said to, once it took them up: the talk
+/// they started, with the entries the owner added to it.
+struct WordsNow {
+    project: String,
+    state: &'static str,
+    /// While the architect has them in hand: its work, the work's latest round and the cell it is at.
+    chart: Option<(i64, Option<i64>, String)>,
+    /// The latest entry of the talk the architect has: taken by a turn, or given to the turn under way.
+    last_entry: Option<i64>,
+}
+
+/// Where the owner's words of `matter` stand, as [`words_states`] says it; none for a matter of another kind, or one
+/// that waits in the queue untaken.
+fn words_now(
+    conn: &Connection,
+    t: &Talks,
+    architects: &mut HashMap<String, WithWords>,
+    matter: i64,
+) -> Result<Option<WordsNow>> {
+    let Some((project, handled, withdrawn, asked)) = conn
+        .query_row(
+            "SELECT m.project, m.handled_round IS NOT NULL, m.withdrawn IS NOT NULL,
+               m.asked IS NOT NULL
+                 AND NOT EXISTS (SELECT 1 FROM owner_asks a WHERE a.id = m.asked AND a.answer IS NOT NULL)
+             FROM architect_matters m WHERE m.id = ?1 AND m.kind = 'owner_words'",
+            [matter],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, bool>(1)?,
+                    r.get::<_, bool>(2)?,
+                    r.get::<_, bool>(3)?,
+                ))
+            },
+        )
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let a = match architects.entry(project.clone()) {
+        Entry::Occupied(o) => o.into_mut(),
+        Entry::Vacant(v) => v.insert(with_words(conn, &project, t.reply_wait)?),
+    };
+    let now = a.in_hand.as_ref().filter(|h| h.0 == matter);
+    let state = if handled {
+        "replied"
+    } else if withdrawn {
+        "withdrawn"
+    } else if a.held == Some(matter) {
+        "held"
+    } else if a.waits == Some(matter) {
+        "waits"
+    } else if now.is_some() {
+        // Between two turns of the talk, its latest words the architect has were replied to; its next turn takes
+        // the owner's words added since.
+        if a.turn.is_none() && a.replied {
+            "replied"
+        } else {
+            "replying"
+        }
+    } else if asked {
+        "asked"
+    } else {
+        return Ok(None);
+    };
+    let chart = now
+        .filter(|_| state == "replying" || state == "waits")
+        .map(|h| (h.1, h.2, h.3.clone()));
+    let turn = if state == "replying" { a.turn } else { None };
+    let last_entry: Option<i64> = conn.query_row(
+        "SELECT max(id) FROM talk_entries WHERE matter = ?1 AND (taken_round IS NOT NULL OR at < ?2)",
+        params![matter, turn.unwrap_or(0)],
+        |r| r.get(0),
+    )?;
+    Ok(Some(WordsNow {
+        project,
+        state,
+        chart,
+        last_entry,
+    }))
+}
+
+/// Where the owner's words in a conversation stand with the architect they were said to, once it took them up, for the
+/// one line under their bubble, since they have no matter card: replying while it has them in hand and has not
+/// replied yet, waits while it waits for the owner's reply in their talk, held once it went on with its queue and holds
+/// the talk for the owner's next words, replied once handled or answered in a turn of the talk, asked while an ask of
+/// the owner holds them, withdrawn. A talk says so under the owner's latest words in it that the architect has, the words that
+/// started it or an entry added since; words it does not have yet, which their bubble says are not taken up, have none,
+/// as have words said to every architect of a group at once, each of which takes them on its own. Words the architect
+/// has are no longer pending.
+fn words_states(conn: &Connection, t: &Talks, entries: &mut [ConversationEntry]) -> Result<()> {
+    let mut architects: HashMap<String, WithWords> = HashMap::new();
+    let mut talks: HashMap<i64, Option<WordsNow>> = HashMap::new();
+    for e in entries.iter_mut() {
+        let owner_said = e.sender == "owner"
+            && matches!(e.source.as_str(), "words" | "talk" | "interjection")
+            && e.recipient != "architects";
+        let Some(matter) = e.matter.filter(|_| owner_said) else {
+            continue;
+        };
+        let now = match talks.entry(matter) {
+            Entry::Occupied(o) => o.into_mut(),
+            Entry::Vacant(v) => v.insert(words_now(conn, t, &mut architects, matter)?),
+        };
+        let Some(now) = now else {
+            continue;
+        };
+        let entry = e.source == "talk";
+        if entry && now.last_entry.is_none_or(|l| e.id > l) {
+            continue;
+        }
+        // Words for the architect alone; words said to the engineer too stay pending until it takes them in.
+        if e.recipient == "architect" {
+            e.pending = false;
+        }
+        let latest = match now.last_entry {
+            Some(l) => entry && e.id == l,
+            None => !entry,
+        };
+        if !latest {
+            continue;
+        }
+        e.words_state = Some(WordsState {
+            state: now.state.into(),
+            project: now.project.clone(),
+            architect_work: now.chart.as_ref().map(|c| c.0),
+            round: now.chart.as_ref().and_then(|c| c.1),
+            cell: now.chart.as_ref().map(|c| c.2.clone()),
+        });
+    }
+    Ok(())
+}
+
 /// What the owner said at once to the architect's work in hand and to its policy setting, an interjection into each,
 /// as one entry said to both, shown once: the first, not taken up while either is not, and never received when either
 /// was not.
@@ -499,6 +691,7 @@ fn blank() -> ConversationEntry {
         revisions: None,
         stage: None,
         matter_card: None,
+        words_state: None,
         policy: None,
         observation: None,
     }
@@ -791,7 +984,8 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
 /// look at the queue, or one picked from many), and stands there while it changes, so that the cards read in the order
 /// the architect took the matters up, the one in hand last. A matter it never picked comes in when it left the queue:
 /// when it was handled without a pick (closed without a look), held by an ask, or withdrawn. One still waiting in the
-/// queue has no card: the queue under the head lists it.
+/// queue has no card: the queue under the head lists it. The owner's words have none either: a card would repeat their
+/// bubble, under which a line says where they stand (`words_states`).
 fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<ConversationEntry>> {
     let handled: HashMap<i64, Handled> = read::matters_handled(conn, project)?
         .into_iter()
@@ -845,7 +1039,8 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
                  (SELECT min(c.at) FROM changes c
                   WHERE c.table_name = 'architect_matters' AND c.row_key = json_object('id', m.id)
                     AND json_extract(c.new_row, '$.withdrawn') IS NOT NULL), m.at) END) AS shown
-           FROM architect_matters m LEFT JOIN taken t ON t.matter = m.id WHERE m.project = ?1)
+           FROM architect_matters m LEFT JOIN taken t ON t.matter = m.id
+           WHERE m.project = ?1 AND m.kind <> 'owner_words')
          WHERE shown IS NOT NULL ORDER BY id DESC LIMIT 200",
         db::cells_sql("architect", &["Q0", "Q1"])
     ))?;

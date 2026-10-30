@@ -1,9 +1,9 @@
 // The cards the engine writes into a conversation from the flow, in the page's own voice and apart from what was said
 // (the UI spec's narrow cards): in a work's group, one for each stretch of the work at a stage, updated in place while
 // the work is there, with its result, time and cost, the design folded in the design's card and its design card to
-// rule on; in an architect's one-to-one, one for each matter the architect took up, from when it took it up, held by
-// an ask, worked on at a cell, handled with what became of it, or withdrawn, and the policy as it took effect; in
-// wf-agents' own, each observation, which the owner closes there.
+// rule on; in an architect's one-to-one, one for each matter the architect took up but the owner's words, whose bubble
+// says where they stand, from when it took it up, held by an ask, worked on at a cell, handled with what became of it,
+// or withdrawn, and the policy as it took effect; in wf-agents' own, each observation, which the owner closes there.
 // Each leads to where its detail is: a stage to its rounds, a matter to its cell on the architect's chart or its
 // work's group.
 

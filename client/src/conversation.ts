@@ -11,10 +11,11 @@ import type {
   Forwarded,
   Forwarding,
   StageCard,
+  WordsState,
   WorkSummary,
 } from './api';
 import { words } from './labelled';
-import { t, tn } from './messages';
+import { type Key, t, tn } from './messages';
 
 /// The parts of the list, in its order, which waiting and new entries never change: the one-to-ones with the
 /// architects and wf-agents' own; a group for each work, newest first; the groups of connected projects.
@@ -155,6 +156,19 @@ export function awayOf(ask: { top: number; bottom: number }, view: { top: number
 export function latestAt(d: ConversationDetail): number | null {
   return d.entries.reduce<number | null>((m, e) => (m === null || e.at > m ? e.at : m), null);
 }
+
+/// What the line under the owner's words says of where they stand with the architect they were said to.
+const WORDS_STATES: Record<string, Key> = {
+  replying: 'words_replying',
+  waits: 'words_waits',
+  held: 'words_held',
+  replied: 'words_replied',
+  asked: 'matter_held',
+  withdrawn: 'matter_withdrawn',
+};
+
+export const wordsStateText = (w: WordsState): string =>
+  WORDS_STATES[w.state] !== undefined ? t(WORDS_STATES[w.state]) : words(w.state);
 
 /// The owner's words in a conversation that the agent they are for has not taken up yet.
 export const pendingWords = (entries: ConversationEntry[]): ConversationEntry[] =>

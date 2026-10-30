@@ -176,6 +176,13 @@
   justify-content: flex-end;
 }
 
+/* The owner's: the sheet, and under it, outside it, a line of the page's own on where the words stand. */
+.talk-row-owner {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0;
+}
+
 /* An ask brought into view from the line over the stream comes to rest clear of the stream's top. */
 .talk-row[data-ask] {
   scroll-margin-top: var(--base-size-16);
