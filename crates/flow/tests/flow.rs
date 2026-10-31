@@ -903,6 +903,74 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
     assert_eq!(helpers, ["T1", "T3", "T4", "T5", "A1", "B2", "X2"]);
 }
 
+// The architect tells the owner what the engineer does and no more: what only the owner can do (starting a work the
+// owner paused among it), a risk that cannot be undone, or a boundary crossed; never a guess, nor what it changed in
+// the project, which the page shows. Nothing in its rule or its cells' prompts asks it to tell the owner anything else:
+// a defect of the system goes in its flow feedback.
+#[test]
+fn the_architect_tells_the_owner_three_things_only() {
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let graph = |name: &str| {
+        v["flows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|g| g["name"] == name)
+            .unwrap()
+    };
+    let desc = |name: &str| {
+        let out = graph(name)["agentCommon"]["out"].as_array().unwrap();
+        let tell = out.iter().find(|o| o["name"] == "tell_owner").unwrap();
+        tell["desc"].as_str().unwrap().to_string()
+    };
+    let (architect, engineer) = (desc("architect"), desc("engineer"));
+    let three = "Messages for the owner, a sentence or two each, of three things only: what only the owner can do";
+    assert!(architect.starts_with(three) && engineer.starts_with(three));
+    for part in [
+        "starting a work the owner paused",
+        "a risk that cannot be undone",
+        "a boundary crossed",
+        "Never a guess or what you have not checked",
+        "What you changed in the project (items, observations, the plan, the policy) is not told",
+    ] {
+        assert!(architect.contains(part), "{part}");
+    }
+    // Every text the architect is given to act by: its rule, and its cells' prompts and the cases of each.
+    let mut texts: Vec<String> = Vec::new();
+    let rule = v["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == "architect")
+        .unwrap();
+    texts.extend(
+        rule["text"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t.as_str().unwrap().to_string()),
+    );
+    for cell in graph("architect")["nodes"].as_array().unwrap() {
+        for t in cell["prompt"].as_array().into_iter().flatten() {
+            texts.push(t.as_str().unwrap().to_string());
+        }
+        for case in cell["promptBy"]["cases"].as_object().into_iter().flatten() {
+            for t in case.1.as_array().unwrap() {
+                texts.push(t.as_str().unwrap().to_string());
+            }
+        }
+    }
+    for t in &texts {
+        let asks = t.contains("tell_owner") || t.replace("tell the owner nothing", "").contains("tell the owner");
+        assert!(!asks, "{t}");
+    }
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.contains("say in flow_feedback where it is and what it cost"))
+    );
+}
+
 // A work moves as the rows say: into the tool cell and back to the agent that called it, out to the advisor and,
 // through choosing the way on, back to where it stopped.
 #[test]

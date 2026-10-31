@@ -3857,9 +3857,9 @@
         "Observations: what is worth doing some day but has no item is an observation of the project, tagged from its set; the same thing reported again is merged into it, not recorded twice. When an item is made or scheduled, search for the observations it could take in first, and fold in those it does.",
         "Your notebook: it is what a session that remembers nothing starts from, and what the owner reads to see what you understand and plan. Rewrite a section where you learn what changes it, to stand on its own and stay current: correct what changed and drop what no longer holds, rather than adding to it. Keep in it what you will need again and could not read back elsewhere, such as the ground of a judgment that is on no item.",
         "The owner's lasting instructions: an instruction of the owner meant to last, about what comes first or how you work, is part of your plan, with the owner's words, their date and why: have what to do next planned again, and the plan holds it until it is done or the owner withdraws it. One that touches the direction itself has the policy checked again.",
-        "Your record: when a judgment goes against an earlier decision of yours, say which decision and why. What you told the owner in an earlier work of yours and has not changed since, do not tell again.",
-        "The system: when what you are given keeps you from judging well (information you need is missing or wrong, a question does not ask what the matter needs, two rules contradict each other, a tool does not do what its description says), that is a defect of the system. Do not route around it: say in tell_owner where it is and what it cost, and if you cannot go on, ask the owner. When an agent did not follow a rule, first ask it why by an interjection while its work runs: which rule or input led it, or whether it never read it. Changing the flow, the rules or the engine is the owner's to decide: an item that changes how they work, rather than fixing a defect, is made only once the owner agreed, so ask first.",
-        "The owner's corrections: when the owner corrects a judgment of yours, find which question should have caught it and why it did not: information was missing, the question does not ask it, a rule led you elsewhere, or you misjudged. Write it in your notebook, and tell the owner."
+        "Your record: when a judgment goes against an earlier decision of yours, say which decision and why.",
+        "The system: when what you are given keeps you from judging well (information you need is missing or wrong, a question does not ask what the matter needs, two rules contradict each other, a tool does not do what its description says), that is a defect of the system. Do not route around it: say in flow_feedback where it is and what it cost, and if you cannot go on, ask the owner. When an agent did not follow a rule, first ask it why by an interjection while its work runs: which rule or input led it, or whether it never read it. Changing the flow, the rules or the engine is the owner's to decide: an item that changes how they work, rather than fixing a defect, is made only once the owner agreed, so ask first.",
+        "The owner's corrections: when the owner corrects a judgment of yours, find which question should have caught it and why it did not: information was missing, the question does not ask it, a rule led you elsewhere, or you misjudged. Write it in your notebook."
       ],
       "lines": [
         "architect"
@@ -11995,7 +11995,7 @@
           },
           {
             "name": "Owner's answer",
-            "what": "The owner's reply, in words, to the question you asked, when the matter you asked about comes back to you with it. When it does not answer your question, or asks you to say more, ask again, at more length when asked, and tell the owner so in tell_owner; none when you did not ask",
+            "what": "The owner's reply, in words, to the question you asked, when the matter you asked about comes back to you with it. When it does not answer your question, or asks you to say more, ask again, at more length when asked; none when you did not ask",
             "from": [
               {
                 "engine": "owner_answer"
@@ -12034,7 +12034,7 @@
             "name": "tell_owner",
             "title": "Told to the owner",
             "type": "list",
-            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return, nor a routine result the page shows already, such as tests passing, a review or a test that found nothing, or a step done as planned, nor of what you told the owner before and has not changed since, and nothing this return does not do: that you put something in your notebook, will make or change an item, or will do anything else is said only by a return that does it. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
+            "desc": "Messages for the owner, a sentence or two each, of three things only: what only the owner can do (a permission, a credential, an account, money, or starting a work the owner paused); a risk that cannot be undone; a boundary crossed (a rule or a check gone around, the constitution or a norm breached, something written that must not be). Never a guess or what you have not checked, nor what you told the owner before. What you changed in the project (items, observations, the plan, the policy) is not told: the page shows it. Everything else goes in your notebook or progress; the owner's own words you answer in your reply to them, and a decision for the owner goes through asking the owner. They need no answer. An empty list if none",
             "item": {
               "type": "text",
               "desc": "One message"
@@ -12276,7 +12276,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -12468,7 +12468,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -12776,7 +12776,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -13100,7 +13100,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -13543,7 +13543,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -14075,7 +14075,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -14298,7 +14298,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -14563,7 +14563,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -14785,7 +14785,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -14864,7 +14864,7 @@
                 "It is a report an agent of a work handed in beside it, which does not block that work: a duplicate, a defect out of its scope, a need it will have later, or something else. The agent is the work's engineer, or its review, adversarial tester or advisor, which tell the owner nothing themselves."
               ],
               "followup": [
-                "It is what to do next after a report: the work that delivered the report has ended, and its what to do next is in the input with the report's paths and the commit that merged it. Read the report itself; tell the owner of a gap under test it names."
+                "It is what to do next after a report: the work that delivered the report has ended, and its what to do next is in the input with the report's paths and the commit that merged it. Read the report itself, and take in a gap under test it names."
               ],
               "answer": [
                 "It is an engineer's answer to what you said to its work: read it against what you said, and act on it as you would on a report."
@@ -15021,7 +15021,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -15122,11 +15122,10 @@
             "by": "report",
             "cases": {
               "side_report": [
-                "It is a report an agent of a work handed in beside it, which does not block that work: a duplicate, a defect out of its scope, a need it will have later, or something else. The agent is the work's engineer, or its review, adversarial tester or advisor, which tell the owner nothing themselves.",
-                "Tell the owner of it only when the owner must know."
+                "It is a report an agent of a work handed in beside it, which does not block that work: a duplicate, a defect out of its scope, a need it will have later, or something else. The agent is the work's engineer, or its review, adversarial tester or advisor, which tell the owner nothing themselves."
               ],
               "followup": [
-                "It is what to do next after a report: the work that delivered the report has ended, and its what to do next is in the input with the report's paths and the commit that merged it. Read the report itself; tell the owner of a gap under test it names."
+                "It is what to do next after a report: the work that delivered the report has ended, and its what to do next is in the input with the report's paths and the commit that merged it. Read the report itself, and take in a gap under test it names."
               ],
               "answer": [
                 "It is an engineer's answer to what you said to its work: read it against what you said, and act on it as you would on a report."
@@ -15324,7 +15323,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -15534,7 +15533,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -15771,7 +15770,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -16048,7 +16047,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -16250,7 +16249,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -16446,7 +16445,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -17086,7 +17085,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
@@ -17248,7 +17247,7 @@
             },
             {
               "name": "What you told the owner",
-              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again unless it changed since",
+              "what": "What you told the owner lately, each message with when and at which cell, oldest first: tell none of it again",
               "from": [
                 {
                   "engine": "told_owner"
