@@ -1,7 +1,8 @@
 /* The items: Primer's PageLayout filling the window under the bar, the trees in its pane on the left and the item
-   picked in its content on the right, each scrolling on its own. Each project's tree is Primer's TreeView under the
-   project's heading and the buttons that show or hide each state's items, a line between two projects as between a
-   page's sections; a row's state is its chip at its end. */
+   picked in its content on the right, each scrolling on its own. Each project's tree is ours, after the v1 board's,
+   under the project's heading and the buttons that show or hide each state's items, a line between two projects as
+   between a page's sections: each item a card whose left edge and number are in its state's colour, the items it
+   depends on under it, set in, with a rule down their left. */
 
 .items-screen {
   flex: 1;
@@ -16,8 +17,10 @@
   min-width: 0;
 }
 
+/* A project: its heading, its buttons and its tree, as wide as the pane whatever its titles' length. */
 .tree-project {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--base-size-8);
   padding: var(--base-size-16) var(--base-size-8) 0;
 }
@@ -34,7 +37,6 @@
 .tree-head {
   display: grid;
   gap: var(--base-size-4);
-  padding: 0 var(--base-size-8);
 }
 
 .tree-states {
@@ -43,42 +45,56 @@
   gap: var(--base-size-4);
 }
 
-/* The button that shows or hides a state's items, in the colour of the state's chip: filled in it, its words white,
-   while the state's items show; outlined in it while they hide. */
-.tree-state-accent {
-  --tone: var(--bgColor-accent-emphasis);
+/* A state's colour in the tree, by its tone (ITEM_TONE), as its chip has it everywhere: its emphasis, which fills the
+   state's button while its items show, outlines it while they hide, and is a row's left edge; its foreground, the
+   button's words while the items hide and a row's number; and its muted background, under a row's number. The
+   buttons and the rows take it from here, so that they match. */
+.tree-tone-accent {
+  --tone-emphasis: var(--bgColor-accent-emphasis);
+  --tone-border: var(--borderColor-accent-emphasis);
+  --tone-muted: var(--bgColor-accent-muted);
   --tone-fg: var(--fgColor-accent);
 }
 
-.tree-state-success {
-  --tone: var(--bgColor-success-emphasis);
+.tree-tone-success {
+  --tone-emphasis: var(--bgColor-success-emphasis);
+  --tone-border: var(--borderColor-success-emphasis);
+  --tone-muted: var(--bgColor-success-muted);
   --tone-fg: var(--fgColor-success);
 }
 
-.tree-state-attention {
-  --tone: var(--bgColor-attention-emphasis);
+.tree-tone-attention {
+  --tone-emphasis: var(--bgColor-attention-emphasis);
+  --tone-border: var(--borderColor-attention-emphasis);
+  --tone-muted: var(--bgColor-attention-muted);
   --tone-fg: var(--fgColor-attention);
 }
 
-.tree-state-danger {
-  --tone: var(--bgColor-danger-emphasis);
+.tree-tone-danger {
+  --tone-emphasis: var(--bgColor-danger-emphasis);
+  --tone-border: var(--borderColor-danger-emphasis);
+  --tone-muted: var(--bgColor-danger-muted);
   --tone-fg: var(--fgColor-danger);
 }
 
-.tree-state-neutral {
-  --tone: var(--bgColor-neutral-emphasis);
-  --tone-fg: var(--fgColor-muted);
+.tree-tone-neutral {
+  --tone-emphasis: var(--bgColor-neutral-emphasis);
+  --tone-border: var(--borderColor-neutral-emphasis);
+  --tone-muted: var(--bgColor-neutral-muted);
+  --tone-fg: var(--fgColor-neutral);
 }
 
+/* The button that shows or hides a state's items: filled in its state's colour, its words white, while the state's
+   items show; outlined in it while they hide. */
 .tree-states .tree-state,
 .tree-states .tree-state:hover {
-  border-color: var(--tone);
+  border-color: var(--tone-border);
   color: var(--tone-fg);
 }
 
 .tree-states .tree-state[aria-pressed='true'],
 .tree-states .tree-state[aria-pressed='true']:hover {
-  background: var(--tone);
+  background: var(--tone-emphasis);
   color: var(--fgColor-onEmphasis);
 }
 
@@ -89,51 +105,139 @@
 
 .tree-none {
   margin: 0;
-  padding: 0 var(--base-size-8);
 }
 
-/* How the rows nest, to be seen at a glance: each level steps in --base-size-24, where Primer's TreeView steps in half
-   its toggle's width (8px), and Primer's level lines, one down from each row's toggle beside every row under it, show
-   always, where Primer shows them only while the pointer is over the tree or it has the focus. TreeView has no
-   setting for either: its indent is its own variable on each row's container, and the lines are set by the line's
-   colour, which each row gives every row under it, and placed by each line's width. The container and the line are
-   reached by the names Primer gives them unhashed; were those to change, the tree would fall back to Primer's own. */
-.tree-row {
-  --tree-line-color: var(--borderColor-default);
-}
-
-.items-trees .tree-row > .PRIVATE_TreeView-item-container {
-  --spacer-width: calc((var(--level) - 1) * var(--base-size-24));
-}
-
-/* Each line takes a level's step, its edge under the middle of the toggle of the row above at that level. */
-.items-trees .tree-row .PRIVATE_TreeView-item-level-line {
-  flex: none;
-  width: calc(var(--toggle-width) / 2);
-  margin-right: calc(var(--base-size-24) - var(--toggle-width) / 2);
-}
-
-/* A row: its number and title, then what it needs from the owner as chips; at its end its facts as muted words in the
-   row's size, then its state's chip. */
-.tree-line {
-  display: inline-flex;
-  align-items: center;
+/* A project's tree and the items an item depends on: cards one under another, --base-size-4 apart; the list under a
+   card is set in, a rule down its left tying it to the card. */
+.tree {
+  display: flex;
+  flex-direction: column;
   gap: var(--base-size-4);
-  min-width: 0;
-  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
+.tree .tree {
+  margin: var(--base-size-4) 0 0 var(--base-size-8);
+  padding-left: var(--base-size-16);
+  border-left: var(--borderWidth-thick) solid var(--borderColor-default);
+}
+
+/* A row: a card, its left edge in its state's colour; under the pointer on --bgColor-neutral-muted, and the row of the
+   item open on --bgColor-accent-muted. */
+.tree-row {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-left: var(--borderWidth-thicker) solid var(--tone-border);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-default);
+}
+
+.tree-row:hover {
+  background: var(--bgColor-neutral-muted);
+}
+
+.tree-row.tree-current,
+.tree-row.tree-current:hover {
+  background: var(--bgColor-accent-muted);
+}
+
+/* The toggle of a row with rows under it, over the room the row leaves at its left: its chevron in --fgColor-muted,
+   in the row's middle. */
+.tree-toggle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--base-size-24);
+  padding: 0;
+  border: 0;
+  border-radius: var(--borderRadius-medium);
+  background: none;
+  color: var(--fgColor-muted);
+  cursor: pointer;
+}
+
+/* What opens the item: the whole card but its toggle, a button whose words can be selected and copied, as a row's
+   could; its parts on one line, the title giving way first, and where the row is too short for the title's least width
+   beside them, what follows the title wraps under it, so that the title never shrinks to nothing. */
+.tree-open {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+  min-width: 0;
+  padding: var(--base-size-4) var(--base-size-8) var(--base-size-4) var(--base-size-24);
+  border: 0;
+  border-radius: var(--borderRadius-medium);
+  background: none;
+  color: var(--fgColor-default);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.tree-open:focus-visible,
+.tree-toggle:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: calc(-1 * var(--focus-outline-width));
+}
+
+/* An item's number: a chip of a fixed width, so that the titles stand in one column, its digits in monospace on its
+   state's muted background in its state's colour. */
+.tree-num {
+  flex: none;
+  min-width: calc(5ch + 2 * var(--base-size-6));
+  padding: 0 var(--base-size-6);
+  border-radius: var(--borderRadius-medium);
+  background: var(--tone-muted);
+  color: var(--tone-fg);
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeInline-size);
+  text-align: center;
+}
+
+/* The title, cut with an ellipsis where the row is short, whole on hovering; its least width before what follows it
+   wraps is a few words. */
 .tree-title {
+  flex: 1 1 12ch;
   min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
+.tree-ref-mark {
+  flex: none;
+  color: var(--fgColor-muted);
+}
+
+/* What the item needs from the owner, as chips. */
+.tree-needs {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: var(--base-size-4);
+}
+
+/* The row's facts at its end, as muted words in the row's size, cut with an ellipsis on a line of their own too
+   short for them. */
 .tree-end {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--base-size-8);
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* The stage an item's work is at, in words, only where the row has room for it beside the title. */

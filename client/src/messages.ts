@@ -731,6 +731,8 @@ const messages = {
   items_hide: 'Hide the {state} items',
   items_none_shown: 'No item in the states shown.',
   items_ref_title: 'Shown in full above',
+  items_fold: 'Fold the items it depends on',
+  items_unfold: 'Show the items it depends on',
   items_stage_title: 'Stage {at} of {of}',
   items_deps_title: 'Done: {done} of the {n} items it depends on',
   items_deps_title_one: 'Done: {done} of the 1 item it depends on',

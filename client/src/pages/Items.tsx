@@ -1,23 +1,25 @@
 // The items: on the left, each project's items as a tree of what depends on what, with the buttons that show or hide
 // the items in each state, each in its state's colour; on the right, the item picked, in place, or while none is, the
 // first the tree shows. The split between them is Primer's PageLayout with a pane the owner drags, its width kept in
-// this browser. Each project's tree is Primer's TreeView: a row says the item's number and title, what it needs from
-// the owner, the items it waits for before it starts, and at its end, as muted words joined by a bar, the kind of the
-// dependency by which the item above depends on it, how many of what it depends on are done, its place in the queue
-// and its work's stage in words where the row has room, how far through the stages on hovering; then its state, as
-// the chip a state is everywhere. Each level steps in a clear step, with a line down from a row's toggle beside every
-// row under it, and a double click on a row with rows under it folds or unfolds them, as its toggle does.
+// this browser. Each project's tree is ours, after the v1 board's: each item a card whose left edge is in its state's
+// colour, the items it depends on in a list under it, set in, with a rule down their left. A row has its toggle, which
+// folds the rows under it; the item's number, of a fixed width, tinted in its state's colour and saying its state on
+// hovering; its title; what it needs from the owner and the items it waits for before it starts; and at its end, as
+// muted words joined by a bar, the kind of the dependency by which the item above depends on it, how many of what it
+// depends on are done, its place in the queue and its work's stage in words where the row has room, how far through
+// the stages on hovering. A click on a row opens its item; a double click on a row with rows under it folds or
+// unfolds them, as its toggle does.
 
-import { CheckIcon, LinkIcon } from '@primer/octicons-react';
-import { Button, Heading, PageLayout, TreeView } from '@primer/react';
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, LinkIcon } from '@primer/octicons-react';
+import { Button, Heading, PageLayout } from '@primer/react';
 import { Fragment, type MouseEvent, type ReactNode, useState } from 'react';
 
 import type { ItemLink, Items as ItemsData, ItemState, ItemSummary } from '../api';
-import { DependencyKind, ITEM_TONE, ItemBadge, Loaded, StateChip } from '../components';
+import { DependencyKind, ITEM_TONE, Loaded, StateChip } from '../components';
 import { depsDone, firstShown, stageAt, STATES, tree, type TreeRow } from '../item/tree';
 import { words } from '../labelled';
 import { useResource } from '../live';
-import { navigate } from '../route';
+import { href, navigate } from '../route';
 import { t, tn } from '../text';
 import { joined, SEP } from '../voices';
 import { Item } from './Item';
@@ -59,108 +61,129 @@ type RowProps = {
   onFold: (path: string, open: boolean) => void;
 };
 
-/// The end of a row, inside its trailing visual: its facts as muted words joined by a bar, the stage last, since it
-/// shows only where the row has room, then the item's state as its chip.
-function RowEnd({ facts, stage, state }: { facts: Array<ReactNode | null>; stage: ReactNode | null; state: ItemState }) {
+/// The end of a row: its facts as muted words joined by a bar, the stage last, since it shows only where the row has
+/// room; nothing for none.
+function RowEnd({ facts, stage }: { facts: Array<ReactNode | null>; stage: ReactNode | null }) {
   const shown = joined(facts);
+  if (shown.length === 0 && stage === null) return null;
   return (
-    <span className="tree-end">
-      {shown.length > 0 || stage !== null ? (
-        <span className="muted">
-          {shown.map((x, k) => (
-            <Fragment key={k}>{x}</Fragment>
-          ))}
-          {stage !== null ? (
-            <span className="tree-stage">
-              {shown.length > 0 ? SEP : null}
-              {stage}
-            </span>
-          ) : null}
+    <span className="tree-end muted">
+      {shown.map((x, k) => (
+        <Fragment key={k}>{x}</Fragment>
+      ))}
+      {stage !== null ? (
+        <span className="tree-stage">
+          {shown.length > 0 ? SEP : null}
+          {stage}
         </span>
       ) : null}
-      <ItemBadge state={state} />
     </span>
   );
 }
 
-/// Primer's toggle of a row, its chevron, by the name Primer gives it unhashed: its own clicks fold the row already.
-const TOGGLE = '.PRIVATE_TreeView-item-toggle';
+/// What an item needs from the owner, and the items it waits for before it starts, as chips; nothing for none.
+function Needs({ i }: { i: ItemSummary }) {
+  if (i.open_design_cards === 0 && i.open_asks === 0 && i.blocked_by.length === 0) return null;
+  return (
+    <span className="tree-needs">
+      {i.open_design_cards > 0 ? (
+        <StateChip tone="attention">{t('open_design_cards_chip', { n: i.open_design_cards })}</StateChip>
+      ) : null}
+      {i.open_asks > 0 ? <StateChip tone="attention">{t('open_asks_chip', { n: i.open_asks })}</StateChip> : null}
+      {i.blocked_by.length > 0 ? (
+        <StateChip tone="attention" title={t('items_blocked_title')}>
+          {t('items_blocked', { items: i.blocked_by.map((n) => `#${n}`).join(', ') })}
+        </StateChip>
+      ) : null}
+    </span>
+  );
+}
 
-/// Whether a press landed on the row itself, rather than on a row under it or on its toggle.
+/// Whether a press landed on the row itself, rather than on its toggle, whose own clicks fold the row already.
 function onRow(e: MouseEvent<HTMLElement>): boolean {
-  const at = e.target instanceof Element ? e.target : null;
-  return at !== null && at.closest('[role="treeitem"]') === e.currentTarget && at.closest(TOGGLE) === null;
+  return e.target instanceof Element && e.target.closest('.tree-toggle') === null;
 }
 
 function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
   const i = row.item;
-  const open = () => navigate(`/items/${i.id}`);
-  if (!row.full) {
-    return (
-      <TreeView.Item id={path} className="tree-row tree-ref" current={i.id === selected} onSelect={open}>
-        <TreeView.LeadingVisual label={t('items_ref_title')}>
-          <LinkIcon />
-        </TreeView.LeadingVisual>
-        <span className="muted" title={t('items_ref_title')}>
-          #{i.id} {i.title}
-        </span>
-        <TreeView.TrailingVisual>
-          <RowEnd facts={[row.kind !== null ? <DependencyKind kind={row.kind} /> : null]} stage={null} state={i.state} />
-        </TreeView.TrailingVisual>
-      </TreeView.Item>
-    );
-  }
-  const parent = row.children.length > 0;
+  const parent = row.full && row.children.length > 0;
+  const open = parent && !folded.has(path);
   const deps = depsDone(i.id, data.items, data.links);
   const stage = i.state === 'done' || i.state === 'cancelled' ? null : stageAt(i.stage, i.stages);
   return (
-    <TreeView.Item
-      id={path}
-      className="tree-row"
-      current={i.id === selected}
-      onSelect={open}
-      expanded={parent ? !folded.has(path) : null}
-      onExpandedChange={(expanded) => onFold(path, expanded)}
-      // A double click folds or unfolds the rows under this one, into the fold its toggle keeps, and selects no word;
-      // on a row with none under it, it does what its clicks did, which open the item.
-      onMouseDown={(e) => {
-        if (parent && e.detail > 1 && onRow(e)) e.preventDefault();
-      }}
-      onDoubleClick={(e) => {
-        if (parent && onRow(e)) onFold(path, folded.has(path));
-      }}
-    >
-      <span className="tree-line">
-        <span className="muted">#{i.id}</span> <span className="tree-title">{i.title}</span>
-        {i.open_design_cards > 0 ? (
-          <StateChip tone="attention">{t('open_design_cards_chip', { n: i.open_design_cards })}</StateChip>
+    <li>
+      <div
+        className={`tree-row tree-tone-${ITEM_TONE[i.state]}${i.id === selected ? ' tree-current' : ''}`}
+        // A double click folds or unfolds the rows under this one, into the fold its toggle keeps, and selects no word;
+        // on a row with none under it, it does what its clicks did, which open the item.
+        onMouseDown={(e) => {
+          if (parent && e.detail > 1 && onRow(e)) e.preventDefault();
+        }}
+        onDoubleClick={(e) => {
+          if (parent && onRow(e)) onFold(path, !open);
+        }}
+      >
+        {/* The toggle stands over the room the row leaves at its left, where a row with none under it opens its item. */}
+        {parent ? (
+          <button
+            type="button"
+            className="tree-toggle"
+            aria-expanded={open}
+            aria-label={t(open ? 'items_fold' : 'items_unfold')}
+            onClick={() => onFold(path, !open)}
+          >
+            {open ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+          </button>
         ) : null}
-        {i.open_asks > 0 ? <StateChip tone="attention">{t('open_asks_chip', { n: i.open_asks })}</StateChip> : null}
-        {i.blocked_by.length > 0 ? (
-          <StateChip tone="attention" title={t('items_blocked_title')}>
-            {t('items_blocked', { items: i.blocked_by.map((n) => `#${n}`).join(', ') })}
-          </StateChip>
-        ) : null}
-      </span>
-      <TreeView.TrailingVisual>
-        <RowEnd
-          facts={[
-            row.kind !== null ? <DependencyKind kind={row.kind} /> : null,
-            deps.of > 0 ? (
-              <span title={tn('items_deps_title', deps.of, { done: deps.done })}>
-                {deps.done}/{deps.of}
+        {/* A button that opens the item in place, rather than a link, so that its words can be selected and copied as
+            a row's could: a browser drags a link instead. */}
+        <button
+          type="button"
+          className="tree-open"
+          aria-current={i.id === selected ? 'true' : undefined}
+          onClick={() => navigate(href({ page: 'item', id: i.id }))}
+        >
+          <span className="tree-num" title={t(`item_${i.state}`)}>
+            #{i.id}
+          </span>
+          {row.full ? (
+            <>
+              <span className="tree-title" title={i.title}>
+                {i.title}
               </span>
-            ) : null,
-            place.has(i.id) ? <span title={t('items_queue_title')}>{t('items_queue', { n: place.get(i.id) ?? 0 })}</span> : null,
-          ]}
-          stage={
-            stage !== null && i.stage !== null ? <span title={t('items_stage_title', stage)}>{words(i.stage)}</span> : null
-          }
-          state={i.state}
-        />
-      </TreeView.TrailingVisual>
-      {parent ? (
-        <TreeView.SubTree>
+              <Needs i={i} />
+              <RowEnd
+                facts={[
+                  row.kind !== null ? <DependencyKind kind={row.kind} /> : null,
+                  deps.of > 0 ? (
+                    <span title={tn('items_deps_title', deps.of, { done: deps.done })}>
+                      {deps.done}/{deps.of}
+                    </span>
+                  ) : null,
+                  place.has(i.id) ? (
+                    <span title={t('items_queue_title')}>{t('items_queue', { n: place.get(i.id) ?? 0 })}</span>
+                  ) : null,
+                ]}
+                stage={
+                  stage !== null && i.stage !== null ? (
+                    <span title={t('items_stage_title', stage)}>{words(i.stage)}</span>
+                  ) : null
+                }
+              />
+            </>
+          ) : (
+            <>
+              <LinkIcon className="tree-ref-mark" aria-label={t('items_ref_title')} />
+              <span className="tree-title muted" title={t('items_ref_title')}>
+                {i.title}
+              </span>
+              <RowEnd facts={[row.kind !== null ? <DependencyKind kind={row.kind} /> : null]} stage={null} />
+            </>
+          )}
+        </button>
+      </div>
+      {open ? (
+        <ul className="tree">
           {row.children.map((c) => {
             const at = `${path}/${c.item.id}${c.full ? '' : 'r'}`;
             return (
@@ -176,9 +199,9 @@ function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
               />
             );
           })}
-        </TreeView.SubTree>
+        </ul>
       ) : null}
-    </TreeView.Item>
+    </li>
   );
 }
 
@@ -215,7 +238,7 @@ function Project(props: {
                 key={s}
                 size="small"
                 variant="invisible"
-                className={`tree-state tree-state-${ITEM_TONE[s]}`}
+                className={`tree-state tree-tone-${ITEM_TONE[s]}`}
                 leadingVisual={on ? CheckIcon : undefined}
                 count={n}
                 aria-pressed={on}
@@ -230,7 +253,7 @@ function Project(props: {
       </div>
       {rows.length === 0 ? <p className="muted tree-none">{t('items_none_shown')}</p> : null}
       {rows.length > 0 ? (
-        <TreeView aria-labelledby={heading}>
+        <ul className="tree" aria-labelledby={heading}>
           {rows.map((r) => {
             const at = `${props.name}/${r.item.id}`;
             return (
@@ -246,7 +269,7 @@ function Project(props: {
               />
             );
           })}
-        </TreeView>
+        </ul>
       ) : null}
     </section>
   );
