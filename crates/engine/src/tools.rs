@@ -1221,7 +1221,10 @@ mod tests {
         // runner is told, not the name.
         let other_runner = "test a::b ... ok\ntest result: ok. 1 passed; 0 failed\n";
         let r = why(&[job(&built, Ok(other_runner)), job(&built, Ok(""))]);
-        assert!(r.starts_with("no log of the fast CI has a line in the form cargo-nextest writes"), "{r}");
+        assert!(
+            r.starts_with("no log of the fast CI has a line in the form cargo-nextest writes"),
+            "{r}"
+        );
         assert!(r.contains("may not run its tests with cargo-nextest"), "{r}");
         // An unreadable log is told first, as before.
         assert!(why(&[job(&built, Err("x"))]).starts_with("the log of the job t1"));
