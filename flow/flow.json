@@ -1,36 +1,6 @@
 {
   "format": "wf-agents flow 1",
   "shapes": {
-    "options": {
-      "name": "options",
-      "title": "Options",
-      "type": "list",
-      "desc": "At least three options, each a way that works; never one against \"don't\": whether to do something becomes how much of it to do",
-      "item": {
-        "type": "obj",
-        "fields": [
-          {
-            "name": "name",
-            "title": "Name",
-            "type": "text",
-            "desc": "What the option is called, in a few words"
-          },
-          {
-            "name": "does",
-            "title": "What it does",
-            "type": "text",
-            "desc": "What this option does, concretely"
-          },
-          {
-            "name": "cost_risk",
-            "title": "Cost and risk",
-            "type": "text",
-            "desc": "Its cost and risk: why it is or is not recommended"
-          }
-        ]
-      },
-      "min": 3
-    },
     "acceptance_item": {
       "type": "union",
       "by": "by",
@@ -1143,7 +1113,7 @@
       "title": "Ask",
       "type": "union",
       "by": "to",
-      "desc": "Something to ask someone else, waiting for their reply. You must hand this in whenever you meet any of the kinds kind lists: you may not decide it yourself or work around it. You must also hand it in, to the owner, when a field you are asked to return cannot sensibly be filled in the situation; never force a value into it. Hand it in too when you cannot answer this round's question, or meet something someone else must decide first. When the reply comes, you carry on. When several must be asked, ask one, and the next when the reply comes",
+      "desc": "Something to ask someone else, waiting for their reply. You must hand this in whenever you meet any of the kinds kind lists: you may not decide it yourself or work around it. You must also hand it in, to the architect, when a field you are asked to return cannot sensibly be filled in the situation; never force a value into it. Hand it in too when you cannot answer this round's question, or meet something someone else must decide first. When the reply comes, you carry on. When several must be asked, ask one, and the next when the reply comes",
       "common": [
         {
           "name": "points",
@@ -1157,20 +1127,20 @@
                 "name": "kind",
                 "title": "Kind",
                 "type": "enum",
-                "desc": "Which kind of thing you met: pick the one that fits best. You must ask whenever you meet any of these. Kinds go by what the thing is: something asked as one kind during design is asked as the same kind during implementation or a fix. The owner_only group may be asked of the owner only",
+                "desc": "Which kind of thing you met: pick the one that fits best. You must ask whenever you meet any of these. Kinds go by what the thing is: something asked as one kind during design is asked as the same kind during implementation or a fix. The owner_only group is the owner's to decide: ask the architect, who hands it on to the owner",
                 "values": "askKinds"
               },
               {
                 "name": "what",
                 "title": "What happened",
                 "type": "text",
-                "desc": "What happened: where, and what you saw. In an ask to the owner, write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original; in an ask to anyone else, in English"
+                "desc": "What happened: where, and what you saw. The owner reads it in the work's group: write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
               },
               {
                 "name": "tried",
                 "title": "What was tried",
                 "type": "text",
-                "desc": "What you have already tried. Required for cannot_read, missing_tool, missing_credentials and blocked_by_permission. In an ask to the owner, write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original; in an ask to anyone else, in English",
+                "desc": "What you have already tried. Required for cannot_read, missing_tool, missing_credentials and blocked_by_permission. The owner reads it in the work's group: write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original",
                 "optional": true
               }
             ]
@@ -1351,41 +1321,6 @@
               "desc": "Why it is handed on: what only they can decide or do"
             }
           ]
-        }
-      ]
-    },
-    "choice": {
-      "name": "choice",
-      "title": "Choice for the owner",
-      "type": "obj",
-      "desc": "What the owner is asked to decide",
-      "fields": [
-        {
-          "name": "question",
-          "title": "Question",
-          "type": "text",
-          "desc": "One sentence asking what the owner must decide, with no internal names. Ask only what the owner must do or decide, and only what the work under way or next needs; a choice with only one workable approach is no decision: do not ask it"
-        },
-        {
-          "$ref": "options"
-        },
-        {
-          "name": "recommended",
-          "title": "Recommended",
-          "type": "text",
-          "desc": "Which option you recommend: its name. Where it differs from an earlier ruling of the owner, say where; a fallback the owner ruled on earlier stays an option, marked as the fallback"
-        },
-        {
-          "name": "confidence",
-          "title": "How sure of the recommendation",
-          "type": "int",
-          "desc": "How sure you are of the recommendation, 1 to 5: 5 means the evidence settles it, 1 means judgment alone"
-        },
-        {
-          "name": "confidence_why",
-          "title": "Why this sure",
-          "type": "text",
-          "desc": "Why you are that sure, and what fact would overturn the recommendation"
         }
       ]
     },
@@ -3092,7 +3027,6 @@
       "no_disagreeing_after_insist": "A finding the review insisted on, or a test adversarial testing insisted on, is not answered disagree or test_wrong again; when neither side gives way, the engineer asks.",
       "not_caused_by_change": "For a red check said not to be caused by the change, the engine checks it itself: the check is red on main as the worktree last fetched it, or in the table of known red checks; a flaky one is answered unrelated_flake. When main's checks cannot be read, it is taken as written.",
       "ruling_matches_advisor": "This work did ask the advisor about this row, and the ruling written matches the advisor's reply.",
-      "owner_kinds_to_owner": "A point of a kind in the owner_only group is asked of the owner.",
       "answers_match_speakers": "Each answer goes to a side that interjected in this round, one answer per side.",
       "design_card_disagreement_redirects": "When this round's interjections hold a disagreement with a decision of the design card, the return is a redirect, not answers.",
       "design_card_changed_when_replacing": "A design card handed in when this work has handed in one before says what changed from it and why; the work's first design card says nothing of the kind.",
@@ -3853,7 +3787,7 @@
         "Check each fact when you write it: resolve with a tool every commit id, path, number and measurement you report as fact. Another agent's or a reviewer's report is only a lead.",
         "Keep nothing in the command line's own memory: what must last goes into this round's return.",
         "Describe work in plain engineering wording, as in ordinary technical documentation: what was done and why. No adversarial metaphors or phrasing; a model's safety check may misread them and stop the work.",
-        "When your own permission check refuses an action, do not have another agent do it, and do not reach it by another route: ask the owner to allow it.",
+        "When your own permission check refuses an action, do not have another agent do it, and do not reach it by another route: ask for the owner's permission.",
         "Builds, tests, checks and measurements run in CI, through the tools ci and measure. Never run heavy work on this machine (compiling, type checking, building, test suites, benchmarks, measurements), even when it looks quicker; commands that finish in seconds without loading the processors are fine. sqlite3 runs only as `sqlite3 -safe -readonly <database> ...`, and python3 does not run at all.",
         "Stop only processes you started, by the process id you kept when you started them; never by name or pattern: other sessions and the system's own services run the same commands.",
         "Do not wait within a round: no sleep, no polling, no watching a run, nothing left in the background waiting for something outside. What must be waited for goes to the engine in your return, as tools or an ask.",
@@ -3869,7 +3803,7 @@
         "Judging: when the constitution and the policy allow more than one way and choose none, take the way that frees the most work waiting, and say that this decided it. When one kind of matter keeps ending this way, the policy does not cover it: say so where you judge whether the policy is right.",
         "Judging: read what a judgment needs, on every side, until you can say it, and no further. Your session goes on from one of your works to the next, and what you read without need crowds out what later rounds need. What you remember from an earlier work of yours is how things stood then: before you act on it, check it against what has changed since.",
         "Yours and the owner's: decide what is yours without asking: changes to the items (creating, splitting, merging and cancelling them, their dependencies, levels and order), which a review of the whole batch looks at before they are made; and what you do at once (pausing and resuming works, holding new starts, interjecting, replying to engineers, messages to other projects' architects, observations). The owner reads your rounds afterwards and corrects you; an ask costs the owner's time and holds the matter it is about. The owner's, even when the owner is away: the constitution and the policy; the decisions on design cards; loosening a line the policy writes; accepting a slowdown; the kinds of the owner_only group.",
-        "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what an engineer asked the owner, and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
+        "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what only the owner decides, such as an engineer's point of the owner_only group: hand it on to the owner; and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
         "Other projects: you judge only your project. What another project's architect must know or do, tell it with a message; what it asks of you comes to your queue. An item of yours may depend on an item of another project; that item's changes and place in the order are its architect's.",
         "The engineers' work: you do not do it. You write no code, design or study, and you do not review, test or redo a work: its engineer, its review, its adversarial testing and its advisor do that. What needs the project's code changed, or an engineer's time (fixing an environment, finding a root cause, a study), becomes an item. What only the owner can do (the system's configuration, credentials, a permission, another of the owner's machines) goes to the owner.",
         "The engineers' work: look at a work where it meets the whole: whether it still serves the policy's direction; whether it duplicates another work, collides with one or waits on one; whether its problem changed under it. Two works that would change the same code in ways that conflict run one after the other, by a dependency: blocking when the later must not start before the earlier is merged, parallel when it may start and wait before it merges. When a work others wait on changes its approach or its result, or stops, look at those waiting: whether the dependency still holds, and whether their approach or acceptance must change.",
@@ -4028,7 +3962,7 @@
             "Writing code: ported code keeps its license notice beside it.",
             "Writing code: a small defect outside the task in a file you are already changing, fix it and say so in the PR description; any other defect outside the task goes into side reports.",
             "Design and architecture: examine the responsibilities, interfaces, representations and consumers the change touches for design gaps and clearly better designs. A defect outside the scope goes into side reports, or to the advisor as an ask.",
-            "Design and architecture: architecture beyond your own item (how modules relate, their interfaces and contracts, the formats components exchange) is not yours to change. If an interface is not enough, show it with a minimal example and ask the owner, with the kind cross_project_interface.",
+            "Design and architecture: architecture beyond your own item (how modules relate, their interfaces and contracts, the formats components exchange) is not yours to change. If an interface is not enough, show it with a minimal example and ask, with the kind cross_project_interface.",
             "Priorities: after the project's own priorities, first make the implementation understandable and easy to change. Add only the evidence needed to trust the current result. Defer robustness, infrastructure and polish that no current work needs.",
             "Evidence: a passing result is evidence only if a wrong result would have failed it. Prefer an observation that separates two hypotheses. Before trusting a new check, watch it fail once for each condition it protects, in CI too. Read an exit code from the command itself, not through a pipe.",
             "Evidence: a pass reached by weakening a requirement counts for nothing. Every removed, skipped, narrowed, regenerated or weakened test or check has a technical reason in the same change. A tool's limitation, a timeout or an unimplemented feature never changes an expected result. New or changed check machinery shows that a representative wrong result or missing input is detected; reusing established machinery needs no new demonstration.",
@@ -4118,7 +4052,7 @@
         "rules": [
           "The owner's interface shows two things for each work: its stage, and what it is doing or waiting for right now, such as \"running the full CI\" or \"waiting for the owner to confirm the design card\".",
           "The stage is not stored: it follows from the cell the work is at. The engine records that cell anyway, and the table below gives its stage.",
-          "While asking someone (the advisor, the architect or the owner), choosing the way on, or running tools, the stage is that of the cell the work stopped at: a question to the advisor during design is still at the design stage.",
+          "While a question waits (at the advisor, the architect or the owner it was handed to), choosing the way on, or running tools, the stage is that of the cell the work stopped at: a question to the advisor during design is still at the design stage.",
           "Cell `S0`, at the stage start, is where an item waits before a work starts on it: it has no work yet, and its rows say what holds it back. A work can be cancelled, or taken over by a work on a newer flow when it cannot move to that flow, at any cell: it ends at cell `C1`, and keeps the cell it stopped at."
         ],
         "list": [
@@ -4218,7 +4152,7 @@
         "roles": [
           {
             "name": "advisor",
-            "desc": "This work's advisor, one level above you: technical judgment, such as whether the design, the approach or the acceptance must change, and what you are unsure of or cannot decide; when you must judge first to know whether it is for the owner, ask the advisor first too",
+            "desc": "This work's advisor, one level above you: technical judgment, such as whether the design, the approach or the acceptance must change, and what you are unsure of or cannot decide",
             "node": "A1",
             "row": "ask_advisor",
             "fields": [],
@@ -4231,26 +4165,10 @@
           },
           {
             "name": "architect",
-            "desc": "This project's architect: what touches other items or the overall structure, such as splitting off sub-items, adding dependencies, duplicating another item, or a root cause in another item or project",
+            "desc": "This project's architect: what touches other items or the overall structure, such as splitting off sub-items, adding dependencies, duplicating another item, or a root cause in another item or project; and what only the owner can do or decide, such as the owner_only group of the ask kinds, missing credentials or a permission block, which the architect hands on to the owner",
             "node": "A2",
             "row": "ask_architect",
             "fields": [],
-            "do": [
-              "raise_blocker"
-            ]
-          },
-          {
-            "name": "owner",
-            "desc": "What only the owner can do or decide: the owner_only group of the ask kinds may be asked of the owner only; what only the owner can fix, such as missing credentials or a permission block, goes to the owner too. Technical judgment goes to the advisor, and what crosses items to the architect",
-            "node": "A3",
-            "row": "ask_owner",
-            "fields": [
-              {
-                "$ref": "choice",
-                "optional": true,
-                "desc": "For something the owner must decide, the choice: options, a recommendation, how sure you are; not for something the owner only has to do (a permission, credentials, configuration). Write every text in it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
-              }
-            ],
             "do": [
               "raise_blocker"
             ]
@@ -4279,7 +4197,7 @@
         "counters": [
           {
             "name": "asks",
-            "desc": "The times the cells asked the advisor, the architect or the owner, each question once whomever it went to, including questions the advisor and the architect asked themselves"
+            "desc": "The times the cells asked the advisor or the architect, each question once whomever it went to, including questions the advisor and the architect asked themselves"
           },
           {
             "name": "tool_requests",
@@ -4324,7 +4242,7 @@
           },
           {
             "name": "hand_overs",
-            "desc": "The times the work's blocker was handed from one holder to another: by the advisor, the architect, the owner, or the engineer taking it to the owner after waiting long"
+            "desc": "The times the work's blocker was handed from one holder to another: by the advisor, the architect or the owner"
           },
           {
             "name": "waits_longer",
@@ -4453,8 +4371,7 @@
               "return_format_unfit",
               "A field of what this cell asks you to return cannot be filled in the situation at hand, or would mean nothing if filled, such as saying how each part of a change is handled when there is no change yet. When you meet this you must ask; never force a value, invent one or fill in something empty to get past it. In what, say which field, what the situation is, and why it does not fit"
             ]
-          ],
-          "only": "owner"
+          ]
         },
         {
           "group": "environment",
@@ -4724,7 +4641,7 @@
             "name": "tell_owner",
             "title": "Told to the owner",
             "type": "list",
-            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return, nor a routine result the page shows already, such as tests passing, a review or a test that found nothing, or a step done as planned. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the owner; a defect found along the way through side reports. An empty list if none",
+            "desc": "Messages for the owner, a sentence or two each: only what the owner should know now and that no field shown on the item says, such as a risk you see, a surprise, or a judgment the owner may want to look at; never a restatement of this return, nor a routine result the page shows already, such as tests passing, a review or a test that found nothing, or a step done as planned. They need no decision and no answer, and the work goes on. A decision for the owner goes through asking the architect, who hands it on; a defect found along the way through side reports. An empty list if none",
             "item": {
               "type": "text",
               "desc": "One message"
@@ -4756,10 +4673,6 @@
           }
         ],
         "checks": [
-          {
-            "at": "ask.points.kind",
-            "check": "owner_kinds_to_owner"
-          },
           {
             "at": "answers",
             "check": "design_card_disagreement_redirects"
@@ -10411,7 +10324,7 @@
             "came_by": [
               [
                 "reply",
-                "The engineer asked the advisor, the architect or the owner, and the reply has come"
+                "The engineer asked the advisor or the architect, and the reply has come, the owner's when it was handed on"
               ],
               [
                 "withdrawn",
@@ -10727,7 +10640,7 @@
             }
           ],
           "prompt": [
-            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, or when the root lies in another item, hand the question to the architect. specified_behaviour, safety_guarantee, cross_project_interface, change_direction and gap_under_test are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge something a gap_under_test there, have the engineer write it into the report and what to do next, which reaches the architect when the work ends, and the architect tells the owner of it. The owner_only group of the ask kinds is the owner's alone: hand such a question to the owner. You never ask and wait: what you cannot decide, you hand on with ask, saying in it why and what you found, and the architect or the owner you hand it to answers the cell that asked in your place. The code is read-only for you: change no file and commit nothing."
+            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, or when the root lies in another item, hand the question to the architect. specified_behaviour, safety_guarantee, cross_project_interface, change_direction and gap_under_test are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge something a gap_under_test there, have the engineer write it into the report and what to do next, which reaches the architect when the work ends, and the architect tells the owner of it. The owner_only group of the ask kinds is the owner's alone: hand such a question to the architect, who hands it on to the owner. You never ask and wait: what you cannot decide, you hand on to the architect with ask, saying in it why and what you found, and the architect answers the cell that asked in your place or hands it on. The code is read-only for you: change no file and commit nothing."
           ],
           "out": [
             {
@@ -11037,7 +10950,7 @@
           "inputs": [
             {
               "name": "What is asked",
-              "what": "What is asked, from which cell (recorded by the engine): something only the owner can do (a permission, configuration, credentials), or a choice (with options and a recommendation), or an agent's report that a field of what it must return does not fit the situation; none when the engine reports a flow anomaly",
+              "what": "What is asked, from which cell (recorded by the engine), as the engineer asked the architect, who handed it on: something only the owner can do (a permission, configuration, credentials), a decision only the owner can make, or an agent's report that a field of what it must return does not fit the situation; none when the engine reports a flow anomaly",
               "from": [
                 [
                   "@caller",
@@ -11079,7 +10992,7 @@
                   "name": "text",
                   "title": "Answer",
                   "type": "text",
-                  "desc": "The answer, or which option of the choice was chosen"
+                  "desc": "The answer"
                 },
                 {
                   "name": "to",
@@ -11223,7 +11136,7 @@
           ],
           "prompt": [
             "This round answers one thing only: whether this work waits longer for the architect. Its question has waited past its limit of the architect's time to act on it, counted only while a work of the architect ran and was not paused, so the architect had the time and answered other matters first. Weigh what waiting costs this work against what the architect is busy with, and whether the work can go on another way.",
-            "Hand in wait_on when the question is the architect's and the answer is worth waiting for: its limit is counted again. Hand in to_owner when it needs a decision the architect is not giving, saying why: the owner answers the cell that asked, or hands it back to the architect with a decision. Hand in withdraw when the work can go on without the answer: the question leaves the architect's queue, and you choose the way on."
+            "Hand in wait_on when the question is the architect's and the answer is worth waiting for: its limit is counted again. Hand in withdraw when the work can go on without the answer: the question leaves the architect's queue, and you choose the way on."
           ],
           "out": [
             {
@@ -11242,18 +11155,6 @@
                       "title": "Why",
                       "type": "text",
                       "desc": "Why it is worth waiting for"
-                    }
-                  ]
-                },
-                {
-                  "value": "to_owner",
-                  "desc": "Take it to the owner: it needs a decision the architect is not giving",
-                  "fields": [
-                    {
-                      "name": "why",
-                      "title": "Why",
-                      "type": "text",
-                      "desc": "Why the owner, written for the owner"
                     }
                   ]
                 },
@@ -11294,27 +11195,6 @@
               ],
               "counts": "waits_longer",
               "main": true
-            },
-            {
-              "name": "to_owner",
-              "if": [
-                [
-                  "is",
-                  "longer.verdict",
-                  [
-                    "to_owner"
-                  ]
-                ]
-              ],
-              "to": "A3",
-              "passes": true,
-              "do": [
-                {
-                  "at": "longer",
-                  "do": "hand_over"
-                }
-              ],
-              "counts": "hand_overs"
             },
             {
               "name": "withdraw",
@@ -11399,7 +11279,7 @@
       ],
       "designCard": [
         "A branch that changes, against main, the design paths the project's configuration names (design/ where there is a design tree) has a design card; one that does not has none. The engine knows from the change on the branch, not from what the agent says, and an agent has no other way to produce a design card.",
-        "The design card is a gate before merging: the change to the design tree is merged only after the owner confirms it. It asks the owner nothing; anything to ask the owner goes through ask.",
+        "The design card is a gate before merging: the change to the design tree is merged only after the owner confirms it. It asks the owner nothing; anything to ask goes through ask.",
         "The design card holds this change to the design tree: each decision added, changed or removed, before, after and why; at least three approaches compared, the chosen one the recommendation and why each other was not chosen; how sure, on what grounds, and what would overturn it; provisional or to check for what cannot be settled. One design card per work, one section per decision. Its content is shown in the design section of the item's research; the design card in the owner's interface shows only the decisions' names and links.",
         "The design card follows the design tree on the branch: written and committed on the branch during design, the design card appears then and blocks nothing; whenever a later round changes the design tree again, its return must carry the new design card, which the engine checks against the change on the branch.",
         "Each new design card (the first, from design, or a new one from a later round that changed the design tree) is queued for the architect to look at: is the card itself sound, and are the approaches it chose by default reasonable in the whole? This does not block the engineer, and nothing waits for the architect. The architect does not rule on the card: if the card or a default does not hold, it acts, such as telling the engineer with an interjection; if they hold, it leaves the card to the owner. Once the owner rules on the card, or another replaces it, the architect's look at it leaves its queue, withdrawn saying why. Without a design card, the architect has nothing to do.",
@@ -11515,7 +11395,7 @@
         ]
       },
       "blockers": {
-        "desc": "A task stops only at the cell where its problem arose, on a blocker raised there, and stands at the cell of its blocker's holder until it is resolved or withdrawn: the advisor at cell `A1`, an architect at `A2` (and at `A7` while the engineer weighs whether to wait longer for it), the owner at `A3`, the items it waits for at `A6`, and at `M1` the items it depends on, then the owner's ruling on its design card. Every move of a blocker is a row: the rows into a holder's cell raise it, the rows that pass the work on between holders' cells hand it on (`A1` to `A2` or `A3`, `A2` to `A3` or to a related project's architect, `A3` back to `A2`), and the rows out resolve or withdraw it. A holder never stops while it holds a blocker. Each cell where the work waits has a row for each way its holder can fail it and for the owner's interjection. A work's end withdraws its open blocker, with the end's reason.",
+        "desc": "A task stops only at the cell where its problem arose, on a blocker raised there, and stands at the cell of its blocker's holder until it is resolved or withdrawn: the advisor at cell `A1`, an architect at `A2` (and at `A7` while the engineer weighs whether to wait longer for it), the owner at `A3`, the items it waits for at `A6`, and at `M1` the items it depends on, then the owner's ruling on its design card. Every move of a blocker is a row: the rows into a holder's cell raise it, the rows that pass the work on between holders' cells hand it on (`A1` to `A2`, `A2` to `A3` or to a related project's architect, `A3` back to `A2`), and the rows out resolve or withdraw it. A holder never stops while it holds a blocker. Each cell where the work waits has a row for each way its holder can fail it and for the owner's interjection. A work's end withdraws its open blocker, with the end's reason.",
         "cells": [
           {
             "cell": "A1",
@@ -14594,7 +14474,7 @@
             "This round weighs the ways for this question. The crux is answered: think by it, and do not go back to the question on the surface. See which articles of the constitution it touches and what each implies; then which items it touches and how (a duplicate, a dependency, blocking others, a root in another item or project), and who waits. Think of at least three ways, with what follows from each, choose one, and say why it and why not the others. A conclusion deduced from reading code is said to be deduced; an inference that decides the direction and is not checked is checked first by an item, and the structure is not changed on it.",
             "Reply to the engineer concretely enough to carry on from: if sub-items were split off, say plainly that the work must redesign for the part that remains; if it must stop now and wait for other items to deliver, list them in the reply's waits, while a parallel dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this batch creates by its key: the engine puts its number there once it is made. The reply goes at once, or, when your item changes are what it says, once the review lets them be made; if an item it names is not made after all, it does not go out, and the question comes back to you with why.",
             "Works start in the order you give: first the items the owner queued, then each project's items by their rank. A new item goes last among its project's items, and moving one puts it first, last, or just before or after another item of its project. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them.",
-            "What the constitution, the policy or what goes outside decides, hand to the owner with the reply's hand_over, saying why and, in its text, what you found; what belongs to a related project's architect, hand to it the same way. You never ask and wait: whoever you hand it to answers the engineer."
+            "What the constitution, the policy or what goes outside decides, and what only the owner can do or decide, hand to the owner with the reply's hand_over, saying why and, in its text, what you found; what belongs to a related project's architect, hand to it the same way. You never ask and wait: whoever you hand it to answers the engineer."
           ],
           "out": [
             {

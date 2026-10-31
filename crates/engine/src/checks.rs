@@ -14,7 +14,6 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::sync::OnceLock;
 
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::Value;
@@ -256,30 +255,6 @@ impl Ctx<'_> {
             .query_row("SELECT pushed_head FROM works WHERE id = ?1", [self.w.id], |r| r.get(0))
             .map_err(|e| e.to_string())
     }
-}
-
-/// The kinds of question only the owner may be asked, from the flow built into the engine.
-fn owner_only() -> &'static BTreeSet<String> {
-    static KINDS: OnceLock<BTreeSet<String>> = OnceLock::new();
-    KINDS.get_or_init(|| {
-        let f: Value = serde_json::from_str(flow::FLOW).unwrap_or(Value::Null);
-        let mut out = BTreeSet::new();
-        for g in f["flows"].as_array().cloned().unwrap_or_default() {
-            for grp in g["askKinds"].as_array().cloned().unwrap_or_default() {
-                if grp["only"] == "owner" {
-                    out.extend(
-                        grp["kinds"]
-                            .as_array()
-                            .cloned()
-                            .unwrap_or_default()
-                            .iter()
-                            .filter_map(|k| k[0].as_str().map(str::to_string)),
-                    );
-                }
-            }
-        }
-        out
-    })
 }
 
 fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), String> {
@@ -1059,14 +1034,9 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 Ok(())
             }
         }
-        "owner_kinds_to_owner" => {
-            let to = c.unwrapped["ask"]["to"].as_str().unwrap_or_default();
-            let only = owner_only();
-            match strs(v).iter().find(|k| only.contains(*k)) {
-                Some(k) if to != "owner" => fail(format!("a point of the kind {k} is asked of the owner only")),
-                _ => Ok(()),
-            }
-        }
+        // A flow version stored before an engineer asked the architect what only the owner decides names this check;
+        // no kind is asked of the owner alone now.
+        "owner_kinds_to_owner" => Ok(()),
         // A flow version stored before this check was named so calls it `card_disagreement_redirects`.
         "design_card_disagreement_redirects" | "card_disagreement_redirects" => {
             let disagreed = c.interjections.iter().any(|i| {

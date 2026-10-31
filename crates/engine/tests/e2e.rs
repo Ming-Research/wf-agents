@@ -8914,28 +8914,33 @@ fn two_works(name: &str) -> (Setup, Engine, Rc<RefCell<Vec<String>>>) {
     (s, e, said)
 }
 
-// A work that asked the owner waits for the answer holding no slot, and another work starts in the slot it left; once
-// the answer came, the first goes on only when a slot is free again, so that the machine never runs more works than its
-// slots, and then before any new work starts on a ready item; meanwhile the engine names it as waiting for a free slot,
-// which the owner's page shows in place of ready. In the sixth trial a work answered went on at once, and the slots read
-// three used of two.
+// A work that waits for the owner's answer holds no slot, and another work starts in the slot it left; once the answer
+// came, the first goes on only when a slot is free again, so that the machine never runs more works than its slots, and
+// then before any new work starts on a ready item; meanwhile the engine names it as waiting for a free slot, which the
+// owner's page shows in place of ready. In the sixth trial a work answered went on at once, and the slots read three
+// used of two.
 #[test]
 fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
     let s = setup("back-to-a-slot");
     let mut agents = scripts();
-    // The first work to research asks the owner; the first to weigh whether the problem stands, the second work, too.
+    // The first work to research asks the advisor; the first to weigh whether the problem stands, the second work, too.
+    // With the advisor's reply each chooses to redesign while still researching, which the engine hands to the owner.
     for cell in ["R1", "R2"] {
         agents.insert(
             cell,
             Box::new(|_: &Request, n: usize| {
                 if n == 1 {
-                    an_ask("owner")
+                    an_ask("advisor")
                 } else {
                     (Vec::new(), Vec::new())
                 }
             }),
         );
     }
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "redesign")], Vec::new())),
+    );
     let (mut e, said, first) = start(&s, agents);
     let queue = |e: &mut Engine, title: &str, position: f64| -> i64 {
         e.db.write(Actor::Owner, |tx| {
@@ -9381,8 +9386,7 @@ type Picked = (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>);
 fn an_ask(to: &'static str) -> Picked {
     let kind = match to {
         "advisor" => "unsure",
-        "architect" => "split",
-        _ => "permission",
+        _ => "split",
     };
     (
         vec![
@@ -9394,12 +9398,11 @@ fn an_ask(to: &'static str) -> Picked {
     )
 }
 
-/// What a round hands in, at random: an ask of the advisor, the architect or the owner, or its own answer.
+/// What a round hands in, at random: an ask of the advisor or the architect, or its own answer.
 fn random_ask(dice: &Dice) -> Picked {
     match dice.roll(10) {
         0 | 1 => an_ask("advisor"),
-        2 | 3 => an_ask("architect"),
-        4 => an_ask("owner"),
+        2..=4 => an_ask("architect"),
         _ => (Vec::new(), Vec::new()),
     }
 }
@@ -9435,9 +9438,8 @@ fn open_asks(e: &Engine) -> Vec<i64> {
 }
 
 /// One random sequence of events over three items of project p, beside project q, related to it: steps of the engine,
-/// whose rounds ask the advisor, the architect and the owner, hand questions on (the advisor to the architect or the
-/// owner, an architect to the owner or to the other project's architect, the engineer to the owner after waiting
-/// long), and reply, sometimes with an item to wait for, of either project; the owner's answers, which now and then
+/// whose rounds ask the advisor and the architect, hand questions on (the advisor to the architect, an architect to the
+/// owner or to the other project's architect), and reply, sometimes with an item to wait for, of either project; the owner's answers, which now and then
 /// hand the question back to the architect; the architects' hours, past their limit; interjections; cancels; and
 /// takeovers by a new flow version. After each, every chain of blockers closes.
 fn random_events(seed: u64, events: usize) {
@@ -9482,13 +9484,12 @@ fn random_events(seed: u64, events: usize) {
         let d = dice.clone();
         agents.insert(cell, Box::new(move |_: &Request, _: usize| random_ask(&d)));
     }
-    // The advisor answers, or hands the question to the architect or the owner.
+    // The advisor answers, or hands the question to the architect.
     let d = dice.clone();
     agents.insert(
         "A1",
         Box::new(move |_: &Request, _: usize| match d.roll(4) {
-            0 => an_ask("architect"),
-            1 => an_ask("owner"),
+            0 | 1 => an_ask("architect"),
             _ => (Vec::new(), Vec::new()),
         }),
     );
@@ -9583,7 +9584,7 @@ fn random_events(seed: u64, events: usize) {
     agents.insert(
         "A7",
         Box::new(move |_: &Request, _: usize| {
-            let v = ["wait_on", "to_owner", "withdraw"][d.roll(3) as usize];
+            let v = ["wait_on", "withdraw"][d.roll(2) as usize];
             (vec![("outcome.longer", v)], Vec::new())
         }),
     );
