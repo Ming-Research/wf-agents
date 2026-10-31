@@ -59,7 +59,6 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
 
 const architectWork = (id: number, extra: Partial<WorkSummary> = {}, handling: ArchitectWork['handling'] = null): ArchitectWork => ({
   work: work(id, extra),
-  started_for: [],
   handled: 0,
   handling,
 });

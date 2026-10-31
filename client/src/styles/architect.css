@@ -37,10 +37,6 @@
   overflow: auto;
 }
 
-.arch-works-list td.clip {
-  max-width: 260px;
-}
-
 .arch-works-actions {
   display: flex;
   justify-content: flex-end;

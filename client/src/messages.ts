@@ -1323,11 +1323,10 @@ const messages = {
   arch_pause_hint:
     'The architect stops at the end of the round it is in and stays paused, whatever the global state, until you start it.',
   arch_work_shown: 'Rounds from {at}',
-  arch_works_hint: 'When the architect worked, what for, what it handled and what it cost: the rounds of each show on the chart',
+  arch_works_hint: 'When the architect worked, what it handled and what it cost: the rounds of each show on the chart',
   arch_works: 'When it worked ({n})',
   arch_work_going: 'going on',
-  arch_col_started_for: 'From',
-  arch_col_why: 'For',
+  arch_col_from: 'From',
   arch_col_handled: 'Handled',
   hold_architect: 'No new works start: the architect holds them',
   hold_set_straight: 'No new works start until the plan fixes are done',

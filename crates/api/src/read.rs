@@ -18,7 +18,7 @@ use crate::{
     Architect, ArchitectWork, AskKind, DesignCard, DispatchHold, FlowVersion, FlowView, Handled, HandledAction,
     InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
     LinkedItem, Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, OwnerAsk, OwnerMessage,
-    PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Queued, Replacement, RoundConditional,
+    PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional,
     RoundDetail, RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag,
     TokenCosts, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
@@ -1819,12 +1819,10 @@ pub fn architect(
         conn,
         "SELECT handled_work, count(*) FROM architect_matters WHERE handled_work IS NOT NULL GROUP BY handled_work",
     )?;
-    let mut started = started_for(conn, project)?;
     let mut out_works = Vec::new();
     for (_, s) in architect_works {
         let handling = if over(&s) { None } else { handling(conn, s.id)? };
         out_works.push(ArchitectWork {
-            started_for: started.remove(&s.id).unwrap_or_default(),
             handled: handled.get(&s.id).copied().unwrap_or(0),
             handling,
             work: s,
@@ -1891,52 +1889,6 @@ pub(crate) fn handling(conn: &Connection, work: i64) -> Result<Option<i64>> {
         |r| r.get(0),
     )?;
     Ok((open > 0).then_some(m))
-}
-
-/// What each work of a project's architect was given of the queue at its first round, by work: the matters it started
-/// for, a place to set straight with the place, read from its matter, as the queue gives it.
-fn started_for(conn: &Connection, project: &str) -> Result<HashMap<i64, Vec<Queued>>> {
-    let mut st = conn.prepare(
-        "SELECT r.work, r.input FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.graph = 'architect' AND w.project = ?1 AND r.n = 1",
-    )?;
-    let mut fix_of = conn
-        .prepare("SELECT json_extract(body, '$.fix') FROM architect_matters WHERE id = ?1 AND kind = 'set_straight'")?;
-    let rows = st.query_map([project], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
-    let mut out = HashMap::new();
-    for row in rows {
-        let (work, input) = row?;
-        let Some(input) = json(Some(input)) else { continue };
-        let input = db::put_back(conn, &input);
-        let mut queued: Vec<Queued> = input["inputs"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|x| {
-                x["from"]
-                    .as_array()
-                    .is_some_and(|f| f.iter().any(|s| s["db"] == "architect_queue"))
-            })
-            .filter_map(|x| x["value"].as_array())
-            .flatten()
-            .filter_map(|m| {
-                Some(Queued {
-                    matter: m["matter"].as_i64()?,
-                    kind: m["kind"].as_str()?.to_string(),
-                    detail: m["detail"].as_str().map(str::to_string),
-                    what: m["what"].as_str().unwrap_or_default().to_string(),
-                    item: m["item"].as_i64(),
-                    fix: None,
-                })
-            })
-            .collect();
-        for q in queued.iter_mut().filter(|q| q.kind == "set_straight") {
-            let fix: Option<Option<String>> = fix_of.query_row([q.matter], |r| r.get(0)).optional()?;
-            q.fix = json(fix.flatten());
-        }
-        out.insert(work, queued);
-    }
-    Ok(out)
 }
 
 /// The cells on a matter's path, whose rounds do what becomes of a matter.
@@ -4027,42 +3979,6 @@ mod tests {
         );
     }
 
-    // What an architect's work started for says a place to set straight with the place, read from its matter, as the
-    // queue does; every other matter without one.
-    #[test]
-    fn what_a_work_started_for_says_the_place_to_set_straight() {
-        let mut s = architect_setup("started_for_fix");
-        let place = json!({ "where": "#1", "wrong": "It waits for #2.", "steps": ["Drop the link."] });
-        let body = json!({ "fix": place }).to_string();
-        let input = json!({ "inputs": [{ "from": [{ "db": "architect_queue", "by": "project" }], "value": [
-            { "project": "p", "matter": 9, "kind": "set_straight", "detail": "dependencies",
-              "what": "To set straight, #1: Drop the link" },
-            { "project": "p", "matter": 2, "kind": "owner_words", "detail": "said", "what": "The owner said" },
-        ] }], "given": {} })
-        .to_string();
-        s.db.write(Actor::Engine, |tx| {
-            let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
-            run(
-                "INSERT INTO architect_matters (id, project, kind, detail, what, body, at)
-                 VALUES (9, 'p', 'set_straight', 'dependencies', 'To set straight, #1: Drop the link', ?1, 240)",
-                &[&body],
-            )?;
-            run(
-                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'Q0', 'p')",
-                &[],
-            )?;
-            run(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (5, 1, 'S1', ?1, 'c', 600)",
-                &[&input],
-            )?;
-            Ok(())
-        })
-        .unwrap();
-        let started = started_for(s.db.conn(), "p").unwrap();
-        let fixes: Vec<(i64, Option<Value>)> = started[&5].iter().map(|q| (q.matter, q.fix.clone())).collect();
-        assert_eq!(fixes, [(9, Some(place)), (2, None)]);
-    }
-
     // The works list leaves the architect's works out; an architect's work reads as a work on no item.
     #[test]
     fn the_architect_works_are_its_tab_s_not_the_works_list_s() {
@@ -4076,9 +3992,9 @@ mod tests {
         assert!(r.limits.is_empty());
     }
 
-    // A project's tab: its works newest first, with what each started for and what it handled; its queue, then what an
-    // ask holds; its holds; its asks; its log newest first; the item changes made; the policy being set; where things
-    // stand. Another project's are not in it.
+    // A project's tab: its works newest first, with what each handled; its queue, then what an ask holds; its holds; its
+    // asks; its log newest first; the item changes made; the policy being set; where things stand. Another project's are
+    // not in it.
     #[test]
     fn the_architect_says_its_works_queue_log_policy_and_understanding() {
         let s = architect_setup("architect");
@@ -4091,18 +4007,6 @@ mod tests {
             (WorkState::Asking, &Some(Waits::Answer { ask: 1 }))
         );
         assert_eq!(last.work.state, WorkState::Done);
-        assert_eq!(
-            last.started_for,
-            [Queued {
-                matter: 1,
-                kind: "engineer_question".into(),
-                detail: Some("split".into()),
-                what: "Split #1?".into(),
-                item: Some(1),
-                fix: None,
-            }]
-        );
-        assert!(now.started_for.is_empty());
         assert_eq!((last.handled, now.handled), (1, 0));
         assert_eq!((last.handling, now.handling), (None, None));
 

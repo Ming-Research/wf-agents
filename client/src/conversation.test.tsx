@@ -822,7 +822,7 @@ describe('the marks of the list of conversations', () => {
   const architect = (works: WorkSummary[], extra: Partial<Architect> = {}): Architect => ({
     project: 'p',
     projects: ['p'],
-    works: works.map((w) => ({ work: w, started_for: [], handled: 0, handling: null })),
+    works: works.map((w) => ({ work: w, handled: 0, handling: null })),
     queue: [],
     holds: [],
     asks: [],

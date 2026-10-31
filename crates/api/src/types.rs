@@ -1435,26 +1435,11 @@ pub struct ReadTo {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ArchitectWork {
     pub work: WorkSummary,
-    /// What it started for: the matters its queue held when it started, as its first round was given them.
-    pub started_for: Vec<Queued>,
     /// How many matters it handled.
     pub handled: i64,
     /// The matter it handles now: the one its latest pick chose, until that matter is handled or held by an ask; none
     /// when it handles none, or is over.
     pub handling: Option<i64>,
-}
-
-/// A matter as an architect's queue gave it to a work of the architect.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct Queued {
-    pub matter: i64,
-    pub kind: String,
-    pub detail: Option<String>,
-    pub what: String,
-    pub item: Option<i64>,
-    /// For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
-    /// steps to set it straight); none for a matter of another kind.
-    pub fix: Option<Value>,
 }
 
 /// A matter for an architect that it has not handled.

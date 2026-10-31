@@ -5,8 +5,8 @@
 // matter it handles and at which cell, or that it is idle, paused or held back), with no word of its works, which to
 // the owner are only how it is run; how many matters are left, its notebook and its policy, each leading to its tab of
 // the panel beside the one-to-one, where they are; what stops the project's new works from starting; and the switch
-// between the stretches it worked in (when each began, what it was for, how many matters it handled, its rounds with
-// those sent back or failed, what it cost), whose rounds the chart shows. Under the line, its graph fills the window
+// between the stretches it worked in (when each began, how many matters it handled, its rounds with those sent back or
+// failed, what it cost), whose rounds the chart shows. Under the line, its graph fills the window
 // with the stretch shown placed on it as a work is, and the window floating over the chart's right side holds the
 // architect's panel, with what is open on the chart split under it, as on a work's page. The panel's tabs, on one line:
 // its rounds; the item changes its batches made; and its usage over a span of time the owner picks. Each part names the
@@ -28,7 +28,7 @@ import type {
   WorkDetail,
   WorkSummary,
 } from '../api';
-import { architectState, holdWords, matterKind, matterSentence, overWork, shownWork } from '../architect';
+import { architectState, holdWords, matterSentence, overWork, shownWork } from '../architect';
 import { course, Loaded, StateChip } from '../components';
 import { held, runningWords } from '../course';
 import { cost, time } from '../format';
@@ -192,9 +192,8 @@ export function Line({ a, shown, current, pop, setPop }: {
   );
 }
 
-/// The stretches the architect worked in, newest first: when each began, what it was for, how many matters it
-/// handled, its rounds and cost; a click shows that stretch's rounds on the chart, and the one shown by default follows
-/// the one going on again.
+/// The stretches the architect worked in, newest first: when each began, how many matters it handled, its rounds and
+/// cost; a click shows that stretch's rounds on the chart, and the one shown by default follows the one going on again.
 function WorkList({ a, shown, tab, project, onClose }: {
   a: ArchitectRead;
   shown: number | null;
@@ -213,45 +212,37 @@ function WorkList({ a, shown, tab, project, onClose }: {
         <table className="list">
           <thead>
             <tr>
-              <th>{t('arch_col_started_for')}</th>
-              <th>{t('arch_col_why')}</th>
+              <th>{t('arch_col_from')}</th>
               <th className="num">{t('arch_col_handled')}</th>
               <th className="num">{t('col_rounds')}</th>
               <th className="num">{t('col_cost')}</th>
             </tr>
           </thead>
           <tbody>
-            {a.works.map((x) => {
-              const why = [...new Set(x.started_for.map((m) => matterKind(m.kind, null)))].join(', ');
-              const whyAll = x.started_for.map((m) => `${matterKind(m.kind, m.detail)}: ${matterSentence(m)}`);
-              return (
-                <tr
-                  key={x.work.id}
-                  className={`clickable${x.work.id === shown ? ' selected' : ''}`}
-                  onClick={() => {
-                    navigate(architectHref({ project, work: x.work.id === followed ? null : x.work.id, tab }));
-                    onClose();
-                  }}
-                >
-                  <td className="nowrap">
-                    {time(x.work.started_at)}{' '}
-                    {!overWork(x.work) ? <Label variant="accent">{t('arch_work_going')}</Label> : null}
-                  </td>
-                  <td className="clip" title={whyAll.join('\n')}>
-                    {why !== '' ? why : '–'}
-                  </td>
-                  <td className="num">{x.handled}</td>
-                  <td className="num">
-                    {x.work.rounds}
-                    <RoundsMarks
-                      w={x.work}
-                      to={(only) => architectHref({ project, work: x.work.id === followed ? null : x.work.id, only })}
-                    />
-                  </td>
-                  <td className="num">{cost(x.work.cost_usd)}</td>
-                </tr>
-              );
-            })}
+            {a.works.map((x) => (
+              <tr
+                key={x.work.id}
+                className={`clickable${x.work.id === shown ? ' selected' : ''}`}
+                onClick={() => {
+                  navigate(architectHref({ project, work: x.work.id === followed ? null : x.work.id, tab }));
+                  onClose();
+                }}
+              >
+                <td className="nowrap">
+                  {time(x.work.started_at)}{' '}
+                  {!overWork(x.work) ? <Label variant="accent">{t('arch_work_going')}</Label> : null}
+                </td>
+                <td className="num">{x.handled}</td>
+                <td className="num">
+                  {x.work.rounds}
+                  <RoundsMarks
+                    w={x.work}
+                    to={(only) => architectHref({ project, work: x.work.id === followed ? null : x.work.id, only })}
+                  />
+                </td>
+                <td className="num">{cost(x.work.cost_usd)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

@@ -1593,10 +1593,6 @@ constitution: NamedText | null, };
  */
 export type ArchitectWork = { work: WorkSummary, 
 /**
- * What it started for: the matters its queue held when it started, as its first round was given them.
- */
-started_for: Array<Queued>, 
-/**
  * How many matters it handled.
  */
 handled: number, 
@@ -1605,16 +1601,6 @@ handled: number,
  * when it handles none, or is over.
  */
 handling: number | null, };
-
-/**
- * A matter as an architect's queue gave it to a work of the architect.
- */
-export type Queued = { matter: number, kind: string, detail: string | null, what: string, item: number | null, 
-/**
- * For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
- * steps to set it straight); none for a matter of another kind.
- */
-fix: JsonValue | null, };
 
 /**
  * A matter for an architect that it has not handled.

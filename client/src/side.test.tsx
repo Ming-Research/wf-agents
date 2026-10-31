@@ -82,7 +82,7 @@ const matter = (id: number, extra: Partial<Matter> = {}): Matter => ({
 
 const version = (text: string, round: number, cell: string): NotebookVersion => ({ text, work: 9, round, cell, at: round * 10 });
 
-const going: ArchitectWork = { work: work(9), started_for: [], handled: 0, handling: 12 };
+const going: ArchitectWork = { work: work(9), handled: 0, handling: 12 };
 
 const architect: Architect = {
   project: 'p',
