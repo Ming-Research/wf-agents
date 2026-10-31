@@ -175,7 +175,8 @@
 }
 
 /* The divider between the page's panel and what is open, which drags its share of the window floating over the
-   chart. */
+   chart, and the edge of what is pinned for the owner in a conversation that faces the stream, which drags its
+   height: a bottom edge, or a top edge for what is pinned over the box. */
 .height-grip {
   position: absolute;
   left: 0;
@@ -185,6 +186,11 @@
   height: var(--base-size-8);
   cursor: row-resize;
   touch-action: none;
+}
+
+.height-grip-top {
+  top: calc(-1 * var(--base-size-4));
+  bottom: auto;
 }
 
 .height-grip::after {

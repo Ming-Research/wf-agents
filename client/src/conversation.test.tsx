@@ -257,8 +257,8 @@ describe('an ask in its conversation', () => {
 
   it('is answered where it is pinned: its options as buttons, none picked, then a small box and Answer', () => {
     const { inside, after } = bubble(row(band(detail([asked(ask(4, choice))])), 'data-ask="4"'));
-    // Nothing after the bubble in its row but the row's end and the band's.
-    expect(after).toMatch(/^(<\/div>)+<\/section>$/);
+    // Nothing after the bubble in its row but the row's end, the end of what scrolls, and the band's grip.
+    expect(after).toMatch(/^(<\/div>)+<div class="height-grip height-grip-bottom"[^>]*><\/div><\/section>$/);
     const answer = inside.slice(inside.indexOf('class="talk-answer"'));
     expect(buttons(answer)).toEqual(['One table', 'Two tables', ADD, 'Answer (disabled)']);
     expect(answer).toContain('<textarea');
@@ -1419,6 +1419,84 @@ describe("the architect's pause of a work in its group", () => {
     expect(html).toContain(`>${t('work_start')}<`);
     expect(renderToStaticMarkup(<ArchitectPause w={paused('owner')} />)).toBe('');
     expect(renderToStaticMarkup(<ArchitectPause w={null} />)).toBe('');
+  });
+});
+
+// What is pinned for the owner has a clear edge at every size: a firm line where the stream begins, the edge the owner
+// drags to size it, kept in the browser; as tall as what it holds up to that height, or its own where none is kept,
+// never past most of the conversation; what it holds scrolling inside it, a fade where there is more.
+describe('the band pinned for the owner', () => {
+  const css = messagesCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = (selector: string): string =>
+    [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+      .filter((m) => m[1].split(',').map((x) => x.trim()).includes(selector))
+      .map((m) => m[2])
+      .join('\n');
+  const card = (): DesignCard => ({
+    id: 15,
+    round: 63,
+    work: 5,
+    item: 3,
+    status: 'open',
+    body: [{ after: 'Keep one table.' }],
+    rulings: [],
+    replaced_by: null,
+    replaced: null,
+    cell: null,
+    title: null,
+    at: null,
+    replaces: null,
+    changed: null,
+    ruled_before: null,
+  });
+  const top = () => band({ ...detail([]), design_cards: [card()] });
+
+  it('holds what is pinned in a part that scrolls on its own, its edge facing the stream the grip that drags its height', () => {
+    const html = top();
+    expect(html).toMatch(
+      /^<section class="talk-pins talk-pins-top" aria-label="Waits for you"><div class="talk-pins-scroll"><h3 class="talk-pins-title">/,
+    );
+    expect(html).toContain('Design card 15');
+    // The grip is the band's bottom edge, after what scrolls, as the page's other splits drag a height.
+    const grip = html.slice(html.lastIndexOf('<div class="height-grip'));
+    expect(grip).toMatch(
+      /^<div class="height-grip height-grip-bottom" role="separator" aria-orientation="horizontal" aria-label="Drag to make what waits for you taller or shorter; double-click for its own height"/,
+    );
+    // Over the box, the edge facing the stream is its top.
+    const pinned = entry('ask', { id: 6, ask: 6, sender: 'architect', work: 9, round: 3, text: 'Which first?', waiting: true });
+    const bottom = renderToStaticMarkup(
+      <AnswersHere.Provider value={true}>
+        <Questions pinned={[pinned]} open={6} onOpen={() => undefined} project="p" draft={null} />
+      </AnswersHere.Provider>,
+    );
+    expect(bottom).toContain('<div class="height-grip height-grip-top" role="separator" aria-orientation="horizontal"');
+  });
+
+  it('takes the height the owner dragged it to, as the browser keeps it, as the most it grows to', () => {
+    const kept = new Map([['wf-agents.pins-top-height', '420']]);
+    vi.stubGlobal('localStorage', { getItem: (k: string) => kept.get(k) ?? null, setItem: () => undefined });
+    try {
+      expect(top()).toMatch(/^<section class="talk-pins talk-pins-top" aria-label="Waits for you" style="--pins-height:420px">/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    // None kept: its own.
+    expect(top()).toMatch(/^<section class="talk-pins talk-pins-top" aria-label="Waits for you">/);
+  });
+
+  it('ends in a firm line where the stream begins, as tall as it holds up to its height, never past most of it', () => {
+    expect(rule('.talk-pins-top')).toContain('border-bottom: var(--borderWidth-thick) solid var(--borderColor-default)');
+    expect(rule('.talk-pins-bottom')).toContain('border-top: var(--borderWidth-thick) solid var(--borderColor-default)');
+    expect(rule('.talk-pins')).toContain('max-height: min(85%, var(--pins-height, 45%))');
+    // It never shrinks under the stream nor runs into it: the stream takes what is left.
+    expect(rule('.talk-pins')).toContain('flex: none');
+    expect(rule('.talk-pins')).toContain('position: relative');
+    expect(rule('.talk-pins-scroll')).toContain('overflow-y: auto');
+    expect(rule('.talk-pins-scroll')).toContain('min-height: 0');
+    // The sign of more at the edge where there is more.
+    expect(rule('.talk-pins-fade-below')).toContain('bottom: 0');
+    expect(rule('.talk-pins-fade-above')).toContain('top: 0');
+    expect(rule('.talk-pins-fade')).toContain('pointer-events: none');
   });
 });
 

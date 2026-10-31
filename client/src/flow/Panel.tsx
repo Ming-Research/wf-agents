@@ -23,11 +23,11 @@ export function savedSize(key: string, min: number): number | null {
   }
 }
 
-/// The edge of a part of the page that drags its size: a left edge its width, from its right, and a bottom edge its
-/// height, from its top. The size is kept in this browser when the drag ends; a double click gives the part its own
-/// size again.
+/// The edge of a part of the page that drags its size: a left edge its width, from its right, a bottom edge its height,
+/// from its top, and a top edge its height, from its bottom. The size dragged to is kept in this browser when the drag
+/// ends; a double click gives the part its own size again.
 export function Grip({ edge, min, storage, label, onSize }: {
-  edge: 'left' | 'right' | 'bottom';
+  edge: 'left' | 'right' | 'bottom' | 'top';
   min: number;
   /// The key the size is kept under.
   storage: string;
@@ -42,21 +42,29 @@ export function Grip({ edge, min, storage, label, onSize }: {
     const right = box?.right ?? window.innerWidth;
     const left = box?.left ?? 0;
     const top = box?.top ?? 0;
+    const bottom = box?.bottom ?? window.innerHeight;
     el.setPointerCapture(e.pointerId);
-    const move = (ev: PointerEvent) =>
-      onSize(
-        Math.max(
-          min,
-          Math.round(edge === 'left' ? right - ev.clientX : edge === 'right' ? ev.clientX - left : ev.clientY - top),
-        ),
-      );
+    // The size last dragged to, which a part as tall as what it holds, up to that size, may not have taken.
+    let dragged: number | null = null;
+    const move = (ev: PointerEvent) => {
+      const at =
+        edge === 'left'
+          ? right - ev.clientX
+          : edge === 'right'
+            ? ev.clientX - left
+            : edge === 'bottom'
+              ? ev.clientY - top
+              : bottom - ev.clientY;
+      dragged = Math.max(min, Math.round(at));
+      onSize(dragged);
+    };
     const up = () => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
       try {
         const r = el.parentElement?.getBoundingClientRect();
-        const size = edge === 'bottom' ? r?.height : r?.width;
+        const size = dragged ?? (edge === 'bottom' || edge === 'top' ? r?.height : r?.width);
         if (size) localStorage.setItem(storage, String(Math.round(size)));
       } catch {
         // The size is kept only where the browser lets it be.
@@ -76,9 +84,9 @@ export function Grip({ edge, min, storage, label, onSize }: {
   };
   return (
     <div
-      className={edge === 'bottom' ? 'height-grip' : `width-grip width-grip-${edge}`}
+      className={edge === 'bottom' || edge === 'top' ? `height-grip height-grip-${edge}` : `width-grip width-grip-${edge}`}
       role="separator"
-      aria-orientation={edge === 'bottom' ? 'horizontal' : 'vertical'}
+      aria-orientation={edge === 'bottom' || edge === 'top' ? 'horizontal' : 'vertical'}
       aria-label={label}
       title={label}
       onPointerDown={grip}

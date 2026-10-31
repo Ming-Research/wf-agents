@@ -38,6 +38,7 @@ import {
   Timeline,
 } from '@primer/react';
 import {
+  type CSSProperties,
   type Dispatch,
   type MouseEvent,
   type ReactNode,
@@ -109,6 +110,7 @@ import {
   wordsStateText,
 } from '../conversation';
 import { useActions } from '../course';
+import { Grip, savedSize } from '../flow/Panel';
 import { cost, time } from '../format';
 import { postJson } from '../http';
 import { imagesSent, type PendingImage, saysSomething } from '../images';
@@ -771,18 +773,67 @@ function Entry({ e, c, w, architect, replies, forwarding, draft, pinned, asks }:
   );
 }
 
+/// The keys the height the owner dragged a band to is kept under, the band at the top and the one over the box, and
+/// the least it drags to: its heading and a line of what it holds.
+const PINS_KEY = { top: 'wf-agents.pins-top-height', bottom: 'wf-agents.pins-bottom-height' } as const;
+const PINS_MIN = 96;
+
+/// Whether a part that scrolls has more above what shows and more below it.
+type More = { above: boolean; below: boolean };
+
 /// What is pinned for the owner, in one look wherever it is: a band in the tint of what waits for the owner, headed by
-/// a bell and what it is in that colour, with no line between it and the stream; at the top of a work's group, the
-/// design card its work waits on, and at the bottom of the one-to-one with an architect, over the box, the questions
-/// the architect pinned.
+/// a bell and what it is in that colour, ending where the stream begins in a firm line across the conversation, the
+/// edge the owner drags to make it taller or shorter (`Grip`, kept in this browser, a double click giving it its own
+/// height again); as tall as what it holds up to that height, or up to its own where none is kept, so that a card
+/// opened grows it and everything folded shrinks it back, and never past most of the conversation; past that it
+/// scrolls inside, a fade at its edge saying there is more there. At the top of a work's group, the design card its
+/// work waits on and the asks that wait, and at the bottom of the one-to-one with an architect, over the box, the
+/// questions the architect pinned, its edge then at its top.
 function Pins({ at, children }: { at: 'top' | 'bottom'; children: ReactNode }) {
+  const [height, setHeight] = useState<number | null>(() => savedSize(PINS_KEY[at], PINS_MIN));
+  const scroll = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState<More>({ above: false, below: false });
+  // Whether there is more than shows, again as it scrolls and as what it holds changes size (a card opened or folded).
+  useEffect(() => {
+    const el = scroll.current;
+    if (el === null) return;
+    const check = () => {
+      const above = el.scrollTop > 1;
+      const below = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+      setMore((m) => (m.above === above && m.below === below ? m : { above, below }));
+    };
+    check();
+    el.addEventListener('scroll', check, { passive: true });
+    const sizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(check);
+    sizes?.observe(el);
+    for (const x of el.children) sizes?.observe(x);
+    return () => {
+      el.removeEventListener('scroll', check);
+      sizes?.disconnect();
+    };
+  });
   return (
-    <section className={`talk-pins talk-pins-${at}`} aria-label={t('conv_waits_for_you')}>
-      <h3 className="talk-pins-title">
-        <BellIcon />
-        {t('conv_waits_for_you')}
-      </h3>
-      {children}
+    <section
+      className={`talk-pins talk-pins-${at}`}
+      aria-label={t('conv_waits_for_you')}
+      style={height !== null ? ({ '--pins-height': `${height}px` } as CSSProperties) : undefined}
+    >
+      <div ref={scroll} className="talk-pins-scroll">
+        <h3 className="talk-pins-title">
+          <BellIcon />
+          {t('conv_waits_for_you')}
+        </h3>
+        {children}
+      </div>
+      {more.above ? <div className="talk-pins-fade talk-pins-fade-above" aria-hidden="true" /> : null}
+      {more.below ? <div className="talk-pins-fade talk-pins-fade-below" aria-hidden="true" /> : null}
+      <Grip
+        edge={at === 'top' ? 'bottom' : 'top'}
+        min={PINS_MIN}
+        storage={PINS_KEY[at]}
+        label={t('conv_pins_grip')}
+        onSize={setHeight}
+      />
     </section>
   );
 }

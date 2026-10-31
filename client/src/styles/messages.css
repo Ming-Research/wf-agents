@@ -166,22 +166,62 @@
   border-radius: var(--borderRadius-medium);
 }
 
-/* What is pinned for the owner, in one look wherever it is, a line between it and the stream: under the head the
-   design card a work waits on, with its verdicts to send; over the box the questions the architect pinned. */
-/* Each thing pinned is as tall as what it holds, the band scrolling past 45% of the conversation, rather than every
-   row squeezed into the band's height, which left a folded card two pixels tall under an ask in full. */
+/* What is pinned for the owner, in one look wherever it is: under the head the design card a work waits on, with its
+   verdicts to send, and the asks that wait; over the box the questions the architect pinned. The band is as tall as
+   what it holds up to the height the owner dragged it to (--pins-height, kept in the browser), or 45% of the
+   conversation where none is kept, and never past 85% of it; it ends where the stream begins in a firm line across the
+   conversation, which is the edge that drags its height (.height-grip), so that its tint and the stream's bubbles
+   never run together, and the stream starts under it. */
 .talk-pins {
-  display: grid;
-  grid-auto-rows: max-content;
-  gap: var(--base-size-12);
-  max-height: 45%;
-  overflow-y: auto;
-  padding: var(--base-size-12) var(--base-size-16);
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  max-height: min(85%, var(--pins-height, 45%));
   background: var(--bgColor-attention-muted);
 }
 
+.talk-pins-top {
+  border-bottom: var(--borderWidth-thick) solid var(--borderColor-default);
+}
+
 .talk-pins-bottom {
-  flex: none;
+  border-top: var(--borderWidth-thick) solid var(--borderColor-default);
+}
+
+/* What the band holds scrolls inside it, each thing as tall as what it holds, rather than every row squeezed into the
+   band's height, which left a folded card two pixels tall under an ask in full. */
+.talk-pins-scroll {
+  display: grid;
+  grid-auto-rows: max-content;
+  gap: var(--base-size-12);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--base-size-12) var(--base-size-16);
+}
+
+/* The sign that the band holds more than shows, at the edge where it does: a fade from what shows into the band's
+   tint over the page, the band's own look at its edge. */
+.talk-pins-fade {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: var(--base-size-32);
+  pointer-events: none;
+}
+
+.talk-pins-fade-below {
+  bottom: 0;
+  background:
+    linear-gradient(transparent, var(--bgColor-attention-muted)),
+    linear-gradient(transparent, var(--bgColor-default));
+}
+
+.talk-pins-fade-above {
+  top: 0;
+  background:
+    linear-gradient(var(--bgColor-attention-muted), transparent),
+    linear-gradient(var(--bgColor-default), transparent);
 }
 
 /* Its heading says it waits for the owner in the colour of what waits, with the bell before it. */

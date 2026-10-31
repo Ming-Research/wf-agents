@@ -243,6 +243,7 @@ const messages = {
   conv_waits_n: '{n} things here wait for you',
   conv_waits_n_one: '1 thing here waits for you',
   conv_waits_for_you: 'Waits for you',
+  conv_pins_grip: 'Drag to make what waits for you taller or shorter; double-click for its own height',
   conv_none: 'Nothing said here yet.',
   conv_pending: 'not taken up yet',
   conv_card: 'Design card {id} was handed in, for you to rule on.',
