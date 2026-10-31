@@ -418,6 +418,40 @@ fn what_was_said_in_the_groups_is_a_matter_of_its_own() {
     }
 }
 
+// A matter that comes again and again is not queued while the facts it would carry are those of the last one the
+// architect handled, since it would only come to the same end, as the flow says of each: slots free, while the free
+// slots and the items ready are the same; what was said in the groups, only for what the owner said there; and the
+// check of the policy asked for with no why of its own, which only a new session's understanding asks for, while the
+// policy in force and the constitution are the same. Every other cell that asks for the check gives its why.
+#[test]
+fn a_matter_that_comes_again_is_not_queued_on_the_same_facts() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    let no_why: Vec<&str> = g
+        .cells
+        .iter()
+        .filter(|cell| {
+            cell.rows.iter().any(|r| {
+                r.actions
+                    .iter()
+                    .any(|d| d.name() == "queue_check_policy" && d.at().is_none())
+            })
+        })
+        .map(|cell| cell.id.as_str())
+        .collect();
+    assert_eq!(no_why, ["U1"]);
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let action = |name: &str| v["engine"]["actions"][name].as_str().unwrap().to_string();
+    assert!(
+        action("queue_slots_free").contains("or the free slots and the items ready are those the last handled held")
+    );
+    assert!(action("queue_group_talk").contains("what the engineers told the owner is not the architect's to read"));
+    assert!(action("queue_check_policy").contains(
+        "One asked for with no why of its own, as a new session's understanding asks for it, is not queued while the \
+         policy in force and the constitution are those the last check handled had."
+    ));
+}
+
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every
 // return shares, and each of those cells' own format refers to it there; a line none of whose cells holds it is not
 // given it. A part given once must be in two cells' own answers or more.

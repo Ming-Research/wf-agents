@@ -4896,6 +4896,99 @@ fn a_new_session_queues_the_check_and_the_plan_and_takes_them_after_the_wait() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// Project p, whose constitution is `now`, after a check of its policy that the owner's words asked for, handled where
+/// the policy it set took effect, in a work of its architect over before the test, which kept the hash of `kept` as
+/// the constitution it was queued under; when `newer`, another policy took effect after it. A new session then
+/// understands the project. Gives the matters at the head of the queue once it has.
+fn head_after_a_new_session(name: &str, kept: &str, now: &str, newer: bool) -> Vec<AtHead> {
+    let s = setup(name);
+    let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    write(
+        &s.data,
+        "projects/p.toml",
+        &project.replace(
+            "rules = [\"ground\"]\n",
+            "rules = [\"ground\"]\nconstitution = \"CONSTITUTION.md\"\n",
+        ),
+    );
+    git(&s.data, &["commit", "-q", "-am", "a constitution"]);
+    write(&s.root.join("checkout"), "CONSTITUTION.md", now);
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let v = e.flow_now;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, ended, project)
+             VALUES (NULL, ?1, 'architect', 'E2', 'over before the test', 'p')",
+            [v],
+        )?;
+        let arch = tx.last_insert_rowid();
+        let policy = json!({ "outcome": { "policy": { "direction": "Small steps first." } } });
+        record_round(tx, arch, 1, "P2", &policy, "written")?;
+        record_round(tx, arch, 2, "P12", &json!({}), "next")?;
+        let body = json!({
+            "asked_by": [{ "cell": "H8", "round": format!("R{arch}-1"), "why": "The owner asked for it." }],
+            "constitution": db::content_hash(kept),
+        });
+        tx.execute(
+            "INSERT INTO architect_matters (project, kind, what, body, at, handled_work, handled_round)
+             VALUES ('p', 'check_policy', 'Check whether the policy of p still holds', ?1, ?2, ?3, 2)",
+            params![body.to_string(), db::now(), arch],
+        )?;
+        if newer {
+            record_round(tx, arch, 3, "P2", &policy, "written")?;
+            record_round(tx, arch, 4, "P12", &json!({}), "next")?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    from_q(&mut e, "Look at the queue.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 20, |e| cells_of(e, arch)
+            .iter()
+            .any(|c| c.0 == "U1" && c.1.is_some())),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let head = at_head(&e);
+    let _ = std::fs::remove_dir_all(&s.root);
+    head
+}
+
+// A new session's check of the policy is not queued while the policy in force and the constitution are those the last
+// check handled had, since it would only come to the same end; its plan of what to do next is. Once the constitution
+// changed, or another policy took effect since, the check is queued as before.
+#[test]
+fn a_new_session_checks_the_policy_only_once_the_policy_or_the_constitution_changed() {
+    let constitution = "## Article 1. Small\n\nKeep it small.\n";
+    let understood = "A new session understood the project".to_string();
+    let last = (
+        "check_policy".to_string(),
+        true,
+        vec![("H8".to_string(), "The owner asked for it.".to_string())],
+    );
+    let check = (
+        "check_policy".to_string(),
+        false,
+        vec![("U1".to_string(), understood.clone())],
+    );
+    let plan = ("make_plan".to_string(), false, vec![("U1".to_string(), understood)]);
+    assert_eq!(
+        head_after_a_new_session("check-same", constitution, constitution, false),
+        [last.clone(), plan.clone()]
+    );
+    let changed = "## Article 1. Small\n\nKeep it smaller.\n";
+    assert_eq!(
+        head_after_a_new_session("check-constitution", constitution, changed, false),
+        [last.clone(), check.clone(), plan.clone()]
+    );
+    assert_eq!(
+        head_after_a_new_session("check-policy", constitution, constitution, true),
+        [last, check, plan]
+    );
+}
+
 // The check of the policy in force, in doubt, asks the owner whether to research a new policy, which parks the check at
 // it while the architect waits for the reply; the reply brings it back, the check no longer hands in that the policy
 // holds, and it goes on to write the new policy by the owner's stance. The engine asks the owner to approve the draft,
@@ -5122,11 +5215,12 @@ fn the_reply_to_the_owner_s_words_in_a_work_s_group_is_in_that_group() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// What was said in a work's group, other than to the architect, is a matter of its own: the engine queues it as the
-// architect waits to start, and it starts no work of the architect; a work something else started picks it, as it
-// came before that work, and its cell is given what was said.
+// What the owner said in a work's group, other than to the architect, is a matter of its own: the engine queues it as
+// the architect waits to start, and it starts no work of the architect; a work something else started picks it, as it
+// came before that work, and its cell is given what the owner said. What the engineer told the owner there is not the
+// architect's to read: it queues nothing, and the cell is not given it.
 #[test]
-fn what_was_said_in_the_groups_waits_for_a_work_and_its_cell_takes_it() {
+fn what_the_owner_said_in_the_groups_waits_for_a_work_and_its_cell_takes_it() {
     let s = setup("group-talk");
     let mut agents = scripts();
     picks_first(&s, &mut agents);
@@ -5134,19 +5228,46 @@ fn what_was_said_in_the_groups_waits_for_a_work_and_its_cell_takes_it() {
     quiet(&mut e);
     let item = an_item(&mut e);
     let v = e.flow_now;
+    let work =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, paused, paused_by) VALUES (?1, ?2, 'engineer', 'R1', 'later', 'owner')",
+                params![item, v],
+            )?;
+            let work = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, 1, 'R1', '{}', '{}', 'next', 'c', ?2, ?2)",
+                params![work, db::now()],
+            )?;
+            tx.execute(
+                "INSERT INTO owner_messages (work, round, text) VALUES (?1, 1, 'The parser needs a token of its own.')",
+                [work],
+            )?;
+            Ok(work)
+        })
+        .unwrap();
+    assert_eq!(e.step(None).unwrap().work, None);
+    let talks = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM architect_matters WHERE kind = 'group_talk'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(talks(&e), 0);
     e.db.write(Actor::Owner, |tx| {
         tx.execute(
-            "INSERT INTO works (item, flow_version, graph, at, paused, paused_by) VALUES (?1, ?2, 'engineer', 'R1', 'later', 'owner')",
-            params![item, v],
-        )?;
-        tx.execute(
             "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', 'Keep the parser small.')",
-            [tx.last_insert_rowid()],
+            [work],
         )?;
         Ok(())
     })
     .unwrap();
     assert_eq!(e.step(None).unwrap().work, None);
+    assert_eq!(talks(&e), 1);
     // In the queue, not handled; and no work of the architect started for it.
     let talk = |e: &Engine| -> (bool, bool) {
         e.db.conn()
@@ -5178,10 +5299,9 @@ fn what_was_said_in_the_groups_waits_for_a_work_and_its_cell_takes_it() {
     );
     let log = said.borrow().join("\n");
     assert_eq!(rows_at(&e, arch, "H12"), ["done"], "{log}");
-    assert!(
-        message_at(&e, arch, "H12", false).contains("Keep the parser small."),
-        "{log}"
-    );
+    let heard = message_at(&e, arch, "H12", false);
+    assert!(heard.contains("Keep the parser small."), "{log}");
+    assert!(!heard.contains("The parser needs a token of its own."), "{log}");
     assert!(
         !message_at(&e, arch, "Q1", false).contains("Keep the parser small."),
         "{log}"
@@ -6098,10 +6218,11 @@ fn the_architect_runs_at_the_level_the_installation_names() {
 }
 
 // While slots are free and fewer of a project's items are ready to start than slots are free, here none, the engine
-// queues a matter of slots free for its architect, which starts a work of it; once one is handled, no other comes for
-// an hour.
+// queues a matter of slots free for its architect, with the slots free and the items ready, which starts a work of it;
+// once one is handled, no other comes for an hour, nor after it while the slots free and the items ready are those the
+// last held, since the architect would only come to the same end.
 #[test]
-fn slots_free_with_nothing_ready_start_a_work_of_the_architect_at_most_once_an_hour() {
+fn slots_free_start_a_work_of_the_architect_once_an_hour_at_most_and_only_on_new_facts() {
     let s = setup("slots-free");
     let (mut e, said) = engine(&s, scripts());
     let started = e.step(None).unwrap();
@@ -6116,7 +6237,7 @@ fn slots_free_with_nothing_ready_start_a_work_of_the_architect_at_most_once_an_h
                 |r| r.get(0),
             )
             .unwrap();
-    assert_eq!(body, r#"{"free":1,"ready":0}"#);
+    assert_eq!(body, r#"{"free":1,"ready":[]}"#);
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
@@ -6138,6 +6259,18 @@ fn slots_free_with_nothing_ready_start_a_work_of_the_architect_at_most_once_an_h
         tx.execute(
             "UPDATE rounds SET ended_at = ended_at - 7200000
              WHERE (work, n) IN (SELECT handled_work, handled_round FROM architect_matters WHERE kind = 'slots_free')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    // Past the wait, with the same slot free and still nothing ready, none comes.
+    assert_eq!(e.step(None).unwrap().work, None);
+    assert_eq!(count(&e), 1);
+    // Once the facts differ from those the last held, here as if an item had been ready then, one comes.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE architect_matters SET body = '{\"free\":1,\"ready\":[7]}' WHERE kind = 'slots_free'",
             [],
         )?;
         Ok(())

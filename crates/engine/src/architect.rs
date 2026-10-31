@@ -153,8 +153,8 @@ pub const KINDS: [(&str, &str, &str); 11] = [
     (PLAN, "N1", "N1"),
 ];
 
-/// The kind of matter that holds what was said in the groups of a project's works since its architect last read it,
-/// other than to it: one accumulates for each project, its material worked out when it is handled, and, like flow
+/// The kind of matter that holds what the owner said in the groups of a project's works since its architect last read
+/// it, other than to it: one accumulates for each project, its material worked out when it is handled, and, like flow
 /// feedback, it starts no work of the architect and waits for one something else started, or one that runs queues it at
 /// the end of a batch.
 const GROUP_TALK: &str = "group_talk";
@@ -519,10 +519,11 @@ pub fn start(e: &mut Engine, project: &str, paused: bool) -> Result<Option<i64>,
 
 /// The action of the cell an item waits at to start (`S0`), `queue_slots_free`, which the engine takes for every
 /// project as it looks for an item to start, since no work stands at that cell: for each project with fewer items ready
-/// to start than slots free and no hold on its new starts, a matter of slots free, when none waits in its queue and
-/// the last was handled longer ago than the configuration's wait (`agents.slots_free_wait`) or never; the wait keeps
-/// one that found nothing to start from coming back at once. Nothing when the flow new works start on does not name
-/// the action.
+/// to start than slots free and no hold on its new starts, a matter of slots free, with how many slots are free and the
+/// items ready by number, when none waits in its queue and the last was handled longer ago than the configuration's
+/// wait (`agents.slots_free_wait`) or never, and those facts are not the ones the last held: the wait keeps one that
+/// found nothing to start from coming back at once, and the same free slots and ready items would only bring the
+/// architect to the same end. Nothing when the flow new works start on does not name the action.
 pub fn queue_due(e: &mut Engine) -> Result<(), String> {
     let now = e.flow_now;
     let named = e
@@ -543,7 +544,16 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
     let projects: Vec<String> = e.config.config.projects.keys().cloned().collect();
     for p in projects {
         let conn = e.db.conn();
-        let ready = count(conn, "SELECT count(*) FROM ready_items WHERE project = ?1", &[&p])?;
+        let ready_items: Vec<i64> = {
+            let mut st = conn
+                .prepare("SELECT item FROM ready_items WHERE project = ?1 ORDER BY item")
+                .map_err(sql)?;
+            st.query_map([&p], |r| r.get(0))
+                .map_err(sql)?
+                .collect::<Result<_, _>>()
+                .map_err(sql)?
+        };
+        let ready = i64::try_from(ready_items.len()).unwrap_or(i64::MAX);
         let held = count(conn, "SELECT count(*) FROM dispatch_holds WHERE project = ?1", &[&p])?;
         let waiting = count(
             conn,
@@ -553,17 +563,24 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
         if ready >= free || held > 0 || waiting > 0 {
             continue;
         }
-        let last: Option<i64> = conn
+        let body = json!({ "free": free, "ready": ready_items });
+        // The last handled: when its round ended, and the facts it held.
+        let last: Option<(i64, String)> = conn
             .query_row(
-                "SELECT max(r.ended_at) FROM architect_matters m
+                "SELECT r.ended_at, m.body FROM architect_matters m
                  JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
-                 WHERE m.project = ?1 AND m.kind = 'slots_free'",
+                 WHERE m.project = ?1 AND m.kind = 'slots_free' AND r.ended_at IS NOT NULL
+                 ORDER BY r.ended_at DESC LIMIT 1",
                 [&p],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
+            .optional()
             .map_err(sql)?;
-        if last.is_some_and(|t| db::now() - t <= wait) {
-            continue;
+        if let Some((at, held_then)) = last {
+            let same = serde_json::from_str::<Value>(&held_then).is_ok_and(|b| b == body);
+            if same || db::now() - at <= wait {
+                continue;
+            }
         }
         let slots = match free {
             1 => "1 slot is free".to_string(),
@@ -578,7 +595,7 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
             project: p.clone(),
             kind: "slots_free".into(),
             what,
-            body: json!({ "free": free, "ready": ready }),
+            body,
             ..Matter::default()
         };
         e.db.write(Actor::Engine, |tx| queue_matter(tx, &m)).map_err(sql)?;
@@ -2102,13 +2119,13 @@ fn head_why(cell: &str) -> String {
 /// Queues a matter at the head of the project's queue, of the kind `kind`, the check of the policy or the plan of what
 /// to do next, with why the round's cell asks for it: the text at `why`, or the cell's own reason. One of that kind
 /// open already, in the queue or parked for the owner's reply, stands instead, and the newer asker's why is added to
-/// it.
+/// it. A check keeps the hash of the constitution it was queued under ([`CONSTITUTION`]); one asked for with no why of
+/// its own, as a new session's understanding asks for it, is not queued while the policy in force and the constitution
+/// are those the last check handled had ([`same_as_last_check`]), since it would only come to the same end.
 fn queue_head(ctx: &Ctx, tx: &Transaction<'_>, kind: &str, why: Option<&Value>) -> Result<(), String> {
     let (_, project) = architect_work_of(ctx)?;
-    let why = match why.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
-        Some(w) => w.to_string(),
-        None => head_why(&ctx.cell.id),
-    };
+    let own = why.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+    let why = own.map_or_else(|| head_why(&ctx.cell.id), str::to_string);
     let asker = json!({ "cell": ctx.cell.id, "round": format!("R{}-{}", ctx.round.work, ctx.round.n), "why": why });
     let open: Option<(i64, String)> = tx
         .query_row(
@@ -2137,7 +2154,17 @@ fn queue_head(ctx: &Ctx, tx: &Transaction<'_>, kind: &str, why: Option<&Value>) 
         .map_err(sql)?;
         return Ok(());
     }
+    let mut body = json!({ "asked_by": [asker] });
     let what = if kind == CHECK {
+        let constitution = ctx
+            .projects
+            .get(&project)
+            .and_then(constitution_text)
+            .map(|t| db::content_hash(&t));
+        if own.is_none() && same_as_last_check(tx, &project, constitution.as_deref())? {
+            return Ok(());
+        }
+        body[CONSTITUTION] = json!(constitution);
         format!(
             "Check whether the policy of {project} still holds: {}",
             db::one_sentence(&why)
@@ -2150,12 +2177,60 @@ fn queue_head(ctx: &Ctx, tx: &Transaction<'_>, kind: &str, why: Option<&Value>) 
         kind: kind.into(),
         detail: None,
         what,
-        body: json!({ "asked_by": [asker] }),
+        body,
         item: None,
         raised: Some((ctx.round.work, ctx.round.n)),
     };
     queue_matter(tx, &m).map_err(sql)?;
     Ok(())
+}
+
+/// The field of the body of a check of the policy that keeps the hash of the project's constitution as the check was
+/// queued, null when the project has none, which a later check compares ([`same_as_last_check`]). The matter's
+/// material leaves it out: it tells the architect nothing.
+const CONSTITUTION: &str = "constitution";
+
+/// Whether the policy in force and the constitution are those the project's last check of the policy handled had: a
+/// policy is in force and none took effect after that check was handled (a check that set the policy in force was
+/// handled where it took effect), and the constitution's hash, `constitution`, is the one the check kept. False when
+/// no check was handled, or the last kept no hash, as one queued before checks kept it.
+fn same_as_last_check(tx: &Transaction<'_>, project: &str, constitution: Option<&str>) -> Result<bool, String> {
+    let last: Option<(i64, i64, String)> = tx
+        .query_row(
+            "SELECT handled_work, handled_round, body FROM architect_matters
+             WHERE project = ?1 AND kind = ?2 AND handled_round IS NOT NULL
+             ORDER BY handled_work DESC, handled_round DESC LIMIT 1",
+            params![project, CHECK],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    let Some((work, round, body)) = last else {
+        return Ok(false);
+    };
+    let body: Value = serde_json::from_str(&body).unwrap_or_default();
+    let Some(kept) = body.get(CONSTITUTION) else {
+        return Ok(false);
+    };
+    if kept.as_str() != constitution {
+        return Ok(false);
+    }
+    let in_force = count(
+        tx,
+        "SELECT count(*) FROM policy_current WHERE project = ?1",
+        &[&project],
+    )? > 0;
+    let since = count(
+        tx,
+        &format!(
+            "SELECT count(*) FROM rounds a JOIN works w ON w.id = a.work
+             WHERE w.graph = 'architect' AND w.project = ?1 AND a.cell IN {} AND a.transition IS NOT NULL
+               AND (a.work > ?2 OR (a.work = ?2 AND a.n > ?3))",
+            db::cells_sql(ARCHITECT, &[TAKES_EFFECT])
+        ),
+        &[&project, &work, &round],
+    )?;
+    Ok(in_force && since == 0)
 }
 
 /// Carries out an action of the architect's graph; false for an action of another.
@@ -3099,7 +3174,12 @@ fn engineer_graph(e: &Engine) -> Option<&CompiledGraph> {
 
 /// A project's constitution, as its configuration names it; none when it names none.
 fn constitution(e: &Engine, project: &str) -> Option<String> {
-    let p = e.config.config.projects.get(project)?;
+    constitution_text(e.config.config.projects.get(project)?)
+}
+
+/// The text of a project's constitution, as its checkout has it; none when the project names none, or it cannot be
+/// read.
+fn constitution_text(p: &config::Project) -> Option<String> {
     let path = p.constitution.as_ref()?;
     std::fs::read_to_string(p.checkout.join(path)).ok()
 }
@@ -3381,15 +3461,16 @@ fn last_read(conn: &Connection, project: &str, upto: i64) -> Result<Option<i64>,
     .map_err(sql)
 }
 
-/// What was said in the groups of a project's works after `since`, other than to its architect, oldest first: the
-/// owner's words to the engineers, what the engineers told the owner, and the owner's answers, to the engineers' asks
-/// and, in a group, to a question the architect held; each with its work and item, and the owner's words with the
-/// images the owner sent with them, by their addresses, everything said in a group reaching all three.
+/// What the owner said in the groups of a project's works after `since`, other than to its architect, oldest first: the
+/// owner's words to the engineers, and the owner's answers, to the engineers' asks and, in a group, to a question the
+/// architect held; each with its work and item, what it answers, and the images the owner sent with it, by their
+/// addresses, everything said in a group reaching all three. Not what the engineers told the owner, which is for the
+/// owner: what the architect should know, an engineer hands in as a side report.
 fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Value>, String> {
     query_json(
         conn,
         "SELECT * FROM (
-           SELECT j.work, w.item, i.title, 'owner' AS who, 'engineer' AS \"to\", j.text, NULL AS asked,
+           SELECT j.work, w.item, i.title, j.text, NULL AS asked,
              (SELECT min(c.at) FROM changes c
               WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)) AS at,
              nullif((SELECT json_group_array('image:' || x.id ORDER BY x.position) FROM attachments x
@@ -3398,12 +3479,7 @@ fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Va
            WHERE i.project = ?1 AND w.graph = 'engineer' AND j.speaker = 'owner' AND j.matter IS NULL
              AND j.informs = 0 AND j.cancelled_item IS NULL AND j.text NOT LIKE 'Ruling on design card %'
            UNION ALL
-           SELECT m.work, w.item, i.title, 'engineer', 'owner', m.text, NULL, coalesce(r.ended_at, r.started_at), NULL
-           FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
-           JOIN items i ON i.id = w.item LEFT JOIN sessions s ON s.id = r.session
-           WHERE i.project = ?1 AND w.graph = 'engineer' AND coalesce(s.line, 'engineer') = 'engineer'
-           UNION ALL
-           SELECT a.work, w.item, i.title, 'owner', 'engineer', json_extract(a.answer, '$.text'),
+           SELECT a.work, w.item, i.title, json_extract(a.answer, '$.text'),
              (SELECT group_concat(json_extract(p.value, '$.what'), char(10))
               FROM json_each(a.body, '$.asked') q, json_each(q.value, '$.value.points') p),
              json_extract(a.answer, '$.at'),
@@ -3412,7 +3488,7 @@ fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Va
            FROM owner_asks a JOIN works w ON w.id = a.work JOIN items i ON i.id = w.item
            WHERE i.project = ?1 AND w.graph = 'engineer' AND json_extract(a.answer, '$.by') = 'owner'
            UNION ALL
-           SELECT m.work, w.item, i.title, 'owner', 'engineer', json_extract(m.reply, '$.text'), m.what,
+           SELECT m.work, w.item, i.title, json_extract(m.reply, '$.text'), m.what,
              json_extract(m.reply, '$.at'),
              nullif((SELECT json_group_array('image:' || x.id ORDER BY x.position) FROM attachments x
                      WHERE x.matter = m.id), '[]')
@@ -3424,8 +3500,8 @@ fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Va
     )
 }
 
-/// The action of the cell a project's architect waits at to start (`S0`), `queue_group_talk`: what was said in the
-/// groups of the project's works since its architect last read it, other than to it, as one matter of the kind
+/// The action of the cell a project's architect waits at to start (`S0`), `queue_group_talk`: what the owner said in
+/// the groups of the project's works since its architect last read it, other than to it, as one matter of the kind
 /// group_talk, when there is such talk and none is open ([`group_talk_due`]); new talk joins the one open, whose
 /// material is worked out when it is handled ([`group_talk`]). The first time, the week before now.
 fn queue_group_talk(e: &mut Engine, project: &str) -> Result<(), String> {
@@ -3436,8 +3512,9 @@ fn queue_group_talk(e: &mut Engine, project: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The matter of what was said in the groups of a project's works since its architect last read it, other than to it,
-/// to queue: none when nothing was said since, or one is open, which the new talk joins. Queued by a work of the
+/// The matter of what the owner said in the groups of a project's works since its architect last read it, other than
+/// to it ([`said_in_groups`]), to queue: none when the owner said nothing there since, or one is open, which the new
+/// words join. Queued by a work of the
 /// architect at the end of a batch, it names that work ([`QUEUED_IN`]), which takes it; queued as the architect waits
 /// to start, it waits for a work something else starts.
 fn group_talk_due(conn: &Connection, project: &str, by: Option<i64>) -> Result<Option<Matter>, String> {
@@ -3462,14 +3539,14 @@ fn group_talk_due(conn: &Connection, project: &str, by: Option<i64>) -> Result<O
         project: project.to_string(),
         kind: GROUP_TALK.into(),
         detail: None,
-        what: format!("What was said in the groups of {project}'s works since its architect last read it"),
+        what: format!("What the owner said in the groups of {project}'s works since its architect last read it"),
         body,
         ..Matter::default()
     }))
 }
 
-/// What was said in the groups of a project's works since its architect last read it ([`last_read`]), other than to
-/// the architect, oldest first ([`said_in_groups`]), the material of the matter that holds it (`H12`). The architect
+/// What the owner said in the groups of a project's works since its architect last read it ([`last_read`]), other than
+/// to the architect, oldest first ([`said_in_groups`]), the material of the matter that holds it (`H12`). The architect
 /// gets it as information, which needs no answer: everything said in a group reaches all three. The first time, the
 /// week before the work; none when nothing was said.
 fn group_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
@@ -4202,6 +4279,12 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
                         1,
                     )?),
                 );
+            }
+        }
+        // The hash of the constitution a check keeps tells the architect nothing.
+        CHECK => {
+            if let Some(b) = matter["body"].as_object_mut() {
+                b.remove(CONSTITUTION);
             }
         }
         _ => {}
