@@ -10877,7 +10877,8 @@ fn written(e: &Engine) -> Vec<String> {
 
 // A step taken on another thread, on a context forked from the engine with a connection of its own, writes the same
 // rounds and changes as the same step taken on the engine's own thread from the same database, the numbers and times
-// of the transactions and the ids drawn at random aside.
+// of the transactions and the ids drawn at random aside; and the one commit listener the engine was given hears of
+// what that connection wrote, as the owner's page hears of every change.
 #[test]
 fn a_step_on_another_thread_writes_what_it_writes_on_the_engines_own() {
     let s = setup("fork_step");
@@ -10902,12 +10903,35 @@ fn a_step_on_another_thread_writes_what_it_writes_on_the_engines_own() {
         let _ = std::fs::remove_file(format!("{}{end}", path.display()));
     }
     std::fs::copy(&before, &path).unwrap();
-    let (e, said) = engine(&s, scripts());
+    let heard = Arc::new(Mutex::new(Vec::<db::Changed>::new()));
+    let h = heard.clone();
+    let hooks = Hooks {
+        commit: Some(Arc::new(move |_: &db::rusqlite::Connection, rows: &[db::Changed]| {
+            h.lock().unwrap().extend(rows.iter().cloned());
+        })),
+        ..Hooks::default()
+    };
+    let (e, said) = engine_with(&s, scripts(), hooks);
     let mut t = e.fork().unwrap();
     let on_thread = std::thread::spawn(move || t.step(None)).join().unwrap().unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(on_thread, on_main, "{log}");
     assert_eq!(written(&e), main, "{log}");
+    let round = on_thread.rounds.first().unwrap_or_else(|| panic!("no round:\n{log}"));
+    let rowid: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT rowid FROM rounds WHERE work = ?1 AND n = ?2",
+                [round.work, round.n],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let heard = heard.lock().unwrap().clone();
+    let told = db::Changed {
+        table: "rounds".into(),
+        rowid,
+    };
+    assert!(heard.contains(&told), "{heard:?}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -10981,41 +11005,5 @@ fn a_step_reports_the_rounds_its_own_connection_wrote() {
         "{over:?}\n{log}"
     );
     assert!(over.rounds.iter().any(|r| r.work == new), "{over:?}\n{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// A context forked for another thread writes on a connection of its own, and the one commit listener the engine was
-// given hears of each write committed there, as the owner's page hears of every change.
-#[test]
-fn a_forked_context_tells_the_engines_listener_what_it_writes() {
-    let s = setup("fork_listener");
-    let heard = Arc::new(Mutex::new(Vec::<db::Changed>::new()));
-    let h = heard.clone();
-    let hooks = Hooks {
-        commit: Some(Arc::new(move |_: &db::rusqlite::Connection, rows: &[db::Changed]| {
-            h.lock().unwrap().extend(rows.iter().cloned());
-        })),
-        ..Hooks::default()
-    };
-    let (e, _) = engine_with(&s, BTreeMap::new(), hooks);
-    let mut t = e.fork().unwrap();
-    let item = std::thread::spawn(move || {
-        t.db.write(Actor::Owner, |tx| {
-            tx.execute(
-                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', 'l')",
-                [],
-            )?;
-            Ok(tx.last_insert_rowid())
-        })
-        .unwrap()
-    })
-    .join()
-    .unwrap();
-    let heard = heard.lock().unwrap().clone();
-    let told = db::Changed {
-        table: "items".into(),
-        rowid: item,
-    };
-    assert!(heard.contains(&told), "{heard:?}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
