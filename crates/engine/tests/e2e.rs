@@ -2744,11 +2744,11 @@ fn a_passing_failure_runs_again_until_it_passes() {
     assert_eq!(failed_kinds(&e), ["transient", "transient", "transient"]);
     assert_eq!(sent_back(&e), 0);
     // The round after a failed run is told its kind only, never what the command line reported, which may quote the
-    // run's own return.
+    // run's own return. The report is looked for whole: the test's directory holds its process id, which may hold 529.
     let (work, _, _) = state(&e, item).unwrap();
     let again = message_at(&e, work, "R1", true);
     assert!(
-        again.contains("ended without a return (transient)") && !again.contains("529"),
+        again.contains("ended without a return (transient)") && !again.contains("529 Overloaded"),
         "{again}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
