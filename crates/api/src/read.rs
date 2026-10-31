@@ -3286,6 +3286,12 @@ mod tests {
     // sending the work straight back is no bubble but how the stage before it ended, with what its reviews found. The
     // stage the work is at now is a bubble with no outcome yet. A merge says its pull request and commit; a work taken
     // over ends its last bubble with why and the work that took it over. Only what is said to the owner is unread.
+    /// A round of the work the group test writes: its work, number, cell, session, row, return and times.
+    type GroupRound<'a> = (i64, i64, &'a str, Option<i64>, &'a str, Value, i64, i64);
+
+    /// A stage's bubble as the group test reads it: the stage, how it ended, the pull request and the commit.
+    type Ended<'a> = (&'a str, Option<&'a str>, Option<i64>, Option<&'a str>);
+
     #[test]
     fn a_work_s_group_has_a_bubble_for_each_stage_and_only_what_was_said() {
         let mut s = setup("group");
@@ -3318,7 +3324,7 @@ mod tests {
                 "columns": [{ "id": "1", "verdict": "cannot_verify" }] } });
             let clean = json!({ "progress": "No findings.", "outcome": { "columns": [{ "id": "1", "verdict": "pass" }] } });
             let said = |p: &str| json!({ "progress": p });
-            let rounds: [(i64, i64, &str, Option<i64>, &str, Value, i64, i64); 22] = [
+            let rounds: [GroupRound; 22] = [
                 (2, 1, "S1", None, "started", json!({}), 100, 101),
                 (2, 2, "R1", Some(2), "done", said("Looked at the problem."), 110, 120),
                 (2, 3, "R2", Some(2), "stands", said("It stands."), 121, 130),
@@ -3431,7 +3437,7 @@ mod tests {
         assert!(now.current && now.ended_at.is_none() && now.outcome.is_none());
         // A merge says its pull request and commit; watching main says how main stands.
         let merged = group(3);
-        let ends: Vec<(&str, Option<&str>, Option<i64>, Option<&str>)> = merged
+        let ends: Vec<Ended> = merged
             .entries
             .iter()
             .filter_map(|e| e.stage.as_ref())
@@ -3446,7 +3452,12 @@ mod tests {
         );
         // A work taken over ends its last bubble with why, and the work that took it over.
         let over = group(4);
-        let last = over.entries.iter().filter_map(|e| e.stage.as_ref()).last().unwrap();
+        let last = over
+            .entries
+            .iter()
+            .filter_map(|e| e.stage.as_ref())
+            .next_back()
+            .unwrap();
         assert_eq!(
             (last.outcome.as_deref(), last.why.as_deref(), last.taken_over_by),
             (

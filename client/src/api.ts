@@ -625,69 +625,69 @@ policy: PolicyInForce | null, };
  * stretch of the engine's own steps that sent the work straight back, such as the merge's judge finding the reviews'
  * findings open, is none of its own: its sending back is how the stage before it ended.
  */
-export type StageCard = {
+export type StageCard = { 
 /**
  * The stage, as the flow names it.
  */
-stage: string,
+stage: string, 
 /**
  * How many times the work was at this stage before.
  */
-again: number,
+again: number, 
 /**
  * Its rounds, by their numbers in the work: the first and the last.
  */
-first: number, last: number,
+first: number, last: number, 
 /**
  * When its first round started, and when its last ended; none while the work is at it.
  */
-started_at: number, ended_at: number | null,
+started_at: number, ended_at: number | null, 
 /**
  * What its rounds cost.
  */
-cost_usd: number,
+cost_usd: number, 
 /**
  * Whether the work is at this stage now.
  */
-current: boolean,
+current: boolean, 
 /**
  * How it ended; none while the work is at it: done; the verdict of the gate or the tool it left by, as the row's
  * name (stands, does_not_stand, merged, green); no_findings, its reviews found nothing; sent_back; or ended, the
  * work ended before its end.
  */
-outcome: string | null,
+outcome: string | null, 
 /**
  * Why it was sent back or the work ended, in the flow's or the engine's words, where its reviews' findings do not
  * say it.
  */
-why: string | null,
+why: string | null, 
 /**
  * For a stage sent back for what its reviews found: each review that found something, and how many it found.
  */
-findings: Array<ReviewFindings>,
+findings: Array<ReviewFindings>, 
 /**
  * For a stage that merged the work: its pull request and the merge commit.
  */
-pr: number | null, commit: string | null,
+pr: number | null, commit: string | null, 
 /**
  * For a work taken over by a new work on its item: that work.
  */
-taken_over_by: number | null,
+taken_over_by: number | null, 
 /**
  * What its rounds said they did, oldest first, the latest last.
  */
-notes: Array<StageNote>,
+notes: Array<StageNote>, 
 /**
  * What the engine told the owner of the work while it was at the stage, such as a limit passed or main broken by
  * its merge, in words that do not name the work; its pauses and stops are how the work stands, which its group
  * says where the work is, and not said again here.
  */
-events: Array<string>,
+events: Array<string>, 
 /**
  * What the agents' rounds in it handed back that the flow shows on the item, oldest first: for the design, the
  * approaches compared, the one chosen, the design and the acceptance.
  */
-shown: Array<Shown>,
+shown: Array<Shown>, 
 /**
  * The design cards its rounds handed in, the one that waits for the owner's ruling among them.
  */
