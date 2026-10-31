@@ -25,7 +25,19 @@ import { empty, isObj, type Obj, words } from '../labelled';
 import { useResource } from '../live';
 import { Markdown } from '../markdown';
 import { Fold, LinkButton, RoundAt, RoundLink, Thumbs } from '../parts';
-import { brief, chars, messageParts, placeSchema, shape, shareWords, type Shown, type ShownField, spent, titleOf } from '../round';
+import {
+  brief,
+  chars,
+  messageParts,
+  newSessionWords,
+  placeSchema,
+  shape,
+  shareWords,
+  type Shown,
+  type ShownField,
+  spent,
+  titleOf,
+} from '../round';
 import { t, tn } from '../text';
 import {
   charCount,
@@ -317,7 +329,7 @@ function FieldValue({ f, level }: { f: ShownField; level: number }) {
 
 /// A round of the work, as a round link that opens it on the chart, or on the work's page where no chart is.
 function Round({ f, work, n }: { f: Flow | null; work: number; n: number }) {
-  return <RoundLink work={work} round={n} onRound={f !== null ? (_, r) => f.open({ kind: 'round', round: r }) : undefined} />;
+  return <RoundLink work={work} round={n} onRound={f !== null ? (w, r) => f.open({ kind: 'round', work: w, round: r }) : undefined} />;
 }
 
 /// A round of the work at its cell, as the page writes a round at a cell (`RoundAt`), or a cell no round has reached
@@ -333,24 +345,6 @@ function RoundAtCell({ f, work, n, cell }: { f: Flow | null; work: number; n: nu
   );
 }
 
-/// Why a round started a new session, in a few words; none for a round that went on in its line's session.
-function newSession(r: RoundSummary): string | null {
-  switch (r.new_session) {
-    case 'cell':
-      return t('run_new_session_cell', { cell: r.cell ?? '' });
-    case 'limit':
-      return t('run_new_session_limit');
-    case 'model':
-      return t('run_new_session_model');
-    case 'owner':
-      return t('run_new_session_owner');
-    case 'line':
-      return r.line !== null && r.line === r.cell ? t('run_new_session_own') : t('run_new_session_line');
-    default:
-      return null;
-  }
-}
-
 /// Who did the round's work, in a few words: for an agent its line, model, tier and effort, and whether it went on in
 /// its session or started one and why; else the tools, the engine's step or the owner.
 function ranWords(d: RoundDetail, cell: CompiledCell | undefined): string {
@@ -363,7 +357,7 @@ function ranWords(d: RoundDetail, cell: CompiledCell | undefined): string {
       r.model !== null ? modelName(r.model) : null,
       d.level !== null ? t('run_tier', { tier: d.level }) : null,
       d.effort !== null ? t('run_effort', { effort: d.effort }) : null,
-      newSession(r) ?? ('started' in session ? t('run_started') : 'resumed' in session ? t('run_continued') : null),
+      newSessionWords(r) ?? ('started' in session ? t('run_started') : 'resumed' in session ? t('run_continued') : null),
       r.compactions > 0 ? t('run_compacted') : null,
     ]);
   }

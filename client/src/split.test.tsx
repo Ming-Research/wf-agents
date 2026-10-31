@@ -1,8 +1,8 @@
 // A round picked on a work's page and on the architect's shows the same way, from the one part both draw the window
 // floating over their chart with: under the page's panel, whose list of rounds stays in view, split from it by a
 // divider that drags. The window starts minimised to its one head row; its button or a click on that row expands it
-// and minimises it again, a click on the chart that opens something expands it, what is open in it has no close, and
-// the chart centres in the part of it the window leaves.
+// and minimises it again, a click on the chart that opens something expands it, the window has no close while what is
+// open split under a page's panel has its own, and the chart centres in the part of it the window leaves.
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -78,6 +78,7 @@ const flow = (g: CompiledGraph): { compiled: Compiled; view: FlowView } => ({
 });
 
 const round = (n: number, cell: string): RoundSummary => ({
+  work: 7,
   n,
   cell,
   line: null,
@@ -150,8 +151,8 @@ function column(html: string) {
   return {
     top: top?.[1] ?? null,
     share: top?.[2] ?? null,
-    rounds: [...html.matchAll(/<tr class="clickable( selected)?">/g)].length,
-    picked: /<tr class="clickable selected"><td class="muted nowrap">([^<]*)</.exec(html)?.[1] ?? null,
+    rounds: [...html.matchAll(/<tr data-round="[^"]*" class="clickable( selected)?">/g)].length,
+    picked: /<tr data-round="[^"]*" class="clickable selected"><td class="muted nowrap">([^<]*)</.exec(html)?.[1] ?? null,
     divider: html.includes('role="separator" aria-orientation="horizontal"'),
     open: /<h2[^>]*class="[^"]*panel-title[^"]*"[^>]*>(.*?)<\/h2>/.exec(html)?.[1].replace(/<[^>]+>/g, '') ?? null,
     // The page's panel comes before what is open: the list above, the round below.
@@ -182,7 +183,7 @@ describe('a round picked beside a chart', () => {
     const g = graph('architect', ['A1', 'B1']);
     const { compiled, view } = flow(g);
     const d = detail(work(7, g));
-    const shown: ArchitectWork = { work: d.work, handled: 0, handling: null };
+    const shown: ArchitectWork = { work: d.work, handling: null };
     const a: ArchitectRead = {
       project: 'p',
       projects: ['p'],
@@ -199,10 +200,10 @@ describe('a round picked beside a chart', () => {
     };
     const html = renderToStaticMarkup(
       <ArchitectChart
-        route={{ page: 'architect', project: null, work: 7, tab: 'rounds', round: 6, cell: null, only: null, span: '7d' }}
+        route={{ page: 'architect', project: null, tab: 'rounds', round: { work: 7, n: 6 }, cell: null, span: '7d' }}
         a={a}
-        shown={shown}
-        d={d}
+        latest={d.work}
+        rounds={{ w: { rounds: d.rounds, older: false, newer: false }, error: null, loading: null, more: () => {} }}
         compiled={compiled}
         view={view}
         go={() => {}}
@@ -278,9 +279,8 @@ describe('the window floating over the chart', () => {
         cell={null}
         onCell={() => {}}
         start={null}
-        work={7}
         rounds={d.rounds}
-        round={round}
+        round={round !== null ? { work: 7, n: round } : null}
         renderRound={() => null}
       />,
     );
@@ -303,15 +303,17 @@ describe('the window floating over the chart', () => {
     expect(windowOf(flowPage(6))).toEqual({ dock: 'dock dock-min', tabsRow: [], openRow: ['Expand the panel'], folds: 'open' });
   });
 
-  it('expanded, has no close in the head of what is open, and the button that minimises it at the end of its top row', () => {
-    const panel = (fold: typeof expandedFold | null) =>
+  it("expanded, has the close of what is open only under a page's panel, and the button that minimises it at the end of its top row", () => {
+    const panel = (fold: typeof expandedFold | null, onClose?: () => void, minimised = false) =>
       renderToStaticMarkup(
-        <Panel title="B1 cell B1" back={null} onBack={() => {}} shown="c" fold={fold}>
+        <Panel title="B1 cell B1" back={null} onBack={() => {}} onClose={onClose} shown="c" fold={fold} minimised={minimised}>
           body
         </Panel>,
       );
-    // Under the page's panel on a work's page and an architect's: no button at all.
-    expect(windowOf(panel(null))).toMatchObject({ openRow: [], folds: null });
+    // Under the page's panel on a work's page and an architect's: its close, which lets go of what is open.
+    expect(windowOf(panel(null, () => {}))).toMatchObject({ openRow: ['Close'], folds: null });
+    // Minimised, its head is the window's one row: no close, which would read as the window's.
+    expect(windowOf(panel(expandedFold, () => {}, true))).toMatchObject({ openRow: ['Minimise the panel to its head'] });
     // The top row on the flow page.
     expect(windowOf(panel(expandedFold))).toMatchObject({ openRow: ['Minimise the panel to its head'], folds: 'open' });
     // The page's tabs as the top row.

@@ -14,6 +14,7 @@ import { roundName, time } from '../format';
 import { letterOf } from '../graph/flowModel';
 import { LinkButton } from '../parts';
 import type { Colours } from '../roles';
+import { badged, tookWords } from '../round';
 import { type Key, t, tn } from '../text';
 import { Sheet } from '../voices';
 import { AgentGiven, numbered, StepGiven } from './CellGiven';
@@ -119,23 +120,24 @@ function CellPage({ c, open, onOpen }: { c: CompiledCell; open: ReadonlySet<Side
   );
 }
 
-/// The work's rounds at the cell, newest first; a badge only for what is not the usual course, as in the work's list.
-function RoundsHere({ work, rounds, onRound }: { work: number; rounds: RoundSummary[]; onRound: (r: RoundSummary) => void }) {
+/// The rounds at the cell placed on the chart, newest first; a badge only for what is not the usual course, the row a
+/// round took, or that it ended the work, plain, as in the list of rounds.
+function RoundsHere({ rounds, onRound }: { rounds: RoundSummary[]; onRound: (r: RoundSummary) => void }) {
   if (rounds.length === 0) return <p className="pp-note">{t('no_rounds')}</p>;
   return (
     <div className="pp-rounds">
       {[...rounds].reverse().map((r) => (
-        <div key={r.n} className="pp-round" role="button" tabIndex={0} onClick={() => onRound(r)} onKeyDown={(e) => (e.key === 'Enter' ? onRound(r) : null)}>
+        <div key={`${r.work}-${r.n}`} className="pp-round" role="button" tabIndex={0} onClick={() => onRound(r)} onKeyDown={(e) => (e.key === 'Enter' ? onRound(r) : null)}>
           <span>
-            <LinkButton onClick={() => onRound(r)}>{roundName(work, r.n)}</LinkButton>
+            <LinkButton onClick={() => onRound(r)}>{roundName(r.work, r.n)}</LinkButton>
           </span>
           <span>
-            {r.outcome !== 'took' ? (
+            {badged(r.outcome) ? (
               <>
                 <OutcomeBadge outcome={r.outcome} />{' '}
               </>
             ) : null}
-            {r.transition ?? r.why ?? ''}
+            {tookWords(r)}
           </span>
           <span className="pp-facts">{time(r.started_at)}</span>
         </div>
@@ -146,8 +148,7 @@ function RoundsHere({ work, rounds, onRound }: { work: number; rounds: RoundSumm
 
 export function CellPanel(props: {
   c: CompiledCell;
-  /// On a work's page, the work and its rounds at this cell.
-  work?: number;
+  /// On a work's page and the architect's, the rounds at this cell placed on the chart.
   rounds?: RoundSummary[];
   onRound?: (r: RoundSummary) => void;
   /// When two flows are compared, what changed in this cell.
@@ -159,9 +160,9 @@ export function CellPanel(props: {
   open: ReadonlySet<Side>;
   onOpen: (s: Side, open: boolean) => void;
 }) {
-  const { c, work, rounds, onRound, diff, tab: chosen, onTab, open, onOpen } = props;
+  const { c, rounds, onRound, diff, tab: chosen, onTab, open, onOpen } = props;
   const tabs = cellTabs({
-    rounds: work !== undefined && rounds !== undefined && onRound !== undefined,
+    rounds: rounds !== undefined && onRound !== undefined,
     diff: diff != null,
   });
   const tab = cellTab(tabs, chosen);
@@ -184,8 +185,8 @@ export function CellPanel(props: {
           <UnderlinePanels.Panel key={x} value={x} className="cell-tab">
             {x !== tab ? null : x === 'changes' && diff ? (
               <Changes d={diff} />
-            ) : x === 'rounds' && work !== undefined && rounds && onRound ? (
-              <RoundsHere work={work} rounds={rounds} onRound={onRound} />
+            ) : x === 'rounds' && rounds && onRound ? (
+              <RoundsHere rounds={rounds} onRound={onRound} />
             ) : x === 'cell' ? (
               page
             ) : null}

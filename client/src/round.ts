@@ -1,10 +1,11 @@
 // What a round's panel reads from a round, apart from how it draws it: the message as sent, cut at its headings, a
 // long part folded with its size and its share of the message; a value given or handed back, laid out by the JSON
 // Schema of where it belongs, each field under the title the flow gives it, found by the place's path, a value the
-// schema fixes (a kind) apart, and by its JSON type wherever the schema says nothing of it; and where an agent's round
-// spent its tokens and its cost.
+// schema fixes (a kind) apart, and by its JSON type wherever the schema says nothing of it; where an agent's round
+// spent its tokens and its cost; and what a list of rounds says of each: the row it took, or that it ended the work,
+// whether it is not the usual course, and whether and why it started a new session.
 
-import type { JsonValue, RoundTokens } from './api';
+import type { JsonValue, RoundOutcome, RoundSummary, RoundTokens } from './api';
 import { isObj, type Obj, words } from './labelled';
 import { t, tn } from './text';
 
@@ -325,4 +326,61 @@ export function spent(x: RoundTokens): Spent {
       ? { read: costs.read / total, written: costs.written / total, output: costs.output / total }
       : null;
   return { steps: x.steps, parts, shares };
+}
+
+/// Whether a round's outcome is shown as its state's chip: one that is not the usual course (sent back, failed, cut off)
+/// or a round running. A round that took a row, or ended the work, is the usual course and is said in plain words.
+export function badged(outcome: RoundOutcome): boolean {
+  return outcome !== 'took' && outcome !== 'ended';
+}
+
+/// What a list of rounds says a round came to, in plain words: the row it took (a row the engine took as a session
+/// would start afresh with why after it), that it ended the work, or why it was sent back, failed or cut off.
+export function tookWords(r: RoundSummary): string {
+  if (r.outcome === 'ended') return t('outcome_ended');
+  if (r.transition !== null && r.why !== null) return `${r.transition}: ${r.why}`;
+  return r.transition ?? r.why ?? '';
+}
+
+/// Whether a round started a new session that the list of rounds marks: one of a line's, as the session manager
+/// recorded it; not a cell's on no line, each of whose rounds starts a session of its own, as its cell's badge on the
+/// chart says.
+export function startedSession(r: RoundSummary): boolean {
+  return r.new_session !== null && !(r.line !== null && r.line === r.cell);
+}
+
+/// Why a round started a new session, in a few words, as the session manager recorded it; none for a round that went
+/// on in its line's session, or for a reason this page does not know.
+function sessionWhy(r: RoundSummary): string | null {
+  switch (r.new_session) {
+    case 'line':
+      return t('session_why_line');
+    case 'cell':
+      return t('session_why_cell', { cell: r.cell ?? '' });
+    case 'limit':
+      return t('session_why_limit');
+    case 'model':
+      return t('session_why_model');
+    case 'account':
+      return t('session_why_account');
+    case 'owner':
+      return t('session_why_owner');
+    default:
+      return null;
+  }
+}
+
+/// That a round started a new session, and why, as its panel says it among who ran it; none for a round that went on
+/// in its line's session.
+export function newSessionWords(r: RoundSummary): string | null {
+  if (r.new_session === null) return null;
+  if (r.line !== null && r.line === r.cell) return t('run_new_session_own');
+  const why = sessionWhy(r);
+  return why !== null ? t('run_new_session', { why }) : t('run_new_session_unknown');
+}
+
+/// What the mark of a round that started a new session says on hovering: that it did, and why.
+export function sessionMarkWords(r: RoundSummary): string {
+  const why = sessionWhy(r);
+  return why !== null ? t('round_new_session', { why }) : t('round_new_session_unknown');
 }

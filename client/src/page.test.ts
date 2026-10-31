@@ -537,6 +537,7 @@ function cell(id: string, rows: CompiledRow[], extra: Partial<CompiledCell> = {}
 
 function round(n: number, cellId: string | null, outcome: RoundSummary['outcome'], transition: string | null): RoundSummary {
   return {
+    work: 1,
     n,
     cell: cellId,
     line: null,
@@ -1027,10 +1028,18 @@ describe('the chart of a flow', () => {
     // in; tools in the legend draw no arrow.
     const none = new Set<string>();
     const done = new Set(['c:a->a:b:lock+post', 'a:b:lock+post->c:b']);
-    expect(roundArrows(c, graph, rounds, 2)).toEqual({ in: new Set(['c:s->c:a']), out: none });
-    expect(roundArrows(c, graph, rounds, 5)).toEqual({ in: none, out: done });
-    expect(roundArrows(c, graph, rounds, 6)).toEqual({ in: done, out: none });
-    expect(roundArrows(c, graph, rounds, 7)).toEqual({ in: none, out: none });
+    const k = (n: number) => ({ work: 1, n });
+    expect(roundArrows(c, graph, rounds, k(2))).toEqual({ in: new Set(['c:s->c:a']), out: none });
+    expect(roundArrows(c, graph, rounds, k(5))).toEqual({ in: none, out: done });
+    expect(roundArrows(c, graph, rounds, k(6))).toEqual({ in: done, out: none });
+    expect(roundArrows(c, graph, rounds, k(7))).toEqual({ in: none, out: none });
+    // Rounds of several works, as the architect's list holds them: each round is known by its work, the first round of
+    // a work came in by no row of the work before it, and the rows taken count over them all.
+    const next = [...rounds.slice(0, 5), { ...round(1, 's', 'took', 'started'), work: 2 }, { ...round(2, 'a', 'took', 'tools'), work: 2 }];
+    expect(roundArrows(c, graph, next, { work: 2, n: 1 })).toEqual({ in: none, out: new Set(['c:s->c:a']) });
+    expect(roundArrows(c, graph, next, { work: 2, n: 2 })).toEqual({ in: new Set(['c:s->c:a']), out: none });
+    expect(roundArrows(c, graph, next, { work: 3, n: 2 })).toEqual({ in: none, out: none });
+    expect(taken(c, graph, next).get('c:s->c:a')).toBe(2);
   });
 
   it('lights the rows into a cell and out of it, each whole through actions and circles, and no line that is no row', () => {

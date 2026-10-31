@@ -23,7 +23,7 @@ export type WorkRoute = {
   only: RoundsOnly | null;
 };
 
-/// What the architect's panel over its chart shows: the rounds of the stretch shown, the item changes its batches made,
+/// What the architect's panel over its chart shows: its rounds, across all its works, the item changes its batches made,
 /// or its usage.
 export const ARCHITECT_TABS = ['rounds', 'changes', 'usage'] as const;
 export type ArchitectTab = (typeof ARCHITECT_TABS)[number];
@@ -37,18 +37,25 @@ export type SideTab = (typeof SIDE_TABS)[number];
 export const SPANS = ['1d', '7d', '30d', 'all'] as const;
 export type Span = (typeof SPANS)[number];
 
+/// A round, by its work and its number in the work; the address names it as `R<work>-<n>`.
+export type RoundKey = { work: number; n: number };
+
+/// The round a work and a number name, when both are given.
+export const roundAt = (work: number | null | undefined, n: number | null | undefined): RoundKey | null =>
+  work != null && n != null ? { work, n } : null;
+
+/// Whether two rounds are one.
+export const sameRound = (a: RoundKey | null, b: RoundKey | null): boolean =>
+  a !== null && b !== null && a.work === b.work && a.n === b.n;
+
 export type ArchitectRoute = {
   page: 'architect';
   /// The project whose architect the page shows; with none, the configuration's one project.
   project: string | null;
-  /// The architect's work shown, by its id; with none, the one running, else the latest.
-  work: number | null;
   tab: ArchitectTab;
-  /// The round of the work shown that is open, by its number in the work; only with a work named.
-  round: number | null;
+  /// The round open, of any of the architect's works: its list opens on it, centred, and on the newest with none.
+  round: RoundKey | null;
   cell: string | null;
-  /// Which of the rounds of the work shown its list shows besides all of them, as on a work's page.
-  only: RoundsOnly | null;
   /// The time its usage counts over.
   span: Span;
 };
@@ -108,10 +115,16 @@ const num = (s: string | null | undefined): number | null => {
   return Number(s);
 };
 
+/// The round a name such as `R5-9` names: work 5's ninth.
+export const roundKey = (s: string | null): RoundKey | null => {
+  const m = s === null ? null : /^R(\d+)-(\d+)$/.exec(s);
+  return m !== null ? { work: Number(m[1]), n: Number(m[2]) } : null;
+};
+
 /// The number in the work of the round a name such as `R5-9` names, when it is a round of that work.
 const roundOf = (work: number, s: string | null): number | null => {
-  const m = s === null ? null : /^R(\d+)-(\d+)$/.exec(s);
-  return m !== null && Number(m[1]) === work ? Number(m[2]) : null;
+  const k = roundKey(s);
+  return k !== null && k.work === work ? k.n : null;
 };
 
 export function parse(pathname: string, search: string): Route {
@@ -135,17 +148,13 @@ export function parse(pathname: string, search: string): Route {
     }
   }
   if (first === 'architect' && parts.length === 1) {
-    const work = num(q.get('work'));
     const tab = ARCHITECT_TABS.find((x) => x === q.get('tab')) ?? 'rounds';
-    const only = q.get('only');
     return {
       page: 'architect',
       project: q.get('project'),
-      work,
       tab,
-      round: work !== null ? roundOf(work, q.get('round')) : null,
+      round: roundKey(q.get('round')),
       cell: q.get('cell'),
-      only: only === 'sent_back' || only === 'failed' ? only : null,
       span: SPANS.find((x) => x === q.get('span')) ?? '7d',
     };
   }
@@ -204,11 +213,9 @@ export function href(r: Route): string {
     case 'architect':
       return `/architect${query([
         ['project', r.project],
-        ['work', r.work],
         ['tab', r.tab === 'rounds' ? null : r.tab],
-        ['only', r.only],
         ['span', r.span === '7d' ? null : r.span],
-        ['round', r.work !== null && r.round !== null ? roundName(r.work, r.round) : null],
+        ['round', r.round !== null ? roundName(r.round.work, r.round.n) : null],
         ['cell', r.cell],
       ])}`;
     case 'items':
@@ -244,16 +251,14 @@ export function workHref(id: number, more: Partial<Omit<WorkRoute, 'page' | 'id'
   return href({ page: 'work', id, round: null, cell: null, tab: 'rounds', only: null, ...more });
 }
 
-/// The address of an architect's page: the work running or the latest, on its asks, or what `more` names.
+/// The address of an architect's page: its rounds, opened on the newest, or what `more` names.
 export function architectHref(more: Partial<Omit<ArchitectRoute, 'page'>> = {}): string {
   return href({
     page: 'architect',
     project: null,
-    work: null,
     tab: 'rounds',
     round: null,
     cell: null,
-    only: null,
     span: '7d',
     ...more,
   });

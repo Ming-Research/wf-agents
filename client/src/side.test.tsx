@@ -1,13 +1,12 @@
 // The panel beside the owner's one-to-one with a project's architect, which the owner closes and opens again, as the
 // browser keeps it: its notebook, its policy with the draft awaiting the owner's approval on top, and its queue, which
-// left the one-to-one's head; and the architect's page, which no longer draws the policy or what to do next and leads
-// to the panel's tabs instead.
+// left the one-to-one's head; and the one-to-one's head, which holds what the architect's page, with no line over its
+// chart, no longer says: the holds on the project's new works, each with why.
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Architect, ArchitectWork, Conversation, Matter, NotebookVersion, WorkSummary } from './api';
-import { Line } from './pages/Architect';
 import { ArchitectSide, keepSide, sideKept } from './pages/ArchitectSide';
 import { ArchitectHead } from './pages/TalkHead';
 import { href, parse, sideHref } from './route';
@@ -82,7 +81,7 @@ const matter = (id: number, extra: Partial<Matter> = {}): Matter => ({
 
 const version = (text: string, round: number, cell: string): NotebookVersion => ({ text, work: 9, round, cell, at: round * 10 });
 
-const going: ArchitectWork = { work: work(9), handled: 0, handling: 12 };
+const going: ArchitectWork = { work: work(9), handling: 12 };
 
 const architect: Architect = {
   project: 'p',
@@ -248,13 +247,15 @@ describe('the head of the one-to-one with an architect', () => {
     const open = renderToStaticMarkup(<ArchitectHead c={one} a={architect} onSide={null} />);
     expect(open).not.toContain('Show the notebook, policy and queue');
   });
-});
 
-describe("the architect's page", () => {
-  it('leads from its line to the queue, the notebook and the policy in the panel beside the one-to-one', () => {
-    const html = renderToStaticMarkup(<Line a={architect} shown={going} current={going.work} pop={null} setPop={() => undefined} />);
-    expect(html).toMatch(/<a [^>]*href="\/messages\?c=architect%3Ap&amp;side=queue"[^>]*>2 matters left<\/a>/);
-    expect(html).toMatch(/<a [^>]*href="\/messages\?c=architect%3Ap&amp;side=notebook"[^>]*>Notebook<\/a>/);
-    expect(html).toMatch(/<a [^>]*href="\/messages\?c=architect%3Ap&amp;side=policy"[^>]*>Policy<\/a>/);
+  it("holds what the architect's page, with no line over its chart, leaves to it: the holds on new works, with why", () => {
+    const held: Architect = {
+      ...architect,
+      holds: [{ reason: 'architect', why: 'The plan is being set straight.', since: 5 }],
+    };
+    const html = renderToStaticMarkup(<ArchitectHead c={one} a={held} onSide={null} />);
+    expect(html).toMatch(/class="talk-head-hold"[^>]*>[\s\S]*The plan is being set straight\./);
+    // Its name leads to the architect's page, the way to each project's architect.
+    expect(html).toMatch(/<a [^>]*href="\/architect\?project=p"[^>]*>/);
   });
 });

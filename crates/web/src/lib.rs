@@ -147,6 +147,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/items", get(items))
         .route("/api/v1/items/{id}", get(item))
         .route("/api/v1/architect", get(architect))
+        .route("/api/v1/architect/rounds", get(architect_rounds))
         .route("/api/v1/conversations", get(conversations))
         .route("/api/v1/conversation", get(conversation))
         .route("/api/v1/system", get(system))
@@ -533,6 +534,29 @@ async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result
     })
     .await
     .map(Json)
+}
+
+#[derive(Deserialize)]
+struct RoundsAsked {
+    project: Option<String>,
+    before: Option<String>,
+    after: Option<String>,
+    around: Option<String>,
+    limit: Option<usize>,
+}
+
+/// A window of a project's architect's rounds across its works: the newest, or those before, after or around a round the
+/// request names (`R12-4`), as many as `limit` names, else `api::ROUNDS_WINDOW`.
+async fn architect_rounds(
+    State(app): State<App>,
+    Query(q): Query<RoundsAsked>,
+) -> Result<Json<api::ArchitectRounds>, Fail> {
+    let (project, _) = project_of(&app, &OfProject { project: q.project })?;
+    let window = api::RoundsWindow::named(q.before.as_deref(), q.after.as_deref(), q.around.as_deref())?;
+    let limit = q.limit.unwrap_or(api::ROUNDS_WINDOW);
+    read(&app, move |c, _| api::architect_rounds(c, &project, window, limit))
+        .await
+        .map(Json)
 }
 
 /// Every project's observations, as the Observations view shows them, each project's with the tags the configuration as

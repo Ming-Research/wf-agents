@@ -284,6 +284,18 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         "{tab}"
     );
     assert!(tab.contains(r#""constitution":null"#), "{tab}");
+    // Its rounds are read in windows across its works: none yet; a window is named by a round's name, and a round of
+    // another work is not the architect's.
+    let (status, rounds) = get(s.port, "/api/v1/architect/rounds?project=p", &here, "");
+    assert_eq!(status, 200, "{rounds}");
+    assert!(
+        rounds.ends_with(r#"{"rounds":[],"older":false,"newer":false}"#),
+        "{rounds}"
+    );
+    let (status, _) = get(s.port, "/api/v1/architect/rounds?project=p&around=12", &here, "");
+    assert_eq!(status, 422);
+    let (status, _) = get(s.port, "/api/v1/architect/rounds?project=p&around=R1-1", &here, "");
+    assert_eq!(status, 404);
     // A work that does not go on by itself is stepped while the others go on; the status says what the owner asked.
     assert_eq!(post(s.port, "/api/v1/works/2/step", "{}", "application/json").0, 202);
     let here = format!("127.0.0.1:{}", s.port);

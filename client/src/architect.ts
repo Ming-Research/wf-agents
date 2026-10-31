@@ -1,6 +1,6 @@
-// What an architect's page and its one-to-one work out from what the interface reads, apart from drawing it: the stretch
-// of its work the chart shows, how the architect stands, its queue in parts, each matter in words the owner reads at a
-// glance, what became of each matter handled, the articles of the constitution in the order the owner reads them.
+// What an architect's page and its one-to-one work out from what the interface reads, apart from drawing it: how the
+// architect stands, its queue in parts, each matter in words the owner reads at a glance, what became of each matter
+// handled, the articles of the constitution in the order the owner reads them.
 
 import type {
   Architect,
@@ -20,13 +20,6 @@ import { observationsHref } from './route';
 
 /// A work of the architect goes on no more once it reached its end or was ended.
 export const overWork = (w: WorkSummary): boolean => w.state === 'done' || w.state === 'ended';
-
-/// The architect's work the page shows: the one the address names; else the one not over; else the latest; none before
-/// the first.
-export function shownWork(works: ArchitectWork[], named: number | null): ArchitectWork | null {
-  const asked = named !== null ? works.find((x) => x.work.id === named) : undefined;
-  return asked ?? works.find((x) => !overWork(x.work)) ?? works[0] ?? null;
-}
 
 /// An architect's queue in its two parts: the matters in its queue, in the order they came; and those an ask of the
 /// owner holds until answered.

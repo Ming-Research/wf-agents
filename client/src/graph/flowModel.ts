@@ -784,9 +784,9 @@ export function haloAt(
   return { cell: on !== undefined ? on.cell : runs ? at : null, next: Number.isFinite(next) ? next : null };
 }
 
-/// The arrows of the chart that draw the row each round took, by the round's place among the work's rounds: every
-/// arrow that draws that row of its cell, an arrow to one of several cells the row can lead to only when the work
-/// went there.
+/// The arrows of the chart that draw the row each round took, by the round's place among the rounds placed on the
+/// chart, of one work or of several: every arrow that draws that row of its cell, an arrow to one of several cells the
+/// row can lead to only when the round's work went there.
 function rowArrows(c: Chart, g: CompiledGraph, rounds: RoundSummary[]): (at: number) => string[] {
   const rowOf = new Map<string, number>();
   for (const cell of g.cells) cell.rows.forEach((r, i) => rowOf.set(`${cell.id}\u0000${r.name}`, i));
@@ -808,7 +808,7 @@ function rowArrows(c: Chart, g: CompiledGraph, rounds: RoundSummary[]): (at: num
     // The cells the work went to next: the next one, or the one after it when the next goes straight back.
     const next = rounds
       .slice(at + 1)
-      .filter((x) => x.cell !== null)
+      .filter((x) => x.work === r.work && x.cell !== null)
       .slice(0, 2)
       .map((x) => x.cell);
     return (byRow.get(`${r.cell}\u0000${i}`) ?? [])
@@ -822,8 +822,8 @@ function rowArrows(c: Chart, g: CompiledGraph, rounds: RoundSummary[]): (at: num
   };
 }
 
-/// How many times the work took each arrow of the chart: a round that took a row counts on every arrow that draws
-/// that row of its cell.
+/// How many times the rounds placed on the chart took each arrow: a round that took a row counts on every arrow that
+/// draws that row of its cell.
 export function taken(c: Chart, g: CompiledGraph, rounds: RoundSummary[]): Map<string, number> {
   const arrows = rowArrows(c, g, rounds);
   const out = new Map<string, number>();
@@ -833,11 +833,12 @@ export function taken(c: Chart, g: CompiledGraph, rounds: RoundSummary[]): Map<s
   return out;
 }
 
-/// The arrows a round came in by and left by: in, those of the row the round before it took; out, those of the row it
-/// took itself, none for a round that has taken no row yet.
-export function roundArrows(c: Chart, g: CompiledGraph, rounds: RoundSummary[], n: number): Ways {
-  const at = rounds.findIndex((r) => r.n === n);
+/// The arrows a round, by its work and its number in it, came in by and left by: in, those of the row the round before
+/// it in its work took; out, those of the row it took itself, none for a round that has taken no row yet.
+export function roundArrows(c: Chart, g: CompiledGraph, rounds: RoundSummary[], round: { work: number; n: number }): Ways {
+  const at = rounds.findIndex((r) => r.work === round.work && r.n === round.n);
   if (at < 0) return { in: new Set(), out: new Set() };
   const arrows = rowArrows(c, g, rounds);
-  return { in: new Set(at > 0 ? arrows(at - 1) : []), out: new Set(arrows(at)) };
+  const before = at > 0 && rounds[at - 1].work === round.work ? arrows(at - 1) : [];
+  return { in: new Set(before), out: new Set(arrows(at)) };
 }

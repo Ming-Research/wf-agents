@@ -134,6 +134,7 @@ const now = flowOfCells([
 ]);
 
 const summary = (n: number, at: string, transition: string | null): RoundSummary => ({
+  work: 7,
   n,
   cell: at,
   line: null,

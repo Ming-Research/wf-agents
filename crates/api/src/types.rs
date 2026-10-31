@@ -276,10 +276,11 @@ pub enum RoundOutcome {
     Ended,
 }
 
-/// A round as a work's timeline shows it.
+/// A round as a list of rounds shows it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct RoundSummary {
-    /// Its number in its work.
+    /// The work it is a round of, and its number in that work.
+    pub work: i64,
     pub n: i64,
     /// Its cell; none for a round that only answered an interjection.
     pub cell: Option<String>,
@@ -304,10 +305,20 @@ pub struct RoundSummary {
     pub tokens: Option<RoundTokens>,
     /// The session it ran in, by its row; none for the engine's own steps, tool cells and the owner.
     pub session: Option<i64>,
-    /// When it started a new session: why, as the session manager recorded it: line, the line's first session in the
-    /// work (or a cell on no line, whose session is its own); cell, a cell the line starts a new session at; limit, the
-    /// line's session before was past the context limit.
+    /// When it started a new session: why, as the session manager recorded it: line, the line had none going on (its
+    /// first in the work, or a cell on no line, whose session is its own every round); cell, a cell the line starts a
+    /// new session at; limit, the line's session before was past the context limit; model or account, the model or the
+    /// login account its rounds run under changed; owner, the owner asked for one.
     pub new_session: Option<String>,
+}
+
+/// A window of a project's architect's rounds, across its works, in the order they started, oldest first; and whether
+/// rounds older than its first and newer than its last are there to read.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ArchitectRounds {
+    pub rounds: Vec<RoundSummary>,
+    pub older: bool,
+    pub newer: bool,
 }
 
 /// Where an agent's round spent its tokens, as its usage record gives them, and how large its context was, which
@@ -1422,8 +1433,6 @@ pub struct ReadTo {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ArchitectWork {
     pub work: WorkSummary,
-    /// How many matters it handled.
-    pub handled: i64,
     /// The matter it handles now: the one its latest pick chose, until that matter is handled or held by an ask; none
     /// when it handles none, or is over.
     pub handling: Option<i64>,

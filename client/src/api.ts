@@ -225,13 +225,13 @@ open_design_cards: number, };
 export type RoundOutcome = "running" | "took" | "sent_back" | "failed" | "interrupted" | "ended";
 
 /**
- * A round as a work's timeline shows it.
+ * A round as a list of rounds shows it.
  */
 export type RoundSummary = { 
 /**
- * Its number in its work.
+ * The work it is a round of, and its number in that work.
  */
-n: number, 
+work: number, n: number, 
 /**
  * Its cell; none for a round that only answered an interjection.
  */
@@ -265,9 +265,10 @@ tokens: RoundTokens | null,
  */
 session: number | null, 
 /**
- * When it started a new session: why, as the session manager recorded it: line, the line's first session in the
- * work (or a cell on no line, whose session is its own); cell, a cell the line starts a new session at; limit, the
- * line's session before was past the context limit.
+ * When it started a new session: why, as the session manager recorded it: line, the line had none going on (its
+ * first in the work, or a cell on no line, whose session is its own every round); cell, a cell the line starts a
+ * new session at; limit, the line's session before was past the context limit; model or account, the model or the
+ * login account its rounds run under changed; owner, the owner asked for one.
  */
 new_session: string | null, };
 
@@ -1578,14 +1579,16 @@ constitution: NamedText | null, };
  */
 export type ArchitectWork = { work: WorkSummary, 
 /**
- * How many matters it handled.
- */
-handled: number, 
-/**
  * The matter it handles now: the one its latest pick chose, until that matter is handled or held by an ask; none
  * when it handles none, or is over.
  */
 handling: number | null, };
+
+/**
+ * A window of a project's architect's rounds, across its works, in the order they started, oldest first; and whether
+ * rounds older than its first and newer than its last are there to read.
+ */
+export type ArchitectRounds = { rounds: Array<RoundSummary>, older: boolean, newer: boolean, };
 
 /**
  * A matter for an architect that it has not handled.

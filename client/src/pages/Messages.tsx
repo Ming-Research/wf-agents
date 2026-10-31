@@ -116,7 +116,7 @@ import { isObj, label, str, words } from '../labelled';
 import { reread, useResource, useStatus } from '../live';
 import { firstWords, Markdown, MarkdownLine } from '../markdown';
 import { BackLink, LinkButton, SayBox, Thumbs } from '../parts';
-import { architectHref, forProject, href, Link, navigate, type SideTab, sideHref, workHref } from '../route';
+import { architectHref, forProject, href, Link, navigate, roundAt, type SideTab, sideHref, workHref } from '../route';
 import { t, tn } from '../text';
 import { joinedWords, Long, SEP } from '../voices';
 import { useNarrow, useWidth, type Width } from '../width';
@@ -624,7 +624,7 @@ function ForwardMenu({ notice, choices, failed }: { notice: number; choices: For
 function WordsLine({ w }: { w: WordsState }) {
   const chart =
     w.architect_work !== null && w.cell !== null
-      ? architectHref({ project: w.project, work: w.architect_work, round: w.round, cell: w.cell })
+      ? architectHref({ project: w.project, round: roundAt(w.architect_work, w.round), cell: w.cell })
       : null;
   return (
     <p className="talk-line-more">
@@ -651,7 +651,7 @@ function ForwardLine({ f }: { f: Forwarded }) {
       {p.round !== null ? (
         <>
           {' '}
-          <Link to={architectHref({ project: f.project, work: f.handled_work, round: f.handled_round })}>
+          <Link to={architectHref({ project: f.project, round: roundAt(f.handled_work, f.handled_round) })}>
             {p.round}
           </Link>
         </>

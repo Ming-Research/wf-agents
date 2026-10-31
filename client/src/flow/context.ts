@@ -13,7 +13,7 @@ export type Subject =
   | { kind: 'action'; node: string; graph?: string }
   | { kind: 'store'; store: string }
   | { kind: 'changes' }
-  | { kind: 'round'; round: number };
+  | { kind: 'round'; work: number; round: number };
 
 export type Flow = {
   compiled: Compiled;
@@ -57,7 +57,7 @@ export function subjectKey(s: Subject): string {
     case 'changes':
       return 'changes';
     case 'round':
-      return `round:${s.round}`;
+      return `round:${s.work}-${s.round}`;
   }
 }
 

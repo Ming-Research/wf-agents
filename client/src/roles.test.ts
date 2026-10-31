@@ -1,6 +1,6 @@
 // A role has one colour wherever the page shows it: the colour the flow gives its line, drawn through one lookup, the
-// class of that colour in roles.css, which sets the four tokens a chart's cell, a bubble and an avatar are drawn with;
-// an agent with no colour of its own the page's neutral grey, the engine's own steps' on a chart.
+// class of that colour in roles.css, which sets the five tokens a chart's cell, a bubble, an avatar and who ran a round
+// are drawn with; an agent with no colour of its own the page's neutral grey, the engine's own steps' on a chart.
 
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -73,13 +73,14 @@ describe("a role's colour", () => {
     expect(roleClass(coloursOf([]), 'engineer')).toBe('role-none');
   });
 
-  it('has a class for each colour the flow may give, setting the four Primer display tokens of that colour', () => {
+  it('has a class for each colour the flow may give, setting the five Primer display tokens of that colour', () => {
     for (const name of Object.keys(KNOWN)) {
       expect(Object.fromEntries(rule(rolesCss, `.role-${name}`)), name).toEqual({
         '--role-edge': `var(--display-${name}-borderColor-emphasis)`,
         '--role-fill': `var(--display-${name}-bgColor-muted)`,
         '--role-line': `var(--display-${name}-borderColor-muted)`,
         '--role-mark': `var(--display-${name}-bgColor-emphasis)`,
+        '--role-text': `var(--display-${name}-fgColor)`,
       });
     }
   });

@@ -310,6 +310,10 @@ const ICONS = {
   over: glyph('over'),
 };
 
+/// The new session's speech bubble holding a plus, which also marks a round that started a new session in a list of
+/// rounds.
+export const SessionIcon = ICONS.session;
+
 /// The names of Start, Pause, Step and Start over, said on hovering each and to a screen reader.
 const NAMES = { start: 'work_start', pause: 'work_pause', step: 'work_step', over: 'work_start_over' } as const;
 

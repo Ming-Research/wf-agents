@@ -23,7 +23,7 @@ import { runningWords, waitsWords } from '../course';
 import { cost, day, duration, roundName, time } from '../format';
 import { useResource, useStatus } from '../live';
 import { HeadingLevel, ItemRef, PeriodSwitch, PrLink, RoundLink, Section } from '../parts';
-import { architectHref, href, Link, type Period, PERIODS, workHref } from '../route';
+import { architectHref, href, Link, type Period, PERIODS, roundAt, workHref } from '../route';
 import { tokenCount, tokens } from '../round';
 import { spendTable } from '../spend';
 import { anomaliesBy, byStanding, mergedAverages, spentIn, systemPath, zone } from '../system';
@@ -206,7 +206,7 @@ function Architects({ list, at }: { list: ArchitectNow[]; at: number }) {
               {a.work === null ? (
                 t('sys_idle')
               ) : (
-                <Link to={architectHref({ project: a.project, work: a.work })}>
+                <Link to={architectHref({ project: a.project })}>
                   {t(a.paused ? 'sys_working_paused' : 'sys_working', { work: a.work })}
                 </Link>
               )}
@@ -556,9 +556,9 @@ function summed(list: WorkCount[]): { n: number; cost: number } {
 }
 
 /// Where a work's rounds or pings are shown: an engineer's work's page as `engineer` names it, or the architect's
-/// view, its rounds there, named by no work.
+/// view, whose rounds are one list across its works, opening on the newest.
 function workPlace(c: WorkCount, engineer: string): string {
-  return c.graph === 'architect' ? architectHref({ project: c.project, work: c.work }) : engineer;
+  return c.graph === 'architect' ? architectHref({ project: c.project }) : engineer;
 }
 
 /// Where to save: how much of the agents' input the prompt cache gave, and the rounds that missed it; the rounds sent
@@ -725,7 +725,7 @@ function AnomalyRows({ list }: { list: Anomaly[] }) {
             <td>
               {a.graph === 'architect' ? (
                 <Link
-                  to={architectHref({ project: a.project, work: a.work, round: a.round })}
+                  to={architectHref({ project: a.project, round: roundAt(a.work, a.round) })}
                   className={a.round !== null ? 'round-link' : undefined}
                 >
                   {a.round !== null ? roundName(a.work, a.round) : t('sys_architect_link')}

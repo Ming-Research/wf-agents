@@ -1,10 +1,11 @@
 // The panel of what is open on a chart, in the window floating over the chart's right side: its title and who does it
-// and a way back to what it showed before, and no close, for it stays open until something else is opened;
-// minimised, its title alone. The edges that drag the window's width and the share of it the page's panel takes are
-// here too, kept in this browser.
+// and a way back to what it showed before; split under a page's panel, its close, which lets go of what is open and
+// leaves the page's panel alone in the window; alone in the window, as on the flow page, no close, for the window has
+// none and it stays open until something else is opened; minimised, its title alone. The edges that drag the window's
+// width and the share of it the page's panel takes are here too, kept in this browser.
 
-import { ArrowLeftIcon } from '@primer/octicons-react';
-import { Heading } from '@primer/react';
+import { ArrowLeftIcon, XIcon } from '@primer/octicons-react';
+import { Heading, IconButton } from '@primer/react';
 import { type PointerEvent as Press, type ReactNode, type Ref, useEffect, useRef, useState } from 'react';
 
 import { LinkButton } from '../parts';
@@ -92,6 +93,8 @@ export function Panel(props: {
   /// The title of what the panel showed before, to go back to.
   back: string | null;
   onBack: () => void;
+  /// Lets go of what is open, for a panel split under a page's panel; none for one alone in the window.
+  onClose?: () => void;
   /// Bumped each time the panel shows something else, so that it starts at its top.
   shown: string;
   /// Whether the window it is in is minimised: its head is then the window's one row, its title alone.
@@ -102,7 +105,7 @@ export function Panel(props: {
   children: ReactNode;
   ref?: Ref<HTMLElement>;
 }) {
-  const { title, who, back, onBack, shown, minimised = false, fold = null, children, ref } = props;
+  const { title, who, back, onBack, onClose, shown, minimised = false, fold = null, children, ref } = props;
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
@@ -124,6 +127,9 @@ export function Panel(props: {
           </Heading>
           {who && !minimised ? <p className="panel-who">{who}</p> : null}
         </div>
+        {onClose !== undefined && !minimised ? (
+          <IconButton size="small" variant="invisible" icon={XIcon} aria-label={t('close')} onClick={onClose} />
+        ) : null}
         {fold?.button ?? null}
       </div>
       <div className="panel-body" ref={body}>
@@ -133,7 +139,8 @@ export function Panel(props: {
   );
 }
 
-/// What the panel shows, at first `first`, and the trail back through what it showed before.
+/// What the panel shows, at first `first`, and the trail back through what it showed before. Closing it forgets the
+/// trail.
 export function useTrail<S>(same: (a: S, b: S) => boolean, first: S | null = null) {
   const [state, setState] = useState<{ now: S | null; trail: S[] }>(() => ({ now: first, trail: [] }));
   const open = (s: S, from?: S) =>
@@ -151,6 +158,7 @@ export function useTrail<S>(same: (a: S, b: S) => boolean, first: S | null = nul
       const prev = trail.pop();
       return prev === undefined ? old : { now: prev, trail };
     });
+  const close = () => setState({ now: null, trail: [] });
   const last = state.trail.length > 0 ? state.trail[state.trail.length - 1] : null;
-  return { now: state.now, last, open, back };
+  return { now: state.now, last, open, back, close };
 }

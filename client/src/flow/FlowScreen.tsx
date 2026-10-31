@@ -3,8 +3,10 @@
 // and which never moves the chart. On those two pages the page's panel is on top, at the window's full height until a
 // cell, a rule, the interjection, a comparison or a round is opened, whose panel is then in the lower part, split from
 // the top by a divider that drags, at the share the owner last set on either page. On the flow page, which has no
-// panel of its own, what is open is alone in the window, which shows from the first thing opened. What is open has no
-// close: it stays until something else is opened or the way back is taken. The window starts minimised; a click on
+// panel of its own, what is open is alone in the window, which shows from the first thing opened. The window has no
+// close: what is open alone in it stays until something else is opened or the way back is taken, while what is open
+// split under a page's panel has its close, which lets go of it and gives the page's panel the full height again,
+// the window staying as it is. The window starts minimised; a click on
 // the chart that opens something expands it. The lines of an open panel's From and To light their rows on the chart
 // (lights.ts). Every page that shows a flow shows it here, in this one way, so that what is opened on one shows as on
 // the others.
@@ -12,6 +14,7 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Compiled, FlowDiff, RoundSummary } from '../api';
+import type { RoundKey } from '../route';
 import { FlowChart, type FlowChartHandle, type Graph, type Pick } from '../graph/FlowChart';
 import { roundName } from '../format';
 import type { Marks } from '../graph/flowDraw';
@@ -77,13 +80,13 @@ export type FlowScreenProps = {
   startGraph?: string | null;
   /// When two flows are compared: what changed, which the panel opens on.
   diff?: FlowDiff | null;
-  /// On a work's page: the work, its rounds, a round's panel, and the round the address names, each round by its
-  /// number in the work. A work runs on the first graph.
-  work?: number;
+  /// On a work's page and the architect's: the rounds placed on the chart, of one work or of the architect's works, a
+  /// round's panel, and the round the address names, each round by its work and its number in the work. The works run
+  /// on the first graph.
   rounds?: RoundSummary[];
-  round?: number | null;
-  onRound?: (round: number | null) => void;
-  renderRound?: (round: number) => ReactNode;
+  round?: RoundKey | null;
+  onRound?: (round: RoundKey | null) => void;
+  renderRound?: (round: RoundKey) => ReactNode;
   /// On a work's page and the architect's: the page's panel, on top of the window, with what is open on the chart
   /// split under it.
   side?: ReactNode;
@@ -172,7 +175,6 @@ export function FlowScreen(props: FlowScreenProps) {
     start,
     startGraph,
     diff,
-    work,
     rounds,
     round,
     onRound,
@@ -180,7 +182,8 @@ export function FlowScreen(props: FlowScreenProps) {
     side,
   } = props;
   const [split, setSplit] = useState<number | null>(() => savedSize(SPLIT_KEY, SPLIT_MIN));
-  const nameOf = (n: number) => roundName(work ?? 0, n);
+  const nameOf = (k: RoundKey) => roundName(k.work, k.n);
+  const roundOf = (s: { work: number; round: number }) => rounds?.find((r) => r.work === s.work && r.n === s.round);
   const chartRef = useRef<FlowChartHandle>(null);
   const panelRef = useRef<HTMLElement>(null);
   const areaRef = useRef<HTMLDivElement>(null);
@@ -194,7 +197,7 @@ export function FlowScreen(props: FlowScreenProps) {
     return coverOf(area, dock !== null && !dock.classList.contains('dock-min') ? dock.getBoundingClientRect() : null);
   }, []);
   // A round the address names is open from the page's first drawing.
-  const trail = useTrail<Subject>(same, round != null ? { kind: 'round', round } : null);
+  const trail = useTrail<Subject>(same, round != null ? { kind: 'round', work: round.work, round: round.n } : null);
   // The node whose panel is open, in its graph, or the store.
   const [picked, setPicked] = useState<{ graph: string; node: string } | { store: string } | null>(null);
   // The tab of a cell's panel the owner chose last: going to another cell keeps it.
@@ -242,7 +245,9 @@ export function FlowScreen(props: FlowScreenProps) {
   const now = trail.now;
   useEffect(() => {
     if (round != null) {
-      if (now?.kind !== 'round' || now.round !== round) open({ kind: 'round', round });
+      if (now?.kind !== 'round' || now.work !== round.work || now.round !== round.n) {
+        open({ kind: 'round', work: round.work, round: round.n });
+      }
     } else if (cell !== null) {
       const graph = cellGraph ?? undefined;
       if (now?.kind !== 'cell' || now.cell !== cell || (graph !== undefined && now.graph !== graph)) {
@@ -252,15 +257,15 @@ export function FlowScreen(props: FlowScreenProps) {
     }
     // Only when the address changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cell, cellGraph, round]);
+  }, [cell, cellGraph, round?.work, round?.n]);
   useEffect(() => {
     if (now === null) {
       if (cell !== null) onCell(null);
       if (round != null) onRound?.(null);
     } else if (now.kind === 'cell' && (now.cell !== cell || (cellGraph != null && now.graph !== cellGraph))) {
       onCell(now.cell, now.graph);
-    } else if (now.kind === 'round' && now.round !== round) {
-      onRound?.(now.round);
+    } else if (now.kind === 'round' && (now.work !== round?.work || now.round !== round.n)) {
+      onRound?.({ work: now.work, n: now.round });
     }
     // Only when the panel changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -339,7 +344,7 @@ export function FlowScreen(props: FlowScreenProps) {
       case 'changes':
         return t('panel_changes');
       case 'round':
-        return nameOf(s.round);
+        return nameOf({ work: s.work, n: s.round });
     }
   };
   const several = graphs.length > 1;
@@ -363,9 +368,8 @@ export function FlowScreen(props: FlowScreenProps) {
           body: (
             <CellPanel
               c={c}
-              work={work}
               rounds={rounds?.filter((r) => r.cell === c.id)}
-              onRound={onRound ? (r) => open({ kind: 'round', round: r.n }) : undefined}
+              onRound={onRound ? (r) => open({ kind: 'round', work: r.work, round: r.n }) : undefined}
               diff={diff?.graphs.find((d) => d.name === x.g.name)?.cells.find((d) => d.id === c.id) ?? null}
               tab={cellTab}
               onTab={setCellTab}
@@ -428,13 +432,13 @@ export function FlowScreen(props: FlowScreenProps) {
         };
       case 'round': {
         // The round at its cell, which opens on the chart.
-        const at = rounds?.find((r) => r.n === now.round)?.cell ?? null;
+        const at = roundOf(now)?.cell ?? null;
         const c = at !== null ? first?.g.cells.find((x) => x.id === at) : undefined;
         return {
           flow: flowFor(undefined),
           title: (
             <RoundAt
-              round={nameOf(now.round)}
+              round={nameOf({ work: now.work, n: now.round })}
               cell={c?.id}
               title={c?.title}
               onCell={c !== undefined ? () => open({ kind: 'cell', cell: c.id }) : undefined}
@@ -442,7 +446,7 @@ export function FlowScreen(props: FlowScreenProps) {
             />
           ),
           who: null,
-          body: renderRound?.(now.round) ?? null,
+          body: renderRound?.({ work: now.work, n: now.round }) ?? null,
         };
       }
     }
@@ -450,7 +454,7 @@ export function FlowScreen(props: FlowScreenProps) {
   // A round's panel brings its cell into view.
   useEffect(() => {
     if (now?.kind !== 'round' || !first) return;
-    const at = rounds?.find((r) => r.n === now.round)?.cell;
+    const at = rounds?.find((r) => r.work === now.work && r.n === now.round)?.cell;
     if (at) {
       setPicked({ graph: first.g.name, node: `c:${at}` });
       chartRef.current?.focus(at, false, first.g.name);
@@ -491,6 +495,7 @@ export function FlowScreen(props: FlowScreenProps) {
             chartRef.current?.focus(prev.cell, true, prev.graph);
           }
         }}
+        onClose={side !== undefined ? trail.close : undefined}
         shown={subjectKey(now)}
         minimised={minimised}
         fold={head === 'open' ? fold : null}

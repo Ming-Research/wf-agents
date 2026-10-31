@@ -18,7 +18,6 @@ import {
   matterSentence,
   matterSteps,
   queueParts,
-  shownWork,
 } from './architect';
 import { inGraph, subjectKey } from './flow/context';
 import { graphOfCell, withGraph } from './flow/FlowScreen';
@@ -59,7 +58,6 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
 
 const architectWork = (id: number, extra: Partial<WorkSummary> = {}, handling: ArchitectWork['handling'] = null): ArchitectWork => ({
   work: work(id, extra),
-  handled: 0,
   handling,
 });
 
@@ -134,15 +132,6 @@ describe('a matter in words', () => {
 });
 
 describe("the architect's page", () => {
-  it("shows the architect's work the address names, else the one going on, else the latest", () => {
-    const works = [architectWork(9), architectWork(8, { state: 'asking', at: 'P3' }), architectWork(7)];
-    expect(shownWork(works, 7)?.work.id).toBe(7);
-    expect(shownWork(works, null)?.work.id).toBe(8);
-    expect(shownWork(works, 99)?.work.id).toBe(8);
-    expect(shownWork([architectWork(9), architectWork(7)], null)?.work.id).toBe(9);
-    expect(shownWork([], null)).toBeNull();
-  });
-
   it('splits the queue into what is in it and what an ask of the owner holds, and says how the architect stands', () => {
     const queue = [
       matter(1, { kind: 'engineer_question', detail: 'split', waits: 'agent', source: 'work', work: 4, round: 2 }),
@@ -167,34 +156,32 @@ describe("the architect's page", () => {
     expect(architectState([architectWork(10, { state: 'running', at: 'Q0' })], [])).toMatchObject({ handling: null, waiting: 0 });
   });
 
-  it('has an address that names the project, the work, the tab, the round and the cell', () => {
+  it('has an address that names the project, the tab, the round of any of its works and the cell', () => {
     const architect = {
       page: 'architect' as const,
       project: null,
-      work: null,
       tab: 'rounds' as const,
       round: null,
       cell: null,
-      only: null,
       span: '7d' as const,
     };
     const routes: Route[] = [
       architect,
       { ...architect, tab: 'changes' },
       { ...architect, tab: 'usage', span: '30d' },
-      { ...architect, work: 12, only: 'sent_back' },
+      { ...architect, round: { work: 11, n: 3 } },
       { ...architect, project: 'p', tab: 'changes' },
-      { ...architect, work: 12, round: 3, tab: 'usage' },
-      { ...architect, work: 12, cell: 'H3' },
+      { ...architect, round: { work: 12, n: 3 }, tab: 'usage' },
+      { ...architect, cell: 'H3' },
     ];
     for (const r of routes) {
       const at = href(r);
       const i = at.indexOf('?');
       expect(i < 0 ? parse(at, '') : parse(at.slice(0, i), at.slice(i))).toEqual(r);
     }
-    expect(href({ ...architect, work: 12, round: 3 })).toBe('/architect?work=12&round=R12-3');
+    expect(href({ ...architect, round: { work: 12, n: 3 } })).toBe('/architect?round=R12-3');
     expect(href(architect)).toBe('/architect');
-    expect(href({ ...architect, project: 'p', work: 12 })).toBe('/architect?project=p&work=12');
+    expect(href({ ...architect, project: 'p', round: { work: 12, n: 3 } })).toBe('/architect?project=p&round=R12-3');
     // A round of another work, or one with no work named, opens none; a tab the page does not know, such as the asks, the
     // conversation and the queue it had before, is its rounds, which the page opens on.
     expect(parse('/architect', '?tab=asks')).toEqual(architect);
@@ -205,8 +192,11 @@ describe("the architect's page", () => {
     expect(parse('/architect', '?tab=queue')).toEqual(architect);
     // The observations, which were its tab, are a view of their own.
     expect(parse('/architect', '?tab=observations')).toEqual(architect);
-    expect(parse('/architect', '?work=12&round=R11-3&tab=x')).toEqual({ ...architect, work: 12 });
-    expect(parse('/architect', '?round=R11-3')).toEqual(architect);
+    // A stretch of its work, which an address named before its rounds were one list, is no longer chosen, and an
+    // address that names no round opens none.
+    expect(parse('/architect', '?work=12&round=R11-3&tab=x')).toEqual({ ...architect, round: { work: 11, n: 3 } });
+    expect(parse('/architect', '?work=12&only=failed')).toEqual(architect);
+    expect(parse('/architect', '?round=11-3')).toEqual(architect);
   });
 
   it('is read again when what it shows changed', () => {
@@ -333,7 +323,9 @@ describe('the flow page with both graphs', () => {
       graph: 'architect',
     });
     expect(inGraph({ kind: 'rule', rule: 'general' }, 'architect')).toEqual({ kind: 'rule', rule: 'general', graph: 'architect' });
-    expect(inGraph({ kind: 'round', round: 3 }, 'architect')).toEqual({ kind: 'round', round: 3 });
+    expect(inGraph({ kind: 'round', work: 7, round: 3 }, 'architect')).toEqual({ kind: 'round', work: 7, round: 3 });
+    // A round is known by its work and its number in it: two works' rounds of one number are two.
+    expect(subjectKey({ kind: 'round', work: 7, round: 3 })).not.toBe(subjectKey({ kind: 'round', work: 8, round: 3 }));
     // A subject is the same whatever order its fields were written in.
     expect(subjectKey({ graph: 'architect', kind: 'cell', cell: 'S0' })).toBe(
       subjectKey({ kind: 'cell', cell: 'S0', graph: 'architect' }),

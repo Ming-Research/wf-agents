@@ -157,20 +157,23 @@ svg.fc {
 /* Who does a cell's work sets its two colours, its edge's and its fill's, which its box, a circle naming it and its mark
    on the map take from it: an agent's cell its role's, through the one lookup from a colour to how it is drawn (a
    role's class, roles.css), and each kind of cell that is no role's the same two from this file, one rule to a kind,
-   so that the three never differ. */
+   so that the three never differ; and the words on its fill, where a list of rounds names who ran a round. */
 .kind-engine {
   --role-edge: var(--fc-engine);
   --role-fill: var(--fc-engine-fill);
+  --role-text: var(--fc-text);
 }
 
 .kind-tool {
   --role-edge: var(--fc-tool);
   --role-fill: var(--fc-tool-fill);
+  --role-text: var(--fc-text);
 }
 
 .kind-owner {
   --role-edge: var(--fc-owner);
   --role-fill: var(--fc-owner-fill);
+  --role-text: var(--fc-text);
 }
 
 .fc-any {

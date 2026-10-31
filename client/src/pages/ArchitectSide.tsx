@@ -253,7 +253,7 @@ function HandledNothing({ a }: { a: Architect }) {
 /// The panel beside the one-to-one with an architect, in tabs: its notebook, its policy and its queue, the queue's tab
 /// counting the matters left; a tab changes the address, and the close closes the panel.
 export function ArchitectSide({ a, tab, onClose }: { a: Architect; tab: SideTab; onClose: () => void }) {
-  const onRound: OpenRound = (work, round) => navigate(architectHref({ project: a.project, work, round }));
+  const onRound: OpenRound = (work, n) => navigate(architectHref({ project: a.project, round: { work, n } }));
   const tabs: Array<{ tab: SideTab; label: string; n: number | null }> = [
     { tab: 'notebook', label: t('side_tab_notebook'), n: null },
     { tab: 'policy', label: t('arch_tab_policy'), n: null },

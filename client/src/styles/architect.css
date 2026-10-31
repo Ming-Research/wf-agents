@@ -1,7 +1,5 @@
-/* An architect's page, laid out as a work's: its line over its chart (whose architect, what it does now, what holds the
-   project's new works, its one-to-one, and the switch between the stretches it worked in, which opens the list of them
-   floating under the line at its right), and its panel on top of the window floating over the chart's right side, in
-   the tabs a work's panel has. */
+/* An architect's page, laid out as a work's with no line over its chart: the chart right under the bar, and its panel
+   on top of the window floating over the chart's right side, in the tabs a work's panel has. */
 
 .arch-screen {
   position: relative;
@@ -9,37 +7,6 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-}
-
-.arch-work-switch {
-  margin-left: auto;
-}
-
-/* The stretches the architect worked in, floating under the line at its right, as the flow's choice of comparison floats. */
-.arch-works {
-  position: absolute;
-  top: calc(var(--control-small-size) + 2 * var(--base-size-8) + var(--base-size-4));
-  right: var(--base-size-12);
-  z-index: 30;
-  display: grid;
-  gap: var(--base-size-12);
-  min-width: 560px;
-  max-width: calc(100% - 2 * var(--base-size-12));
-  padding: var(--base-size-16);
-  border: var(--borderWidth-thin) solid var(--borderColor-default);
-  border-radius: var(--borderRadius-medium);
-  background: var(--overlay-bgColor);
-  box-shadow: var(--shadow-floating-small);
-}
-
-.arch-works-list {
-  max-height: 60vh;
-  overflow: auto;
-}
-
-.arch-works-actions {
-  display: flex;
-  justify-content: flex-end;
 }
 
 /* A list in what the architect wrote: its items apart by the rhythm, a numbered one's numbers in the text's colour. */

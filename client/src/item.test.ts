@@ -174,6 +174,7 @@ const graph: CompiledGraph = {
 
 function round(n: number, at: string, transition: string | null, extra: Partial<RoundSummary> = {}): RoundSummary {
   return {
+    work: 1,
     n,
     cell: at,
     line: null,

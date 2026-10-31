@@ -1,5 +1,5 @@
-// The line over the chart of a work's page and of an architect's page, one part for both, and the parts it says how a
-// work goes on with, which the list of works shares: a round running as a state chip and how long it has run, ticking;
+// The line over the chart of a work's page (an architect's page has none), and the parts it says how a work goes on
+// with, which the list of works shares: a round running as a state chip and how long it has run, ticking;
 // what holds the work back, with why on hovering; what it waits for, linked to where the owner gives it; and where it
 // is, with that it is on an older flow version, or was moved to the one it is on, as a tag's chip saying in full on
 // hovering what that means. Only a stop of the engine's or the architect's says why on the line, since the owner looks
@@ -151,11 +151,11 @@ export function Where({ w, c, stage = false }: { w: WorkSummary; c: Course; stag
   );
 }
 
-/// The line over a chart, one for a work's page and an architect's: what leads away from it first (back to the list,
-/// or to another project's architect), which it is, how it goes on, where, its facts in muted words joined by a bar and
-/// last among them its conversation, where the owner acts on it, as a link, and at its end what it has more; each part
-/// says in full on hovering what it cuts.
-export function HeadLine({ lead, name, nameHint, state, stateHint, where, whereHint, facts, conversation, end }: {
+/// The line over a work's chart: what leads away from it first (back to the list), which it is, how it goes on, where,
+/// and its facts in muted words joined by a bar, last among them its conversation, where the owner acts on it, as a
+/// link; each part says in full on hovering what it cuts. An architect's page has none: what it would say is in the
+/// head of the architect's one-to-one and the panel beside it.
+export function HeadLine({ lead, name, nameHint, state, stateHint, where, whereHint, facts, conversation }: {
   lead?: ReactNode;
   name?: ReactNode;
   nameHint?: string;
@@ -166,7 +166,6 @@ export function HeadLine({ lead, name, nameHint, state, stateHint, where, whereH
   facts: ReactNode[];
   /// The key of its conversation in the messages view.
   conversation: string;
-  end?: ReactNode;
 }) {
   return (
     <div className="work-line">
@@ -192,7 +191,6 @@ export function HeadLine({ lead, name, nameHint, state, stateHint, where, whereH
           </Link>,
         ])}
       </span>
-      {end}
     </div>
   );
 }

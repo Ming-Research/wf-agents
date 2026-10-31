@@ -27,7 +27,7 @@ import { useStatus } from '../live';
 import { words } from '../labelled';
 import { firstWords, Markdown, MarkdownLine } from '../markdown';
 import { CommitLink, Fold, ItemRef, LinkButton, PrLink, RoundLink } from '../parts';
-import { architectHref, href, Link, observationsHref, sideHref } from '../route';
+import { architectHref, href, Link, observationsHref, roundAt, sideHref } from '../route';
 import { t, tn, type Key } from '../text';
 import { joinedWords } from '../voices';
 import { BubbleHead, LiveBubble } from './Bubble';
@@ -287,9 +287,9 @@ export function MatterBubble({ e, m, project, architect }: {
   const group = m.work !== null ? href({ page: 'messages', open: `work:${m.work}` }) : null;
   const where =
     m.state === 'working' && m.cell !== null
-      ? architectHref({ project, work: m.architect_work, round: m.round, cell: m.cell })
+      ? architectHref({ project, round: roundAt(m.architect_work, m.round), cell: m.cell })
       : m.handled !== null
-        ? architectHref({ project, work: m.handled.work, round: m.handled.round })
+        ? architectHref({ project, round: roundAt(m.handled.work, m.handled.round) })
         : null;
   // The architect's own trouble shows on the matter it has in hand.
   const c = m.state === 'working' && architect !== null ? course(architect, status) : null;
@@ -387,7 +387,7 @@ export function PlanBubble({ e, p, project }: { e: ConversationEntry; p: PlanCha
       who="architect"
       head={
         <ArchitectHead at={e.at}>
-          <Link to={architectHref({ project, work: p.work, round: p.round })}>{`R${p.work}-${p.round}`}</Link>
+          <Link to={architectHref({ project, round: roundAt(p.work, p.round) })}>{`R${p.work}-${p.round}`}</Link>
         </ArchitectHead>
       }
       live={false}

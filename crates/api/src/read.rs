@@ -15,12 +15,12 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Architect, ArchitectWork, DesignCard, DispatchHold, FlowVersion, FlowView, Handled, HandledAction, InputsNow,
-    Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem,
-    Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, OwnerAsk, OwnerMessage, PausedBy,
-    Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional, RoundDetail,
-    RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts,
-    ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
+    Architect, ArchitectRounds, ArchitectWork, DesignCard, DispatchHold, FlowVersion, FlowView, Handled, HandledAction,
+    InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
+    LinkedItem, Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, OwnerAsk, OwnerMessage,
+    PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional,
+    RoundDetail, RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag,
+    TokenCosts, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -661,6 +661,7 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
     let model: Option<String> = r.get(7)?;
     let tokens = round_tokens(json(r.get(20)?).as_ref(), model.as_deref()).map(|t| RoundTokens { level, effort, ..t });
     Ok(RoundSummary {
+        work: r.get(12)?,
         n: r.get(0)?,
         cell: r.get(1)?,
         line: r.get(2)?,
@@ -1777,18 +1778,10 @@ pub fn architect(
     let listed: Vec<String> = mine.iter().map(i64::to_string).collect();
     let mut architect_works = summaries(conn, flows, &format!("WHERE w.id IN ({})", listed.join(", ")), &[])?;
     architect_works.reverse();
-    let handled = counts(
-        conn,
-        "SELECT handled_work, count(*) FROM architect_matters WHERE handled_work IS NOT NULL GROUP BY handled_work",
-    )?;
     let mut out_works = Vec::new();
     for (_, s) in architect_works {
         let handling = if over(&s) { None } else { handling(conn, s.id)? };
-        out_works.push(ArchitectWork {
-            handled: handled.get(&s.id).copied().unwrap_or(0),
-            handling,
-            work: s,
-        });
+        out_works.push(ArchitectWork { handling, work: s });
     }
     let mut asks = asks(conn, "WHERE w.graph IN ('architect', 'policy')", &[])?;
     asks.retain(|a| mine.contains(&a.work));
@@ -1810,6 +1803,159 @@ pub fn architect(
 
 pub(crate) fn over(w: &WorkSummary) -> bool {
     matches!(w.state, WorkState::Done | WorkState::Ended)
+}
+
+/// How many of an architect's rounds a window holds when the request names no number.
+pub const ROUNDS_WINDOW: usize = 100;
+
+/// The most of an architect's rounds a window holds, whatever the request names.
+pub const ROUNDS_WINDOW_MOST: usize = 500;
+
+/// Which window of a project's architect's rounds is read, a round named by its work and its number in the work: the
+/// newest; those before a round or after it, the round left out; or a round with those around it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoundsWindow {
+    Newest,
+    Before(i64, i64),
+    After(i64, i64),
+    Around(i64, i64),
+}
+
+impl RoundsWindow {
+    /// The window a request names by a round's name (`R12-4`) as `before`, `after` or `around`, at most one of them;
+    /// the newest when it names none.
+    pub fn named(before: Option<&str>, after: Option<&str>, around: Option<&str>) -> Result<RoundsWindow> {
+        let round = |name: &str| -> Result<(i64, i64)> {
+            name.strip_prefix('R')
+                .and_then(|x| x.split_once('-'))
+                .and_then(|(w, n)| Some((w.parse().ok()?, n.parse().ok()?)))
+                .ok_or_else(|| Error::Invalid(format!("{name} names no round: a round is named R<work>-<n>")))
+        };
+        match (before, after, around) {
+            (None, None, None) => Ok(RoundsWindow::Newest),
+            (Some(x), None, None) => round(x).map(|(w, n)| RoundsWindow::Before(w, n)),
+            (None, Some(x), None) => round(x).map(|(w, n)| RoundsWindow::After(w, n)),
+            (None, None, Some(x)) => round(x).map(|(w, n)| RoundsWindow::Around(w, n)),
+            _ => Err(Error::Invalid(
+                "a window of rounds is before, after or around one round".into(),
+            )),
+        }
+    }
+}
+
+/// A round's place among an architect's rounds: when it started, then its work and its number in the work, which tell
+/// apart rounds that started in the same millisecond.
+type Place = (i64, i64, i64);
+
+/// Up to `n` of a project's architect's rounds next to a place, nearest first: those before it when `older`, else those
+/// after it; with no place, the newest.
+fn places(conn: &Connection, project: &str, from: Option<Place>, older: bool, n: usize) -> Result<Vec<Place>> {
+    let (past, order) = if older { ("<", "DESC") } else { (">", "ASC") };
+    let beyond = if from.is_some() {
+        format!(" AND (r.started_at, r.work, r.n) {past} (?2, ?3, ?4)")
+    } else {
+        String::new()
+    };
+    let mut st = conn.prepare(&format!(
+        "SELECT r.started_at, r.work, r.n FROM rounds r JOIN works w ON w.id = r.work
+         WHERE w.project = ?1 AND w.graph IN ('architect', 'policy'){beyond}
+         ORDER BY r.started_at {order}, r.work {order}, r.n {order} LIMIT {n}"
+    ))?;
+    let row = |r: &Row<'_>| -> rusqlite::Result<Place> { Ok((r.get(0)?, r.get(1)?, r.get(2)?)) };
+    let out = match from {
+        Some((at, work, round)) => st.query_map(params![project, at, work, round], row)?,
+        None => st.query_map(params![project], row)?,
+    }
+    .collect::<rusqlite::Result<_>>()?;
+    Ok(out)
+}
+
+/// A window of a project's architect's rounds, across its works and the settings of its policy a flow version before ran
+/// as works of their own, in the order they started: at most `limit` of them, oldest first, and whether rounds older
+/// and newer than the window are there to read. Around a round, as many before it as after it, as many more on one
+/// side as the other has too few. A round named that is not this architect's is not found.
+pub fn architect_rounds(
+    conn: &Connection,
+    project: &str,
+    window: RoundsWindow,
+    limit: usize,
+) -> Result<ArchitectRounds> {
+    let limit = limit.clamp(1, ROUNDS_WINDOW_MOST);
+    let place = |work: i64, n: i64| -> Result<Place> {
+        conn.query_row(
+            "SELECT r.started_at FROM rounds r JOIN works w ON w.id = r.work
+             WHERE r.work = ?1 AND r.n = ?2 AND w.project = ?3 AND w.graph IN ('architect', 'policy')",
+            params![work, n, project],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?
+        .map(|at| (at, work, n))
+        .ok_or_else(|| Error::NotFound(format!("R{work}-{n} is no round of the architect of {project}")))
+    };
+    let mut shown = match window {
+        RoundsWindow::Newest => places(conn, project, None, true, limit)?,
+        RoundsWindow::Before(w, n) => places(conn, project, Some(place(w, n)?), true, limit)?,
+        RoundsWindow::After(w, n) => places(conn, project, Some(place(w, n)?), false, limit)?,
+        RoundsWindow::Around(w, n) => {
+            let at = place(w, n)?;
+            let room = limit - 1;
+            let before = places(conn, project, Some(at), true, room)?;
+            let after = places(conn, project, Some(at), false, room)?;
+            let ahead = before.len().min((room / 2).max(room.saturating_sub(after.len())));
+            let behind = after.len().min(room - ahead);
+            let mut all: Vec<Place> = before.into_iter().take(ahead).collect();
+            all.push(at);
+            all.extend(after.into_iter().take(behind));
+            all
+        }
+    };
+    shown.sort_unstable();
+    let older = match shown.first() {
+        Some(&first) => !places(conn, project, Some(first), true, 1)?.is_empty(),
+        None => false,
+    };
+    let newer = match shown.last() {
+        Some(&last) => !places(conn, project, Some(last), false, 1)?.is_empty(),
+        None => false,
+    };
+    Ok(ArchitectRounds {
+        rounds: rounds_at(conn, &shown)?,
+        older,
+        newer,
+    })
+}
+
+/// The rounds at the places given, in that order, each with its context at its start and the models besides its own
+/// that it used, from the latest round before it in its session that recorded its usage, as a work's rounds have them.
+fn rounds_at(conn: &Connection, places: &[Place]) -> Result<Vec<RoundSummary>> {
+    let mut one = conn.prepare(&format!("{ROUND} WHERE r.work = ?1 AND r.n = ?2"))?;
+    let mut before = conn.prepare(
+        "SELECT usage FROM rounds WHERE work = ?1 AND session = ?2 AND n < ?3
+           AND json_extract(usage, '$.usage') IS NOT NULL
+         ORDER BY n DESC LIMIT 1",
+    )?;
+    let mut out = Vec::with_capacity(places.len());
+    for &(_, work, n) in places {
+        let (mut round, session, usage): (RoundSummary, Option<i64>, Option<String>) =
+            one.query_row(params![work, n], |r| Ok((round_summary(r)?, r.get(22)?, r.get(20)?)))?;
+        if let (Some(session), Some(tokens)) = (session, round.tokens.as_mut()) {
+            let prior = json(
+                before
+                    .query_row(params![work, session, n], |r| r.get::<_, Option<String>>(0))
+                    .optional()?
+                    .flatten(),
+            );
+            tokens.context_before = round_tokens(prior.as_ref(), None).and_then(|t| t.context_end);
+            let counted = prior.as_ref().map(|p| per_model(Some(p)));
+            tokens.others = others(
+                &per_model(json(usage).as_ref()),
+                counted.as_ref(),
+                round.model.as_deref(),
+            );
+        }
+        out.push(round);
+    }
+    Ok(out)
 }
 
 /// What a round handed back under a field of its answer, as the round's record keeps it: an agent's own answer, or the
@@ -3941,6 +4087,89 @@ mod tests {
         );
     }
 
+    // A project's architect's rounds read as one list across its works, in the order they started: the newest window
+    // first, then those before and after a round, each saying whether more are there to read; and a round with those
+    // around it, as many before it as after, more on one side where the other has too few. A round that is not this
+    // architect's is not found, and a window is named before, after or around one round.
+    #[test]
+    fn the_architect_s_rounds_read_in_windows_across_its_works() {
+        let s = architect_setup("rounds-window");
+        let conn = s.db.conn();
+        let names =
+            |w: &ArchitectRounds| -> Vec<String> { w.rounds.iter().map(|r| format!("R{}-{}", r.work, r.n)).collect() };
+        let at = |window: RoundsWindow, limit: usize| architect_rounds(conn, "p", window, limit).unwrap();
+        let newest = at(RoundsWindow::Newest, 4);
+        assert_eq!(names(&newest), ["R2-12", "R2-13", "R3-1", "R3-2"]);
+        assert_eq!((newest.older, newest.newer), (true, false));
+        let before = at(RoundsWindow::Before(2, 12), 4);
+        assert_eq!(names(&before), ["R2-8", "R2-9", "R2-10", "R2-11"]);
+        assert_eq!((before.older, before.newer), (true, true));
+        let first = at(RoundsWindow::Before(2, 3), 4);
+        assert_eq!(names(&first), ["R2-1", "R2-2"]);
+        assert_eq!((first.older, first.newer), (false, true));
+        let after = at(RoundsWindow::After(2, 12), 4);
+        assert_eq!(names(&after), ["R2-13", "R3-1", "R3-2"]);
+        assert_eq!((after.older, after.newer), (true, false));
+        let around = at(RoundsWindow::Around(2, 7), 5);
+        assert_eq!(names(&around), ["R2-5", "R2-6", "R2-7", "R2-8", "R2-9"]);
+        assert_eq!((around.older, around.newer), (true, true));
+        let end = at(RoundsWindow::Around(3, 1), 5);
+        assert_eq!(names(&end), ["R2-11", "R2-12", "R2-13", "R3-1", "R3-2"]);
+        assert_eq!((end.older, end.newer), (true, false));
+        // Each round as its work's rounds have it.
+        let w = work(conn, &Flows::default(), 2).unwrap();
+        assert_eq!(around.rounds[0], w.rounds[4]);
+        // An item's work's round is no round of the architect's; another project's architect has none yet.
+        assert!(matches!(
+            architect_rounds(conn, "p", RoundsWindow::Around(1, 1), 5),
+            Err(Error::NotFound(_))
+        ));
+        assert!(
+            architect_rounds(conn, "q", RoundsWindow::Newest, 5)
+                .unwrap()
+                .rounds
+                .is_empty()
+        );
+        assert_eq!(
+            RoundsWindow::named(None, Some("R2-7"), None),
+            Ok(RoundsWindow::After(2, 7))
+        );
+        assert!(RoundsWindow::named(Some("R2-7"), Some("R2-8"), None).is_err());
+        assert!(RoundsWindow::named(None, None, Some("2-7")).is_err());
+    }
+
+    // The round that started a session says why, as the session manager recorded it, and only the first round of each
+    // session in its work: the architect's first session, a new one past the context limit; a work that went on in the
+    // session the work before left started none.
+    #[test]
+    fn the_rounds_that_started_a_session_say_why() {
+        let mut s = architect_setup("session-marks");
+        s.db.write(Actor::Engine, |tx| {
+            let run = |sql: &str| tx.execute(sql, []).map(|_| ());
+            run(
+                "INSERT INTO sessions (id, work, line, cli, cli_session, started, ended) VALUES
+                 (11, 2, 'architect', 'claude', 'a', 'line', 9), (12, 2, 'architect', 'claude', 'b', 'limit', NULL),
+                 (13, 3, 'architect', 'claude', 'b', 'carried', NULL)",
+            )?;
+            run("UPDATE rounds SET session = 11 WHERE work = 2 AND n IN (2, 3)")?;
+            run("UPDATE rounds SET session = 12 WHERE work = 2 AND n IN (5, 6)")?;
+            run("UPDATE rounds SET session = 13 WHERE work = 3 AND n = 1")?;
+            Ok(())
+        })
+        .unwrap();
+        let w = architect_rounds(s.db.conn(), "p", RoundsWindow::Newest, 100).unwrap();
+        let marks: Vec<(String, &str)> = w
+            .rounds
+            .iter()
+            .filter_map(|r| {
+                r.new_session
+                    .as_deref()
+                    .map(|why| (format!("R{}-{}", r.work, r.n), why))
+            })
+            .collect();
+        assert_eq!(marks, [("R2-2".to_string(), "line"), ("R2-5".to_string(), "limit")]);
+    }
+
     // The works list leaves the architect's works out; an architect's work reads as a work on no item.
     #[test]
     fn the_architect_works_are_its_tab_s_not_the_works_list_s() {
@@ -3969,7 +4198,6 @@ mod tests {
             (WorkState::Asking, &Some(Waits::Answer { ask: 1 }))
         );
         assert_eq!(last.work.state, WorkState::Done);
-        assert_eq!((last.handled, now.handled), (1, 0));
         assert_eq!((last.handling, now.handling), (None, None));
 
         type InQueue<'a> = (i64, Option<&'a str>, Option<i64>, bool, &'a str);

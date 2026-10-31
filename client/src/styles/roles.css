@@ -1,11 +1,12 @@
 /* The colour each role is drawn in wherever the page shows it (its cells on a chart, its avatar and its bubbles), as the
    flow gives each line one: the one lookup the page has from a colour's name to how it is drawn, a class to a colour,
-   named for it, setting the four Primer display tokens of that colour every part draws a role with:
+   named for it, setting the five Primer display tokens of that colour every part draws a role with:
    --role-edge, its strong edge: a cell's edge on a chart (borderColor-emphasis);
    --role-fill, its tint: a cell's fill on a chart and a bubble's fill (bgColor-muted);
    --role-line, its tint's edge: a bubble's edge, so that nothing is edged in a colour other than its fill
    (borderColor-muted);
-   --role-mark, its solid colour: an avatar's circle, its mark white on it (bgColor-emphasis).
+   --role-mark, its solid colour: an avatar's circle, its mark white on it (bgColor-emphasis);
+   --role-text, its foreground: words on its tint, as who ran a round in a list of rounds (fgColor).
    The display colours, since they have each colour the flow may give in both themes, where the data visualisation
    colours have no indigo; for blue, auburn, pink, purple and lime their edge and tint are the data colours a chart's
    cells had, teal's edge a step darker. An agent with no colour of its own (a cell on no line, a line the flow no
@@ -17,6 +18,7 @@
   --role-fill: var(--display-blue-bgColor-muted);
   --role-line: var(--display-blue-borderColor-muted);
   --role-mark: var(--display-blue-bgColor-emphasis);
+  --role-text: var(--display-blue-fgColor);
 }
 
 .role-teal {
@@ -24,6 +26,7 @@
   --role-fill: var(--display-teal-bgColor-muted);
   --role-line: var(--display-teal-borderColor-muted);
   --role-mark: var(--display-teal-bgColor-emphasis);
+  --role-text: var(--display-teal-fgColor);
 }
 
 .role-auburn {
@@ -31,6 +34,7 @@
   --role-fill: var(--display-auburn-bgColor-muted);
   --role-line: var(--display-auburn-borderColor-muted);
   --role-mark: var(--display-auburn-bgColor-emphasis);
+  --role-text: var(--display-auburn-fgColor);
 }
 
 .role-pink {
@@ -38,6 +42,7 @@
   --role-fill: var(--display-pink-bgColor-muted);
   --role-line: var(--display-pink-borderColor-muted);
   --role-mark: var(--display-pink-bgColor-emphasis);
+  --role-text: var(--display-pink-fgColor);
 }
 
 .role-purple {
@@ -45,6 +50,7 @@
   --role-fill: var(--display-purple-bgColor-muted);
   --role-line: var(--display-purple-borderColor-muted);
   --role-mark: var(--display-purple-bgColor-emphasis);
+  --role-text: var(--display-purple-fgColor);
 }
 
 .role-indigo {
@@ -52,6 +58,7 @@
   --role-fill: var(--display-indigo-bgColor-muted);
   --role-line: var(--display-indigo-borderColor-muted);
   --role-mark: var(--display-indigo-bgColor-emphasis);
+  --role-text: var(--display-indigo-fgColor);
 }
 
 .role-lime {
@@ -59,6 +66,7 @@
   --role-fill: var(--display-lime-bgColor-muted);
   --role-line: var(--display-lime-borderColor-muted);
   --role-mark: var(--display-lime-bgColor-emphasis);
+  --role-text: var(--display-lime-fgColor);
 }
 
 .role-none {
@@ -66,4 +74,5 @@
   --role-fill: var(--bgColor-neutral-muted);
   --role-line: var(--borderColor-neutral-muted);
   --role-mark: var(--bgColor-neutral-emphasis);
+  --role-text: var(--fgColor-default);
 }

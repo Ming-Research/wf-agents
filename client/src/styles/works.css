@@ -123,9 +123,8 @@ table.list.works-table td {
   color: var(--fgColor-accent);
 }
 
-/* The line over the chart of a work's page and of an architect's, on one line: back to the list or the switch to
-   another project's architect, which it is, how it goes on and where, its facts, its conversation, and on an
-   architect's the switch between the stretches it worked in. */
+/* The line over the chart of a work's page, on one line: back to the list, which work it is, how it goes on and where,
+   its facts and its conversation. An architect's page has none. */
 .work-line {
   flex: none;
   display: flex;
@@ -202,9 +201,79 @@ table.list.works-table td {
   margin: 0;
 }
 
-/* The rounds fill the panel's width, whatever it is dragged to: what a round did takes the room left, wrapped rather
-   than cut, so that the whole row it took shows. */
-.timeline td.timeline-what {
+/* The list of rounds, a work's or the architect's, scrolls by itself under what the tab says over it, so that rounds
+   join it at either end as it scrolls; the page puts back the rows in sight itself, so the browser does not too. Each
+   cell keeps to one line, at any width: what a round came to takes the room left and is cut, whole on hovering; where
+   the list is narrow, the usage bar gives way first, then how long the round took. */
+.drawer-body > .rounds-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  container-type: inline-size;
+}
+
+.rounds-list td {
+  white-space: nowrap;
+}
+
+.rounds-list td.rounds-what {
   width: 100%;
-  overflow-wrap: anywhere;
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rounds-more {
+  margin: var(--base-size-8) 0;
+}
+
+@container (max-width: 480px) {
+  .rounds-list .spent {
+    display: none;
+  }
+}
+
+@container (max-width: 380px) {
+  .rounds-list .rounds-time {
+    display: none;
+  }
+}
+
+/* Who ran a round: a chip of a chip's shape filled in the tint of its cell's colour on the chart and edged in the same,
+   its words in that colour's foreground: an agent's role's colour (roles.css), the engine's step grey, a tool yellow
+   and the owner orange (chart.css). */
+[data-component='Label'][data-variant='secondary'].who-chip {
+  border-color: var(--role-fill);
+  background: var(--role-fill);
+  color: var(--role-text);
+}
+
+/* The mark of a round that started a new session of its line, after its name: the new session's speech bubble in the
+   muted colour of the name, why on hovering. */
+.session-mark {
+  display: inline-flex;
+  vertical-align: text-bottom;
+  color: var(--fgColor-muted);
+}
+
+/* Where one of the architect's works began, between two works' rounds: a thin muted rule across the list, when that
+   work began on it in small muted text. */
+.rounds-list tr.rounds-began > td {
+  padding: var(--base-size-2) var(--base-size-12);
+}
+
+.rounds-began-at {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.rounds-began-at::before,
+.rounds-began-at::after {
+  content: '';
+  flex: 1;
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
 }

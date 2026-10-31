@@ -4,8 +4,8 @@
 // item is at;
 // the one-to-one with an architect is one row: its Start, Pause and Step first, its name leading to its page, what it
 // handles now, at which cell, or that it is idle, paused or waits for the owner, and at the row's end the holds on the
-// project's new works and, while the panel beside the one-to-one is closed, the button that opens it; its queue is in
-// that panel; wf-agents' own says where each new fault goes as it comes, which the owner sets there. The architect is
+// project's new works, each with why, which the architect's page does not show, and, while the panel beside the
+// one-to-one is closed, the button that opens it; its queue is in that panel; wf-agents' own says where each new fault goes as it comes, which the owner sets there. The architect is
 // always there to the owner: the page never names its works.
 
 import { BlockedIcon, SidebarExpandIcon } from '@primer/octicons-react';
@@ -247,8 +247,9 @@ function ArchitectNow({ a, status }: { a: Architect; status: Status | null }) {
 }
 
 /// The head of the one-to-one with a project's architect, in one row: its Start, Pause and Step, whose architect (a link
-/// to its page), what it does now, and at the row's end the holds on the project's new works and, while the panel beside
-/// the one-to-one is closed, the button that opens it (`onSide`).
+/// to its page, the way to each project's architect's page), what it does now, and at the row's end the holds on the
+/// project's new works, each with why, and, while the panel beside the one-to-one is closed, the button that opens it
+/// (`onSide`).
 export function ArchitectHead({ c, a, onSide }: { c: Conversation; a: Architect | null; onSide: (() => void) | null }) {
   const project = c.project ?? '';
   const status = useStatus();
@@ -268,6 +269,7 @@ export function ArchitectHead({ c, a, onSide }: { c: Conversation; a: Architect 
               <span key={h.reason} className="talk-head-hold" title={t('hold_since', { at: time(h.since) })}>
                 <BlockedIcon size={16} />
                 {holdWords(h.reason)}
+                {h.why !== null ? `: ${h.why}` : null}
               </span>
             ))}
             {onSide !== null ? (

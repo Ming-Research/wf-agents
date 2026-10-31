@@ -490,7 +490,7 @@ describe("the owner's words in the one-to-one with an architect", () => {
     const r = row(drawnIn(said(state())), '>hi<');
     expect(r).toMatch(/^<div class="talk-row talk-row-owner">/);
     const { after } = bubble(r);
-    expect(after).toMatch(/^<p class="talk-line-more">the architect is replying \| <a [^>]*href="\/architect\?project=p&amp;work=9[^"]*"[^>]*>On the chart<\/a><\/p>/);
+    expect(after).toMatch(/^<p class="talk-line-more">the architect is replying \| <a [^>]*href="\/architect\?project=p&amp;round=R9-31[^"]*"[^>]*>On the chart<\/a><\/p>/);
     expect(after).toContain('cell=H8');
     expect(r).not.toContain('Your words');
     expect(r).not.toContain('not taken up yet');
@@ -525,7 +525,7 @@ describe("the owner's words in a work's group", () => {
     const r = row(drawn(detail([said(state())])), 'Why two parsers?');
     expect(r).toMatch(/^<div class="talk-row talk-row-owner">/);
     expect(bubble(r).after).toMatch(
-      /^<p class="talk-line-more">the architect is replying \| <a [^>]*href="\/architect\?project=p&amp;work=9[^"]*"[^>]*>On the chart<\/a><\/p>/,
+      /^<p class="talk-line-more">the architect is replying \| <a [^>]*href="\/architect\?project=p&amp;round=R9-31[^"]*"[^>]*>On the chart<\/a><\/p>/,
     );
     const replied = row(drawn(detail([said(state({ state: 'replied', architect_work: null, round: null, cell: null }))])), 'Why two parsers?');
     expect(bubble(replied).after).toMatch(/^<p class="talk-line-more">replied<\/p><\/div>/);

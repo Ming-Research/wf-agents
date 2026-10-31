@@ -6,14 +6,17 @@
 // its line and what it waits for lead to. The floating window holds on top the work's panel in tabs: its rounds; its
 // design cards, the one waiting for the owner's ruling first; the talk of its helpers (the advisor, the review, the
 // adversarial testing) with its engineer, one thread for each helper, which is in no group; and its usage. A round or a
-// cell opened shows in the window's lower part, its cell brought into view. The chart, the panel, the rounds tab, the line and the usage are
-// the architect's page's too (WorkChart.tsx, HeadLine.tsx, Usage.tsx).
+// cell opened shows in the window's lower part, its cell brought into view. The chart, the panel, the list of rounds,
+// the line and the usage are the architect's page's too (WorkChart.tsx, HeadLine.tsx, Usage.tsx). A work of an
+// architect has no page of its own: its address leads to its architect's page, on the round it names.
+
+import { useEffect } from 'react';
 
 import type { Compiled, CompiledGraph, DesignCard, FlowView, RoundSummary, WorkDetail } from '../api';
 import { Loaded } from '../components';
 import { useResource } from '../live';
 import { RoundAt, RoundLink, Section } from '../parts';
-import { href, navigate, type WorkRoute, type WorkTab } from '../route';
+import { architectHref, href, navigate, type WorkRoute, type WorkTab } from '../route';
 import { t } from '../text';
 import { Bubble, BubbleHead } from './Bubble';
 import { currentCard, DesignCardView, words } from './Decide';
@@ -199,7 +202,14 @@ function WorkPanel({ d, g, r, go }: { d: WorkDetail; g: CompiledGraph; r: WorkRo
       ]}
     >
       {r.tab === 'rounds' ? (
-        <RoundsTab d={d} g={g} only={r.only} selected={r.round} onAll={() => go({ only: null })} onRound={onRound} />
+        <RoundsTab
+          rounds={d.rounds}
+          g={g}
+          only={r.only}
+          selected={r.round !== null ? { work: d.work.id, n: r.round } : null}
+          onAll={() => go({ only: null })}
+          onRound={(k) => onRound(k.n)}
+        />
       ) : null}
       {r.tab === 'cards' ? <Cards cards={d.design_cards} onRound={onRound} /> : null}
       {r.tab === 'helpers' ? <Helpers d={d} g={g} onRound={onRound} /> : null}
@@ -215,19 +225,29 @@ export function Body({ r, d, compiled, view }: { r: WorkRoute; d: WorkDetail; co
       compiled={compiled}
       view={view}
       graph={d.work.graph}
-      d={d}
+      w={d.work}
+      rounds={d.rounds}
       cell={r.cell}
-      round={r.round}
+      round={r.round !== null ? { work: d.work.id, n: r.round } : null}
       onCell={(c) => go({ round: null, cell: c })}
-      onRound={(x) => go({ round: x, cell: null })}
+      onRound={(x) => go({ round: x !== null && x.work === d.work.id ? x.n : null, cell: null })}
       panel={(g) => <WorkPanel d={d} g={g} r={r} go={go} />}
     />
   );
 }
 
+/// Whether a work is one of an architect's, its own graph's or, a flow version before, the setting of its policy's.
+const ofArchitect = (d: WorkDetail) => d.work.graph === 'architect' || d.work.graph === 'policy';
+
 export function Work({ r }: { r: WorkRoute }) {
   const detail = useResource<WorkDetail>(`work:${r.id}`, `/api/v1/works/${r.id}`);
-  const version = detail.data?.work.flow_version ?? null;
+  const architect = detail.data !== undefined && ofArchitect(detail.data) ? detail.data.work.project : undefined;
+  // An architect's work leads to its architect's page, on the round named.
+  useEffect(() => {
+    if (architect === undefined) return;
+    navigate(architectHref({ project: architect, round: r.round !== null ? { work: r.id, n: r.round } : null }), true);
+  }, [architect, r.id, r.round]);
+  const version = architect === undefined ? (detail.data?.work.flow_version ?? null) : null;
   const compiled = useResource<Compiled>(null, version !== null ? `/api/v1/flows/${version}` : null);
   const view = useResource<FlowView>(null, version !== null ? `/api/v1/flows/${version}/view` : null);
   return (

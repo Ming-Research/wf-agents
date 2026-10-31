@@ -174,6 +174,16 @@ function version(key: string | null): number {
   return state.epoch * 1_000_000 + (state.versions.get(key) ?? 0) + (state.versions.get(`${kind}:*`) ?? 0);
 }
 
+/// How many times what `key` names has changed, everything read again included, changing as it does: for a part that
+/// reads what it shows itself.
+export function useVersion(key: string): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => version(key),
+    () => version(key),
+  );
+}
+
 export type Resource<T> = { data: T | undefined; error: string | null };
 
 /// Reads `path` now, and again each time an event names `key`. A null path reads nothing; a null key is read
