@@ -11,6 +11,7 @@ import { flowOf, FlowContext } from './flow/context';
 import { type Lights, LightsContext } from './flow/lights';
 import { Json, ReturnPattern } from './flow/Returns';
 import { FromTable, ToTable } from './flow/Rows';
+import type { Side } from './flow/Sides';
 import { RoundView } from './pages/RoundView';
 
 // What the interface gives, by its path: set by each test, read synchronously as the page draws.
@@ -196,6 +197,9 @@ function lines(html: string): string[] {
 }
 
 describe("a round's panel", () => {
+  // Every section is folded at first; the tables are opened to read them.
+  const tables: ReadonlySet<Side> = new Set<Side>(['from', 'to']);
+
   it('names its cells and rows as the flow version its work ran on has them, not as the chart beside it shows them', () => {
     served.clear();
     served.set('/api/v1/works/7/rounds/2', detail);
@@ -204,7 +208,7 @@ describe("a round's panel", () => {
     const chart = flowOf(now.compiled, now.g, now.v, () => {});
     const html = renderToStaticMarkup(
       <FlowContext.Provider value={chart}>
-        <RoundView work={7} n={2} rounds={rounds} />
+        <RoundView work={7} n={2} rounds={rounds} open={tables} />
       </FlowContext.Provider>,
     );
     // The four sections, in order.
@@ -226,7 +230,7 @@ describe("a round's panel", () => {
     served.set('/api/v1/works/7/rounds/1', { ...detail, round: rounds[0], message: null, output: null });
     served.set('/api/v1/flows/3', before.compiled);
     served.set('/api/v1/flows/3/view', before.view);
-    const html = renderToStaticMarkup(<RoundView work={7} n={1} rounds={rounds} />);
+    const html = renderToStaticMarkup(<RoundView work={7} n={1} rounds={rounds} open={tables} />);
     expect(html).toContain('Started the work');
     expect(lines(html)).toContain("* |to_owner_words|the engine's value route is H8|H8 What you ask|R7-2|");
   });

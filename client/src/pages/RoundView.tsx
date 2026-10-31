@@ -984,7 +984,7 @@ function StepRead({ d, f, cell, before }: { d: RoundDetail; f: Flow | null; cell
   );
 }
 
-function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
+function Detail({ d, rounds, first }: { d: RoundDetail; rounds: RoundSummary[]; first?: ReadonlySet<Side> }) {
   const f = useContext(FlowContext);
   const r = d.round;
   const cell = r.cell !== null ? f?.cell(r.cell) : undefined;
@@ -992,7 +992,7 @@ function Detail({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
   const tool = cell?.kind === 'tool';
   const at = rounds.findIndex((x) => x.n === r.n);
   const before = at > 0 ? rounds[at - 1] : undefined;
-  const [open, setOpen] = useState<ReadonlySet<Side>>(() => roundOpen);
+  const [open, setOpen] = useState<ReadonlySet<Side>>(() => first ?? roundOpen);
   useEffect(() => {
     roundOpen = open;
   }, [open]);
@@ -1060,7 +1060,7 @@ export function roundFlow(compiled: Compiled, view: FlowView, graph: string, cha
 
 /// A round with its cells as the flow version its work ran on has them, read as stored, whichever version the chart
 /// beside it shows.
-function AtVersion({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
+function AtVersion({ d, rounds, open }: { d: RoundDetail; rounds: RoundSummary[]; open?: ReadonlySet<Side> }) {
   const chart = useContext(FlowContext);
   const compiled = useResource<Compiled>(null, `/api/v1/flows/${d.flow_version}`);
   const view = useResource<FlowView>(null, `/api/v1/flows/${d.flow_version}/view`);
@@ -1072,13 +1072,19 @@ function AtVersion({ d, rounds }: { d: RoundDetail; rounds: RoundSummary[] }) {
   if (f === undefined) return <Loaded r={view}>{() => null}</Loaded>;
   return (
     <FlowContext.Provider value={f}>
-      <Detail d={d} rounds={rounds} />
+      <Detail d={d} rounds={rounds} first={open} />
     </FlowContext.Provider>
   );
 }
 
 /// A round of a work, by its number in the work, with the work's rounds around it.
-export function RoundView({ work, n, rounds = [] }: { work: number; n: number; rounds?: RoundSummary[] }) {
+export function RoundView({ work, n, rounds = [], open }: {
+  work: number;
+  n: number;
+  rounds?: RoundSummary[];
+  /// The sections open at first, instead of those the owner last left open.
+  open?: ReadonlySet<Side>;
+}) {
   const round = useResource<RoundDetail>(`round:${work}-${n}`, roundUrl(work, n));
-  return <Loaded r={round}>{(d) => <AtVersion d={d} rounds={rounds} />}</Loaded>;
+  return <Loaded r={round}>{(d) => <AtVersion d={d} rounds={rounds} open={open} />}</Loaded>;
 }

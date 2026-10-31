@@ -72,8 +72,9 @@ const SECTIONS: Record<string, Key> = {
   other: 'notebook_other',
 };
 
-/// One section of the notebook: its text as it stands, under the round and cell that wrote it, or that nothing wrote it
-/// yet; and, folded under it, each earlier version, newest first, under the round and cell that wrote it and when.
+/// One section of the notebook, folded at first as the owner asked: its text as it stands, under the round and cell
+/// that wrote it, or that nothing wrote it yet; and, folded under it, each earlier version, newest first, under the
+/// round and cell that wrote it and when.
 function NotebookPart({ s, onRound }: { s: NotebookSection; onRound: OpenRound }) {
   const now = s.now;
   const earlier = s.versions.filter((v) => now === null || v.work !== now.work || v.round !== now.round);
@@ -81,7 +82,6 @@ function NotebookPart({ s, onRound }: { s: NotebookSection; onRound: OpenRound }
   return (
     <Section
       title={key !== undefined ? t(key) : s.section}
-      open
       by={now !== null ? <By cell={now.cell} at={now.at} work={now.work} round={now.round} onRound={onRound} /> : undefined}
     >
       {now !== null ? (
@@ -118,8 +118,8 @@ function Notebook({ a, onRound }: { a: Architect; onRound: OpenRound }) {
 /// The architect's policy: the draft that waits for the owner's approval, while one does, headed as such, as one
 /// document under the round that wrote it; the policy in force, as one document, with when it took effect and the
 /// round that wrote it, or that none has taken effect yet; and under it the project's constitution, which the
-/// architect judges by with the policy, as the project's own file has it in its checkout, folded at first. The owner
-/// approves the draft by replying to the architect's question in the one-to-one beside it.
+/// architect judges by with the policy, as the project's own file has it in its checkout; each folded at first, as the
+/// owner asked. The owner approves the draft by replying to the architect's question in the one-to-one beside it.
 function Policy({ a, onRound }: { a: Architect; onRound: OpenRound }) {
   const p = a.policy;
   const draft = a.draft;
@@ -129,7 +129,6 @@ function Policy({ a, onRound }: { a: Architect; onRound: OpenRound }) {
       {draft !== null ? (
         <Section
           title={t('policy_draft')}
-          open
           by={<By at={draft.at} work={draft.work} round={draft.round} onRound={onRound} />}
         >
           <PolicyText value={draft.policy} />
@@ -137,7 +136,6 @@ function Policy({ a, onRound }: { a: Architect; onRound: OpenRound }) {
       ) : null}
       <Section
         title={t('policy_in_force')}
-        open
         by={
           p !== null ? (
             <By cell={p.cell} work={p.work} round={p.round} onRound={onRound}>

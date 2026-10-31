@@ -149,12 +149,12 @@ describe('the panel beside the one-to-one with an architect', () => {
     expect(html).toMatch(/octicon-x"[\s\S]*>Close</);
   });
 
-  it('shows each section of the notebook under the round and cell that last wrote it, its earlier versions folded', () => {
+  it('shows each section of the notebook folded under the round and cell that last wrote it, its earlier versions folded', () => {
     const html = side('notebook');
     const titles = [...html.matchAll(/class="section-title[^"]*">([^<]*)</g)].map((m) => m[1]);
     expect(titles).toEqual(['What the project is now', 'Earlier versions', 'The plan', 'What is unclear', 'Anything else']);
     const now = section(html, 'What the project is now');
-    expect(now).toMatch(/^<details class="section[^"]*"[^>]* open=""/);
+    expect(now).not.toMatch(/^<details class="section[^"]*"[^>]* open=""/);
     expect(now.slice(0, now.indexOf('Earlier versions'))).toContain('R9-5');
     expect(now).toContain('Two parsers.');
     const earlier = section(html, 'Earlier versions');
