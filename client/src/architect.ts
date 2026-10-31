@@ -165,7 +165,7 @@ export function architectNow(a: Architect, status: Status | null): Standing {
     if (c.running !== null) {
       return { state: 'running', words: c.running === 'step' ? runningWords(c) : t('talk_architect_working') };
     }
-    if (c.held !== null) return { state: 'paused', words: heldName(c).name };
+    if (c.held !== null) return { state: c.held === 'engine' ? 'halted' : 'paused', words: heldName(c).name };
     return { state: 'ready', words: t('talk_architect_between') };
   }
   const started = status !== null && status.architects_started.includes(a.project);

@@ -1,8 +1,9 @@
 // The owner's conversations as the page works them out from what the interface reads, apart from drawing them: the
 // list in its parts, what a conversation is called, who an entry is from and to whom it is said, in which voice the
 // page draws it, what of it streams, which question an architect pinned at the bottom of its one-to-one is open and
-// whether the owner's words reply to it, what the box at the bottom says things to and sends, what a stage card's facts
-// are, what is new for the owner to be told of, and where a fault of wf-agents can go and went.
+// whether the owner's words reply to it, what the box at the bottom says things to and sends, how the bubble of a stage
+// a work entered names it and says how it ended, what is new for the owner to be told of, and where a fault of
+// wf-agents can go and went.
 
 import type {
   Conversation,
@@ -17,6 +18,8 @@ import type {
   WorkState,
   WorkSummary,
 } from './api';
+import type { Tone } from './components';
+import { ordinal } from './format';
 import { isObj, words } from './labelled';
 import { type Key, t, tn } from './messages';
 import { joinedWords } from './voices';
@@ -90,11 +93,12 @@ export function conversationTitle(c: Pick<Conversation, 'key' | 'kind' | 'projec
   }
 }
 
-/// The voice the page draws an entry in: the owner's words, on the right; an agent's, beside its avatar; the page's
-/// own line for what the engine or a helper says; a card the engine writes from the flow (a stage, a matter, the
-/// policy); a fault of wf-agents, which the owner marks read; or nothing, for a design card the stage card that holds it
-/// shows.
-export type Voice = 'owner' | 'agent' | 'system' | 'card' | 'fault' | 'none';
+/// The voice the page draws an entry in: the owner's words, on the right; an agent's, beside its avatar; the bubble of
+/// a stage a work entered, in the engineer's look as the work's own voice; the page's own line for what the engine
+/// says in a conversation that is no work's group; a card the engine writes from the flow (a matter, the policy); a
+/// fault of wf-agents, which the owner marks read; or nothing, for a design card, which the bubble of the stage that
+/// handed it in holds.
+export type Voice = 'owner' | 'agent' | 'stage' | 'system' | 'card' | 'fault' | 'none';
 
 /// The lines that are members of a work's group besides the owner: its engineer and its project's architect.
 const MEMBERS = ['engineer', 'architect'];
@@ -103,27 +107,23 @@ const MEMBERS = ['engineer', 'architect'];
 /// to the owner the architect is one; any other line as itself.
 export const member = (line: string): string => (line === 'policy' ? 'architect' : line);
 
-export function voiceOf(e: ConversationEntry, held: ReadonlySet<number>): Voice {
+export function voiceOf(e: ConversationEntry): Voice {
   switch (e.source) {
     case 'stage':
+      return 'stage';
     case 'matter':
     case 'policy':
       return 'card';
     case 'notice':
       return e.fault !== null ? 'fault' : 'system';
     case 'card':
-      return e.design_card !== null && held.has(e.design_card) ? 'none' : 'system';
+      return 'none';
     case 'between':
       return 'agent';
     default:
       if (e.sender === 'owner') return 'owner';
       return MEMBERS.includes(member(e.sender)) ? 'agent' : 'system';
   }
-}
-
-/// The design cards the stage cards of a conversation hold, which show there and not as entries of their own.
-export function heldCards(d: ConversationDetail): Set<number> {
-  return new Set(d.entries.flatMap((e) => e.stage?.design_cards.map((c) => c.id) ?? []));
 }
 
 /// Who a party of an entry is, in words: you, the engine, a line; in a group of projects, the architect of a project.
@@ -172,18 +172,18 @@ export function ownerReplies(entries: ConversationEntry[]): Map<number, Conversa
 }
 
 /// What streams in a conversation, oldest first: everything but the owner's replies to what an engineer put to the
-/// architect, which show in the bubble they answer, the design cards its stage cards hold, and the questions an
-/// architect pinned for the owner's reply, which show at the bottom while they wait. An ask streams where it was asked,
-/// waiting or answered, the owner's answer in it; a question once replied to, with the reply in it.
+/// architect, which show in the bubble they answer, the design cards, which the bubble of the stage that handed them in
+/// holds, and the questions an architect pinned for the owner's reply, which show at the bottom while they wait. An ask
+/// streams where it was asked, waiting or answered, the owner's answer in it; a question once replied to, with the
+/// reply in it.
 export function streamOf(d: ConversationDetail): ConversationEntry[] {
-  const held = heldCards(d);
   const replies = ownerReplies(d.entries);
   const pinned = new Set(d.questions.map((q) => q.id));
   return d.entries.filter(
     (e) =>
       !(e.source === 'reply' && replies.get(e.matter ?? e.id) === e) &&
       !(e.source === 'ask' && pinned.has(e.id)) &&
-      voiceOf(e, held) !== 'none',
+      voiceOf(e) !== 'none',
   );
 }
 
@@ -281,16 +281,50 @@ export function closedWhy(c: Conversation, w: WorkSummary | null): string | null
   return null;
 }
 
+/// The name of each stage the engineer's graph has, as the owner reads it.
+const STAGES: Record<string, Key> = {
+  research: 'stage_research',
+  design: 'stage_design',
+  implement: 'stage_implement',
+  test: 'stage_test',
+  merge: 'stage_merge',
+  watch_main: 'stage_watch_main',
+};
 
-/// The facts the engine knows of a stretch of a work at a stage, each a few words: the design cards handed in, the
-/// fixes and reviews, the row it left by. Its time and cost are said apart.
-export function stageFacts(s: StageCard): string[] {
-  const out: string[] = [];
-  for (const c of s.design_cards) out.push(t('stage_card', { id: c.id, status: words(c.status) }));
-  if (s.reviews > 0) out.push(tn('stage_reviews', s.reviews));
-  if (s.fixes > 0) out.push(tn('stage_fixes', s.fixes));
-  if (s.left !== null) out.push(t('stage_left', { cell: s.left.cell, row: words(s.left.row) }));
-  return out;
+export const stageName = (s: string): string => (STAGES[s] !== undefined ? t(STAGES[s]) : words(s));
+
+/// What the bubble of a stage a work entered is headed by: the stage's name, and when the work came back to it, which
+/// time this is ("Testing and fixing, 2nd time").
+export function stageTitle(s: StageCard): string {
+  const name = stageName(s.stage);
+  return s.again > 0 ? t('stage_pass', { stage: name, nth: ordinal(s.again + 1) }) : name;
+}
+
+/// How a stage ended, in its words and its state's tone: done, stands and the like, merged, main green and no findings
+/// as done; sent back and does not stand as what waits on someone; ended as a work ended. None while the work is at it.
+const OUTCOMES: Record<string, { key: Key; tone: Tone }> = {
+  done: { key: 'stage_outcome_done', tone: 'success' },
+  stands: { key: 'stage_outcome_stands', tone: 'success' },
+  does_not_stand: { key: 'stage_outcome_does_not_stand', tone: 'attention' },
+  no_findings: { key: 'stage_outcome_no_findings', tone: 'success' },
+  sent_back: { key: 'stage_outcome_sent_back', tone: 'attention' },
+  merged: { key: 'stage_outcome_merged', tone: 'success' },
+  green: { key: 'stage_outcome_green', tone: 'success' },
+  ended: { key: 'stage_outcome_ended', tone: 'neutral' },
+};
+
+export function stageOutcome(s: StageCard): { words: string; tone: Tone } | null {
+  if (s.outcome === null) return null;
+  const o = OUTCOMES[s.outcome];
+  return o !== undefined ? { words: t(o.key), tone: o.tone } : { words: words(s.outcome), tone: 'success' };
+}
+
+/// Why a stage ended as it did, in a few words: what its reviews found, or the flow's or the engine's words.
+export function stageWhy(s: StageCard): string | null {
+  if (s.findings.length > 0) {
+    return s.findings.map((f) => tn('stage_findings', f.findings, { review: f.review })).join('; ');
+  }
+  return s.why;
 }
 
 /// What the page tells the owner of, by the browser's notifications: each thing that waits for the owner in a

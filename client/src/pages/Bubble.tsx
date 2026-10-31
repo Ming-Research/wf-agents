@@ -8,6 +8,9 @@
 import { BugIcon, CodeReviewIcon, LightBulbIcon, ProjectRoadmapIcon, ToolsIcon } from '@primer/octicons-react';
 import type { ReactNode } from 'react';
 
+import { RunningMark } from '../components';
+import { MarkdownLine } from '../markdown';
+
 /// The colour of a side of a talk: the engineer's, the architect's, a helper's of a work (the advisor, the review, the
 /// adversarial testing), or the owner's sheet.
 export type Tone = 'engineer' | 'architect' | 'helper' | 'owner';
@@ -67,5 +70,36 @@ export function Bubble({ who, right = false, wide = false, ask, head, after, und
       {own ? under : null}
       {right && !own ? <Avatar who={who} /> : null}
     </div>
+  );
+}
+
+/// A thing that runs and then ends, said as one bubble of one line (ours, one part for every such thing: a stage a work
+/// entered, and next an architect's matter): `who` says it, in its bubble's look; over the line its head (what it is,
+/// when it began, and links to where more of it is); the line itself, packed: while it goes on the running mark when a
+/// round of it runs and what happens now (`state`), once over its result as a state's chip and why; after them the
+/// gist of what was said last, cut where the line ends; the whole line said on hovering (`title`); and under the line
+/// what more there is, each a fold that opens in place.
+export function LiveBubble({ who, head, live, state, gist, title, children }: {
+  who: string;
+  head: ReactNode;
+  live: boolean;
+  state: ReactNode;
+  gist: string | null;
+  title: string;
+  children?: ReactNode;
+}) {
+  return (
+    <Bubble who={who} head={head}>
+      <div className="live-line" title={title}>
+        {live ? <RunningMark /> : null}
+        <span className="live-line-state">{state}</span>
+        {gist !== null ? (
+          <span className="live-line-gist">
+            <MarkdownLine text={gist} />
+          </span>
+        ) : null}
+      </div>
+      {children}
+    </Bubble>
   );
 }

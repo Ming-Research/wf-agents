@@ -457,8 +457,8 @@ function CardLink({ id, item }: { id: number; item: number | null }) {
 }
 
 /// A design card as the owner reads and rules on it, in the card every card shares: its head (its number, how it
-/// stands, the round that handed it in at its cell, when, the card it replaced, and for a replaced one the card
-/// that replaced it); the band of its rulings; what it changed from the card it replaced; each decision; and while it
+/// stands, while it waits whether it changed since a card the owner ruled on, the round that handed it in at its cell,
+/// when, the card it replaced, and for a replaced one the card that replaced it); the band of its rulings; what it changed from the card it replaced; each decision; and while it
 /// waits, what the owner sends. `round` is the link to the round that handed it in; a folded card is one line.
 export function DesignCardView({ c, round, folded = false }: { c: DesignCard; round: ReactNode; folded?: boolean }) {
   const tone = cardTone(c);
@@ -476,6 +476,9 @@ export function DesignCardView({ c, round, folded = false }: { c: DesignCard; ro
       <StatusChip tone={tone}>
         {tone === 'wait' ? t('dc_waits') : tone === 'old' ? t('dc_replaced') : tone === 'no' ? t('dc_disagreed') : t('dc_confirmed')}
       </StatusChip>
+      {c.status === 'open' && c.ruled_before !== null ? (
+        <span className="dc-again">{t('dc_changed_since', { id: c.ruled_before })}</span>
+      ) : null}
       <RoundAt round={round} cell={c.cell} title={c.title} />
       <span className="dc-note">
         {joined([

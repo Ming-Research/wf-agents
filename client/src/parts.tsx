@@ -328,6 +328,20 @@ export function PrLink({ project, n }: { project: string | null; n: number }) {
   );
 }
 
+/// A commit of a project, by its first seven characters as GitHub writes a commit, opening it on GitHub; the characters
+/// alone while the project's repository is not known.
+export function CommitLink({ project, sha }: { project: string | null; sha: string }) {
+  const status = useStatus();
+  const repo = project !== null ? status?.repos[project] : undefined;
+  const short = <span className="cell-id">{sha.slice(0, 7)}</span>;
+  if (repo === undefined) return short;
+  return (
+    <PrimerLink href={`https://github.com/${repo}/commit/${sha}`} target="_blank" rel="noreferrer" title={sha}>
+      {short}
+    </PrimerLink>
+  );
+}
+
 /// The words the owner writes beside the button that sends them, in every box that says or answers something, and the
 /// images that go with them: one line at rest, as tall as the button (`small` beside a small one), growing with what is
 /// written up to twelve lines, past which they scroll, with no handle to drag, the growing taking its place. Beside the

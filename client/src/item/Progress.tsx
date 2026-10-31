@@ -37,7 +37,12 @@ function Waits({ d, w }: { d: ItemDetail; w: WorkSummary }) {
     );
   }
   if (w.paused !== null) {
-    const key = w.paused_by === 'architect' ? 'progress_stopped_architect' : 'progress_paused';
+    const key =
+      w.paused_by === 'architect'
+        ? 'progress_stopped_architect'
+        : w.paused_by === 'engine'
+          ? 'progress_halted'
+          : 'progress_paused';
     return <p className="step-waits warn">{t(key, { why: w.paused })}</p>;
   }
   const state = liveState(w, status);

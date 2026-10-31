@@ -68,6 +68,13 @@ pub fn notify(tx: &Transaction<'_>, work: Option<i64>, text: &str) -> Result<(),
     tell(tx, work, None, None, text).map(|_| ())
 }
 
+/// Writes to the notifications log alone, through the outbox, what the owner's page says in its own place and keeps no
+/// notice of: a design card waiting, new or replacing another, which the card pinned in the work's group and the bubble
+/// of the stage that handed it in say, and a work ready to merge but held, which the group's head says.
+fn log_only(tx: &Transaction<'_>, work: i64, text: &str) -> Result<(), String> {
+    outbox(tx, Some(work), "notify", &json!({ "text": text }))
+}
+
 /// Tells the owner of a new ask of the owner, the notice naming the ask for the owner's interface to link to.
 pub fn notify_ask(tx: &Transaction<'_>, work: i64, ask: i64, text: &str) -> Result<(), String> {
     tell(tx, Some(work), Some(ask), None, text).map(|_| ())
@@ -360,9 +367,9 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             )
             .map_err(sql)?;
             design_card_matter(ctx, tx, card, round)?;
-            notify(
+            log_only(
                 tx,
-                Some(w),
+                w,
                 &format!(
                     "Design card {card} of {} waits for your ruling; the architect looks at it too. It blocks nothing until the merge.",
                     ctx.about()
@@ -377,7 +384,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             let card = new_design_card(tx, ctx.round, &body, changed.as_ref())?;
             design_card_matter(ctx, tx, card, ctx.round)?;
             if before.is_empty() {
-                notify(tx, Some(w), &format!("Design card {card} of {} is new.", ctx.about()))?;
+                log_only(tx, w, &format!("Design card {card} of {} is new.", ctx.about()))?;
             } else {
                 for (old, _) in &before {
                     tx.execute(
@@ -397,9 +404,9 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     .map(|(id, _)| id.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                notify(
+                log_only(
                     tx,
-                    Some(w),
+                    w,
                     &format!(
                         "Design card {card} of {} replaces design card {olds}.{again}",
                         ctx.about()
@@ -421,7 +428,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 Some((card, _)) => format!("design card {card} is ruled, but not confirmed for the head to merge"),
                 None => "it waits for the items it depends on to merge".to_string(),
             };
-            notify(tx, Some(w), &format!("{} is ready to merge, but {why}.", ctx.about()))?;
+            log_only(tx, w, &format!("{} is ready to merge, but {why}.", ctx.about()))?;
         }
         "revert_merge" => {
             let project = ctx.project()?;

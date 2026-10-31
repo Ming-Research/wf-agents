@@ -81,7 +81,6 @@ import {
   forwardNewChoices,
   forwardParts,
   forwardWords,
-  heldCards,
   latestAt,
   listParts,
   mention,
@@ -149,7 +148,7 @@ describe('the message catalog', () => {
     expect(tn('talk_queue_left', 3)).toBe('3 matters left');
     expect(tn('observation_reported', 1)).toBe('reported once');
     expect(tn('observation_reported', 2)).toBe('reported 2 times');
-    expect(tn('stage_fixes', 1)).toBe('1 fix');
+    expect(tn('stage_findings', 1, { review: 'Table review' })).toBe('1 finding in “Table review”');
     expect(tn('n_tokens', 1, { n: '1' })).toBe('1 token');
     expect(tn('n_tokens', 12_000, { n: '12K' })).toBe('12K tokens');
     expect(tn('items_deps_title', 1, { done: 0 })).toBe('Done: 0 of the 1 item it depends on');
@@ -267,9 +266,9 @@ describe('how a work goes on', () => {
     expect([both.held, both.waits]).toEqual(['you', { kind: 'answer', ask: 6 }]);
     expect(controls(both, status({}))).toEqual({ pause: false, start: true, step: false, canStep: true });
     expect(stepWhyNot(both, controls(both, status({})))).toBe('waiting for your answer to ask 6');
-    expect(held(both, work({ paused: 'the owner paused it', paused_by: 'owner' }))).toBe('stopped (you paused it)');
+    expect(held(both, work({ paused: 'the owner paused it', paused_by: 'owner' }))).toBe('paused by you');
     expect(waitOf(both, work({}), status({}))?.tag).toBe('waiting for you');
-    // Every work paused: stopped by the global pause, said so; Start and Step offered, and no Pause beside Start.
+    // Every work paused: paused by Pause all, said so; Start and Step offered, and no Pause beside Start.
     const all = course(work({}), status({ paused: true }));
     // Beside its cell: waiting for Step while Step can run a round of it, paused while another step is under way.
     expect(waitOf(all, work({}), status({ paused: true }))).toEqual({
@@ -277,7 +276,7 @@ describe('how a work goes on', () => {
       why: 'Every work is paused, by Pause all in the bar.',
     });
     expect(waitOf(all, work({}), status({ paused: true, stepping: 3 }))?.tag).toBe('paused');
-    expect([all.held, heldName(all).name]).toEqual(['all', 'stopped (global pause)']);
+    expect([all.held, heldName(all).name]).toEqual(['all', 'paused by Pause all']);
     expect(controls(all, status({ paused: true }))).toEqual({ pause: false, start: true, step: true, canStep: true });
     expect(stepWhyNot(all, controls(all, status({ paused: true })))).toBe(null);
     expect(held(all, work({}))).toBe('Every work is paused, by Pause all in the bar.');
@@ -337,22 +336,22 @@ describe('how a work goes on', () => {
     expect(pausing.running).toBe('pausing');
     expect(stepWhyNot(pausing, controls(pausing, status({ running: 5 })))).toBe('pausing after this round');
     expect(course(work({ paused: 'x', paused_by: 'owner' }), status({ running: 5, stepping: 5 })).running).toBe('step');
-    // Stopped by the engine on an older flow version: Start and Step, which wait for the round under way.
+    // Halted by the engine on an older flow version: Start and Step, which wait for the round under way.
     const stopped = course(work({ paused: 'cell implement: no', paused_by: 'engine', flow_version: 1 }), status({}));
     expect([stopped.held, stopped.outdated]).toEqual(['engine', true]);
     const why = waitOf(stopped, work({ paused: 'cell implement: no', paused_by: 'engine' }), status({}));
-    expect(why).toEqual({ tag: 'stopped by the engine', why: 'stopped (by the engine): cell implement: no' });
+    expect(why).toEqual({ tag: 'halted', why: 'halted: cell implement: no' });
     expect(controls(stopped, status({ stepping: 3 }))).toEqual({ pause: false, start: true, step: true, canStep: false });
     expect(stepWhyNot(stopped, controls(stopped, status({ stepping: 3 })))).toBe(
       'Another round you asked for is under way, or something stops every work: Step waits until it ends.',
     );
-    // Stopped by the architect: said so, with its reason, not as a problem; Start all leaves it, its Start lets it go on.
+    // Paused by the architect: said so, with its reason, not as a problem; Start all leaves it, its Start lets it go on.
     const architect = course(work({ paused: 'it waits for the parser', paused_by: 'architect' }), status({ paused: true }));
     expect([architect.held, heldName(architect)]).toEqual([
       'architect',
-      { name: 'stopped (by the architect)', problem: false },
+      { name: 'paused by the architect', problem: false },
     ]);
-    expect(heldWords(architect, 'it waits for the parser')).toBe('stopped (by the architect): it waits for the parser');
+    expect(heldWords(architect, 'it waits for the parser')).toBe('paused by the architect: it waits for the parser');
     expect(controls(architect, status({ paused: true })).start).toBe(true);
     // An ended work goes on no more.
     expect(controls(course(work({ state: 'ended', ended: 'x' }), status({})), status({})).pause).toBe(false);
@@ -994,7 +993,7 @@ describe('the chart of a flow', () => {
       round(6, 'b', 'failed', null),
       round(7, 'b', 'running', null),
     ];
-    const step = { tag: 'waiting for Step', why: 'stopped (you paused it)' };
+    const step = { tag: 'waiting for Step', why: 'paused by you' };
     const o = overlays(rounds, 'b', { running: true, waits: step });
     expect(o.get('a')).toEqual({ rounds: 3, sentBack: 1, failed: 0, running: false, current: false, waits: null });
     // While a round runs at the cell, the work does not wait there.
@@ -2131,6 +2130,7 @@ describe('a ruling on a design card', () => {
       at: null,
       replaces: null,
       changed: null,
+      ruled_before: null,
     });
     expect(currentCard([card(6, 'replaced'), card(7, 'ruled')])).toBe(7);
     expect(currentCard([card(6, 'ruled'), card(7, 'open')])).toBe(7);
@@ -2243,7 +2243,7 @@ describe("the owner's conversations", () => {
     expect(party(entry('message', { sender: 'policy' }), 'policy')).toBe('architect');
   });
 
-  it("draws each entry in its voice, an ask where it was asked, the owner's reply in what it answers, and a stage card's design cards in it", () => {
+  it("draws each entry in its voice, an ask where it was asked, the owner's reply in what it answers, and a design card in its stage's bubble", () => {
     const d: ConversationDetail = {
       key: 'work:5',
       entries: [
@@ -2258,6 +2258,7 @@ describe("the owner's conversations", () => {
         entry('ask', { id: 9 }),
         entry('reply', { id: 2, matter: 2, sender: 'owner', recipient: 'engineer' }),
         entry('message', { id: 10, sender: 'policy' }),
+        entry('stage', { id: 1, sender: 'engineer' }),
       ],
       asks: [{ id: 4, round: 2, work: 5, item: null, body: {}, kinds: [], answer: null, answer_images: [], asked_at: 0 }],
       design_cards: [],
@@ -2266,19 +2267,19 @@ describe("the owner's conversations", () => {
       read_to: null,
       forwarding: null,
     };
-    const held = heldCards(d);
-    expect(d.entries.map((e) => voiceOf(e, held))).toEqual([
+    expect(d.entries.map((e) => voiceOf(e))).toEqual([
       'agent',
       'agent',
       'agent',
       'agent',
       'system',
-      'system',
+      'none',
       'owner',
       'system',
       'agent',
       'owner',
       'agent',
+      'stage',
     ]);
     // An ask streams where it was asked; the owner's reply to the engineer's question shows in the question's bubble.
     expect(streamOf(d).map((e) => `${e.source}-${e.id}`)).toEqual([
@@ -2287,11 +2288,11 @@ describe("the owner's conversations", () => {
       'reply-3',
       'ask-4',
       'notice-5',
-      'card-6',
       'interjection-7',
       'message-8',
       'ask-9',
       'message-10',
+      'stage-1',
     ]);
     expect(latestAt(d)).toBe(3);
     expect(pendingWords([entry('words', { sender: 'owner', pending: true })]).length).toBe(1);

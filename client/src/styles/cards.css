@@ -79,6 +79,10 @@ details.dc:not([open]) > summary > .fold-open,
   margin: 0;
 }
 
+.dc-again {
+  color: var(--fgColor-attention);
+}
+
 .dc-note {
   color: var(--fgColor-muted);
   font-size: var(--text-body-size-small);

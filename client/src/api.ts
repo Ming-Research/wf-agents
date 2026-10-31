@@ -138,7 +138,7 @@ export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "stat
 /**
  * Where a work stands.
  */
-export type WorkState = "running" | "ready" | "asking" | "waiting" | "waiting_for_slot" | "paused" | "done" | "ended";
+export type WorkState = "running" | "ready" | "asking" | "waiting" | "waiting_for_slot" | "paused" | "halted" | "done" | "ended";
 
 /**
  * The round of a work that is running.
@@ -151,7 +151,12 @@ n: number, cell: string | null, started_at: number,
 /**
  * Whether a tool it runs is under way: started, as tool_runs records it, and not ended.
  */
-tool: boolean, };
+tool: boolean, 
+/**
+ * Who is at work in it, by its line: the agent whose cell it is; for a cell that runs the tools an agent asked
+ * for, the line that asked; none for the engine's own steps and the tools it runs of its own.
+ */
+line: string | null, };
 
 /**
  * Who paused a work.
@@ -357,7 +362,12 @@ cell: string | null, title: string | null, at: number | null,
  * The design card this one replaced, if any, and what this one changed from it and why, in a sentence or two of
  * its agent's.
  */
-replaces: number | null, changed: string | null, };
+replaces: number | null, changed: string | null, 
+/**
+ * The newest design card of its work the owner ruled on that this one took the place of, directly or through cards
+ * between: the owner confirms again what changed since.
+ */
+ruled_before: number | null, };
 
 /**
  * The design card that replaced another: the round that handed it in, at which cell and when.
@@ -609,69 +619,89 @@ words_state: WordsState | null,
 policy: PolicyInForce | null, };
 
 /**
- * One stretch of a work at one stage (research, design, implementation, testing and fixing, merge, watching main),
- * as the engine writes it from the flow: from the round that came into the stage to the round that left it. A stage
- * the work comes back to is a stretch of its own, saying why it came back.
+ * A stage a work entered (research, design, implementation, testing and fixing, merge, watching main), as its bubble
+ * in the work's group says it: posted when the work came into the stage, from the round that came in to the round
+ * that left, and updated in place while the work is there. A stage the work comes back to is a stage of its own. A
+ * stretch of the engine's own steps that sent the work straight back, such as the merge's judge finding the reviews'
+ * findings open, is none of its own: its sending back is how the stage before it ended.
  */
-export type StageCard = { 
+export type StageCard = {
 /**
  * The stage, as the flow names it.
  */
-stage: string, 
+stage: string,
 /**
- * How many stretches at this stage came before it.
+ * How many times the work was at this stage before.
  */
-again: number, 
+again: number,
 /**
  * Its rounds, by their numbers in the work: the first and the last.
  */
-first: number, last: number, 
+first: number, last: number,
 /**
- * When its first round started, and when its last ended; none while a round of it runs or it goes on.
+ * When its first round started, and when its last ended; none while the work is at it.
  */
-started_at: number, ended_at: number | null, 
+started_at: number, ended_at: number | null,
 /**
  * What its rounds cost.
  */
-cost_usd: number, 
+cost_usd: number,
 /**
- * Whether the work is at this stage now, and its cell there, with the cell's title.
+ * Whether the work is at this stage now.
  */
-current: boolean, cell: string | null, cell_title: string | null, 
+current: boolean,
 /**
- * For a stretch after the first at the stage: the row that brought the work back, and what that round said.
+ * How it ended; none while the work is at it: done; the verdict of the gate or the tool it left by, as the row's
+ * name (stands, does_not_stand, merged, green); no_findings, its reviews found nothing; sent_back; or ended, the
+ * work ended before its end.
  */
-back: StageMove | null, 
+outcome: string | null,
 /**
- * For a stretch the work left: the row that took it on.
+ * Why it was sent back or the work ended, in the flow's or the engine's words, where its reviews' findings do not
+ * say it.
  */
-left: StageMove | null, 
+why: string | null,
+/**
+ * For a stage sent back for what its reviews found: each review that found something, and how many it found.
+ */
+findings: Array<ReviewFindings>,
+/**
+ * For a stage that merged the work: its pull request and the merge commit.
+ */
+pr: number | null, commit: string | null,
+/**
+ * For a work taken over by a new work on its item: that work.
+ */
+taken_over_by: number | null,
+/**
+ * What its rounds said they did, oldest first, the latest last.
+ */
+notes: Array<StageNote>,
+/**
+ * What the engine told the owner of the work while it was at the stage, such as a limit passed or main broken by
+ * its merge, in words that do not name the work; its pauses and stops are how the work stands, which its group
+ * says where the work is, and not said again here.
+ */
+events: Array<string>,
 /**
  * What the agents' rounds in it handed back that the flow shows on the item, oldest first: for the design, the
  * approaches compared, the one chosen, the design and the acceptance.
  */
-shown: Array<Shown>, 
+shown: Array<Shown>,
 /**
  * The design cards its rounds handed in, the one that waits for the owner's ruling among them.
  */
-design_cards: Array<DesignCard>, 
-/**
- * How many rounds at it fixed what the checks and reviews found, and how many reviewed.
- */
-fixes: number, reviews: number, 
-/**
- * What the last agent's round in it said it did, and that round.
- */
-said: string | null, said_round: number | null, };
+design_cards: Array<DesignCard>, };
 
 /**
- * A row a work took from one stage to another: the round, its cell and the cell's title, and the row with its note.
+ * What a round said it did, its progress note: the round, the line whose round it was, and the note.
  */
-export type StageMove = { round: number, cell: string, title: string | null, row: string, note: string | null, 
+export type StageNote = { round: number, line: string | null, text: string, };
+
 /**
- * What that round said it did, when an agent's round.
+ * What a review found: the review, by its cell's title, its round, and how many findings it left open.
  */
-said: string | null, };
+export type ReviewFindings = { review: string, round: number, findings: number, };
 
 /**
  * Where a matter stands with its architect, as the engine writes it from the flow: queued, held by an ask of the

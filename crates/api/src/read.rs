@@ -244,7 +244,11 @@ fn state(w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>) -> WorkState 
         return WorkState::Done;
     }
     if w.paused.is_some() {
-        return WorkState::Paused;
+        // The engine's pause for a problem is a halt; the architect's stop, an engine's pause by its reason, is a pause.
+        return match paused(w).1 {
+            Some(PausedBy::Engine) => WorkState::Halted,
+            _ => WorkState::Paused,
+        };
     }
     let cell = g.and_then(|g| g.cell(&w.at));
     if cell.is_some_and(is_ask) {
@@ -457,11 +461,25 @@ fn summary(
                 cell: r.cell.clone(),
                 started_at: r.started_at,
                 tool: tools.contains(&(r.work, r.n)),
+                line: running_line(g, rounds, r),
             }),
         cost_usd: rounds.iter().filter_map(|r| r.cost).sum::<f64>() + pinged,
         open_asks: open.0,
         open_design_cards: open.1,
     }
+}
+
+/// Who is at work in a round that runs, by its line: the line of its cell; for a tool cell at no stage, which runs the
+/// tools an agent asked for, the line of the latest round before it whose cell has one; none for the engine's own steps
+/// and the tools it runs of its own.
+fn running_line(g: Option<&CompiledGraph>, rounds: &[Light], running: &Light) -> Option<String> {
+    let g = g?;
+    let line_of = |r: &Light| g.cell(r.cell.as_deref()?)?.line.clone();
+    let cell = g.cell(running.cell.as_deref()?)?;
+    if cell.line.is_some() || cell.kind != "tool" || cell.stage.is_some() {
+        return cell.line.clone();
+    }
+    rounds.iter().filter(|r| r.n < running.n).rev().find_map(line_of)
 }
 
 /// Why a work is paused and who paused it, as the owner reads it: the architect's stop is the engine's pause whose
@@ -668,7 +686,12 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
 const DESIGN_CARD: &str = "SELECT c.id, c.round, c.work, w.item, c.status, c.body, c.rulings, c.replaced_by,
        n.round, n.work, nr.cell, coalesce(nr.ended_at, nr.started_at), nw.flow_version, nw.graph, n.changed,
        cr.cell, coalesce(cr.ended_at, cr.started_at), w.flow_version, w.graph,
-       (SELECT p.id FROM design_cards p WHERE p.replaced_by = c.id ORDER BY p.id DESC LIMIT 1), c.changed
+       (SELECT p.id FROM design_cards p WHERE p.replaced_by = c.id ORDER BY p.id DESC LIMIT 1), c.changed,
+       (WITH RECURSIVE before(id) AS (
+          SELECT p.id FROM design_cards p WHERE p.replaced_by = c.id
+          UNION SELECT p.id FROM design_cards p JOIN before b ON p.replaced_by = b.id)
+        SELECT max(p.id) FROM design_cards p JOIN before b ON b.id = p.id
+        WHERE EXISTS (SELECT 1 FROM json_each(p.rulings) x WHERE json_extract(x.value, '$.by') = 'owner'))
 FROM design_cards c JOIN works w ON w.id = c.work
 LEFT JOIN rounds cr ON cr.work = c.work AND cr.n = c.round
 LEFT JOIN design_cards n ON n.id = c.replaced_by LEFT JOIN rounds nr ON nr.work = n.work AND nr.n = n.round
@@ -710,6 +733,7 @@ pub(crate) fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args:
             at: r.get(16)?,
             replaces: r.get(19)?,
             changed: r.get(20)?,
+            ruled_before: r.get(21)?,
         };
         Ok((card, pinned, own))
     })?;
@@ -2857,7 +2881,8 @@ mod tests {
                 [],
             )?;
             tx.execute(
-                "UPDATE design_cards SET status = 'replaced', replaced_by = 2 WHERE id = 1",
+                "UPDATE design_cards SET status = 'replaced', replaced_by = 2,
+                   rulings = '[{\"by\": \"owner\", \"at\": 45, \"decisions\": []}]' WHERE id = 1",
                 [],
             )?;
             Ok(())
@@ -2878,6 +2903,11 @@ mod tests {
             })
         );
         assert_eq!(d.design_cards[1].replaced, None);
+        // The card that replaced one the owner ruled on names that card, which the owner confirms again.
+        assert_eq!(
+            (d.design_cards[0].ruled_before, d.design_cards[1].ruled_before),
+            (None, Some(1))
+        );
         assert_eq!(
             item(s.db.conn(), &Flows::default(), 1).unwrap().item.open_design_cards,
             1
@@ -3249,6 +3279,188 @@ mod tests {
         assert!(work.entries.iter().any(|e| e.stage.is_some()), "{said:?}");
     }
 
+    // A work's group is a chat: what its members said, and the work's own bubble for each stage it entered, posted when
+    // it came in, in time order. It holds no notice of the engine's, no side report, no design card of its own and
+    // nothing a helper told the owner. A stage the work came back to is a bubble of its own, counted; the merge's judge
+    // sending the work straight back is no bubble but how the stage before it ended, with what its reviews found. The
+    // stage the work is at now is a bubble with no outcome yet. A merge says its pull request and commit; a work taken
+    // over ends its last bubble with why and the work that took it over. Only what is said to the owner is unread.
+    #[test]
+    fn a_work_s_group_has_a_bubble_for_each_stage_and_only_what_was_said() {
+        let mut s = setup("group");
+        s.db.write(Actor::Engine, |tx| {
+            let run = |sql: &str| tx.execute(sql, []).map(|_| ());
+            for title in ["Third", "Fourth"] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', ?1, 'x', 'y', 'change', '1')",
+                    [title],
+                )?;
+            }
+            run("INSERT INTO works (id, item, flow_version, graph, at, pr) VALUES (2, 2, 1, 'engineer', 'M1', 7)")?;
+            run("INSERT INTO works (id, item, flow_version, graph, at, pr) VALUES (3, 3, 1, 'engineer', 'E1', 9)")?;
+            run(
+                "INSERT INTO works (id, item, flow_version, graph, at, ended) VALUES (4, 4, 1, 'engineer', 'R1',
+                 'stopped: the flow moved to version 2, and a new work on it takes the item over')",
+            )?;
+            run("INSERT INTO works (id, item, flow_version, graph, at) VALUES (5, 4, 1, 'engineer', 'R1')")?;
+            for (id, work, line) in [(2, 2, "engineer"), (3, 2, "review"), (4, 2, "adversarial"), (5, 4, "engineer")] {
+                tx.execute(
+                    "INSERT INTO sessions (id, work, line, cli, cli_session) VALUES (?1, ?2, ?3, 'claude', 's')",
+                    db::rusqlite::params![id, work, line],
+                )?;
+            }
+            let found_two = json!({ "progress": "Two findings.", "outcome": {
+                "columns": [{ "id": "1", "verdict": "findings", "findings": [{ "fid": "R1" }, { "fid": "R2" }] },
+                            { "id": "2", "verdict": "pass" }],
+                "previous": [{ "id": "F1", "verdict": "withdraw" }] } });
+            let found_one = json!({ "progress": "The tree has a gap.", "outcome": {
+                "columns": [{ "id": "1", "verdict": "cannot_verify" }] } });
+            let clean = json!({ "progress": "No findings.", "outcome": { "columns": [{ "id": "1", "verdict": "pass" }] } });
+            let said = |p: &str| json!({ "progress": p });
+            let rounds: [(i64, i64, &str, Option<i64>, &str, Value, i64, i64); 22] = [
+                (2, 1, "S1", None, "started", json!({}), 100, 101),
+                (2, 2, "R1", Some(2), "done", said("Looked at the problem."), 110, 120),
+                (2, 3, "R2", Some(2), "stands", said("It stands."), 121, 130),
+                (2, 4, "D1", Some(2), "done", said("Compared two ways."), 131, 140),
+                (2, 5, "D2", Some(2), "first", said("Chose one table."), 141, 150),
+                (2, 6, "D9", Some(2), "needed", said("Adversarial testing is needed."), 151, 160),
+                (2, 7, "I1", Some(2), "done", said("Implemented it."), 161, 170),
+                (2, 8, "T7", None, "adversarial", json!({}), 171, 171),
+                (2, 9, "T1", Some(4), "for_engineer", said("Found one gap."), 172, 180),
+                (2, 10, "T6", Some(2), "done", said("Fixed the gap."), 181, 190),
+                (2, 11, "T4", Some(3), "tree_changed", found_two, 191, 200),
+                (2, 12, "T5", Some(3), "done", found_one, 201, 210),
+                (2, 13, "M1", None, "fix", json!({}), 211, 211),
+                (2, 14, "T6", Some(2), "done", said("Fixed R1 to R3."), 220, 230),
+                (2, 15, "T4", Some(3), "tree_changed", clean.clone(), 231, 240),
+                (2, 16, "T5", Some(3), "done", clean, 241, 250),
+                (2, 17, "M1", None, "wait_ruling", json!({}), 251, 252),
+                (3, 1, "M1", None, "clear", json!({}), 300, 300),
+                (3, 2, "M2", None, "merged", json!({ "result": { "kind": "merged", "merge_commit": "abc123" } }), 301, 310),
+                (3, 3, "L1", None, "green", json!({}), 311, 320),
+                (3, 4, "E1", None, "done", json!({}), 321, 321),
+                (4, 1, "R1", Some(5), "tools", said("Started reading."), 400, 410),
+            ];
+            for (work, n, cell, session, row, output, started, ended) in rounds {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, session, input, output, transition, config_commit, started_at, ended_at)
+                     VALUES (?1, ?2, ?3, ?4, '{}', ?5, ?6, 'c', ?7, ?8)",
+                    db::rusqlite::params![work, n, cell, session, output.to_string(), row, started, ended],
+                )?;
+            }
+            run("INSERT INTO owner_messages (work, round, text) VALUES (2, 3, 'It stands, as I read it.')")?;
+            run("INSERT INTO owner_messages (work, round, text) VALUES (2, 11, 'The review tells you something.')")?;
+            run(
+                "INSERT INTO architect_matters (project, kind, what, body, item, work, round, at)
+                 VALUES ('p', 'report', 'A side report', '{}', 2, 2, 10, 190)",
+            )?;
+            run("INSERT INTO design_cards (work, round, body, status) VALUES (2, 6, '[]', 'open')")?;
+            run(
+                "INSERT INTO engine_notices (work, text, at) VALUES
+                 (2, 'Design card 1 of work 2 (item 2: Second) waits for your ruling; the architect looks at it too.', 160),
+                 (2, 'Work 2 passed the limit its project sets on fixes: 3 times, the limit 2. It goes on; look at it.', 225),
+                 (2, 'Work 2 on item 2 (Second) is paused: cell T6: no return', 226),
+                 (4, 'Work 4 stopped: the flow moved to version 2, and a new work on it takes the item over.', 420)",
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let t = crate::Talks {
+            projects: vec!["p".into()],
+            ..crate::Talks::default()
+        };
+        let flows = Flows::default();
+        let group = |work: i64| crate::conversation(s.db.conn(), &flows, &t, &format!("work:{work}")).unwrap();
+        let d = group(2);
+        let seen: Vec<(&str, i64, String)> = d
+            .entries
+            .iter()
+            .map(|e| {
+                let what = match &e.stage {
+                    Some(s) => format!(
+                        "{} {} {:?} R{}-R{}",
+                        s.stage,
+                        s.again,
+                        s.outcome.as_deref(),
+                        s.first,
+                        s.last
+                    ),
+                    None => e.text.clone(),
+                };
+                (e.source.as_str(), e.at, what)
+            })
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                ("stage", 110, "research 0 Some(\"stands\") R2-R3".to_string()),
+                ("message", 130, "It stands, as I read it.".to_string()),
+                ("stage", 131, "design 0 Some(\"done\") R4-R6".to_string()),
+                ("stage", 161, "implement 0 Some(\"done\") R7-R7".to_string()),
+                ("stage", 171, "test 0 Some(\"sent_back\") R8-R12".to_string()),
+                ("stage", 220, "test 1 Some(\"no_findings\") R14-R16".to_string()),
+                ("stage", 251, "merge 0 None R17-R17".to_string()),
+            ]
+        );
+        let stage = |n: usize| d.entries.iter().filter_map(|e| e.stage.as_ref()).nth(n).unwrap();
+        // The merge's judge sent the testing back for what its reviews found, which says why.
+        let sent = stage(3);
+        assert_eq!(
+            sent.findings
+                .iter()
+                .map(|f| (f.review.as_str(), f.round, f.findings))
+                .collect::<Vec<_>>(),
+            [("Table review", 11, 2), ("Review the design tree", 12, 1)]
+        );
+        assert_eq!(sent.why, None);
+        assert_eq!(
+            sent.notes.last().map(|n| (n.round, n.line.as_deref(), n.text.as_str())),
+            Some((12, Some("review"), "The tree has a gap."))
+        );
+        // The design card is in the bubble of the stage that handed it in.
+        assert_eq!(stage(1).design_cards.iter().map(|c| c.round).collect::<Vec<_>>(), [6]);
+        // What the engine told of the work while it was at a stage is said on its bubble without naming the work; its
+        // pause is how it stands, and the design card waiting is pinned.
+        assert_eq!(
+            stage(4).events,
+            ["Passed the limit its project sets on fixes: 3 times, the limit 2. It goes on; look at it."]
+        );
+        assert!(stage(0).events.is_empty() && stage(1).events.is_empty());
+        let now = stage(5);
+        assert!(now.current && now.ended_at.is_none() && now.outcome.is_none());
+        // A merge says its pull request and commit; watching main says how main stands.
+        let merged = group(3);
+        let ends: Vec<(&str, Option<&str>, Option<i64>, Option<&str>)> = merged
+            .entries
+            .iter()
+            .filter_map(|e| e.stage.as_ref())
+            .map(|s| (s.stage.as_str(), s.outcome.as_deref(), s.pr, s.commit.as_deref()))
+            .collect();
+        assert_eq!(
+            ends,
+            [
+                ("merge", Some("merged"), Some(9), Some("abc123")),
+                ("watch_main", Some("green"), None, None)
+            ]
+        );
+        // A work taken over ends its last bubble with why, and the work that took it over.
+        let over = group(4);
+        let last = over.entries.iter().filter_map(|e| e.stage.as_ref()).last().unwrap();
+        assert_eq!(
+            (last.outcome.as_deref(), last.why.as_deref(), last.taken_over_by),
+            (
+                Some("ended"),
+                Some("the flow moved to version 2, and a new work on it takes the item over"),
+                Some(5)
+            )
+        );
+        assert!(over.entries.iter().all(|e| e.source == "stage"));
+        // In the list, the design card waits; only the engineer's message to the owner is unread, not the side report,
+        // the notices or what the review told.
+        let list = crate::conversations(s.db.conn(), &t).unwrap();
+        let two = list.iter().find(|c| c.key == "work:2").unwrap();
+        assert_eq!((two.waiting, two.unread), (1, 1));
+    }
     // The architect's matter cards read in the order it took the matters up, not the order they came: of three places to
     // set straight queued at once, the one picked first and handled comes before the one picked after it and in hand,
     // and the one never picked has no card; a matter withdrawn without being picked comes in when it was withdrawn. A

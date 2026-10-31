@@ -16,10 +16,12 @@ import type {
   Conversation,
   ConversationDetail,
   ConversationEntry,
+  DesignCard,
   Handled,
   JsonValue,
   Matter,
   MatterProgress,
+  StageCard,
   OwnerAsk,
   PolicyDraft,
   Status,
@@ -28,9 +30,21 @@ import type {
   WorkSummary,
 } from './api';
 import { architectMark } from './architect';
-import { StateMark } from './components';
-import { asksApproval, awayOf, openQuestion, pinnedQuestions, replyTicked, streamOf, toArchitect } from './conversation';
+import { course, StateMark } from './components';
+import {
+  asksApproval,
+  awayOf,
+  openQuestion,
+  pinnedQuestions,
+  replyTicked,
+  stageTitle,
+  streamOf,
+  toArchitect,
+} from './conversation';
+import { holdsWords, nowWords } from './course';
+import { ordinal } from './format';
 import { admit, IMAGE_MOST_BYTES, imagesSent, pastedFiles, type PendingImage, saysSomething } from './images';
+import { DesignCardView } from './pages/Decide';
 import { Composer, Questions, type Reply, Stream, workMark } from './pages/Messages';
 import { SayBox } from './parts';
 import { t } from './text';
@@ -752,6 +766,7 @@ describe('the marks of the list of conversations', () => {
       waiting: { icon: 'clock', tone: 'attention', says: 'waiting' },
       waiting_for_slot: { icon: 'hourglass', tone: 'attention', says: 'waiting for a free slot' },
       paused: { icon: 'pause', tone: 'attention', says: 'paused' },
+      halted: { icon: 'alert', tone: 'danger', says: 'halted' },
       done: { icon: 'check-circle', tone: 'success', says: 'done' },
       ended: { icon: 'stop', tone: 'neutral', says: 'ended' },
     };
@@ -802,7 +817,7 @@ describe('the marks of the list of conversations', () => {
     expect(marked(going, status({ running: 10 }))).toMatchObject({ state: 'running', icon: 'halo', says: 'working' });
     // Held back while it works, by the owner's pause or every work paused: paused, as its head says why.
     const stopped = architect([work(10, { state: 'paused', paused: 'the owner paused it', paused_by: 'owner' })]);
-    expect(marked(stopped, status())).toMatchObject({ state: 'paused', icon: 'pause', says: 'stopped (you paused it)' });
+    expect(marked(stopped, status())).toMatchObject({ state: 'paused', icon: 'pause', says: 'paused by you' });
     expect(architectMark(going, status({ paused: true })).state).toBe('paused');
     // Between rounds: ready.
     expect(architectMark(going, status())).toEqual({ state: 'ready', words: 'between rounds' });
@@ -813,5 +828,189 @@ describe('the marks of the list of conversations', () => {
     expect(architectMark({ ...stopped, asks: [asked] }, status()).state).toBe('paused');
     // Once answered, it asks no more.
     expect(architectMark(architect([], { asks: [ask(8, { from: 'architect' }, { text: 'yes' })] }), status()).state).toBe('ready');
+  });
+});
+
+describe("a work's group as a chat", () => {
+  const stage = (extra: Partial<StageCard> = {}): StageCard => ({
+    stage: 'test',
+    again: 0,
+    first: 30,
+    last: 41,
+    started_at: 1000,
+    ended_at: 61000,
+    cost_usd: 3.02,
+    current: false,
+    outcome: 'done',
+    why: null,
+    findings: [],
+    pr: null,
+    commit: null,
+    taken_over_by: null,
+    notes: [
+      { round: 36, line: 'engineer', text: 'Fixed F1.' },
+      { round: 41, line: 'review', text: 'Six findings in the design tree.' },
+    ],
+    events: [],
+    shown: [],
+    design_cards: [],
+    ...extra,
+  });
+  const bubble = (s: StageCard, w: WorkSummary | null = null): string =>
+    renderToStaticMarkup(
+      <AnswersHere.Provider value={true}>
+        <Stream d={detail([entry('stage', { id: 1, at: s.started_at, round: s.first, stage: s })])} c={group} w={w} />
+      </AnswersHere.Provider>,
+    );
+  const work = (extra: Partial<WorkSummary> = {}): WorkSummary => ({
+    id: 5,
+    item: 3,
+    title: 'Parse it',
+    project: null,
+    graph: 'engineer',
+    flow_version: 2,
+    moved_from: null,
+    at: 'M1',
+    at_title: 'Judge whether it may enter the merge queue',
+    stage: 'merge',
+    state: 'paused',
+    paused: 'Kept as it is while the trial board moves to a new build',
+    paused_by: 'owner',
+    ended: null,
+    waits: { kind: 'ruling', design_card: 15 },
+    branch: null,
+    pr: null,
+    started_at: 0,
+    last_at: 50,
+    rounds: 72,
+    sent_back: 0,
+    failed: 0,
+    running: null,
+    cost_usd: 0,
+    open_asks: 0,
+    open_design_cards: 1,
+    ...extra,
+  });
+
+  it('names a stage by its name and which time the work is at it', () => {
+    expect(stageTitle(stage())).toBe('Testing and fixing');
+    expect(stageTitle(stage({ again: 1 }))).toBe('Testing and fixing, 2nd time');
+    expect(stageTitle(stage({ stage: 'merge', again: 2 }))).toBe('Merge, 3rd time');
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 101].map(ordinal)).toEqual([
+      '1st',
+      '2nd',
+      '3rd',
+      '4th',
+      '11th',
+      '12th',
+      '13th',
+      '21st',
+      '22nd',
+      '101st',
+    ]);
+  });
+
+  it("draws a stage over as the engineer's bubble of one line: how it ended, why, then the gist of its last note", () => {
+    const html = bubble(
+      stage({
+        again: 1,
+        outcome: 'sent_back',
+        findings: [
+          { review: 'Table review', round: 40, findings: 4 },
+          { review: 'Review the design tree', round: 41, findings: 1 },
+        ],
+      }),
+    );
+    expect(html).toContain('talk-bubble-engineer');
+    expect(html).toContain('<span class="talk-who">Testing and fixing, 2nd time</span>');
+    expect(html).toContain('R5-30 to R5-41');
+    // How long it took and what it cost, after its rounds.
+    expect(html).toContain('1m 00s | $3.02');
+    const line = html.slice(html.indexOf('class="live-line"'), html.indexOf('</div>', html.indexOf('class="live-line"')));
+    expect(line).toContain('sent back');
+    expect(line).toContain('4 findings in “Table review”; 1 finding in “Review the design tree”');
+    expect(line).toContain('Six findings in the design tree.');
+    expect(line).not.toContain('running-mark');
+    // No cell's code, and the rest folded: what its rounds said.
+    expect(html).not.toMatch(/\bT[0-9]\b|\bM1\b/);
+    expect(html).toContain('What its rounds said (2)');
+    // In the stream it is a bubble, not an engine's card on a timeline.
+    expect(html).not.toContain('Timeline');
+  });
+
+  it('says a merge with its pull request and commit, and a work taken over with the work that took it', () => {
+    const merged = bubble(stage({ stage: 'merge', outcome: 'merged', pr: 7, commit: 'abc1234def', notes: [] }));
+    expect(merged).toContain('merged');
+    expect(merged).toContain('PR #7');
+    expect(merged).toContain('abc1234');
+    expect(merged).not.toContain('abc1234def<');
+    const over = bubble(
+      stage({ stage: 'research', outcome: 'ended', why: 'the flow moved to version 18', taken_over_by: 31, notes: [] }),
+    );
+    expect(over).toContain('ended');
+    expect(over).toContain('the flow moved to version 18');
+    expect(over).toContain('taken over by work 31');
+    expect(over).toContain('href="/messages?c=work%3A31"');
+  });
+
+  it('says what happens now on the stage the work is at, live, as the head says it', () => {
+    const now = stage({ stage: 'merge', first: 72, last: 72, current: true, ended_at: null, outcome: null, notes: [] });
+    const html = bubble(now, work());
+    expect(html).toContain('<span class="talk-who">Merge</span>');
+    expect(html).toContain(
+      'Judge whether it may enter the merge queue | paused by you, then waiting for your ruling on design card 15',
+    );
+    expect(html).not.toContain('running-mark');
+    // A round of the review running: who is at work, with the running mark.
+    const running = work({ state: 'running', paused: null, paused_by: null, waits: null, running: { n: 73, cell: 'T4', started_at: 1, tool: false, line: 'review' } });
+    const c = course(running, null);
+    expect(nowWords({ ...c, running: 'goes_on' }, running)).toBe('the review is at work');
+    expect(nowWords({ ...c, running: 'goes_on' }, { ...running, running: { n: 73, cell: 'X1', started_at: 1, tool: true, line: 'engineer' } })).toBe(
+      "the engineer's tools are running",
+    );
+    // What the engine told of the work while it is at the stage shows under the line.
+    expect(bubble({ ...now, events: ['Passed the limit its project sets on fixes.'] }, work())).toContain(
+      'Passed the limit its project sets on fixes.',
+    );
+  });
+
+  it('names every hold in the head in the order they act: the pause and why, then what it waits for once started', () => {
+    const w = work();
+    expect(holdsWords(course(w, null), w)).toBe(
+      'Kept as it is while the trial board moves to a new build. Once started, it is waiting for your ruling on design card 15.',
+    );
+    // The owner's pause with no reason of the owner's says only what follows.
+    const bare = work({ paused: 'the owner paused it' });
+    expect(holdsWords(course(bare, null), bare)).toBe('Once started, it is waiting for your ruling on design card 15.');
+    // Nothing holds it: what it waits for alone.
+    const waits = work({ state: 'waiting', paused: null, paused_by: null });
+    expect(holdsWords(course(waits, null), waits)).toBe('Waiting for your ruling on design card 15.');
+    // The engine halted it: its own state, said as such.
+    const halted = work({ state: 'halted', paused: 'cell T6: no return', paused_by: 'engine', waits: null });
+    expect(nowWords(course(halted, null), halted)).toBe('halted: cell T6: no return');
+  });
+
+  it('says on a design card that waits that it changed since the card the owner ruled on, folded too', () => {
+    const card: DesignCard = {
+      id: 15,
+      round: 63,
+      work: 5,
+      item: 3,
+      status: 'open',
+      body: [],
+      rulings: [],
+      replaced_by: null,
+      replaced: null,
+      cell: null,
+      title: null,
+      at: null,
+      replaces: 14,
+      changed: null,
+      ruled_before: 12,
+    };
+    const html = renderToStaticMarkup(<DesignCardView c={card} round="R5-63" folded />);
+    expect(html).toContain('changed since your ruling on design card 12: confirm it again');
+    const ruled = renderToStaticMarkup(<DesignCardView c={{ ...card, status: 'ruled' }} round="R5-63" folded />);
+    expect(ruled).not.toContain('changed since your ruling');
   });
 });

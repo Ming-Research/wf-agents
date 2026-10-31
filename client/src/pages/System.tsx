@@ -134,7 +134,7 @@ function Now({ s, works, status }: { s: SystemData; works: WorkSummary[]; status
             key={g.standing}
             id={`sys-works-${g.standing}`}
             title={t(`sys_works_${g.standing}`)}
-            open={g.standing === 'you' || g.standing === 'stopped'}
+            open={g.standing === 'you' || g.standing === 'halted'}
           >
             <WorkRows list={g.works} status={status} at={s.at} />
           </Section>

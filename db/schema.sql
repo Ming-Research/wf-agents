@@ -194,11 +194,14 @@ CREATE TABLE owner_messages (
 
 CREATE TABLE engine_notices (
   -- What the engine tells the owner of its own accord, one row for each notice: a work stopped by a new flow version,
-  -- a design card posted, every work halted until a usage limit resets, a fault of wf-agents, the asks still waiting
-  -- for the owner's answer, and the like. It needs no answer. The same text goes to the notifications log.
+  -- every work halted until a usage limit resets, a limit passed, a fault of wf-agents, the asks still waiting for the
+  -- owner's answer, and the like. It needs no answer. The same text goes to the notifications log, which alone also
+  -- says what the page shows in a place of its own (a design card waiting, a work ready to merge but held).
   -- Hidden from agents.
-  -- Read by: the owner's interface, which shows those unread with the messages agents wrote; the engine, for a fault
-  -- of wf-agents (fault) and for when it last reminded the owner of the asks waiting (reminder).
+  -- Read by: the owner's interface, which shows a fault in wf-agents' own conversation and what else is about no work
+  -- there too, and says what is about a work on the bubble of the stage it was at, never as an entry of a work's group;
+  -- the engine, for a fault of wf-agents (fault) and for when it last reminded the owner of the asks waiting
+  -- (reminder).
   id INTEGER PRIMARY KEY,
   -- The work it is about; NULL for one about no work.
   work INTEGER REFERENCES works(id),

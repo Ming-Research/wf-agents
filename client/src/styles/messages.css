@@ -159,20 +159,20 @@
   max-height: 45%;
   overflow-y: auto;
   padding: var(--base-size-12) var(--base-size-16);
-  background: var(--bgColor-muted);
-}
-
-.talk-pins-top {
-  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
+  background: var(--bgColor-attention-muted);
 }
 
 .talk-pins-bottom {
   flex: none;
-  border-top: var(--borderWidth-thin) solid var(--borderColor-default);
 }
 
+/* Its heading says it waits for the owner in the colour of what waits, with the bell before it. */
 .talk-pins-title {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
   margin: 0;
+  color: var(--fgColor-attention);
   font-size: var(--text-body-size-medium);
   font-weight: var(--base-text-weight-semibold);
 }
@@ -225,7 +225,6 @@
   align-items: center;
   gap: 0 var(--base-size-4);
   padding: 0 var(--base-size-8);
-  border-bottom: var(--borderWidth-thin) solid var(--borderColor-attention-muted);
   background: var(--bgColor-attention-muted);
 }
 
@@ -504,6 +503,52 @@
 
 .talk-card-note {
   margin: 0;
+}
+
+/* The one line of a thing that runs and then ends, a stage's bubble: its running mark, what happens now or how it
+   ended (a state's chip, why and its links), then the gist of what was said last, muted, all on one line cut where it
+   ends and whole on hovering; what the engine told of it meanwhile under it in the colour of what waits. */
+.live-line {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.live-line-state {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--base-size-8);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.live-line-now,
+.live-line-why {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.live-line-gist {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fgColor-muted);
+  text-overflow: ellipsis;
+}
+
+.live-line-event {
+  margin: 0;
+  color: var(--fgColor-attention);
+  font-size: var(--text-body-size-small);
+}
+
+/* What a round of a stage said, under who said it and its round. */
+.stage-note {
+  display: grid;
+  gap: var(--base-size-4);
 }
 
 /* A fold under a card or a message: the design, what an agent said, a document. */

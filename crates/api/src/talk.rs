@@ -2,21 +2,32 @@
 //! that never changes for what waits (the one-to-ones with the architects and wf-agents' own first, then a group for
 //! each work, newest first, then the groups of connected projects), with what waits for the owner in each and what is
 //! unread; and one in full, its entries in time order, with what the engine writes from the flow beside what was said
-//! (a work's stage cards, an architect's matter cards, the policy taking effect) and where the owner's words stand with
-//! the architect, what waits for the owner, and how far the owner has read it.
+//! (a bubble for each stage a work entered, an architect's matter cards, the policy taking effect) and where the
+//! owner's words stand with the architect, what waits for the owner, and how far the owner has read it. A work's group
+//! is a chat: what its members said, and the work's own bubble for each stage it entered; nothing the engine tells of
+//! the work is an entry of its own there.
 
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use db::rusqlite::{Connection, OptionalExtension};
+use serde_json::Value;
 
 use crate::read::{self, Error, Flows};
 use crate::{
     Conversation, ConversationDetail, ConversationEntry, Forwarded, Forwarding, Handled, MatterProgress, Misses,
-    StageCard, StageMove, WordsState,
+    ReviewFindings, StageCard, StageNote, WordsState,
 };
 
 type Result<T> = std::result::Result<T, Error>;
+
+/// What a work's group leaves out of what `conversation_entries` gathers for it, as a condition on the view's columns:
+/// the engine's notices, which the bubble of the stage the work was at and the group's head say instead; the side
+/// reports a work's lines handed in, which are the architect's to read in its queue; and what a helper of the work (the
+/// review, the adversarial testing, the advisor) told the owner before only the engineer and the architect could, which
+/// its round's progress note in the stage's bubble says.
+const LEFT_OUT: &str = "NOT (conversation LIKE 'work:%' AND (source IN ('notice', 'report')
+    OR (source = 'message' AND sender NOT IN ('engineer', 'architect', 'policy'))))";
 
 /// What the conversations need of the configuration: its projects, in order, the groups of two projects or more it
 /// connects through each project's `other_projects`, and how long, in milliseconds, an architect waits for the owner's
@@ -113,12 +124,13 @@ fn over_sql() -> String {
 pub fn conversations(conn: &Connection, t: &Talks) -> Result<Vec<Conversation>> {
     let read_to = reads(conn)?;
     let mut tally: HashMap<String, Tally> = HashMap::new();
-    // An ask the owner answered is read: the owner answered it where it was asked.
-    let mut st = conn.prepare(
+    // An ask the owner answered is read: the owner answered it where it was asked. Only what is said to the owner is
+    // unread until the owner reads it: what the members say to each other is no news the owner must come to.
+    let mut st = conn.prepare(&format!(
         "SELECT conversation, at, sender, waiting, fault IS NOT NULL,
-                source = 'ask' AND id IN (SELECT id FROM owner_asks WHERE answer IS NOT NULL)
-         FROM conversation_entries",
-    )?;
+                source = 'ask' AND id IN (SELECT id FROM owner_asks WHERE answer IS NOT NULL), recipient = 'owner'
+         FROM conversation_entries WHERE {LEFT_OUT}"
+    ))?;
     let rows = st.query_map([], |r| {
         Ok((
             r.get::<_, String>(0)?,
@@ -127,16 +139,17 @@ pub fn conversations(conn: &Connection, t: &Talks) -> Result<Vec<Conversation>> 
             r.get::<_, bool>(3)?,
             r.get::<_, bool>(4)?,
             r.get::<_, bool>(5)?,
+            r.get::<_, bool>(6)?,
         ))
     })?;
     for row in rows {
-        let (raw, at, sender, waiting, fault, answered) = row?;
+        let (raw, at, sender, waiting, fault, answered, to_owner) = row?;
         let key = t.key(&raw);
         let read = read_to.get(&key).copied().unwrap_or(0);
         let x = tally.entry(key).or_default();
         if waiting {
             x.waiting += 1;
-        } else if !fault && !answered && sender != "owner" && at > read {
+        } else if !fault && !answered && to_owner && sender != "owner" && at > read {
             x.unread += 1;
         }
         x.last_at = Some(x.last_at.map_or(at, |l| l.max(at)));
@@ -235,7 +248,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
     let (sql, arg) = if key.starts_with("projects:") {
         (format!("{select} WHERE conversation LIKE 'architects:%'"), None)
     } else {
-        (format!("{select} WHERE conversation = ?1"), Some(key))
+        (format!("{select} WHERE conversation = ?1 AND {LEFT_OUT}"), Some(key))
     };
     let mut st = conn.prepare(&sql)?;
     let map = |r: &db::rusqlite::Row<'_>| {
@@ -326,6 +339,9 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
         .collect();
     let mut design_cards = Vec::new();
     if let Some(work) = key.strip_prefix("work:").and_then(|w| w.parse::<i64>().ok()) {
+        // A design card is in the bubble of the stage that handed it in, and the one the work waits on pinned under the
+        // head: its entry only counts what waits for the owner in the list.
+        entries.retain(|e| e.source != "card");
         entries.extend(stage_cards(conn, flows, work)?);
         // The design card a work waits for the owner's ruling on before its merge: the blocker the owner holds.
         design_cards = read::design_cards(
@@ -637,7 +653,7 @@ fn forwards(conn: &Connection, entries: &mut [ConversationEntry]) -> Result<()> 
     Ok(())
 }
 
-/// A round of a work, as the stage cards read it.
+/// A round of a work, as the bubbles of its stages read it.
 struct Step {
     n: i64,
     cell: Option<String>,
@@ -647,39 +663,138 @@ struct Step {
     cost: f64,
     line: Option<String>,
     progress: Option<String>,
+    /// What a review's round handed back, its one form, for the findings it left open.
+    review: Option<Value>,
+    /// The merge commit a merge handed back.
+    commit: Option<String>,
 }
 
-/// The stage cards of an engineer's work: one for each stretch of its rounds at one stage that runs anything but the
-/// engine's own steps (research, design, implementation, testing and fixing, the merge, watching main), from the round
-/// that came into the stage to the round that left it. A cell at no stage (asking, tools, a pause, answers) is at the
-/// stage the work stopped at. A stage the work comes back to is a stretch of its own, which says what brought it back.
-/// Each says when it ran and what it cost, the cell the work is at while it is at the stage, the row it left by, what
-/// its rounds handed back that the flow shows on the item, the design cards they handed in, how many rounds fixed and
-/// reviewed, and what its last agent's round said it did.
+impl Step {
+    /// When it ended, or started while it runs.
+    fn end(&self) -> i64 {
+        self.ended_at.unwrap_or(self.started_at)
+    }
+}
+
+/// A run of a work's rounds at one stage, by the places of its first and last round among the work's rounds.
+struct Stretch {
+    stage: String,
+    from: usize,
+    to: usize,
+}
+
+/// How many findings a review's return leaves open, as the merge's judge reads them: those of its columns that found
+/// something or could not verify, a column of either with no finding listed counting one; and at a re-review, the
+/// findings of the round before it holds not fixed or insists on.
+fn open_findings(review: &Value) -> i64 {
+    let columns = review["columns"].as_array().map_or(0, |cs| {
+        cs.iter()
+            .filter(|c| matches!(c["verdict"].as_str(), Some("findings" | "cannot_verify")))
+            .map(|c| c["findings"].as_array().map_or(1, |f| f.len().max(1)) as i64)
+            .sum::<i64>()
+    });
+    let again = review["previous"].as_array().map_or(0, |p| {
+        p.iter()
+            .filter(|x| matches!(x["verdict"].as_str(), Some("not_fixed" | "insist")))
+            .count() as i64
+    });
+    columns + again
+}
+
+/// The words of a notice of the engine's about a work, as the bubble of the stage the work was at says them, which do
+/// not name the work: the engine names it for its notifications log ("Work 8 stopped: ...", "Work 5 on item 3 (Parse
+/// it) is paused: ...", "Main broke after work 5 (item 3: Parse it) merged ..."), while in the work's own group it goes
+/// without saying, and the sentence starts at the word after it.
+fn unnamed(text: &str, work: i64, item: Option<(i64, &str)>) -> String {
+    let mut heads = Vec::new();
+    if let Some((id, title)) = item {
+        heads.push(format!("Work {work} on item {id} ({title}) is "));
+        heads.push(format!("Work {work} on item {id} is "));
+    }
+    heads.push(format!("Work {work} "));
+    let mut out = heads
+        .iter()
+        .find_map(|h| text.strip_prefix(h.as_str()))
+        .unwrap_or(text)
+        .to_string();
+    if let Some((id, title)) = item {
+        out = out.replace(&format!("work {work} (item {id}: {title})"), "this work");
+    }
+    let mut chars = out.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// Whether a notice of the engine's tells how the work stands rather than of something that happened to it: a pause or
+/// a stop, which the group says where it says where the work is; or what said again what the band and the head say (a
+/// design card waiting, new or replacing another, the work ready to merge but held), which the engine no longer writes.
+fn as_it_stands(words: &str, text: &str) -> bool {
+    words.starts_with("Paused")
+        || words.starts_with("Stopped")
+        || (text.starts_with("Design card ") && text.contains(" of work "))
+        || text.contains(" is ready to merge, but ")
+}
+
+/// The bubbles of the stages an engineer's work entered, posted when it came into each: one for each stretch of its
+/// rounds at one stage that runs anything but the engine's own steps (research, design, implementation, testing and
+/// fixing, the merge, watching main), from the round that came into the stage to the round that left it. A cell at no
+/// stage (asking, tools, a pause, answers) is at the stage the work stopped at. A stage the work comes back to is a
+/// stretch of its own, counted among the work's stretches at that stage. A stretch of the engine's own steps alone that
+/// sent the work straight back to a stage before it (the merge's judge finding the reviews' findings open) has no bubble:
+/// its sending back is how the stretch before it ended. Each says when it ran and what it cost; while the work is at it,
+/// that it is; once over, how it ended, with why it was sent back and what its reviews found, the pull request and the
+/// commit that merged the work, or why the work ended and the work that took it over; what its rounds said they did;
+/// what the engine told of the work meanwhile; what its rounds handed back that the flow shows on the item; and the
+/// design cards they handed in.
 fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<ConversationEntry>> {
-    let found: Option<(i64, String, bool)> = conn
+    type Found = (
+        i64,
+        String,
+        bool,
+        Option<String>,
+        Option<i64>,
+        Option<i64>,
+        Option<String>,
+    );
+    let found: Option<Found> = conn
         .query_row(
             &format!(
-                "SELECT flow_version, at, ended IS NOT NULL OR at IN {} FROM works WHERE id = ?1 AND graph = 'engineer'",
+                "SELECT w.flow_version, w.at, w.ended IS NOT NULL OR w.at IN {}, w.ended, w.pr, w.item, i.title
+                 FROM works w LEFT JOIN items i ON i.id = w.item WHERE w.id = ?1 AND w.graph = 'engineer'",
                 over_sql()
             ),
             [work],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                ))
+            },
         )
         .optional()?;
-    let Some((version, at, over)) = found else {
+    let Some((version, at, over, ended, pr, item, title)) = found else {
         return Ok(Vec::new());
     };
     let Some(g) = flows.graph(conn, version, "engineer") else {
         return Ok(Vec::new());
     };
+    let within = format!("$.{}", g.within);
     let mut st = conn.prepare(
         "SELECT r.n, r.cell, r.transition, r.started_at, r.ended_at, coalesce(json_extract(r.usage, '$.cost_usd'), 0),
-                s.line, json_extract(r.output, '$.progress')
+                s.line, CAST(json_extract(r.output, '$.progress') AS TEXT),
+                CASE WHEN s.line = 'review' THEN json_extract(r.output, ?2) END,
+                CAST(json_extract(r.output, '$.result.merge_commit') AS TEXT)
          FROM rounds r LEFT JOIN sessions s ON s.id = r.session WHERE r.work = ?1 ORDER BY r.n",
     )?;
     let steps: Vec<Step> = st
-        .query_map([work], |r| {
+        .query_map(db::rusqlite::params![work, within], |r| {
             Ok(Step {
                 n: r.get(0)?,
                 cell: r.get(1)?,
@@ -688,7 +803,9 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
                 ended_at: r.get(4)?,
                 cost: r.get(5)?,
                 line: r.get(6)?,
-                progress: r.get(7)?,
+                progress: r.get::<_, Option<String>>(7)?.filter(|p| !p.trim().is_empty()),
+                review: read::json(r.get(8)?).filter(Value::is_object),
+                commit: r.get(9)?,
             })
         })?
         .collect::<db::rusqlite::Result<_>>()?;
@@ -700,107 +817,226 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
         .filter_map(|c| c.stage.clone())
         .collect();
     let stage_of = |cell: Option<&str>| cell.and_then(|c| g.cell(c)).and_then(|c| c.stage.clone());
-    let moved = |s: &Step| -> Option<StageMove> {
-        let cell = s.cell.clone()?;
-        let row = s.transition.clone()?;
-        let c = g.cell(&cell);
-        Some(StageMove {
-            round: s.n,
-            title: c.map(|c| c.title.clone()),
-            note: c
-                .and_then(|c| c.rows.iter().find(|x| x.name == row))
-                .and_then(|x| x.note.clone()),
-            cell,
-            row,
-            said: s.progress.clone().filter(|p| !p.trim().is_empty()),
-        })
+    // A stage's place in the flow: where its first cell stands among the graph's cells.
+    let order = |stage: &str| {
+        g.cells
+            .iter()
+            .position(|c| c.stage.as_deref() == Some(stage))
+            .unwrap_or(usize::MAX)
     };
-    let mut cards: Vec<StageCard> = Vec::new();
-    let mut again: HashMap<String, i64> = HashMap::new();
+    let mut stretches: Vec<Stretch> = Vec::new();
     let mut now: Option<String> = None;
     for (i, s) in steps.iter().enumerate() {
         let stage = stage_of(s.cell.as_deref()).or_else(|| now.clone());
         if stage != now {
-            let before = i.checked_sub(1).and_then(|k| steps.get(k));
-            if let (Some(card), Some(b)) = (cards.last_mut(), before)
-                && Some(&card.stage) == now.as_ref()
-            {
-                card.left = moved(b);
-            }
             now = stage.clone();
             if let Some(name) = stage.filter(|n| carded.contains(n)) {
-                let k = again.entry(name.clone()).or_insert(0);
-                cards.push(StageCard {
+                stretches.push(Stretch {
                     stage: name,
-                    again: *k,
-                    first: s.n,
-                    last: s.n,
-                    started_at: s.started_at,
-                    ended_at: None,
-                    cost_usd: 0.0,
-                    current: false,
-                    cell: None,
-                    cell_title: None,
-                    back: if *k > 0 { before.and_then(moved) } else { None },
-                    left: None,
-                    shown: Vec::new(),
-                    design_cards: Vec::new(),
-                    fixes: 0,
-                    reviews: 0,
-                    said: None,
-                    said_round: None,
+                    from: i,
+                    to: i,
                 });
-                *k += 1;
             }
         }
-        let Some(card) = cards.last_mut().filter(|c| Some(&c.stage) == now.as_ref()) else {
-            continue;
-        };
-        card.last = s.n;
-        card.ended_at = s.ended_at;
-        card.cost_usd += s.cost;
-        if s.cell.as_deref().is_some_and(|c| db::is_cell("engineer", "T6", c)) {
-            card.fixes += 1;
-        }
-        if s.line.as_deref() == Some("review") && s.transition.is_some() {
-            card.reviews += 1;
-        }
-        if s.line.as_deref() == Some("engineer")
-            && let Some(p) = s.progress.as_ref().filter(|p| !p.trim().is_empty())
-        {
-            card.said = Some(p.clone());
-            card.said_round = Some(s.n);
+        if let Some(x) = stretches.last_mut().filter(|x| Some(&x.stage) == now.as_ref()) {
+            x.to = i;
         }
     }
-    // The stage the work is at now: the last card's, while the work goes on and its cell is at that stage.
-    let at_stage = stage_of(Some(&at)).or(now);
-    if let Some(card) = cards.last_mut()
-        && !over
-        && Some(&card.stage) == at_stage.as_ref()
-    {
-        card.current = true;
-        card.ended_at = None;
-        card.cell_title = g.cell(&at).map(|c| c.title.clone());
-        card.cell = Some(at);
-    }
+    // The stretch the work is at now: the last, while the work goes on and its cell is at that stretch's stage.
+    let at_stage = stage_of(Some(&at)).or_else(|| now.clone());
+    let current = if over {
+        None
+    } else {
+        stretches
+            .len()
+            .checked_sub(1)
+            .filter(|&k| Some(&stretches[k].stage) == at_stage.as_ref())
+    };
+    // The stage a stretch sent the work to: that of the cell the row it left by leads to, else that of the stretch
+    // after it; and whether that stage comes before its own.
+    let went = |k: usize| -> Option<String> {
+        let last = &steps[stretches[k].to];
+        let to = last.cell.as_deref().and_then(|c| g.cell(c)).and_then(|c| {
+            c.rows
+                .iter()
+                .find(|r| Some(&r.name) == last.transition.as_ref())
+                .map(|r| r.to.clone())
+        });
+        to.and_then(|t| stage_of(Some(&t)))
+            .or_else(|| stretches.get(k + 1).map(|x| x.stage.clone()))
+    };
+    let back = |k: usize| went(k).is_some_and(|s| order(&s) < order(&stretches[k].stage));
+    let engine_only = |x: &Stretch| {
+        steps[x.from..=x.to].iter().all(|s| {
+            s.cell
+                .as_deref()
+                .and_then(|c| g.cell(c))
+                .is_some_and(|c| c.kind == "engine")
+        })
+    };
+    let folded: Vec<bool> = (0..stretches.len())
+        .map(|k| k > 0 && Some(k) != current && engine_only(&stretches[k]) && back(k))
+        .collect();
+    // Why a row was taken: its note in the flow, else its name in words.
+    let row_why = |s: &Step| -> Option<String> {
+        let row = s.transition.as_deref()?;
+        let note = s
+            .cell
+            .as_deref()
+            .and_then(|c| g.cell(c))
+            .and_then(|c| c.rows.iter().find(|r| r.name == row))
+            .and_then(|r| r.note.clone());
+        Some(note.unwrap_or_else(|| row.replace('_', " ")))
+    };
+    let mut st = conn
+        .prepare("SELECT text, at FROM engine_notices WHERE work = ?1 AND ask IS NULL AND fault IS NULL ORDER BY id")?;
+    let notices: Vec<(String, i64)> = st
+        .query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<db::rusqlite::Result<_>>()?;
+    let named = item.zip(title.as_deref());
+    // The work that took the item over from this one, once it ended.
+    let next_work: Option<i64> = match item {
+        Some(i) => conn.query_row(
+            "SELECT min(id) FROM works WHERE item = ?1 AND id > ?2 AND graph = 'engineer'",
+            [i, work],
+            |r| r.get(0),
+        )?,
+        None => None,
+    };
     let all_cards = read::design_cards(conn, flows, "WHERE c.work = ?1", &[work])?;
+    let kept: Vec<usize> = (0..stretches.len()).filter(|&k| !folded[k]).collect();
+    let mut passes: HashMap<String, i64> = HashMap::new();
     let mut out = Vec::new();
-    for (k, mut card) in cards.into_iter().enumerate() {
-        card.shown = read::shown_where(
-            conn,
-            flows,
-            "w.id = ?1 AND r.n BETWEEN ?2 AND ?3",
-            &[work, card.first, card.last],
-        )?;
-        card.design_cards = all_cards
+    for (place, &k) in kept.iter().enumerate() {
+        let x = &stretches[k];
+        let rounds = &steps[x.from..=x.to];
+        let first = &rounds[0];
+        let last = &rounds[rounds.len() - 1];
+        let pass = passes.entry(x.stage.clone()).or_insert(0);
+        let again = *pass;
+        *pass += 1;
+        let is_current = Some(k) == current;
+        let sent_by = folded
+            .get(k + 1)
+            .copied()
+            .unwrap_or(false)
+            .then(|| &steps[stretches[k + 1].to]);
+        let leaving = last.cell.as_deref().and_then(|c| g.cell(c));
+        let reviews = rounds.iter().any(|s| s.review.is_some());
+        let (outcome, why) = if is_current {
+            (None, None)
+        } else if let Some(s) = sent_by {
+            (Some("sent_back".to_string()), row_why(s))
+        } else if place + 1 == kept.len() && ended.is_some() {
+            let why = ended
+                .as_deref()
+                .map(|e| e.strip_prefix("stopped: ").unwrap_or(e).to_string());
+            (Some("ended".to_string()), why)
+        } else if back(k) {
+            (Some("sent_back".to_string()), row_why(last))
+        } else if let (Some(_), Some(row)) = (leaving.filter(|c| c.gate || c.kind == "tool"), &last.transition) {
+            (Some(row.clone()), None)
+        } else if reviews {
+            (Some("no_findings".to_string()), None)
+        } else {
+            (Some("done".to_string()), None)
+        };
+        let findings = if outcome.as_deref() == Some("sent_back") {
+            // The newest return of each review in the stretch, as the merge's judge reads them.
+            let mut newest: BTreeMap<&str, &Step> = BTreeMap::new();
+            for s in rounds {
+                if let (Some(c), Some(v)) = (s.cell.as_deref(), &s.review)
+                    && v["columns"].is_array()
+                {
+                    newest.insert(c, s);
+                }
+            }
+            let mut list: Vec<ReviewFindings> = Vec::new();
+            for (c, s) in newest {
+                let n = s.review.as_ref().map_or(0, open_findings);
+                if n > 0 {
+                    list.push(ReviewFindings {
+                        review: g.cell(c).map_or_else(|| c.to_string(), |x| x.title.clone()),
+                        round: s.n,
+                        findings: n,
+                    });
+                }
+            }
+            list.sort_by_key(|f| f.round);
+            list
+        } else {
+            Vec::new()
+        };
+        // A sending back its reviews' findings say needs no other why.
+        let why = if findings.is_empty() { why } else { None };
+        let merged = outcome.as_deref() == Some("merged");
+        let commit = if merged {
+            rounds.iter().rev().find_map(|s| s.commit.clone())
+        } else {
+            None
+        };
+        let taken_over_by = if outcome.as_deref() == Some("ended") {
+            next_work
+        } else {
+            None
+        };
+        let notes: Vec<StageNote> = rounds
             .iter()
-            .filter(|c| c.round >= card.first && c.round <= card.last)
-            .cloned()
+            .filter_map(|s| {
+                Some(StageNote {
+                    round: s.n,
+                    line: s.line.clone(),
+                    text: s.progress.clone()?,
+                })
+            })
             .collect();
+        // What the engine told of the work from when the work came into the stage to when it came into the next; what it
+        // told before the first stage, with the first.
+        let from = if place == 0 { i64::MIN } else { first.started_at };
+        let until = kept
+            .get(place + 1)
+            .map_or(i64::MAX, |&j| steps[stretches[j].from].started_at);
+        let events: Vec<String> = notices
+            .iter()
+            .filter(|(_, at)| *at >= from && *at < until)
+            .filter_map(|(text, _)| {
+                let words = unnamed(text, work, named);
+                (!as_it_stands(&words, text)).then_some(words)
+            })
+            .collect();
+        let card = StageCard {
+            stage: x.stage.clone(),
+            again,
+            first: first.n,
+            last: last.n,
+            started_at: first.started_at,
+            ended_at: if is_current { None } else { Some(last.end()) },
+            cost_usd: rounds.iter().map(|s| s.cost).sum(),
+            current: is_current,
+            outcome,
+            why,
+            findings,
+            pr: if merged { pr } else { None },
+            commit,
+            taken_over_by,
+            notes,
+            events,
+            shown: read::shown_where(
+                conn,
+                flows,
+                "w.id = ?1 AND r.n BETWEEN ?2 AND ?3",
+                &[work, first.n, last.n],
+            )?,
+            design_cards: all_cards
+                .iter()
+                .filter(|c| c.round >= first.n && c.round <= last.n)
+                .cloned()
+                .collect(),
+        };
         out.push(ConversationEntry {
             source: "stage".into(),
-            id: k as i64 + 1,
-            sender: "engine".into(),
+            id: place as i64 + 1,
+            sender: "engineer".into(),
             recipient: "owner".into(),
             at: card.started_at,
             work: Some(work),
@@ -941,4 +1177,43 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // In the bubble of the stage a work was at, a notice of the engine's does not name the work, which the engine names
+    // for its notifications log: the sentence starts at the word after the name, and a name inside it is "this work".
+    #[test]
+    fn a_notice_in_its_work_s_bubble_does_not_name_the_work() {
+        let item = Some((3, "Parse it"));
+        assert_eq!(
+            unnamed("Work 5 on item 3 (Parse it) is paused: no return", 5, item),
+            "Paused: no return"
+        );
+        assert_eq!(
+            unnamed("Work 5 on item 3 is stopped by the architect: wrong way", 5, item),
+            "Stopped by the architect: wrong way"
+        );
+        assert_eq!(
+            unnamed("Work 5 stopped: the owner started it over.", 5, item),
+            "Stopped: the owner started it over."
+        );
+        assert_eq!(
+            unnamed(
+                "Main broke after work 5 (item 3: Parse it) merged, and the full CI did not catch it.",
+                5,
+                item
+            ),
+            "Main broke after this work merged, and the full CI did not catch it."
+        );
+        // Another work's number is not this work's name.
+        assert_eq!(unnamed("Work 51 stopped.", 5, item), "Work 51 stopped.");
+        assert!(as_it_stands(
+            "Paused: no return",
+            "Work 5 on item 3 (Parse it) is paused: no return"
+        ));
+        assert!(!as_it_stands("Passed the limit.", "Work 5 passed the limit."));
+    }
 }

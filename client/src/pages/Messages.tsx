@@ -24,7 +24,7 @@
 // engineer, the architect or both, and in the one-to-one to the architect, whose words it takes first and answers in
 // one round, or replies to the question ticked. Opening a conversation reads it up to its latest entry.
 
-import { ArrowDownIcon, ArrowUpIcon, CheckIcon, ChevronRightIcon, CpuIcon, StackIcon } from '@primer/octicons-react';
+import { ArrowDownIcon, ArrowUpIcon, BellIcon, CheckIcon, ChevronRightIcon, CpuIcon, StackIcon } from '@primer/octicons-react';
 import {
   ActionList,
   ActionMenu,
@@ -76,7 +76,6 @@ import {
   type ForwardChoice,
   forwardMenu,
   forwardParts,
-  heldCards,
   isQuestion,
   latestAt,
   listParts,
@@ -114,7 +113,7 @@ import { ArchitectSide, useSideOpen } from './ArchitectSide';
 import { Bubble } from './Bubble';
 import { AskView, DesignCardView } from './Decide';
 import { ArchitectHead, PlainHead, WfAgentsHead, WorkHead } from './TalkHead';
-import { MatterCardView, PolicyCard, StageCardView } from './TalkCards';
+import { MatterCardView, PolicyCard, StageBubble } from './TalkCards';
 
 /// Marks a fault of wf-agents read, where it shows.
 async function markFault(id: number): Promise<void> {
@@ -144,13 +143,19 @@ function RowMark({ c, works, status }: { c: Conversation; works: WorkSummary[] |
   return c.kind === 'projects' ? <StackIcon /> : <CpuIcon />;
 }
 
-/// The states of a work whose groups the list shows until the owner sets otherwise: all but those of a work over.
-export const SHOWN: WorkState[] = WORK_STATES.filter((s) => s !== 'done' && s !== 'ended');
+/// The states of a work whose groups the list hides until the owner sets otherwise: those of a work over.
+export const HIDDEN: WorkState[] = ['done', 'ended'];
+
+/// The states of a work whose groups the list shows until the owner sets otherwise.
+export const SHOWN: WorkState[] = WORK_STATES.filter((s) => !HIDDEN.includes(s));
 
 /// The states whose works' groups the list shows, as the owner set them with its buttons and kept in this browser, and
-/// the way to show or hide one: one choice for the list and the bar, which counts what the list shows.
-export const useTalkStates = (): [WorkState[], (s: WorkState) => void] =>
-  useShownStates('talks-states', WORK_STATES, SHOWN);
+/// the way to show or hide one: one choice for the list and the bar, which counts what the list shows. The browser
+/// keeps the states hidden, so that a state the page comes to have shows until the owner hides it.
+export function useTalkStates(): [WorkState[], (s: WorkState) => void] {
+  const [hidden, toggle] = useShownStates('talks-hidden-states', WORK_STATES, HIDDEN);
+  return [WORK_STATES.filter((s) => !hidden.includes(s)), toggle];
+}
 
 /// The conversations whose counts of what waits for the owner and what is unread the bar sums: those the list's
 /// buttons of a work's states show (`shown`), whichever is open, so that the bar counts nothing the list hides.
@@ -684,19 +689,18 @@ function Fault({ e, forwarding }: { e: ConversationEntry; forwarding: Forwarding
 
 /// One entry of the stream, in its voice; a question with the owner's answer to it (`replies`, by its matter); the
 /// question whether the draft of a new policy that waits (`draft`) is approved leading to the draft.
-function Entry({ e, c, w, held, current, replies, forwarding, draft }: {
+function Entry({ e, c, w, current, replies, forwarding, draft }: {
   e: ConversationEntry;
   c: Conversation;
   w: WorkSummary | null;
-  held: ReadonlySet<number>;
   current: number | null;
   replies: ReadonlyMap<number, ConversationEntry>;
   forwarding: Forwarding | null;
   draft: PolicyDraft | null;
 }) {
-  const voice = voiceOf(e, held);
+  const voice = voiceOf(e);
+  if (voice === 'stage') return e.stage !== null ? <StageBubble e={e} s={e.stage} w={w} project={c.project} /> : null;
   if (voice === 'card') {
-    if (e.stage !== null) return <StageCardView e={e} s={e.stage} w={w} />;
     if (e.matter_card !== null) {
       return <MatterCardView m={e.matter_card} project={c.project ?? ''} current={e.matter_card.matter === current} />;
     }
@@ -717,13 +721,17 @@ function Entry({ e, c, w, held, current, replies, forwarding, draft }: {
   );
 }
 
-/// What is pinned for the owner, in one look wherever it is: a band on the muted background, headed by what it is,
-/// a line between it and the stream; at the top of a work's group, the design card its work waits on, and at the
-/// bottom of the one-to-one with an architect, over the box, the questions the architect pinned.
+/// What is pinned for the owner, in one look wherever it is: a band in the tint of what waits for the owner, headed by
+/// a bell and what it is in that colour, with no line between it and the stream; at the top of a work's group, the
+/// design card its work waits on, and at the bottom of the one-to-one with an architect, over the box, the questions
+/// the architect pinned.
 function Pins({ at, children }: { at: 'top' | 'bottom'; children: ReactNode }) {
   return (
     <section className={`talk-pins talk-pins-${at}`} aria-label={t('conv_waits_for_you')}>
-      <h3 className="talk-pins-title">{t('conv_waits_for_you')}</h3>
+      <h3 className="talk-pins-title">
+        <BellIcon />
+        {t('conv_waits_for_you')}
+      </h3>
       {children}
     </section>
   );
@@ -931,7 +939,6 @@ export function Stream({ d, c, w, draft = null }: {
   w: WorkSummary | null;
   draft?: PolicyDraft | null;
 }) {
-  const held = useMemo(() => heldCards(d), [d]);
   const replies = useMemo(() => ownerReplies(d.entries), [d]);
   const stream = streamOf(d);
   const current = d.entries.find((e) => e.matter_card?.state === 'working')?.matter_card?.matter ?? null;
@@ -973,7 +980,7 @@ export function Stream({ d, c, w, draft = null }: {
   // Cards run in a Timeline of their own between the messages: each run of cards and lines is one Timeline.
   const runs: Array<{ cards: boolean; entries: ConversationEntry[] }> = [];
   for (const e of stream) {
-    const v = voiceOf(e, held);
+    const v = voiceOf(e);
     const cards = v === 'card' || v === 'system';
     const last = runs[runs.length - 1];
     if (last !== undefined && last.cards === cards) last.entries.push(e);
@@ -995,7 +1002,6 @@ export function Stream({ d, c, w, draft = null }: {
               e={e}
               c={c}
               w={w}
-              held={held}
               current={current}
               replies={replies}
               forwarding={d.forwarding}

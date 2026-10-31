@@ -5,13 +5,14 @@
 import { ConfirmationDialog, IconButton } from '@primer/react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import type { Status, Waits, WorkSummary } from './api';
-import { controls, type Course, course, heldWords } from './components';
+import type { RunningRound, Status, Waits, WorkSummary } from './api';
+import { controls, type Course, course, heldName, heldWords, PAUSED_BY_OWNER } from './components';
 import type { Wait } from './graph/flowModel';
 import { postJson } from './http';
 import { reread } from './live';
+import { words } from './labelled';
 import { forProject } from './route';
-import { t } from './text';
+import { type Key, t } from './text';
 
 /// What a work waits for, in words.
 export function waitsWords(w: Waits): string {
@@ -36,6 +37,67 @@ export function runningWords(c: Course): string {
   if (c.running === 'pausing') return t('course_pausing');
   if (c.running === 'step') return t('course_step');
   return c.started ? t('course_running_started') : t('course_running');
+}
+
+/// Who a line is, in the owner's words: the engineer, the review, adversarial testing, the advisor, the architect.
+const WHO: Record<string, Key> = {
+  engineer: 'who_engineer',
+  review: 'who_review',
+  adversarial: 'who_adversarial',
+  advisor: 'who_advisor',
+  architect: 'who_architect',
+};
+
+export const lineWho = (line: string): string => (WHO[line] !== undefined ? t(WHO[line]) : words(line));
+
+/// Who is at work in the round that runs, in plain words: the line whose round it is, its tools when a tool it asked
+/// for runs, or the engine for its own steps and the tools it runs itself.
+export function atWork(r: RunningRound): string {
+  if (r.line === null) return t('now_engine');
+  return t(r.tool ? 'now_tools' : 'now_running', { who: lineWho(r.line) });
+}
+
+/// The reason given for what holds a work back, apart from its name: the engine's or the architect's or the owner's
+/// own words, every work paused by Pause all, or the Start that waits for a free slot; none for the owner's pause
+/// with no reason of the owner's.
+function heldWhy(c: Course, w: WorkSummary): string | null {
+  if (c.releasing) return t('course_releasing_why');
+  if (c.held === 'all') return t('course_all_why');
+  return w.paused !== null && w.paused !== PAUSED_BY_OWNER ? w.paused : null;
+}
+
+/// A sentence's first letter in capital.
+const sentence = (s: string): string => (s === '' ? s : s[0].toUpperCase() + s.slice(1));
+
+/// What holds a work and what it waits for, in the order they act, as the head of its group says it after its state's
+/// chip, which names the hold: why it is held, then what it waits for once it goes on; or what it waits for alone.
+/// None when nothing holds it and it waits for nothing.
+export function holdsWords(c: Course, w: WorkSummary): string | null {
+  if (c.over || c.running !== null) return null;
+  const parts: string[] = [];
+  if (c.held !== null) {
+    const why = heldWhy(c, w);
+    if (why !== null) parts.push(`${sentence(why.trim()).replace(/[.]$/, '')}.`);
+    if (c.waits !== null) parts.push(t('head_once_started', { waits: waitsWords(c.waits) }));
+  } else if (c.waits !== null) {
+    parts.push(`${sentence(waitsWords(c.waits))}.`);
+  }
+  return parts.length > 0 ? parts.join(' ') : null;
+}
+
+/// What happens to a work now, in a few words, as the live line of the bubble of the stage it is at says it, in step
+/// with its head: who is at work while a round runs; what holds it, and what it waits for once it goes on; what it
+/// waits for; a free slot; or its next round due.
+export function nowWords(c: Course, w: WorkSummary): string {
+  if (c.running !== null && w.running !== null) return atWork(w.running);
+  if (c.running !== null) return runningWords(c);
+  if (c.held !== null) {
+    const held = c.held === 'engine' ? heldWords(c, w.paused) : heldName(c).name;
+    return c.waits !== null ? t('now_held_then', { held, waits: waitsWords(c.waits) }) : held;
+  }
+  if (c.waits !== null) return waitsWords(c.waits);
+  if (c.slot) return t('state_waiting_for_slot');
+  return t('now_ready');
 }
 
 /// What taking the work over will do, for the note beside a control and the question before it.

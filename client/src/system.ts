@@ -8,8 +8,8 @@ import type { Period } from './route';
 
 /// Where a work stands now, as the owner acts on it, each work in one place: a round of it runs; its next round is due;
 /// it waits for the owner's answer or ruling; for the architect's reply; for other items or its turn; the owner or the
-/// architect paused it; or the engine stopped it.
-export const STANDINGS = ['running', 'ready', 'you', 'architect', 'items', 'paused', 'stopped'] as const;
+/// architect paused it; or the engine halted it for a problem.
+export const STANDINGS = ['running', 'ready', 'you', 'architect', 'items', 'paused', 'halted'] as const;
 export type Standing = (typeof STANDINGS)[number];
 
 /// Where a work stands now; none once it is over. What needs the owner comes first: the engine's stop, then what the
@@ -18,7 +18,7 @@ export type Standing = (typeof STANDINGS)[number];
 export function standingOf(w: WorkSummary, status: Status | null): Standing | null {
   const c = course(w, status);
   if (c.over) return null;
-  if (c.held === 'engine') return 'stopped';
+  if (c.held === 'engine') return 'halted';
   const waits = c.waits;
   if (waits?.kind === 'answer' || waits?.kind === 'ruling') return 'you';
   if ((c.held === 'you' || c.held === 'architect') && !c.releasing) return 'paused';

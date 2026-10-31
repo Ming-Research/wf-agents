@@ -1,6 +1,7 @@
 // Small parts every view uses.
 
 import {
+  AlertIcon,
   CheckCircleIcon,
   CircleIcon,
   ClockIcon,
@@ -144,24 +145,24 @@ export function controls(c: Course, status: Status | null) {
 }
 
 /// Why the engine pauses a work the owner paused without saying why, as the engine writes it.
-const PAUSED_BY_OWNER = 'the owner paused it';
+export const PAUSED_BY_OWNER = 'the owner paused it';
 
-/// What holds a work back, in a few words, and whether the engine stopped it for a problem the owner looks at: the
-/// owner's Start waiting for a free slot, the owner's pause, the engine's or the architect's stop, or every work paused.
+/// What holds a work back, in a few words, and whether the engine halted it for a problem the owner looks at: the
+/// owner's Start waiting for a free slot, the owner's pause, the engine's halt, the architect's pause, or Pause all.
 export function heldName(c: Course): { name: string; problem: boolean } {
   if (c.releasing) return { name: t('course_releasing'), problem: false };
-  if (c.held === 'engine') return { name: t('course_stopped'), problem: true };
-  if (c.held === 'architect') return { name: t('course_stopped_architect'), problem: false };
+  if (c.held === 'engine') return { name: t('course_halted'), problem: true };
+  if (c.held === 'architect') return { name: t('course_paused_architect'), problem: false };
   if (c.held === 'all') return { name: t('course_all'), problem: false };
   return { name: t('course_paused'), problem: false };
 }
 
-/// Why a work is held back, in words: the owner's Start waiting for a free slot, stopped by the engine or by the
-/// architect, every work paused, or paused by the owner.
+/// Why a work is held back, in words: the owner's Start waiting for a free slot, halted by the engine, paused by the
+/// architect, by Pause all or by the owner.
 export function heldWords(c: Course, why: string | null): string {
   if (c.releasing) return t('course_releasing_why');
-  if (c.held === 'engine') return t('course_stopped_why', { why: why ?? '' });
-  if (c.held === 'architect') return t('course_stopped_architect_why', { why: why ?? '' });
+  if (c.held === 'engine') return t('course_halted_why', { why: why ?? '' });
+  if (c.held === 'architect') return t('course_paused_architect_why', { why: why ?? '' });
   if (c.held === 'all') return t('course_all_why');
   return why !== null && why !== PAUSED_BY_OWNER ? t('course_paused_why', { why }) : t('course_paused');
 }
@@ -213,20 +214,23 @@ export const WORK_TONE: Record<WorkState, Tone> = {
   waiting: 'attention',
   waiting_for_slot: 'attention',
   paused: 'attention',
+  halted: 'danger',
   done: 'success',
   ended: 'neutral',
 };
 
 /// The Octicon of each state of a work but running, whose mark is the running halo: the one map for every place that
 /// shows a work's state as an icon, as the UI spec names it. Ready is a ring at rest, the running halo's ring still;
-/// asking a question; waiting a clock; waiting for a free slot an hourglass; paused two bars; done a tick in a ring;
-/// ended GitHub's mark of a run stopped before its end, grey as GitHub draws a run cancelled.
+/// asking a question; waiting a clock; waiting for a free slot an hourglass; paused two bars; halted by the engine for
+/// a problem GitHub's mark of an alert, red; done a tick in a ring; ended GitHub's mark of a run stopped before its
+/// end, grey as GitHub draws a run cancelled.
 export const WORK_MARK: Record<Exclude<WorkState, 'running'>, Icon> = {
   ready: CircleIcon,
   asking: QuestionIcon,
   waiting: ClockIcon,
   waiting_for_slot: HourglassIcon,
   paused: PauseIcon,
+  halted: AlertIcon,
   done: CheckCircleIcon,
   ended: StopIcon,
 };
@@ -285,7 +289,17 @@ export const ITEM_TONE: Record<ItemState, Tone> = {
 };
 
 /// The order a work's states are listed in, as the interface declares them, the states of a work over last.
-export const WORK_STATES: WorkState[] = ['running', 'ready', 'asking', 'waiting', 'waiting_for_slot', 'paused', 'done', 'ended'];
+export const WORK_STATES: WorkState[] = [
+  'running',
+  'ready',
+  'asking',
+  'waiting',
+  'waiting_for_slot',
+  'paused',
+  'halted',
+  'done',
+  'ended',
+];
 
 /// What this browser keeps of a view under `key`: null for nothing, undefined where the browser keeps nothing at all.
 function keptText(key: string): string | null | undefined {

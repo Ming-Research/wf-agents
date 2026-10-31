@@ -77,7 +77,7 @@ describe('the works by where they stand', () => {
       ['architect', [5]],
       ['items', [6]],
       ['paused', [7]],
-      ['stopped', [8]],
+      ['halted', [8]],
     ]);
     // A work held only by every work's pause stands where it would without it; one the owner started and that waits for
     // a free slot is ready.

@@ -15,17 +15,18 @@ import { Fragment, useState } from 'react';
 import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
 import { architectNow, architectState, holdWords, matterSentence } from '../architect';
 import { course, heldName, RunningMark, StateChip, WORK_TONE, WorkBadge } from '../components';
-import { forwardNewChoices } from '../conversation';
+import { forwardNewChoices, stageName } from '../conversation';
 import {
+  atWork,
   Control,
   Controls,
+  holdsWords,
   runningWords,
   SessionChoice,
   StartOver,
   useActions,
   useNewSession,
   useOpenStepped,
-  waitsWords,
 } from '../course';
 import { cost, time } from '../format';
 import { postJson } from '../http';
@@ -33,7 +34,6 @@ import { reread, useResource, useStatus } from '../live';
 import { architectHref, forProject, Link, navigate, workHref } from '../route';
 import { t } from '../text';
 import { factsAfter } from '../voices';
-import { stageName } from './TalkCards';
 
 /// The tiers an item may be put at: those up to the highest an item may be at, in order.
 export function tiersAllowed(s: Settings): string[] {
@@ -75,31 +75,34 @@ function Tier({ item, level }: { item: number; level: string }) {
   );
 }
 
-/// How a work goes on, in a few words, as its Label: a round running, what holds it back, that it waits for a free
-/// slot, what it waits for, or over.
+/// How a work goes on, in a few words, as its state's chip, each state in the word the list's filter has for it: a
+/// round running, with who is at work in it; what holds it back (paused by you, by the architect or by Pause all, or
+/// halted by the engine for a problem); that it waits for a free slot; that it waits; or over.
 function WorkState({ w, status }: { w: WorkSummary; status: Status | null }) {
   const c = course(w, status);
-  if (c.over) return <Label variant={w.state === 'done' ? 'success' : 'danger'}>{t(`state_${w.state}`)}</Label>;
+  if (c.over) return <StateChip tone={WORK_TONE[w.state]}>{t(`state_${w.state}`)}</StateChip>;
   if (c.running !== null) {
     return (
       <span className="talk-head-running">
         <RunningMark />
         <Label variant="accent">{runningWords(c)}</Label>
+        {w.running !== null ? <span className="talk-head-now">{atWork(w.running)}</span> : null}
       </span>
     );
   }
   if (c.held !== null) {
     const h = heldName(c);
-    return <Label variant={h.problem ? 'danger' : 'attention'}>{h.name}</Label>;
+    return <StateChip tone={h.problem ? 'danger' : 'attention'}>{h.name}</StateChip>;
   }
   if (c.slot) return <WorkBadge state="waiting_for_slot" />;
-  if (c.waits !== null) return <Label variant="attention" title={waitsWords(c.waits)}>{t('talk_waits')}</Label>;
+  if (c.waits !== null) return <StateChip tone="attention">{t('state_waiting')}</StateChip>;
   return <StateChip tone="neutral">{t('state_ready')}</StateChip>;
 }
 
-/// The head of a work's group, one line with nothing on it said twice: its Start, Pause, Step and Start over while it
-/// goes on, the work by its number with its item's title, how it goes on, then after a bar its facts: its item, its rounds and what
-/// it cost, and while it goes on its stage, what it waits for and the tier its item is at, which the owner sets here.
+/// The head of a work's group, one line with nothing on it said twice, the one place that says where the work is: its
+/// Start, Pause, Step and Start over while it goes on, the work by its number with its item's title, how it goes on,
+/// then after a bar its facts: its item, its rounds and what it cost, and while it goes on its stage, what holds it and
+/// what it waits for, in the order they act, and the tier its item is at, which the owner sets here.
 export function WorkHead({ c, w }: { c: Conversation; w: WorkSummary | null }) {
   const status = useStatus();
   const on = w !== null && !c.over ? w : null;
@@ -108,7 +111,7 @@ export function WorkHead({ c, w }: { c: Conversation; w: WorkSummary | null }) {
     c.work !== null ? <Link to={workHref(c.work)}>{t('talk_rounds')}</Link> : null,
     w !== null ? cost(w.cost_usd) : null,
     on !== null && on.stage !== null ? stageName(on.stage) : null,
-    on !== null && on.waits !== null ? waitsWords(on.waits) : null,
+    on !== null ? holdsWords(course(on, status), on) : null,
     on !== null && c.item !== null && c.level !== null ? <Tier item={c.item} level={c.level} /> : null,
   ]);
   return (

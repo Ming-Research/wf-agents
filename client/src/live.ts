@@ -161,8 +161,10 @@ export function useOnline(): boolean {
   return useSyncExternalStore(subscribe, () => state.online);
 }
 
+/// The engine's status, as last told; the same when the page is drawn apart from a browser, as its tests draw it.
 export function useStatus(): Status | null {
-  return useSyncExternalStore(subscribe, () => state.status);
+  const now = () => state.status;
+  return useSyncExternalStore(subscribe, now, now);
 }
 
 /// How many times what `key` names has changed, everything read again included.

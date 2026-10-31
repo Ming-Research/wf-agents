@@ -1,42 +1,32 @@
-// The cards the engine writes into a conversation from the flow, in the page's own voice and apart from what was said
-// (the UI spec's narrow cards): in a work's group, one for each stretch of the work at a stage, updated in place while
-// the work is there, with its result, time and cost, the design folded in the design's card and its design card to
-// rule on; in an architect's one-to-one, one for each matter the architect took up but the owner's words, whose bubble
-// says where they stand, from when it took it up, held by an ask, worked on at a cell, handled with what became of it,
-// or withdrawn, and the policy as it took effect. Each leads to where its detail is: a stage to its rounds, a matter to
+// What the engine writes into a conversation from the flow: in a work's group, the work's own bubble for each stage it
+// entered, posted when it came in and updated in place, one line saying what happens now and, once the stage is over,
+// how it ended, with what more there is folded under it; in an architect's one-to-one, the cards in the page's own
+// voice, one for each matter the architect took up but the owner's words, whose bubble says where they stand, from
+// when it took it up, held by an ask, worked on at a cell, handled with what became of it, or withdrawn, and the policy
+// as it took effect. Each leads to where its detail is: a stage to its rounds, its pull request and commit, a matter to
 // its cell on the architect's chart or its work's group, and the observations it recorded or changed to the project's
 // observations.
 
-import { BlockedIcon, CheckIcon, CircleIcon, DotFillIcon, FileIcon, SkipIcon, SyncIcon } from '@primer/octicons-react';
-import { Label, Timeline } from '@primer/react';
+import { BlockedIcon, CheckIcon, CircleIcon, DotFillIcon, FileIcon, SkipIcon } from '@primer/octicons-react';
+import { Timeline } from '@primer/react';
 import type { ReactNode } from 'react';
 
-import type { ConversationEntry, MatterProgress, PolicyInForce, Shown, StageCard, WorkSummary } from '../api';
+import type { ConversationEntry, MatterProgress, PolicyInForce, StageCard, WorkSummary } from '../api';
 import { matterKind, matterSentence, matterSteps, outcomes, type MatterWords } from '../architect';
-import { StateChip } from '../components';
-import { stageFacts } from '../conversation';
+import { course, StateChip } from '../components';
+import { stageOutcome, stageTitle, stageWhy } from '../conversation';
+import { lineWho, nowWords } from '../course';
 import { cost, duration, time } from '../format';
-import { words } from '../labelled';
-import { Markdown } from '../markdown';
-import { Fold } from '../parts';
-import { architectHref, href, Link, workHref } from '../route';
+import { useStatus } from '../live';
+import { firstWords, Markdown } from '../markdown';
+import { CommitLink, Fold, PrLink, RoundLink } from '../parts';
+import { architectHref, href, Link } from '../route';
 import { t, tn, type Key } from '../text';
 import { joinedWords } from '../voices';
+import { LiveBubble } from './Bubble';
 import { DesignCardView } from './Decide';
 import { PolicyText } from './ArchitectViews';
 import { DesignShown } from './Item';
-
-/// The name of each stage the engineer's graph has, as the owner reads it.
-const STAGES: Record<string, Key> = {
-  research: 'stage_research',
-  design: 'stage_design',
-  implement: 'stage_implement',
-  test: 'stage_test',
-  merge: 'stage_merge',
-  watch_main: 'stage_watch_main',
-};
-
-export const stageName = (s: string): string => (STAGES[s] !== undefined ? t(STAGES[s]) : words(s));
 
 /// What an agent said, word for word, in the box the UI spec gives what an agent handed back.
 function Said({ text }: { text: string }) {
@@ -44,15 +34,6 @@ function Said({ text }: { text: string }) {
     <div className="agent-box">
       <Markdown text={text} />
     </div>
-  );
-}
-
-/// The facts of a card on one line, small and muted: when it ran, how long and what it cost.
-function When({ from, to, usd }: { from: number; to: number | null; usd: number | null }) {
-  return (
-    <span className="talk-card-facts">
-      {joinedWords([time(from), to !== null ? duration(to - from) : null, usd !== null && usd > 0 ? cost(usd) : null])}
-    </span>
   );
 }
 
@@ -71,70 +52,121 @@ function Card({ icon, tone, children, id }: {
   );
 }
 
-/// The design a stretch at the design stage handed back, folded: the approaches compared, the one chosen, the design
-/// and the acceptance; and, while no approach is chosen, so, with where the engineer stands and what the choice waits
-/// for. Among the card's own words it is in the box of what an agent handed back.
-function DesignOfStage({ shown, s, w }: { shown: Shown[]; s: StageCard; w: WorkSummary | null }) {
-  const has = shown.some((x) => ['options', 'chosen', 'design', 'acceptance'].includes(x.path));
-  if (!has) return null;
+/// What a stage's bubble folds under its line: what its rounds said, oldest first, each with who said it and its round;
+/// at the design stage, the design (the approaches compared, the one chosen, the design and the acceptance, or while
+/// none is chosen, where the engineer leans and what the choice waits for); the design cards its rounds handed in,
+/// each folded to its head line, the one that waits for the owner's ruling with its buttons once opened; and, once the
+/// stage is over, what the engine told of the work meanwhile.
+function StageFolds({ s, w, work }: { s: StageCard; w: WorkSummary | null; work: number }) {
+  const engineer = s.notes.filter((n) => n.line === 'engineer');
+  const leans = engineer.length > 0 ? engineer[engineer.length - 1].text : null;
+  const design = s.stage === 'design' && s.shown.some((x) => ['options', 'chosen', 'design', 'acceptance'].includes(x.path));
   return (
-    <details className="talk-fold">
-      <summary>{t('stage_design_fold')}</summary>
-      <div className="talk-fold-body agent-box document">
-        <DesignShown shown={shown} leans={s.said} waits={s.current ? (w?.waits ?? null) : null} />
-      </div>
-    </details>
+    <>
+      {s.notes.length > 0 ? (
+        <Fold className="talk-fold" summary={tn('stage_notes', s.notes.length)}>
+          {s.notes.map((n) => (
+            <div key={n.round} className="stage-note">
+              <p className="talk-card-note">
+                {n.line !== null ? `${lineWho(n.line)} ` : null}
+                <RoundLink work={work} round={n.round} />
+              </p>
+              <Said text={n.text} />
+            </div>
+          ))}
+        </Fold>
+      ) : null}
+      {design ? (
+        <Fold className="talk-fold" summary={t('stage_design_fold')}>
+          <div className="agent-box document">
+            <DesignShown shown={s.shown} leans={leans} waits={s.current ? (w?.waits ?? null) : null} />
+          </div>
+        </Fold>
+      ) : null}
+      {s.design_cards.map((c) => (
+        <DesignCardView key={c.id} c={c} round={<RoundLink work={c.work} round={c.round} />} folded />
+      ))}
+      {!s.current && s.events.length > 0 ? (
+        <Fold className="talk-fold" summary={tn('stage_events', s.events.length)}>
+          {s.events.map((x, i) => (
+            <p key={i} className="talk-card-note">
+              {x}
+            </p>
+          ))}
+        </Fold>
+      ) : null}
+    </>
   );
 }
 
-/// A stretch of a work at one stage: the stage, how many times the work came back to it, where it is while the work
-/// is there (its cell) or done, when, how long and what it cost, with its rounds; why it came back; the facts the
-/// engine knows of it; what the engineer's last round in it said, folded; and in the design's card, the design folded
-/// and the design cards its rounds handed in, each folded to its head line, the one that waits for the owner's ruling
-/// with its buttons once opened.
-export function StageCardView({ e, s, w }: { e: ConversationEntry; s: StageCard; w: WorkSummary | null }) {
+/// The bubble of a stage a work entered, in the engineer's look as the work's own voice, posted when the work came in
+/// and updated in place (`LiveBubble`): its head the stage and which time the work is at it, when the work came in,
+/// its rounds and, once over, how long it took and what it cost; its one line, while the work is at it what happens
+/// now, where and with who at work, live and as the head of the group says it, with what the engine told of the work
+/// meanwhile under it; once over, how it ended and why: what its reviews found, the pull request and the commit that
+/// merged the work, or why it ended and the work that took it over; then the gist of what its last round said; and
+/// what more there is folded under it (`StageFolds`). Its links go to the work's project on GitHub (`project`).
+export function StageBubble({ e, s, w, project }: {
+  e: ConversationEntry;
+  s: StageCard;
+  w: WorkSummary | null;
+  project: string | null;
+}) {
+  const status = useStatus();
   const work = e.work ?? 0;
-  const tone = s.current ? 'accent' : 'success';
-  const icon = s.current ? <DotFillIcon /> : s.again > 0 ? <SyncIcon /> : <CheckIcon />;
-  const facts = stageFacts(s);
+  const latest = s.notes.length > 0 ? s.notes[s.notes.length - 1] : null;
   const rounds = href({ page: 'work', id: work, round: s.first, cell: null, tab: 'rounds', only: null });
-  return (
-    <Card icon={icon} tone={tone} id={`stage-${work}-${e.id}`}>
-      <div className="talk-card-line">
-        <span className="talk-card-title">
-          {stageName(s.stage)}
-          {s.again > 0 ? ` ${t('stage_again', { n: s.again + 1 })}` : ''}
-        </span>
-        {s.current ? (
-          <Label variant="accent">{t('stage_at', { cell: s.cell ?? '', title: s.cell_title ?? '' })}</Label>
-        ) : (
-          <Label variant="success">{t('stage_done')}</Label>
-        )}
-        <When from={s.started_at} to={s.ended_at} usd={s.cost_usd} />
-        <Link to={rounds}>
-          {t('stage_rounds', { first: s.first, last: s.last, work })}
+  const c = s.current && w !== null ? course(w, status) : null;
+  const outcome = stageOutcome(s);
+  const why = stageWhy(s);
+  const now = c !== null && w !== null ? joinedWords([w.at_title, nowWords(c, w)]) : '';
+  const state = s.current ? (
+    <span className="live-line-now">{now}</span>
+  ) : (
+    <>
+      {outcome !== null ? <StateChip tone={outcome.tone}>{outcome.words}</StateChip> : null}
+      {why !== null ? <span className="live-line-why">{why}</span> : null}
+      {s.pr !== null ? <PrLink project={project} n={s.pr} /> : null}
+      {s.commit !== null ? <CommitLink project={project} sha={s.commit} /> : null}
+      {s.taken_over_by !== null ? (
+        <Link to={href({ page: 'messages', open: `work:${s.taken_over_by}` })}>
+          {t('stage_taken_over', { id: s.taken_over_by })}
         </Link>
-      </div>
-      {s.back !== null ? (
-        <p className="talk-card-note">
-          {t('stage_back', { cell: s.back.cell, title: s.back.title ?? '', row: words(s.back.row) })}
-          {s.back.note !== null ? ` ${s.back.note}` : ''}
-        </p>
       ) : null}
-      {facts.length > 0 ? <p className="talk-card-note">{joinedWords(facts)}</p> : null}
-      {s.said !== null ? (
-        <details className="talk-fold">
-          <summary>{t('stage_said', { round: `R${work}-${s.said_round ?? ''}` })}</summary>
-          <div className="talk-fold-body">
-            <Said text={s.said} />
-          </div>
-        </details>
+    </>
+  );
+  const head = (
+    <>
+      <span className="talk-who">{stageTitle(s)}</span>
+      <span className="talk-when">{time(s.started_at)}</span>
+      <Link to={rounds}>{t('stage_rounds', { first: s.first, last: s.last, work })}</Link>
+      {s.ended_at !== null ? (
+        <span className="talk-when">
+          {joinedWords([duration(s.ended_at - s.started_at), s.cost_usd > 0 ? cost(s.cost_usd) : null])}
+        </span>
       ) : null}
-      {s.stage === 'design' ? <DesignOfStage shown={s.shown} s={s} w={w} /> : null}
-      {s.design_cards.map((c) => (
-        <DesignCardView key={c.id} c={c} round={<Link to={workHref(c.work, { round: c.round })}>{`R${c.work}-${c.round}`}</Link>} folded />
-      ))}
-    </Card>
+    </>
+  );
+  const said = s.current ? now : joinedWords([outcome?.words ?? null, why]);
+  const title = joinedWords([said, latest !== null ? firstWords(latest.text) : null]);
+  return (
+    <LiveBubble
+      who="engineer"
+      head={head}
+      live={c !== null && c.running !== null}
+      state={state}
+      gist={latest?.text ?? null}
+      title={title}
+    >
+      {s.current
+        ? s.events.map((x, i) => (
+            <p key={i} className="live-line-event">
+              {x}
+            </p>
+          ))
+        : null}
+      <StageFolds s={s} w={w} work={work} />
+    </LiveBubble>
   );
 }
 

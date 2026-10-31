@@ -401,11 +401,12 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
         .map(|k| list.find(k).unwrap_or_else(|| panic!("{k} in {list}")))
         .collect();
     assert!(order.windows(2).all(|w| w[0] < w[1]), "{list}");
-    assert!(list.contains(r#""unread":3"#), "{list}");
+    // The engine's notice is no entry of a work's group: the two messages to the owner are unread.
+    assert!(list.contains(r#""unread":2"#), "{list}");
     let (status, talk) = get(s.port, "/api/v1/conversation?key=work%3A1", &here, "");
     assert_eq!(status, 200, "{talk}");
     assert!(
-        talk.contains(r#""text":"first""#) && talk.contains(r#""source":"notice""#),
+        talk.contains(r#""text":"first""#) && !talk.contains(r#""source":"notice""#),
         "{talk}"
     );
     let (status, marked) = post(
@@ -417,7 +418,7 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
     assert_eq!(status, 200, "{marked}");
     assert!(marked.ends_with(r#"{"marked":3}"#), "{marked}");
     let (_, list) = get(s.port, "/api/v1/conversations", &here, "");
-    assert!(!list.contains(r#""unread":3"#), "{list}");
+    assert!(!list.contains(r#""unread":2"#), "{list}");
     let (_, marked) = post(s.port, "/api/v1/messages/read", r#"{"all":true}"#, "application/json");
     assert!(marked.ends_with(r#"{"marked":0}"#), "{marked}");
     let (status, said) = post(
