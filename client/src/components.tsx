@@ -12,7 +12,7 @@ import {
   StopIcon,
 } from '@primer/octicons-react';
 import { Button, Flash, Label, type LabelColorOptions } from '@primer/react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useSyncExternalStore } from 'react';
 
 import type { ItemState, RoundOutcome, Status, Waits, WorkState, WorkSummary } from './api';
 import { Halo } from './graph/flowDraw';
@@ -266,15 +266,12 @@ export const ITEM_TONE: Record<ItemState, Tone> = {
 /// The order a work's states are listed in, as the interface declares them, the states of a work over last.
 export const WORK_STATES: WorkState[] = ['running', 'ready', 'asking', 'waiting', 'waiting_for_slot', 'paused', 'done', 'ended'];
 
-/// A value the owner set on a view, kept in this browser where it lets the page keep it.
-function kept<T>(key: string, fallback: T, valid: (v: unknown) => v is T): T {
+/// What this browser keeps of a view under `key`: null for nothing, undefined where the browser keeps nothing at all.
+function keptText(key: string): string | null | undefined {
   try {
-    const raw = window.localStorage.getItem(`wf-agents.${key}`);
-    if (raw === null) return fallback;
-    const v: unknown = JSON.parse(raw);
-    return valid(v) ? v : fallback;
+    return window.localStorage.getItem(`wf-agents.${key}`);
   } catch {
-    return fallback;
+    return undefined;
   }
 }
 
@@ -286,31 +283,63 @@ function keep(key: string, value: unknown) {
   }
 }
 
+/// The states a `StateFilter` shows, by the key they are kept under, with the text kept they were read from, so that
+/// every part that reads one key gets the very same states until they change: the list of conversations and the bar,
+/// which counts only what the list shows.
+const shownByKey = new Map<string, { text: string | null | undefined; states: string[] }>();
+
+/// The parts that read what a `StateFilter` shows, told when the owner changes it.
+const shownReaders = new Set<() => void>();
+
+const readShown = (told: () => void) => {
+  shownReaders.add(told);
+  return () => {
+    shownReaders.delete(told);
+  };
+};
+
+/// The states kept under `key`, `first` while none are kept or what is kept is not states of `all`.
+function shownStates<S extends string>(key: string, all: readonly S[], first: readonly S[]): S[] {
+  const text = keptText(key);
+  const was = shownByKey.get(key);
+  if (was !== undefined && (text === undefined || text === was.text)) return was.states as S[];
+  let states = [...first];
+  try {
+    const v: unknown = text != null ? JSON.parse(text) : null;
+    if (Array.isArray(v) && v.every((s) => typeof s === 'string' && (all as readonly string[]).includes(s))) {
+      states = v as S[];
+    }
+  } catch {
+    // What is kept is not states: the first ones.
+  }
+  shownByKey.set(key, { text, states });
+  return states;
+}
+
 /// The states whose rows a list shows, as the owner set them with its `StateFilter`, one choice for every project in
 /// the list, kept in this browser under `key`; `first` until the owner sets them. With the way to show or hide one
-/// state's rows.
+/// state's rows. Every part that reads one key reads the same states and changes with them.
 export function useShownStates<S extends string>(
   key: string,
   all: readonly S[],
   first: readonly S[],
 ): [S[], (s: S) => void] {
-  const [shown, setShown] = useState<S[]>(() =>
-    kept(key, [...first], (v: unknown): v is S[] =>
-      Array.isArray(v) && v.every((s) => typeof s === 'string' && (all as readonly string[]).includes(s)),
-    ),
-  );
+  const read = () => shownStates(key, all, first);
+  const shown = useSyncExternalStore(readShown, read, read);
   const toggle = (s: S) => {
-    const next = shown.includes(s) ? shown.filter((x) => x !== s) : [...shown, s];
-    setShown(next);
+    const now = read();
+    const next = now.includes(s) ? now.filter((x) => x !== s) : [...now, s];
     keep(key, next);
+    shownByKey.set(key, { text: keptText(key), states: next });
+    for (const told of shownReaders) told();
   };
   return [shown, toggle];
 }
 
 /// The buttons over a project's rows in a list (the items' tree, the works in the list of conversations) that show or
 /// hide its rows in each state: one for each state among them, in the list's order of states (`order`), with how many
-/// are in it (`states`, the state of each row); each in its state's colour, filled as the state's chip while its rows
-/// show and outlined in it while they hide, from the one set of a state's colours that the items' cards take too
+/// are in it (`states`, the state of each row); each a fill with no edge, in its state's colour as the state's chip while
+/// its rows show and in its tint while they hide, from the one set of a state's colours that the items' cards take too
 /// (items.css); a click shows or hides that state's rows.
 export function StateFilter<S extends string>(props: {
   order: readonly S[];

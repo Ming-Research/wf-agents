@@ -43,20 +43,29 @@ export function listParts(list: Conversation[]): ListPart[] {
   return parts.filter((p) => p.conversations.length > 0);
 }
 
+/// Whether the list's buttons of a work's states show a conversation (`shown`, the state of a work's group as its mark
+/// says it, `stateOf`): every conversation but a work's group, and the group of a work in a state shown. A work whose
+/// state is not read yet is not shown until it is. What they hide counts nowhere: not on its row, not in the bar.
+export function shownByState(
+  c: Conversation,
+  stateOf: (c: Conversation) => WorkState | null,
+  shown: readonly WorkState[],
+): boolean {
+  if (c.kind !== 'work') return true;
+  const s = stateOf(c);
+  return s !== null && shown.includes(s);
+}
+
 /// The rows of a project's group the list shows: the one-to-one with its architect, and the groups of those of its
-/// works in a state shown (`shown`), the state of each as its mark says it (`stateOf`); the one open (`open`) whatever
-/// its state, so that it never leaves the list. A work whose state is not read yet is left out until it is.
+/// works the buttons of its states show (`shownByState`); the one open (`open`) whatever its state, so that it never
+/// leaves the list.
 export function rowsShown(
   conversations: Conversation[],
   stateOf: (c: Conversation) => WorkState | null,
   shown: readonly WorkState[],
   open: string | null,
 ): Conversation[] {
-  return conversations.filter((c) => {
-    if (c.kind !== 'work' || c.key === open) return true;
-    const s = stateOf(c);
-    return s !== null && shown.includes(s);
-  });
+  return conversations.filter((c) => c.key === open || shownByState(c, stateOf, shown));
 }
 
 /// How many things wait for the owner across the conversations, and how many entries are unread.

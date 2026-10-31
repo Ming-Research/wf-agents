@@ -46,44 +46,52 @@
 }
 
 /* A state's colour in the tree, by its tone (ITEM_TONE), as its chip has it everywhere: its emphasis, which fills the
-   state's button while its items show and a row's number, outlines the button while they hide, and is a row's left
-   edge; and its foreground, the button's words while the items hide. The buttons and the rows take it from here, so
-   that they match. */
+   state's button while its items show and a row's number, and is a row's left edge; its tint, which fills the button
+   while they hide; and its foreground, the button's words while they hide. The buttons and the rows take it from here,
+   so that they match. */
 .tree-tone-accent {
   --tone-emphasis: var(--bgColor-accent-emphasis);
   --tone-border: var(--borderColor-accent-emphasis);
+  --tone-muted: var(--bgColor-accent-muted);
   --tone-fg: var(--fgColor-accent);
 }
 
 .tree-tone-success {
   --tone-emphasis: var(--bgColor-success-emphasis);
   --tone-border: var(--borderColor-success-emphasis);
+  --tone-muted: var(--bgColor-success-muted);
   --tone-fg: var(--fgColor-success);
 }
 
 .tree-tone-attention {
   --tone-emphasis: var(--bgColor-attention-emphasis);
   --tone-border: var(--borderColor-attention-emphasis);
+  --tone-muted: var(--bgColor-attention-muted);
   --tone-fg: var(--fgColor-attention);
 }
 
 .tree-tone-danger {
   --tone-emphasis: var(--bgColor-danger-emphasis);
   --tone-border: var(--borderColor-danger-emphasis);
+  --tone-muted: var(--bgColor-danger-muted);
   --tone-fg: var(--fgColor-danger);
 }
 
 .tree-tone-neutral {
   --tone-emphasis: var(--bgColor-neutral-emphasis);
   --tone-border: var(--borderColor-neutral-emphasis);
+  --tone-muted: var(--bgColor-neutral-muted);
   --tone-fg: var(--fgColor-neutral);
 }
 
-/* The button that shows or hides a state's items: filled in its state's colour, its words white and its count on a
-   white translucent pill, while the state's items show; outlined in it while they hide. */
+/* The button that shows or hides a state's items, a fill and no edge, as every chip and button in a colour is (the
+   UI spec), so that whether its items show is told by the fill alone: the state's colour, its words white and its
+   count on a white translucent pill, while they show; the state's tint, its words and count in the state's colour,
+   while they hide. */
 .tree-states .tree-state,
 .tree-states .tree-state:hover {
-  border-color: var(--tone-border);
+  border-color: transparent;
+  background: var(--tone-muted);
   color: var(--tone-fg);
 }
 
@@ -95,7 +103,7 @@
 }
 
 .tree-states .tree-state [data-component='leadingVisual'],
-.tree-states .tree-state[aria-pressed='true'] [data-component='ButtonCounter'] {
+.tree-states .tree-state [data-component='ButtonCounter'] {
   color: inherit;
 }
 

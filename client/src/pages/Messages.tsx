@@ -92,6 +92,7 @@ import {
   rowsShown,
   sayTo,
   sayToTicked,
+  shownByState,
   streamOf,
   type Ticked,
   toArchitect,
@@ -146,13 +147,30 @@ function RowMark({ c, works, status }: { c: Conversation; works: WorkSummary[] |
 /// The states of a work whose groups the list shows until the owner sets otherwise: all but those of a work over.
 export const SHOWN: WorkState[] = WORK_STATES.filter((s) => s !== 'done' && s !== 'ended');
 
+/// The states whose works' groups the list shows, as the owner set them with its buttons and kept in this browser, and
+/// the way to show or hide one: one choice for the list and the bar, which counts what the list shows.
+export const useTalkStates = (): [WorkState[], (s: WorkState) => void] =>
+  useShownStates('talks-states', WORK_STATES, SHOWN);
+
+/// The conversations whose counts of what waits for the owner and what is unread the bar sums: those the list's
+/// buttons of a work's states show (`shown`), whichever is open, so that the bar counts nothing the list hides.
+export function counted(
+  list: Conversation[],
+  works: WorkSummary[] | undefined,
+  status: Status | null,
+  shown: readonly WorkState[],
+): Conversation[] {
+  return list.filter((c) => shownByState(c, (x) => workMark(x.work, works, status), shown));
+}
+
 /// The list of conversations in its fixed order, each with its mark, what waits for the owner in it (red) and what is
 /// unread (grey); a work's group over greyed in place. Each project's group is headed by its name and the buttons that
 /// show or hide its works in each state, as the items' tree's are (`StateFilter`), the owner's choice one for every
-/// project and kept in this browser; the conversation open stays whatever its state.
+/// project and kept in this browser; the conversation open stays whatever its state, without its counts while its
+/// state is hidden, since what the buttons hide counts nowhere, as the bar does not count it.
 export function List({ list, open, works }: { list: Conversation[]; open: string | null; works: WorkSummary[] | undefined }) {
   const status = useStatus();
-  const [shown, toggle] = useShownStates('talks-states', WORK_STATES, SHOWN);
+  const [shown, toggle] = useTalkStates();
   const stateOf = (c: Conversation) => workMark(c.work, works, status);
   return (
     <NavList aria-label={t('nav_messages')} className="talks-list">
@@ -198,7 +216,7 @@ export function List({ list, open, works }: { list: Conversation[]; open: string
                 <span className="talks-title" title={conversationTitle(c)}>
                   {conversationTitle(c)}
                 </span>
-                {c.waiting > 0 || c.unread > 0 ? (
+                {(c.waiting > 0 || c.unread > 0) && shownByState(c, stateOf, shown) ? (
                   <NavList.TrailingVisual>
                     <span className="talks-marks">
                       {c.waiting > 0 ? (

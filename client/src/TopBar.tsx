@@ -1,6 +1,7 @@
 // The bar on every view: the views (the works, the architect, the items, the flow, and the owner's conversations with
-// how many things in them wait for the owner, red, and how many entries are unread, grey, the browser's notifications
-// telling of what newly waits), and how the engine stands: running,
+// how many things in them wait for the owner, red, and how many entries are unread, grey, in the conversations the
+// list's buttons of a work's states show, the browser's notifications telling of what newly waits in them), and how
+// the engine stands: running,
 // paused (saying which works the owner started run meanwhile), pausing while the last round finishes, or waiting for
 // what stops every work, with the switch that pauses every work or starts them all, the switch that keeps waiting
 // sessions warm while every work is paused, and the slots in use. The engine starts with every work paused. Drawn as
@@ -9,14 +10,16 @@
 
 import { DotFillIcon } from '@primer/octicons-react';
 import { Button, CounterLabel, ToggleSwitch, UnderlineNav } from '@primer/react';
-import { useEffect, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
 
 import type { Conversation, Status, WorkSummary } from './api';
 import { course } from './components';
+import { totals } from './conversation';
 import { time } from './format';
 import { postJson } from './http';
 import { reread, useOnline, useResource, useStatus } from './live';
 import { useNotifications } from './notify';
+import { counted, useTalkStates } from './pages/Messages';
 import { navigate, type Route } from './route';
 import { t, tn, type Key } from './text';
 
@@ -79,8 +82,7 @@ function KeepWarm({ status }: { status: Status }) {
 
 /// The switch of every work: Pause all while works go on, Start all while they are paused. Starting asks first, saying
 /// what goes on and which works on an older flow version are taken over.
-function Switch({ status }: { status: Status }) {
-  const works = useResource<WorkSummary[]>('works', '/api/v1/works');
+function Switch({ status, works }: { status: Status; works: WorkSummary[] | undefined }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const post = (path: string) => {
@@ -103,7 +105,7 @@ function Switch({ status }: { status: Status }) {
       return;
     }
     // The works that go on once all start: those paused by themselves stay paused.
-    const taken = (works.data ?? []).filter((w) => course(w, status).outdated && w.paused_by === null).length;
+    const taken = (works ?? []).filter((w) => course(w, status).outdated && w.paused_by === null).length;
     const ask =
       taken > 0 ? tn('confirm_start_all_takeover', taken, { version: status.flow_version }) : t('confirm_start_all');
     if (!window.confirm(ask)) return;
@@ -124,7 +126,7 @@ function Switch({ status }: { status: Status }) {
   );
 }
 
-function Engine() {
+function Engine({ works }: { works: WorkSummary[] | undefined }) {
   const online = useOnline();
   const status = useStatus();
   if (!online || !status) {
@@ -145,7 +147,7 @@ function Engine() {
         <DotFillIcon className={`engine-dot engine-dot-${dot}`} />
         <span className={status.halt !== null ? 'bad' : undefined}>{stateWords(status)}</span>
       </span>
-      <Switch status={status} />
+      <Switch status={status} works={works} />
       <KeepWarm status={status} />
       <span className="muted" title={t('slots_hint')}>
         {t('slots', { used: status.slots_used, total: status.slots })}
@@ -178,14 +180,18 @@ const go = (to: string) => (e: MouseEvent<HTMLAnchorElement> | KeyboardEvent<HTM
 
 /// The bar: the views, the owner's conversations with how many things in them wait for the owner (the open blockers
 /// the owner holds, design cards not ruled, faults of wf-agents not read) in a red count and how many entries are
-/// unread in a grey one, the browser told of what newly waits, and how the engine stands with the switch of every
+/// unread in a grey one, the browser told of what newly waits, all in the conversations the list's buttons of a work's
+/// states show, so that no count is of something the list hides; and how the engine stands with the switch of every
 /// work.
 export function TopBar({ route }: { route: Route }) {
   const conversations = useResource<Conversation[]>('messages', '/api/v1/conversations');
-  useNotifications(conversations.data);
-  const list = conversations.data ?? [];
-  const waiting = list.reduce((n, c) => n + c.waiting, 0);
-  const unread = list.reduce((n, c) => n + c.unread, 0);
+  const works = useResource<WorkSummary[]>('works', '/api/v1/works').data;
+  const status = useStatus();
+  const [shown] = useTalkStates();
+  const list = conversations.data;
+  const shownList = useMemo(() => counted(list ?? [], works, status, shown), [list, works, status, shown]);
+  useNotifications(list, shownList);
+  const { waiting, unread } = totals(shownList);
   return (
     <header className="topbar">
       <span className="brand">wf-agents</span>
@@ -211,7 +217,7 @@ export function TopBar({ route }: { route: Route }) {
           </UnderlineNav.Item>
         ))}
       </UnderlineNav>
-      <Engine />
+      <Engine works={works} />
     </header>
   );
 }

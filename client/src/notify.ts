@@ -1,7 +1,9 @@
 // The browser's notifications of what newly waits for the owner, until the owner has another way to be told: each
-// conversation where something more waits than when the list was read before is told of once, by its name, and a click
-// on it opens it. The page asks the browser for leave once, at the owner's first click on it as browsers want, and never
-// again whatever the answer; it tells nothing while the owner looks at the page, whose bar counts what waits already.
+// conversation the list shows where something more waits than when the list was read before is told of once, by its
+// name, and a click on it opens it; one the list's buttons of a work's states hide is told of nothing, as the bar
+// counts nothing in it. The page asks the browser for leave once, at the owner's first click on it as browsers want,
+// and never again whatever the answer; it tells nothing while the owner looks at the page, whose bar counts what waits
+// already.
 
 import { useEffect, useRef } from 'react';
 
@@ -42,14 +44,16 @@ function askOnce(): (() => void) | undefined {
 /// Whether the owner looks at the page now.
 const looking = (): boolean => document.visibilityState === 'visible' && document.hasFocus();
 
-/// Tells the owner, by the browser's notifications, of each conversation where something newly waits, as the list of
-/// conversations is read again; the first reading tells of nothing, since everything in it is old.
-export function useNotifications(list: Conversation[] | undefined): void {
+/// Tells the owner, by the browser's notifications, of each conversation the list shows (`shown`, of `list`) where
+/// something newly waits, as the list of conversations is read again; the first reading tells of nothing, since
+/// everything in it is old. What waits is compared over the whole list, so that a conversation the owner shows again
+/// tells of nothing that waited in it while hidden.
+export function useNotifications(list: Conversation[] | undefined, shown: Conversation[]): void {
   const before = useRef<Map<string, number> | null>(null);
   useEffect(() => askOnce(), []);
   useEffect(() => {
     if (list === undefined) return;
-    const fresh = newlyWaiting(before.current, list);
+    const fresh = newlyWaiting(before.current, shown);
     before.current = waitingByKey(list);
     if (fresh.length === 0 || !can() || Notification.permission !== 'granted' || looking()) return;
     for (const c of fresh) {
@@ -63,5 +67,5 @@ export function useNotifications(list: Conversation[] | undefined): void {
         n.close();
       };
     }
-  }, [list]);
+  }, [list, shown]);
 }
