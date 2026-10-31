@@ -892,7 +892,8 @@ const messages = {
   legend_line: 'agent round on the {line} line',
   legend_other_line: 'another',
   legend_fresh: 'agent round on no line, with its badge: a new session every round',
-  legend_engine: "the engine's own step, or a tool it runs",
+  legend_engine: "the engine's own step",
+  legend_tool: 'a tool the engine runs',
   legend_owner: 'the owner',
   legend_effort:
     "over an agent cell's top left corner: the reasoning effort it runs at, low to high; the whole word on hovering",

@@ -1,13 +1,14 @@
 /* A flow's chart, drawn as the UI spec says a chart is: its layout, shapes and lines as the page's decisions draw them,
-   its look in Primer's tokens. Text, boxes and fills take the functional tokens. Only the cells, every box a work can
-   stand at, have colours, Primer's data colours, each named here once by what it marks: an agent's round its session's,
-   that is its line's, the lines of one graph green, blue, red and pink in the order the flow lists them, a cell on no
-   line, a session of its own every round, pink; the engine's own step, a tool it runs included, purple; the owner
-   orange; every cell's edge solid. A circle that names a cell takes that cell's colours. Everything else (the actions on a line or
-   every time a cell returns, a rule, the interjection, a store) is light grey, edged grey; the stage boxes are the
-   display scale's light grey, as the owner asked. A cell, where a work stands, is edged heavier than every shape
-   beside it and titled semibold. The arrows are grey, the main path blue at the same width; the rows into the cell picked or pointed at
-   green and those out of it red. The values Primer has no token for are in tokens.css. */
+   its look in Primer's tokens. Text, boxes and fills take the functional tokens. Only the cells, every place a work can
+   stand at (an agent's a box, every other rounded), have colours, Primer's data colours, each named here once by what
+   it marks: an agent's round its session's, that is its line's, the lines of one graph green, blue, red and pink in the
+   order the flow lists them, a cell on no line, a session of its own every round, pink; the engine's own step purple; a
+   tool the engine runs a quiet yellow; the owner orange; every cell's edge solid. A circle that names a cell takes that
+   cell's colours. Everything else (the actions on a line or every time a cell returns, a rule, the interjection, a
+   store) is light grey, edged grey; the stage boxes are the display scale's light grey, as the owner asked. A cell,
+   where a work stands, is edged heavier than every shape beside it and titled semibold. The arrows are grey, the main
+   path blue at the same width; the rows into the cell picked or pointed at green and those out of it red. The values
+   Primer has no token for are in tokens.css. */
 
 :root {
   --fc-text: var(--fgColor-default);
@@ -37,6 +38,10 @@
   --fc-fresh-fill: var(--data-pink-color-muted);
   --fc-engine: var(--data-purple-color-emphasis);
   --fc-engine-fill: var(--data-purple-color-muted);
+  /* A tool in a quiet yellow, the display yellow a little lightened into the page's background: told from the engine's
+     own step, which handles no tool, yet standing back from the cells an agent or the owner works. */
+  --fc-tool: color-mix(in srgb, var(--data-yellow-color-emphasis) 75%, var(--bgColor-default));
+  --fc-tool-fill: color-mix(in srgb, var(--data-yellow-color-muted) 75%, var(--bgColor-default));
   --fc-owner: var(--data-orange-color-emphasis);
   --fc-owner-fill: var(--data-orange-color-muted);
   /* What is no cell, light grey with a grey edge; and in the legend, a cell of any kind. */
@@ -219,6 +224,11 @@ svg.fc {
 .kind-engine {
   --fc-hue: var(--fc-engine);
   --fc-hue-fill: var(--fc-engine-fill);
+}
+
+.kind-tool {
+  --fc-hue: var(--fc-tool);
+  --fc-hue-fill: var(--fc-tool-fill);
 }
 
 .kind-owner {

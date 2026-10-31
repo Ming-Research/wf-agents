@@ -830,7 +830,7 @@ describe('the chart of a flow', () => {
     for (const kind of ['engine', 'tool', 'owner']) {
       const c = cell('k', [], { kind, line: null });
       expect(startsAnew(c), kind).toBe(false);
-      expect(styleOf(c), kind).toBe(kind === 'owner' ? 'kind-owner' : 'kind-engine');
+      expect(styleOf(c), kind).toBe(`kind-${kind}`);
     }
     // The badges over the top left corner, from 4 px left of the cell: the effort's, then 3 px on the new session's.
     expect(sessionWidth()).toBeGreaterThan(effortWidth());
