@@ -38,5 +38,5 @@ Decision: The rules the architect's cells share are written once: how the archit
 
 Rejected:
 - A chain of requests with a graph of who waits for whom, a withdrawal passed down the chain: rejected because each hop keeps its own rule for stopping, and the chain must still be followed to find who must act; with one blocker per stopped task there is no chain to follow.
-- The engine taking a blocker higher after a time, or handing it on when its holder is gone: rejected by Article 7.
+- The engine taking a blocker higher after a time, or handing it on when its holder is gone: rejected because of Article 7.
 - A work of the architect stopping for the owner: rejected because it stops every work whose blocker the architect holds.
