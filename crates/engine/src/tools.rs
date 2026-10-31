@@ -363,10 +363,7 @@ struct JobLog<'a> {
 }
 
 /// The jobs of a run of the fast CI, each with its log as `read_log` gives it.
-fn job_logs<'a>(
-    checks: &'a [CheckRun],
-    read_log: impl Fn(&CheckRun) -> Result<String, Failure>,
-) -> Vec<JobLog<'a>> {
+fn job_logs<'a>(checks: &'a [CheckRun], read_log: impl Fn(&CheckRun) -> Result<String, Failure>) -> Vec<JobLog<'a>> {
     checks
         .iter()
         .map(|check| JobLog {
@@ -1189,7 +1186,11 @@ mod tests {
         assert!(why(&[job(&timed_out, Ok(ok_log))]).starts_with("the run stopped before this test"));
         // A step before Build failed (the page, the toolchain), so Build and Test were skipped: the job did not get to
         // its tests, and the name is not blamed.
-        let no_page = check("t5", "red", &[("Build the page", "failure"), ("Build", "skipped"), ("Test", "skipped")]);
+        let no_page = check(
+            "t5",
+            "red",
+            &[("Build the page", "failure"), ("Build", "skipped"), ("Test", "skipped")],
+        );
         assert_eq!(
             why(&[job(&built, Ok(ok_log)), job(&no_page, Ok(""))]),
             "the job t5 did not get to its tests: the step Build the page ended failure"
