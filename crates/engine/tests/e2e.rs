@@ -852,8 +852,7 @@ fn an_item_goes_from_the_queue_to_main() {
     let review = input_of("T4");
     let m = review["message"].as_str().unwrap_or_default();
     assert!(
-        m.contains("## Review table: answer each column by its number\n\n### R")
-            && m.contains("·engine·review_columns\n\n1. "),
+        m.contains("## Review table: answer each column by its number\n\n### columns:T4\n\n1. "),
         "{m}"
     );
     let ci = given_value(m, "·engine·work_ci").expect(m);
@@ -5468,8 +5467,13 @@ fn the_search_of_observations_hands_back_candidates() {
     let back = message_at(&e, arch, "H5", true);
     assert!(back.contains("It records the same slowness."), "{back}");
     // The observer writes what the owner reads in the owner's language, as every line does: its forms, in the system
-    // prompt its session starts with, say which.
-    let search = system_text(&input_at(&e, arch, "X2", false)).unwrap_or_default();
+    // prompt its session starts with or in its message, say which.
+    let input = input_at(&e, arch, "X2", false);
+    let search = format!(
+        "{}\n{}",
+        system_text(&input).unwrap_or_default(),
+        input["message"].as_str().unwrap_or_default()
+    );
     assert!(search.contains("`owner.language` (English)"), "{search}");
     let times: (i64, String) =
         e.db.conn()

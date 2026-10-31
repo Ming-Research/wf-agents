@@ -37,8 +37,8 @@
 //! by the earliest round it was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `design_card:<id>`,
 //! `ask:<id>` (an ask of the owner), `ij:<id>`, `image:<id>` (an image the owner sent), `work:<id>` (`work:<graph>` for
 //! where an architect's line works),
-//! `format:common`, `format:<cell>`, `inputs:<cell>`, and `task:<cell>` with `task:<cell>·<by>=<value>` for the lines
-//! of the task the value it is told by adds. A
+//! `format:common`, `format:<cell>`, `inputs:<cell>`, `columns:<cell>` (the columns of its review table), and
+//! `task:<cell>` with `task:<cell>·<by>=<value>` for the lines of the task the value it is told by adds. A
 //! round recorded before rounds were named by their work wrote a round's address as `R<number>·...`; such an address
 //! names no round, and the engine never gives it again.
 
@@ -678,12 +678,12 @@ impl Context<'_> {
         }
         let why = self.why(&mut m, &interjections);
         let tasks = self.tasks(&mut m);
-        // The columns of the review's table, given once in a session and after that as what changed in them.
+        // The columns of the cell's review table, given once in a session and after that as what changed in them: each
+        // review cell's its own, so that the table review's and the design tree review's, which one session goes
+        // through in turn, are not each given as what changed in the other.
         let columns = (!self.columns.is_empty()).then(|| {
             let text: Vec<String> = self.columns.iter().map(|(id, col)| format!("{id}. {col}")).collect();
-            let content = Value::String(text.join("\n"));
-            let address = self.computed(&m, COLUMNS, &content);
-            m.give(address, content)
+            m.give(format!("{COLUMNS}{}", c.id), Value::String(text.join("\n")))
         });
         let images = self.images(&mut m);
 
@@ -864,8 +864,8 @@ const IMAGE: &str = "image:";
 /// How the address of a cell's task begins.
 const TASK: &str = "task:";
 
-/// The name the columns of a review's table are computed under: `<round>·engine·review_columns`.
-const COLUMNS: &str = "review_columns";
+/// How the address of the columns of a cell's review table begins: `columns:<cell>`.
+const COLUMNS: &str = "columns:";
 
 /// A message as it is written, line by line, with the large parts the round's record keeps once.
 #[derive(Default)]

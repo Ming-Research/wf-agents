@@ -52,9 +52,8 @@ const GUIDE_INPUT: &str = "engine·project_guide";
 /// is given it once and after that only what changed in it. For the architect's cells, what they read of the project;
 /// a talk with the owner grows by its entries, so that each turn of it is given only the owner's new words, and what
 /// the architect told the owner by its messages. For the reviews, the CI on the work, whose runs change one at a time
-/// (`work_ci`), and the columns of the table review, which change by a column or two between reviews
-/// (`review_columns`).
-const ENGINE_STANDARD: [&str; 14] = [
+/// (`work_ci`).
+const ENGINE_STANDARD: [&str; 13] = [
     "constitution",
     "guide",
     "policy",
@@ -68,7 +67,6 @@ const ENGINE_STANDARD: [&str; 14] = [
     "talk",
     "told_owner",
     "work_ci",
-    "review_columns",
 ];
 
 /// The entries of an input of the standard context that every version of it given as what changed carries whole,
@@ -78,7 +76,8 @@ pub const INDEXES: [&str; 2] = ["pickable", "handled_matters"];
 
 /// Which input of the standard context an address is a version of: the project guide and what the engine computes as
 /// standard context, whose versions have addresses of their own, or a return format, a list of inputs, a rule, a
-/// setting, the worktree or a cell's task, whose versions share one; none for an address of anything else.
+/// setting, the worktree, a cell's task or the columns of its review table, whose versions share one; none for an
+/// address of anything else.
 pub fn standard(address: &str) -> Option<&str> {
     if address.ends_with(GUIDE_ADDRESS) {
         return Some(GUIDE_INPUT);
@@ -92,7 +91,7 @@ pub fn standard(address: &str) -> Option<&str> {
             return Some(input);
         }
     }
-    ["format:", "inputs:", "rule:", "config:", "work:", "task:"]
+    ["format:", "inputs:", "rule:", "config:", "work:", "task:", "columns:"]
         .iter()
         .any(|p| address.starts_with(p))
         .then_some(address)
