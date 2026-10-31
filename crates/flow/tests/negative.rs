@@ -570,6 +570,7 @@ case!(a_cell_reads_part_of_an_input_and_drops_the_rest, "dropped", |v| {
 });
 case!(the_design_tree_findings_read_by_nobody, "dropped", |v| {
     drop_source(v, "T6", json!(["T5", "columns[findings]"]));
+    drop_source(v, "T4", json!(["T5", "columns[findings]"]));
 });
 case!(a_reason_on_a_withdrawn_finding_nobody_reads, "dropped", |v| {
     let previous = node(v, "T4")["out"]
