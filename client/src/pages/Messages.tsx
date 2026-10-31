@@ -114,10 +114,11 @@ import { imagesSent, type PendingImage, saysSomething } from '../images';
 import { isObj, label, str, words } from '../labelled';
 import { reread, useResource, useStatus } from '../live';
 import { firstWords, Markdown, MarkdownLine } from '../markdown';
-import { LinkButton, SayBox, Thumbs } from '../parts';
+import { BackLink, LinkButton, SayBox, Thumbs } from '../parts';
 import { architectHref, forProject, href, Link, navigate, type SideTab, sideHref, workHref } from '../route';
 import { t, tn } from '../text';
 import { joinedWords, Long, SEP } from '../voices';
+import { useNarrow, useWidth, type Width } from '../width';
 import { ArchitectAskBlock } from './ArchitectAsk';
 import { ArchitectSide, useSideOpen } from './ArchitectSide';
 import { Bubble, BubbleHead, LiveBubble } from './Bubble';
@@ -1109,7 +1110,9 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
     project !== null ? forProject('/api/v1/architect', project) : null,
   );
   const a = ar.data !== undefined && ar.data.project === project ? ar.data : null;
+  const over = sideOver(useWidth());
   const [sideOpen, setSideOpen] = useSideOpen(side !== null);
+  const sideShown = sideShows(over, side !== null, sideOpen);
   // The question the owner opened at the bottom, and how the owner set the tick for it.
   const [opened, setOpened] = useState<number | null>(null);
   const [ticked, setTicked] = useState<Ticked | null>(null);
@@ -1139,7 +1142,13 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
     c.kind === 'work' ? (
       <WorkHead c={c} w={w} />
     ) : c.kind === 'architect' ? (
-      <ArchitectHead c={c} a={a} onSide={sideOpen ? null : () => setSideOpen(true)} />
+      <ArchitectHead
+        c={c}
+        a={a}
+        onSide={
+          sideShown ? null : over ? () => navigate(sideHref(project ?? '', 'notebook')) : () => setSideOpen(true)
+        }
+      />
     ) : c.kind === 'wf_agents' ? (
       <WfAgentsHead title={conversationTitle(c)} forwarding={d?.forwarding ?? null} />
     ) : (
@@ -1148,6 +1157,7 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
   const talk = (
     <AnswersHere.Provider value={true}>
       <div className="talk-open">
+        <BackLink to={href({ page: 'messages', open: null })} words={t('nav_messages')} />
         {head}
         {d === null ? (
           <p className="talk-none">{r.error ?? t('loading')}</p>
@@ -1169,10 +1179,18 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
       </div>
     </AnswersHere.Provider>
   );
-  if (a === null || !sideOpen) return talk;
+  if (a === null || !sideShown) return talk;
   return (
-    <PageLayout containerWidth="full" padding="none" rowGap="none" columnGap="none" className="talk-split">
-      <PageLayout.Content padding="none" width="full" className="talk-split-content">
+    <PageLayout
+      containerWidth="full"
+      padding="none"
+      rowGap="none"
+      columnGap="none"
+      className={over ? 'talk-split talk-split-over' : 'talk-split'}
+    >
+      {/* Where the panel is over the conversation it takes the conversation's place, its close the way back to it;
+          the conversation stays drawn, hidden, so that the words in its box wait there. */}
+      <PageLayout.Content padding="none" width="full" hidden={over} className="talk-split-content">
         {talk}
       </PageLayout.Content>
       <PageLayout.Pane
@@ -1180,7 +1198,7 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
         resizable
         widthStorageKey="wf-agents.architect-side-width"
         width={{ min: '280px', default: '440px', max: '800px' }}
-        divider="line"
+        divider={over ? 'none' : 'line'}
         padding="none"
         className="talk-side"
         aria-label={t('side_tabs')}
@@ -1190,7 +1208,9 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
             a={a}
             tab={side ?? 'notebook'}
             onClose={() => {
-              setSideOpen(false);
+              // Over the conversation the close only leaves the panel: whether it stays open beside the conversation
+              // at the full width is left as the browser kept it.
+              if (!over) setSideOpen(false);
               if (side !== null) navigate(href({ page: 'messages', open: c.key }), true);
             }}
           />
@@ -1200,16 +1220,39 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
   );
 }
 
+/// Whether the panel beside the one-to-one with an architect is over the conversation, in its place, rather than
+/// beside it: at every width but the full one (Primer's extra large breakpoint, 1280px, up), where the list of
+/// conversations, a conversation at Primer's least content width (511px, the room its panes leave the content below
+/// that breakpoint) and the panel fit side by side at their first widths (320px, 440px); below it the conversation
+/// was squeezed to a sliver and drawn under the panel.
+export function sideOver(w: Width): boolean {
+  return w !== 'full';
+}
+
+/// Whether the panel beside the one-to-one with an architect shows: as the browser kept it, or an address that names
+/// one of its tabs opened it; where it is over the conversation (`sideOver`), only while the address names one of its
+/// tabs, so that the conversation is what the one-to-one opens on.
+export function sideShows(over: boolean, named: boolean, kept: boolean): boolean {
+  return over ? named : kept;
+}
+
+/// The conversation open: the one the address names, else the first the interface lists; below the narrow breakpoint,
+/// where it takes the list's place, only the one the address names, the list showing while it names none.
+export function shownConversation(list: Conversation[], open: string | null, narrow: boolean): Conversation | null {
+  return list.find((c) => c.key === open) ?? (narrow ? null : (list[0] ?? null));
+}
+
 /// The owner's conversations: the list on the left, in its fixed order, its width dragged and kept in the browser; the
 /// conversation open on the right, when the address names none the first the interface lists, the one-to-one with the
 /// architect of the configuration's first project. The works are read once for
 /// both: the list's marks and the work of the group open. The address may name the tab of the panel beside the one-to-one
-/// with an architect (`side`).
+/// with an architect (`side`). Below the narrow breakpoint one side shows at a time, the whole width: the list while the
+/// address names no conversation, else the conversation under the way back to the list.
 export function Messages({ open, side }: { open: string | null; side: SideTab | null }) {
   const r = useResource<Conversation[]>('messages', '/api/v1/conversations');
   const works = useResource<WorkSummary[]>('works', '/api/v1/works').data;
   const list = r.data ?? [];
-  const shown = list.find((c) => c.key === open) ?? list[0] ?? null;
+  const shown = shownConversation(list, open, useNarrow());
   return (
     <PageLayout containerWidth="full" padding="none" rowGap="none" columnGap="none" className="talks">
       <PageLayout.Pane
@@ -1217,8 +1260,9 @@ export function Messages({ open, side }: { open: string | null; side: SideTab | 
         resizable
         widthStorageKey="wf-agents.talks-pane"
         width={{ min: '220px', default: '320px', max: '640px' }}
-        divider="line"
+        divider={{ narrow: 'none', regular: 'line' }}
         padding="none"
+        hidden={{ narrow: shown !== null, regular: false }}
         className="talks-pane"
         aria-label={t('nav_messages')}
       >
@@ -1226,7 +1270,12 @@ export function Messages({ open, side }: { open: string | null; side: SideTab | 
         {r.data !== undefined && list.length === 0 ? <p className="talk-none">{t('conv_list_none')}</p> : null}
         <List list={list} open={shown?.key ?? null} works={works} />
       </PageLayout.Pane>
-      <PageLayout.Content padding="none" width="full" className="talks-content">
+      <PageLayout.Content
+        padding="none"
+        width="full"
+        hidden={{ narrow: shown === null, regular: false }}
+        className="talks-content"
+      >
         {shown !== null ? <Open key={shown.key} c={shown} works={works} side={shown.kind === 'architect' ? side : null} /> : null}
       </PageLayout.Content>
     </PageLayout>

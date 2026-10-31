@@ -201,8 +201,9 @@
   background: var(--borderColor-accent-emphasis);
 }
 
-/* At a phone's width the window takes the chart's whole width, expanded or minimised, and its width does not drag. */
-@media (max-width: 600px) {
+/* Below the narrow breakpoint, as every split there shows one side at a time, the window takes the chart's whole
+   width, expanded or minimised, and its width does not drag: minimised, the chart shows; expanded, the panel does. */
+@media (max-width: calc(48rem - 0.02px)) {
   .dock {
     left: var(--base-size-8);
     width: auto !important;

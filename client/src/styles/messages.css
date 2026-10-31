@@ -45,10 +45,11 @@
   color: var(--fgColor-muted);
 }
 
+/* The content of a split is Primer's, a column already; no display of its own here, which would undo Primer's hiding
+   of it below the narrow breakpoint, where the list or the panel takes its place. */
 .talks-content {
   min-width: 0;
   min-height: 0;
-  display: flex;
 }
 
 /* The one-to-one with an architect and the panel beside it, its notebook, policy and queue: a split whose divider drags
@@ -61,7 +62,21 @@
 
 .talk-split-content {
   min-width: 0;
-  display: flex;
+}
+
+/* The panel over the conversation, in its place (below the full width): the conversation hidden, the panel the whole
+   width the list leaves, with no divider and nothing to drag, through the names Primer gives its parts, as the list of
+   a split fills its view while nothing is open. */
+.talk-split-over .talk-side {
+  flex: 1;
+}
+
+.talk-split-over [data-component='PageLayout.Pane'] {
+  width: 100%;
+}
+
+.talk-split-over [data-component='PageLayout.VerticalDivider'] {
+  display: none;
 }
 
 .talk-side {

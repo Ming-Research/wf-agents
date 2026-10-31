@@ -277,7 +277,8 @@ function Open({ o, project, route }: { o: Observation; project: string; route: O
               ))}
             </span>
           </PageHeader.TitleArea>
-          <PageHeader.Actions>
+          {/* Below the narrow breakpoint the way back over the observation leads where its close does. */}
+          <PageHeader.Actions hidden={{ narrow: true, regular: false }}>
             <IconButton
               icon={XIcon}
               size="small"
@@ -347,6 +348,7 @@ export function Observations({ route }: { route: ObservationsRoute }) {
     <ListSplit
       label={t('nav_observations')}
       widthKey="wf-agents.observations-pane"
+      back={observationsHref(route.project)}
       list={<Loaded r={all}>{(data) => <List all={data} route={route} />}</Loaded>}
       open={open}
     />

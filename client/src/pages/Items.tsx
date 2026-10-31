@@ -23,6 +23,7 @@ import { ListSplit } from '../parts';
 import { href, navigate } from '../route';
 import { t, tn } from '../text';
 import { joined, SEP } from '../voices';
+import { useNarrow } from '../width';
 import { Item } from './Item';
 
 /// The states shown until their button says otherwise: what is settled is hidden.
@@ -288,12 +289,17 @@ function Tree({ data, selected, shown, onShown }: {
 export function Items({ selected }: { selected: number | null }) {
   const items = useResource<ItemsData>('items', '/api/v1/items');
   const [shown, toggle] = useShownStates('items-states', STATES, SHOWN);
-  // While no item is picked, the first the tree shows is open.
-  const open = selected ?? (items.data !== undefined ? firstShown(items.data.items, items.data.links, shown) : null);
+  // While no item is picked, the first the tree shows is open; below the narrow breakpoint, where it would take the
+  // tree's place, none is, until the owner picks one.
+  const narrow = useNarrow();
+  const open =
+    selected ??
+    (items.data !== undefined && !narrow ? firstShown(items.data.items, items.data.links, shown) : null);
   return (
     <ListSplit
       label={t('nav_items')}
       widthKey="wf-agents.items-pane"
+      back={href({ page: 'items' })}
       list={
         <div className="items-trees">
           <Loaded r={items}>{(data) => <Tree data={data} selected={open} shown={shown} onShown={toggle} />}</Loaded>

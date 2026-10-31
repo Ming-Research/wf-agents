@@ -573,3 +573,23 @@
 .list-split-whole [data-component='PageLayout.VerticalDivider'] {
   display: none;
 }
+
+/* The way back to a list over what is open from it (BackLink), as the way back over a panel is drawn: a small link
+   with its arrow, at the left of the room what is open is drawn in. Only below the narrow breakpoint, where a split
+   shows one side at a time; from it up, the list is beside what is open. */
+.back-link {
+  padding: var(--base-size-12) var(--base-size-16) 0;
+  font-size: var(--text-body-size-small);
+}
+
+.back-link a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+@media (min-width: 48rem) {
+  .back-link {
+    display: none;
+  }
+}

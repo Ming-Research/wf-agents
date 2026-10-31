@@ -6,7 +6,7 @@
 // the owner sent, as thumbnails; the form that answers or says something, its words and the button that sends them;
 // and a list beside what is open from it.
 
-import { ChevronDownIcon, ChevronRightIcon, PaperclipIcon, XIcon } from '@primer/octicons-react';
+import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, PaperclipIcon, XIcon } from '@primer/octicons-react';
 import {
   Button,
   CounterLabel,
@@ -519,16 +519,32 @@ export function SendForm({ above, words, label, ready, busy, why, onSend, error 
   );
 }
 
+/// The way back from what is open from a list to the list, below the narrow breakpoint, where a split shows one side at
+/// a time: a `Link` with an `ArrowLeftIcon` naming the list, over what is open, as the way back over a panel is drawn;
+/// hidden from the narrow breakpoint up, where the list stands beside what is open.
+export function BackLink({ to, words }: { to: string; words: string }) {
+  return (
+    <div className="back-link">
+      <Link to={to} title={t('back_to_list')}>
+        <ArrowLeftIcon /> {words}
+      </Link>
+    </div>
+  );
+}
+
 /// A list and what is open from it, side by side (the items' tree and an item, the observations and the one open): Primer's
 /// PageLayout, the list in a pane on the left that the owner drags, its width kept in this browser under `widthKey`,
 /// staying under the bar while what is open scrolls the page; while nothing is open, the list fills the view, with no
 /// divider. The pane stays the one element whether something is open or not, so that opening one keeps the list as it
-/// is, scrolled where it was, and the width the owner gave it.
-export function ListSplit({ label, widthKey, list, open }: {
+/// is, scrolled where it was, and the width the owner gave it. Below the narrow breakpoint one side shows at a time, the
+/// whole width: the list while nothing is open, else what is open, under the way back to the list (`back`, the list's
+/// address, and `label`, its name).
+export function ListSplit({ label, widthKey, list, open, back }: {
   label: string;
   widthKey: string;
   list: ReactNode;
   open: ReactNode | null;
+  back: string;
 }) {
   const whole = open === null;
   return (
@@ -545,16 +561,18 @@ export function ListSplit({ label, widthKey, list, open }: {
         resizable
         widthStorageKey={widthKey}
         width={{ min: '240px', default: '520px', max: '1200px' }}
-        divider="line"
+        divider={{ narrow: 'none', regular: 'line' }}
         padding="none"
         sticky
         offsetHeader={48}
+        hidden={{ narrow: !whole, regular: false }}
         className="list-split-list"
         aria-label={label}
       >
         {list}
       </PageLayout.Pane>
       <PageLayout.Content padding="none" width="full" hidden={whole} className="list-split-open">
+        {whole ? null : <BackLink to={back} words={label} />}
         {open}
       </PageLayout.Content>
     </PageLayout>

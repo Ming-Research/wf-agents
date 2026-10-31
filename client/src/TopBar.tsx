@@ -5,11 +5,20 @@
 // the last round finishes, or waiting for what stops every work, with the switch that pauses every work or starts them
 // all, the switch that keeps waiting sessions warm while every work is paused, and the slots in use. The engine starts
 // with every work paused. Drawn as the UI spec's bar: the views an UnderlineNav, the engine's state a dot and words,
-// its switch a Button and keep-warm a ToggleSwitch.
+// its switch a Button and keep-warm a ToggleSwitch; what the window's width leaves no room for, views in the nav's
+// "More" and parts of the engine behind a button of its own, so that the bar is never wider than the window.
 
-import { DotFillIcon } from '@primer/octicons-react';
-import { Button, CounterLabel, ToggleSwitch, UnderlineNav } from '@primer/react';
-import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { DotFillIcon, KebabHorizontalIcon } from '@primer/octicons-react';
+import {
+  AnchoredOverlay,
+  Button,
+  CounterLabel,
+  IconButton,
+  ToggleSwitch,
+  UnderlineNav,
+  VisuallyHidden,
+} from '@primer/react';
+import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 
 import type { Conversation, Status, WorkSummary } from './api';
 import { course } from './components';
@@ -21,6 +30,7 @@ import { useNotifications } from './notify';
 import { counted, useTalkStates } from './pages/Messages';
 import { navigate, type Route } from './route';
 import { t, tn, type Key } from './text';
+import { useWidth, type Width } from './width';
 
 /// How many rounds run that a pause of every work lets finish: none while the engine runs, or for a round the owner
 /// asked for, or of a work the owner started.
@@ -125,34 +135,95 @@ function Switch({ status, works }: { status: Status; works: WorkSummary[] | unde
   );
 }
 
+/// What of the engine's state and controls the bar has no room for at a width, which goes into its overflow: none at
+/// the full width; below it Keep warm and the slots, which the owner sets and reads now and then, so that the views,
+/// which the owner moves between all the time, keep their room; and below the narrow breakpoint the state's words too,
+/// its dot staying. The dot of the state and the switch of every work, Start all or Pause all, stay in the bar at every
+/// width.
+export type EnginePart = 'words' | 'keep_warm' | 'slots';
+export function engineOverflow(w: Width): EnginePart[] {
+  return w === 'full' ? [] : w === 'regular' ? ['keep_warm', 'slots'] : ['words', 'keep_warm', 'slots'];
+}
+
+/// The bar's overflow of the engine, as Primer puts what a bar has no room for behind a button with its mark of more:
+/// an invisible `IconButton` with `KebabHorizontalIcon` that opens, under it and over the page, the parts the bar
+/// leaves out, drawn by the very parts the bar draws them with, one under another.
+function EngineMore({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <AnchoredOverlay
+      open={open}
+      onOpen={() => setOpen(true)}
+      onClose={() => setOpen(false)}
+      renderAnchor={(props) => (
+        <IconButton {...props} icon={KebabHorizontalIcon} variant="invisible" aria-label={t('engine_more')} />
+      )}
+      align="end"
+    >
+      <div className="engine-more">{children}</div>
+    </AnchoredOverlay>
+  );
+}
+
+/// The engine in the bar: its state, the switch of every work, Keep warm and the slots, what the width leaves no room
+/// for in its overflow (`engineOverflow`).
+export function EngineBar({ status, works, width }: { status: Status; works: WorkSummary[] | undefined; width: Width }) {
+  const more = engineOverflow(width);
+  const dot =
+    status.halt !== null ? 'off' : !status.paused ? 'run' : finishing(status) > 0 ? 'pausing' : 'paused';
+  const words = (
+    <span className={status.halt !== null ? 'engine-words bad' : 'engine-words'}>{stateWords(status)}</span>
+  );
+  const hint = status.halt?.why ?? (status.paused ? t('engine_paused_hint') : undefined);
+  const warm = <KeepWarm status={status} />;
+  const slots = (
+    <span className="muted" title={t('slots_hint')}>
+      {t('slots', { used: status.slots_used, total: status.slots })}
+    </span>
+  );
+  return (
+    <div className="engine">
+      <span
+        className="engine-state"
+        title={more.includes('words') ? [stateWords(status), hint].filter((x) => x !== undefined).join('\n') : hint}
+      >
+        <DotFillIcon className={`engine-dot engine-dot-${dot}`} />
+        {more.includes('words') ? <VisuallyHidden>{stateWords(status)}</VisuallyHidden> : words}
+      </span>
+      <Switch status={status} works={works} />
+      {more.includes('keep_warm') ? null : warm}
+      {more.includes('slots') ? null : slots}
+      {more.length > 0 ? (
+        <EngineMore>
+          {more.includes('words') ? (
+            <span className="engine-state" title={hint}>
+              <DotFillIcon className={`engine-dot engine-dot-${dot}`} />
+              {words}
+            </span>
+          ) : null}
+          {warm}
+          {slots}
+        </EngineMore>
+      ) : null}
+    </div>
+  );
+}
+
 function Engine({ works }: { works: WorkSummary[] | undefined }) {
   const online = useOnline();
   const status = useStatus();
+  const width = useWidth();
   if (!online || !status) {
     return (
       <div className="engine">
         <span className="engine-state" title={t('engine_offline_hint')}>
           <DotFillIcon className="engine-dot engine-dot-off" />
-          {t('engine_offline')}
+          <span className="engine-words">{t('engine_offline')}</span>
         </span>
       </div>
     );
   }
-  const dot =
-    status.halt !== null ? 'off' : !status.paused ? 'run' : finishing(status) > 0 ? 'pausing' : 'paused';
-  return (
-    <div className="engine">
-      <span className="engine-state" title={status.halt?.why ?? (status.paused ? t('engine_paused_hint') : undefined)}>
-        <DotFillIcon className={`engine-dot engine-dot-${dot}`} />
-        <span className={status.halt !== null ? 'bad' : undefined}>{stateWords(status)}</span>
-      </span>
-      <Switch status={status} works={works} />
-      <KeepWarm status={status} />
-      <span className="muted" title={t('slots_hint')}>
-        {t('slots', { used: status.slots_used, total: status.slots })}
-      </span>
-    </div>
-  );
+  return <EngineBar status={status} works={works} width={width} />;
 }
 
 /// A view of the bar: its place, the pages that are it, and its name.

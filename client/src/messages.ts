@@ -438,6 +438,8 @@ const messages = {
     'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items. 1 work is on an older flow version: if its cell and returns are unchanged in version {version}, it moves to it and goes on at its cell; else it ends, and a new work on version {version} takes its item over from the first cell.',
   slots: 'Slots {used}/{total}',
   slots_hint: "Works holding a slot (started and not waiting for someone) / the machines' slots.",
+  engine_more: "More of the engine: what the bar has no room for of the engine's state, Keep warm and the slots",
+  back_to_list: 'Back to the list',
   request_failed: 'The request failed: {error}',
   dock_grip: 'Drag to set the width of the panel; double-click for its own width',
   dock_split: 'Drag to share the panel between the tabs and what is open; double-click to share it evenly',
