@@ -108,11 +108,10 @@ import { spendTable } from './spend';
 import { axisTicks, gapsOf, usageOf } from './usage';
 
 describe('the message catalog', () => {
-  it('has every text, none empty, all in English', () => {
+  // That every text is in English is checked with every file of the repository (crates/wf-agents/tests/english.rs).
+  it('has every text, none empty', () => {
     for (const [key, text] of Object.entries(catalog)) {
       expect(text.trim(), key).not.toBe('');
-      // No character of a CJK script, nor full-width punctuation.
-      expect(/[\u{3000}-\u{303f}\u{3040}-\u{30ff}\u{3400}-\u{9fff}\u{ff00}-\u{ffef}]/u.test(text), key).toBe(false);
     }
     expect(t('slots', { used: 1, total: 2 })).toBe('Slots 1/2');
   });
@@ -1512,7 +1511,7 @@ describe('an ask', () => {
       'fd = os.open(sys.argv[1], os.O_RDONLY)',
       'EOF',
       '',
-      'Expected: line 1 taken\u3002',
+      'Expected: line 1 taken.',
       '',
       '```',
       'one line of code.',
@@ -1521,9 +1520,14 @@ describe('an ask', () => {
     expect(parseMarkdown(what)).toEqual([
       { kind: 'para', text: 'Please run a short probe on the Mac the engine runs on.' },
       { kind: 'code', text: "python3 - <data dir> <<'EOF'\nimport fcntl, os, sys\nfd = os.open(sys.argv[1], os.O_RDONLY)\nEOF" },
-      { kind: 'para', text: 'Expected: line 1 taken\u3002' },
+      { kind: 'para', text: 'Expected: line 1 taken.' },
       { kind: 'code', text: 'one line of code.' },
     ]);
+    // Lines one of which ends with any sentence terminal Unicode names, the interrobang too, are prose.
+    expect(parseMarkdown('Run it\nand then\nit is done\u{203d}')).toEqual([
+      { kind: 'para', text: 'Run it\nand then\nit is done\u{203d}' },
+    ]);
+    expect(parseMarkdown('Run it\nand then\nit is done')).toEqual([{ kind: 'code', text: 'Run it\nand then\nit is done' }]);
   });
 });
 
@@ -1562,7 +1566,8 @@ describe('a round', () => {
     expect(shareWords(14730, 17330, false)).toBe(', 85% of the message');
     expect(shareWords(1200, 900000, false)).toBe(', <1% of the message');
     expect(shareWords(1402, 12277, true)).toBe(", 11% of the message, the cell's task, the same every round");
-    expect(chars('一二三')).toBe(3);
+    // An emoji takes two UTF-16 units and four bytes, an arrow and a check mark one unit and three bytes each.
+    expect(chars('\u{1f680}\u{2192}\u{2713}')).toBe(3);
   });
 
   it("heads each field handed back by the title of its place, the forms of a return at the places' root", () => {
@@ -2101,8 +2106,11 @@ describe('a ruling on a design card', () => {
   it('titles each decision with its first sentence', () => {
     expect(firstSentence('Keep one table. It is simpler.')).toBe('Keep one table.');
     expect(firstSentence('v1.2 stays\nmore')).toBe('v1.2 stays');
-    expect(firstSentence('一二。三')).toBe('一二。');
+    // Any sentence terminal Unicode names ends a sentence, as the interrobang does, with no space after it.
+    expect(firstSentence('Done\u{203d}Then more')).toBe('Done\u{203d}');
     expect(firstSentence('x'.repeat(200)).length).toBe(120);
+    // A long one is cut between characters, never inside an emoji of two UTF-16 units.
+    expect(Array.from(firstSentence('\u{1f680}'.repeat(200)))).toEqual([...Array(119).fill('\u{1f680}'), '\u{2026}']);
   });
 });
 

@@ -648,13 +648,14 @@ mod tests {
         assert!(!cycle(&[]));
     }
 
-    // A title is counted as the earlier board counted it: every character but spaces, a backtick too, one each however
-    // many bytes it takes; 20 are let through, and 21 are refused, saying how many.
+    // A title is counted as the earlier board counted it: every character but spaces of any kind, a backtick too, one
+    // each however many bytes it takes; 20 are let through, and 21 are refused, saying how many.
     #[test]
     fn a_title_is_counted_without_spaces_and_refused_over_twenty() {
-        assert_eq!(title_length("Parse the `lexer`\u{3000}first"), 20);
-        // A CJK ideograph, three bytes in UTF-8.
-        let wide = "\u{4e00}";
+        // An em space and a no-break space are not counted, as an ordinary one is not.
+        assert_eq!(title_length("Parse\u{2003}the `lexer`\u{a0}first"), 20);
+        // An emoji, four bytes in UTF-8.
+        let wide = "\u{1f680}";
         let refused = |title: &str| {
             let mut said: Vec<String> = Vec::new();
             title_fits(title, &mut |p: String| said.push(p));
@@ -795,15 +796,9 @@ mod tests {
             actions,
             [
                 ("remove_worktree".to_string(), Value::Null),
-                (
-                    "close_pr".to_string(),
-                    json!("Its work ended without merging: item cancelled: nowhere.")
-                ),
+                ("close_pr".to_string(), json!("Its work ended without merging.")),
                 ("remove_worktree".to_string(), Value::Null),
-                (
-                    "close_pr".to_string(),
-                    json!("Its work ended without merging: item cancelled: merged into item 1: the same.")
-                ),
+                ("close_pr".to_string(), json!("Its work ended without merging.")),
             ]
         );
     }

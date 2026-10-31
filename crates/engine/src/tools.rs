@@ -510,6 +510,21 @@ fn push_refusal(wt: &Path, head: &str, pushed: Option<&str>, main: &str) -> Opti
     None
 }
 
+/// The title and description a pull request is opened with when the engineer has handed in none, at its first push
+/// (`ci`) or when the full CI opens it (`full_ci`): fixed English text naming the item by its number, and none of the
+/// item's own text, which is in the owner's language, since everything in a pull request is in English. The engineer's
+/// `pr` at a later push replaces both.
+fn pr_fallback(item: &Item) -> (String, String) {
+    (
+        format!("Item {}", item.id),
+        format!(
+            "The pull request of item {}. Its title and description are the engineer's to hand in, and replace these \
+             when it does.",
+            item.id
+        ),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn ci(
     e: &Engine,
@@ -531,13 +546,13 @@ fn ci(
         return Ok(json!({ "push": { "verdict": "refused", "why": why } }));
     }
     let sha = git::resolve(&wt, head).unwrap_or_default();
+    let fallback = pr_fallback(item);
     let title_body = req.get("pr").map(|p| {
         (
-            p["title"].as_str().unwrap_or(&item.title).to_string(),
+            p["title"].as_str().unwrap_or(&fallback.0).to_string(),
             p["body"].as_str().unwrap_or_default().to_string(),
         )
     });
-    let fallback = (item.title.clone(), format!("{}\n\nWhy: {}", item.problem, item.why));
     let tests: Vec<String> = req["tests"]
         .as_array()
         .map(|ts| ts.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
@@ -803,12 +818,12 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<
             hub::push(&wt, &head, &format!("refs/heads/{branch}"), false)?;
         }
         if pr.get().is_none() {
-            let body = format!("{}\n\nWhy: {}", item.problem, item.why);
+            let (title, body) = pr_fallback(item);
             let n = e.github.pull_request(
                 &repo(&project),
                 &branch,
                 &project.main,
-                Some((item.title.as_str(), body.as_str())),
+                Some((title.as_str(), body.as_str())),
                 None,
             )?;
             pr.set(Some(n));
@@ -963,6 +978,32 @@ pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, roun
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A pull request the engineer gave no title or description is named by its item's number, and holds none of the
+    // item's own text, which is in the owner's language.
+    #[test]
+    fn a_pull_request_without_the_engineer_s_title_holds_no_text_of_its_item() {
+        let item = Item {
+            id: 12,
+            project: "p".into(),
+            title: "TITLE-TEXT".into(),
+            problem: "PROBLEM-TEXT".into(),
+            why: "WHY-TEXT".into(),
+            approach: Some("APPROACH-TEXT".into()),
+            deliver: "change".into(),
+            level: "l".into(),
+            acceptance: None,
+            acceptance_round: None,
+            cancelled: None,
+            imported_from: None,
+            imported_branch: None,
+            imported_pr: None,
+        };
+        let (title, body) = pr_fallback(&item);
+        assert_eq!(title, "Item 12");
+        assert!(body.contains("item 12"), "{body}");
+        assert!(!format!("{title} {body}").contains("-TEXT"), "{title} {body}");
+    }
 
     // A query that names a column there is not is told the columns of the tables and views it names; one that names a
     // table there is not, every table's and view's name too; any other error, nothing more.

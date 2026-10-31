@@ -18,5 +18,9 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sessions = { path = "../sessions" }
 web = { path = "../web" }
 
+[dev-dependencies]
+# The check that the repository is in English finds a letter that is not ASCII by its Unicode category.
+regex.workspace = true
+
 [lints]
 workspace = true

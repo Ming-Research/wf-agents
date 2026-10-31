@@ -410,8 +410,9 @@ fn repaired(
 mod tests {
     use super::*;
 
-    /// Attempts at a return a trial's cell `P8` made, as its stream gave them: the first lacks its last closing brace;
-    /// the second and third parse, with `tell_owner` and `progress` inside `outcome`; the fourth has them beside it.
+    /// Attempts at a return a trial's cell `P8` made, as its stream gave them but with the text of their strings put in
+    /// English: the first lacks its last closing brace; the second and third parse, with `tell_owner` and `progress`
+    /// inside `outcome`; the fourth has them beside it.
     const MISSING_BRACE: &str = include_str!("../tests/unparsed/missing-last-brace.json.txt");
     const INSIDE_A: &str = include_str!("../tests/unparsed/common-fields-inside-a.json.txt");
     const INSIDE_B: &str = include_str!("../tests/unparsed/common-fields-inside-b.json.txt");
@@ -456,14 +457,14 @@ mod tests {
         );
     }
 
-    /// A word of the fixtures' text, in the owner's language: "change".
-    const WORD: &str = "\u{6539}";
+    /// A word of the fixtures' text, first found in the prose of a string, where each fault is injected.
+    const WORD: &str = "boundary";
 
     /// The usual faults of a return written by hand, each injected into a valid return: what it does to the text, and
     /// the repair a model would make, which keeps the content.
     fn faults() -> Vec<(&'static str, String, String)> {
         let quote = (
-            "an unescaped quote inside Chinese text",
+            "an unescaped quote inside the text",
             BESIDE.replacen(WORD, &format!("\"{WORD}\""), 1),
             BESIDE.replacen(WORD, &format!("\\\"{WORD}\\\""), 1),
         );
@@ -496,10 +497,10 @@ mod tests {
         assert!(!same_content(broken, &curly));
         let dropped = BESIDE.replacen(WORD, "", 1);
         assert!(!same_content(broken, &dropped));
-        let reworded = BESIDE.replacen(WORD, "\u{6362}", 1);
+        let reworded = BESIDE.replacen(WORD, "border", 1);
         assert!(!same_content(BESIDE, &reworded));
         // A character written as an escape is the same character.
-        assert!(same_content("{\"a\": \"\u{4e2d}\"}", r#"{"a": "\u4e2d"}"#));
+        assert!(same_content("{\"a\": \"\u{2192}\"}", r#"{"a": "\u2192"}"#));
         assert!(same_content("{\"a\": \"\u{1f600}\"}", r#"{"a": "\ud83d\ude00"}"#));
         // The repair's answer is read from a fenced block when it wrote one.
         assert_eq!(json_text("Here:\n```json\n{\"a\": 1}\n```"), "{\"a\": 1}");

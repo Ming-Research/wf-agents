@@ -3,8 +3,12 @@
 //! architect's own rounds, the faults of wf-agents forwarded to it, and the engine. Each is queued in the transaction
 //! of what raised it, by the engine and by the owner's operations alike.
 
+use std::sync::LazyLock;
+
+use regex::Regex;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::Value;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::attachments::{self, Image, Words};
 use crate::{Actor, Db, Error, Result, STOPPED_BY_ARCHITECT, now};
@@ -91,7 +95,7 @@ pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
     let Some(why) = stopped else {
         return Ok(false);
     };
-    let why = why.trim_start_matches(':').trim().trim_end_matches('.');
+    let why = without_final_terminal(why.trim_start_matches(':').trim());
     let text = format!("I started work {work}, which you had stopped ({why}): it goes on.");
     let Some(project) = item.map(|i| project_of_item(tx, i)).transpose()?.flatten() else {
         return Ok(true);
@@ -275,28 +279,28 @@ pub fn forward_new_fault(tx: &Transaction<'_>, notice: i64) -> Result<Option<i64
     }
 }
 
-/// The first sentence of a text, at most 200 characters: up to its first full stop, question or exclamation mark, or
-/// line break.
+/// The first sentence of a text, at most 200 characters: where Unicode's rules of sentences (UAX #29) end it, in any
+/// language, at a line break at the latest.
 pub fn one_sentence(text: &str) -> String {
-    let text = text.trim();
-    let mut out = String::new();
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\n' {
-            break;
-        }
-        out.push(c);
-        // The full stop, exclamation and question marks of Chinese and Japanese text end a sentence on their own.
-        let ends = matches!(c, '\u{3002}' | '\u{ff01}' | '\u{ff1f}')
-            || (matches!(c, '.' | '!' | '?') && chars.peek().is_none_or(|n| n.is_whitespace()));
-        if ends {
-            break;
-        }
-    }
+    let mut out = text
+        .trim()
+        .split_sentence_bounds()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     if out.chars().count() > 200 {
         out = out.chars().take(199).collect::<String>() + "…";
     }
     out
+}
+
+/// A text without the sentence terminals it ends with, in any language: the characters Unicode gives the property
+/// `Sentence_Terminal`.
+pub fn without_final_terminal(text: &str) -> &str {
+    static FINAL: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\p{Sentence_Terminal}+$").expect("the pattern is valid"));
+    FINAL.find(text).map_or(text, |m| &text[..m.start()])
 }
 
 #[cfg(test)]
@@ -305,9 +309,25 @@ mod tests {
 
     #[test]
     fn a_sentence_ends_at_its_mark_or_line() {
-        assert_eq!(one_sentence("a\u{3002}b"), "a\u{3002}");
         assert_eq!(one_sentence("Run it. Then paste"), "Run it.");
+        assert_eq!(one_sentence("Is it red? Then fix it"), "Is it red?");
         assert_eq!(one_sentence("v1.2 is out\nmore"), "v1.2 is out");
+        // A long sentence is cut by characters, never inside one: an emoji takes four bytes.
+        let cut = one_sentence(&"\u{1f680}".repeat(250));
+        assert_eq!(cut.chars().count(), 200);
+        assert!(cut.ends_with("\u{1f680}\u{2026}"));
+    }
+
+    // A final sentence terminal is trimmed whichever Unicode names so, the interrobang too; a closing bracket or a sign
+    // that ends no sentence stays.
+    #[test]
+    fn a_final_sentence_terminal_is_trimmed_in_any_language() {
+        assert_eq!(without_final_terminal("The tests were wrong."), "The tests were wrong");
+        assert_eq!(without_final_terminal("Why?!"), "Why");
+        assert_eq!(without_final_terminal("Done\u{203d}"), "Done");
+        assert_eq!(without_final_terminal("v1.2 is out"), "v1.2 is out");
+        assert_eq!(without_final_terminal("(see 12)"), "(see 12)");
+        assert_eq!(without_final_terminal("down 50%"), "down 50%");
     }
 
     // What the owner says to a project's architect comes to its queue, and something empty is refused.

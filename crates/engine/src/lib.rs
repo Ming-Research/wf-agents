@@ -408,7 +408,7 @@ impl Engine {
         } else {
             "the owner"
         };
-        let why = match why.map(|w| w.trim().trim_end_matches(['.', '\u{3002}'])) {
+        let why = match why.map(|w| db::without_final_terminal(w.trim())) {
             Some(why) => format!("{who} started it over, and a new work on it takes the item over: {why}"),
             None => format!("{who} started it over, and a new work on it takes the item over"),
         };

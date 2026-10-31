@@ -504,18 +504,14 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 .last(tx, "A2", "reply.children")?
                 .map(|(_, v)| v)
                 .unwrap_or(Value::Null);
+            // Each by its number alone: its title is in the owner's language, and everything in a pull request is in
+            // English.
             let list: Vec<String> = children
                 .as_array()
                 .cloned()
                 .unwrap_or_default()
                 .iter()
-                .map(|c| {
-                    format!(
-                        "#{} {}",
-                        c["key"].as_str().unwrap_or("?"),
-                        c["title"].as_str().unwrap_or_default()
-                    )
-                })
+                .map(|c| format!("#{}", c["key"].as_str().unwrap_or("?")))
                 .collect();
             let comment = format!("Sub-items took over this work: {}. It does not merge.", list.join(", "));
             outbox(

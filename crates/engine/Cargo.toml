@@ -15,6 +15,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 # The session manager: which session a round runs in, what it holds and costs, and the command line it runs in.
 sessions = { path = "../sessions" }
+unicode-segmentation.workspace = true
 
 [dev-dependencies]
 # What the owner decides, as the page writes it: the tests pause works and let them go on as the owner does.

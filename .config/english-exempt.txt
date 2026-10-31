@@ -1,0 +1,4 @@
+# The tracked files exempt from the check that the repository is in English (crates/wf-agents/tests/english.rs), one
+# path to a line from the repository's root: a file, or a directory when the path ends with `/`. Only a file whose
+# language is its point belongs here, such as a document made as a translation or a special resource, and every path
+# named must be in the repository. None is now.

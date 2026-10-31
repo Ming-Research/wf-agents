@@ -24,6 +24,7 @@ use db::{Actor, Matter, queue_matter};
 use flow::format::Src;
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::{Map, Value, json};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::actions::{self, Ctx};
 use crate::checks;
@@ -2479,10 +2480,11 @@ fn owner_words(conn: &Connection, work: i64) -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// The sentences of a text, each trimmed.
+/// The sentences of a text, in any language, as Unicode's rules of sentences (UAX #29) find them, each without the
+/// spaces and the punctuation it ends with, so that a quote of it is found however it ends.
 fn sentences(text: &str) -> Vec<String> {
-    text.split(['.', '!', '?', '\n', '\u{3002}'])
-        .map(str::trim)
+    text.split_sentence_bounds()
+        .map(|s| s.trim_end_matches(|c: char| !c.is_alphanumeric()).trim())
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect()
@@ -4699,6 +4701,22 @@ fn changes_touch(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A text's sentences end where Unicode's rules end them, never inside a version number, each without the spaces
+    // and the punctuation it ends with.
+    #[test]
+    fn a_text_s_sentences_are_found_by_unicode_s_rules() {
+        assert_eq!(
+            sentences("Keep the page light. Does v1.2 load in time?! Yes\nThen (later) ship it."),
+            [
+                "Keep the page light",
+                "Does v1.2 load in time",
+                "Yes",
+                "Then (later) ship it"
+            ]
+        );
+        assert!(sentences(" \n ").is_empty());
+    }
 
     // A place to set straight the queue holds already is the same place of the same kind, at the same place in words
     // however spaced and cased, or about the same items; another kind or other items is another place.

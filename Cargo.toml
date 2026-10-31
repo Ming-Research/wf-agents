@@ -11,6 +11,15 @@ publish = false
 # Where wf-agents is developed: the engine knows by it which project of a configuration is wf-agents itself.
 repository = "https://github.com/Ming-Research/wf-agents"
 
+# Taken by more than one crate, so that each is at one version, set here.
+[workspace.dependencies]
+# Unicode's own properties in a pattern, so that text in any language is handled alike: a final sentence terminal
+# (`\p{Sentence_Terminal}`) trimmed from an architect's why, and a letter (`\p{L}`) that is not ASCII found by the check
+# that the repository is in English.
+regex = "1.13.1"
+# Unicode's rules of where a sentence ends (UAX #29), so that the sentences of text in any language are found alike.
+unicode-segmentation = "1.13.3"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 

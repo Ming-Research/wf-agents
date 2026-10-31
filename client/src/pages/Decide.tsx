@@ -144,14 +144,18 @@ function TextBox({ label, note = null, tone = null, value }: {
   );
 }
 
-/// The first sentence of a text, as a title on one line: up to its first full stop, at most 120 characters.
+/// Unicode's rules of where a sentence ends (UAX #29), the same in any language.
+const SENTENCES = new Intl.Segmenter(undefined, { granularity: 'sentence' });
+
+/// The first sentence of a text, as a title on one line: where Unicode's rules end it, at most 120 characters, cut
+/// between characters and never inside one.
 export function firstSentence(text: string): string {
   const line = text.trim().split('\n')[0] ?? '';
-  // A full stop, question or exclamation mark ends a sentence before a space or the end; those of Chinese and Japanese
-  // end it on their own.
-  const m = /^(.+?(?:[.!?](?=\s|$)|[。！？]))/.exec(line);
-  const one = m !== null ? m[1] : line;
-  return one.length > 120 ? `${one.slice(0, 119)}…` : one;
+  // An empty line has no sentence.
+  const [first] = SENTENCES.segment(line);
+  const one = first?.segment.trim() ?? line;
+  const chars = Array.from(one);
+  return chars.length > 120 ? `${chars.slice(0, 119).join('')}…` : one;
 }
 
 /// What the owner set for one decision before sending: a verdict, and for a disagreement why and any approach chosen

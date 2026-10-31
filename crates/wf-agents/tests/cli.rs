@@ -382,7 +382,7 @@ fn the_owner_s_cancel_ends_the_work_as_every_work_ends() {
             ("remove_worktree".to_string(), None),
             (
                 "close_pr".to_string(),
-                Some("Its work ended without merging: item cancelled: duplicate.".to_string())
+                Some("Its work ended without merging.".to_string())
             )
         ]
     );

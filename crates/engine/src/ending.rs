@@ -39,11 +39,11 @@ const WAITING_ON_IT: &str = "('engineer_question', 'failure', 'design_card')";
 /// in nothing (`steps::agent`); its design cards are replaced, since the owner can no longer rule on them, and its asks
 /// of the owner still open need no answer. A work of the engineer's graph then lets go of what it held: its sessions
 /// end; unless a new work takes them over, its worktree is removed and, when it has a pull request that did not merge,
-/// the pull request is closed with a comment saying why its work ended, while a work done at its end had its pull
-/// request merged, or closed by the sub-items that took it over. Its branch stays. A work of the architect holds no
-/// worktree or pull request, and its line's session goes on in the architect's next work. A work done at its end that
-/// stops later, as when its item is cancelled, let go of what it held at its end, and a work already ended is left as
-/// it is. `projects` are the configuration's, which say where each project's checkout and repository are.
+/// the pull request is closed with a comment that its work ended without merging, while a work done at its end had its
+/// pull request merged, or closed by the sub-items that took it over. Its branch stays. A work of the architect holds
+/// no worktree or pull request, and its line's session goes on in the architect's next work. A work done at its end
+/// that stops later, as when its item is cancelled, let go of what it held at its end, and a work already ended is left
+/// as it is. `projects` are the configuration's, which say where each project's checkout and repository are.
 pub fn end(
     tx: &Transaction<'_>,
     work: i64,
@@ -120,8 +120,8 @@ pub fn end(
     if let (Some(dir), Some(p)) = (&worktree, place) {
         remove_worktree(tx, work, p, dir)?;
     }
-    if let (Some(why), Some(n), Some(p)) = (why, pr, place) {
-        close_pr(tx, work, item, n, p, why)?;
+    if let (Some(_), Some(n), Some(p)) = (why, pr, place) {
+        close_pr(tx, work, item, n, p)?;
     }
     Ok(())
 }
@@ -199,15 +199,9 @@ fn remove_worktree(tx: &Transaction<'_>, work: i64, p: &config::Project, dir: &s
 }
 
 /// `close_pr`: the work's pull request, unless it merged, here or in an earlier work on the item that had it, is closed
-/// with a comment saying why the work ended.
-fn close_pr(
-    tx: &Transaction<'_>,
-    work: i64,
-    item: Option<i64>,
-    n: i64,
-    p: &config::Project,
-    why: &str,
-) -> Result<(), String> {
+/// with a comment that its work ended without merging. The comment does not say why: why is the owner's or the
+/// architect's words, in the owner's language, and everything in a pull request is in English.
+fn close_pr(tx: &Transaction<'_>, work: i64, item: Option<i64>, n: i64, p: &config::Project) -> Result<(), String> {
     // A pull request that merged, here or in an earlier work on the item that had it, is not closed.
     let merged: bool = tx
         .query_row(
@@ -221,7 +215,7 @@ fn close_pr(
         )
         .map_err(sql)?;
     if !merged {
-        let comment = format!("Its work ended without merging: {why}.");
+        let comment = "Its work ended without merging.";
         outbox(
             tx,
             work,
@@ -456,7 +450,7 @@ mod tests {
             "SELECT withdrawn FROM architect_matters WHERE kind = 'engineer_question'",
         );
         assert_eq!(withdrawn, "the work that raised it ended (item cancelled: a duplicate)");
-        let comment = "Its work ended without merging: item cancelled: a duplicate.";
+        let comment = "Its work ended without merging.";
         assert_eq!(
             outbox(&db),
             [

@@ -24,7 +24,7 @@ mod start_over;
 pub use cells::{cells_sql, code_of, is_cell};
 pub use matters::{
     FAULT, Forwarder, Matter, fault_forwarding, forward_fault, forward_new_fault, lift_pause, one_sentence,
-    project_of_item, queue_matter, say_to_architect, set_fault_forwarding, withdraw_card_looks,
+    project_of_item, queue_matter, say_to_architect, set_fault_forwarding, withdraw_card_looks, without_final_terminal,
 };
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use start_over::{START_OVER, cannot_start_over, start_over, start_over_asked};

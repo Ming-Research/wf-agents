@@ -1843,9 +1843,9 @@ mod tests {
                 { "type": "tool_result", "tool_use_id": id, "is_error": true, "content": text }] } })
             .to_string()
         };
-        // A bare quote inside text in the owner's language, which the model wrote unescaped.
+        // A bare quote inside text of characters of several bytes (symbols and emoji), which the model wrote unescaped.
         let broken =
-            "{\"outcome\": {\"answer\": {\"why\": \"\u{4ed6}\u{8bf4}\"\u{4e0d}\u{884c}\"\"}}, \"progress\": \"p\"}";
+            "{\"outcome\": {\"answer\": {\"why\": \"\u{1f600}\u{2192}\"\u{2714}\u{1f680}\"\"}}, \"progress\": \"p\"}";
         let whole = r#"{"outcome": {"answer": {"why": "w"}}, "progress": "p"}"#;
         let mut lines = vec![
             json!({ "type": "system", "subtype": "init", "session_id": "s1", "model": "m" }).to_string(),
@@ -1895,7 +1895,7 @@ mod tests {
         assert_eq!(u.raw, broken);
         assert_eq!(u.length, Some(broken.chars().count()));
         let why = u.why.clone().unwrap();
-        assert!(why.ends_with("bytes)") && !why.contains("\u{4e0d}\u{884c}"), "{why}");
+        assert!(why.ends_with("bytes)") && !why.contains("\u{2714}\u{1f680}"), "{why}");
         assert_eq!(r.output.unwrap()["progress"], "p");
     }
 

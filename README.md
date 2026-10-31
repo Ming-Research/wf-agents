@@ -22,7 +22,8 @@ configuration, outside this repository. [CONSTITUTION.md](CONSTITUTION.md) holds
 - `flow/flow.json`: the flow every piece of work goes through.
 - `db/schema.sql`: the only definition of the database's tables and views.
 - `design/`: the design tree, the key decisions this project rests on, written as the flow's design tree rules say.
-- `.github/workflows/ci.yml`: the checks every pushed commit runs; `.config/nextest.toml`: how they run the tests.
+- `.github/workflows/ci.yml`: the checks every pushed commit runs; `.config/nextest.toml`: how they run the tests;
+  `.config/english-exempt.txt`: the files the check that the repository is in English leaves out.
 
 ## Checks
 
@@ -31,7 +32,9 @@ Every commit pushed to any branch runs `ci`: rustfmt, clippy with warnings as er
 build, which come before any cargo step that compiles `crates/web`; and that `client/src/api.ts` is what the Rust types generate
 (`WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes it, and with it `client/src/stored-flow.json`, the
 flow as the engine stores it, which the page's tests read and git leaves out). Its job `check` is red whenever another
-of its jobs is.
+of its jobs is. One of the tests, `crates/wf-agents/tests/english.rs`, holds the repository to English: it fails on a
+tracked file that holds a letter that is not ASCII, written as itself or as an escape, but for the files
+`.config/english-exempt.txt` names, such as a document made as a translation.
 
 ## Installing
 
