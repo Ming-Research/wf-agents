@@ -165,12 +165,13 @@
   flex: none;
 }
 
+/* A step's mark in its state's colour, the one its chip would be filled in. */
 .step-done .step-mark {
-  color: var(--fgColor-success);
+  color: var(--bgColor-success-emphasis);
 }
 
 .step-now .step-mark {
-  color: var(--fgColor-accent);
+  color: var(--bgColor-accent-emphasis);
 }
 
 .step-now .step-title {

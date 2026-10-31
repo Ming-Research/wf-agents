@@ -173,12 +173,12 @@ details.dc:not([open]) > summary > .fold-open,
 .dc-pip {
   width: var(--base-size-8);
   height: var(--base-size-8);
-  border: var(--borderWidth-thin) solid var(--fgColor-success);
+  border: var(--borderWidth-thin) solid var(--borderColor-success-emphasis);
   border-radius: var(--borderRadius-full);
 }
 
 .dc-pip.on {
-  background: var(--fgColor-success);
+  background: var(--bgColor-success-emphasis);
 }
 
 .dc-point {
@@ -227,8 +227,9 @@ details.dc:not([open]) > summary > .fold-open,
   background: var(--bgColor-neutral-muted);
 }
 
+/* The option picked, on the accent's tint and edged in the same tint, not in a colour other than its fill. */
 .option-box.picked {
-  border-color: var(--borderColor-accent-emphasis);
+  border-color: var(--borderColor-accent-muted);
   background: var(--bgColor-accent-muted);
 }
 

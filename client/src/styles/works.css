@@ -118,7 +118,7 @@ table.list.works-table td {
 }
 
 .session-choice[aria-pressed='true'] {
-  border-color: var(--borderColor-accent-emphasis);
+  border-color: var(--borderColor-accent-muted);
   background: var(--bgColor-accent-muted);
   color: var(--fgColor-accent);
 }

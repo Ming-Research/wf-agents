@@ -7,6 +7,11 @@
      on their own (the messages view), takes what is left. */
   --bar-height: 48px;
 
+  /* A count's pill on a fill of a state's colour (the items' buttons of the states shown): white, translucent, so
+     that the fill shows through it under the count's white digits, as the owner chose; Primer's pill of a count on a
+     button is grey. */
+  --counter-onEmphasis-bgColor: #ffffff40;
+
   /* The chart's corner badges (a cell's reasoning effort, its rounds, a row's number) keep their small text, which
      the owner kept: Primer's smallest text step is 12px. The chart reads it to measure the badges. */
   --chart-badge-text-size: 10px;

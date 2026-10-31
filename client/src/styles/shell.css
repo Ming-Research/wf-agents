@@ -47,12 +47,13 @@
   gap: var(--base-size-4);
 }
 
+/* The engine's state as a dot in its state's colour, the one its chip would be filled in. */
 .engine-dot-run {
-  color: var(--fgColor-success);
+  color: var(--bgColor-success-emphasis);
 }
 
 .engine-dot-pausing {
-  color: var(--fgColor-attention);
+  color: var(--bgColor-attention-emphasis);
 }
 
 .engine-dot-paused {
@@ -60,5 +61,5 @@
 }
 
 .engine-dot-off {
-  color: var(--fgColor-danger);
+  color: var(--bgColor-danger-emphasis);
 }

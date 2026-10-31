@@ -169,7 +169,7 @@
 }
 
 /* A state as a mark, where a row has room for an icon and not for a chip (StateMark): an icon's room, the state's
-   Octicon in the foreground colour of its chip, or the mark of a round running. */
+   Octicon in the colour its chip is filled in, or the mark of a round running. */
 .state-mark {
   display: inline-flex;
   flex: none;
@@ -180,27 +180,27 @@
 }
 
 .state-mark-accent {
-  color: var(--fgColor-accent);
+  color: var(--bgColor-accent-emphasis);
 }
 
 .state-mark-success {
-  color: var(--fgColor-success);
+  color: var(--bgColor-success-emphasis);
 }
 
 .state-mark-attention {
-  color: var(--fgColor-attention);
+  color: var(--bgColor-attention-emphasis);
 }
 
 .state-mark-danger {
-  color: var(--fgColor-danger);
+  color: var(--bgColor-danger-emphasis);
 }
 
 .state-mark-done {
-  color: var(--fgColor-done);
+  color: var(--bgColor-done-emphasis);
 }
 
 .state-mark-neutral {
-  color: var(--fgColor-neutral);
+  color: var(--bgColor-neutral-emphasis);
 }
 
 /* The mark of a round running (RunningMark): the chart's halo at an icon's size, in line with the text, its arcs

@@ -49,15 +49,15 @@
   --fc-any-fill: var(--data-gray-color-muted);
   /* The arrows: the lines of the chart, a step darker than a box's border so that they read on the chart's inset
      background; the main path in the accent's blue instead of heavier, as the owner asked. The rows into the cell lit
-     green and out of it red, the data visualisation's, lighter than the success and danger colours the owner found
-     too dark, at an arrow's width, and the round chosen came in and left by the same; their labels filled with the
-     success and danger emphasis, a step darker, on which white letters read, as the row pointed at is on its orange. */
+     green and out of it red, the page's success and danger colours, at an arrow's width, and the round chosen came in
+     and left by the same; their labels filled in the same colours, white letters on them, as the row pointed at is on
+     its orange. */
   --fc-arrow: var(--borderColor-emphasis);
-  --fc-arrow-main: var(--fgColor-accent);
+  --fc-arrow-main: var(--borderColor-accent-emphasis);
   --fc-taken: var(--data-blue-color-emphasis);
   --fc-hot: var(--data-orange-color-emphasis);
-  --fc-way-in: var(--data-green-color-emphasis);
-  --fc-way-out: var(--data-red-color-emphasis);
+  --fc-way-in: var(--borderColor-success-emphasis);
+  --fc-way-out: var(--borderColor-danger-emphasis);
   --fc-way-in-label: var(--bgColor-success-emphasis);
   --fc-way-out-label: var(--bgColor-danger-emphasis);
   --fc-label: var(--bgColor-muted);
@@ -335,7 +335,8 @@ svg.fc {
 .fc-selected > rect:not(.fc-ring),
 .fc-selected > polygon,
 .fc-selected > ellipse {
-  filter: drop-shadow(0 0 3px var(--fgColor-accent)) drop-shadow(0 0 7px var(--fgColor-accent));
+  filter: drop-shadow(0 0 3px var(--borderColor-accent-emphasis))
+    drop-shadow(0 0 7px var(--borderColor-accent-emphasis));
 }
 
 .fc-ring {
@@ -345,12 +346,13 @@ svg.fc {
 }
 
 .fc-ring-running {
-  stroke: var(--fgColor-success);
+  stroke: var(--borderColor-success-emphasis);
 }
 
 /* The cell a round runs at wears a halo, so that the eye finds it at once, at the zoom a work's chart opens at and over
-   the whole chart: three arcs of Primer's red, yellow and blue running round the cell, a third of the way apart. Only
-   the running cell has it, and it is the chart's only motion but the rows a work took. */
+   the whole chart: three arcs of the page's red, orange and blue (the danger, attention and accent colours) running
+   round the cell, a third of the way apart. Only the running cell has it, and it is the chart's only motion but the
+   rows a work took. */
 .fc-halo {
   pointer-events: none;
 }
@@ -367,17 +369,17 @@ svg.fc {
 }
 
 .fc-halo-a {
-  stroke: var(--data-red-color-emphasis);
+  stroke: var(--borderColor-danger-emphasis);
 }
 
 .fc-halo-b {
-  stroke: var(--data-yellow-color-emphasis);
+  stroke: var(--borderColor-attention-emphasis);
   stroke-dashoffset: -33.3;
   animation-delay: calc(var(--chart-halo-time) / -3);
 }
 
 .fc-halo-c {
-  stroke: var(--data-blue-color-emphasis);
+  stroke: var(--borderColor-accent-emphasis);
   stroke-dashoffset: -66.7;
   animation-delay: calc(var(--chart-halo-time) * -2 / 3);
 }
@@ -721,7 +723,7 @@ button.legend-button {
 }
 
 button.legend-button[aria-expanded='true'] {
-  border-color: var(--borderColor-accent-emphasis);
+  border-color: var(--borderColor-accent-muted);
   background: var(--bgColor-accent-muted);
 }
 
@@ -840,7 +842,7 @@ button.legend-button[aria-expanded='true'] {
 }
 
 .fc-map-ring.fc-map-running {
-  stroke: var(--fgColor-success);
+  stroke: var(--borderColor-success-emphasis);
 }
 
 /* The chart's zoom, under the map or in its place while the map hides: small muted text on a surface as the map's. */

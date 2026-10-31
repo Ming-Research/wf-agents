@@ -1,5 +1,6 @@
-// The page's entry: Primer's tokens and themes, the page's own styles after them, and the app inside Primer's theme,
-// which follows the system's light or dark appearance as the root element in index.html says.
+// The page's entry: Primer's tokens and themes, the page's own palette over them (theme.css) and its own styles after
+// them, and the app inside Primer's theme, which follows the system's light or dark appearance as the root element in
+// index.html says.
 
 import '@primer/primitives/dist/css/primitives.css';
 import '@primer/primitives/dist/css/functional/themes/light.css';
@@ -10,6 +11,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { App } from './App';
+import './styles/theme.css';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/shell.css';
