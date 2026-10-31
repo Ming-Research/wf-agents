@@ -354,6 +354,8 @@ const messages = {
   helpers_tab: 'Helpers',
   helpers_none: 'No helper of this work has run yet.',
   helpers_thread: 'The {line} and the engineer',
+  told_no_progress: 'This return has no progress note.',
+  told_return: 'The whole return, as JSON',
   send_keys_hint: 'Enter sends; Shift with Enter starts a new line.',
   message_misses:
     '{n} misses with this cause on this line so far, the latest {at}: {written} written to the cache again, about {cost} more than reading from the cache.',

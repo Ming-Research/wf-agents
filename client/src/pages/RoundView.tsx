@@ -24,7 +24,7 @@ import { getJson, getText } from '../http';
 import { empty, isObj, type Obj, words } from '../labelled';
 import { useResource } from '../live';
 import { Markdown } from '../markdown';
-import { LinkButton, RoundAt, RoundLink, Thumbs } from '../parts';
+import { Fold, LinkButton, RoundAt, RoundLink, Thumbs } from '../parts';
 import { brief, chars, messageParts, placeSchema, shape, shareWords, type Shown, type ShownField, spent, titleOf } from '../round';
 import { t, tn } from '../text';
 import {
@@ -661,6 +661,35 @@ export function HandedBack({ d, cell, within }: { d: RoundDetail; cell: Compiled
       <Json value={d.output} schema={cell?.schema} titles={cell?.titles} within={within} />
     </Said>
   );
+}
+
+/// What an agent's round said in a talk between agents (a helper's thread with the engineer), one part wherever such a
+/// talk shows: its progress note, what it said it did, as a text an agent wrote, and under it its whole return as its
+/// panel shows it, folded at first in small muted words and read only once opened; a return with no progress note says
+/// so over the fold, and a round still running that it runs, with nothing yet to fold.
+export function RoundTold({ work, r, cell, within }: {
+  work: number;
+  r: RoundSummary;
+  cell: CompiledCell | undefined;
+  within: string;
+}) {
+  const [open, setOpen] = useState(false);
+  if (r.outcome === 'running') return <p className="pp-note">{t('rp_running')}</p>;
+  const progress = r.progress ?? '';
+  return (
+    <>
+      {progress.trim() !== '' ? <Markdown text={progress} /> : <p className="pp-note">{t('told_no_progress')}</p>}
+      <Fold className="told-return" summary={t('told_return')} onToggle={setOpen}>
+        {open ? <ReturnRead work={work} n={r.n} cell={cell} within={within} /> : null}
+      </Fold>
+    </>
+  );
+}
+
+/// A round's return, read when it is first shown, as its panel shows it.
+function ReturnRead({ work, n, cell, within }: { work: number; n: number; cell: CompiledCell | undefined; within: string }) {
+  const d = useResource<RoundDetail>(`round:${work}-${n}`, roundUrl(work, n));
+  return <Loaded r={d}>{(x) => <HandedBack d={x} cell={cell} within={within} />}</Loaded>;
 }
 
 /// What came out of a round, as JSON: an agent's return as it handed it back, the tools' results in the sheet of what

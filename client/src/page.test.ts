@@ -96,7 +96,7 @@ import {
   voiceOf,
   waitingByKey,
 } from './conversation';
-import { addressesByNumber, atPath, modelName } from './pages/RoundView';
+import { addressesByNumber, atPath, modelName, RoundTold } from './pages/RoundView';
 import { helperThread } from './pages/Work';
 import { roundsShown } from './pages/WorkChart';
 import { catalog, type Key, t, tn } from './messages';
@@ -1498,6 +1498,30 @@ describe("a helper's thread with the engineer", () => {
   it('holds the commit handed in for review, not a later round that only carried on, and the fix answering it', () => {
     expect(helperThread(rounds, 'review', g).map((r) => r.n)).toEqual([7, 10, 11, 16, 17]);
     expect(helperThread(rounds, 'adversarial', g)).toEqual([]);
+  });
+
+  // A bubble of the thread: what the round said it did, and its whole return folded under it, read once opened.
+  const told = (r: RoundSummary) => renderToStaticMarkup(createElement(RoundTold, { work: 9, r, cell: undefined, within: 'outcome' }));
+
+  it('says what a round did as a text an agent wrote, its whole return folded under it in small words', () => {
+    const html = told({ ...by(10, 'T3', 'review', 'took', 'done'), progress: 'Both new tests are **green** after the change.' });
+    expect(html).toContain('<div class="md">');
+    expect(html).toContain('<strong>green</strong>');
+    expect(html).toMatch(/<details class="fold told-return">/);
+    expect(html).toContain(t('told_return'));
+    // Folded, the return is not read yet.
+    expect(html).not.toContain('said-mono');
+    expect(html).not.toContain(t('loading'));
+  });
+
+  it('says plainly that a return holds no progress note, keeping the fold, and that a round runs', () => {
+    const none = told(by(11, 'T4', 'review', 'took', 'findings'));
+    expect(none).toContain(t('told_no_progress'));
+    expect(none).toContain(t('told_return'));
+    expect(told({ ...by(11, 'T4', 'review', 'took', 'findings'), progress: '  ' })).toContain(t('told_no_progress'));
+    const running = told(by(18, 'T3', 'review', 'running', null));
+    expect(running).toContain(t('rp_running'));
+    expect(running).not.toContain(t('told_return'));
   });
 });
 

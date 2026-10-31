@@ -377,6 +377,16 @@
   margin-bottom: 0;
 }
 
+/* Under what a round said it did in a talk between agents, its whole return, folded in small muted words. */
+.told-return {
+  margin-top: var(--base-size-8);
+}
+
+.told-return > summary {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
 .talk-answer-buttons {
   display: flex;
   flex-wrap: wrap;

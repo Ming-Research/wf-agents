@@ -9,7 +9,7 @@
 // cell opened shows in the window's lower part, its cell brought into view. The chart, the panel, the rounds tab, the line and the usage are
 // the architect's page's too (WorkChart.tsx, HeadLine.tsx, Usage.tsx).
 
-import type { Compiled, CompiledGraph, DesignCard, FlowView, RoundDetail, RoundSummary, WorkDetail } from '../api';
+import type { Compiled, CompiledGraph, DesignCard, FlowView, RoundSummary, WorkDetail } from '../api';
 import { Loaded } from '../components';
 import { useResource } from '../live';
 import { RoundAt, RoundLink, Section } from '../parts';
@@ -18,7 +18,7 @@ import { t } from '../text';
 import { time } from '../format';
 import { Bubble } from './Bubble';
 import { currentCard, DesignCardView, words } from './Decide';
-import { HandedBack, roundUrl } from './RoundView';
+import { RoundTold } from './RoundView';
 import { Usage } from './Usage';
 import { ChartPanel, RoundsTab, WorkChart } from './WorkChart';
 
@@ -114,8 +114,8 @@ export function helperThread(rounds: RoundSummary[], line: string, g: CompiledGr
   return [...picked.values()].sort((a, b) => a.n - b.n);
 }
 
-/// One message of a helper's thread: the round's return word for word in its side's bubble, the helper's on the
-/// right; its head says who, the round at its cell, opening it on the chart, and when.
+/// One message of a helper's thread in its side's bubble, the helper's on the right: what the round said it did, its
+/// whole return folded under it; its head says who, the round at its cell, opening it on the chart, and when.
 function Said({ work, r, line, g, onRound }: {
   work: number;
   r: RoundSummary;
@@ -123,7 +123,6 @@ function Said({ work, r, line, g, onRound }: {
   g: CompiledGraph;
   onRound: (round: number) => void;
 }) {
-  const d = useResource<RoundDetail>(`round:${work}-${r.n}`, roundUrl(work, r.n));
   const cell = r.cell !== null ? g.cells.find((c) => c.id === r.cell) : undefined;
   const who = r.line ?? 'engineer';
   return (
@@ -138,7 +137,7 @@ function Said({ work, r, line, g, onRound }: {
         </>
       }
     >
-      <Loaded r={d}>{(x) => <HandedBack d={x} cell={cell} within={g.within} />}</Loaded>
+      <RoundTold work={work} r={r} cell={cell} within={g.within} />
     </Bubble>
   );
 }

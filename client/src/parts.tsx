@@ -214,15 +214,21 @@ export function Section({ title, n, open = false, by, id, children }: {
 }
 
 /// A small fold inside what a section holds (what an input holds, a long condition, earlier text): its chevron and
-/// what it is on one line, what it holds under it, set in by the chevron's width; folded unless `open`.
-export function Fold({ summary, open = false, className, children }: {
+/// what it is on one line, what it holds under it, set in by the chevron's width; folded unless `open`. `onToggle`
+/// hears it open and fold, for what is read only once it is open.
+export function Fold({ summary, open = false, className, onToggle, children }: {
   summary: ReactNode;
   open?: boolean;
   className?: string;
+  onToggle?: (open: boolean) => void;
   children: ReactNode;
 }) {
   return (
-    <details className={className !== undefined ? `fold ${className}` : 'fold'} open={open}>
+    <details
+      className={className !== undefined ? `fold ${className}` : 'fold'}
+      open={open}
+      onToggle={onToggle !== undefined ? (e) => onToggle(e.currentTarget.open) : undefined}
+    >
       <summary>
         <ChevronRightIcon className="fold-closed" />
         <ChevronDownIcon className="fold-open" />
