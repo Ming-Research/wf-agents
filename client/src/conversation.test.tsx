@@ -34,6 +34,7 @@ import { course, StateMark } from './components';
 import {
   asksApproval,
   awayOf,
+  DRAFT_APPROVED,
   openQuestion,
   pinnedQuestions,
   replyTicked,
@@ -85,6 +86,7 @@ const entry = (source: string, extra: Partial<ConversationEntry> = {}): Conversa
   matter_card: null,
   words_state: null,
   policy: null,
+  plan: null,
   forwards: [],
   images: [],
   ...extra,
@@ -317,7 +319,7 @@ describe('answering an ask', () => {
   });
 });
 
-describe('a matter card in the one-to-one with an architect', () => {
+describe("a matter's bubble in the one-to-one with an architect", () => {
   const handled: Handled = {
     matter: 5,
     kind: 'set_straight',
@@ -338,6 +340,7 @@ describe('a matter card in the one-to-one with an architect', () => {
     messages: [],
     ask: null,
     why: null,
+    nothing: false,
   };
   const card = (extra: Partial<MatterProgress> = {}): MatterProgress => ({
     matter: 5,
@@ -355,6 +358,7 @@ describe('a matter card in the one-to-one with an architect', () => {
     withdrawn: null,
     asked: null,
     fix: { where: 'item 12', wrong: 'Its acceptance names no test.', steps: ['Add the test.', 'Note it.'] },
+    made: [],
     ...extra,
   });
   const shown = (m: MatterProgress): string =>
@@ -362,11 +366,16 @@ describe('a matter card in the one-to-one with an architect', () => {
 
   it('says its kind and what it asks as the queue does, whole, the steps folded under it, and what became of it', () => {
     const html = shown(card());
+    // The architect's bubble of one line, with no one named.
+    expect(html).toContain('talk-bubble-architect');
+    expect(html).not.toContain('talk-mention');
+    expect(html).toContain('Done:');
     expect(html).toContain('Plan fix: something missing');
     expect(html).toContain('item 12: Its acceptance names no test.');
     expect(html).not.toContain('To set straight');
-    const fold = html.slice(html.indexOf('<details class="fold"'));
-    expect(fold).toMatch(/^<details class="fold"><summary>/);
+    expect(html).not.toContain('Timeline');
+    const fold = html.slice(html.indexOf('<details class="fold talk-fold"'));
+    expect(fold).toMatch(/^<details class="fold talk-fold"><summary>/);
     expect(fold).toContain('The steps to fix it (2)');
     expect(fold).toContain('<ol');
     expect(fold).toContain('Add the test.');
@@ -374,11 +383,33 @@ describe('a matter card in the one-to-one with an architect', () => {
     expect(html).toContain('Told you once');
   });
 
-  it('has no fold for a matter with no steps', () => {
+  it('has no fold for a matter with no steps, and reads "Working on:" while in hand', () => {
     const html = shown(card({ kind: 'failure', detail: null, what: 'Work 4 failed its tests.', fix: null, handled: null, state: 'working' }));
+    expect(html).toContain('Working on:');
     expect(html).toContain('Have a failure fixed');
     expect(html).toContain('Work 4 failed its tests.');
     expect(html).not.toContain('<details');
+  });
+
+  it('lists what it made by name, each leading to it, not folded', () => {
+    const html = shown(
+      card({
+        fix: null,
+        made: [
+          { kind: 'observation', change: 'new', id: 37, title: 'Stale slots input' },
+          { kind: 'item', change: 'new', id: 11, title: 'Unify test name matching' },
+          { kind: 'item', change: 'reordered', id: 5, title: 'Run works in parallel' },
+        ],
+      }),
+    );
+    expect(html).toContain('Recorded observation');
+    expect(html).toContain('href="/observations/37"');
+    expect(html).toContain('Stale slots input');
+    expect(html).toContain('New item');
+    expect(html).toContain('href="/items/11"');
+    expect(html).toContain('Moved in the queue');
+    expect(html).toContain('href="/items/5"');
+    expect(html.indexOf('Recorded observation')).toBeLessThan(html.indexOf('<details') < 0 ? html.length : html.indexOf('<details'));
   });
 });
 
@@ -558,6 +589,12 @@ describe('the questions an architect pinned in its one-to-one', () => {
     const pinned = bubble(row(bottom(6, draft), 'data-ask="6"')).inside;
     expect(pinned.slice(0, pinned.indexOf('talk-bubble-body'))).toMatch(link);
     expect(bottom(4, draft)).not.toMatch(link);
+    // The question that asks for the approval is said to the owner, and approves with one button, which replies
+    // exactly what the flow takes as the approval.
+    expect(bottom(6, draft)).toContain('<span class="talk-mention">@you</span>');
+    expect(buttons(bottom(6, draft))).toContain('Approve');
+    expect(buttons(bottom(4, draft))).not.toContain('Approve');
+    expect(DRAFT_APPROVED).toBe('approved');
     // Replied to while the draft still waits, it leads there from where it was asked.
     const replied = question(6, 'Approve this policy? Reply exactly: approved', 3, { by: 'owner', at: 5, text: 'Shorter why.' });
     expect(bubble(row(drawnIn(pinning([said, replied], [], null), draft), 'data-ask="6"')).inside).toMatch(link);
@@ -1014,3 +1051,55 @@ describe("a work's group as a chat", () => {
     expect(ruled).not.toContain('changed since your ruling');
   });
 });
+
+describe("the one-to-one with an architect as a chat", () => {
+  const one: Conversation = { ...group, key: 'architect:p', kind: 'architect', work: null, item: null, title: null };
+  const drawnIn = (entries: ConversationEntry[]): string =>
+    renderToStaticMarkup(
+      <AnswersHere.Provider value={true}>
+        <Stream d={{ ...detail(entries), key: one.key }} c={one} w={null} />
+      </AnswersHere.Provider>,
+    );
+
+  it("heads what the architect says to the owner with @you, as a group's message is headed", () => {
+    const html = drawnIn([entry('message', { id: 1, sender: 'architect', text: 'Item 4 needs your call.', work: 9, round: 3 })]);
+    expect(html).toContain('<span class="talk-mention">@you</span>');
+  });
+
+  it('says a new version of the plan in one line, the plan whole in a card that opens under it', () => {
+    const plan = entry('plan', {
+      id: 3,
+      sender: 'architect',
+      recipient: 'architect',
+      text: '',
+      work: 9,
+      round: 12,
+      plan: { changed: 'Finish #10 before #11.', plan: '1. Finish #10.\n2. Then #11.', work: 9, round: 12 },
+    });
+    const html = drawnIn([plan]);
+    expect(html).toContain('talk-bubble-architect');
+    expect(html).toContain('Changed the plan:');
+    expect(html).toContain('Finish #10 before #11.');
+    expect(html).toContain('The plan');
+    expect(html).toContain('R9-12');
+    expect(html).not.toContain('talk-mention');
+    const first = drawnIn([{ ...plan, plan: { changed: null, plan: '1. Finish #10.', work: 9, round: 12 } }]);
+    expect(first).toContain('Made the plan');
+  });
+
+  it('says the policy took effect in one line, leading to it', () => {
+    const policy = entry('policy', {
+      id: 6,
+      sender: 'architect',
+      text: '',
+      work: 9,
+      round: 6,
+      policy: { work: 9, round: 6, cell: 'P3', at: 4, policy: { direction: 'Ship the parser.' } },
+    });
+    const html = drawnIn([policy]);
+    expect(html).toContain('The new policy took effect');
+    expect(html).toContain('href="/messages?c=architect%3Ap&amp;side=policy"');
+    expect(html).not.toContain('Timeline');
+  });
+});
+

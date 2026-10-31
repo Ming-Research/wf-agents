@@ -1993,6 +1993,7 @@ pub(crate) fn matters_handled(conn: &Connection, project: &str) -> Result<Vec<Ha
                     messages: Vec::new(),
                     ask: r.get(10)?,
                     why: None,
+                    nothing: false,
                 },
                 r.get(11)?,
             ))
@@ -2061,6 +2062,7 @@ pub(crate) fn matters_handled(conn: &Connection, project: &str) -> Result<Vec<Ha
         if nothing {
             h.why = first_why(&returned(closing, None));
         }
+        h.nothing = nothing;
         out.push(h);
     }
     Ok(out)
@@ -3473,6 +3475,70 @@ mod tests {
         let two = list.iter().find(|c| c.key == "work:2").unwrap();
         assert_eq!((two.waiting, two.unread), (1, 1));
     }
+    // The one-to-one with an architect is a chat too: no notice of the engine's is an entry of it; a matter that changed
+    // nothing leaves it once done, and the queue's handled list keeps it; a matter done lists what it made by name; and
+    // each version of the plan is a bubble saying what changed.
+    #[test]
+    fn the_one_to_one_holds_no_notice_nor_a_matter_that_changed_nothing() {
+        let mut s = architect_setup("chat");
+        s.db.write(Actor::Engine, |tx| {
+            let run = |sql: &str| tx.execute(sql, []).map(|_| ());
+            run("INSERT INTO engine_notices (work, text, at) VALUES (2, 'Work 2 (the architect of p) is paused: no fetch', 250)")?;
+            run(
+                "INSERT INTO architect_matters (project, kind, detail, what, body, at, handled_work, handled_round)
+                 VALUES ('p', 'report', 'other', 'Nothing here', '{}', 240, 2, 11)",
+            )?;
+            run(
+                "INSERT INTO observations (project, title, what, tags, source)
+                 VALUES ('p', 'Stale input', 'The input is stale.', '[]', 'flow feedback (matter 1)')",
+            )?;
+            run(
+                "INSERT INTO notebook_edits (project, section, text, work, round) VALUES
+                 ('p', 'plan', '1. A\n2. B', 2, 2), ('p', 'plan', '1. A\n2. C', 2, 3)",
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let t = crate::Talks {
+            projects: vec!["p".into(), "q".into()],
+            ..crate::Talks::default()
+        };
+        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        assert!(d.entries.iter().all(|e| e.source != "notice"), "{:?}", d.entries);
+        let matters: Vec<i64> = d
+            .entries
+            .iter()
+            .filter_map(|e| e.matter_card.as_ref().map(|m| m.matter))
+            .collect();
+        assert!(!matters.contains(&5) && matters.contains(&1), "{matters:?}");
+        let one = d
+            .entries
+            .iter()
+            .find_map(|e| e.matter_card.as_ref().filter(|m| m.matter == 1))
+            .unwrap();
+        assert_eq!(
+            one.made
+                .iter()
+                .map(|x| (x.kind.as_str(), x.change.as_str(), x.title.as_str()))
+                .collect::<Vec<_>>(),
+            [("observation", "new", "Stale input")]
+        );
+        let plans: Vec<(i64, Option<&str>)> = d
+            .entries
+            .iter()
+            .filter_map(|e| e.plan.as_ref().map(|p| (e.at, p.changed.as_deref())))
+            .collect();
+        assert_eq!(plans, [(202, None), (203, Some("2. C"))]);
+        // The queue's handled list knows the matter that changed nothing as such.
+        let handled = matters_handled(s.db.conn(), "p").unwrap();
+        assert!(handled.iter().any(|h| h.matter == 5 && h.nothing));
+        assert!(handled.iter().any(|h| h.matter == 1 && !h.nothing));
+        // Neither the notice nor the architect's own bubbles count as unread.
+        let all = crate::conversations(s.db.conn(), &t).unwrap();
+        let p = all.iter().find(|c| c.key == "architect:p").unwrap();
+        assert_eq!(p.unread, 0);
+    }
+
     // The architect's matter cards read in the order it took the matters up, not the order they came: of three places to
     // set straight queued at once, the one picked first and handled comes before the one picked after it and in hand,
     // and the one never picked has no card; a matter withdrawn without being picked comes in when it was withdrawn. A
@@ -3513,6 +3579,8 @@ mod tests {
                 )?;
             }
             run("UPDATE architect_matters SET handled_work = 5, handled_round = 2 WHERE id = 6", &[])?;
+            // Its path told the owner something: a matter that changed nothing would leave the conversation once done.
+            run("INSERT INTO owner_messages (work, round, text) VALUES (5, 2, 'Set it straight.')", &[])?;
             Ok(())
         })
         .unwrap();

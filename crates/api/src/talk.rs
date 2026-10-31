@@ -15,19 +15,21 @@ use serde_json::Value;
 
 use crate::read::{self, Error, Flows};
 use crate::{
-    Conversation, ConversationDetail, ConversationEntry, Forwarded, Forwarding, Handled, MatterProgress, Misses,
-    ReviewFindings, StageCard, StageNote, WordsState,
+    Conversation, ConversationDetail, ConversationEntry, Forwarded, Forwarding, Handled, MadeThing, MatterProgress,
+    Misses, PlanChange, ReviewFindings, StageCard, StageNote, WordsState,
 };
 
 type Result<T> = std::result::Result<T, Error>;
 
-/// What a work's group leaves out of what `conversation_entries` gathers for it, as a condition on the view's columns:
-/// the engine's notices, which the bubble of the stage the work was at and the group's head say instead; the side
-/// reports a work's lines handed in, which are the architect's to read in its queue; and what a helper of the work (the
-/// review, the adversarial testing, the advisor) told the owner before only the engineer and the architect could, which
-/// its round's progress note in the stage's bubble says.
-const LEFT_OUT: &str = "NOT (conversation LIKE 'work:%' AND (source IN ('notice', 'report')
-    OR (source = 'message' AND sender NOT IN ('engineer', 'architect', 'policy'))))";
+/// What a work's group and the one-to-one with an architect leave out of what `conversation_entries` gathers for them,
+/// as a condition on the view's columns: the engine's notices, which the bubble of the stage the work was at, the
+/// bubble of the matter the architect has in hand and their heads say instead; in a work's group, the side reports a
+/// work's lines handed in, which are the architect's to read in its queue, and what a helper of the work (the review,
+/// the adversarial testing, the advisor) told the owner before only the engineer and the architect could, which its
+/// round's progress note in the stage's bubble says.
+const LEFT_OUT: &str = "NOT ((conversation LIKE 'work:%' OR conversation LIKE 'architect:%') AND source = 'notice')
+    AND NOT (conversation LIKE 'work:%' AND (source = 'report'
+      OR (source = 'message' AND sender NOT IN ('engineer', 'architect', 'policy'))))";
 
 /// What the conversations need of the configuration: its projects, in order, the groups of two projects or more it
 /// connects through each project's `other_projects`, and how long, in milliseconds, an architect waits for the owner's
@@ -280,6 +282,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
                 matter_card: None,
                 words_state: None,
                 policy: None,
+                plan: None,
             },
         ))
     };
@@ -354,6 +357,7 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
     }
     if let Some(project) = key.strip_prefix("architect:") {
         entries.extend(matter_cards(conn, flows, project)?);
+        entries.extend(plans(conn, project)?);
         if let Some(p) = read::policy(conn, project)? {
             entries.push(ConversationEntry {
                 source: "policy".into(),
@@ -604,6 +608,7 @@ fn blank() -> ConversationEntry {
         matter_card: None,
         words_state: None,
         policy: None,
+        plan: None,
     }
 }
 
@@ -1056,7 +1061,9 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
 /// the architect took the matters up, the one in hand last. A matter it never picked comes in when it left the queue:
 /// when it was handled without a pick (closed without a look), held by an ask, or withdrawn. One still waiting in the
 /// queue has no card: the queue in the panel beside the one-to-one lists it. The owner's words have none either: a card
-/// would repeat their bubble, under which a line says where they stand (`words_states`).
+/// would repeat their bubble, under which a line says where they stand (`words_states`). A matter that changed nothing
+/// has none once done: the queue's list of those handled keeps it, with why. A matter done lists what it made by name
+/// (`made_by`).
 fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<ConversationEntry>> {
     let handled: HashMap<i64, Handled> = read::matters_handled(conn, project)?
         .into_iter()
@@ -1146,6 +1153,13 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
         } else {
             "queued"
         };
+        let handled = handled.get(&id).cloned();
+        // A matter that changed nothing leaves the conversation once it is done; the queue in the panel beside it lists
+        // it among those handled, with why.
+        if handled.as_ref().is_some_and(|h| h.nothing) {
+            continue;
+        }
+        let made = if done { made_by(conn, id)? } else { Vec::new() };
         let card = MatterProgress {
             matter: id,
             kind,
@@ -1158,10 +1172,11 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
             round: now.and_then(|w| w.4),
             work,
             item,
-            handled: handled.get(&id).cloned(),
+            handled,
             withdrawn,
             asked,
             fix: read::json(fix),
+            made,
         };
         out.push(ConversationEntry {
             source: "matter".into(),
@@ -1175,6 +1190,102 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
             matter_card: Some(card),
             ..blank()
         });
+    }
+    Ok(out)
+}
+
+/// What an architect's matter made that the owner reads by name: the observations it recorded, which the engine names
+/// the matter in where they came from ("... (matter 87)"), and the items its batch made, cancelled or moved in the
+/// queue, each by its number and its title.
+fn made_by(conn: &Connection, matter: i64) -> Result<Vec<MadeThing>> {
+    let mut out = Vec::new();
+    let mut st = conn.prepare("SELECT id, coalesce(title, what) FROM observations WHERE source LIKE ?1 ORDER BY id")?;
+    let recorded: Vec<(i64, String)> = st
+        .query_map([format!("%(matter {matter})")], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<db::rusqlite::Result<_>>()?;
+    for (id, what) in recorded {
+        out.push(MadeThing {
+            kind: "observation".into(),
+            change: "new".into(),
+            id,
+            title: what,
+        });
+    }
+    let mut st = conn.prepare(
+        "SELECT change, outcome FROM architect_item_changes WHERE matter = ?1 AND state = 'made' ORDER BY id",
+    )?;
+    let changes: Vec<(String, Option<String>)> = st
+        .query_map([matter], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<db::rusqlite::Result<_>>()?;
+    let number = |v: &Value| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()));
+    for (change, outcome) in changes {
+        let Some(c) = read::json(Some(change)) else {
+            continue;
+        };
+        let (what, id) = match c["kind"].as_str() {
+            Some("create_item") => ("new", read::json(outcome).and_then(|o| number(&o["created"]))),
+            Some("cancel") => ("cancelled", number(&c["item"])),
+            Some("move") => ("reordered", number(&c["item"])),
+            _ => continue,
+        };
+        let Some(id) = id else {
+            continue;
+        };
+        let title: Option<String> = conn
+            .query_row("SELECT title FROM items WHERE id = ?1", [id], |r| r.get(0))
+            .optional()?;
+        out.push(MadeThing {
+            kind: "item".into(),
+            change: what.into(),
+            id,
+            title: title.unwrap_or_else(|| c["title"].as_str().unwrap_or_default().to_string()),
+        });
+    }
+    Ok(out)
+}
+
+/// The versions of the plan in a project's architect's notebook, each a bubble of the architect's in its one-to-one when
+/// the round that wrote it ended: what changed from the version before, as the first line the new one has that the one
+/// before had not, and the plan whole.
+fn plans(conn: &Connection, project: &str) -> Result<Vec<ConversationEntry>> {
+    let mut st = conn.prepare(
+        "SELECT e.id, e.text, e.work, e.round, coalesce(r.ended_at, r.started_at)
+         FROM notebook_edits e JOIN rounds r ON r.work = e.work AND r.n = e.round
+         WHERE e.project = ?1 AND e.section = 'plan' ORDER BY e.id",
+    )?;
+    let rows: Vec<(i64, String, i64, i64, i64)> = st
+        .query_map([project], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })?
+        .collect::<db::rusqlite::Result<_>>()?;
+    let mut out = Vec::new();
+    let mut before: Option<String> = None;
+    for (id, text, work, round, at) in rows {
+        let changed = before.as_ref().map(|old| {
+            let had: BTreeSet<&str> = old.lines().map(str::trim).collect();
+            text.lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty() && !had.contains(l))
+                .unwrap_or_default()
+                .to_string()
+        });
+        out.push(ConversationEntry {
+            source: "plan".into(),
+            id,
+            sender: "architect".into(),
+            recipient: "architect".into(),
+            at,
+            work: Some(work),
+            round: Some(round),
+            plan: Some(PlanChange {
+                changed: changed.filter(|c| !c.is_empty()),
+                plan: text.clone(),
+                work,
+                round,
+            }),
+            ..blank()
+        });
+        before = Some(text);
     }
     Ok(out)
 }

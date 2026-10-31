@@ -93,12 +93,12 @@ export function conversationTitle(c: Pick<Conversation, 'key' | 'kind' | 'projec
   }
 }
 
-/// The voice the page draws an entry in: the owner's words, on the right; an agent's, beside its avatar; the bubble of
-/// a stage a work entered, in the engineer's look as the work's own voice; the page's own line for what the engine
-/// says in a conversation that is no work's group; a card the engine writes from the flow (a matter, the policy); a
-/// fault of wf-agents, which the owner marks read; or nothing, for a design card, which the bubble of the stage that
-/// handed it in holds.
-export type Voice = 'owner' | 'agent' | 'stage' | 'system' | 'card' | 'fault' | 'none';
+/// The voice the page draws an entry in: the owner's words, on the right; an agent's, beside its avatar; a live
+/// bubble of one line the engine writes from the flow in the voice of the agent whose doing it is (a stage a work
+/// entered, the engineer's; a matter of the architect's, a version of its plan or the policy as it took effect, the
+/// architect's); the page's own line for what the engine says in wf-agents' own conversation; a fault of wf-agents,
+/// which the owner marks read; or nothing, for a design card, which the bubble of the stage that handed it in holds.
+export type Voice = 'owner' | 'agent' | 'live' | 'system' | 'fault' | 'none';
 
 /// The lines that are members of a work's group besides the owner: its engineer and its project's architect.
 const MEMBERS = ['engineer', 'architect'];
@@ -110,10 +110,10 @@ export const member = (line: string): string => (line === 'policy' ? 'architect'
 export function voiceOf(e: ConversationEntry): Voice {
   switch (e.source) {
     case 'stage':
-      return 'stage';
     case 'matter':
     case 'policy':
-      return 'card';
+    case 'plan':
+      return 'live';
     case 'notice':
       return e.fault !== null ? 'fault' : 'system';
     case 'card':
@@ -153,9 +153,17 @@ export function mention(e: ConversationEntry, kind: Conversation['kind'] = 'work
 }
 
 /// Whether a message shows to whom it is said at its head: every one in a group; in the one-to-one with an architect,
-/// the owner's words said to a work of the architect's while it ran, as a flow version before let the owner interject.
+/// what the architect says to the owner, `@you`, apart from what it does, which its own bubbles say with no one named,
+/// and the owner's words said to a work of the architect's while it ran, as a flow version before let the owner
+/// interject.
 export const mentions = (e: ConversationEntry, kind: Conversation['kind']): boolean =>
-  kind === 'work' || kind === 'projects' || e.source === 'between' || (kind === 'architect' && e.source === 'interjection');
+  kind === 'work' ||
+  kind === 'projects' ||
+  e.source === 'between' ||
+  (kind === 'architect' && (e.source === 'interjection' || (e.recipient === 'owner' && e.sender !== 'owner')));
+
+/// The reply the flow takes as the owner's approval of the architect's draft of a new policy: exactly this word.
+export const DRAFT_APPROVED = 'approved';
 
 /// Whether an entry is what an engineer put to the architect (a question, a failure, a report), which the owner may
 /// answer in the group while the architect holds it.

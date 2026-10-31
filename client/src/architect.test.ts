@@ -233,6 +233,7 @@ describe("the architect's page", () => {
       messages: [],
       ask: null,
       why: null,
+      nothing: false,
       ...extra,
     });
     const lines = outcomes(

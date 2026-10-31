@@ -2190,6 +2190,7 @@ describe("the owner's conversations", () => {
     matter_card: null,
     words_state: null,
     policy: null,
+    plan: null,
     images: [],
     ...extra,
   });
@@ -2280,7 +2281,7 @@ describe("the owner's conversations", () => {
       'agent',
       'owner',
       'agent',
-      'stage',
+      'live',
     ]);
     // An ask streams where it was asked; the owner's reply to the engineer's question shows in the question's bubble.
     expect(streamOf(d).map((e) => `${e.source}-${e.id}`)).toEqual([

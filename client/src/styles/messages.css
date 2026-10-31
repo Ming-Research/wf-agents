@@ -545,6 +545,25 @@
   font-size: var(--text-body-size-small);
 }
 
+/* What a matter made, under its bubble's line, one to a line: what it is, then its link, cut where the line ends. */
+.live-made {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.live-made > li {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The architect's own trouble, pinned: in the colour of what is wrong. */
+.talk-pinned-trouble {
+  margin: 0;
+  color: var(--fgColor-danger);
+}
+
 /* What a round of a stage said, under who said it and its round. */
 .stage-note {
   display: grid;

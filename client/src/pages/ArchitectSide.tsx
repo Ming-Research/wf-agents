@@ -4,7 +4,8 @@
 // folded under it, newest first; its policy, the draft that waits for the owner's approval on top while one does, then
 // the policy in force with the project's constitution folded under it; and its queue, how many matters are left, how
 // long the oldest waited and how many it handled today, over the matters in the order they came, the one in hand
-// marked, and those an ask of the owner holds. Each part names the cell that wrote it, and its round opens on the
+// marked, and those an ask of the owner holds, then those it handled with nothing to do, each with why folded, which
+// the one-to-one no longer holds once done. Each part names the cell that wrote it, and its round opens on the
 // architect's chart.
 
 import { Label } from '@primer/react';
@@ -14,7 +15,7 @@ import type { Architect, NotebookSection } from '../api';
 import { architectState, queueParts } from '../architect';
 import { duration, time } from '../format';
 import { Markdown } from '../markdown';
-import { Block, By, type OpenRound, Section } from '../parts';
+import { Block, By, Fold, type OpenRound, Section } from '../parts';
 import { architectHref, href, Link, navigate, type SideTab, sideHref } from '../route';
 import { type Key, t, tn } from '../text';
 import { joinedWords } from '../voices';
@@ -226,6 +227,29 @@ function QueueList({ a }: { a: Architect }) {
   );
 }
 
+/// The matters the architect handled with nothing to do, newest first, which leave the one-to-one once done: each its
+/// kind and what it asked, when, and why nothing came of it folded under it.
+function HandledNothing({ a }: { a: Architect }) {
+  const nothing = a.handled.filter((h) => h.nothing);
+  if (nothing.length === 0) return null;
+  return (
+    <Section title={t('queue_handled_nothing')} n={nothing.length}>
+      <ol className="talk-queue-list">
+        {nothing.map((h) => (
+          <li key={h.matter}>
+            <MatterWhat m={{ ...h, fix: null }} /> <span className="talk-card-facts">{time(h.at)}</span>
+            {h.why !== null ? (
+              <Fold summary={t('queue_handled_why')}>
+                <Markdown text={h.why} />
+              </Fold>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </Section>
+  );
+}
+
 /// The panel beside the one-to-one with an architect, in tabs: its notebook, its policy and its queue, the queue's tab
 /// counting the matters left; a tab changes the address, and the close closes the panel.
 export function ArchitectSide({ a, tab, onClose }: { a: Architect; tab: SideTab; onClose: () => void }) {
@@ -249,6 +273,7 @@ export function ArchitectSide({ a, tab, onClose }: { a: Architect; tab: SideTab;
         <>
           <QueueFacts a={a} />
           <QueueList a={a} />
+          <HandledNothing a={a} />
         </>
       ) : null}
     </ChartPanel>

@@ -1,31 +1,37 @@
-// What the engine writes into a conversation from the flow: in a work's group, the work's own bubble for each stage it
-// entered, posted when it came in and updated in place, one line saying what happens now and, once the stage is over,
-// how it ended, with what more there is folded under it; in an architect's one-to-one, the cards in the page's own
-// voice, one for each matter the architect took up but the owner's words, whose bubble says where they stand, from
-// when it took it up, held by an ask, worked on at a cell, handled with what became of it, or withdrawn, and the policy
-// as it took effect. Each leads to where its detail is: a stage to its rounds, its pull request and commit, a matter to
-// its cell on the architect's chart or its work's group, and the observations it recorded or changed to the project's
-// observations.
+// What the engine writes into a conversation from the flow, each a bubble of one line of the agent whose doing it is
+// (`LiveBubble`), posted when it began and updated in place: in a work's group, the work's own bubble for each stage it
+// entered, saying what happens now and, once the stage is over, how it ended, with what more there is folded under it;
+// in an architect's one-to-one, a bubble of the architect's for each matter it took up but the owner's words (whose
+// own bubble says where they stand), working on it, held by an ask, done with what it made, or withdrawn, a matter
+// that changed nothing leaving once done; each version of its plan; and the policy as it took effect. Each leads to
+// where its detail is: a stage to its rounds, its pull request and commit, a matter to its cell on the architect's
+// chart or its work's group, what it made to each observation and item, the policy to the panel beside the one-to-one.
 
-import { BlockedIcon, CheckIcon, CircleIcon, DotFillIcon, FileIcon, SkipIcon } from '@primer/octicons-react';
-import { Timeline } from '@primer/react';
 import type { ReactNode } from 'react';
 
-import type { ConversationEntry, MatterProgress, PolicyInForce, StageCard, WorkSummary } from '../api';
+import type {
+  ConversationEntry,
+  MadeThing,
+  MatterProgress,
+  PlanChange,
+  PolicyInForce,
+  StageCard,
+  WorkSummary,
+} from '../api';
 import { matterKind, matterSentence, matterSteps, outcomes, type MatterWords } from '../architect';
-import { course, StateChip } from '../components';
+import { course, heldName, heldWords, StateChip } from '../components';
 import { stageOutcome, stageTitle, stageWhy } from '../conversation';
 import { lineWho, nowWords } from '../course';
 import { cost, duration, time } from '../format';
 import { useStatus } from '../live';
-import { firstWords, Markdown } from '../markdown';
-import { CommitLink, Fold, PrLink, RoundLink } from '../parts';
-import { architectHref, href, Link } from '../route';
+import { words } from '../labelled';
+import { firstWords, Markdown, MarkdownLine } from '../markdown';
+import { CommitLink, Fold, ItemRef, PrLink, RoundLink } from '../parts';
+import { architectHref, href, Link, observationsHref, sideHref } from '../route';
 import { t, tn, type Key } from '../text';
 import { joinedWords } from '../voices';
 import { LiveBubble } from './Bubble';
 import { DesignCardView } from './Decide';
-import { PolicyText } from './ArchitectViews';
 import { DesignShown } from './Item';
 
 /// What an agent said, word for word, in the box the UI spec gives what an agent handed back.
@@ -34,21 +40,6 @@ function Said({ text }: { text: string }) {
     <div className="agent-box">
       <Markdown text={text} />
     </div>
-  );
-}
-
-/// A card of the engine's in the stream: its badge, saying where it stands, and what it holds.
-function Card({ icon, tone, children, id }: {
-  icon: ReactNode;
-  tone: 'accent' | 'success' | 'attention' | 'done' | undefined;
-  children: ReactNode;
-  id?: string;
-}) {
-  return (
-    <Timeline.Item condensed className="talk-card" id={id}>
-      <Timeline.Badge variant={tone}>{icon}</Timeline.Badge>
-      <Timeline.Body className="talk-card-body">{children}</Timeline.Body>
-    </Timeline.Item>
   );
 }
 
@@ -170,16 +161,25 @@ export function StageBubble({ e, s, w, project }: {
   );
 }
 
-/// Where a matter stands, as its card's badge and Label say it.
-const MATTER_STATES: Record<string, { key: Key; tone: 'accent' | 'success' | 'attention' | 'done' | undefined; icon: ReactNode }> = {
-  queued: { key: 'matter_queued', tone: undefined, icon: <CircleIcon /> },
-  held: { key: 'matter_held', tone: 'attention', icon: <BlockedIcon /> },
-  working: { key: 'matter_working', tone: 'accent', icon: <DotFillIcon /> },
-  done: { key: 'matter_done', tone: 'success', icon: <CheckIcon /> },
-  withdrawn: { key: 'matter_withdrawn', tone: undefined, icon: <SkipIcon /> },
+/// What the line of a matter's bubble opens with, by where the matter stands: back in the queue, held by an ask of the
+/// owner, in hand, done, or withdrawn.
+const MATTER_LINE: Record<string, Key> = {
+  queued: 'matter_line_queued',
+  held: 'matter_line_held',
+  working: 'matter_line_working',
+  done: 'matter_line_done',
+  withdrawn: 'matter_line_withdrawn',
 };
 
-/// A matter as the owner reads it wherever it shows, in its card and in the architect's queue: its kind, small and
+/// What a matter made, by its kind and what became of it, as the line before it says it.
+const MADE: Record<string, Key> = {
+  'observation new': 'made_observation',
+  'item new': 'made_item_new',
+  'item cancelled': 'made_item_cancelled',
+  'item reordered': 'made_item_reordered',
+};
+
+/// A matter as the owner reads it wherever it shows, in its bubble and in the architect's queue: its kind, small and
 /// muted, then what it asks to be done, in one sentence, whole, wrapping with the line it is in.
 export function MatterWhat({ m }: { m: MatterWords }) {
   return (
@@ -189,13 +189,54 @@ export function MatterWhat({ m }: { m: MatterWords }) {
   );
 }
 
-/// A matter of the architect's: its kind and what it asks, whole, with where it stands (back in the queue, held by an
-/// ask of the owner, worked on at a cell, handled, withdrawn) and its links after them; a place to set straight with
-/// the steps to take there folded under it; a matter about a work leads to that work's group, which holds it in full;
-/// one handled says what became of it, line by line, the observations it recorded or changed leading to the project's
-/// observations, and leads to the round that closed it; one worked on leads to its cell on the architect's chart.
-export function MatterCardView({ m, project, current }: { m: MatterProgress; project: string; current: boolean }) {
-  const s = MATTER_STATES[m.state] ?? MATTER_STATES.queued;
+/// What a matter made, listed under its line and not folded, each leading to it: the observations it recorded, each
+/// by its title, and the items it made, cancelled or moved in the queue, each by its number and its title.
+function Made({ made }: { made: MadeThing[] }) {
+  if (made.length === 0) return null;
+  return (
+    <ul className="live-made">
+      {made.map((x) => (
+        <li key={`${x.kind}-${x.id}`}>
+          <span className="talk-card-kind">{MADE[`${x.kind} ${x.change}`] !== undefined ? t(MADE[`${x.kind} ${x.change}`]) : words(x.change)}</span>{' '}
+          {x.kind === 'observation' ? (
+            <Link to={observationsHref(null, x.id)} title={firstWords(x.title)}>
+              <MarkdownLine text={x.title} />
+            </Link>
+          ) : (
+            <ItemRef id={x.id} title={x.title} />
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/// The head of a bubble of the architect's own: who it is, when, and where more of it is.
+function ArchitectHead({ at, children }: { at: number | null; children?: ReactNode }) {
+  return (
+    <>
+      <span className="talk-who">{t('conv_architect_short')}</span>
+      <span className="talk-when">{time(at)}</span>
+      {children}
+    </>
+  );
+}
+
+/// A matter of the architect's, as one bubble of the architect's of one line, with no one named, posted when it took
+/// the matter up and updated in place (`LiveBubble`): while it is in hand, "Working on:" and the matter, live while a
+/// round of the architect runs, with where it is at and what holds the architect, its own trouble, when anything does
+/// (`architect`, its work going on); held by the owner's ask, back in the queue or withdrawn with why, so; once done,
+/// its result: the matter, then under the line what it made, each by name and leading to it (`Made`), and what else
+/// came of it, the engineer it answered leading to that work's group; a place to set straight with its steps folded
+/// under it. A matter about a work leads to that work's group, which holds it in full. A matter that changed nothing is
+/// not in the conversation once done: the queue beside it lists it among those handled.
+export function MatterBubble({ e, m, project, architect }: {
+  e: ConversationEntry;
+  m: MatterProgress;
+  project: string;
+  architect: WorkSummary | null;
+}) {
+  const status = useStatus();
   const steps = matterSteps(m);
   const group = m.work !== null ? href({ page: 'messages', open: `work:${m.work}` }) : null;
   const where =
@@ -204,63 +245,109 @@ export function MatterCardView({ m, project, current }: { m: MatterProgress; pro
       : m.handled !== null
         ? architectHref({ project, work: m.handled.work, round: m.handled.round })
         : null;
-  const label =
-    m.state === 'working'
-      ? t('matter_working_at', { cell: m.cell ?? '', title: m.cell_title ?? '' })
-      : t(s.key);
+  // The architect's own trouble shows on the matter it has in hand.
+  const c = m.state === 'working' && architect !== null ? course(architect, status) : null;
+  const held = c !== null && c.held !== null ? heldName(c) : null;
+  const lead = t(MATTER_LINE[m.state] ?? 'matter_line_queued');
+  const gist = m.state === 'working' ? m.cell_title : m.state === 'withdrawn' ? m.withdrawn : null;
+  const made = new Set(m.made.map((x) => x.kind));
+  const rest =
+    m.handled !== null
+      ? outcomes(m.handled, project).filter(
+          (o) => !(o.key === 'observations' && made.has('observation')) && !(o.key === 'changes' && made.has('item')),
+        )
+      : [];
+  const head = (
+    <ArchitectHead at={e.at}>
+      {group !== null ? <Link to={group}>{t('matter_in_group', { work: m.work ?? '' })}</Link> : null}
+      {where !== null ? (
+        <Link to={where}>
+          {m.state === 'working' ? t('matter_on_chart') : `R${m.handled?.work ?? ''}-${m.handled?.round ?? ''}`}
+        </Link>
+      ) : null}
+    </ArchitectHead>
+  );
+  const state = (
+    <>
+      <span className="live-line-now">
+        {lead} <MatterWhat m={m} />
+      </span>
+      {held !== null && architect !== null ? (
+        <StateChip tone={held.problem ? 'danger' : 'attention'} title={heldWords(c ?? course(architect, status), architect.paused)}>
+          {held.name}
+        </StateChip>
+      ) : null}
+    </>
+  );
   return (
-    <Card icon={s.icon} tone={s.tone} id={`matter-${m.matter}`}>
-      <p className={current ? 'talk-card-matter talk-card-current' : 'talk-card-matter'}>
-        <MatterWhat m={m} /> <StateChip tone={s.tone ?? 'neutral'}>{label}</StateChip>
-        {group !== null ? (
-          <>
-            {' '}
-            <Link to={group}>
-              {t('matter_in_group', { work: m.work ?? '' })}
-            </Link>
-          </>
-        ) : null}
-        {where !== null ? (
-          <>
-            {' '}
-            <Link to={where}>
-              {m.state === 'working' ? t('matter_on_chart') : `R${m.handled?.work ?? ''}-${m.handled?.round ?? ''}`}
-            </Link>
-          </>
-        ) : null}
-      </p>
+    <LiveBubble
+      who="architect"
+      head={head}
+      live={c !== null && c.running !== null}
+      state={state}
+      gist={gist}
+      title={joinedWords([lead, matterKind(m.kind, m.detail), matterSentence(m), held?.name ?? null, gist])}
+    >
+      <Made made={m.made} />
+      {rest.map((o) => (
+        <p key={o.key} className="talk-card-note">
+          {o.key === 'reply' && m.handled?.reply_to != null ? (
+            <Link to={href({ page: 'messages', open: `work:${m.handled.reply_to}` })}>{o.label}</Link>
+          ) : (
+            <span className="talk-card-kind">{o.label}</span>
+          )}{' '}
+          {o.to !== null ? <Link to={o.to}>{o.text}</Link> : o.text}
+        </p>
+      ))}
       {steps.length > 0 ? (
-        <Fold summary={tn('matter_steps', steps.length)}>
+        <Fold className="talk-fold" summary={tn('matter_steps', steps.length)}>
           <Said text={steps.map((x, i) => `${i + 1}. ${x}`).join('\n')} />
         </Fold>
       ) : null}
-      {m.state === 'withdrawn' && m.withdrawn !== null ? <p className="talk-card-note">{m.withdrawn}</p> : null}
-      {m.handled !== null && group === null
-        ? outcomes(m.handled, project).map((o) => (
-            <p key={o.key} className="talk-card-note">
-              <span className="talk-card-kind">{o.label}</span> {o.to !== null ? <Link to={o.to}>{o.text}</Link> : o.text}
-            </p>
-          ))
-        : null}
-    </Card>
+    </LiveBubble>
   );
 }
 
-/// The policy in force, as it took effect, with the document folded, in the box of what an agent handed back among the
-/// card's own words.
-export function PolicyCard({ p }: { p: PolicyInForce }) {
+/// The policy as it took effect, as one bubble of the architect's of one line, leading to it in the panel beside the
+/// one-to-one.
+export function PolicyBubble({ p, project }: { p: PolicyInForce; project: string }) {
   return (
-    <Card icon={<FileIcon />} tone="done">
-      <div className="talk-card-line">
-        <span className="talk-card-title">{t('policy_took_effect_card')}</span>
-        <span className="talk-card-facts">{time(p.at)}</span>
-      </div>
-      <details className="talk-fold">
-        <summary>{t('policy_read')}</summary>
-        <div className="talk-fold-body agent-box">
-          <PolicyText value={p.policy} />
-        </div>
-      </details>
-    </Card>
+    <LiveBubble
+      who="architect"
+      head={<ArchitectHead at={p.at} />}
+      live={false}
+      state={
+        <span className="live-line-now">
+          {t('policy_took_effect_card')} <Link to={sideHref(project, 'policy')}>{t('policy_read_it')}</Link>
+        </span>
+      }
+      gist={null}
+      title={t('policy_took_effect_card')}
+    />
+  );
+}
+
+/// A version of the architect's plan, as one bubble of the architect's of one line: what changed from the version
+/// before, or that it made the plan, with the plan whole in an inline card that opens under it, and the round that
+/// wrote it on the architect's chart.
+export function PlanBubble({ e, p, project }: { e: ConversationEntry; p: PlanChange; project: string }) {
+  const said = p.changed !== null ? t('plan_changed') : t('plan_made');
+  return (
+    <LiveBubble
+      who="architect"
+      head={
+        <ArchitectHead at={e.at}>
+          <Link to={architectHref({ project, work: p.work, round: p.round })}>{`R${p.work}-${p.round}`}</Link>
+        </ArchitectHead>
+      }
+      live={false}
+      state={<span className="live-line-now">{said}</span>}
+      gist={p.changed}
+      title={joinedWords([said, p.changed])}
+    >
+      <Fold className="talk-fold" summary={t('plan_whole')}>
+        <Said text={p.plan} />
+      </Fold>
+    </LiveBubble>
   );
 }

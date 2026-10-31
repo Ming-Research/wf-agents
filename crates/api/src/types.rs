@@ -1206,6 +1206,19 @@ pub struct ConversationEntry {
     pub words_state: Option<WordsState>,
     /// For the policy taking effect: the policy in force.
     pub policy: Option<PolicyInForce>,
+    /// For a version of the architect's plan: what changed and the plan whole.
+    pub plan: Option<PlanChange>,
+}
+
+/// A version of the plan in an architect's notebook, as its bubble in the one-to-one says it: what changed from the
+/// version before, as the first line the new one has that the one before had not, none for the first plan; the plan
+/// whole; and the round of the architect's line that wrote it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct PlanChange {
+    pub changed: Option<String>,
+    pub plan: String,
+    pub work: i64,
+    pub round: i64,
 }
 
 /// A stage a work entered (research, design, implementation, testing and fixing, merge, watching main), as its bubble
@@ -1301,6 +1314,20 @@ pub struct MatterProgress {
     /// For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
     /// steps to set it straight); none for a matter of another kind.
     pub fix: Option<Value>,
+    /// What its path made that the owner reads by name, listed in its bubble: the observations it recorded, and the
+    /// items it made, cancelled or moved in the queue.
+    pub made: Vec<MadeThing>,
+}
+
+/// Something an architect's matter made, by its kind: an observation it recorded (new), or an item it made (new),
+/// cancelled or moved in the queue (reordered); its number, and its title, for an observation recorded before
+/// observations had titles what it says.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct MadeThing {
+    pub kind: String,
+    pub change: String,
+    pub id: i64,
+    pub title: String,
 }
 
 /// Where the owner's words stand with the architect they were said to, once it took them up, as one line under their
@@ -1522,6 +1549,9 @@ pub struct Handled {
     pub ask: Option<i64>,
     /// When nothing else came of it: why, as the cell that closed it said.
     pub why: Option<String>,
+    /// Whether nothing came of it: no reply, nothing told the owner, no item change, no observation, nothing done at
+    /// once, no message to another architect and no ask of the owner.
+    pub nothing: bool,
 }
 
 /// Something a matter's path did at once: its kind (pause_work, resume_work, start_work_over, hold_starts,

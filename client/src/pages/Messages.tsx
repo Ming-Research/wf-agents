@@ -65,14 +65,25 @@ import type {
   WorkSummary,
 } from '../api';
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from '../answer';
-import { architectMark } from '../architect';
-import { liveState, StateFilter, StateMark, useShownStates, WORK_STATES, WORK_TONE, workStateMark } from '../components';
+import { architectMark, architectState } from '../architect';
+import {
+  course,
+  heldWords,
+  liveState,
+  StateFilter,
+  StateMark,
+  useShownStates,
+  WORK_STATES,
+  WORK_TONE,
+  workStateMark,
+} from '../components';
 import {
   architectAsk,
   asksApproval,
   awayOf,
   closedWhy,
   conversationTitle,
+  DRAFT_APPROVED,
   type ForwardChoice,
   forwardMenu,
   forwardParts,
@@ -113,7 +124,7 @@ import { ArchitectSide, useSideOpen } from './ArchitectSide';
 import { Bubble } from './Bubble';
 import { AskView, DesignCardView } from './Decide';
 import { ArchitectHead, PlainHead, WfAgentsHead, WorkHead } from './TalkHead';
-import { MatterCardView, PolicyCard, StageBubble } from './TalkCards';
+import { MatterBubble, PlanBubble, PolicyBubble, StageBubble } from './TalkCards';
 
 /// Marks a fault of wf-agents read, where it shows.
 async function markFault(id: number): Promise<void> {
@@ -688,23 +699,24 @@ function Fault({ e, forwarding }: { e: ConversationEntry; forwarding: Forwarding
 }
 
 /// One entry of the stream, in its voice; a question with the owner's answer to it (`replies`, by its matter); the
-/// question whether the draft of a new policy that waits (`draft`) is approved leading to the draft.
-function Entry({ e, c, w, current, replies, forwarding, draft }: {
+/// question whether the draft of a new policy that waits (`draft`) is approved leading to the draft; the bubble of the
+/// matter the architect has in hand with how its work goes on (`architect`).
+function Entry({ e, c, w, architect, replies, forwarding, draft }: {
   e: ConversationEntry;
   c: Conversation;
   w: WorkSummary | null;
-  current: number | null;
+  architect: WorkSummary | null;
   replies: ReadonlyMap<number, ConversationEntry>;
   forwarding: Forwarding | null;
   draft: PolicyDraft | null;
 }) {
   const voice = voiceOf(e);
-  if (voice === 'stage') return e.stage !== null ? <StageBubble e={e} s={e.stage} w={w} project={c.project} /> : null;
-  if (voice === 'card') {
-    if (e.matter_card !== null) {
-      return <MatterCardView m={e.matter_card} project={c.project ?? ''} current={e.matter_card.matter === current} />;
-    }
-    if (e.policy !== null) return <PolicyCard p={e.policy} />;
+  if (voice === 'live') {
+    const project = c.project ?? '';
+    if (e.stage !== null) return <StageBubble e={e} s={e.stage} w={w} project={c.project} />;
+    if (e.matter_card !== null) return <MatterBubble e={e} m={e.matter_card} project={project} architect={architect} />;
+    if (e.policy !== null) return <PolicyBubble p={e.policy} project={project} />;
+    if (e.plan !== null) return <PlanBubble e={e} p={e.plan} project={project} />;
     return null;
   }
   if (voice === 'system') return <SystemLine e={e} />;
@@ -751,6 +763,56 @@ function Pinned({ d }: { d: ConversationDetail }) {
   );
 }
 
+/// The architect's own trouble, pinned at the top of its one-to-one while the owner must act on it: the engine halted
+/// the work it goes on in, and why; the head's Start lets it go on once that is fixed.
+function Trouble({ a }: { a: Architect | null }) {
+  const status = useStatus();
+  if (a === null) return null;
+  const s = architectState(a.works, a.queue);
+  if (s.kind !== 'working') return null;
+  const c = course(s.work, status);
+  if (c.held !== 'engine') return null;
+  return (
+    <Pins at="top">
+      <p className="talk-pinned-trouble">{t('arch_trouble', { why: heldWords(c, s.work.paused) })}</p>
+    </Pins>
+  );
+}
+
+/// The owner's approval of the draft of a new policy, from the question that asks for it: the reply the flow takes as
+/// the approval, exactly "approved", to that question; other words go by the box at the bottom, ticked to reply to it.
+function Approve({ project, question }: { project: string; question: number }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="talk-answer-buttons">
+      <Button
+        size="small"
+        variant="primary"
+        title={t('draft_approve_hint')}
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          setError(null);
+          postJson(forProject('/api/v1/architect/say', project), toArchitect(DRAFT_APPROVED, question)).then(
+            () => {
+              setBusy(false);
+              reread('messages', 'architect');
+            },
+            (x: unknown) => {
+              setBusy(false);
+              setError(x instanceof Error ? x.message : String(x));
+            },
+          );
+        }}
+      >
+        {t('draft_approve')}
+      </Button>
+      {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
+    </div>
+  );
+}
+
 /// A question pinned at the bottom folded to one line: its fold marker, who put it, when, and its words cut to the
 /// line, whole on hovering; a click opens it.
 function FoldedQuestion({ e, onOpen }: { e: ConversationEntry; onOpen: () => void }) {
@@ -780,7 +842,15 @@ export function Questions({ pinned, open, onOpen, project, draft }: {
     <Pins at="bottom">
       {[...pinned].reverse().map((e) =>
         e.id === open ? (
-          <Message key={e.id} e={e} to={null} reply={null} draft={asksApproval(e, draft) ? sideHref(project, 'policy') : null} />
+          <div key={e.id}>
+            <Message
+              e={e}
+              to={asksApproval(e, draft) ? mention(e, 'architect') : null}
+              reply={null}
+              draft={asksApproval(e, draft) ? sideHref(project, 'policy') : null}
+            />
+            {asksApproval(e, draft) ? <Approve project={project} question={e.id} /> : null}
+          </div>
         ) : (
           <FoldedQuestion key={e.id} e={e} onOpen={() => onOpen(e.id)} />
         ),
@@ -928,20 +998,24 @@ function AwayLine({ away, list }: { away: Array<[number, 'above' | 'below']>; li
   );
 }
 
-/// The stream of a conversation, oldest first, scrolled to its newest: the engine's cards and lines in the page's own
-/// voice, the members' messages beside them, an ask where it was asked; under it, while the owner's words added to the
-/// queue wait to be taken up in the one-to-one, that they do; over it, while an ask that waits is out of view, the line
-/// that says so. In the one-to-one with an architect, the question whether its draft of a new policy that waits
-/// (`draft`) is approved leads to the draft.
-export function Stream({ d, c, w, draft = null }: {
+/// The stream of a conversation, oldest first, scrolled to its newest: the bubbles of who said what, the members'
+/// messages and the live bubbles of what a work's stages and an architect's matters came to; in a conversation that is
+/// no work's group or one-to-one, the engine's lines in the page's own voice; an ask where it was asked; under it, while
+/// the owner's words added to the queue wait to be taken up in the one-to-one, that they do; over it, while an ask that
+/// waits is out of view, the line that says so. In the one-to-one with an architect (`architect`), the question
+/// whether its draft of a new policy that waits (`draft`) is approved leads to the draft, and the bubble of the matter
+/// it has in hand says what holds it.
+export function Stream({ d, c, w, draft = null, architect = null }: {
   d: ConversationDetail;
   c: Conversation;
   w: WorkSummary | null;
   draft?: PolicyDraft | null;
+  architect?: Architect | null;
 }) {
   const replies = useMemo(() => ownerReplies(d.entries), [d]);
   const stream = streamOf(d);
-  const current = d.entries.find((e) => e.matter_card?.state === 'working')?.matter_card?.matter ?? null;
+  const going = architect !== null ? architectState(architect.works, architect.queue) : null;
+  const aw = going !== null && going.kind === 'working' ? going.work : null;
   const list = useRef<HTMLDivElement>(null);
   const shown = stream.length;
   useEffect(() => {
@@ -981,7 +1055,7 @@ export function Stream({ d, c, w, draft = null }: {
   const runs: Array<{ cards: boolean; entries: ConversationEntry[] }> = [];
   for (const e of stream) {
     const v = voiceOf(e);
-    const cards = v === 'card' || v === 'system';
+    const cards = v === 'system';
     const last = runs[runs.length - 1];
     if (last !== undefined && last.cards === cards) last.entries.push(e);
     else runs.push({ cards, entries: [e] });
@@ -1002,7 +1076,7 @@ export function Stream({ d, c, w, draft = null }: {
               e={e}
               c={c}
               w={w}
-              current={current}
+              architect={aw}
               replies={replies}
               forwarding={d.forwarding}
               draft={draft}
@@ -1084,7 +1158,8 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
         ) : (
           <>
             <Pinned d={d} />
-            <Stream d={d} c={c} w={w} draft={a?.draft ?? null} />
+            <Trouble a={a} />
+            <Stream d={d} c={c} w={w} draft={a?.draft ?? null} architect={a} />
             <Questions
               pinned={pinned}
               open={open?.id ?? null}

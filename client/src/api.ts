@@ -616,7 +616,11 @@ words_state: WordsState | null,
 /**
  * For the policy taking effect: the policy in force.
  */
-policy: PolicyInForce | null, };
+policy: PolicyInForce | null, 
+/**
+ * For a version of the architect's plan: what changed and the plan whole.
+ */
+plan: PlanChange | null, };
 
 /**
  * A stage a work entered (research, design, implementation, testing and fixing, merge, watching main), as its bubble
@@ -704,6 +708,13 @@ export type StageNote = { round: number, line: string | null, text: string, };
 export type ReviewFindings = { review: string, round: number, findings: number, };
 
 /**
+ * A version of the plan in an architect's notebook, as its bubble in the one-to-one says it: what changed from the
+ * version before, as the first line the new one has that the one before had not, none for the first plan; the plan
+ * whole; and the round of the architect's line that wrote it.
+ */
+export type PlanChange = { changed: string | null, plan: string, work: number, round: number, };
+
+/**
  * Where a matter stands with its architect, as the engine writes it from the flow: queued, held by an ask of the
  * owner, worked on at a cell, handled with what became of it, or withdrawn with why.
  */
@@ -741,7 +752,19 @@ asked: number | null,
  * For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
  * steps to set it straight); none for a matter of another kind.
  */
-fix: JsonValue | null, };
+fix: JsonValue | null, 
+/**
+ * What its path made that the owner reads by name, listed in its bubble: the observations it recorded, and the
+ * items it made, cancelled or moved in the queue.
+ */
+made: Array<MadeThing>, };
+
+/**
+ * Something an architect's matter made, by its kind: an observation it recorded (new), or an item it made (new),
+ * cancelled or moved in the queue (reordered); its number, and its title, for an observation recorded before
+ * observations had titles what it says.
+ */
+export type MadeThing = { kind: string, change: string, id: number, title: string, };
 
 /**
  * Where the owner's words stand with the architect they were said to, once it took them up, as one line under their
@@ -1707,7 +1730,12 @@ ask: number | null,
 /**
  * When nothing else came of it: why, as the cell that closed it said.
  */
-why: string | null, };
+why: string | null, 
+/**
+ * Whether nothing came of it: no reply, nothing told the owner, no item change, no observation, nothing done at
+ * once, no message to another architect and no ask of the owner.
+ */
+nothing: boolean, };
 
 /**
  * Something a matter's path did at once: its kind (pause_work, resume_work, start_work_over, hold_starts,
