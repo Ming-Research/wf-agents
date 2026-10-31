@@ -4,6 +4,16 @@ Decision: A query that names a column or a table there is not fails with its err
 
 Decision: A red check's log tail is given without what gh puts before every line (the job, the step and the time) and without the escapes that colour the text, which gh writes with the escape character as the two characters "^[", because those take most of each line and say nothing about why the check is red; the times of the named tests are read from the logs cleaned the same way.
 
+Decision: A red check's log tail is what of its log tells why it is red, and the whole log stays at the check's
+`log_path` for an agent to read with its tools: the steps that failed (those with an `##[error]` line), each from its
+command, without the runner's set-up and clean-up, the steps that passed, the step's shell and environment, cargo's
+and nextest's lines that only show progress (a crate fetched or built, a test started, passed, skipped or slow) and
+repeated blank lines; given whole up to 80 lines, and past that as each test that did not pass with its output, the
+summary to the end of the step and each error, warning or rustfmt diff with the lines under it up to a blank line, what
+is left out between them said as how many lines; at most 120 lines, the first and the last 30. Instead of the log's last
+60 lines, because in the sixth trial those were mostly the runner's clean-up and tests that passed, at least 97,000 of
+the 223,000 tokens of log tails agents were given, and often missed the start of the failure they were given for.
+
 Decision: The ci tool gives, for each test the agent named, that test's own time, read from the line cargo-nextest writes as each test ends in the logs of every job of the fast CI, the jobs that each run a part of the tests included, with how it ended when it did not pass, or that the test was not found there, because without a time the agent fetched the whole job log to find one, and the time of the whole test binary that holds it, all `cargo test` gives, says nothing about the one test, while nextest runs each test on its own and times it; a fast CI that runs its tests another way gives the agent no times.
 
 Decision: `wf-agents tree-check <fork point>` is a design tree check a project can name as its `design_check`: it counts the design tree under a directory (`design` unless `--root` says another) at HEAD, its nodes (the Markdown files), their depth below the root and the decisions (the paragraphs that start "Decision:"), and how many more of each than at the fork point, because the design tree review is to be given those numbers, and without a check named nothing printed them.

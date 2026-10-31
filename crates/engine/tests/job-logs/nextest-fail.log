@@ -1,0 +1,116 @@
+test 1 of 3	UNKNOWN STEP	﻿2026-10-30T18:22:57.5467101Z Current runner version: '2.338.0'
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:22:57.5492488Z ##[group]Runner Image Provisioner
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:22:57.5493385Z Hosted Compute Agent
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:22:58.6059213Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:22:58.6060851Z with:
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:22:58.6061531Z   repository: Ming-Research/wf-agents
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:22:58.6069905Z   token: ***
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:22:58.6070582Z   ssh-strict: true
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:22:58.6080993Z ##[endgroup]
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:22:58.9361131Z Syncing repository: Ming-Research/wf-agents
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:22:58.9364658Z ##[group]Getting Git version info
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:00.8468069Z ##[group]Run rustup toolchain install
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:00.8468522Z ^[[36;1mrustup toolchain install^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:00.8493068Z shell: /usr/bin/bash -e {0}
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:00.8493374Z env:
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:00.8493578Z   CARGO_TERM_COLOR: always
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:00.8493826Z ##[endgroup]
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:00.9136083Z info: syncing channel updates for 1.99.1-x86_64-unknown-linux-gnu
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:01.0340660Z info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:01.0347353Z info: downloading 5 components
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:09.5391408Z info: the active toolchain `1.99.1-x86_64-unknown-linux-gnu` has been installed
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:09.5392137Z info: it's active because: overridden by '/home/runner/work/wf-agents/wf-agents/rust-toolchain.toml'
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:33.6462457Z ##[group]Run cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition count:1/3
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:33.6463728Z ^[[36;1mcargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition count:1/3^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:33.6493093Z shell: /usr/bin/bash -e {0}
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:33.6493519Z env:
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:33.6493846Z   CARGO_TERM_COLOR: always
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:33.6494259Z   CACHE_ON_FAILURE: false
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:33.6494648Z   CARGO_INCREMENTAL: 0
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:33.6495037Z ##[endgroup]
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:33.7549550Z ^[[1m^[[92m    Updating^[[0m crates.io index
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:34.2364094Z ^[[1m^[[92m Downloading^[[0m crates ...
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:34.2958149Z ^[[1m^[[92m  Downloaded^[[0m atomic-waker v1.1.2
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:34.2974191Z ^[[1m^[[92m  Downloaded^[[0m equivalent v1.0.3
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:34.2997456Z ^[[1m^[[92m  Downloaded^[[0m futures-core v0.3.34
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:34.3013416Z ^[[1m^[[92m  Downloaded^[[0m anstyle-query v1.1.5
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:23:34.3024440Z ^[[1m^[[92m  Downloaded^[[0m clap_lex v1.1.1
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:26:29.3058684Z ^[[1m^[[92m    Finished^[[0m `ci` profile [optimized + debuginfo] target(s) in 2m 54s
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:26:29.3612037Z ────────────
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:26:29.3613320Z ^[[32;1m Nextest run^[[0m ID ^[[1m3d5dc60f-99ce-40f1-9db8-4d8966dbc0b9^[[0m with nextest profile: ^[[1mci^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:26:29.3615160Z ^[[32;1m    Starting^[[0m ^[[1m146^[[0m tests across ^[[1m14^[[0m binaries (^[[1m279^[[0m tests ^[[33;1mskipped^[[0m)
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:26:29.3719468Z ^[[32;1m        PASS^[[0m [   0.006s] (  1/146) ^[[35;1mapi^[[0m ^[[36mcontrol::tests^[[0m^[[36m::^[[0m^[[34;1mevery_work_starts_paused_and_a_round_of_one_work_is_asked_once_at_a_time^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:26:29.3735657Z ^[[32;1m        PASS^[[0m [   0.007s] (  2/146) ^[[35;1mapi^[[0m ^[[36mbus::tests^[[0m^[[36m::^[[0m^[[34;1ma_client_is_given_what_it_missed_or_told_to_read_again^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:26:29.3932790Z ^[[32;1m        PASS^[[0m [   0.030s] (  3/146) ^[[35;1mapi^[[0m ^[[36mevents::tests^[[0m^[[36m::^[[0m^[[34;1mwhat_the_architect_tab_shows_names_it_too^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:26:29.3988177Z ^[[32;1m        PASS^[[0m [   0.030s] (  4/146) ^[[35;1mapi^[[0m ^[[36mowner::tests^[[0m^[[36m::^[[0m^[[34;1man_ask_of_changes_for_approval_is_closed^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:26:29.4038235Z ^[[32;1m        PASS^[[0m [   0.033s] (  5/146) ^[[35;1mapi^[[0m ^[[36mowner::tests^[[0m^[[36m::^[[0m^[[34;1mthe_owner_answers_an_ask_once^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:09.1437953Z ^[[32;1m        PASS^[[0m [   0.006s] (131/146) ^[[35;1msessions^[[0m ^[[36mgive::tests^[[0m^[[36m::^[[0m^[[34;1mthe_same_content_is_one_hash_however_its_keys_were_written^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:09.1497839Z ^[[32;1m        PASS^[[0m [   0.006s] (132/146) ^[[35;1msessions^[[0m ^[[36mheld::tests^[[0m^[[36m::^[[0m^[[34;1ma_round_is_named_by_its_work_and_number^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:09.1778668Z ^[[32;1m        PASS^[[0m [   0.027s] (133/146) ^[[35;1msessions^[[0m ^[[36minterject::tests^[[0m^[[36m::^[[0m^[[34;1man_interjection_is_handed_in_to_the_running_round_once^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:09.6748793Z ^[[32;1m        PASS^[[0m [   4.208s] (134/146) ^[[35;1mflow::negative^[[0m ^[[34;1mthe_blind_round_read_by_nobody^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:09.7285413Z ^[[32;1m        PASS^[[0m [   0.054s] (135/146) ^[[35;1msessions^[[0m ^[[36mworktree::tests^[[0m^[[36m::^[[0m^[[34;1ma_head_handed_in_must_be_the_clean_worktrees^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:09.8292024Z ^[[32;1m        PASS^[[0m [   0.100s] (136/146) ^[[35;1mweb::server^[[0m ^[[34;1mit_serves_its_own_address_and_refuses_other_sites^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.0190018Z ^[[32;1m        PASS^[[0m [   0.189s] (137/146) ^[[35;1mweb::server^[[0m ^[[34;1mthe_owner_reads_conversations_marks_them_read_and_says_something^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4098337Z ^[[32;1m        PASS^[[0m [   4.592s] (138/146) ^[[35;1mflow::negative^[[0m ^[[34;1mtwo_rows_hold_together^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4865674Z ^[[31;1m        FAIL^[[0m [   0.466s] (139/146) ^[[35;1mwf-agents::cli^[[0m ^[[34;1ma_table_over_the_row_limit_says_how_many_rows_it_leaves_out^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4867512Z ^[[31;1m ^[[0m ^[[31;1mstdout^[[0m ^[[31;1m───^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4868152Z 
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4868505Z     running 1 test
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4869298Z     test a_table_over_the_row_limit_says_how_many_rows_it_leaves_out ... FAILED
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4869958Z 
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4870242Z     failures:
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4870585Z 
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4870860Z     failures:
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4871508Z         a_table_over_the_row_limit_says_how_many_rows_it_leaves_out
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4872086Z 
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4872792Z     test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.46s
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4873769Z     ^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4874429Z ^[[31;1m ^[[0m ^[[31;1mstderr^[[0m ^[[31;1m───^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4874915Z 
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4876069Z     ^[[0m^[[31;1mthread 'a_table_over_the_row_limit_says_how_many_rows_it_leaves_out' (11505) panicked at crates/wf-agents/tests/cli.rs:466:13:^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4878956Z     ^[[31;1m`item list` with 10001 items ends: "e\tl\t\t\t\t\n9998\tp\titem 9998\tchange\tl\t\t\t\t\n9999\tp\titem 9999\tchange\tl\t\t\t\t\n10000\tp\titem 10000\tchange\tl\t\t\t\t\n"^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4880753Z     note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4881455Z 
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.4882218Z ^[[31;1m  Cancelling^[[0m due to ^[[31;1mtest failure^[[0m: ^[[1m3^[[0m tests still running
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:10.7222967Z ^[[32;1m        PASS^[[0m [   4.205s] (140/146) ^[[35;1msessions^[[0m ^[[36mchoose::tests^[[0m^[[36m::^[[0m^[[34;1ma_round_runs_at_its_cells_effort^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:13.1184035Z ^[[32;1m        PASS^[[0m [   3.941s] (141/146) ^[[35;1msessions^[[0m ^[[36mtests^[[0m^[[36m::^[[0m^[[34;1meach_line_is_given_only_its_own_common_forms^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.3601751Z ^[[32;1m        PASS^[[0m [   4.952s] (142/146) ^[[35;1mwf-agents::cli^[[0m ^[[34;1mconfig_check_reads_the_data_directory_against_the_flow^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.3602906Z ────────────
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.3604476Z ^[[31;1m     Summary^[[0m [ 105.999s] ^[[1m142^[[0m/^[[1m146^[[0m tests run: ^[[1m141^[[0m ^[[32;1mpassed^[[0m, ^[[1m1^[[0m ^[[31;1mfailed^[[0m, ^[[1m279^[[0m ^[[33;1mskipped^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.3606437Z ^[[31;1m        FAIL^[[0m [   0.466s] (139/146) ^[[35;1mwf-agents::cli^[[0m ^[[34;1ma_table_over_the_row_limit_says_how_many_rows_it_leaves_out^[[0m
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.3607944Z ^[[33;1mwarning^[[0m: ^[[1m4^[[0m/^[[1m146^[[0m tests were not run due to ^[[33;1mtest failure^[[0m (run with ^[[1m--no-fail-fast^[[0m to run all tests, or run with ^[[1m--max-fail^[[0m)
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.3611407Z ^[[31;1merror^[[0m: test run failed
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.3637118Z ##[error]Process completed with exit code 100.
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.3759082Z Post job cleanup.
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.4723860Z [command]/usr/bin/git version
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.4779114Z git version 2.56.0
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.4833834Z Temporarily overriding HOME='/home/runner/work/_temp/2a684d44-fbea-4365-a150-9f9443d344dc' before making global git config changes
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.4839400Z Adding repository directory to the temporary git global config as a safe directory
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.4840857Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/wf-agents/wf-agents
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.4880362Z Removing SSH command configuration
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.4887566Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.4929350Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5197568Z Removing HTTP extra header
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5203354Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5250146Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5564997Z Removing includeIf entries pointing to credentials config files
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5573033Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5611049Z includeif.gitdir:/home/runner/work/wf-agents/wf-agents/.git.path
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5612351Z includeif.gitdir:/home/runner/work/wf-agents/wf-agents/.git/worktrees/*.path
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5613472Z includeif.gitdir:/github/workspace/.git.path
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5614354Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5623729Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/wf-agents/wf-agents/.git.path
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5669332Z /home/runner/work/_temp/git-credentials-e0ade9bd-55f2-4bfd-b54e-20762b1856c7.config
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5682129Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/wf-agents/wf-agents/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-e0ade9bd\-55f2\-4bfd\-b54e\-20762b1856c7\.config
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5752948Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/wf-agents/wf-agents/.git/worktrees/*.path
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5809849Z /home/runner/work/_temp/git-credentials-e0ade9bd-55f2-4bfd-b54e-20762b1856c7.config
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5838551Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/wf-agents/wf-agents/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-e0ade9bd\-55f2\-4bfd\-b54e\-20762b1856c7\.config
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5904238Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5947247Z /github/runner_temp/git-credentials-e0ade9bd-55f2-4bfd-b54e-20762b1856c7.config
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.5959525Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-e0ade9bd\-55f2\-4bfd\-b54e\-20762b1856c7\.config
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.6008721Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.6049784Z /github/runner_temp/git-credentials-e0ade9bd-55f2-4bfd-b54e-20762b1856c7.config
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.6059681Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-e0ade9bd\-55f2\-4bfd\-b54e\-20762b1856c7\.config
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.6114001Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.6385107Z Removing credentials config '/home/runner/work/_temp/git-credentials-e0ade9bd-55f2-4bfd-b54e-20762b1856c7.config'
+test 1 of 3	UNKNOWN STEP	2026-10-30T18:28:15.6578355Z Cleaning up orphan processes
