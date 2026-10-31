@@ -66,7 +66,7 @@ import type {
 } from '../api';
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from '../answer';
 import { architectMark } from '../architect';
-import { liveState, StateFilter, StateMark, useShownStates, WORK_STATES, WORK_TONE } from '../components';
+import { liveState, StateFilter, StateMark, useShownStates, WORK_STATES, WORK_TONE, workStateMark } from '../components';
 import {
   architectAsk,
   asksApproval,
@@ -192,8 +192,8 @@ export function List({ list, open, works }: { list: Conversation[]; open: string
                   states={states}
                   shown={shown}
                   tone={WORK_TONE}
-                  name={(s) => t(`state_${s}`)}
-                  title={(s, on) => t(on ? 'talks_hide' : 'talks_show', { state: t(`state_${s}`) })}
+                  mark={workStateMark}
+                  title={(s, n, on) => tn(on ? 'talks_hide' : 'talks_show', n, { state: t(`state_${s}`) })}
                   onShown={toggle}
                 />
               </li>

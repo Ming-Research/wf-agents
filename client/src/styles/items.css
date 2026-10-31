@@ -84,10 +84,10 @@
   --tone-fg: var(--fgColor-neutral);
 }
 
-/* The button that shows or hides a state's items, a fill and no edge, as every chip and button in a colour is (the
-   UI spec), so that whether its items show is told by the fill alone: the state's colour, its words white and its
-   count on a white translucent pill, while they show; the state's tint, its words and count in the state's colour,
-   while they hide. */
+/* The button that shows or hides a state's items, its state's mark and its count with no words, a fill and no edge, as
+   every chip and button in a colour is (the UI spec), so that whether its items show is told by the fill alone: the
+   state's colour, its mark white and its count on a white translucent pill, while they show; the state's tint, its
+   mark and count in the state's colour, while they hide. */
 .tree-states .tree-state,
 .tree-states .tree-state:hover {
   border-color: transparent;
@@ -105,6 +105,12 @@
 .tree-states .tree-state [data-component='leadingVisual'],
 .tree-states .tree-state [data-component='ButtonCounter'] {
   color: inherit;
+}
+
+/* The running halo on its button while its works show: its arcs white, as every mark on a button filled in its
+   state's colour is, since its blue arc would vanish into the running state's blue. */
+.tree-states .tree-state[aria-pressed='true'] .fc-halo-arc {
+  stroke: var(--fgColor-onEmphasis);
 }
 
 .tree-none {

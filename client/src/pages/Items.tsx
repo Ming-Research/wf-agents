@@ -15,7 +15,7 @@ import { Heading, PageLayout } from '@primer/react';
 import { Fragment, type MouseEvent, type ReactNode, useState } from 'react';
 
 import type { ItemLink, Items as ItemsData, ItemState, ItemSummary } from '../api';
-import { DependencyKind, ITEM_TONE, Loaded, StateChip, StateFilter, useShownStates } from '../components';
+import { DependencyKind, ITEM_MARK, ITEM_TONE, Loaded, StateChip, StateFilter, useShownStates } from '../components';
 import { depsDone, firstShown, stageAt, STATES, tree, type TreeRow } from '../item/tree';
 import { words } from '../labelled';
 import { useResource } from '../live';
@@ -210,8 +210,8 @@ function Project(props: {
           states={props.items.map((i) => i.state)}
           shown={props.shown}
           tone={ITEM_TONE}
-          name={(s) => t(`item_${s}`)}
-          title={(s, on) => t(on ? 'items_hide' : 'items_show', { state: t(`item_${s}`) })}
+          mark={(s) => ITEM_MARK[s]}
+          title={(s, n, on) => tn(on ? 'items_hide' : 'items_show', n, { state: t(`item_${s}`) })}
           onShown={props.onShown}
         />
       </div>

@@ -2,17 +2,20 @@
 
 import {
   CheckCircleIcon,
-  CheckIcon,
   CircleIcon,
   ClockIcon,
   HourglassIcon,
   type Icon,
+  IssueOpenedIcon,
+  ListOrderedIcon,
   PauseIcon,
+  PlayIcon,
   QuestionIcon,
+  SkipIcon,
   StopIcon,
 } from '@primer/octicons-react';
 import { Button, Flash, Label, type LabelColorOptions } from '@primer/react';
-import { type ReactNode, useSyncExternalStore } from 'react';
+import { type ElementType, type ReactNode, useSyncExternalStore } from 'react';
 
 import type { ItemState, RoundOutcome, Status, Waits, WorkState, WorkSummary } from './api';
 import { Halo } from './graph/flowDraw';
@@ -228,6 +231,20 @@ export const WORK_MARK: Record<Exclude<WorkState, 'running'>, Icon> = {
   ended: StopIcon,
 };
 
+/// The Octicon of each state of an item, the one map for every place that shows an item's state as an icon, as the UI
+/// spec names it, none of them a work's mark of another meaning: new GitHub's mark of an issue open, filed and not taken
+/// up yet; queued a numbered list, the item's place in the queue; working a play, under way; done the tick in a ring of
+/// a work done, and stopped the stop of a work ended, since an item is done or stopped as its latest work is; cancelled
+/// GitHub's mark of an issue closed as not planned.
+export const ITEM_MARK: Record<ItemState, Icon> = {
+  new: IssueOpenedIcon,
+  queued: ListOrderedIcon,
+  working: PlayIcon,
+  done: CheckCircleIcon,
+  stopped: StopIcon,
+  cancelled: SkipIcon,
+};
+
 /// The mark of a round running: the halo the chart draws round the cell a round runs at, at an icon's size round
 /// nothing, its arcs as wide as they must be to read beside an Octicon's strokes; the one mark of a state that moves,
 /// so that what runs looks the same on the chart and wherever else it shows.
@@ -239,16 +256,20 @@ export function RunningMark() {
   );
 }
 
+/// A work's state's mark wherever it shows as an icon (a row's mark, a button of the list's filter): the running halo
+/// for a round running, else its Octicon.
+export const workStateMark = (state: WorkState): ElementType => (state === 'running' ? RunningMark : WORK_MARK[state]);
+
 /// A state as a mark, where a row has room for an icon and not for a chip (the list of conversations): a round running
 /// as the running halo, every other state as its Octicon in the colour of its chip, saying on hovering what its chip
 /// says (a work's state by default). Nothing known yet keeps the mark's room empty, so that the rows stay in line.
 export function StateMark({ state, words }: { state: WorkState | null; words?: string }) {
   if (state === null) return <span className="state-mark" aria-hidden="true" />;
   const said = words ?? t(`state_${state}`);
-  const Mark = state === 'running' ? null : WORK_MARK[state];
+  const Mark = workStateMark(state);
   return (
     <span className={`state-mark state-mark-${WORK_TONE[state]}`} title={said} role="img" aria-label={said}>
-      {Mark === null ? <RunningMark /> : <Mark />}
+      <Mark />
     </span>
   );
 }
@@ -338,16 +359,18 @@ export function useShownStates<S extends string>(
 
 /// The buttons over a project's rows in a list (the items' tree, the works in the list of conversations) that show or
 /// hide its rows in each state: one for each state among them, in the list's order of states (`order`), with how many
-/// are in it (`states`, the state of each row); each a fill with no edge, in its state's colour as the state's chip while
-/// its rows show and in its tint while they hide, from the one set of a state's colours that the items' cards take too
-/// (items.css); a click shows or hides that state's rows.
+/// are in it (`states`, the state of each row); each the state's mark (`mark`, a work's state's or an item's) and its
+/// count with no words, so that the row of buttons fits on one line, the state, its count and what a click does said on
+/// hovering and as the button's name (`title`); each a fill with no edge, in its state's colour as the state's chip
+/// while its rows show and in its tint while they hide, from the one set of a state's colours that the items' cards
+/// take too (items.css); a click shows or hides that state's rows.
 export function StateFilter<S extends string>(props: {
   order: readonly S[];
   states: readonly S[];
   shown: readonly S[];
   tone: Record<S, Tone>;
-  name: (s: S) => string;
-  title: (s: S, shown: boolean) => string;
+  mark: (s: S) => ElementType;
+  title: (s: S, n: number, shown: boolean) => string;
   onShown: (s: S) => void;
 }) {
   return (
@@ -356,20 +379,20 @@ export function StateFilter<S extends string>(props: {
         const n = props.states.filter((x) => x === s).length;
         if (n === 0) return null;
         const on = props.shown.includes(s);
+        const said = props.title(s, n, on);
         return (
           <Button
             key={s}
             size="small"
             variant="invisible"
             className={`tree-state tree-tone-${props.tone[s]}`}
-            leadingVisual={on ? CheckIcon : undefined}
+            leadingVisual={props.mark(s)}
             count={n}
             aria-pressed={on}
-            title={props.title(s, on)}
+            aria-label={said}
+            title={said}
             onClick={() => props.onShown(s)}
-          >
-            {props.name(s)}
-          </Button>
+          />
         );
       })}
     </span>

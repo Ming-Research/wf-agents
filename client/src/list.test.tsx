@@ -6,9 +6,11 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { Conversation, WorkState, WorkSummary } from './api';
+import type { Conversation, ItemState, WorkState, WorkSummary } from './api';
+import { ITEM_MARK, ITEM_TONE, StateFilter, WORK_STATES, WORK_TONE, workStateMark } from './components';
 import { rowsShown, totals } from './conversation';
 import { counted, List, SHOWN } from './pages/Messages';
+import { t, tn } from './text';
 
 vi.mock('./live', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./live')>()),
@@ -86,15 +88,65 @@ describe('the list of conversations', () => {
     const html = renderToStaticMarkup(<List list={list} open="architect:p" works={works} />);
     const buttons = [...html.matchAll(/<button[^>]*aria-pressed="(true|false)"[^>]*title="([^"]+)"/g)].map((m) => [m[2], m[1]]);
     expect(buttons).toEqual([
-      ['Hide the running works', 'true'],
-      ['Hide the waiting works', 'true'],
-      ['Show the done works', 'false'],
-      ['Show the ended works', 'false'],
-      ['Hide the paused works', 'true'],
-      ['Show the done works', 'false'],
+      ['1 work is running. Click to hide it.', 'true'],
+      ['1 work is waiting. Click to hide it.', 'true'],
+      ['1 work is done. Click to show it.', 'false'],
+      ['1 work is ended. Click to show it.', 'false'],
+      ['1 work is paused. Click to hide it.', 'true'],
+      ['1 work is done. Click to show it.', 'false'],
     ]);
     expect(html).toContain('tree-state tree-tone-success');
     expect(read(html)).not.toContain('#5 Work 5');
+  });
+
+  it("draws each button as its state's mark and its count, with no words, the state and the count said as its name", () => {
+    const filter = (shown: WorkState[]) =>
+      renderToStaticMarkup(
+        <StateFilter
+          order={WORK_STATES}
+          states={['running', 'asking', 'asking', 'done']}
+          shown={shown}
+          tone={WORK_TONE}
+          mark={workStateMark}
+          title={(s, n, on) => tn(on ? 'talks_hide' : 'talks_show', n, { state: t(`state_${s}`) })}
+          onShown={() => undefined}
+        />,
+      );
+    const html = filter(SHOWN);
+    const buttons = [...html.matchAll(/<button([^>]*)>([\s\S]*?)<\/button>/g)];
+    // Each button's text, its tags taken out, holds no words: its count alone, with the copy of it Primer's counter
+    // keeps for a screen reader.
+    const text = buttons.map((b) => b[2].replace(/<[^>]*>/g, ''));
+    expect(text.map((x) => /[a-z]/i.test(x))).toEqual([false, false, false]);
+    expect(text.map((x) => x.match(/\d+/)?.[0])).toEqual(['1', '2', '1']);
+    expect(buttons.map((b) => /aria-label="([^"]+)"/.exec(b[1])?.[1])).toEqual([
+      '1 work is running. Click to hide it.',
+      '2 works are asking. Click to hide them.',
+      '1 work is done. Click to show it.',
+    ]);
+    expect(buttons.map((b) => /title="([^"]+)"/.exec(b[1])?.[1])).toEqual(buttons.map((b) => /aria-label="([^"]+)"/.exec(b[1])?.[1]));
+    // Running is the halo, the others their Octicons, as the rows' marks are.
+    expect(buttons[0][2]).toContain('running-mark');
+    expect(buttons[1][2]).toContain('octicon-question');
+    expect(buttons[2][2]).toContain('octicon-check-circle');
+  });
+
+  it("draws the items' buttons with the items' marks", () => {
+    const html = renderToStaticMarkup(
+      <StateFilter
+        order={['new', 'queued', 'working', 'done', 'stopped', 'cancelled'] as ItemState[]}
+        states={['new', 'queued', 'queued', 'working', 'done', 'stopped', 'cancelled']}
+        shown={['new', 'queued', 'working', 'stopped']}
+        tone={ITEM_TONE}
+        mark={(s) => ITEM_MARK[s]}
+        title={(s, n, on) => tn(on ? 'items_hide' : 'items_show', n, { state: t(`item_${s}`) })}
+        onShown={() => undefined}
+      />,
+    );
+    const icons = [...html.matchAll(/class="octicon octicon-([\w-]+)"/g)].map((m) => m[1]);
+    expect(icons).toEqual(['issue-opened', 'list-ordered', 'play', 'check-circle', 'stop', 'skip']);
+    expect(html).toContain('title="2 items are queued. Click to hide them."');
+    expect(html).toContain('title="1 item is cancelled. Click to show it."');
   });
 
   it('leaves out a work whose state is not read yet, but not the one open', () => {
