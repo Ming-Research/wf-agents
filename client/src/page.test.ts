@@ -1045,7 +1045,7 @@ describe('the chart of a flow', () => {
     expect(litCell(c, null, null)).toBeNull();
   });
 
-  it('draws a row by the first that holds: pointed at, the round chosen, into or out of the cell lit, then the rest', () => {
+  it('draws a row by the first that holds: the round chosen, into or out of the cell lit, then the rest', () => {
     const e = (id: string) => {
       const x = edge(id);
       if (x === undefined) throw new Error(`no arrow ${id}`);
@@ -1053,7 +1053,6 @@ describe('the chart of a flow', () => {
     };
     const none = { in: new Set<string>(), out: new Set<string>() };
     const at = (over: Partial<Parameters<typeof lineKind>[1]>) => ({
-      hot: new Set<string>(),
       lit: undefined,
       lighted: none,
       taken: null,
@@ -1070,11 +1069,10 @@ describe('the chart of a flow', () => {
     expect(lineKind(e('c:s->c:a'), at({ lighted: b }))).toBe('main');
     // A rule's arrow is never lit as a row.
     expect(lineKind(e('r:tree:a->c:a'), at({ lighted: ways(c.edges, 'c:a') }))).toBe('rule');
-    // The round chosen over the cell lit; the row pointed at over all.
+    // The round chosen over the cell lit.
     const lit = { in: new Set(['c:a->c:b']), out: new Set(['c:b->c:z']) };
     expect(lineKind(e('c:a->c:b'), at({ lighted: b, lit }))).toBe('lit-in');
     expect(lineKind(e('c:b->c:z'), at({ lighted: b, lit }))).toBe('lit-out');
-    expect(lineKind(e('c:b->c:z'), at({ lighted: b, lit, hot: new Set(['c:b->c:z']) }))).toBe('hot');
     // On a work's chart: the rows it took, and the rest quiet.
     expect(lineKind(e('c:a->c:b'), at({ taken: new Map([['c:a->c:b', 1]]) }))).toBe('taken');
     expect(lineKind(e('c:s->c:a'), at({ taken: new Map() }))).toBe('quiet');
@@ -1113,11 +1111,14 @@ describe('the chart of a flow', () => {
     expect(looks(free, 'c:b->c:a')).toContain('fc-edge-plain');
     // A rule picked lights no row.
     expect(draw('r:tree:a').includes('fc-edge-in')).toBe(false);
-    // A line of the panel's From or To lights its row as pointing at it does, over the rows of the cell picked.
+    // A line of the panel's From or To lights its row as pointing at it does: heavier, keeping how it is drawn.
     const lined = draw('c:b', [{ cell: 'a', row: 'done', into: 'b' }]);
-    expect(looks(lined, 'c:a->a:b:lock+post')).toContain('fc-edge-hot');
-    expect(looks(lined, 'a:b:lock+post->c:b')).toContain('fc-edge-hot');
+    expect(looks(lined, 'c:a->a:b:lock+post')).toEqual(expect.arrayContaining(['fc-edge-in', 'fc-edge-heavy']));
+    expect(looks(lined, 'a:b:lock+post->c:b')).toContain('fc-edge-heavy');
+    expect(looks(lined, 'a:b:lock+post->c:b').some((k) => k === 'fc-edge-hot')).toBe(false);
     expect(looks(lined, 'c:c->a:b:lock+post')).toContain('fc-edge-in');
+    expect(looks(lined, 'c:c->a:b:lock+post')).not.toContain('fc-edge-heavy');
+    expect(looks(picked, 'c:a->a:b:lock+post')).not.toContain('fc-edge-heavy');
     // Every cell's title, its code with it, is drawn and measured semibold.
     expect((free.match(/class="fc-title"/g) ?? []).length).toBe(graph.cells.length);
     expect(chartFonts().title.startsWith('600 ')).toBe(true);

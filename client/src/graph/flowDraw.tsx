@@ -622,21 +622,20 @@ export function litCell(c: Chart, picked: string | null, pointed: string | null)
   return cell(pointed) ?? cell(picked);
 }
 
-/// How an arrow is drawn, the first that holds: the row the pointer is on, that was clicked or that a line of the
-/// panel's From or To lights (`hot`); the way the round chosen came in by or left by (`lit-in`, `lit-out`); a row into
-/// or out of the cell lit (`in`, `out`, out first for a row from the cell back into it); a rule's, the interjection's or
-/// the line to what a cell does every time (`rule`); on a work's chart a row the work took (`taken`) or did not
-/// (`quiet`); a row on the main path (`main`); any other (`plain`).
-export type LineKind = 'hot' | 'lit-in' | 'lit-out' | 'in' | 'out' | 'rule' | 'taken' | 'quiet' | 'main' | 'plain';
+/// How an arrow is drawn, the first that holds: the way the round chosen came in by or left by (`lit-in`, `lit-out`);
+/// a row into or out of the cell lit (`in`, `out`, out first for a row from the cell back into it); a rule's, the
+/// interjection's or the line to what a cell does every time (`rule`); on a work's chart a row the work took (`taken`)
+/// or did not (`quiet`); a row on the main path (`main`); any other (`plain`). The row the pointer is on, that was
+/// clicked or that a line of the panel's From or To lights keeps its kind and is drawn heavier (`fc-edge-heavy`).
+export type LineKind = 'lit-in' | 'lit-out' | 'in' | 'out' | 'rule' | 'taken' | 'quiet' | 'main' | 'plain';
 
 /// Every kind, each with an arrowhead of its own.
-const LINE_KINDS: readonly LineKind[] = ['plain', 'main', 'taken', 'rule', 'quiet', 'hot', 'in', 'out', 'lit-in', 'lit-out'];
+const LINE_KINDS: readonly LineKind[] = ['plain', 'main', 'taken', 'rule', 'quiet', 'in', 'out', 'lit-in', 'lit-out'];
 
 export function lineKind(
   e: ChartEdge,
-  at: { hot: Set<string>; lit: Ways | undefined; lighted: Ways; taken: Map<string, number> | null },
+  at: { lit: Ways | undefined; lighted: Ways; taken: Map<string, number> | null },
 ): LineKind {
-  if (at.hot.has(e.id)) return 'hot';
   if (at.lit?.out.has(e.id)) return 'lit-out';
   if (at.lit?.in.has(e.id)) return 'lit-in';
   if (at.lighted.out.has(e.id)) return 'out';
@@ -692,7 +691,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
   const lighted = ways(chart.edges, litCell(chart, marks.selected, pointedNode));
   const ringed = [...(marks.overlays ?? [])].find(([, o]) => o.current)?.[0];
   const ring = ringed !== undefined ? `c:${ringed}` : null;
-  const kindOf = (e: ChartEdge) => lineKind(e, { hot, lit: marks.lit, lighted, taken: marks.taken });
+  const kindOf = (e: ChartEdge) => lineKind(e, { lit: marks.lit, lighted, taken: marks.taken });
   const litIn = (id: string) => (marks.lit?.in.has(id) ?? false) || lighted.in.has(id);
   const litOut = (id: string) => (marks.lit?.out.has(id) ?? false) || lighted.out.has(id);
   // On a work's chart, what the work never went by is muted as its cells are: a label of a row it never took, and a
@@ -710,8 +709,9 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
   // The arrows lit up are drawn last, over the others: the one pointed at over those of the round chosen, and those
   // over the rows into and out of the cell lit.
   const over = (e: ChartEdge) => {
+    if (hot.has(e.id)) return 3;
     const k = kindOf(e);
-    return k === 'hot' ? 3 : k === 'lit-in' || k === 'lit-out' ? 2 : k === 'in' || k === 'out' ? 1 : 0;
+    return k === 'lit-in' || k === 'lit-out' ? 2 : k === 'in' || k === 'out' ? 1 : 0;
   };
   const edges = [...chart.edges].sort((a, b) => over(a) - over(b));
   // Each node as it is drawn, before a work's chart mutes what the work never went by.
@@ -908,6 +908,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
         const cls = [
           'fc-edge',
           `fc-edge-${kind}`,
+          hot.has(e.id) ? 'fc-edge-heavy' : '',
           e.kind === 'does' ? 'fc-edge-does' : '',
           use === 'read' ? 'fc-edge-read' : '',
         ].join(' ');
@@ -944,7 +945,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
           'fc-label',
           e.main ? 'fc-label-main' : '',
           n > 0 ? 'fc-label-taken' : '',
-          hot.has(e.id) ? 'fc-label-hot' : '',
+          hot.has(e.id) ? 'fc-label-heavy' : '',
           litOut(e.id) ? 'fc-label-out' : litIn(e.id) ? 'fc-label-in' : '',
           marks.taken !== null && !going(e.id) ? 'fc-label-quiet' : '',
         ].join(' ');

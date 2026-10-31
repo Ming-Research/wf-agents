@@ -953,7 +953,7 @@ const messages = {
   legend_main: 'a row on the main path',
   legend_way_in: 'a row into the cell picked, or the cell under the pointer',
   legend_way_out: 'a row out of the cell picked, or the cell under the pointer',
-  legend_hot: "a row pointed at or clicked, on the chart or by its line in a panel's From or To",
+  legend_hot: "a row pointed at or clicked, on the chart or by its line in a panel's From or To: heavier, in its own colour",
   legend_current: 'the cell the work is at',
   legend_running:
     'a round runs at the cell now, or has just run there: three arcs of colour run round it, a moment on each cell a short round ran at',

@@ -52,12 +52,10 @@
   /* The arrows: the lines of the chart, a step darker than a box's border so that they read on the chart's inset
      background; the main path in the accent's blue instead of heavier, as the owner asked. The rows into the cell lit
      green and out of it red, the page's success and danger colours, at an arrow's width, and the round chosen came in
-     and left by the same; their labels filled in the same colours, white letters on them, as the row pointed at is on
-     its orange. */
+     and left by the same; their labels filled in the same colours, white letters on them. */
   --fc-arrow: var(--borderColor-emphasis);
   --fc-arrow-main: var(--borderColor-accent-emphasis);
   --fc-taken: var(--data-blue-color-emphasis);
-  --fc-hot: var(--data-orange-color-emphasis);
   --fc-way-in: var(--borderColor-success-emphasis);
   --fc-way-out: var(--borderColor-danger-emphasis);
   --fc-way-in-label: var(--bgColor-success-emphasis);
@@ -528,14 +526,7 @@ svg.fc {
   animation: fc-flow var(--chart-flow-time) linear infinite;
 }
 
-/* What lights a row colours it: the row the pointer is on, from its source to its target, or one a line of the panel's
-   From or To lights, orange and heavy, as the owner asked, so that it stands out from the rows lit beside it; the rows
-   into the cell picked, or the cell under the pointer, green, and out of it red, as thin as any arrow. */
-.fc-edge-hot {
-  stroke: var(--fc-hot);
-  stroke-width: var(--chart-line-marked);
-}
-
+/* The rows into the cell picked, or the cell under the pointer, green, and out of it red, as thin as any arrow. */
 .fc-edge-in {
   stroke: var(--fc-way-in);
 }
@@ -560,6 +551,13 @@ svg.fc {
 
 .fc-edge-lit-out {
   stroke: var(--fc-way-out);
+}
+
+/* The row the pointer is on, from its source to its target, one clicked, or one a line of the panel's From or To
+   lights: heavier and nothing else, its colour, dashes and flow its own, as the owner asked; after every rule that
+   sets a line's width, so that it wins. */
+.fc-edge.fc-edge-heavy {
+  stroke-width: var(--chart-line-marked);
 }
 
 @keyframes fc-flow {
@@ -601,10 +599,6 @@ svg.fc {
   opacity: var(--chart-quiet);
 }
 
-.fc-head-hot path {
-  fill: var(--fc-hot);
-}
-
 .fc-head-in path,
 .fc-head-lit-in path {
   fill: var(--fc-way-in);
@@ -615,8 +609,8 @@ svg.fc {
   fill: var(--fc-way-out);
 }
 
-/* An arrow's label: on the muted background over the line; the main path's, a row the work took and a row lit into or
-   out of a cell semibold, the latter two in their line's colour. */
+/* An arrow's label: on the muted background over the line; the main path's, a row the work took, a row lit into or
+   out of a cell and the row drawn heavier semibold, a row taken or lit in its line's colour. */
 .fc-label rect {
   fill: var(--fc-label);
 }
@@ -624,7 +618,8 @@ svg.fc {
 .fc-label-main text,
 .fc .fc-label-taken text,
 .fc .fc-label-in text,
-.fc .fc-label-out text {
+.fc .fc-label-out text,
+.fc .fc-label-heavy text {
   font-weight: var(--base-text-weight-semibold);
 }
 
@@ -646,10 +641,6 @@ svg.fc {
   fill: var(--fgColor-onEmphasis);
 }
 
-.fc-label-hot rect {
-  fill: var(--fc-hot);
-}
-
 /* On a work's chart, the label of a row the work never took, muted as the arrow is. */
 .fc-label-quiet {
   opacity: var(--chart-quiet-label);
@@ -657,11 +648,6 @@ svg.fc {
 
 .fc-label-quiet text {
   font-weight: var(--base-text-weight-normal);
-}
-
-/* The label of the row the pointer is on: on its line's colour, its words in white. */
-.fc .fc-label-hot > text {
-  fill: var(--fgColor-onEmphasis);
 }
 
 /* Several graphs on one chart, side by side, each in a dashed frame round its drawing with its name on the frame's

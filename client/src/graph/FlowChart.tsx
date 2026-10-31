@@ -567,7 +567,7 @@ function Legend({ charts, stores, legend }: {
         </li>
         <li>
           <Swatch>
-            <path className="fc-edge fc-edge-hot" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-hot)" />
+            <path className="fc-edge fc-edge-plain fc-edge-heavy" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-plain)" />
           </Swatch>
           {t('legend_hot')}
         </li>
