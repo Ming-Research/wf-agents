@@ -9,7 +9,7 @@ Decision page-over-interface: The page is written in TypeScript over an interfac
 
 Rests on: C:design-on-merit, D:owner-web-page
 
-Decision owner-operations: The owner's operations (adding items and dependencies, cancelling items, ordering the queue, answering asks of the owner, ruling on design cards, interjecting, pausing and resuming works, and the views of where everything stands) have one implementation that the command line and the interface's handlers both call, and its reads return structured data that the command line only formats as text, instead of each client reading and writing the database itself, because two implementations of one action drift, and the page and the command line must show the same state.
+Decision owner-operations: The owner's operations (adding items and dependencies, removing dependencies, cancelling items, ordering the queue, answering asks of the owner, ruling on design cards, interjecting, pausing and resuming works, and the views of where everything stands) have one implementation that the command line and the interface's handlers both call, and its reads return structured data that the command line only formats as text, instead of each client reading and writing the database itself, because two implementations of one action drift, and the page and the command line must show the same state.
 
 Rests on: C:information, F:copies-drift
 

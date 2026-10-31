@@ -154,6 +154,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/settings", get(settings).post(save_settings))
         .route("/api/v1/settings/accounts", get(accounts).post(switch_account))
         .route("/api/v1/items/{id}/level", post(set_level))
+        .route("/api/v1/items/{id}/depends-on/{on}/remove", post(remove_dependency))
         .route("/api/v1/messages/read", post(mark_read))
         .route("/api/v1/faults/{id}/forward", post(forward_fault))
         .route("/api/v1/faults/forward-new", post(forward_new))
@@ -663,6 +664,11 @@ async fn set_level(
 ) -> Result<Json<api::Done>, Fail> {
     let data = Arc::clone(&app.data);
     decide(&app, move |db| api::set_level(db, &data, id, &l.level)).await
+}
+
+/// Removes a dependency, as the owner: the item no longer depends on the other.
+async fn remove_dependency(State(app): State<App>, Path((id, on)): Path<(i64, i64)>) -> Result<Json<api::Done>, Fail> {
+    decide(&app, move |db| api::remove_dependency(db, id, on)).await
 }
 
 /// The period the System view counts over, and the owner's time zone its weeks start in.

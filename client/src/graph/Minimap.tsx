@@ -1,7 +1,8 @@
 // The map over a chart's top left corner: the whole chart drawn small, its stage boxes and cells (and the stores' boxes
-// and stores) as plain shapes with no text and no arrows, each cell and store in the colours the chart draws it in, on
-// a work's chart the cell the work is at ringed and the cells it never reached muted, and the part of the chart in
-// view as a frame. A click on the map brings the point clicked to the middle at the zoom the chart has; dragging the
+// and stores) as plain shapes with no arrows, each cell and store in the colours the chart draws it in, each stage's
+// box with its stage's letter in its middle, its only text, so that the owner finds a stage on it at a glance, on a
+// work's chart the cell the work is at ringed and the cells it never reached muted, and the part of the chart in view
+// as a frame. A click on the map brings the point clicked to the middle at the zoom the chart has; dragging the
 // frame moves the chart. The map is drawn from the layout the chart already has, and its frame follows the view as it
 // changes, without drawing the chart again. It hides while the whole chart is in view, and while what can be seen is
 // too small for it to keep clear of the middle, where the chart centres on the cell a round runs at. Under it, or in
@@ -50,9 +51,11 @@ export function mapGeom(chart: Size): MapGeom {
 
 /// A shape on the map, in the map's pixels: a stage box or a box of stores, or a cell or a store, with the class the
 /// chart draws it in (`styleOf` for a cell, a store's for a store), so that the two take their colours from one rule;
-/// on a work's chart a cell is the one the work is at (`running` while a round runs there) or one it never reached.
+/// on a work's chart a cell is the one the work is at (`running` while a round runs there) or one it never reached; a
+/// stage's box with the letter its cells' codes start with, if they share one.
 export type MapShape = Box & {
   kind: 'box' | 'cell';
+  letter: string | null;
   graph: string | null;
   cell: string | null;
   style: string | null;
@@ -101,8 +104,11 @@ export function mapOf(
     const dx = s.left - s.laid.bounds.x + pad;
     const dy = top - s.laid.bounds.y + pad;
     const compiled = new Map(s.cells.map((c) => [c.id, c]));
-    for (const b of s.laid.groups.values()) {
-      boxes.push({ ...scaled(b, dx, dy, 0), kind: 'box', graph: s.graph, cell: null, style: null, mark: null });
+    const letters = new Map(s.chart.groups.map((g) => [g.id, g.letter]));
+    for (const [id, b] of s.laid.groups) {
+      const letter = letters.get(id) || null;
+      const shape = { kind: 'box' as const, letter, graph: s.graph, cell: null, style: null, mark: null };
+      boxes.push({ ...scaled(b, dx, dy, 0), ...shape });
     }
     for (const n of s.chart.nodes) {
       const b = s.laid.nodes.get(n.id);
@@ -113,17 +119,27 @@ export function mapOf(
       else if (o?.current) mark = o.running ? 'running' : 'current';
       const c = compiled.get(n.cell);
       const style = c !== undefined ? styleOf(c, colours) : null;
-      cells.push({ ...scaled(b, dx, dy, LEAST), kind: 'cell', graph: s.graph, cell: n.cell, style, mark });
+      const shape = { kind: 'cell' as const, letter: null, graph: s.graph, cell: n.cell, style, mark };
+      cells.push({ ...scaled(b, dx, dy, LEAST), ...shape });
     }
   }
   if (stores !== null) {
     const dx = stores.left + pad;
     const dy = top + pad;
     for (const b of stores.laid.boxes) {
-      boxes.push({ ...scaled(b.box, dx, dy, 0), kind: 'box', graph: null, cell: null, style: null, mark: null });
+      const shape = { kind: 'box' as const, letter: null, graph: null, cell: null, style: null, mark: null };
+      boxes.push({ ...scaled(b.box, dx, dy, 0), ...shape });
     }
     for (const b of stores.laid.stores.values()) {
-      cells.push({ ...scaled(b, dx, dy, LEAST), kind: 'cell', graph: null, cell: null, style: 'fc-store', mark: null });
+      cells.push({
+        ...scaled(b, dx, dy, LEAST),
+        kind: 'cell',
+        letter: null,
+        graph: null,
+        cell: null,
+        style: 'fc-store',
+        mark: null,
+      });
     }
   }
   const atop = (s: MapShape) => (s.mark === 'current' || s.mark === 'running' ? 1 : 0);
@@ -311,6 +327,21 @@ export const Minimap = memo(function Minimap({ map, viewer }: { map: MapOf; view
                 </g>
               );
             })}
+            {/* The stages' letters over the cells, under the frame. */}
+            {shapes.map((s, i) =>
+              s.letter !== null ? (
+                <text
+                  key={`letter:${i}`}
+                  className="fc-map-letter"
+                  x={s.x + s.width / 2}
+                  y={s.y + s.height / 2}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                >
+                  {s.letter}
+                </text>
+              ) : null,
+            )}
             <rect ref={frame} className="fc-map-frame" rx={1} />
           </g>
         </svg>

@@ -133,6 +133,11 @@
   gap: var(--base-size-4) var(--base-size-8);
 }
 
+/* Why the owner's removal of a dependency failed, beside its button. */
+.linked-error {
+  color: var(--fgColor-danger);
+}
+
 /* The checklist of where the work stands: done with a filled tick, the cell it is at with a dot, what is ahead with a
    hollow circle, under each stage's name. */
 .checklist {

@@ -122,7 +122,7 @@ svg.fc {
 
 .fc-group text,
 .fc-group-name text {
-  font-size: var(--text-title-size-small);
+  font-size: var(--text-title-size-medium);
   font-weight: var(--base-text-weight-semibold);
 }
 
@@ -760,6 +760,18 @@ button.legend-button[aria-expanded='true'] {
   fill: var(--fc-group);
   stroke: var(--fc-group-line);
   stroke-width: var(--chart-line-map);
+}
+
+/* A stage's letter in the middle of its box on the map, body small semibold, ringed in the map's surface so that the
+   cells under it do not cross it. */
+.fc-map-letter {
+  fill: var(--fgColor-default);
+  font-size: var(--text-body-size-small);
+  font-weight: var(--base-text-weight-semibold);
+  stroke: var(--overlay-bgColor);
+  stroke-width: var(--chart-line-letter);
+  stroke-linejoin: round;
+  paint-order: stroke;
 }
 
 /* A cell's fill and edge are the chart's, from the class of its kind or line; only the edge's width is the map's. */

@@ -40,14 +40,13 @@ function finishing(s: Status): number {
   return s.paused && s.running !== null && !goesOn ? 1 : 0;
 }
 
-/// What the engine is doing, in a few words: while every work is paused, which the owner started run.
+/// What the engine is doing, in a few words; the works the owner started while every work is paused say so on their
+/// own rows, each by its mark.
 function stateWords(s: Status): string {
   if (s.halt !== null) return t('engine_halt', { kind: s.halt.kind, until: time(s.halt.until) });
   if (!s.paused) return t('engine_running');
   const n = finishing(s);
-  if (n > 0) return tn('engine_pausing', n);
-  const runs = [...s.started.map((w) => `#${w}`), ...s.architects_started.map((p) => t('engine_runs_architect', { project: p }))];
-  return runs.length > 0 ? t('engine_paused_runs', { which: runs.join(', ') }) : t('engine_paused');
+  return n > 0 ? tn('engine_pausing', n) : t('engine_paused');
 }
 
 /// The switch that keeps waiting sessions warm while every work is paused, on at first: one click turns it over, and

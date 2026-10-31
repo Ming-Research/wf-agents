@@ -81,7 +81,7 @@ export function chartFonts(): ChartFonts {
     fonts = {
       title: `600 ${large}px ${sans}`,
       code: `600 ${large}px ${mono}`,
-      stage: `600 ${sizeOf('--text-title-size-small', 16)}px ${sans}`,
+      stage: `600 ${sizeOf('--text-title-size-medium', 20)}px ${sans}`,
       note: `${sizeOf('--text-body-size-medium', 14)}px ${sans}`,
       small: `${sizeOf('--text-body-size-small', 12)}px ${sans}`,
       badge: `600 ${sizeOf('--chart-badge-text-size', 10)}px ${sans}`,
@@ -971,12 +971,12 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, colours, marks, 
           gr.id === 'asking'
             ? t(gr.letter ? 'chart_asking_part_letter' : 'chart_asking_part', { letter: gr.letter })
             : t(gr.letter ? 'chart_stage_letter' : 'chart_stage', { stage: gr.label, letter: gr.letter });
-        // The name is drawn in a stage's font, title small.
+        // The name is drawn in a stage's font, title medium.
         const width = Math.ceil(measure(name, chartFonts().stage)) + 8;
         return (
           <g key={`name:${gr.id}`} className="fc-group-name">
-            <rect x={box.x + 8} y={box.y + 6} width={width} height={22} rx={3} />
-            <text x={box.x + 12} y={box.y + 17} dominantBaseline="central">
+            <rect x={box.x + 8} y={box.y + 6} width={width} height={28} rx={3} />
+            <text x={box.x + 12} y={box.y + 20} dominantBaseline="central">
               {name}
             </text>
           </g>

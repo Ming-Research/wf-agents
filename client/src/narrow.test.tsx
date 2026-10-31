@@ -116,7 +116,7 @@ describe("the bar's overflow of the engine", () => {
     expect(bar).toContain(MORE);
     expect(bar).not.toContain('engine-words');
     expect(bar).not.toContain(WARM);
-    const words = t('engine_paused_runs', { which: '#30' });
+    const words = t('engine_paused');
     expect(bar).toContain(`title="${words}`);
     expect(bar).toContain(`>${words}</span>`);
   });
