@@ -7,6 +7,7 @@ import { Architect } from './pages/Architect';
 import { Flow } from './pages/Flow';
 import { Items } from './pages/Items';
 import { Messages } from './pages/Messages';
+import { Observations } from './pages/Observations';
 import { Settings } from './pages/Settings';
 import { System } from './pages/System';
 import { Works } from './pages/Works';
@@ -22,8 +23,8 @@ export function App() {
     if (route.page === 'system' && location.pathname === '/spend') navigate(href(route), true);
   }, [route]);
   const work = route.page === 'work' ? route : null;
-  // A view that fills the window and scrolls inside its parts; the items scroll the page, their tree's pane staying
-  // under the bar as Primer's PageLayout keeps a sticky pane.
+  // A view that fills the window and scrolls inside its parts; the items and the observations scroll the page, their
+  // list's pane staying under the bar as Primer's PageLayout keeps a sticky pane.
   const screen = ['flow', 'work', 'works', 'architect', 'messages'].includes(route.page);
   return (
     <div className={screen ? 'app app-screen' : 'app'}>
@@ -37,6 +38,8 @@ export function App() {
         {route.page === 'items' || route.page === 'item' ? (
           <Items selected={route.page === 'item' ? route.id : null} />
         ) : null}
+        {/* One element for the list and the observation open beside it, so that opening one keeps the list as it is. */}
+        {route.page === 'observations' ? <Observations route={route} /> : null}
         {route.page === 'architect' ? <Architect route={route} /> : null}
         {route.page === 'messages' ? <Messages open={route.open} side={route.side ?? null} /> : null}
         {route.page === 'system' ? <System period={route.period} /> : null}

@@ -3,31 +3,20 @@
 // the work is there, with its result, time and cost, the design folded in the design's card and its design card to
 // rule on; in an architect's one-to-one, one for each matter the architect took up but the owner's words, whose bubble
 // says where they stand, from when it took it up, held by an ask, worked on at a cell, handled with what became of it,
-// or withdrawn, and the policy as it took effect; in wf-agents' own, each observation, which the owner closes there.
-// Each leads to where its detail is: a stage to its rounds, a matter to its cell on the architect's chart or its
-// work's group.
+// or withdrawn, and the policy as it took effect. Each leads to where its detail is: a stage to its rounds, a matter to
+// its cell on the architect's chart or its work's group, and the observations it recorded or changed to the project's
+// observations.
 
-import {
-  BlockedIcon,
-  CheckIcon,
-  CircleIcon,
-  DotFillIcon,
-  EyeIcon,
-  FileIcon,
-  SkipIcon,
-  SyncIcon,
-} from '@primer/octicons-react';
-import { Button, Label, Timeline } from '@primer/react';
-import { useState, type ReactNode } from 'react';
+import { BlockedIcon, CheckIcon, CircleIcon, DotFillIcon, FileIcon, SkipIcon, SyncIcon } from '@primer/octicons-react';
+import { Label, Timeline } from '@primer/react';
+import type { ReactNode } from 'react';
 
-import type { ConversationEntry, MatterProgress, Observation, PolicyInForce, Shown, StageCard, WorkSummary } from '../api';
+import type { ConversationEntry, MatterProgress, PolicyInForce, Shown, StageCard, WorkSummary } from '../api';
 import { matterKind, matterSentence, matterSteps, outcomes, type MatterWords } from '../architect';
 import { StateChip } from '../components';
 import { stageFacts } from '../conversation';
 import { cost, duration, time } from '../format';
-import { postJson } from '../http';
 import { words } from '../labelled';
-import { reread } from '../live';
 import { Markdown } from '../markdown';
 import { Fold } from '../parts';
 import { architectHref, href, Link, workHref } from '../route';
@@ -171,8 +160,8 @@ export function MatterWhat({ m }: { m: MatterWords }) {
 /// A matter of the architect's: its kind and what it asks, whole, with where it stands (back in the queue, held by an
 /// ask of the owner, worked on at a cell, handled, withdrawn) and its links after them; a place to set straight with
 /// the steps to take there folded under it; a matter about a work leads to that work's group, which holds it in full;
-/// one handled says what became of it, line by line, and leads to the round that closed it; one worked on leads to its
-/// cell on the architect's chart.
+/// one handled says what became of it, line by line, the observations it recorded or changed leading to the project's
+/// observations, and leads to the round that closed it; one worked on leads to its cell on the architect's chart.
 export function MatterCardView({ m, project, current }: { m: MatterProgress; project: string; current: boolean }) {
   const s = MATTER_STATES[m.state] ?? MATTER_STATES.queued;
   const steps = matterSteps(m);
@@ -215,9 +204,9 @@ export function MatterCardView({ m, project, current }: { m: MatterProgress; pro
       ) : null}
       {m.state === 'withdrawn' && m.withdrawn !== null ? <p className="talk-card-note">{m.withdrawn}</p> : null}
       {m.handled !== null && group === null
-        ? outcomes(m.handled).map((o) => (
+        ? outcomes(m.handled, project).map((o) => (
             <p key={o.key} className="talk-card-note">
-              <span className="talk-card-kind">{o.label}</span> {o.text}
+              <span className="talk-card-kind">{o.label}</span> {o.to !== null ? <Link to={o.to}>{o.text}</Link> : o.text}
             </p>
           ))
         : null}
@@ -240,49 +229,6 @@ export function PolicyCard({ p }: { p: PolicyInForce }) {
           <PolicyText value={p.policy} />
         </div>
       </details>
-    </Card>
-  );
-}
-
-/// An observation of wf-agents: what it is, as its architect recorded it; its tags and how many times it was reported;
-/// closed, why; open, the owner's Close, which asks why.
-export function ObservationCard({ o }: { o: Observation }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const close = () => {
-    const why = window.prompt(t('observation_close_why'));
-    if (why === null || why.trim() === '') return;
-    setBusy(true);
-    setError(null);
-    postJson(`/api/v1/observations/${o.id}/close`, { why: why.trim() }).then(
-      () => reread('messages', 'architect'),
-      (x: unknown) => {
-        setBusy(false);
-        setError(x instanceof Error ? x.message : String(x));
-      },
-    );
-  };
-  return (
-    <Card icon={<EyeIcon />} tone={o.closed === null ? 'attention' : undefined} id={`observation-${o.id}`}>
-      <div className="talk-card-line">
-        <span className="talk-card-title">{t('observation_head', { id: o.id })}</span>
-        {o.tags.map((x) => (
-          <Label key={x} variant="secondary">
-            {x}
-          </Label>
-        ))}
-        <span className="talk-card-facts">{tn('observation_reported', o.times_reported)}</span>
-        {o.closed !== null ? (
-          <StateChip tone="neutral">{t('observation_closed', { why: words(o.closed) })}</StateChip>
-        ) : (
-          <Button size="small" disabled={busy} onClick={close}>
-            {t('observation_close')}
-          </Button>
-        )}
-      </div>
-      <Said text={o.what} />
-      {o.closed_why !== null ? <p className="talk-card-note">{o.closed_why}</p> : null}
-      {error !== null ? <p className="talk-card-note bad">{t('request_failed', { error })}</p> : null}
     </Card>
   );
 }

@@ -92,8 +92,8 @@ export function conversationTitle(c: Pick<Conversation, 'key' | 'kind' | 'projec
 
 /// The voice the page draws an entry in: the owner's words, on the right; an agent's, beside its avatar; the page's
 /// own line for what the engine or a helper says; a card the engine writes from the flow (a stage, a matter, the
-/// policy, an observation); a fault of wf-agents, which the owner marks read; or nothing, for a design card the stage
-/// card that holds it shows.
+/// policy); a fault of wf-agents, which the owner marks read; or nothing, for a design card the stage card that holds it
+/// shows.
 export type Voice = 'owner' | 'agent' | 'system' | 'card' | 'fault' | 'none';
 
 /// The lines that are members of a work's group besides the owner: its engineer and its project's architect.
@@ -108,7 +108,6 @@ export function voiceOf(e: ConversationEntry, held: ReadonlySet<number>): Voice 
     case 'stage':
     case 'matter':
     case 'policy':
-    case 'observation':
       return 'card';
     case 'notice':
       return e.fault !== null ? 'fault' : 'system';

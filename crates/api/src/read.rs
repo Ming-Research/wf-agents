@@ -18,9 +18,9 @@ use crate::{
     Architect, ArchitectWork, AskKind, DesignCard, DispatchHold, FlowVersion, FlowView, Handled, HandledAction,
     InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
     LinkedItem, Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, OwnerAsk, OwnerMessage,
-    PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, Queued, Replacement, RoundConditional, RoundDetail,
-    RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts,
-    ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
+    PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Queued, Replacement, RoundConditional,
+    RoundDetail, RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag,
+    TokenCosts, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1750,16 +1750,13 @@ pub(crate) fn shown_where(conn: &Connection, flows: &Flows, filter: &str, args: 
 }
 
 /// A project's architect, as its page and the panel beside its one-to-one show it: `projects` are every project of the
-/// configuration, `tags` the project's tags for observations, each with what it covers, `own` whether the project is
-/// wf-agents itself, and `constitution` the project's constitution as its checkout has it. Its cells are named as the
+/// configuration, and `constitution` the project's constitution as its checkout has it. Its cells are named as the
 /// views over its rounds name them.
 pub fn architect(
     conn: &Connection,
     flows: &Flows,
     project: &str,
     projects: Vec<String>,
-    tags: Vec<Tag>,
-    own: bool,
     constitution: Option<NamedText>,
 ) -> Result<Architect> {
     // The works of the project's architect, and the settings of its policy a flow version before ran beside them as works
@@ -1802,9 +1799,6 @@ pub fn architect(
         policy: policy(conn, project)?,
         draft: draft(conn, project)?,
         notebook: notebook(conn, project)?,
-        observations: observations(conn, project)?,
-        tags,
-        own,
         constitution,
     })
 }
@@ -2115,12 +2109,33 @@ fn item_changes(conn: &Connection, project: &str) -> Result<Vec<ItemChange>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// A project's observations: the open ones first, then those closed, each newest first.
-pub(crate) fn observations(conn: &Connection, project: &str) -> Result<Vec<Observation>> {
+/// The observations of every project that has any, by the project's name, each with the tags the configuration gives
+/// the project's observations (`tags`, by project; none for a project it no longer names).
+pub fn observations_by_project(
+    conn: &Connection,
+    tags: &BTreeMap<String, Vec<Tag>>,
+) -> Result<Vec<ProjectObservations>> {
+    let projects: Vec<String> = {
+        let mut st = conn.prepare("SELECT DISTINCT project FROM observations ORDER BY project")?;
+        st.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+    };
+    let mut out = Vec::new();
+    for project in projects {
+        out.push(ProjectObservations {
+            tags: tags.get(&project).cloned().unwrap_or_default(),
+            observations: observations(conn, &project)?,
+            project,
+        });
+    }
+    Ok(out)
+}
+
+/// A project's observations: the open ones first, then those an item took in or that were closed, each newest first.
+fn observations(conn: &Connection, project: &str) -> Result<Vec<Observation>> {
     let mut st = conn.prepare(
         "SELECT id, what, tags, source, times_reported, refs, folded_into, closed, closed_why, created, updated
          FROM observations_all WHERE project = ?1
-         ORDER BY closed IS NOT NULL, coalesce(updated, created) DESC, id DESC",
+         ORDER BY closed IS NOT NULL OR folded_into IS NOT NULL, coalesce(updated, created) DESC, id DESC",
     )?;
     let texts = |s: Option<String>| -> Vec<String> {
         json(s)
@@ -3120,7 +3135,6 @@ mod tests {
         let s = architect_setup("talk");
         let t = crate::Talks {
             projects: vec!["p".into(), "q".into()],
-            own: Some("p".into()),
             sets: Vec::new(),
             ..crate::Talks::default()
         };
@@ -3258,7 +3272,6 @@ mod tests {
             .unwrap();
         let t = crate::Talks {
             projects: vec!["p".into()],
-            own: None,
             sets: Vec::new(),
             ..crate::Talks::default()
         };
@@ -3376,7 +3389,6 @@ mod tests {
         .unwrap();
         let t = crate::Talks {
             projects: vec!["p".into(), "q".into()],
-            own: None,
             sets: Vec::new(),
             ..crate::Talks::default()
         };
@@ -3470,7 +3482,6 @@ mod tests {
         let mut s = architect_setup("gone");
         let t = crate::Talks {
             projects: vec!["p".into(), "q".into()],
-            own: Some("p".into()),
             sets: Vec::new(),
             ..crate::Talks::default()
         };
@@ -3497,7 +3508,6 @@ mod tests {
         let mut s = architect_setup("answered");
         let t = crate::Talks {
             projects: vec!["p".into(), "q".into()],
-            own: Some("p".into()),
             sets: Vec::new(),
             ..crate::Talks::default()
         };
@@ -3540,7 +3550,6 @@ mod tests {
         let mut s = architect_setup("pinned");
         let talks = |wait: i64| crate::Talks {
             projects: vec!["p".into(), "q".into()],
-            own: Some("p".into()),
             sets: Vec::new(),
             reply_wait: wait,
         };
@@ -3698,25 +3707,12 @@ mod tests {
 
     // A project's tab: its works newest first, with what each started for and what it handled; its queue, then what an
     // ask holds; its holds; its asks; its log newest first; the item changes made; the policy being set; where things
-    // stand; its observations, open ones first. Another project's are not in it.
+    // stand. Another project's are not in it.
     #[test]
-    fn the_architect_says_its_works_queue_log_policy_understanding_and_observations() {
+    fn the_architect_says_its_works_queue_log_policy_and_understanding() {
         let s = architect_setup("architect");
-        let tags = vec![Tag {
-            name: "perf".into(),
-            desc: "How fast".into(),
-        }];
-        let a = architect(
-            s.db.conn(),
-            &Flows::default(),
-            "p",
-            vec!["p".into(), "q".into()],
-            tags,
-            false,
-            None,
-        )
-        .unwrap();
-        assert_eq!((a.project.as_str(), a.projects.len(), a.tags.len()), ("p", 2, 1));
+        let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into(), "q".into()], None).unwrap();
+        assert_eq!((a.project.as_str(), a.projects.len()), ("p", 2));
         assert_eq!(a.works.iter().map(|w| w.work.id).collect::<Vec<_>>(), [3, 2]);
         let (now, last) = (&a.works[0], &a.works[1]);
         assert_eq!(
@@ -3777,10 +3773,41 @@ mod tests {
         assert_eq!(a.policy, None);
         // A study a setting of a flow version before wrote, in a work of its own, is no draft of a new policy.
         assert_eq!(a.draft, None);
+    }
 
-        let seen: Vec<(i64, Option<&str>)> = a.observations.iter().map(|o| (o.id, o.closed.as_deref())).collect();
-        assert_eq!(seen, [(1, None), (2, Some("outdated"))]);
-        assert_eq!(a.observations[0].tags, ["perf"]);
+    // The observations of each project that has any, by the project's name, with the tags its configuration gives
+    // them: the open ones first, then those an item took in or that were closed, each newest first. A project the
+    // configuration no longer names has no tags.
+    #[test]
+    fn the_observations_are_by_project_the_open_ones_first() {
+        let mut s = architect_setup("observations");
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO observations (project, what, tags, source, folded_into) VALUES ('p', 'Taken.', '[]', 's', 1)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let perf = Tag {
+            name: "perf".into(),
+            desc: "How fast".into(),
+        };
+        let tags = BTreeMap::from([("p".to_string(), vec![perf.clone()])]);
+        let all = observations_by_project(s.db.conn(), &tags).unwrap();
+        let seen: Vec<(&str, Vec<i64>)> = all
+            .iter()
+            .map(|p| (p.project.as_str(), p.observations.iter().map(|o| o.id).collect()))
+            .collect();
+        assert_eq!(seen, [("p", vec![1, 4, 2]), ("q", vec![3])]);
+        assert_eq!((all[0].tags.clone(), all[1].tags.len()), (vec![perf], 0));
+        let p = &all[0].observations;
+        assert_eq!(p[0].tags, ["perf"]);
+        assert_eq!((p[1].folded_into, p[1].closed.as_deref()), (Some(1), None));
+        assert_eq!(
+            (p[2].closed.as_deref(), p[2].closed_why.as_deref()),
+            (Some("outdated"), Some("Gone."))
+        );
     }
 
     // The draft of a new policy that waits for the owner's approval is the latest the architect wrote, in whichever of its

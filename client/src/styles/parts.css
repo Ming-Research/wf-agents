@@ -253,15 +253,6 @@
   margin-top: var(--base-size-4);
 }
 
-/* The facts under a block's text, on one line as room allows. */
-.block-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--base-size-4) var(--base-size-12);
-  color: var(--fgColor-muted);
-  font-size: var(--text-body-size-small);
-}
-
 /* Who wrote something: who to whom, or the cell; when; the round. Small, muted but for who. */
 .by {
   display: inline-flex;
@@ -556,4 +547,29 @@
 .period-switch .period-on {
   color: var(--fgColor-default);
   font-weight: var(--base-text-weight-semibold);
+}
+
+/* A list and what is open from it (ListSplit): Primer's PageLayout under the bar, the list in its pane on the left and
+   what is open in its content on the right, each scrolling on its own. While nothing is open the pane fills the view
+   and its divider, with the handle that drags it, is gone: the pane's own width (Primer's, from the width the owner
+   dragged it to) and its divider are reached through the names Primer gives them, since Primer has no pane that fills
+   its layout and keeps its width for later. */
+.list-split {
+  flex: 1;
+}
+
+.list-split-open {
+  min-width: 0;
+}
+
+.list-split-whole .list-split-list {
+  flex: 1;
+}
+
+.list-split-whole [data-component='PageLayout.Pane'] {
+  width: 100%;
+}
+
+.list-split-whole [data-component='PageLayout.VerticalDivider'] {
+  display: none;
 }

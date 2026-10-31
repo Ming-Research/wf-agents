@@ -275,13 +275,12 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         post(s.port, "/api/v1/architect/start?project=q", "{}", "application/json").0,
         404
     );
-    // The architect's tab names its project, every project and the project's tags for observations, and no
-    // constitution for a project that names none.
+    // The architect's tab names its project and every project, and no constitution for a project that names none.
     let here = format!("127.0.0.1:{}", s.port);
     let (status, tab) = get(s.port, "/api/v1/architect", &here, "");
     assert_eq!(status, 200, "{tab}");
     assert!(
-        tab.contains(r#""project":"p""#) && tab.contains(r#""projects":["p"]"#) && tab.contains(r#""name":"perf""#),
+        tab.contains(r#""project":"p""#) && tab.contains(r#""projects":["p"]"#),
         "{tab}"
     );
     assert!(tab.contains(r#""constitution":null"#), "{tab}");
@@ -610,6 +609,49 @@ fn the_owner_answers_and_rules_on_the_page() {
     .unwrap();
     let (status, again) = post(s.port, "/api/v1/works/1/start", "{}", "application/json");
     assert_eq!(status, 422, "{again}");
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
+// The Observations view reads every project's observations that has any, by name, each project's with the tags the
+// configuration gives them and none for a project it no longer names; the owner closes one there, saying why.
+#[test]
+fn the_owner_reads_each_project_s_observations_and_closes_one() {
+    let s = serve("observations");
+    let mut db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
+    db.write(db::Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO observations (project, what, tags, source) VALUES ('p', 'Slow.', '[\"perf\"]', 's'),
+             ('gone', 'Old.', '[]', 's')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let here = format!("127.0.0.1:{}", s.port);
+    let (status, all) = get(s.port, "/api/v1/observations", &here, "");
+    assert_eq!(status, 200, "{all}");
+    assert!(
+        all.contains(r#"[{"project":"gone","tags":[],"observations":[{"id":2,"what":"Old.""#),
+        "{all}"
+    );
+    assert!(
+        all.contains(
+            r#"{"project":"p","tags":[{"name":"perf","desc":"How fast"}],"observations":[{"id":1,"what":"Slow.""#
+        ),
+        "{all}"
+    );
+    let (status, done) = post(
+        s.port,
+        "/api/v1/observations/1/close",
+        r#"{"why":"Not worth it."}"#,
+        "application/json",
+    );
+    assert_eq!(status, 200, "{done}");
+    let (_, again) = get(s.port, "/api/v1/observations", &here, "");
+    assert!(
+        again.contains(r#""closed":"owner","closed_why":"Not worth it.""#),
+        "{again}"
+    );
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 

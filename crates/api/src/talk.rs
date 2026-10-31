@@ -2,8 +2,8 @@
 //! that never changes for what waits (the one-to-ones with the architects and wf-agents' own first, then a group for
 //! each work, newest first, then the groups of connected projects), with what waits for the owner in each and what is
 //! unread; and one in full, its entries in time order, with what the engine writes from the flow beside what was said
-//! (a work's stage cards, an architect's matter cards, the policy taking effect, wf-agents' observations) and where the
-//! owner's words stand with the architect, what waits for the owner, and how far the owner has read it.
+//! (a work's stage cards, an architect's matter cards, the policy taking effect) and where the owner's words stand with
+//! the architect, what waits for the owner, and how far the owner has read it.
 
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -18,13 +18,12 @@ use crate::{
 
 type Result<T> = std::result::Result<T, Error>;
 
-/// What the conversations need of the configuration: its projects, in order, the project that is wf-agents itself, the
-/// groups of two projects or more it connects through each project's `other_projects`, and how long, in milliseconds,
-/// an architect waits for the owner's reply to the question it put last (`agents.owner_reply_wait`).
+/// What the conversations need of the configuration: its projects, in order, the groups of two projects or more it
+/// connects through each project's `other_projects`, and how long, in milliseconds, an architect waits for the owner's
+/// reply to the question it put last (`agents.owner_reply_wait`).
 #[derive(Debug, Clone, Default)]
 pub struct Talks {
     pub projects: Vec<String>,
-    pub own: Option<String>,
     pub sets: Vec<Vec<String>>,
     pub reply_wait: i64,
 }
@@ -55,7 +54,6 @@ impl Talks {
         }
         Talks {
             projects,
-            own: c.wf_agents_project(),
             sets: sets.into_values().filter(|s| s.len() > 1).collect(),
             reply_wait: i64::try_from(c.install.agents.owner_reply_wait)
                 .unwrap_or(i64::MAX / 1000)
@@ -227,9 +225,9 @@ pub fn conversations(conn: &Connection, t: &Talks) -> Result<Vec<Conversation>> 
 
 /// One of the owner's conversations in full: its entries in time order, with what the engine writes from the flow
 /// beside what was said (a work's stage cards; an architect's matter cards and the policy in force, with the documents
-/// of its asks; wf-agents' observations), and where the owner's words in it stand with the architect; the open
-/// blockers the owner holds in it, with their forms; in the one-to-one with an architect, the questions it pinned for
-/// the owner's reply and the one it waits on now; and how far the owner has read it.
+/// of its asks), and where the owner's words in it stand with the architect; the open blockers the owner holds in it,
+/// with their forms; in the one-to-one with an architect, the questions it pinned for the owner's reply and the one it
+/// waits on now; and how far the owner has read it.
 pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> Result<ConversationDetail> {
     let select = "SELECT conversation, source, id, sender, recipient, text, at, work, round, ask, design_card, matter,
                     read_at, waiting, pending, undelivered, answerable, fault
@@ -269,7 +267,6 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
                 matter_card: None,
                 words_state: None,
                 policy: None,
-                observation: None,
             },
         ))
     };
@@ -352,28 +349,6 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
                 work: Some(p.work),
                 round: Some(p.round),
                 policy: Some(p),
-                ..blank()
-            });
-        }
-    }
-    // The observations of a project, which the owner closes where its architect speaks to the owner: wf-agents' in its
-    // own conversation, any other project's in its architect's one-to-one.
-    let observed = match key.strip_prefix("architect:") {
-        Some(p) if t.own.as_deref() != Some(p) => Some(p.to_string()),
-        Some(_) => None,
-        None if key == "wf-agents" => t.own.clone(),
-        None => None,
-    };
-    if let Some(project) = observed {
-        for o in read::observations(conn, &project)? {
-            entries.push(ConversationEntry {
-                source: "observation".into(),
-                id: o.id,
-                sender: "architect".into(),
-                recipient: "owner".into(),
-                text: o.what.clone(),
-                at: o.created.unwrap_or_default(),
-                observation: Some(o),
                 ..blank()
             });
         }
@@ -613,7 +588,6 @@ fn blank() -> ConversationEntry {
         matter_card: None,
         words_state: None,
         policy: None,
-        observation: None,
     }
 }
 

@@ -1,7 +1,6 @@
 // What an architect's page and its one-to-one work out from what the interface reads, apart from drawing it: the stretch
 // of its work the chart shows, how the architect stands, its queue in parts, each matter in words the owner reads at a
-// glance, what became of each matter handled, the observations the owner looks for, the articles of the constitution
-// in the order the owner reads them.
+// glance, what became of each matter handled, the articles of the constitution in the order the owner reads them.
 
 import type {
   Architect,
@@ -9,7 +8,6 @@ import type {
   Handled,
   Matter,
   MatterCard,
-  Observation,
   Status,
   WorkState,
   WorkSummary,
@@ -18,7 +16,7 @@ import { course, heldName } from './components';
 import { runningWords } from './course';
 import { isObj, str, words } from './labelled';
 import { type Key, t, tn } from './messages';
-import type { ArchitectTab } from './route';
+import { observationsHref } from './route';
 
 /// A work of the architect goes on no more once it reached its end or was ended.
 export const overWork = (w: WorkSummary): boolean => w.state === 'done' || w.state === 'ended';
@@ -186,9 +184,9 @@ export function architectMark(a: Architect, status: Status | null): Standing {
   return now;
 }
 
-/// One kind of outcome of a matter handled, on one line: what it is, what came of it, and the tab that holds the rest of
-/// it, if one does.
-export type Outcome = { key: string; label: string; text: string; tab: ArchitectTab | null };
+/// One kind of outcome of a matter handled, on one line: what it is, what came of it, and the address that holds the
+/// rest of it, if one does.
+export type Outcome = { key: string; label: string; text: string; to: string | null };
 
 const ACTIONS: Record<string, Key> = {
   pause_work: 'handled_pause_work',
@@ -201,9 +199,9 @@ const ACTIONS: Record<string, Key> = {
 
 /// What became of a matter handled, one line for each kind of outcome it had, in the order the owner reads them: the
 /// reply taken back to the work that asked; what its path told the owner and the ask it put, both in the conversation;
-/// the item changes it collected; the changes to the observations; what it did at once; whom it wrote to. When nothing
-/// came of it, why, as the cell that closed it said.
-export function outcomes(h: Handled): Outcome[] {
+/// the item changes it collected; the changes to the observations, which lead to the project's observations; what it
+/// did at once; whom it wrote to. When nothing came of it, why, as the cell that closed it said.
+export function outcomes(h: Handled, project: string): Outcome[] {
   const out: Outcome[] = [];
   const counted = (parts: Array<[number, Key]>) =>
     parts
@@ -211,45 +209,34 @@ export function outcomes(h: Handled): Outcome[] {
       .map(([n, key]) => t(key, { n }))
       .join(', ');
   if (h.reply !== null) {
-    out.push({ key: 'reply', label: t('handled_reply', { work: h.reply_to ?? '' }), text: h.reply, tab: null });
+    out.push({ key: 'reply', label: t('handled_reply', { work: h.reply_to ?? '' }), text: h.reply, to: null });
   }
-  if (h.told > 0) out.push({ key: 'told', label: tn('handled_told', h.told), text: '', tab: null });
-  if (h.ask !== null) out.push({ key: 'ask', label: t('handled_ask', { id: h.ask }), text: '', tab: null });
+  if (h.told > 0) out.push({ key: 'told', label: tn('handled_told', h.told), text: '', to: null });
+  if (h.ask !== null) out.push({ key: 'ask', label: t('handled_ask', { id: h.ask }), text: '', to: null });
   const changes = counted([
     [h.made, 'handled_made'],
     [h.dropped, 'handled_dropped'],
     [h.collected, 'handled_collected'],
   ]);
-  if (changes !== '') out.push({ key: 'changes', label: t('handled_changes'), text: changes, tab: 'changes' });
+  if (changes !== '') out.push({ key: 'changes', label: t('handled_changes'), text: changes, to: null });
   const kinds = (kind: string) => h.observations.filter((k) => k === kind).length;
   const observed = counted([
     [kinds('new'), 'handled_recorded'],
     [kinds('merge'), 'handled_merged'],
     [kinds('close'), 'handled_closed'],
   ]);
-  if (observed !== '') out.push({ key: 'observations', label: t('handled_observations'), text: observed, tab: 'observations' });
+  if (observed !== '') {
+    out.push({ key: 'observations', label: t('handled_observations'), text: observed, to: observationsHref(project) });
+  }
   if (h.actions.length > 0) {
     const did = h.actions.map((a) => (ACTIONS[a.kind] !== undefined ? t(ACTIONS[a.kind], { item: a.item ?? '' }) : a.kind));
-    out.push({ key: 'actions', label: t('handled_did'), text: did.join('; '), tab: null });
+    out.push({ key: 'actions', label: t('handled_did'), text: did.join('; '), to: null });
   }
   if (h.messages.length > 0) {
-    out.push({ key: 'messages', label: t('handled_wrote'), text: [...new Set(h.messages)].join(', '), tab: null });
+    out.push({ key: 'messages', label: t('handled_wrote'), text: [...new Set(h.messages)].join(', '), to: null });
   }
-  if (out.length === 0) out.push({ key: 'nothing', label: t('handled_nothing'), text: h.why ?? '', tab: null });
+  if (out.length === 0) out.push({ key: 'nothing', label: t('handled_nothing'), text: h.why ?? '', to: null });
   return out;
-}
-
-/// The observations the owner looks for: with the tag chosen, if one is, and the words searched for, if any, in what
-/// it is, where it came from or what it refers to; those closed only when asked for. The order stays as read: the
-/// open ones first, each newest first.
-export function observationsShown(all: Observation[], tag: string, search: string, closed: boolean): Observation[] {
-  const words = search.trim().toLowerCase();
-  return all.filter(
-    (o) =>
-      (closed || o.closed === null) &&
-      (tag === '' || o.tags.includes(tag)) &&
-      (words === '' || [o.what, o.source, ...o.refs].some((x) => x.toLowerCase().includes(words))),
-  );
 }
 
 /// What stops a project's new works from starting, in words: the architect's own hold, or setting the project straight;

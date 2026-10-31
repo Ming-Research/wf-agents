@@ -71,7 +71,6 @@ const entry = (source: string, extra: Partial<ConversationEntry> = {}): Conversa
   matter_card: null,
   words_state: null,
   policy: null,
-  observation: null,
   forwards: [],
   images: [],
   ...extra,
@@ -735,9 +734,6 @@ describe('the marks of the list of conversations', () => {
     policy: null,
     draft: null,
     notebook: [],
-    observations: [],
-    tags: [],
-    own: false,
     constitution: null,
     ...extra,
   });

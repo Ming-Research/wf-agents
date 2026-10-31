@@ -9,20 +9,13 @@
 // those sent back or failed, what it cost), whose rounds the chart shows. Under the line, its graph fills the window
 // with the stretch shown placed on it as a work is, and the window floating over the chart's right side holds the
 // architect's panel, with what is open on the chart split under it, as on a work's page. The panel's tabs, on one line:
-// its rounds; the item changes its batches made; the project's observations, each leading to the conversation it is
-// closed in; and its usage over a span of time the owner picks. Each part names the cell that wrote it, and every tab
-// draws its blocks, sections, items and rounds with the page's shared parts.
+// its rounds; the item changes its batches made; and its usage over a span of time the owner picks. Each part names the
+// cell that wrote it, and every tab draws its blocks, sections, items and rounds with the page's shared parts. The
+// project's observations, which belong to the project rather than to a round of the architect, are a view of their
+// own.
 
-import { BlockedIcon, SearchIcon, TriangleDownIcon } from '@primer/octicons-react';
-import {
-  Button,
-  Checkbox,
-  FormControl,
-  Heading,
-  Label,
-  Select,
-  TextInput,
-} from '@primer/react';
+import { BlockedIcon, TriangleDownIcon } from '@primer/octicons-react';
+import { Button, Heading, Label, Select } from '@primer/react';
 import { useEffect, useMemo, useState } from 'react';
 
 import type {
@@ -32,16 +25,14 @@ import type {
   CompiledGraph,
   FlowView,
   ItemChange,
-  Observation,
   WorkDetail,
   WorkSummary,
 } from '../api';
-import { architectState, holdWords, matterKind, matterSentence, observationsShown, overWork, shownWork } from '../architect';
+import { architectState, holdWords, matterKind, matterSentence, overWork, shownWork } from '../architect';
 import { course, Loaded, StateChip } from '../components';
 import { held, runningWords } from '../course';
 import { cost, time } from '../format';
 import { Labelled, words } from '../labelled';
-import { Markdown } from '../markdown';
 import { useResource, useResources, useStatus } from '../live';
 import {
   type ArchitectRoute,
@@ -56,7 +47,7 @@ import {
   SPANS,
 } from '../route';
 import { t, tn } from '../text';
-import { Block, By, CellTitles, ItemRef, type OpenRound, PeriodSwitch, SubHeading } from '../parts';
+import { By, CellTitles, type OpenRound, PeriodSwitch, SubHeading } from '../parts';
 import { ChangeBlock } from './ArchitectViews';
 import { bringIntoView } from './Decide';
 import { Held, HeadLine, OldFlow, Running } from './HeadLine';
@@ -303,96 +294,6 @@ function Changes({ changes, onRound }: { changes: ItemChange[]; onRound: OpenRou
   );
 }
 
-/// One observation, as a block, read only: what it is; its tags; how many times it was reported; closed, why, and open,
-/// the conversation where the owner closes it, wf-agents' own for wf-agents' and the architect's one-to-one for any
-/// other project's; then where it came from, what it refers to, the item that took it in and when.
-function ObservationRow({ o, conversation }: { o: Observation; conversation: string }) {
-  const head = (
-    <>
-      <strong>{t('observation_head', { id: o.id })}</strong>
-      {o.tags.map((x) => (
-        <Label key={x} variant="secondary">
-          {x}
-        </Label>
-      ))}
-      <span className="muted">{tn('observation_reported', o.times_reported)}</span>
-      {o.closed !== null ? (
-        <StateChip tone="neutral">{t('observation_closed', { why: words(o.closed) })}</StateChip>
-      ) : (
-        <Link to={`${href({ page: 'messages', open: conversation })}#observation-${o.id}`}>
-          {t('observation_close_there')}
-        </Link>
-      )}
-    </>
-  );
-  return (
-    <Block head={head}>
-      <Markdown text={o.what} />
-      <div className="block-meta">
-        <span>{t('observation_source', { source: o.source })}</span>
-        {o.refs.length > 0 ? <span>{t('observation_refs', { refs: o.refs.join(', ') })}</span> : null}
-        {o.folded_into !== null ? (
-          <span>
-            {t('observation_folded')} <ItemRef id={o.folded_into} />
-          </span>
-        ) : null}
-        {o.created !== null ? <span>{t('observation_at', { at: time(o.created) })}</span> : null}
-      </div>
-      {o.closed_why !== null ? <p className="muted">{o.closed_why}</p> : null}
-    </Block>
-  );
-}
-
-/// A project's observations: by tag, with what each tag covers, searchable, the open ones and, when asked for, those
-/// closed.
-function Observations({ a }: { a: ArchitectRead }) {
-  const conversation = a.own ? 'wf-agents' : `architect:${a.project}`;
-  const [tag, setTag] = useState('');
-  const [search, setSearch] = useState('');
-  const [closed, setClosed] = useState(false);
-  const shown = observationsShown(a.observations, tag, search, closed);
-  const covers = a.tags.find((x) => x.name === tag)?.desc ?? '';
-  return (
-    <>
-      <div className="arch-filters">
-        <Select
-          size="small"
-          value={tag}
-          onChange={(e) => setTag(e.target.value)}
-          title={covers}
-          aria-label={t('observation_tag')}
-        >
-          <Select.Option value="">{t('observation_every_tag')}</Select.Option>
-          {a.tags.map((x) => (
-            <Select.Option key={x.name} value={x.name}>
-              {x.name}
-            </Select.Option>
-          ))}
-        </Select>
-        <TextInput
-          size="small"
-          type="search"
-          leadingVisual={SearchIcon}
-          value={search}
-          placeholder={t('observation_search')}
-          aria-label={t('observation_search')}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <FormControl layout="horizontal">
-          <Checkbox checked={closed} onChange={(e) => setClosed(e.target.checked)} />
-          <FormControl.Label>{t('observation_show_closed')}</FormControl.Label>
-        </FormControl>
-      </div>
-      {covers !== '' ? <p className="muted">{covers}</p> : null}
-      {shown.length === 0 ? (
-        <p className="muted">{t('observation_none')}</p>
-      ) : (
-        shown.map((o) => <ObservationRow key={o.id} o={o} conversation={conversation} />)
-      )}
-    </>
-  );
-}
-
 /// How long back from now each span of the architect's usage counts, in milliseconds; all time has no start.
 const SPAN_MS: Record<Span, number | null> = { '1d': 86_400_000, '7d': 7 * 86_400_000, '30d': 30 * 86_400_000, all: null };
 
@@ -447,17 +348,10 @@ function Panel({ route, a, d, g, compiled, go, onRound }: {
       tabs={[
         { tab: 'rounds', label: t('rounds'), href: tab('rounds'), n: d?.rounds.length ?? null },
         { tab: 'changes', label: t('arch_tab_changes'), href: tab('changes'), n: a.changes.length },
-        {
-          tab: 'observations',
-          label: t('arch_tab_observations'),
-          href: tab('observations'),
-          n: a.observations.filter((o) => o.closed === null).length,
-        },
         { tab: 'usage', label: t('us_tab'), href: tab('usage'), n: null },
       ]}
     >
       {route.tab === 'changes' ? <Changes changes={a.changes} onRound={onRound} /> : null}
-      {route.tab === 'observations' ? <Observations a={a} /> : null}
       {route.tab === 'usage' ? <ArchitectUsage route={route} a={a} compiled={compiled} /> : null}
       {route.tab === 'rounds' ? (
         d === null ? (

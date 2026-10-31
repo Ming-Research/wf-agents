@@ -126,6 +126,8 @@ pub enum Event {
     /// What the architect's tab shows changed: its queue, what stops new works, or a work of the architect, its rounds
     /// or its asks.
     Architect,
+    /// A project's observations changed: one was recorded, reported again, taken in by an item or closed.
+    Observations,
     /// What the agent of a running round, by its work and its number in the work, is doing now, as its command line
     /// reports it: a tool it uses, or what it says.
     Activity {
@@ -1077,8 +1079,7 @@ pub struct Shown {
 
 /// A project's architect, as its page and the panel beside its one-to-one show it: its works, its queue, what it asked
 /// the owner, the matters it handled, the item changes its batches made, the policy it works by and the draft of a new
-/// one, its notebook, and the project's observations. Its works are works of the architect's graph for the project, on
-/// no item.
+/// one, and its notebook. Its works are works of the architect's graph for the project, on no item.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Architect {
     /// The project whose architect it is.
@@ -1105,13 +1106,6 @@ pub struct Architect {
     /// Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
     /// each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
     pub notebook: Vec<NotebookSection>,
-    /// The project's observations: the open ones first, then those closed, each newest first.
-    pub observations: Vec<Observation>,
-    /// The project's tags for observations, each with what it covers.
-    pub tags: Vec<Tag>,
-    /// Whether the project is wf-agents itself, whose observations wf-agents' own conversation holds; any other
-    /// project's are in its architect's one-to-one, where the owner closes them.
-    pub own: bool,
     /// The project's constitution, which the architect judges by with the policy: its path in the project's checkout,
     /// as the configuration names it, and its text there now, empty when it cannot be read; none when the project names
     /// none.
@@ -1148,12 +1142,12 @@ pub struct Conversation {
 }
 
 /// One entry of a conversation of the owner's: what `conversation_entries` gives, or what the engine writes from the
-/// flow (a work's stage card, an architect's matter card, the policy taking effect, an observation of wf-agents).
+/// flow (a work's stage card, an architect's matter card, the policy taking effect).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ConversationEntry {
     /// What it is: message, notice, ask, interjection, words, talk (the owner's words added to a talk with the
-    /// architect), question, report, reply, card, ruling, between; stage, matter, policy or observation. The owner's
-    /// answer to an ask is in the ask's entry, never one of its own.
+    /// architect), question, report, reply, card, ruling, between; stage, matter or policy. The owner's answer to an
+    /// ask is in the ask's entry, never one of its own.
     pub source: String,
     /// Its row in the table it comes from; for a stage card, its number in the work's stage cards, from 1.
     pub id: i64,
@@ -1203,8 +1197,6 @@ pub struct ConversationEntry {
     pub words_state: Option<WordsState>,
     /// For the policy taking effect: the policy in force.
     pub policy: Option<PolicyInForce>,
-    /// For an observation of wf-agents: the observation.
-    pub observation: Option<Observation>,
 }
 
 /// One stretch of a work at one stage (research, design, implementation, testing and fixing, merge, watching main),
@@ -1556,6 +1548,16 @@ pub struct Observation {
     /// When it was recorded, and last changed.
     pub created: Option<i64>,
     pub updated: Option<i64>,
+}
+
+/// A project's observations, as the Observations view shows them: the tags they may carry, in the project's order, each
+/// with what it covers, and the observations, the open ones first, then those an item took in or that were closed,
+/// each newest first.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ProjectObservations {
+    pub project: String,
+    pub tags: Vec<Tag>,
+    pub observations: Vec<Observation>,
 }
 
 /// A tag a project's observations may carry, with what it covers.

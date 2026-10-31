@@ -7,14 +7,12 @@ import type {
   GraphView,
   Handled,
   Matter,
-  Observation,
   WorkSummary,
 } from './api';
 import {
   architectState,
   cardWords,
   holdWords,
-  observationsShown,
   outcomes,
   matterKind,
   matterSentence,
@@ -85,21 +83,6 @@ const matter = (id: number, extra: Partial<Matter> = {}): Matter => ({
   urgent: false,
   fix: null,
   card: null,
-  ...extra,
-});
-
-const observation = (id: number, extra: Partial<Observation> = {}): Observation => ({
-  id,
-  what: `observation ${id}`,
-  tags: [],
-  source: 'the architect, at cell H3',
-  times_reported: 1,
-  refs: [],
-  folded_into: null,
-  closed: null,
-  closed_why: null,
-  created: id,
-  updated: id,
   ...extra,
 });
 
@@ -183,21 +166,6 @@ describe("the architect's page", () => {
     expect(architectState([architectWork(10, { state: 'running', at: 'Q0' })], [])).toMatchObject({ handling: null, waiting: 0 });
   });
 
-  it('shows the observations of the tag chosen and the words searched for, those closed only when asked', () => {
-    const all = [
-      observation(3, { tags: ['ui'], refs: ['PR #12'] }),
-      observation(2, { tags: ['perf', 'ui'], what: 'The board is slow' }),
-      observation(1, { tags: ['perf'], closed: 'owner', closed_why: 'Not worth it' }),
-    ];
-    const ids = (os: Observation[]) => os.map((o) => o.id);
-    expect(ids(observationsShown(all, '', '', false))).toEqual([3, 2]);
-    expect(ids(observationsShown(all, '', '', true))).toEqual([3, 2, 1]);
-    expect(ids(observationsShown(all, 'perf', '', true))).toEqual([2, 1]);
-    expect(ids(observationsShown(all, '', ' SLOW ', false))).toEqual([2]);
-    expect(ids(observationsShown(all, '', 'pr #12', false))).toEqual([3]);
-    expect(ids(observationsShown(all, 'ui', 'CELL h3', false))).toEqual([3, 2]);
-  });
-
   it('has an address that names the project, the work, the tab, the round and the cell', () => {
     const architect = {
       page: 'architect' as const,
@@ -214,7 +182,7 @@ describe("the architect's page", () => {
       { ...architect, tab: 'changes' },
       { ...architect, tab: 'usage', span: '30d' },
       { ...architect, work: 12, only: 'sent_back' },
-      { ...architect, project: 'p', tab: 'observations' },
+      { ...architect, project: 'p', tab: 'changes' },
       { ...architect, work: 12, round: 3, tab: 'usage' },
       { ...architect, work: 12, cell: 'H3' },
     ];
@@ -234,6 +202,8 @@ describe("the architect's page", () => {
     expect(parse('/architect', '?tab=policy')).toEqual(architect);
     expect(parse('/architect', '?tab=next')).toEqual(architect);
     expect(parse('/architect', '?tab=queue')).toEqual(architect);
+    // The observations, which were its tab, are a view of their own.
+    expect(parse('/architect', '?tab=observations')).toEqual(architect);
     expect(parse('/architect', '?work=12&round=R11-3&tab=x')).toEqual({ ...architect, work: 12 });
     expect(parse('/architect', '?round=R11-3')).toEqual(architect);
   });
@@ -278,19 +248,21 @@ describe("the architect's page", () => {
         ],
         messages: ['q', 'q'],
       }),
+      'p',
     );
-    expect(lines.map((o) => [o.key, o.label, o.text, o.tab])).toEqual([
+    // The observations it recorded or changed lead to the project's observations, in a view of their own.
+    expect(lines.map((o) => [o.key, o.label, o.text, o.to])).toEqual([
       ['reply', 'Replied to work 7:', 'Split it in two.', null],
-      ['changes', 'Item changes:', '2 made, 1 dropped', 'changes'],
-      ['observations', 'Observations:', '1 recorded, 1 closed', 'observations'],
+      ['changes', 'Item changes:', '2 made, 1 dropped', null],
+      ['observations', 'Observations:', '1 recorded, 1 closed', '/observations?project=p'],
       ['actions', 'Did at once:', 'paused the work on #3; started the work on #4 over', null],
       ['messages', 'Wrote to the architect of:', 'q', null],
     ]);
-    expect(outcomes(handled({ why: 'Already done by #2.' })).map((o) => [o.key, o.text])).toEqual([
+    expect(outcomes(handled({ why: 'Already done by #2.' }), 'p').map((o) => [o.key, o.text])).toEqual([
       ['nothing', 'Already done by #2.'],
     ]);
-    expect(outcomes(handled({ told: 1 })).map((o) => o.label)).toEqual(['Told you once']);
-    expect(outcomes(handled({ told: 3 })).map((o) => o.label)).toEqual(['Told you 3 times']);
+    expect(outcomes(handled({ told: 1 }), 'p').map((o) => o.label)).toEqual(['Told you once']);
+    expect(outcomes(handled({ told: 3 }), 'p').map((o) => o.label)).toEqual(['Told you 3 times']);
   });
 });
 

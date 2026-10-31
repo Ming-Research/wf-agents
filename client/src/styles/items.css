@@ -1,20 +1,11 @@
-/* The items: Primer's PageLayout filling the window under the bar, the trees in its pane on the left and the item
-   picked in its content on the right, each scrolling on its own. Each project's tree is ours, after the v1 board's,
-   under the project's heading and the buttons that show or hide each state's items, a line between two projects as
-   between a page's sections: each item a card whose left edge and number are in its state's colour, the items it
-   depends on under it, set in, with a rule down their left. */
-
-.items-screen {
-  flex: 1;
-}
+/* The items: the trees in the pane of the split of a list and what is open from it (parts.css) and the item picked
+   beside them. Each project's tree is ours, after the v1 board's, under the project's heading and the buttons that show
+   or hide each state's items, a line between two projects as between a page's sections: each item a card whose left
+   edge and number are in its state's colour, the items it depends on under it, set in, with a rule down their left. */
 
 /* The trees, whose rows say their stage only where they have room for it. */
 .items-trees {
   container-type: inline-size;
-}
-
-.items-item {
-  min-width: 0;
 }
 
 /* A project: its heading, its buttons and its tree, as wide as the pane whatever its titles' length. */

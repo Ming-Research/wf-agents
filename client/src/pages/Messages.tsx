@@ -114,7 +114,7 @@ import { ArchitectSide, useSideOpen } from './ArchitectSide';
 import { Bubble } from './Bubble';
 import { AskView, DesignCardView } from './Decide';
 import { ArchitectHead, PlainHead, WfAgentsHead, WorkHead } from './TalkHead';
-import { MatterCardView, ObservationCard, PolicyCard, StageCardView } from './TalkCards';
+import { MatterCardView, PolicyCard, StageCardView } from './TalkCards';
 
 /// Marks a fault of wf-agents read, where it shows.
 async function markFault(id: number): Promise<void> {
@@ -701,7 +701,6 @@ function Entry({ e, c, w, held, current, replies, forwarding, draft }: {
       return <MatterCardView m={e.matter_card} project={c.project ?? ''} current={e.matter_card.matter === current} />;
     }
     if (e.policy !== null) return <PolicyCard p={e.policy} />;
-    if (e.observation !== null) return <ObservationCard o={e.observation} />;
     return null;
   }
   if (voice === 'system') return <SystemLine e={e} />;

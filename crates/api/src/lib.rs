@@ -35,7 +35,7 @@ pub use owner::{
 };
 pub use read::{
     Error, Flows, architect, attachment, compiled_flow, content, file, flow_view, flows, inputs_now, item, items,
-    round, version_of, work, works,
+    observations_by_project, round, version_of, work, works,
 };
 pub use settings::{accounts, save_settings, set_level, settings, switch_account};
 pub use source::{Sources, refs};

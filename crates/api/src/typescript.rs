@@ -106,6 +106,7 @@ pub fn typescript() -> String {
         decl::<HandledAction>(&cfg),
         decl::<ItemChange>(&cfg),
         decl::<Observation>(&cfg),
+        decl::<ProjectObservations>(&cfg),
         decl::<Tag>(&cfg),
         decl::<CloseObservation>(&cfg),
         decl::<PolicyInForce>(&cfg),

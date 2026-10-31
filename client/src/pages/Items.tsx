@@ -1,7 +1,7 @@
 // The items: on the left, each project's items as a tree of what depends on what, with the buttons that show or hide
 // the items in each state, each in its state's colour; on the right, the item picked, in place, or while none is, the
-// first the tree shows. The split between them is Primer's PageLayout with a pane the owner drags, its width kept in
-// this browser. Each project's tree is ours, after the v1 board's: each item a card whose left edge is in its state's
+// first the tree shows. The split between them is the one a list and what is open from it take (`ListSplit`), a pane
+// the owner drags, its width kept in this browser. Each project's tree is ours, after the v1 board's: each item a card whose left edge is in its state's
 // colour, the items it depends on in a list under it, set in, with a rule down their left. A row has its toggle, which
 // folds the rows under it; the item's number, of a fixed width, tinted in its state's colour and saying its state on
 // hovering; its title; what it needs from the owner and the items it waits for before it starts; and at its end, as
@@ -11,7 +11,7 @@
 // unfolds them, as its toggle does.
 
 import { ChevronDownIcon, ChevronRightIcon, LinkIcon } from '@primer/octicons-react';
-import { Heading, PageLayout } from '@primer/react';
+import { Heading } from '@primer/react';
 import { Fragment, type MouseEvent, type ReactNode, useState } from 'react';
 
 import type { ItemLink, Items as ItemsData, ItemState, ItemSummary } from '../api';
@@ -19,6 +19,7 @@ import { DependencyKind, ITEM_MARK, ITEM_TONE, Loaded, StateChip, StateFilter, u
 import { depsDone, firstShown, stageAt, STATES, tree, type TreeRow } from '../item/tree';
 import { words } from '../labelled';
 import { useResource } from '../live';
+import { ListSplit } from '../parts';
 import { href, navigate } from '../route';
 import { t, tn } from '../text';
 import { joined, SEP } from '../voices';
@@ -290,27 +291,15 @@ export function Items({ selected }: { selected: number | null }) {
   // While no item is picked, the first the tree shows is open.
   const open = selected ?? (items.data !== undefined ? firstShown(items.data.items, items.data.links, shown) : null);
   return (
-    <PageLayout containerWidth="full" padding="none" rowGap="none" columnGap="none" className="items-screen">
-      {/* The pane stays under the bar, which is as tall as Primer's UnderlineNav, while the item scrolls the page. */}
-      <PageLayout.Pane
-        position="start"
-        resizable
-        widthStorageKey="wf-agents.items-pane"
-        width={{ min: '240px', default: '520px', max: '1200px' }}
-        divider="line"
-        padding="none"
-        sticky
-        offsetHeader={48}
-        className="items-tree"
-        aria-label={t('nav_items')}
-      >
+    <ListSplit
+      label={t('nav_items')}
+      widthKey="wf-agents.items-pane"
+      list={
         <div className="items-trees">
           <Loaded r={items}>{(data) => <Tree data={data} selected={open} shown={shown} onShown={toggle} />}</Loaded>
         </div>
-      </PageLayout.Pane>
-      <PageLayout.Content padding="none" width="full" className="items-item">
-        {open !== null ? <Item id={open} /> : null}
-      </PageLayout.Content>
-    </PageLayout>
+      }
+      open={open !== null ? <Item id={open} /> : null}
+    />
   );
 }

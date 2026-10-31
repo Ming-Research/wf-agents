@@ -249,7 +249,8 @@ function ItemNumber({ id }: { id: number }) {
   return title !== undefined ? <ItemRef id={id} hint={title} /> : `#${id}`;
 }
 
-function Inlines({ parts }: { parts: Inline[] }): ReactNode {
+/// Inline parts as they read; `plain` where no link may stand, inside a row that is a link itself, a link as its words.
+function Inlines({ parts, plain = false }: { parts: Inline[]; plain?: boolean }): ReactNode {
   return parts.map((p, i) => {
     switch (p.kind) {
       case 'text':
@@ -259,21 +260,21 @@ function Inlines({ parts }: { parts: Inline[] }): ReactNode {
       case 'bold':
         return (
           <strong key={i}>
-            <Inlines parts={p.children} />
+            <Inlines parts={p.children} plain={plain} />
           </strong>
         );
       case 'link':
-        return WEB.test(p.href) ? (
+        return WEB.test(p.href) && !plain ? (
           <a key={i} href={p.href} target="_blank" rel="noreferrer">
             <Inlines parts={p.children} />
           </a>
         ) : (
           <span key={i}>
-            <Inlines parts={p.children} />
+            <Inlines parts={p.children} plain={plain} />
           </span>
         );
       case 'item':
-        return <ItemNumber key={i} id={p.id} />;
+        return plain ? `#${p.id}` : <ItemNumber key={i} id={p.id} />;
     }
     return null;
   });
@@ -349,4 +350,29 @@ export function MarkdownInline({ text }: { text: string }) {
     );
   }
   return <Markdown text={text} />;
+}
+
+/// The words a block starts with: a paragraph's or a heading's, whole on one line; a list's first item's; a code
+/// block's first line.
+function lead(b: Block | undefined): string {
+  if (b === undefined) return '';
+  if (b.kind === 'list') return lead(b.items[0]?.[0]);
+  if (b.kind === 'para' || b.kind === 'heading') return b.text.replace(/\s*\n\s*/g, ' ');
+  return b.text.split('\n')[0];
+}
+
+/// What inline parts say, with no markup.
+function said(parts: Inline[]): string {
+  return parts
+    .map((p) => (p.kind === 'text' || p.kind === 'code' ? p.text : p.kind === 'item' ? `#${p.id}` : said(p.children)))
+    .join('');
+}
+
+/// The words a text an agent wrote starts with, with no markup: what a row that opens the whole says on hovering.
+export const firstWords = (text: string): string => said(inline(lead(parse(text)[0])));
+
+/// The start of a text an agent wrote, in a row that opens the whole, which the row cuts to one line: its first
+/// paragraph, heading or list item as its inline parts, with no link, since the row is one.
+export function MarkdownLine({ text }: { text: string }) {
+  return <Inlines parts={inline(lead(parse(text)[0]))} plain />;
 }

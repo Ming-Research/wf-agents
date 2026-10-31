@@ -111,9 +111,6 @@ const architect: Architect = {
     { section: 'unclear', now: null, versions: [] },
     { section: 'other', now: null, versions: [] },
   ],
-  observations: [],
-  tags: [],
-  own: false,
   constitution: { name: 'CONSTITUTION.md', text: 'Article 1. Be quick.' },
 };
 

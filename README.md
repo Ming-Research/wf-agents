@@ -87,18 +87,20 @@ at once, a round of it under way cut off, and a new work begins the item again f
 branch, worktree and pull request; the item's architect can start a work over too.
 
 The Messages view is the one place the owner acts: the one-to-one with each project's architect, wf-agents' own
-conversation (its faults and observations), a group for each work of the owner, its engineer and its project's
-architect, where everything said reaches all three, and a group for the architects of connected projects. An ask of
-the owner waits where it was asked and is answered in its own bubble, and a design card a work waits on is pinned at the
-top of its conversation; every other view only reads, but for the bar's Start all, Pause all and Keep warm, and the Settings view. `npm run dev` in `client/` serves the page from its sources and passes the
-interface's requests to a running `wf-agents run`.
+conversation (its faults), a group for each work of the owner, its engineer and its project's architect, where
+everything said reaches all three, and a group for the architects of connected projects. An ask of the owner waits where
+it was asked and is answered in its own bubble, and a design card a work waits on is pinned at the top of its
+conversation; every other view only reads, but for the bar's Start all, Pause all and Keep warm, the Settings view, and
+the Observations view, where the owner closes an observation, saying why. `npm run dev` in `client/` serves the page
+from its sources and passes the interface's requests to a running `wf-agents run`.
 
 The flow page shows a stored flow version, or `flow/flow.json` as it is at a git ref of a project's checkout (read
 with git and compiled, nothing written), its graphs side by side, and compares two of them, so that a change to the
 flow is reviewed there.
 
 The Architect view shows a project's architect, read only, with a switch to another project's when there are several:
-what it does now, its rounds on its graph, the item changes its batches made, the project's observations (by tag,
-searchable), what to do next and the policy in force, each a tab of the column at its right. Its conversation with the
-owner, its queue with a card for each matter, and its Start, Pause and Step are in its one-to-one in the Messages
-view.
+what it does now, its rounds on its graph, the item changes its batches made, what to do next and the policy in force,
+each a tab of the column at its right. Its conversation with the owner, its queue with a card for each matter, and its
+Start, Pause and Step are in its one-to-one in the Messages view. The Observations view shows each project's
+observations, what its architect recorded and no item does yet, filtered by their tags, those taken in by an item or
+closed shown when asked for; one opened shows whole beside them, where the owner closes it.

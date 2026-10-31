@@ -1,9 +1,10 @@
 /* An item's page, as the UI spec lays out a reading page: its header (its number and title with its facts on the
    title's line, and the work that goes on under them), then what needs the owner, where the work stands, the problem,
    the design, the acceptance, the changes on the way, what it depends on and its history, each a section of one
-   document. */
+   document. An observation's page is a reading page as an item's is. */
 
-.item-page {
+.item-page,
+.obs-page {
   max-width: var(--breakpoint-large);
   padding: var(--base-size-16) var(--base-size-24) var(--base-size-32);
 }

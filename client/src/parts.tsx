@@ -3,7 +3,8 @@
 // when; what an agent wrote, as a block, its head and who wrote it over its text; a section under its heading and how
 // many it holds, folded or open, and a sub-heading inside it; an item, by its number and title; a pull request, by its
 // number; the words the owner writes beside the button that sends them, with the images that go with them; the images
-// the owner sent, as thumbnails; and the form that answers or says something, its words and the button that sends them.
+// the owner sent, as thumbnails; the form that answers or says something, its words and the button that sends them;
+// and a list beside what is open from it.
 
 import { ChevronDownIcon, ChevronRightIcon, PaperclipIcon, XIcon } from '@primer/octicons-react';
 import {
@@ -16,6 +17,7 @@ import {
   Label,
   type LabelColorOptions,
   Link as PrimerLink,
+  PageLayout,
   Textarea,
 } from '@primer/react';
 import {
@@ -500,5 +502,47 @@ export function SendForm({ above, words, label, ready, busy, why, onSend, error 
       </div>
       {error !== null ? <Flash variant="danger">{t('request_failed', { error })}</Flash> : null}
     </div>
+  );
+}
+
+/// A list and what is open from it, side by side (the items' tree and an item, the observations and the one open): Primer's
+/// PageLayout, the list in a pane on the left that the owner drags, its width kept in this browser under `widthKey`,
+/// staying under the bar while what is open scrolls the page; while nothing is open, the list fills the view, with no
+/// divider. The pane stays the one element whether something is open or not, so that opening one keeps the list as it
+/// is, scrolled where it was, and the width the owner gave it.
+export function ListSplit({ label, widthKey, list, open }: {
+  label: string;
+  widthKey: string;
+  list: ReactNode;
+  open: ReactNode | null;
+}) {
+  const whole = open === null;
+  return (
+    <PageLayout
+      containerWidth="full"
+      padding="none"
+      rowGap="none"
+      columnGap="none"
+      className={whole ? 'list-split list-split-whole' : 'list-split'}
+    >
+      {/* The pane stays under the bar, which is as tall as Primer's UnderlineNav, while what is open scrolls the page. */}
+      <PageLayout.Pane
+        position="start"
+        resizable
+        widthStorageKey={widthKey}
+        width={{ min: '240px', default: '520px', max: '1200px' }}
+        divider="line"
+        padding="none"
+        sticky
+        offsetHeader={48}
+        className="list-split-list"
+        aria-label={label}
+      >
+        {list}
+      </PageLayout.Pane>
+      <PageLayout.Content padding="none" width="full" hidden={whole} className="list-split-open">
+        {open}
+      </PageLayout.Content>
+    </PageLayout>
   );
 }

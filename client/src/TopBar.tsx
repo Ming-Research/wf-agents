@@ -1,12 +1,11 @@
-// The bar on every view: the views (the works, the architect, the items, the flow, and the owner's conversations with
-// how many things in them wait for the owner, red, and how many entries are unread, grey, in the conversations the
-// list's buttons of a work's states show, the browser's notifications telling of what newly waits in them), and how
-// the engine stands: running,
-// paused (saying which works the owner started run meanwhile), pausing while the last round finishes, or waiting for
-// what stops every work, with the switch that pauses every work or starts them all, the switch that keeps waiting
-// sessions warm while every work is paused, and the slots in use. The engine starts with every work paused. Drawn as
-// the UI spec's bar: the views an UnderlineNav, the engine's state a dot and words, its switch a Button and keep-warm
-// a ToggleSwitch.
+// The bar on every view: the views (the works, the architect, the items, the observations, the flow, and the owner's
+// conversations with how many things in them wait for the owner, red, and how many entries are unread, grey, in the
+// conversations the list's buttons of a work's states show, the browser's notifications telling of what newly waits in
+// them), and how the engine stands: running, paused (saying which works the owner started run meanwhile), pausing while
+// the last round finishes, or waiting for what stops every work, with the switch that pauses every work or starts them
+// all, the switch that keeps waiting sessions warm while every work is paused, and the slots in use. The engine starts
+// with every work paused. Drawn as the UI spec's bar: the views an UnderlineNav, the engine's state a dot and words,
+// its switch a Button and keep-warm a ToggleSwitch.
 
 import { DotFillIcon } from '@primer/octicons-react';
 import { Button, CounterLabel, ToggleSwitch, UnderlineNav } from '@primer/react';
@@ -160,12 +159,14 @@ function Engine({ works }: { works: WorkSummary[] | undefined }) {
 type View = { to: string; pages: Route['page'][]; name: Key };
 
 /// The views in the bar's order, as the owner asked: Messages first, the place the owner works from, then the
-/// architect.
+/// architect; the observations right after the items, a view of their own rather than a part of the items view, since a
+/// project's observations, the step before an item, far outnumber its items and would crowd them.
 const VIEWS: View[] = [
   { to: '/messages', pages: ['messages'], name: 'nav_messages' },
   { to: '/architect', pages: ['architect'], name: 'nav_architect' },
   { to: '/works', pages: ['works', 'work'], name: 'nav_works' },
   { to: '/items', pages: ['items', 'item'], name: 'nav_items' },
+  { to: '/observations', pages: ['observations'], name: 'nav_observations' },
   { to: '/flow', pages: ['flow'], name: 'nav_flow' },
   { to: '/system', pages: ['system'], name: 'nav_system' },
   { to: '/settings', pages: ['settings'], name: 'nav_settings' },

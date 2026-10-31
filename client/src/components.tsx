@@ -306,7 +306,8 @@ function keep(key: string, value: unknown) {
 
 /// The states a `StateFilter` shows, by the key they are kept under, with the text kept they were read from, so that
 /// every part that reads one key gets the very same states until they change: the list of conversations and the bar,
-/// which counts only what the list shows.
+/// which counts only what the list shows. A list whose values all start shown and may grow later, as tags do, keeps
+/// those it hides instead, so that a value new to it shows.
 const shownByKey = new Map<string, { text: string | null | undefined; states: string[] }>();
 
 /// The parts that read what a `StateFilter` shows, told when the owner changes it.
@@ -357,19 +358,22 @@ export function useShownStates<S extends string>(
   return [shown, toggle];
 }
 
-/// The buttons over a project's rows in a list (the items' tree, the works in the list of conversations) that show or
-/// hide its rows in each state: one for each state among them, in the list's order of states (`order`), with how many
-/// are in it (`states`, the state of each row); each the state's mark (`mark`, a work's state's or an item's) and its
-/// count with no words, so that the row of buttons fits on one line, the state, its count and what a click does said on
-/// hovering and as the button's name (`title`); each a fill with no edge, in its state's colour as the state's chip
-/// while its rows show and in its tint while they hide, from the one set of a state's colours that the items' cards
-/// take too (items.css); a click shows or hides that state's rows.
+/// The buttons over a project's rows in a list (the items' tree, the works in the list of conversations, the
+/// observations) that show or hide its rows in each state, or with each tag: one for each state among them, in the
+/// list's order of states (`order`), with how many are in it (`states`, the state of each row, a row with several tags
+/// once for each); each the state's mark (`mark`, a work's state's or an item's) and its count with no words, so that
+/// the row of buttons fits on one line, the state, its count and what a click does said on hovering and as the button's
+/// name (`title`); a tag, which has no mark, its name (`words`) and its count; each a fill with no edge, in its state's
+/// colour as the state's chip while its rows show and in its tint while they hide, a tag in the neutral one, which
+/// stands for no meaning of its own, from the one set of a state's colours that the items' cards take too (items.css);
+/// a click shows or hides that state's rows.
 export function StateFilter<S extends string>(props: {
   order: readonly S[];
   states: readonly S[];
   shown: readonly S[];
-  tone: Record<S, Tone>;
-  mark: (s: S) => ElementType;
+  tone: Record<S, Tone> | Tone;
+  mark?: (s: S) => ElementType;
+  words?: (s: S) => string;
   title: (s: S, n: number, shown: boolean) => string;
   onShown: (s: S) => void;
 }) {
@@ -380,19 +384,22 @@ export function StateFilter<S extends string>(props: {
         if (n === 0) return null;
         const on = props.shown.includes(s);
         const said = props.title(s, n, on);
+        const tone = typeof props.tone === 'string' ? props.tone : props.tone[s];
         return (
           <Button
             key={s}
             size="small"
             variant="invisible"
-            className={`tree-state tree-tone-${props.tone[s]}`}
-            leadingVisual={props.mark(s)}
+            className={`tree-state tree-tone-${tone}`}
+            leadingVisual={props.mark?.(s)}
             count={n}
             aria-pressed={on}
             aria-label={said}
             title={said}
             onClick={() => props.onShown(s)}
-          />
+          >
+            {props.words?.(s)}
+          </Button>
         );
       })}
     </span>

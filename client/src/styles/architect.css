@@ -54,14 +54,6 @@
   padding-left: var(--base-size-24);
 }
 
-/* The observations' tag, search and whether to show those closed, on one line. */
-.arch-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--base-size-8) var(--base-size-12);
-}
-
 /* An ask of the architect's by its kind: its parts apart by the rhythm, the question it asks heading them. */
 .card-view {
   display: grid;

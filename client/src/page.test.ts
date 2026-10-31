@@ -170,6 +170,8 @@ describe('the addresses', () => {
       { ...work, only: 'failed' },
       { page: 'items' },
       { page: 'item', id: 5 },
+      { page: 'observations', project: null, open: null },
+      { page: 'observations', project: 'p', open: 12 },
       { page: 'messages', open: null },
       { page: 'messages', open: 'architects:p|q' },
       { page: 'system', period: 'week' },
@@ -199,6 +201,9 @@ describe('the addresses', () => {
     expect(href({ page: 'system', period: 'week' })).toBe('/system');
     expect(parse('/system', '?period=x')).toEqual({ page: 'system', period: 'week' });
     expect(parse('/spend', '')).toEqual({ page: 'system', period: 'week' });
+    // The observations name the one open by its number, and the project whose alone they show.
+    expect(href({ page: 'observations', project: 'p', open: 12 })).toBe('/observations/12?project=p');
+    expect(parse('/observations/x', '')).toEqual({ page: 'missing' });
   });
 });
 
@@ -436,7 +441,9 @@ describe('events', () => {
       'item:*',
       'messages',
       'system',
+      'observations',
     ]);
+    expect(named({ kind: 'observations' })).toEqual(['observations']);
     expect(named({ kind: 'item', item: null })).toEqual(['items', 'item:*', 'works', 'system']);
     expect(named({ kind: 'ready' })).toEqual([]);
     expect(named({ kind: 'ask', ask: 4, work: 2 })).toEqual(['works', 'work:2', 'item:*', 'messages', 'system']);
@@ -2183,7 +2190,6 @@ describe("the owner's conversations", () => {
     matter_card: null,
     words_state: null,
     policy: null,
-    observation: null,
     images: [],
     ...extra,
   });

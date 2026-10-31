@@ -24,8 +24,8 @@ export type WorkRoute = {
 };
 
 /// What the architect's panel over its chart shows: the rounds of the stretch shown, the item changes its batches made,
-/// the project's observations, or its usage.
-export const ARCHITECT_TABS = ['rounds', 'changes', 'observations', 'usage'] as const;
+/// or its usage.
+export const ARCHITECT_TABS = ['rounds', 'changes', 'usage'] as const;
 export type ArchitectTab = (typeof ARCHITECT_TABS)[number];
 
 /// What the panel beside the one-to-one with an architect shows: its notebook, its policy, or its queue.
@@ -53,6 +53,15 @@ export type ArchitectRoute = {
   span: Span;
 };
 
+/// The observations, every project's or one project's, and the one open beside them, if one is.
+export type ObservationsRoute = {
+  page: 'observations';
+  /// The project whose observations alone the view shows; with none, every project's.
+  project: string | null;
+  /// The observation open, by its number; with none, the list fills the view.
+  open: number | null;
+};
+
 /// The period the System view counts what the system did over: the week under way, the last four weeks with it, or all
 /// time.
 export const PERIODS = ['week', '4w', 'all'] as const;
@@ -64,6 +73,7 @@ export type Route =
   | ArchitectRoute
   | { page: 'items' }
   | { page: 'item'; id: number }
+  | ObservationsRoute
   | {
       page: 'messages';
       /// The conversation open, by its key; with none, the first in the list.
@@ -140,6 +150,10 @@ export function parse(pathname: string, search: string): Route {
     };
   }
   if (first === 'items' && parts.length === 1) return { page: 'items' };
+  if (first === 'observations' && parts.length <= 2) {
+    const open = parts.length === 2 ? num(second) : null;
+    if (parts.length === 1 || open !== null) return { page: 'observations', project: q.get('project'), open };
+  }
   if (first === 'messages' && parts.length === 1) {
     const side = SIDE_TABS.find((x) => x === q.get('side'));
     return side !== undefined ? { page: 'messages', open: q.get('c'), side } : { page: 'messages', open: q.get('c') };
@@ -201,6 +215,8 @@ export function href(r: Route): string {
       return '/items';
     case 'item':
       return `/items/${r.id}`;
+    case 'observations':
+      return `/observations${r.open === null ? '' : `/${r.open}`}${query([['project', r.project]])}`;
     case 'messages':
       return `/messages${query([
         ['c', r.open],
@@ -242,6 +258,11 @@ export function architectHref(more: Partial<Omit<ArchitectRoute, 'page'>> = {}):
     ...more,
   });
 }
+
+/// The address of the observations: every project's, or with `project` that project's alone; with `open`, that
+/// observation open beside them.
+export const observationsHref = (project: string | null = null, open: number | null = null): string =>
+  href({ page: 'observations', project, open });
 
 /// The address of the one-to-one with a project's architect with the panel beside it open on a tab.
 export const sideHref = (project: string, side: SideTab): string =>

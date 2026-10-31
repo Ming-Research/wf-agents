@@ -172,6 +172,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/architect/step", post(step_architect))
         .route("/api/v1/architect/start", post(start_architect))
         .route("/api/v1/architect/pause", post(pause_architect))
+        .route("/api/v1/observations", get(observations))
         .route("/api/v1/observations/{id}/close", post(close_observation))
         .route("/api/v1/files/{dir}/{name}", get(file))
         .route("/api/v1/attachments/{id}", get(attachment))
@@ -513,20 +514,6 @@ async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result
     };
     let (project, c) = project_of(&app, &first)?;
     let projects: Vec<String> = c.projects.keys().cloned().collect();
-    let tags: Vec<api::Tag> = c
-        .projects
-        .get(&project)
-        .map(|p| {
-            p.observation_tags
-                .iter()
-                .map(|t| api::Tag {
-                    name: t.name.clone(),
-                    desc: t.desc.clone(),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let own = c.wf_agents_project().as_deref() == Some(project.as_str());
     // The project's constitution, the file its configuration names in its checkout, as the architect reads it.
     let constitution = c.projects.get(&project).and_then(|p| {
         p.constitution.as_ref().map(|path| api::NamedText {
@@ -535,10 +522,36 @@ async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result
         })
     });
     read(&app, move |conn, a| {
-        api::architect(conn, &a.flows, &project, projects, tags, own, constitution)
+        api::architect(conn, &a.flows, &project, projects, constitution)
     })
     .await
     .map(Json)
+}
+
+/// Every project's observations, as the Observations view shows them, each project's with the tags the configuration as
+/// committed gives them.
+async fn observations(State(app): State<App>) -> Result<Json<Vec<api::ProjectObservations>>, Fail> {
+    let c = config::committed(&app.data)
+        .map_err(|e| Fail::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .config;
+    let tags: BTreeMap<String, Vec<api::Tag>> = c
+        .projects
+        .iter()
+        .map(|(name, p)| {
+            let tags = p
+                .observation_tags
+                .iter()
+                .map(|t| api::Tag {
+                    name: t.name.clone(),
+                    desc: t.desc.clone(),
+                })
+                .collect();
+            (name.clone(), tags)
+        })
+        .collect();
+    read(&app, move |conn, _| api::observations_by_project(conn, &tags))
+        .await
+        .map(Json)
 }
 
 /// What the owner's conversations need of the configuration as committed: its projects, the one that is wf-agents

@@ -44,13 +44,23 @@ function bump(...keys: string[]) {
 }
 
 /// The things an event names, as the keys views read them by. The System view sums up the works, the items, the
-/// architects and what waits for the owner, so every event about one of them names it.
+/// architects and what waits for the owner, so every event about one of them names it. A round names the observations
+/// too, since the round that merges an item's work closes the observations the item took in.
 export function named(e: Event): string[] {
   switch (e.kind) {
     case 'work':
       return ['works', `work:${e.work}`, 'items', 'item:*', 'system'];
     case 'round':
-      return ['works', `work:${e.work}`, `round:${e.work}-${e.round}`, 'items', 'item:*', 'messages', 'system'];
+      return [
+        'works',
+        `work:${e.work}`,
+        `round:${e.work}-${e.round}`,
+        'items',
+        'item:*',
+        'messages',
+        'system',
+        'observations',
+      ];
     case 'design_card':
     case 'ask':
       return e.work === null
@@ -64,6 +74,8 @@ export function named(e: Event): string[] {
       return ['flows'];
     case 'architect':
       return ['architect', 'messages', 'system'];
+    case 'observations':
+      return ['observations'];
     default:
       return [];
   }

@@ -27,6 +27,7 @@ import './styles/works.css';
 import './styles/usage.css';
 import './styles/architect.css';
 import './styles/items.css';
+import './styles/observations.css';
 import './styles/system.css';
 import './styles/chart.css';
 import './styles/messages.css';

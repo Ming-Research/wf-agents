@@ -33,8 +33,9 @@ fn is_architect_work(conn: &Connection, work: i64) -> bool {
 /// The events for the rows a write touched, each once, in the order first touched. Bookkeeping tables (`changes`,
 /// `outbox`) and rows the page does not show (`sessions`, `known_red_checks`) make none. A round is known by its work
 /// and number; the row SQLite tells of is found by its rowid, which nothing else reads. What the architect's tab shows
-/// (its matters and the entries of its talks, what stops new works, the item changes its batches made, the
-/// observations, and a work of it with its rounds, asks and what it told the owner) makes the architect's event too.
+/// (its matters and the entries of its talks, what stops new works, the item changes its batches made, and a work of it
+/// with its rounds, asks and what it told the owner) makes the architect's event too; an observation makes the
+/// observations' event.
 pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
     let mut out: Vec<Event> = Vec::new();
     for c in rows {
@@ -81,9 +82,10 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
                 item: one(conn, "SELECT item FROM item_links WHERE rowid = ?1", id),
             }),
             "flow_versions" => Some(Event::Flow { version: id }),
-            "architect_matters" | "talk_entries" | "dispatch_holds" | "architect_item_changes" | "observations" => {
+            "architect_matters" | "talk_entries" | "dispatch_holds" | "architect_item_changes" => {
                 Some(Event::Architect)
             }
+            "observations" => Some(Event::Observations),
             _ => None,
         };
         let of = match &event {
@@ -158,8 +160,8 @@ mod tests {
         );
     }
 
-    // A round of the architect's work names the work and the architect's tab; the architect's matters, what stops new
-    // works and the observations name the tab alone, once.
+    // A round of the architect's work names the work and the architect's tab; the architect's matters and what stops new
+    // works name the tab alone, once; an observation names the observations.
     #[test]
     fn what_the_architect_tab_shows_names_it_too() {
         let mut db = Db::in_memory().unwrap();
@@ -189,7 +191,11 @@ mod tests {
         ];
         assert_eq!(
             events(db.conn(), &rows),
-            [Event::Round { work: 1, round: 1 }, Event::Architect]
+            [
+                Event::Round { work: 1, round: 1 },
+                Event::Architect,
+                Event::Observations
+            ]
         );
     }
 }

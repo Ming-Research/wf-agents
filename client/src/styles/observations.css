@@ -1,0 +1,73 @@
+/* The observations: each project's in the pane of the split of a list and what is open from it (parts.css), grouped as
+   the list of conversations groups its rows: under the project's name the buttons that show or hide those with each
+   tag and those handled, then a row for each, the words it starts with on one line and its tags and facts on the line
+   under them, a row handled greyed in place; the one open beside them, a reading page as an item's. */
+
+.obs-list {
+  padding: var(--base-size-8) 0;
+}
+
+.obs-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-4);
+  padding: 0 var(--base-size-8) var(--base-size-4);
+  list-style: none;
+}
+
+.obs-only {
+  margin: 0;
+  padding: var(--base-size-8) var(--base-size-16) 0;
+}
+
+p.obs-none {
+  margin: 0;
+  padding: var(--base-size-16);
+}
+
+li.obs-none {
+  padding: var(--base-size-4) var(--base-size-8);
+  list-style: none;
+}
+
+/* A row's first words and the line of its tags and facts under them, each cut to one line with an ellipsis, whole on
+   hovering. The words are in the body's weight, as a conversation's name in its list is, rather than the semibold
+   Primer gives a row's label over a description: a list of many rows in semibold reads as a heap of headings. */
+.obs-what,
+.obs-facts-line {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.obs-what {
+  font-weight: var(--base-text-weight-normal);
+}
+
+.obs-facts-line [data-component='Label'] {
+  margin-right: var(--base-size-4);
+}
+
+/* A row handled, taken in by an item or closed, greyed in place, as a work's conversation once the work is over. */
+.obs-handled .obs-what {
+  color: var(--fgColor-muted);
+}
+
+/* The open observation's tags among its facts, and its parts one under another. */
+.obs-head-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-4);
+}
+
+.obs-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-16);
+  margin-top: var(--base-size-16);
+}
+
+.obs-item {
+  margin: 0;
+}

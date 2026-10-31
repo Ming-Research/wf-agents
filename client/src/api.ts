@@ -133,7 +133,7 @@ why: string, };
  * except the engine's status, which lives only in the engine. The stream gives each event an id; a client that
  * reconnects with the last id it saw is given what it missed.
  */
-export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "design_card", design_card: number, work: number | null, } | { "kind": "ask", ask: number, work: number | null, } | { "kind": "owner_message", message: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, } | { "kind": "architect" } | { "kind": "activity", work: number, round: number, what: string, at: number, };
+export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "design_card", design_card: number, work: number | null, } | { "kind": "ask", ask: number, work: number | null, } | { "kind": "owner_message", message: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, } | { "kind": "architect" } | { "kind": "observations" } | { "kind": "activity", work: number, round: number, what: string, at: number, };
 
 /**
  * Where a work stands.
@@ -520,13 +520,13 @@ last_at: number | null, };
 
 /**
  * One entry of a conversation of the owner's: what `conversation_entries` gives, or what the engine writes from the
- * flow (a work's stage card, an architect's matter card, the policy taking effect, an observation of wf-agents).
+ * flow (a work's stage card, an architect's matter card, the policy taking effect).
  */
 export type ConversationEntry = { 
 /**
  * What it is: message, notice, ask, interjection, words, talk (the owner's words added to a talk with the
- * architect), question, report, reply, card, ruling, between; stage, matter, policy or observation. The owner's
- * answer to an ask is in the ask's entry, never one of its own.
+ * architect), question, report, reply, card, ruling, between; stage, matter or policy. The owner's answer to an
+ * ask is in the ask's entry, never one of its own.
  */
 source: string, 
 /**
@@ -606,11 +606,7 @@ words_state: WordsState | null,
 /**
  * For the policy taking effect: the policy in force.
  */
-policy: PolicyInForce | null, 
-/**
- * For an observation of wf-agents: the observation.
- */
-observation: Observation | null, };
+policy: PolicyInForce | null, };
 
 /**
  * One stretch of a work at one stage (research, design, implementation, testing and fixing, merge, watching main),
@@ -1482,8 +1478,7 @@ export type NewLevel = { level: string, };
 /**
  * A project's architect, as its page and the panel beside its one-to-one show it: its works, its queue, what it asked
  * the owner, the matters it handled, the item changes its batches made, the policy it works by and the draft of a new
- * one, its notebook, and the project's observations. Its works are works of the architect's graph for the project, on
- * no item.
+ * one, and its notebook. Its works are works of the architect's graph for the project, on no item.
  */
 export type Architect = { 
 /**
@@ -1532,19 +1527,6 @@ draft: PolicyDraft | null,
  * each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
  */
 notebook: Array<NotebookSection>, 
-/**
- * The project's observations: the open ones first, then those closed, each newest first.
- */
-observations: Array<Observation>, 
-/**
- * The project's tags for observations, each with what it covers.
- */
-tags: Array<Tag>, 
-/**
- * Whether the project is wf-agents itself, whose observations wf-agents' own conversation holds; any other
- * project's are in its architect's one-to-one, where the owner closes them.
- */
-own: boolean, 
 /**
  * The project's constitution, which the architect judges by with the policy: its path in the project's checkout,
  * as the configuration names it, and its text there now, empty when it cannot be read; none when the project names
@@ -1759,6 +1741,13 @@ closed: string | null, closed_why: string | null,
  * When it was recorded, and last changed.
  */
 created: number | null, updated: number | null, };
+
+/**
+ * A project's observations, as the Observations view shows them: the tags they may carry, in the project's order, each
+ * with what it covers, and the observations, the open ones first, then those an item took in or that were closed,
+ * each newest first.
+ */
+export type ProjectObservations = { project: string, tags: Array<Tag>, observations: Array<Observation>, };
 
 /**
  * A tag a project's observations may carry, with what it covers.
