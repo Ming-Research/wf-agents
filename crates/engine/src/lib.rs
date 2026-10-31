@@ -10,12 +10,13 @@
 //! started as the cell the project's architect waits at to start (`S0`) says, when the project's queue of matters has
 //! one ([`architect`]).
 //!
-//! In this version the engine and the session manager are one process on one machine, and the engine takes one work
-//! one step at a time: a long round of one work holds up the others. Its state is split so that a step can be taken on
-//! any thread: what lasts across steps and is the same for every step is one [`Shared`] part behind an `Arc`, safe to
-//! share between threads, and each thread that takes a step holds an [`Engine`] of its own ([`Engine::fork`]), with
-//! its own connection to the database and the configuration as its step began. Its git commands that change what every
-//! worktree of a project's repository shares take turns ([`sessions::worktree::git`]).
+//! In this version the engine and the session manager are one process on one machine. The engine's loop is the only
+//! scheduler ([`schedule`]): it hands each step it dispatches to a thread of its own, never two jobs of one work at once,
+//! so that the rounds and tool runs of different works overlap while each work moves one step after another. What
+//! lasts across steps and is the same for every step is one [`Shared`] part behind an `Arc`, safe to share between
+//! threads, and each thread that takes a step holds an [`Engine`] of its own ([`Engine::fork`]), with its own connection
+//! to the database and the configuration as its step began. Its git commands that change what every worktree of a
+//! project's repository shares take turns ([`sessions::worktree::git`]).
 
 pub mod blockers;
 pub mod database;
@@ -33,6 +34,7 @@ mod faults;
 mod inputs;
 pub mod message;
 mod reminders;
+pub mod schedule;
 mod steps;
 mod tools;
 mod unparsed;
@@ -43,7 +45,7 @@ mod work;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::Duration;
 
 use db::rusqlite::{OptionalExtension, params};
@@ -56,6 +58,7 @@ pub use sessions::cli as agent;
 
 pub use checks::DESIGN_CARD_RULING;
 pub use failed::{Halt, utc};
+pub use schedule::{Ask, Go, Passed};
 pub use steps::{cell_request, next_message};
 pub use warm::GlobalPause;
 pub use work::{Item, Round, RoundId, Work, json_col, query_json};
@@ -87,6 +90,9 @@ pub enum Advance {
     Moved,
     /// The work waits: for the owner, for other works, or for its turn.
     Waits(String),
+    /// What the work waited for came, and it waits on, holding no slot, since the loop granted its step none: its
+    /// machine had no slot free.
+    Held(String),
     /// The work is done, was ended or taken over, or is paused.
     Stopped,
 }
@@ -102,9 +108,12 @@ pub struct Hooks {
     pub say: Arc<dyn Fn(&str) + Send + Sync>,
     /// What the agent of a running round is doing, by its work and round, as its command line reports it.
     pub activity: Arc<Activity>,
-    /// Where the engine says which work it is taking a step of, and none once that step has ended: the owner's page
-    /// shows that work's round as running, and what stops once it ends.
-    pub busy: Arc<dyn Fn(Option<i64>) + Send + Sync>,
+    /// Where the loop says which works it is taking a step of, in the order of their ids, each time it dispatches a
+    /// step or reaps one: the owner's page shows those works' rounds as running, and what stops once each ends.
+    pub busy: Arc<dyn Fn(&[i64]) + Send + Sync>,
+    /// Where a job's thread says that the job has ended, a step or a work's keep-warm pings: the loop waits on it, to
+    /// reap the job and dispatch what its end lets go on.
+    pub ended: Arc<dyn Fn() + Send + Sync>,
     /// What is told the rows each committed write touched, registered on every connection of the engine: how the
     /// owner's page hears of each change.
     pub commit: Option<db::Listener>,
@@ -116,7 +125,8 @@ impl Default for Hooks {
         Hooks {
             say: Arc::new(|s: &str| eprintln!("{s}")),
             activity: Arc::new(|_: i64, _: i64, _: &str| {}),
-            busy: Arc::new(|_: Option<i64>| {}),
+            busy: Arc::new(|_: &[i64]| {}),
+            ended: Arc::new(|| {}),
             commit: None,
         }
     }
@@ -142,9 +152,18 @@ struct Shared {
     /// The works taken over, each with the new work that took its item over, until the engine's loop has read them
     /// ([`Engine::replaced`]): the owner's Start of a work goes on in the work that replaced it.
     replaced: Mutex<Vec<(i64, i64)>>,
-    /// The works whose last step found what they waited for come and waited on, holding no slot, since their machine
-    /// had no slot free ([`steps::waits_for_slot`]); a work leaves it when its next step is taken.
+    /// The works whose last step found what they waited for come and waited on, holding no slot, since the loop granted
+    /// it none ([`Advance::Held`]); a work leaves it when the loop grants its step a slot or reaps its next step. Only
+    /// the loop changes it.
     held_for_slot: Mutex<BTreeSet<i64>>,
+    /// The jobs the loop dispatched and has not reaped yet, by their works: one at most for each work. Only the loop
+    /// adds and removes them; a job's thread only marks its own as over ([`schedule`]).
+    jobs: Mutex<BTreeMap<i64, schedule::Job>>,
+    /// Woken each time a job's thread marks its job as over, for a loop that waits until every job has ended.
+    job_over: Condvar,
+    /// The works whose last step moved nothing, which the loop does not dispatch again until something moved since
+    /// ([`Engine::rouse`]): a work that waits and finds nothing come would otherwise be dispatched again at once.
+    idle: Mutex<BTreeSet<i64>>,
     /// The session manager: the agents' sessions and the command line they run in.
     sessions: sessions::Manager,
     github: Box<dyn GitHub>,
@@ -167,6 +186,9 @@ impl Shared {
             global_pause: Mutex::default(),
             replaced: Mutex::default(),
             held_for_slot: Mutex::default(),
+            jobs: Mutex::default(),
+            job_over: Condvar::new(),
+            idle: Mutex::default(),
             sessions: sessions::Manager::new(agents),
             github,
             hooks,
@@ -329,11 +351,6 @@ impl Engine {
         (self.shared.hooks.activity)(work, round, what);
     }
 
-    /// Tells which work's step runs, none once it has ended.
-    fn busy(&self, work: Option<i64>) {
-        (self.shared.hooks.busy)(work);
-    }
-
     /// The session manager: the agents' sessions and the command line they run in.
     pub fn sessions(&self) -> &sessions::Manager {
         &self.shared.sessions
@@ -377,10 +394,10 @@ impl Engine {
         *lock(&self.shared.global_pause) = pause;
     }
 
-    /// Brings works on an older flow version to the version the engine runs, which the engine does when each next goes
-    /// on, before its step: a work that can move moves ([`Engine::move_up`]), and the rest are taken over
+    /// Brings works on an older flow version to the version the engine runs, which the loop does when each next goes
+    /// on, before it dispatches its step: a work that can move moves ([`Engine::move_up`]), and the rest are taken over
     /// ([`Engine::take_over`]).
-    fn bring_up(&mut self, works: &[Work]) -> Result<Brought, String> {
+    fn bring_up(&mut self, works: &[Work]) -> Result<(), String> {
         let mut over = Vec::new();
         for w in works {
             match self.cannot_move(w)? {
@@ -388,10 +405,8 @@ impl Engine {
                 Some(cannot) => over.push((w.clone(), self.moved_on(&cannot))),
             }
         }
-        Ok(Brought {
-            over: over.iter().map(|(w, _)| w.id).collect(),
-            started: self.take_over(&over)?,
-        })
+        self.take_over(&over)?;
+        Ok(())
     }
 
     /// Why a work on an older flow version cannot move to the version the engine runs ([`versions::why_not`]): what
@@ -567,13 +582,6 @@ impl Engine {
         Ok(())
     }
 
-    /// Carries out the starts over asked, whatever the global state, as the engine's loop does at each turn: the owner
-    /// asks one on the page while every work may be paused, and nothing else of the outbox is carried out then. Gives
-    /// whether any was.
-    pub fn start_overs(&mut self) -> Result<bool, String> {
-        actions::run_start_overs(self)
-    }
-
     /// The works taken over since the engine's loop last read them, each with the new work that took its item over.
     pub fn replaced(&self) -> Vec<(i64, i64)> {
         std::mem::take(&mut *lock(&self.shared.replaced))
@@ -639,11 +647,18 @@ impl Engine {
         self.sessions().version(&self.data, &self.config.config, name)
     }
 
-    /// Keeps warm the sessions of the works that wait: the session manager sends a ping to each session whose work's
-    /// next round will go on in it, 55 minutes after its last call, and records it; gives how many it sent at `now`.
-    /// While the owner's global pause holds, `pause` says whether it keeps them warm and which works run on despite it.
+    /// Keeps warm the sessions of the works with no job in flight, as the loop does at each turn: the session manager
+    /// finds each session due a ping at `now`, whose work's next round will go on in it 55 minutes after its last call,
+    /// and the loop dispatches the pings due to each work's sessions as that work's one job, which sends and records
+    /// them on a thread of its own; gives how many pings it dispatched. While the owner's global pause holds, `pause`
+    /// says whether it keeps them warm and which works run on despite it.
     pub fn keep_warm(&mut self, now: i64, pause: Option<&GlobalPause>) -> Result<usize, String> {
-        warm::keep_warm(self, now, pause)
+        let mut sent = 0;
+        for (work, pings) in warm::due(self, now, pause)? {
+            sent += pings.len();
+            self.dispatch_pings(work, pings, now)?;
+        }
+        Ok(sent)
     }
 
     /// Reminds the owner of the asks waiting for the owner's answer when a reminder is due at `now`, the installation's
@@ -688,12 +703,6 @@ impl Engine {
     /// A round ran to a return: whatever stopped every work has passed.
     fn returned(&self) {
         *lock(&self.shared.told) = None;
-    }
-
-    /// The works whose wait is over and that wait on, holding no slot, since their machine has no slot free: kept until
-    /// each one's next step, for the owner's page ([`Engine::waiting_for_slot`]).
-    fn hold_for_slot(&self, id: i64) {
-        lock(&self.shared.held_for_slot).insert(id);
     }
 
     /// The compiled flow a work runs on, read from the database the first time any thread asks for it.
@@ -836,35 +845,17 @@ impl Engine {
         Ok(out)
     }
 
-    /// Takes a work one step further; a work on an older flow version moves first, or is taken over instead.
-    pub fn advance(&mut self, id: i64) -> Result<Advance, String> {
-        self.take_step(id, false)
-    }
-
-    /// Takes a work one step further: a paused work only when the owner asked for its round.
+    /// Takes a work one step further, as a job the loop dispatched ([`schedule`]): a paused work only when the owner
+    /// asked for its round. A work asked to be started over, or on an older flow version, takes no step: the loop
+    /// starts it over or brings it up once this job has ended, since it does what the engine does to a work from
+    /// outside its step only while the work has no job in flight.
     fn take_step(&mut self, id: i64, asked: bool) -> Result<Advance, String> {
-        lock(&self.shared.held_for_slot).remove(&id);
-        let mut w = self.work(id)?;
+        let w = self.work(id)?;
         if w.ended.is_some() || (w.paused.is_some() && !asked) || self.done(&w)? {
             return Ok(Advance::Stopped);
         }
-        // A work asked to be started over is started over instead of going on.
-        if db::start_over_asked(self.db.conn(), id).map_err(|e| e.to_string())? {
-            actions::run_start_overs(self)?;
+        if w.flow_version != self.flow_now || db::start_over_asked(self.db.conn(), id).map_err(|e| e.to_string())? {
             return Ok(Advance::Stopped);
-        }
-        if w.flow_version != self.flow_now {
-            match self.cannot_move(&w)? {
-                Some(cannot) => {
-                    let why = self.moved_on(&cannot);
-                    self.take_over(&[(w, why)])?;
-                    return Ok(Advance::Stopped);
-                }
-                None => {
-                    self.move_up(&w)?;
-                    w = self.work(id)?;
-                }
-            }
         }
         let g = self.graph_of(&w)?;
         let cell = g
@@ -872,18 +863,25 @@ impl Engine {
             .cloned()
             .ok_or_else(|| format!("work {id} is at no such cell: {}", w.pos.at))?;
         // A work on an item that waits holds no slot: it goes on from its wait, once what it waits for came, only
-        // while its machine has a slot free, unless the owner asked for its round.
+        // when the loop granted its step a free slot, unless the owner asked for its round.
         let slotted = !asked && w.graph == ENGINEER;
-        self.busy(Some(id));
         let result = if cell.kind == "agent" {
             steps::agent(self, &w, &g, &cell)
         } else {
             steps::engine(self, &w, &g, &cell, slotted)
         };
-        self.busy(None);
         match result {
             Ok(a) => Ok(a),
             Err(e) => {
+                // A work ended from outside its step meanwhile, as when the owner cancelled its item, had its round
+                // cut off: the write that would have ended the round again failed, and nothing of the step is taken.
+                if let Some(ended) = self.ended(id)? {
+                    self.say(&format!(
+                        "work {id} ended while its step at cell {} ran ({ended}): the step is not taken: {e}",
+                        cell.id
+                    ));
+                    return Ok(Advance::Stopped);
+                }
                 // A step that cannot be taken is the engine's or the configuration's fault, not the work's: the work
                 // is paused with the reason, for the owner to see.
                 let why = format!("cell {}: {e}", cell.id);
@@ -894,17 +892,26 @@ impl Engine {
         }
     }
 
+    /// Why a work ended, as it stands now; none while it has not.
+    fn ended(&self, id: i64) -> Result<Option<String>, String> {
+        self.db
+            .conn()
+            .query_row("SELECT ended FROM works WHERE id = ?1", [id], |r| r.get(0))
+            .map_err(|e| format!("work {id}: {e}"))
+    }
+
     /// Pauses a work whose step cannot be taken: the round the step left open is closed with the reason, so it shows
-    /// as what it was and not as running, and the owner is told once. A question waiting for its answer stays open.
+    /// as what it was and not as running, and the owner is told once. A question waiting for its answer stays open. The
+    /// round open is read in the pause's own transaction, since a work may be ended from outside its step meanwhile.
     pub fn pause(&mut self, id: i64, why: &str) -> Result<(), String> {
         let w = self.work(id)?;
         let g = self.graph_of(&w)?;
-        let open = work::open_round(self.db.conn(), id)?.filter(|r| {
-            !r.cell
+        let asks = |r: &Round| {
+            r.cell
                 .as_deref()
                 .and_then(|c| g.cell(c))
                 .is_some_and(|c| matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect")))
-        });
+        };
         let text = match self.subject(&w) {
             Ok(Some(item)) => format!("Work {id} on item {} ({}) is paused: {why}", item.id, item.title),
             Ok(None) => format!("Work {id} ({}) is paused: {why}", w.of_architect()),
@@ -912,6 +919,7 @@ impl Engine {
         };
         self.db
             .write(Actor::Engine, |tx| {
+                let open = work::open_round(tx, id).map_err(db::Error::Abort)?.filter(|r| !asks(r));
                 if let Some(r) = &open {
                     let ended = work::Ended {
                         rejected: Some(serde_json::json!({ "error": why })),
@@ -966,18 +974,20 @@ impl Engine {
     }
 
     /// How many more works can hold a slot: the machines' slots less the works holding one, as the session manager
-    /// reports them. A work holds no slot while it waits for the owner or for other works.
+    /// reports them. A work holds no slot while it waits for the owner or for other works, unless the loop granted its
+    /// step one.
     pub fn free_slots(&mut self) -> Result<i64, String> {
         Ok(self.slots_by_machine()?.values().sum())
     }
 
     /// Each machine's free slots, as the session manager reports them from the works holding one: a work of the
-    /// architect holds none, and a work holds none while it waits.
+    /// architect holds none, and a work holds none while it waits, unless the loop granted its step one, which it holds
+    /// until the loop reaps that step.
     pub fn slots_by_machine(&mut self) -> Result<BTreeMap<String, i64>, String> {
         let mut holding = Vec::new();
         for id in self.active()? {
             let w = self.work(id)?;
-            if w.graph == ENGINEER && !self.waiting(&w)? {
+            if w.graph == ENGINEER && (!self.waiting(&w)? || self.granted(id)) {
                 holding.push(w.machine.clone());
             }
         }
@@ -989,7 +999,7 @@ impl Engine {
 
     /// The works whose wait is over and that wait on, holding no slot, until their machine has a slot free, as the last
     /// step of each found and as each stands now: one since paused or ended, or whose machine has a slot free again,
-    /// which its next step takes, is not among them. The owner's page shows them so, since a work whose answer came
+    /// which the loop grants its next step, is not among them. The owner's page shows them so, since a work whose answer came
     /// and that does not move would otherwise look ready.
     pub fn waiting_for_slot(&mut self) -> Result<Vec<i64>, String> {
         let mut out = Vec::new();
@@ -1163,255 +1173,6 @@ impl Engine {
         self.config.config.projects.keys().cloned().collect()
     }
 
-    /// A work of a project's architect to start now: once what the engine raises itself is queued, the rows of the cell
-    /// a project's architect waits at to start (`S0`), taken for each project none of whose architect works runs; the
-    /// first such project's whose row leads on. Gives the work started.
-    fn architect_work_due(&mut self) -> Result<Option<i64>, String> {
-        architect::queue_due(self)?;
-        for project in self.projects() {
-            if architect::running(self, &project)?.is_some() {
-                continue;
-            }
-            if let Some(id) = architect::start(self, &project, false)? {
-                self.say(&format!("work {id}: a work of the architect of {project} starts"));
-                return Ok(Some(id));
-            }
-        }
-        Ok(None)
-    }
-
-    /// The owner's step of a project's architect: the next round of the work of it that runs, or, when none runs and
-    /// the cell it waits at to start (`S0`) leads on, a matter being due, a new work started paused by the owner, and
-    /// its first round. Nothing runs when the architect has nothing to start a work for.
-    pub fn step_architect(&mut self, project: &str) -> Result<Stepped, String> {
-        self.reload_config();
-        actions::run_outbox(self)?;
-        if self.halted() {
-            return Ok(Stepped::default());
-        }
-        if let Some(id) = architect::running(self, project)? {
-            return self.step_work(id);
-        }
-        architect::queue_due(self)?;
-        let mark = self.db.rounds_mark();
-        let Some(id) = architect::start(self, project, true)? else {
-            return Ok(Stepped::default());
-        };
-        self.say(&format!(
-            "work {id}: a work of the architect of {project} starts, as the owner steps it"
-        ));
-        self.take_step(id, true)?;
-        actions::run_outbox(self)?;
-        let (rounds, cell) = self.rounds_since(&mark)?;
-        Ok(Stepped {
-            work: Some(id),
-            started_item: None,
-            rounds,
-            cell,
-        })
-    }
-
-    /// One pass over every work: reads the configuration again, carries out the outbox, moves or takes over the works
-    /// that go on on an older flow version, starts a work of the architect when a matter is due, takes, while a slot is
-    /// free, a step of each work that waits holding no slot, so that one whose wait is over takes the slot first, starts
-    /// works on ready items while slots are free, and takes each other active work one step. Gives whether anything
-    /// moved.
-    pub fn tick(&mut self) -> Result<bool, String> {
-        self.reload_config();
-        let mut moved = actions::run_outbox(self)?;
-        if self.halted() {
-            return Ok(moved);
-        }
-        let old = self.outdated()?;
-        if !old.is_empty() {
-            self.bring_up(&old)?;
-            moved = true;
-        }
-        if self.architect_work_due()?.is_some() {
-            moved = true;
-        }
-        // The works that wait, holding no slot, take the free slots as what they wait for comes, before new works start.
-        let mut stepped = BTreeSet::new();
-        if self.free_slots()? > 0 {
-            for id in self.waiting_works()? {
-                if self.advance(id)? == Advance::Moved {
-                    moved = true;
-                }
-                stepped.insert(id);
-            }
-        }
-        while self.free_slots()? > 0 {
-            let Some(item) = self.next_ready() else { break };
-            let id = self.create_work(item)?;
-            self.say(&format!("work {id} started on item {item}"));
-            moved = true;
-            if self.advance(id)? != Advance::Moved {
-                break;
-            }
-        }
-        for id in self.active()? {
-            if self.halted() {
-                break;
-            }
-            if !stepped.contains(&id) && self.advance(id)? == Advance::Moved {
-                moved = true;
-            }
-        }
-        Ok(moved)
-    }
-
-    /// The works on items that wait, holding no slot, in the order of their ids: once what one waits for came, it goes
-    /// on before a new work starts on a ready item, when its machine has a slot free.
-    fn waiting_works(&mut self) -> Result<Vec<i64>, String> {
-        let mut out = Vec::new();
-        for id in self.active()? {
-            let w = self.work(id)?;
-            if w.graph == ENGINEER && self.waiting(&w)? {
-                out.push(id);
-            }
-        }
-        Ok(out)
-    }
-
-    /// Takes exactly one step of the engine as a whole, the smallest pass, with which the engine's loop takes the
-    /// works that go on by themselves round by round, reading between two steps what the owner asked: one round of
-    /// one work, which is an agent's round, a step of the engine's own, a run of a tool cell, or starting a work. It
-    /// first carries out the outbox; then, when works that go on are on an older flow version, it moves those that can
-    /// move and takes the others over, and when it took one over, takes the first step of the first new work, when one
-    /// started; else, when no work of the architect runs and a
-    /// matter is due for it, it starts one and takes its first step; else, when a slot is free, it takes the step of the
-    /// first work that waits, holding no slot, that has one, as one whose wait is over and goes on into the free slot;
-    /// else, when a slot is free and an item is
-    /// ready, it starts a work on that item and takes the work's first step; otherwise it takes the next step of the
-    /// first active work that has one, in the order of the works' ids, beginning after `after` and going round to the
-    /// lowest, so that every work gets its turn as in a pass. The outbox the step filled is carried out after it.
-    pub fn step(&mut self, after: Option<i64>) -> Result<Stepped, String> {
-        self.reload_config();
-        actions::run_outbox(self)?;
-        if self.halted() {
-            return Ok(Stepped::default());
-        }
-        let mark = self.db.rounds_mark();
-        let old = self.outdated()?;
-        let brought = self.bring_up(&old)?;
-        if let Some(first) = brought.over.first().copied() {
-            let new = brought.started.first().copied();
-            let mut started_item = None;
-            if let Some(n) = new {
-                started_item = self.work(n)?.item;
-                self.advance(n)?;
-            }
-            actions::run_outbox(self)?;
-            let (rounds, cell) = self.rounds_since(&mark)?;
-            return Ok(Stepped {
-                work: Some(new.unwrap_or(first)),
-                started_item,
-                rounds,
-                cell,
-            });
-        }
-        if let Some(id) = self.architect_work_due()? {
-            self.advance(id)?;
-            actions::run_outbox(self)?;
-            let (rounds, cell) = self.rounds_since(&mark)?;
-            return Ok(Stepped {
-                work: Some(id),
-                started_item: None,
-                rounds,
-                cell,
-            });
-        }
-        // A work that waits, holding no slot, goes on when what it waits for came before a new work takes the slot.
-        if self.free_slots()? > 0 {
-            for id in self.waiting_works()? {
-                self.advance(id)?;
-                let (rounds, cell) = self.rounds_since(&mark)?;
-                if !rounds.is_empty() {
-                    actions::run_outbox(self)?;
-                    return Ok(Stepped {
-                        work: Some(id),
-                        started_item: None,
-                        rounds,
-                        cell,
-                    });
-                }
-            }
-        }
-        if self.free_slots()? > 0
-            && let Some(item) = self.next_ready()
-        {
-            let id = self.create_work(item)?;
-            self.say(&format!("work {id} started on item {item}"));
-            self.advance(id)?;
-            actions::run_outbox(self)?;
-            let (rounds, cell) = self.rounds_since(&mark)?;
-            return Ok(Stepped {
-                work: Some(id),
-                started_item: Some(item),
-                rounds,
-                cell,
-            });
-        }
-        let (later, earlier): (Vec<i64>, Vec<i64>) = self
-            .active()?
-            .into_iter()
-            .partition(|id| after.is_some_and(|a| *id > a));
-        for id in later.into_iter().chain(earlier) {
-            self.advance(id)?;
-            let (rounds, cell) = self.rounds_since(&mark)?;
-            if !rounds.is_empty() {
-                actions::run_outbox(self)?;
-                return Ok(Stepped {
-                    work: Some(id),
-                    started_item: None,
-                    rounds,
-                    cell,
-                });
-            }
-        }
-        Ok(Stepped::default())
-    }
-
-    /// The next round of one work, which the owner asked for whatever the global state: the outbox first, then that
-    /// work one step, then the outbox that step filled. After its step the work is paused by the owner, in the owner's
-    /// hands, until the owner starts it. A work on an older flow version moves first; one that cannot move is taken
-    /// over instead, and the step is the first of the new work, paused by the owner after it the same way; when no
-    /// slot is free for it, its item waits at the head of the queue and no round runs.
-    pub fn step_work(&mut self, work: i64) -> Result<Stepped, String> {
-        self.reload_config();
-        actions::run_outbox(self)?;
-        if self.halted() {
-            return Ok(Stepped::default());
-        }
-        let mark = self.db.rounds_mark();
-        self.take_in_hand(work)?;
-        let w = self.work(work)?;
-        let mut stepped = work;
-        let mut started_item = None;
-        let outdated = w.ended.is_none() && w.flow_version != self.flow_now && !self.done(&w)?;
-        let cannot = if outdated { self.cannot_move(&w)? } else { None };
-        if let Some(cannot) = cannot {
-            let item = w.item;
-            let why = self.moved_on(&cannot);
-            if let Some(new) = self.take_over(&[(w, why)])?.first().copied() {
-                self.take_step(new, true)?;
-                stepped = new;
-                started_item = item;
-            }
-        } else {
-            self.take_step(work, true)?;
-        }
-        self.paused_after_step(stepped)?;
-        actions::run_outbox(self)?;
-        let (rounds, cell) = self.rounds_since(&mark)?;
-        Ok(Stepped {
-            work: Some(stepped),
-            started_item,
-            rounds,
-            cell,
-        })
-    }
-
     /// A work the owner took a round of is paused by the owner after it, unless it ended, is done or is paused already.
     fn paused_after_step(&mut self, id: i64) -> Result<(), String> {
         let w = self.work(id)?;
@@ -1427,70 +1188,6 @@ impl Engine {
                 Ok(())
             })
             .map_err(|e| e.to_string())
-    }
-
-    /// While every work is paused, one step of the works the owner started (`started`), and of the architects of the
-    /// projects the owner started them for (`architects`): when no architect work of such a project runs and the cell
-    /// it waits at to start (`S0`) leads on, a matter being due, one starts and takes its first step; otherwise the
-    /// next step of the first of those works, and of the architect works that run, that has one, in the order of the
-    /// works' ids beginning after `after`, as [`Engine::step`] goes round the works that go on. A started work paused
-    /// by itself takes no step, and no new work starts on a ready item.
-    pub fn step_started(
-        &mut self,
-        after: Option<i64>,
-        started: &BTreeSet<i64>,
-        architects: &BTreeSet<String>,
-    ) -> Result<Stepped, String> {
-        self.reload_config();
-        actions::run_outbox(self)?;
-        if self.halted() {
-            return Ok(Stepped::default());
-        }
-        let mark = self.db.rounds_mark();
-        architect::queue_due(self)?;
-        for project in architects {
-            if architect::running(self, project)?.is_some() {
-                continue;
-            }
-            let Some(id) = architect::start(self, project, false)? else {
-                continue;
-            };
-            self.say(&format!(
-                "work {id}: a work of the architect of {project} starts, as the owner started it"
-            ));
-            self.advance(id)?;
-            actions::run_outbox(self)?;
-            let (rounds, cell) = self.rounds_since(&mark)?;
-            return Ok(Stepped {
-                work: Some(id),
-                started_item: None,
-                rounds,
-                cell,
-            });
-        }
-        let mut architect_works = BTreeSet::new();
-        for project in architects {
-            architect_works.extend(architect::running(self, project)?);
-        }
-        let (later, earlier): (Vec<i64>, Vec<i64>) = self
-            .active()?
-            .into_iter()
-            .filter(|id| started.contains(id) || architect_works.contains(id))
-            .partition(|id| after.is_some_and(|a| *id > a));
-        for id in later.into_iter().chain(earlier) {
-            self.advance(id)?;
-            let (rounds, cell) = self.rounds_since(&mark)?;
-            if !rounds.is_empty() {
-                actions::run_outbox(self)?;
-                return Ok(Stepped {
-                    work: Some(id),
-                    started_item: None,
-                    rounds,
-                    cell,
-                });
-            }
-        }
-        Ok(Stepped::default())
     }
 
     /// Lifts, as the owner, the pause of each work the owner started (`releasing`) that is still paused, once it may
@@ -1554,22 +1251,16 @@ impl Engine {
     }
 }
 
-/// What one step came to: the work it took a step of, none when no work had a step to take; the item it started that
-/// work on, when it started it; the rounds it started or ended, and the cell of the last of them.
+/// What one step came to: the work it took a step of, none when no work had a step to take; the item the loop started
+/// that work on, when it started it for the step; the rounds the step's connection started or ended, and the cell of the
+/// last of them; and the owner's round asked that it was, when it was one.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Stepped {
     pub work: Option<i64>,
     pub started_item: Option<i64>,
     pub rounds: Vec<RoundId>,
     pub cell: Option<String>,
-}
-
-/// What bringing works on an older flow version to the version the engine runs came to: the works taken over, and the
-/// new works started on their items.
-#[derive(Debug, Clone, Default)]
-struct Brought {
-    over: Vec<i64>,
-    started: Vec<i64>,
+    pub asked: Option<Ask>,
 }
 
 /// The flow built into this engine, compiled against the database it makes, when `config` fits it; otherwise every
