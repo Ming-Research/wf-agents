@@ -603,6 +603,55 @@ mod tests {
         assert!(!m.list[0].given);
     }
 
+    // The CI on a work, given to a review whole once, is given after that as the entries that changed: a new run of the
+    // fast CI and the head, not the run of the tests before the change that stayed; one a session was given before the
+    // CI was standard context, whose record kept no whole version, holds no version of it, and the new one is given
+    // whole once, with no repeat.
+    #[test]
+    fn the_ci_on_a_work_is_given_as_the_runs_that_changed() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE contents (hash TEXT PRIMARY KEY, text TEXT NOT NULL)")
+            .unwrap();
+        let before =
+            json!({ "result": { "ran": { "verdict": "ran", "checks": [{ "name": "test", "result": "red" }] } } });
+        let was = json!({ "head": "a", "fast_ci": { "head": "a", "result": "red" }, "ci_before": before });
+        let key = db::content_hash(&was.to_string());
+        conn.execute(
+            "INSERT INTO contents (hash, text) VALUES (?1, ?2)",
+            [key.as_str(), was.to_string().as_str()],
+        )
+        .unwrap();
+        let input = json!({ "conditional": [{
+            "address": "R2-4·engine·work_ci", "hash": hash(&was), "given": true, "text": key,
+        }] });
+        let session = [round(4, input, Some(json!({})), 0)];
+        let held = Held::of(&session);
+        let registry = HashMap::new();
+        let mut m = Giver::new(&held, &registry, &conn, &session);
+        let is = json!({ "head": "b", "fast_ci": { "head": "b", "result": "green" }, "ci_before": before });
+        m.give("R2-9·engine·work_ci".into(), is);
+        let c = &m.list[0];
+        assert!(c.given && c.changes, "{c:?}");
+        let text = c.content.as_str().unwrap();
+        assert!(
+            text.starts_with("What changed since R2-4·engine·work_ci, given in R1-4:")
+                && text.contains(r#""head":"b""#)
+                && text.contains(r#""result":"green""#)
+                && !text.contains("ci_before"),
+            "{text}"
+        );
+        assert!(m.repeats().is_empty());
+        let old = json!([{ "head": "a" }]);
+        let unkept =
+            json!({ "conditional": [{ "address": "R2-4·engine·work_ci", "hash": hash(&old), "given": true }] });
+        let session = [round(4, unkept, Some(json!({})), 0)];
+        let held = Held::of(&session);
+        let mut m = Giver::new(&held, &registry, &conn, &session);
+        m.give("R2-9·engine·work_ci".into(), was);
+        assert!(m.list[0].given && !m.list[0].changes);
+        assert!(m.repeats().is_empty());
+    }
+
     // The architect's queue, given as what changed, carries the numbers of the matters that can be picked whole every
     // time, changed or not, beside what changed.
     #[test]

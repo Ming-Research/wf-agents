@@ -1,19 +1,23 @@
 //! The message an agent's round is sent, and what the round's session already holds.
 //!
-//! A message is the round's inputs, of two kinds. The always inputs are given every time the cell is entered: what to
-//! do this round (the cell's task), the addresses of the conditional inputs to work from by the number of each of the
-//! cell's inputs, why the round happens and which format to hand in. A conditional input
-//! is anything worked on: a rule, the item, a setting, another cell's output, a tool's results, an interjection, a
-//! return format, what each numbered input is, the worktree. Each has an address, and is given only when the session
-//! does not hold it: one the session already holds, by its content, is only referred to; one that is new or changed
-//! is given; after a compaction the session is taken to hold nothing. What a session holds is worked out from the
-//! record of what each of its rounds was given and handed back. After a return sent back the message only says why,
-//! and that the return is to be rewritten.
+//! A message is the round's inputs, of two kinds. The always inputs are given every time the cell is entered: the
+//! addresses of the conditional inputs to work from by the number of each of the cell's inputs, why the round happens
+//! and which format to hand in. A conditional input is anything worked on: the cell's task, a rule, the item, a
+//! setting, another cell's output, a tool's results, an interjection, a return format, what each numbered input is,
+//! the worktree, the columns of a review's table. Each has an address, and is given only when the session does not
+//! hold it: one the session already holds, by its content, is only referred to; one that is new or changed is given;
+//! after a compaction the session is taken to hold nothing but its system prompt. What a session holds is worked out
+//! from the record of what each of its rounds was given and handed back. After a return sent back the message only
+//! says why, and that the return is to be rewritten.
 //!
 //! The standard context is what every agent needs once in a session: the return formats, the lists of inputs, the
-//! rules, the project guide, the project's settings and the worktree. When one of them changed since the version a
-//! session holds, the session is given only what changed: the lines of a text that differ, the entries of an object.
-//! The project guide is read from main as the work's branch merged it, so the work's own edits never change it.
+//! rules, the project guide, the project's settings, the worktree and the cell's task, and what the engine computes
+//! much the same from round to round, such as the CI on the work and the columns of a review's table. When one of them
+//! changed since the version a session holds, the session is given only what changed: the lines of a text that differ,
+//! the entries of an object. The project guide is read from main as the work's branch merged it, so the work's own
+//! edits never change it. What of it every session of a line is given alike in the project ([`line_parts`]) is in the
+//! system prompt a new session starts with, which the sessions of the line share in the prompt cache, and which its
+//! messages refer to.
 //!
 //! Before a message is sent, it is checked for what it would give whole that its session already holds: content the
 //! session got before, under any address, or a whole new version of an input of the standard context. Such a message
@@ -33,7 +37,8 @@
 //! by the earliest round it was the same for; and `rule:<name>`, `config:<setting>`, `item:<id>`, `design_card:<id>`,
 //! `ask:<id>` (an ask of the owner), `ij:<id>`, `image:<id>` (an image the owner sent), `work:<id>` (`work:<graph>` for
 //! where an architect's line works),
-//! `format:common`, `format:<cell>` and `inputs:<cell>`. A
+//! `format:common`, `format:<cell>`, `inputs:<cell>`, and `task:<cell>` with `task:<cell>·<by>=<value>` for the lines
+//! of the task the value it is told by adds. A
 //! round recorded before rounds were named by their work wrote a round's address as `R<number>·...`; such an address
 //! names no round, and the engine never gives it again.
 
@@ -379,6 +384,14 @@ impl Context<'_> {
                     (helper.filter(|h| h.step.as_deref() == Some("wait_for_start")), before)
                 {
                     out.push(format!(
+                    // The CI on the work is the work's one row, given as an object, so that a session given it once is
+                    // given after that only the entries that changed, as a run of a CI comes or goes.
+                    "work_ci" => rows
+                        .into_iter()
+                        .next()
+                        .map(|r| (self.computed(m, rel, &r), r))
+                        .into_iter()
+                        .collect(),
                         "You paused in {}, and the owner started the work again: carry on.",
                         p.id
                     ));
@@ -594,8 +607,10 @@ impl Context<'_> {
             out.line(&why.join("\n"));
             out.line("");
         }
-        // The project's own context comes first: its guide and its settings, then the rest in the order added.
-        let shown = |x: &&Conditional| x.given && !x.address.starts_with(IMAGE);
+        // The project's own context comes first: its guide and its settings, then the rest in the order added; the
+        // task and the review's columns are given under their own headings, and an image after the text.
+        let own_heading = |a: &str| a.starts_with(TASK) || columns.as_deref() == Some(a);
+        let shown = |x: &&Conditional| x.given && !x.address.starts_with(IMAGE) && !own_heading(&x.address);
         let mut given: Vec<&Conditional> = m.list.iter().filter(shown).collect();
         given.sort_by_key(|x| first.iter().position(|a| *a == x.address).unwrap_or(first.len()));
         if !given.is_empty() {
@@ -631,18 +646,12 @@ impl Context<'_> {
             }
             out.line("");
         }
-        let mut task: Vec<&str> = c.prompt.iter().map(String::as_str).collect();
-        if let Some(pb) = &c.prompt_by
-            && let Some(v) = self.given.get(&pb.by).and_then(Value::as_str)
-            && let Some(lines) = pb.cases.get(v)
-        {
-            task.extend(lines.iter().map(String::as_str));
-        }
         // A cell with no task of its own has no heading for one.
-        if !task.is_empty() {
+        if !tasks.is_empty() {
             out.line("## Task\n");
-            out.keep(&task.join("\n"));
-            out.line("");
+            for a in &tasks {
+                self.under_heading(&mut out, &m, a);
+            }
         }
         if !work_from.is_empty() {
             out.line("## Work from\n");
@@ -651,12 +660,9 @@ impl Context<'_> {
             }
             out.line("");
         }
-        if !self.columns.is_empty() {
+        if let Some(a) = &columns {
             out.line("## Review table: answer each column by its number\n");
-            for (id, col) in self.columns {
-                out.line(&format!("{id}. {col}"));
-            }
-            out.line("");
+            self.under_heading(&mut out, &m, a);
         }
         out.line(&format!("Hand in one JSON object, as format:{} says.", c.id));
         let (text, stored, mut kept) = out.finish();
@@ -664,6 +670,14 @@ impl Context<'_> {
         for (key, whole) in m.kept {
             if !kept.iter().any(|(k, _)| *k == key) {
                 kept.push((key, whole));
+        let tasks = self.tasks(&mut m);
+        // The columns of the review's table, given once in a session and after that as what changed in them.
+        let columns = (!self.columns.is_empty()).then(|| {
+            let text: Vec<String> = self.columns.iter().map(|(id, col)| format!("{id}. {col}")).collect();
+            let content = Value::String(text.join("\n"));
+            let address = self.computed(&m, COLUMNS, &content);
+            m.give(address, content)
+        });
             }
         }
         Message {
@@ -755,6 +769,58 @@ impl Writer {
 
     /// The text, the text as the record keeps it, and what the record keeps once.
     fn finish(mut self) -> (String, Value, Vec<(String, String)>) {
+    /// The cell's task, as conditional inputs, which a session is given once and after that referred to, or given what
+    /// changed in it: its own lines under `task:<cell>`, and the lines the value it is told by adds under
+    /// `task:<cell>·<by>=<value>`, so that a session given the task of one value and then another holds both; gives
+    /// their addresses. A text the session got under another task's address keeps that address.
+    fn tasks(&self, m: &mut Giver<'_>) -> Vec<String> {
+        let c = self.cell;
+        let mut parts: Vec<(String, Vec<String>)> = Vec::new();
+        if !c.prompt.is_empty() {
+            parts.push((format!("{TASK}{}", c.id), c.prompt.clone()));
+        }
+        if let Some(pb) = &c.prompt_by
+            && let Some(v) = self.given.get(&pb.by).and_then(Value::as_str)
+            && let Some(lines) = pb.cases.get(v)
+            && !lines.is_empty()
+        {
+            parts.push((format!("{TASK}{}·{}={v}", c.id, pb.by), lines.clone()));
+        }
+        parts
+            .into_iter()
+            .map(|(address, lines)| {
+                let content = Value::String(lines.join("\n"));
+                let address = match self.held.got.get(&hash(&content)) {
+                    Some((_, at)) if at.starts_with(TASK) => at.clone(),
+                    _ => address,
+                };
+                m.give(address, content)
+            })
+            .collect()
+    }
+
+    /// Writes a conditional input that has a heading of its own in the message, as the task: given, whole or as what
+    /// changed, under a line of its address, as the inputs given are; or referred to by its address, with the round
+    /// its session got it in.
+    fn under_heading(&self, out: &mut Writer, m: &Giver<'_>, address: &str) {
+        let Some(x) = m.list.iter().find(|x| x.address == address) else {
+            return;
+        };
+        if x.given {
+            out.line(&format!("### {address}\n"));
+            out.keep(&render(&x.content));
+        } else {
+            let got = self
+                .held
+                .got
+                .get(&x.hash)
+                .map(|(r, _)| format!(" in {r}"))
+                .unwrap_or_default();
+            out.line(&format!("{address}, given to you before{got}."));
+        }
+        out.line("");
+    }
+
         if self.parts.is_empty() {
             let text = self.text;
             return (text.clone(), Value::String(text), Vec::new());
@@ -795,6 +861,12 @@ fn architect_workspace(e: &Engine, graph: &str, project: &str) -> String {
         ));
     }
     out
+/// How the address of a cell's task begins.
+const TASK: &str = "task:";
+
+/// The name the columns of a review's table are computed under: `<round>·engine·review_columns`.
+const COLUMNS: &str = "review_columns";
+
 }
 
 /// Where the work's agents work: its worktree and branch, and the project's branch the flow calls main; what

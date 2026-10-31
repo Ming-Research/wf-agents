@@ -48,11 +48,13 @@ fn recorded(input: &Value) -> Vec<Recorded> {
 const GUIDE_ADDRESS: &str = "·engine·project_guide";
 const GUIDE_INPUT: &str = "engine·project_guide";
 
-/// What the engine computes for the architect's cells that is standard context: large and much the same from round to
-/// round, so that its line's session is given it once and after that only what changed in it; a talk with the owner
-/// grows by its entries, so that each turn of it is given only the owner's new words, and what the architect told the
-/// owner by its messages.
-const ARCHITECT_STANDARD: [&str; 12] = [
+/// What the engine computes that is standard context: large and much the same from round to round, so that a session
+/// is given it once and after that only what changed in it. For the architect's cells, what they read of the project;
+/// a talk with the owner grows by its entries, so that each turn of it is given only the owner's new words, and what
+/// the architect told the owner by its messages. For the reviews, the CI on the work, whose runs change one at a time
+/// (`work_ci`), and the columns of the table review, which change by a column or two between reviews
+/// (`review_columns`).
+const ENGINE_STANDARD: [&str; 14] = [
     "constitution",
     "guide",
     "policy",
@@ -65,6 +67,8 @@ const ARCHITECT_STANDARD: [&str; 12] = [
     "batch",
     "talk",
     "told_owner",
+    "work_ci",
+    "review_columns",
 ];
 
 /// The entries of an input of the standard context that every version of it given as what changed carries whole,
@@ -73,8 +77,8 @@ const ARCHITECT_STANDARD: [&str; 12] = [
 pub const INDEXES: [&str; 2] = ["pickable", "handled_matters"];
 
 /// Which input of the standard context an address is a version of: the project guide and what the engine computes as
-/// the architect's standard context, whose versions have addresses of their own, or a return format, a list of
-/// inputs, a rule, a setting or the worktree, whose versions share one; none for an address of anything else.
+/// standard context, whose versions have addresses of their own, or a return format, a list of inputs, a rule, a
+/// setting, the worktree or a cell's task, whose versions share one; none for an address of anything else.
 pub fn standard(address: &str) -> Option<&str> {
     if address.ends_with(GUIDE_ADDRESS) {
         return Some(GUIDE_INPUT);
@@ -84,11 +88,11 @@ pub fn standard(address: &str) -> Option<&str> {
     {
         let input = &address[at + '·'.len_utf8()..];
         let name = &input["engine·".len()..];
-        if ARCHITECT_STANDARD.contains(&name) {
+        if ENGINE_STANDARD.contains(&name) {
             return Some(input);
         }
     }
-    ["format:", "inputs:", "rule:", "config:", "work:"]
+    ["format:", "inputs:", "rule:", "config:", "work:", "task:"]
         .iter()
         .any(|p| address.starts_with(p))
         .then_some(address)
@@ -165,7 +169,13 @@ impl Held {
             h.rounds.insert(r.id);
             for x in recorded(&r.input) {
                 let round = h.got.entry(x.hash.clone()).or_insert((r.id, x.address.clone())).0;
-                if let Some(input) = standard(&x.address) {
+                // What the engine computes is a version of its input only where the round kept it whole: one recorded
+                // before it was standard context was given whole, and may not be of the kind its versions are now.
+                let unkept = x.text.is_none()
+                    && ENGINE_STANDARD
+                        .iter()
+                        .any(|n| x.address.ends_with(&format!("·engine·{n}")));
+                if let Some(input) = standard(&x.address).filter(|_| !unkept) {
                     let text = x.text.clone().or_else(|| {
                         h.standard
                             .get(input)

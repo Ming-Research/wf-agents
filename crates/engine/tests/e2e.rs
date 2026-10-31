@@ -469,18 +469,47 @@ impl GitHub for FakeHub {
     }
 }
 
-/// The ids of the columns the review table lists in a prompt.
+/// The ids of the columns the review table lists in a prompt that gives it whole.
 fn columns(prompt: &str) -> Vec<String> {
+    columns_known(prompt, &mut Vec::new())
+}
+
+/// The ids of the columns of the review's table as a session that read its prompts knows them, `known` holding those
+/// it knew before: the table given whole, under its address; what changed in it since, its lines removed and added; or
+/// the table referred to, as given before.
+fn columns_known(prompt: &str, known: &mut Vec<String>) -> Vec<String> {
     let Some(start) = prompt.find("## Review table") else {
         return Vec::new();
     };
-    prompt[start..]
+    let body: Vec<&str> = prompt[start..]
         .lines()
         .skip(1)
         .skip_while(|l| l.trim().is_empty())
+        .collect();
+    if !body.first().is_some_and(|l| l.starts_with("### ")) {
+        return known.clone();
+    }
+    let lines: Vec<&str> = body[1..]
+        .iter()
+        .skip_while(|l| l.trim().is_empty())
         .take_while(|l| !l.trim().is_empty())
-        .filter_map(|l| l.split_once(". ").map(|(id, _)| id.to_string()))
-        .collect()
+        .copied()
+        .collect();
+    let id = |l: &str| l.split_once(". ").map(|(id, _)| id.to_string());
+    if lines.first().is_some_and(|l| l.starts_with("What changed since")) {
+        for l in &lines[1..] {
+            if let Some(gone) = l.strip_prefix('-').and_then(id) {
+                known.retain(|k| *k != gone);
+            } else if let Some(added) = l.strip_prefix('+').and_then(id) {
+                known.push(added);
+            }
+        }
+        known.sort_by_key(|k| k.parse::<u32>().unwrap_or(u32::MAX));
+        known.dedup();
+    } else {
+        *known = lines.iter().filter_map(|l| id(l)).collect();
+    }
+    known.clone()
 }
 
 struct Setup {
@@ -621,10 +650,14 @@ fn scripts() -> BTreeMap<&'static str, Script> {
             )
         }),
     );
+    // The table review answers every column of its table, which its session holds from its earlier prompts.
+    let known: RefCell<BTreeMap<String, Vec<String>>> = RefCell::default();
     s.insert(
         "T4",
-        Box::new(|r: &Request, _: usize| {
-            let cols: Vec<Value> = columns(&r.prompt)
+        Box::new(move |r: &Request, _: usize| {
+            let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
+            let ids = columns_known(&r.prompt, known.borrow_mut().entry(session).or_default());
+            let cols: Vec<Value> = ids
                 .into_iter()
                 .map(|id| json!({ "id": id, "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } }))
                 .collect();
@@ -813,6 +846,18 @@ fn an_item_goes_from_the_queue_to_main() {
     assert!(!columns.contains("a gap in what is under test"), "{columns}");
     assert!(!columns.contains("cross-project dependency"), "{columns}");
     assert!(columns.contains("unsure facts"), "{columns}");
+    // The table review is given its columns under their address, which a later review of its session refers to or
+    // is given what changed in, and the CI on the work as one object, whose entries a later review is given as they
+    // change.
+    let review = input_of("T4");
+    let m = review["message"].as_str().unwrap_or_default();
+    assert!(
+        m.contains("## Review table: answer each column by its number\n\n### R")
+            && m.contains("·engine·review_columns\n\n1. "),
+        "{m}"
+    );
+    let ci = given_value(m, "·engine·work_ci").expect(m);
+    assert!(ci.is_object() && ci.get("fast_ci").is_some(), "{ci}");
     // The review line's session is given the worktree once, at its first round, the blind review.
     let blind = input_of("T3");
     let message = blind["message"].as_str().unwrap_or_default();
