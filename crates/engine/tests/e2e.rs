@@ -8155,6 +8155,69 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// An item's title has 20 characters at most, spaces not counted: an answer that creates an item, or retitles one, with
+// a longer title is sent back saying how long each is, and handed in again with shorter titles, its changes are made.
+#[test]
+fn an_item_title_over_twenty_characters_is_sent_back() {
+    let s = setup("title-too-long");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 2 {
+                return (Vec::new(), Vec::new());
+            }
+            // 23 characters and 22, spaces not counted; then 20 and 18.
+            let (title, retitle) = if n == 1 {
+                ("Let match take integers too", "Parse all the inputs first")
+            } else {
+                ("Let match take integers", "Parse the input first")
+            };
+            let changes = json!([
+                { "kind": "create_item", "key": "match", "project": "p", "title": title, "problem": "No match.",
+                  "why": "Needed.", "acceptance": ["It matches."], "level": "l", "deliver": "change", "reason": "r" },
+                { "kind": "edit_item", "item": "1", "part": "title", "text": retitle, "reason": "r" },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
+            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2)]))])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Let match take integers.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let rejected = why_sent_back(&e, arch, "H8");
+    assert_eq!(rejected.len(), 1, "{rejected:?}");
+    assert!(
+        rejected[0].contains("item change 1 (create_item): the title it gives has 23 characters")
+            && rejected[0].contains("item change 2 (edit_item): the title it gives has 22 characters"),
+        "{rejected:?}"
+    );
+    let titles: Vec<String> = engine::query_json(e.db.conn(), "SELECT title FROM items ORDER BY id", &[], 10)
+        .unwrap()
+        .iter()
+        .map(|r| r["title"].as_str().unwrap_or_default().to_string())
+        .collect();
+    let log = said.borrow().join("\n");
+    assert_eq!(titles, ["Parse the input first", "Let match take integers"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A cancel of an item the batch creates, named by its key, cancels the create out: the item is never made, and the
 // create, the changes that name its key and the cancel are dropped as they are collected, saying so, so that the review
 // is not given them; in the sixth trial a batch held a create, a move and a cancel of one item, which the review could

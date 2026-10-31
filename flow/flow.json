@@ -1597,7 +1597,7 @@
               "name": "title",
               "title": "Title",
               "type": "text",
-              "desc": "What to do, as an action, in `owner.language`, technical terms in English"
+              "desc": "What to do, as an action, in at most 20 characters, spaces not counted"
             },
             {
               "name": "under",
@@ -1624,19 +1624,19 @@
               "name": "problem",
               "title": "The problem",
               "type": "text",
-              "desc": "What cannot be done or is wrong, in a sentence, with a smallest example"
+              "desc": "What cannot be done or is wrong, in one sentence, then one smallest example"
             },
             {
               "name": "why",
               "title": "Why it is worth doing",
               "type": "text",
-              "desc": "The cost of not doing it, and who waits"
+              "desc": "Only why it is worth doing, in one or two sentences"
             },
             {
               "name": "acceptance",
               "title": "Acceptance",
               "type": "list",
-              "desc": "One condition per row, each clearly true or false",
+              "desc": "Its conditions, each a checkable result, one per row, usually one",
               "item": {
                 "type": "text",
                 "desc": "One condition"
@@ -1869,7 +1869,7 @@
               "name": "text",
               "title": "New text",
               "type": "text",
-              "desc": "What it becomes; a title in `owner.language`, technical terms in English"
+              "desc": "What it becomes, written as `create_item` asks of that part"
             }
           ]
         },
@@ -1887,7 +1887,7 @@
               "name": "acceptance",
               "title": "New acceptance",
               "type": "list",
-              "desc": "The new acceptance, one condition per row",
+              "desc": "The new acceptance, written as `create_item` asks of it",
               "item": {
                 "type": "text",
                 "desc": "One condition"
@@ -1986,7 +1986,7 @@
           ]
         }
       ],
-      "desc": "One change to the items. Its reason: what it is for, what follows without it, and any change it cannot stand without; the owner reads it, in `owner.language`, technical terms in English. An item is given by its number, or the key of an item an earlier change of the batch creates"
+      "desc": "One change to the items. Its reason: what it is for, what follows without it, and any change it cannot stand without. The owner reads the reason and an item's title, problem, why, approach and acceptance: write them in `owner.language`, technical terms in English, as `format:common` says a field the owner reads is written. An item is given by its number, or the key of an item an earlier change of the batch creates"
     },
     "observation_change": {
       "type": "union",
@@ -11727,8 +11727,11 @@
           "name": "item_writing",
           "desc": "How items and changes to them are written",
           "text": [
-            "An item says what to do as an action (its title, written in the owner's language, the setting `owner.language`, as an observation is), the problem in one sentence with a smallest example, why it is worth doing (the cost of not doing it, and who waits), and its acceptance, one condition per row, each clearly true or false.",
+            "The owner reads an item, its title first: write its title, problem, why and acceptance in the owner's language, the setting `owner.language`. The title says what to do as an action, not a state, in at most 20 characters, spaces not counted: no conditions, examples or numbers, unless the number is the goal; no internal names, and a name a programmer writes in code font.",
+            "The problem says what cannot be done or is wrong in one sentence, then one smallest example, only one; a cause inferred is marked as inferred. If it cannot be written clearly, find out more first. Why says only why the work is worth doing, in one or two sentences written as a conclusion: the cost of not doing it, which goal, who waits; no account of how things stand now.",
+            "The acceptance is checkable results, such as which test passes or which number is reached, usually one row: no method, no test plan, nothing CI checks anyway.",
             "An item is worth an engineer, a branch, a CI run and a merge: one too small joins another; one with parts that could each merge alone is split. Its level fits the judgment it needs: higher for work that must make new decisions or check facts that are unsure, whatever the size of the change.",
+            "An item that takes in more, by a merge, by another joining it or by observations folded in, has a title naming their common area, a problem giving each part one sentence and one example, and each part's acceptance. If no title of 20 characters fits, they are two items.",
             "A split makes new items and has the item depend on them; each acceptance condition of the item goes to one new item at most, and those that go to none stay with it. A dependency says what the item needs the other to deliver, and its kind: blocking when the item cannot start before the other is merged, as when it needs a module or a library the other makes; parallel when it can start and wait where it needs the other. A blocking dependency added later does not stop a work already running.",
             "One decision per change, its reason saying what it is for and what follows if it is not made; where a change cannot stand without another, such as one that refers to an item these changes create, its reason says which. An item is cancelled only when its work is not to be done, saying where its work went."
           ],
@@ -11966,8 +11969,8 @@
             "A field the owner reads (its description says so) is written so: explain a new term or label in half a sentence where it first appears; write the phenomenon, not internal nouns.",
             "No internal names the owner does not know: no number of an internal function, file, branch, commit, version, CI run or specification clause, except as a link where the owner must act; a PR is followed by a few words saying what it is, with its link; only a PR description may give paths. Names a programmer writes (language constructs, library functions and types) are written in code font as they are, an external product's version when it matters, and quoted error messages verbatim, numbers included.",
             "Say whether each claim was measured, read from source or deduced; put what is unconfirmed next to the claim, with how it will be confirmed. Every number carries its comparison: a percentage says faster or slower than what, a cited threshold gives its value.",
-            "An option the owner chose is written as its content, not only by its name. The design and the acceptance say the same thing, and their numbers agree. Each field reads on its own: full names, every PR linked, the background a reader needs.",
-            "Say each thing once, in the field it belongs to, and not in prose what a code comment says. Be concise without losing what matters: the most important first; never cut what the owner needs to understand and decide.",
+            "An option the owner chose is written as its content, not only by its name. The title, the design and the acceptance say the same thing, and their numbers agree. Each field reads on its own: full names, every PR linked, the background a reader needs.",
+            "Say each thing once, in the field it belongs to, and not in prose what a code comment says; reread what you wrote and delete repeats. Be concise without losing what matters: the most important first; never cut what the owner needs to understand and decide.",
             "Code examples: only the lines the point needs; explain a name used but not defined in a comment. One comment per line, on its own line above the line it explains, about 80 characters at most; at the line that goes wrong, say what should hold, what happens and why. Before and after are two blocks, each with comments. Follow the language's syntax and format, saying so when a form cannot compile before the implementation. A tool's error text comes from the repository or a real run in CI, never from memory; otherwise describe it in words. The fence names the language; output, logs and errors take no label and no comments."
           ],
           "once": [

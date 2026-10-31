@@ -127,13 +127,33 @@ fn dependency(kind: &Value, bad: &mut dyn FnMut(String)) {
     }
 }
 
+/// The most characters an item's title has, spaces not counted.
+const TITLE_MOST: usize = 20;
+
+/// How many characters a title has, spaces not counted, as the earlier board counted them.
+fn title_length(title: &str) -> usize {
+    title.chars().filter(|c| !c.is_whitespace()).count()
+}
+
+/// Whether a title a change gives is short enough; otherwise says how long it is.
+fn title_fits(title: &str, bad: &mut dyn FnMut(String)) {
+    let n = title_length(title);
+    if n > TITLE_MOST {
+        bad(format!(
+            "the title it gives has {n} characters, spaces not counted, and a title has {TITLE_MOST} at most: \
+             write it shorter"
+        ));
+    }
+}
+
 /// Whether the changes a project's architect handed in are valid, in order: every change has its reason; an item
-/// created is of the project and has what it needs and a key no other change uses; a split gives each acceptance
-/// condition of the item split to one new item at most, one of its locked conditions when its acceptance is locked;
-/// every item a change names is there, or made by an earlier change, and an item it changes is of the project (an item
-/// of the project may depend on another project's); every dependency a change makes has its kind; an item is moved
-/// first, last, under another item, or next to another item of its own project; observations folded in are the
-/// project's and open; and after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
+/// created is of the project and has what it needs and a key no other change uses; a title an item is created or
+/// retitled with has 20 characters at most, spaces not counted; a split gives each acceptance condition of the item
+/// split to one new item at most, one of its locked conditions when its acceptance is locked; every item a change
+/// names is there, or made by an earlier change, and an item it changes is of the project (an item of the project may
+/// depend on another project's); every dependency a change makes has its kind; an item is moved first, last, under
+/// another item, or next to another item of its own project; observations folded in are the project's and open; and
+/// after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
 pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), String> {
     let mut s = State::load(e.db.conn())?;
     let cfg = &e.config.config;
@@ -176,6 +196,7 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                         bad(format!("it has no {k}"));
                     }
                 }
+                title_fits(text(c, "title"), &mut bad);
                 if text(c, "project") != project {
                     bad(format!(
                         "it is of {}, and you make items of {project} only",
@@ -287,6 +308,9 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                 own(&c["item"], &s, &mut bad);
                 if text(c, "text").trim().is_empty() {
                     bad("it changes the text to nothing".into());
+                }
+                if text(c, "part") == "title" {
+                    title_fits(text(c, "text"), &mut bad);
                 }
             }
             "set_level" => {
@@ -622,6 +646,25 @@ mod tests {
         assert!(cycle(&[(1, 2), (2, 3), (3, 1)]));
         assert!(!cycle(&[(1, 2), (2, 3), (1, 3)]));
         assert!(!cycle(&[]));
+    }
+
+    // A title is counted as the earlier board counted it: every character but spaces, a backtick too, one each however
+    // many bytes it takes; 20 are let through, and 21 are refused, saying how many.
+    #[test]
+    fn a_title_is_counted_without_spaces_and_refused_over_twenty() {
+        assert_eq!(title_length("Parse the `lexer`\u{3000}first"), 20);
+        // A CJK ideograph, three bytes in UTF-8.
+        let wide = "\u{4e00}";
+        let refused = |title: &str| {
+            let mut said: Vec<String> = Vec::new();
+            title_fits(title, &mut |p: String| said.push(p));
+            said
+        };
+        assert!(refused(format!("{} {}", wide.repeat(10), wide.repeat(10)).as_str()).is_empty());
+        assert_eq!(
+            refused(format!("{} x", wide.repeat(20)).as_str()),
+            ["the title it gives has 21 characters, spaces not counted, and a title has 20 at most: write it shorter"]
+        );
     }
 
     #[test]
