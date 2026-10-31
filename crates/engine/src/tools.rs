@@ -464,10 +464,9 @@ fn why_not_run(jobs: &[JobLog<'_>], shown: usize) -> String {
     }
     // Logs were read and not one line of a test ending is in them: it is the runner that is not as read, not the name.
     if shown == 0 && jobs.iter().any(|j| j.log.is_ok()) {
-        return format!(
-            "no log of the fast CI has a line in the form cargo-nextest writes as a test ends (the logs show 0 tests): \
+        return "no log of the fast CI has a line in the form cargo-nextest writes as a test ends (the logs show 0 tests): \
              the fast CI may not run its tests with cargo-nextest"
-        );
+            .to_string();
     }
     format!(
         "no test of that name ended in the fast CI (the logs show {shown} tests): the name is no test's, or the test is \
