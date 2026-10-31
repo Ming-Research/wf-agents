@@ -3,7 +3,7 @@
 // offers (the options of its choice) and a small box of the owner's words beside an Answer button; a question of an
 // engineer's that the architect holds is answered in a small box in its bubble too. What is written there answers that
 // bubble; the box at the bottom of the conversation says something, and in the one-to-one with an architect replies to
-// the question it pinned that is ticked over the box. Everything that answers reads this; a view with no conversation
+// the question of the architect's the strip over the box names. Everything that answers reads this; a view with no conversation
 // round it (a work's page, an item's, the architect's) shows what waits and where to answer it, and gives no form.
 
 import { createContext, useContext } from 'react';

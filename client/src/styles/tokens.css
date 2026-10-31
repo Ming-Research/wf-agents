@@ -61,4 +61,7 @@
   --chart-faded: 0.55;
   --chart-quiet: 0.35;
   --chart-quiet-label: 0.45;
+
+  /* How long a bubble the bar of what waits brought into view stays lit, long enough to find it after the scroll. */
+  --talk-lit-time: 1.6s;
 }

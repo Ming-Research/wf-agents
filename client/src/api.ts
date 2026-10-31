@@ -841,7 +841,7 @@ images: Array<ImageSent>, };
 
 /**
  * What the owner says to a project's architect in their one-to-one: the words, the images sent with them, and the
- * question pinned there that they reply to, when the owner ticked one.
+ * question of the architect's they reply to, when the box replies to one.
  */
 export type ArchitectSaid = { text: string, 
 /**

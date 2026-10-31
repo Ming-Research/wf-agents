@@ -9,22 +9,32 @@
 // each agent's message beside its avatar in its colour and headed by whom it is for, the owner's on the right; the
 // engine's notices are grey lines, and its stage cards, one for each stretch of the work at a stage, updated in place,
 // the design's with the design folded and the design card to rule on. The one-to-one holds the owner's words, what the
-// architect tells and asks, a card for each of its matters and the policy as it took effect, under its queue; the
-// questions the architect pinned for the owner's reply are at its bottom, over the box, the newest open and the others
-// folded, and the box replies to the one open while the tick over it is on. wf-agents' own holds its faults, each of
-// which the owner forwards to any project's architect, once to each, and says where it went and how it stands there;
-// its head sets where each new fault goes as it comes, nobody at first. What waits for the owner has one place, the
-// band at the top of the conversation: a design card a work waits on to be ruled, and each ask of the owner from a
-// work while it waits, as the asking agent's bubble in full, answered there: the buttons of its options, the one picked
-// marked, then a small box for the owner's words, free unless the ask is in words alone or no option is picked, and
-// Answer. Where it was asked the stream keeps one line of it that leads to the band. Once answered it leaves the band,
-// and its bubble in the stream holds the question with the owner's answer under it, which shows nowhere else. A
-// question the architect holds has the small box in its bubble too. An architect's question has no box: replied to, it
-// is back where it was asked, with the reply in its bubble. The one box at the bottom says something, in a work's group to the
+// architect tells and asks, a card for each of its matters and the policy as it took effect, under its queue.
+// wf-agents' own holds its faults, each of which the owner forwards to any project's architect, once to each, and says
+// where it went and how it stands there; its head sets where each new fault goes as it comes, nobody at first. What
+// waits for the owner stays where it came in the stream and is answered there, and a bar of one line under the head
+// pins it, as a chat app pins a message: the design card a work waits on to be ruled, in its stage's bubble; each ask
+// of the owner from a work, as the asking agent's bubble with the buttons of its options, the one picked marked, then
+// a small box for the owner's words, free unless the ask is in words alone or no option is picked, and Answer; each
+// question an architect put to the owner, which the box at the bottom replies to; and, with no place in the stream,
+// the architect's pause of a work, with Start, and the architect's own trouble. A click on the bar brings the thing
+// into view and shows the next; its menu lists them all. Once answered, an ask's bubble holds the question with the
+// owner's answer under it, which shows nowhere else; a question replied to holds the reply. A question the architect
+// holds has the small box in its bubble too. The one box at the bottom says something, in a work's group to the
 // engineer, the architect or both, and in the one-to-one to the architect, whose words it takes first and answers in
-// one round, or replies to the question ticked. Opening a conversation reads it up to its latest entry.
+// one round, or, a strip over it saying so, replies to the question the architect waits on or the one the owner chose
+// to reply to. Opening a conversation reads it up to its latest entry.
 
-import { BellIcon, CheckIcon, ChevronRightIcon, CpuIcon, StackIcon } from '@primer/octicons-react';
+import {
+  ArrowDownIcon,
+  CheckIcon,
+  CpuIcon,
+  ListUnorderedIcon,
+  PinIcon,
+  ReplyIcon,
+  StackIcon,
+  XIcon,
+} from '@primer/octicons-react';
 import {
   ActionList,
   ActionMenu,
@@ -33,12 +43,12 @@ import {
   CounterLabel,
   Flash,
   FormControl,
+  IconButton,
   NavList,
   PageLayout,
   Timeline,
 } from '@primer/react';
 import {
-  type CSSProperties,
   type Dispatch,
   type MouseEvent,
   type ReactNode,
@@ -92,40 +102,37 @@ import {
   member,
   mention,
   mentions,
-  openQuestion,
   ownerReplies,
   party,
   pendingWords,
-  pinnedAsks,
   pinnedQuestions,
-  replyTicked,
+  pinsOf,
+  replyingTo,
   rowsShown,
   sayTo,
   sayToTicked,
   shownByState,
   streamOf,
-  type Ticked,
   toArchitect,
   voiceOf,
   wordsStateText,
 } from '../conversation';
 import { useActions } from '../course';
-import { Grip, savedSize } from '../flow/Panel';
 import { cost, time } from '../format';
 import { postJson } from '../http';
 import { imagesSent, type PendingImage, saysSomething } from '../images';
 import { isObj, label, str, words } from '../labelled';
 import { reread, useResource, useStatus } from '../live';
-import { firstWords, Markdown, MarkdownLine } from '../markdown';
-import { BackLink, LinkButton, SayBox, Thumbs } from '../parts';
+import { Markdown } from '../markdown';
+import { BackLink, SayBox, Thumbs } from '../parts';
 import { architectHref, forProject, href, Link, navigate, roundAt, type SideTab, sideHref, workHref } from '../route';
 import { t, tn } from '../text';
 import { joinedWords, Long, SEP } from '../voices';
 import { useNarrow, useWidth, type Width } from '../width';
 import { ArchitectAskBlock } from './ArchitectAsk';
 import { ArchitectSide, useSideOpen } from './ArchitectSide';
-import { Bubble, BubbleHead, LiveBubble } from './Bubble';
-import { AskView, DesignCardView } from './Decide';
+import { Bubble, BubbleHead } from './Bubble';
+import { AskView } from './Decide';
 import { ArchitectHead, PlainHead, WfAgentsHead, WorkHead } from './TalkHead';
 import { MatterBubble, PlanBubble, PolicyBubble, StageBubble } from './TalkCards';
 
@@ -515,11 +522,15 @@ function AskAnswered({ a }: { a: OwnerAsk }) {
 /// box at the bottom replies to it, then the owner's reply; a question the architect holds, the box that answers it,
 /// then the owner's answer (`reply`). The question whether the draft of a new policy is approved leads to the draft, in
 /// the panel beside the one-to-one (`draft`).
-function Message({ e, to, reply, draft = null }: {
+function Message({ e, to, reply, draft = null, onReply = null, approve = null }: {
   e: ConversationEntry;
   to: string | null;
   reply: ConversationEntry | null;
   draft?: string | null;
+  /// For an architect's question that waits for the owner's reply: what sets the box to reply to it.
+  onReply?: (() => void) | null;
+  /// For the question whether the draft of a new policy is approved, while it waits: the project it is of.
+  approve?: string | null;
 }) {
   const own = e.sender === 'owner';
   // The architect of another project, in a group of projects, speaks as an architect, in the architect's colour.
@@ -553,6 +564,18 @@ function Message({ e, to, reply, draft = null }: {
           {question !== null ? <QuestionAnswer work={question.work} matter={question.matter} /> : null}
           {reply !== null ? (
             <AnswerIn head={t('conv_your_reply')} at={reply.at} text={reply.text} images={reply.images} />
+          ) : null}
+          {onReply !== null || approve !== null ? (
+            <div className="talk-answer">
+              <div className="talk-answer-buttons">
+                {approve !== null ? <Approve project={approve} question={e.id} /> : null}
+                {onReply !== null ? (
+                  <Button size="small" leadingVisual={ReplyIcon} title={t('conv_reply_hint')} onClick={onReply}>
+                    {t('conv_reply')}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
           ) : null}
         </>
       }
@@ -698,45 +721,12 @@ function Fault({ e, forwarding }: { e: ConversationEntry; forwarding: Forwarding
   );
 }
 
-/// An ask of the owner that waits, where it was asked in the stream, while it is pinned in the band at the top with what
-/// answers it: the asking agent's bubble of one line, its head every bubble's (who asked, to you, when, its round), the
-/// question cut to one line and whole on hovering, and "waiting for you above", which brings the pinned ask into view.
-function AskAbove({ e, to }: { e: ConversationEntry; to: string | null }) {
-  const round = e.work !== null && e.round !== null;
-  const bring = () => {
-    const el = document.querySelector<HTMLElement>(`.talk-pins [data-ask="${e.id}"]`);
-    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    el?.querySelector<HTMLElement>('button, textarea')?.focus({ preventScroll: true });
-  };
-  return (
-    <LiveBubble
-      who={member(e.sender)}
-      head={
-        <BubbleHead who={party(e, e.sender)} to={to} at={e.at}>
-          {round ? <Link to={workHref(e.work ?? 0, { round: e.round ?? 0 })}>{`R${e.work}-${e.round}`}</Link> : null}
-        </BubbleHead>
-      }
-      line={
-        <>
-          <span className="live-line-now">
-            <MarkdownLine text={e.text} />
-          </span>
-          <LinkButton className="live-line-link" onClick={bring}>
-            {t('conv_ask_above')}
-          </LinkButton>
-        </>
-      }
-      gist={null}
-      title={firstWords(e.text)}
-    />
-  );
-}
-
 /// One entry of the stream, in its voice; a question with the owner's answer to it (`replies`, by its matter); the
-/// question whether the draft of a new policy that waits (`draft`) is approved leading to the draft; the bubble of the
-/// matter the architect has in hand with how its work goes on (`architect`); the design cards pinned at the top
-/// (`pinned`), which a stage's bubble names instead of drawing them again.
-function Entry({ e, c, w, architect, replies, forwarding, draft, pinned, asks }: {
+/// question whether the draft of a new policy that waits (`draft`) is approved leading to the draft, and while it waits
+/// approved by one button; an architect's question that waits for the owner's reply (`questions`) with the button that
+/// sets the box to reply to it (`replyTo`); the bubble of the matter the architect has in hand with how its work goes
+/// on (`architect`).
+function Entry({ e, c, w, architect, replies, forwarding, draft, questions, replyTo }: {
   e: ConversationEntry;
   c: Conversation;
   w: WorkSummary | null;
@@ -744,16 +734,13 @@ function Entry({ e, c, w, architect, replies, forwarding, draft, pinned, asks }:
   replies: ReadonlyMap<number, ConversationEntry>;
   forwarding: Forwarding | null;
   draft: PolicyDraft | null;
-  pinned: readonly number[];
-  asks: readonly number[];
+  questions: ReadonlySet<number>;
+  replyTo: ((question: number) => void) | null;
 }) {
   const voice = voiceOf(e);
-  if (e.source === 'ask' && asks.includes(e.id)) {
-    return <AskAbove e={e} to={mentions(e, c.kind) ? mention(e, c.kind) : null} />;
-  }
   if (voice === 'live') {
     const project = c.project ?? '';
-    if (e.stage !== null) return <StageBubble e={e} s={e.stage} w={w} project={c.project} pinned={pinned} />;
+    if (e.stage !== null) return <StageBubble e={e} s={e.stage} w={w} project={c.project} />;
     if (e.matter_card !== null) return <MatterBubble e={e} m={e.matter_card} project={project} architect={architect} />;
     if (e.policy !== null) return <PolicyBubble p={e.policy} project={project} />;
     if (e.plan !== null) return <PlanBubble e={e} p={e.plan} project={project} />;
@@ -763,166 +750,173 @@ function Entry({ e, c, w, architect, replies, forwarding, draft, pinned, asks }:
   if (voice === 'fault') return <Fault e={e} forwarding={forwarding} />;
   if (voice === 'none') return null;
   const reply = e.matter !== null && isQuestion(e) ? (replies.get(e.matter) ?? null) : null;
+  const waits = e.source === 'ask' && questions.has(e.id);
   return (
     <Message
       e={e}
       to={mentions(e, c.kind) ? mention(e, c.kind) : null}
       reply={reply}
       draft={c.project !== null && asksApproval(e, draft) ? sideHref(c.project, 'policy') : null}
+      onReply={waits && replyTo !== null ? () => replyTo(e.id) : null}
+      approve={waits && c.project !== null && asksApproval(e, draft) ? c.project : null}
     />
   );
 }
 
-/// The keys the height the owner dragged a band to is kept under, the band at the top and the one over the box, and
-/// the least it drags to: its heading and a line of what it holds.
-const PINS_KEY = { top: 'wf-agents.pins-top-height', bottom: 'wf-agents.pins-bottom-height' } as const;
-const PINS_MIN = 96;
+/// One thing the bar over the stream shows: its words; the colour of what waits, or of what is wrong (`danger`); what
+/// brings it into view in the stream, for what has its place there (`go`); and what the owner does from the bar itself,
+/// for what has none (`action`).
+export type PinShown = {
+  key: string;
+  danger: boolean;
+  words: string;
+  go: (() => void) | null;
+  action: ReactNode;
+};
 
-/// Whether a part that scrolls has more above what shows and more below it.
-type More = { above: boolean; below: boolean };
-
-/// What is pinned for the owner, in one look wherever it is: a band in the tint of what waits for the owner, headed by
-/// a bell and what it is in that colour, ending where the stream begins in a firm line across the conversation, the
-/// edge the owner drags to make it taller or shorter (`Grip`, kept in this browser, a double click giving it its own
-/// height again); as tall as what it holds up to that height, or up to its own where none is kept, so that a card
-/// opened grows it and everything folded shrinks it back, and never past most of the conversation; past that it
-/// scrolls inside, a fade at its edge saying there is more there. At the top of a work's group, the design card its
-/// work waits on and the asks that wait, and at the bottom of the one-to-one with an architect, over the box, the
-/// questions the architect pinned, its edge then at its top.
-function Pins({ at, children }: { at: 'top' | 'bottom'; children: ReactNode }) {
-  const [height, setHeight] = useState<number | null>(() => savedSize(PINS_KEY[at], PINS_MIN));
-  const scroll = useRef<HTMLDivElement>(null);
-  const [more, setMore] = useState<More>({ above: false, below: false });
-  // Whether there is more than shows, again as it scrolls and as what it holds changes size (a card opened or folded).
-  useEffect(() => {
-    const el = scroll.current;
-    if (el === null) return;
-    const check = () => {
-      const above = el.scrollTop > 1;
-      const below = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
-      setMore((m) => (m.above === above && m.below === below ? m : { above, below }));
-    };
-    check();
-    el.addEventListener('scroll', check, { passive: true });
-    const sizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(check);
-    sizes?.observe(el);
-    for (const x of el.children) sizes?.observe(x);
-    return () => {
-      el.removeEventListener('scroll', check);
-      sizes?.disconnect();
-    };
+/// Brings a bubble of the stream into view, its head at the top of the stream, the card it is opened if folded, and
+/// lights it for a moment, as a chat app does when it goes to a pinned message; a card's head takes the focus, so that
+/// the view stays on it, and in a bubble the first thing that answers it.
+function bringToBubble(selector: string) {
+  const el = document.querySelector<HTMLElement>(selector);
+  if (el === null) return;
+  const card = el instanceof HTMLDetailsElement;
+  if (card) el.open = true;
+  (card ? el.querySelector<HTMLElement>('summary') : el.querySelector<HTMLElement>('textarea, button'))?.focus({
+    preventScroll: true,
   });
+  el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  el.classList.remove('talk-lit');
+  requestAnimationFrame(() => el.classList.add('talk-lit'));
+  el.addEventListener('animationend', () => el.classList.remove('talk-lit'), { once: true });
+}
+
+/// What waits for the owner in a conversation, said in one line under its head, as a chat app pins a message: a
+/// `PinIcon`, then the one shown, the oldest at first, after "2/3" while more than one waits, its words cut where the
+/// line ends and whole on hovering; a click on it brings its bubble into view in the stream, opened and lit for a
+/// moment, and shows the next. What has no place in the stream (the architect's pause of a work, the architect's own
+/// trouble) is its words alone, with its one action at the bar's end. While more than one waits, a menu at the end
+/// lists them all, a pick bringing that one into view.
+export function PinBar({ pins }: { pins: PinShown[] }) {
+  const [at, setAt] = useState(0);
+  if (pins.length === 0) return null;
+  const i = at % pins.length;
+  const p = pins[i];
+  const many = pins.length > 1;
+  const words = (
+    <>
+      {many ? <span className="talk-pinbar-count">{t('conv_pin_count', { n: i + 1, of: pins.length })}</span> : null}
+      <span className="talk-pinbar-words">{p.words}</span>
+    </>
+  );
   return (
-    <section
-      className={`talk-pins talk-pins-${at}`}
-      aria-label={t('conv_waits_for_you')}
-      style={height !== null ? ({ '--pins-height': `${height}px` } as CSSProperties) : undefined}
-    >
-      <div ref={scroll} className="talk-pins-scroll">
-        <h3 className="talk-pins-title">
-          <BellIcon />
-          {t('conv_waits_for_you')}
-        </h3>
-        {children}
-      </div>
-      {more.above ? <div className="talk-pins-fade talk-pins-fade-above" aria-hidden="true" /> : null}
-      {more.below ? <div className="talk-pins-fade talk-pins-fade-below" aria-hidden="true" /> : null}
-      <Grip
-        edge={at === 'top' ? 'bottom' : 'top'}
-        min={PINS_MIN}
-        storage={PINS_KEY[at]}
-        label={t('conv_pins_grip')}
-        onSize={setHeight}
-      />
+    <section className={p.danger ? 'talk-pinbar talk-pinbar-danger' : 'talk-pinbar'} aria-label={t('conv_waits_for_you')}>
+      <PinIcon className="talk-pinbar-icon" />
+      {p.go !== null || many ? (
+        <button
+          type="button"
+          className="talk-pinbar-line"
+          title={p.words}
+          onClick={() => {
+            p.go?.();
+            setAt((i + 1) % pins.length);
+          }}
+        >
+          {words}
+        </button>
+      ) : (
+        <span className="talk-pinbar-line" title={p.words}>
+          {words}
+        </span>
+      )}
+      {p.action}
+      {many ? (
+        <ActionMenu>
+          <ActionMenu.Anchor>
+            <IconButton size="small" variant="invisible" icon={ListUnorderedIcon} aria-label={t('conv_pins_all')} />
+          </ActionMenu.Anchor>
+          <ActionMenu.Overlay width="large" align="end">
+            <ActionList>
+              {pins.map((x, k) => (
+                <ActionList.Item
+                  key={x.key}
+                  onSelect={() => {
+                    setAt(k);
+                    x.go?.();
+                  }}
+                >
+                  <span className="talk-pinbar-item">{x.words}</span>
+                </ActionList.Item>
+              ))}
+            </ActionList>
+          </ActionMenu.Overlay>
+        </ActionMenu>
+      ) : null}
     </section>
   );
 }
 
-/// What waits for the owner pinned at the top of the conversation, its one place: the design card whose ruling a work
-/// waits for before its merge, with the verdicts to send, folded to its head line until the owner opens it, as the
-/// owner asked, since open it took most of the conversation; and each ask of the owner that waits, as the asking
-/// agent's bubble in full, answered there, the stream keeping one line of it where it was asked (`AskAbove`).
-export function Pinned({ d, c }: { d: ConversationDetail; c: Conversation }) {
-  const asks = pinnedAsks(d);
-  if (d.design_cards.length === 0 && asks.length === 0) return null;
-  return (
-    <Pins at="top">
-      {d.design_cards.map((x) => (
-        <DesignCardView key={x.id} c={x} round={<Link to={workHref(x.work, { round: x.round })}>{`R${x.work}-${x.round}`}</Link>} folded />
-      ))}
-      {asks.map((e) => (
-        <Message key={`ask-${e.id}`} e={e} to={mentions(e, c.kind) ? mention(e, c.kind) : null} reply={null} />
-      ))}
-    </Pins>
-  );
-}
-
-/// A work the architect paused, pinned at the top of its group while the pause holds it: what only the owner can do, as
-/// the architect wrote why it paused the work, and Start, which lets the work go on once the owner has done it and
-/// tells the architect, as the Start in the head does.
-export function ArchitectPause({ w }: { w: WorkSummary | null }) {
-  if (w === null || w.paused_by !== 'architect') return null;
-  return <PausedByArchitect w={w} />;
-}
-
-function PausedByArchitect({ w }: { w: WorkSummary }) {
+/// Start at the end of the bar while the architect's pause holds a work for what only the owner can do: it lets the
+/// work go on once the owner has done it and tells the architect, as the Start in the head does.
+function PauseStart({ w }: { w: WorkSummary }) {
   const status = useStatus();
   const a = useActions(w, status, true);
-  if (a.c.held !== 'architect') return null;
   return (
-    <PauseBand why={w.paused ?? ''} onStart={a.start} disabled={a.busy || !a.can.start} error={a.error} />
+    <>
+      <Button
+        size="small"
+        variant="primary"
+        title={t('work_start_architect_hint')}
+        disabled={a.busy || !a.can.start}
+        onClick={a.start}
+      >
+        {t('work_start')}
+      </Button>
+      {a.error !== null ? <span className="bad">{t('request_failed', { error: a.error })}</span> : null}
+    </>
   );
 }
 
-/// The band of the architect's pause as it is drawn: why, and Start, with what failed when Start did.
-export function PauseBand({ why, onStart, disabled, error }: {
-  why: string;
-  onStart: () => void;
-  disabled: boolean;
-  error: string | null;
-}) {
-  return (
-    <Pins at="top">
-      <p className="talk-pinned-pause">{t('work_paused_for_you', { why })}</p>
-      <div className="talk-answer-buttons">
-        <Button
-          size="small"
-          variant="primary"
-          title={t('work_start_architect_hint')}
-          disabled={disabled}
-          onClick={onStart}
-        >
-          {t('work_start')}
-        </Button>
-        {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
-      </div>
-    </Pins>
-  );
-}
-
-/// The architect's own trouble, pinned at the top of its one-to-one while the owner must act on it: the engine halted
-/// the work it goes on in, and why; the head's Start lets it go on once that is fixed.
-function Trouble({ a }: { a: Architect | null }) {
-  const status = useStatus();
-  if (a === null) return null;
-  const s = architectState(a.works, a.queue);
-  if (s.kind !== 'working') return null;
-  const c = course(s.work, status);
-  if (c.held !== 'engine') return null;
-  return (
-    <Pins at="top">
-      <p className="talk-pinned-trouble">{t('arch_trouble', { why: heldWords(c, s.work.paused) })}</p>
-    </Pins>
-  );
+/// What waits for the owner in a conversation, for the bar over its stream: while the architect's pause holds a work
+/// for what only the owner can do, why, with Start; while the engine halted the architect's work, its trouble; then
+/// what has its place in the stream, oldest first (`pinsOf`), each brought into view there.
+export function pinsShown(
+  d: ConversationDetail | null,
+  w: WorkSummary | null,
+  a: Architect | null,
+  status: Status | null,
+): PinShown[] {
+  const out: PinShown[] = [];
+  if (w !== null && w.paused_by === 'architect' && course(w, status).held === 'architect') {
+    out.push({
+      key: 'pause',
+      danger: false,
+      words: t('work_paused_for_you', { why: w.paused ?? '' }),
+      go: null,
+      action: <PauseStart w={w} />,
+    });
+  }
+  const s = a !== null ? architectState(a.works, a.queue) : null;
+  if (s !== null && s.kind === 'working') {
+    const c = course(s.work, status);
+    if (c.held === 'engine') {
+      out.push({ key: 'trouble', danger: true, words: t('arch_trouble', { why: heldWords(c, s.work.paused) }), go: null, action: null });
+    }
+  }
+  for (const x of d !== null ? pinsOf(d) : []) {
+    const where = x.kind === 'card' ? `#design-card-${x.id}` : `.talk-stream [data-ask="${x.id}"]`;
+    out.push({ key: `${x.kind}-${x.id}`, danger: false, words: x.words, go: () => bringToBubble(where), action: null });
+  }
+  return out;
 }
 
 /// The owner's approval of the draft of a new policy, from the question that asks for it: the reply the flow takes as
-/// the approval, exactly "approved", to that question; other words go by the box at the bottom, ticked to reply to it.
+/// the approval, exactly "approved", to that question; other words go by the box at the bottom, set to reply to it.
 function Approve({ project, question }: { project: string; question: number }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <div className="talk-answer-buttons">
+    <>
       <Button
         size="small"
         variant="primary"
@@ -946,80 +940,41 @@ function Approve({ project, question }: { project: string; question: number }) {
         {t('draft_approve')}
       </Button>
       {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
+    </>
+  );
+}
+
+/// The question the box at the bottom of the one-to-one replies to: its number, its words, and what takes the reply
+/// off, the box's words then going to the architect as any words do.
+export type Reply = { question: number; words: string; clear: () => void };
+
+/// What the box replies to, over it while it replies to an architect's question, as a chat app quotes the message a
+/// reply answers: a `ReplyIcon`, "Reply to:" and the question on one line, cut where it ends and whole on hovering, and
+/// an invisible small `IconButton` with an `XIcon` that takes the reply off.
+function ReplyStrip({ reply }: { reply: Reply }) {
+  return (
+    <div className="talk-reply-strip">
+      <ReplyIcon className="talk-reply-icon" />
+      <span className="talk-reply-words" title={reply.words}>
+        {t('conv_reply_to', { question: reply.words })}
+      </span>
+      <IconButton size="small" variant="invisible" icon={XIcon} aria-label={t('conv_reply_off')} onClick={reply.clear} />
     </div>
-  );
-}
-
-/// A question pinned at the bottom folded to one line: its fold marker, who put it, when, and its words cut to the
-/// line, whole on hovering; a click opens it.
-function FoldedQuestion({ e, onOpen }: { e: ConversationEntry; onOpen: () => void }) {
-  return (
-    <button type="button" className="talk-pinned-fold" title={e.text} aria-expanded={false} onClick={onOpen}>
-      <ChevronRightIcon />
-      <span className="talk-who">{party(e, e.sender)}</span>
-      <span className="talk-when">{time(e.at)}</span>
-      <span className="talk-pinned-text">{e.text}</span>
-    </button>
-  );
-}
-
-/// The questions an architect pinned for the owner's reply, at the bottom of the one-to-one over the box, in the order
-/// they were put: the one open (the newest, unless the owner opened another) as the architect's message, the others
-/// folded to a line each; opening one folds the one that was open and makes it the one the box replies to. They have no
-/// buttons: the box replies.
-export function Questions({ pinned, open, onOpen, project, draft }: {
-  pinned: ConversationEntry[];
-  open: number | null;
-  onOpen: (question: number) => void;
-  project: string;
-  draft: PolicyDraft | null;
-}) {
-  if (pinned.length === 0) return null;
-  return (
-    <Pins at="bottom">
-      {[...pinned].reverse().map((e) =>
-        e.id === open ? (
-          <div key={e.id}>
-            <Message
-              e={e}
-              to={asksApproval(e, draft) ? mention(e, 'architect') : null}
-              reply={null}
-              draft={asksApproval(e, draft) ? sideHref(project, 'policy') : null}
-            />
-            {asksApproval(e, draft) ? <Approve project={project} question={e.id} /> : null}
-          </div>
-        ) : (
-          <FoldedQuestion key={e.id} e={e} onOpen={() => onOpen(e.id)} />
-        ),
-      )}
-    </Pins>
-  );
-}
-
-/// The question the box at the bottom of the one-to-one replies to: the one open at the bottom, its words, and whether
-/// the tick over the box is on, which the owner sets.
-export type Reply = { question: number; words: string; on: boolean; set: (on: boolean) => void };
-
-/// The tick over the box: "Reply to:" and the question open, on one line, whole on hovering.
-function ReplyTick({ reply }: { reply: Reply }) {
-  return (
-    <FormControl layout="horizontal" className="talk-reply-tick">
-      <Checkbox checked={reply.on} onChange={(e) => reply.set(e.target.checked)} />
-      <FormControl.Label>
-        <span className="talk-reply-words" title={reply.words}>
-          {t('conv_reply_to', { question: reply.words })}
-        </span>
-      </FormControl.Label>
-    </FormControl>
   );
 }
 
 /// The one box at the bottom of a conversation: it says something, with the images added to it or images alone, in a
 /// work's group to the engineer, the architect or both; in a group of projects to one architect or every one; in the
-/// one-to-one to the architect, as the owner's words it takes first, or, with the tick over it on, as the reply to the
-/// question open at the bottom (`reply`). It never answers a bubble: an ask of a work's, and a question the architect
-/// holds, are answered in their bubbles. Closed, it says why: a work at its end no longer changes its way on.
-export function Composer({ c, w, reply = null }: { c: Conversation; w: WorkSummary | null; reply?: Reply | null }) {
+/// one-to-one to the architect, as the owner's words it takes first, or, with the strip over it, as the reply to the
+/// question it names (`reply`), after which it replies to what the architect waits on again (`onSent`). It never
+/// answers a bubble: an ask of a work's, and a question the architect holds, are answered in their bubbles. Closed, it
+/// says why: a work at its end no longer changes its way on.
+export function Composer({ c, w, reply = null, onSent }: {
+  c: Conversation;
+  w: WorkSummary | null;
+  reply?: Reply | null;
+  onSent?: () => void;
+}) {
   const choices = sayTo(c);
   const [text, setText] = useState('');
   const [images, setImages] = useState<PendingImage[]>([]);
@@ -1035,6 +990,7 @@ export function Composer({ c, w, reply = null }: { c: Conversation; w: WorkSumma
     setBusy(false);
     setText('');
     setImages([]);
+    onSent?.();
     reread('messages', 'architect', 'works', 'work:*');
   };
   const failed = (e: unknown) => {
@@ -1061,7 +1017,7 @@ export function Composer({ c, w, reply = null }: { c: Conversation; w: WorkSumma
       ).then(() => undefined);
     } else {
       sent = postJson(forProject('/api/v1/architect/say', c.project), {
-        ...toArchitect(words, reply?.on === true ? reply.question : null),
+        ...toArchitect(words, reply !== null ? reply.question : null),
         images: sentImages,
       });
     }
@@ -1082,7 +1038,7 @@ export function Composer({ c, w, reply = null }: { c: Conversation; w: WorkSumma
           ))}
         </div>
       ) : null}
-      {closed === null && reply !== null ? <ReplyTick reply={reply} /> : null}
+      {closed === null && reply !== null ? <ReplyStrip reply={reply} /> : null}
       <div className="talk-say-row">
         <SayBox
           text={text}
@@ -1095,7 +1051,7 @@ export function Composer({ c, w, reply = null }: { c: Conversation; w: WorkSumma
               ? closed
               : c.kind === 'work'
                 ? t(to === 'engineer' ? 'conv_say_engineer' : to === 'architect' ? 'conv_say_architect_work' : sendTo.length === 0 ? 'conv_say_nobody' : 'conv_say_both')
-                : t(reply?.on === true ? 'conv_say_reply' : 'conv_say_architect')
+                : t(reply !== null ? 'conv_say_reply' : 'conv_say_architect')
           }
           title={t('send_keys_hint')}
           onKeyDown={(e) => {
@@ -1116,21 +1072,22 @@ export function Composer({ c, w, reply = null }: { c: Conversation; w: WorkSumma
 
 /// The stream of a conversation, oldest first, scrolled to its newest: the bubbles of who said what, the members'
 /// messages and the live bubbles of what a work's stages and an architect's matters came to; in a conversation that is
-/// no work's group or one-to-one, the engine's lines in the page's own voice; an ask where it was asked, in one line
-/// while it waits pinned in the band at the top; under it, while the owner's words added to the queue wait to be taken
-/// up in the one-to-one, that they do. In the one-to-one with an architect (`architect`), the question whether its
-/// draft of a new policy that waits (`draft`) is approved leads to the draft, and the bubble of the matter it has in
-/// hand says what holds it.
-export function Stream({ d, c, w, draft = null, architect = null }: {
+/// no work's group or one-to-one, the engine's lines in the page's own voice; an ask and an architect's question where
+/// they were asked, answered there or, a question, by the box set to reply to it (`replyTo`); under it, while the
+/// owner's words added to the queue wait to be taken up in the one-to-one, that they do. In the one-to-one with an
+/// architect (`architect`), the question whether its draft of a new policy that waits (`draft`) is approved leads to
+/// the draft, and the bubble of the matter it has in hand says what holds it. Scrolled up away from the newest, a round
+/// button at its bottom right goes back to it, as a chat app's does.
+export function Stream({ d, c, w, draft = null, architect = null, replyTo = null }: {
   d: ConversationDetail;
   c: Conversation;
   w: WorkSummary | null;
   draft?: PolicyDraft | null;
   architect?: Architect | null;
+  replyTo?: ((question: number) => void) | null;
 }) {
   const replies = useMemo(() => ownerReplies(d.entries), [d]);
-  const pinned = d.design_cards.map((x) => x.id);
-  const asks = pinnedAsks(d).map((e) => e.id);
+  const questions = useMemo(() => new Set(d.questions.map((q) => q.id)), [d]);
   const stream = streamOf(d);
   const going = architect !== null ? architectState(architect.works, architect.queue) : null;
   const aw = going !== null && going.kind === 'working' ? going.work : null;
@@ -1140,6 +1097,16 @@ export function Stream({ d, c, w, draft = null, architect = null }: {
     const el = list.current;
     if (el !== null) el.scrollTop = el.scrollHeight;
   }, [c.key, shown]);
+  // Whether the owner scrolled up away from the newest, which the button back to it says.
+  const [away, setAway] = useState(false);
+  useEffect(() => {
+    const el = list.current;
+    if (el === null) return;
+    const check = () => setAway(el.scrollHeight - el.scrollTop - el.clientHeight > AWAY);
+    check();
+    el.addEventListener('scroll', check, { passive: true });
+    return () => el.removeEventListener('scroll', check);
+  }, []);
   // Cards run in a Timeline of their own between the messages: each run of cards and lines is one Timeline.
   const runs: Array<{ cards: boolean; entries: ConversationEntry[] }> = [];
   for (const e of stream) {
@@ -1153,7 +1120,7 @@ export function Stream({ d, c, w, draft = null, architect = null }: {
   // up yet.
   const pending = c.kind === 'architect' && pendingWords(d.entries).some((e) => e.source === 'words' || e.source === 'talk');
   return (
-    <>
+    <div className="talk-stream-wrap">
       <div className="talk-stream" ref={list}>
         {stream.length === 0 ? <p className="talk-none">{t('conv_none')}</p> : null}
         {runs.map((run) => {
@@ -1168,8 +1135,8 @@ export function Stream({ d, c, w, draft = null, architect = null }: {
               replies={replies}
               forwarding={d.forwarding}
               draft={draft}
-              pinned={pinned}
-              asks={asks}
+              questions={questions}
+              replyTo={replyTo}
             />
           ));
           return run.cards ? (
@@ -1184,14 +1151,25 @@ export function Stream({ d, c, w, draft = null, architect = null }: {
         })}
         {pending ? <p className="talk-none">{t('conv_words_wait')}</p> : null}
       </div>
-    </>
+      {away ? (
+        <IconButton
+          className="talk-newest"
+          icon={ArrowDownIcon}
+          aria-label={t('conv_to_newest')}
+          onClick={() => list.current?.scrollTo({ top: list.current.scrollHeight, behavior: 'smooth' })}
+        />
+      ) : null}
+    </div>
   );
 }
 
-/// One conversation: its head with the owner's controls, what waits for the owner pinned under it (the design card a
-/// work waits on, its asks that wait and the architect's pause of it), the stream,
-/// the questions an architect pinned over the box, and the one box at the bottom, with the tick that replies to the
-/// question open; the one-to-one with an architect has the panel of its notebook, policy and queue beside it, while it
+/// How far up from the newest the owner scrolls before the button back to it shows: past a bubble or two.
+const AWAY = 160;
+
+/// One conversation: its head with the owner's controls, the bar of what waits for the owner under it, the stream, and
+/// the one box at the bottom, with the strip saying which question it replies to in the one-to-one with an architect:
+/// the one the architect waits on, or the one the owner chose to reply to, unless the owner took the reply off, until
+/// the next words are sent; the one-to-one with an architect has the panel of its notebook, policy and queue beside it, while it
 /// is open, on the tab the address names (`side`), else on the notebook. Reading it marks it read up to its latest
 /// entry.
 function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | undefined; side: SideTab | null }) {
@@ -1207,20 +1185,17 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
   const over = sideOver(useWidth());
   const [sideOpen, setSideOpen] = useSideOpen(side !== null);
   const sideShown = sideShows(over, side !== null, sideOpen);
-  // The question the owner opened at the bottom, and how the owner set the tick for it.
-  const [opened, setOpened] = useState<number | null>(null);
-  const [ticked, setTicked] = useState<Ticked | null>(null);
-  const pinned = d !== null ? pinnedQuestions(d) : [];
-  const open = openQuestion(pinned, opened);
-  const reply: Reply | null =
-    open !== null
-      ? {
-          question: open.id,
-          words: open.text,
-          on: replyTicked(open, d?.waits_on ?? null, ticked),
-          set: (on) => setTicked({ question: open.id, on }),
-        }
-      : null;
+  const status = useStatus();
+  const pins = pinsShown(d, c.kind === 'work' ? w : null, a, status);
+  // The question the owner chose to reply to, or none once the owner took the reply off; nothing chosen, the box
+  // replies to the one the architect waits on.
+  const [chosen, setChosen] = useState<number | null | undefined>(undefined);
+  const to = replyingTo(d !== null ? pinnedQuestions(d) : [], chosen, d?.waits_on ?? null);
+  const reply: Reply | null = to !== null ? { question: to.id, words: to.text, clear: () => setChosen(null) } : null;
+  const replyTo = (question: number) => {
+    setChosen(question);
+    document.querySelector<HTMLTextAreaElement>('.talk-say textarea')?.focus();
+  };
   const latest = d !== null ? latestAt(d) : null;
   const readTo = d?.read_to ?? null;
   useEffect(() => {
@@ -1257,20 +1232,18 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
           <p className="talk-none">{r.error ?? t('loading')}</p>
         ) : (
           <>
-            <Pinned d={d} c={c} />
-            <ArchitectPause w={c.kind === 'work' ? w : null} />
-            <Trouble a={a} />
-            <Stream d={d} c={c} w={w} draft={a?.draft ?? null} architect={a} />
-            <Questions
-              pinned={pinned}
-              open={open?.id ?? null}
-              onOpen={setOpened}
-              project={project ?? ''}
+            <PinBar pins={pins} />
+            <Stream
+              d={d}
+              c={c}
+              w={w}
               draft={a?.draft ?? null}
+              architect={a}
+              replyTo={c.kind === 'architect' ? replyTo : null}
             />
           </>
         )}
-        <Composer key={c.key} c={c} w={w} reply={reply} />
+        <Composer key={c.key} c={c} w={w} reply={reply} onSent={() => setChosen(undefined)} />
       </div>
     </AnswersHere.Provider>
   );

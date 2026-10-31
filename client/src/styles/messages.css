@@ -166,116 +166,115 @@
   border-radius: var(--borderRadius-medium);
 }
 
-/* What is pinned for the owner, in one look wherever it is: under the head the design card a work waits on, with its
-   verdicts to send, and the asks that wait; over the box the questions the architect pinned. The band is as tall as
-   what it holds up to the height the owner dragged it to (--pins-height, kept in the browser), or 45% of the
-   conversation where none is kept, and never past 85% of it; it ends where the stream begins in a firm line across the
-   conversation, which is the edge that drags its height (.height-grip), so that its tint and the stream's bubbles
-   never run together, and the stream starts under it. */
-.talk-pins {
-  position: relative;
+/* What waits for the owner, pinned in one line under the conversation's head as a chat app pins a message: the pin in
+   the colour of what waits, the one shown after its place among them, its words cut where the line ends, its action
+   and the menu of them all at its end; on the tint of what waits, or of what is wrong for the architect's trouble. */
+.talk-pinbar {
   display: flex;
   flex: none;
-  flex-direction: column;
-  max-height: min(85%, var(--pins-height, 45%));
+  align-items: center;
+  gap: var(--base-size-8);
+  min-width: 0;
+  padding: var(--base-size-4) var(--base-size-16);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
   background: var(--bgColor-attention-muted);
 }
 
-.talk-pins-top {
-  border-bottom: var(--borderWidth-thick) solid var(--borderColor-default);
+.talk-pinbar-danger {
+  background: var(--bgColor-danger-muted);
 }
 
-.talk-pins-bottom {
-  border-top: var(--borderWidth-thick) solid var(--borderColor-default);
-}
-
-/* What the band holds scrolls inside it, each thing as tall as what it holds, rather than every row squeezed into the
-   band's height, which left a folded card two pixels tall under an ask in full. */
-.talk-pins-scroll {
-  display: grid;
-  grid-auto-rows: max-content;
-  gap: var(--base-size-12);
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--base-size-12) var(--base-size-16);
-}
-
-/* The sign that the band holds more than shows, at the edge where it does: a fade from what shows into the band's
-   tint over the page, the band's own look at its edge. */
-.talk-pins-fade {
-  position: absolute;
-  right: 0;
-  left: 0;
-  height: var(--base-size-32);
-  pointer-events: none;
-}
-
-.talk-pins-fade-below {
-  bottom: 0;
-  background:
-    linear-gradient(transparent, var(--bgColor-attention-muted)),
-    linear-gradient(transparent, var(--bgColor-default));
-}
-
-.talk-pins-fade-above {
-  top: 0;
-  background:
-    linear-gradient(var(--bgColor-attention-muted), transparent),
-    linear-gradient(var(--bgColor-default), transparent);
-}
-
-/* Its heading says it waits for the owner in the colour of what waits, with the bell before it. */
-.talk-pins-title {
-  display: flex;
-  align-items: center;
-  gap: var(--base-size-8);
-  margin: 0;
+.talk-pinbar-icon {
+  flex: none;
   color: var(--fgColor-attention);
-  font-size: var(--text-body-size-medium);
-  font-weight: var(--base-text-weight-semibold);
 }
 
-/* A question pinned over the box, folded to one line: its fold marker, who, when and its words cut where the line
-   ends; a click opens it. */
-.talk-pinned-fold {
+.talk-pinbar-danger .talk-pinbar-icon {
+  color: var(--fgColor-danger);
+}
+
+/* The one shown: a button with no frame that brings it into view, or its words alone for what has no place in the
+   stream. */
+.talk-pinbar-line {
   display: flex;
-  align-items: center;
+  flex: 1;
+  align-items: baseline;
   gap: var(--base-size-8);
-  width: 100%;
   min-width: 0;
-  padding: var(--base-size-4);
+  padding: var(--base-size-4) 0;
   border: 0;
-  border-radius: var(--borderRadius-medium);
   background: none;
   color: var(--fgColor-default);
   font: inherit;
   text-align: left;
+}
+
+button.talk-pinbar-line {
   cursor: pointer;
 }
 
-.talk-pinned-fold:hover {
-  background: var(--bgColor-neutral-muted);
+button.talk-pinbar-line:hover .talk-pinbar-words {
+  text-decoration: underline;
 }
 
-.talk-pinned-fold > svg {
+.talk-pinbar-count {
   flex: none;
   color: var(--fgColor-muted);
-}
-
-.talk-pinned-fold > .talk-who,
-.talk-pinned-fold > .talk-when {
-  flex: none;
   font-size: var(--text-body-size-small);
+  font-variant-numeric: tabular-nums;
 }
 
-.talk-pinned-text {
+.talk-pinbar-words {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* The stream: the newest at the bottom, scrolled to. */
+/* In the menu of them all, each at most two lines. */
+.talk-pinbar-item {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* A bubble the bar brought into view, lit in the tint of what waits for a moment. */
+.talk-lit {
+  border-radius: var(--borderRadius-medium);
+  animation: talk-lit var(--talk-lit-time) ease-out;
+}
+
+@keyframes talk-lit {
+  from {
+    background: var(--bgColor-attention-muted);
+    outline: var(--borderWidth-thick) solid var(--borderColor-attention-emphasis);
+  }
+
+  to {
+    background: transparent;
+    outline: var(--borderWidth-thick) solid transparent;
+  }
+}
+
+/* The stream: the newest at the bottom, scrolled to; scrolled up away from it, the round button back to it at its
+   bottom right. */
+.talk-stream-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.talk-newest {
+  position: absolute;
+  right: var(--base-size-16);
+  bottom: var(--base-size-16);
+  border-radius: var(--borderRadius-full);
+  box-shadow: var(--shadow-floating-small);
+}
+
 .talk-stream {
   flex: 1;
   min-height: 0;
@@ -316,7 +315,7 @@
   gap: 0;
 }
 
-/* An ask pinned in the band, brought into view from its line in the stream, comes to rest clear of the band's edge. */
+/* An ask or a question the bar of what waits brought into view comes to rest clear of the stream's top edge. */
 .talk-row[data-ask] {
   scroll-margin-top: var(--base-size-16);
 }
@@ -572,11 +571,6 @@
   text-overflow: ellipsis;
 }
 
-/* A link that ends a line, the way to an ask pinned in the band: whole, while the words before it are cut. */
-.live-line-link {
-  flex: none;
-}
-
 .live-line-event {
   margin: 0;
   color: var(--fgColor-attention);
@@ -615,17 +609,6 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* The architect's pause of a work, pinned: what the owner must do, in body text. */
-.talk-pinned-pause {
-  margin: 0;
-}
-
-/* The architect's own trouble, pinned: in the colour of what is wrong. */
-.talk-pinned-trouble {
-  margin: 0;
-  color: var(--fgColor-danger);
 }
 
 /* What a round of a stage said, under who said it and its round. */
@@ -687,20 +670,26 @@
   color: var(--fgColor-muted);
 }
 
-/* The tick over the box in the one-to-one: "Reply to:" and the question open at the bottom, on one line, cut where
-   the line ends. Only the label gives way: the tick keeps its width, which a column let shrink drew the label over. */
-.talk-reply-tick,
-.talk-reply-tick > :last-child {
+/* Over the box in the one-to-one, what it replies to: the reply mark, "Reply to:" and the question on one line, cut
+   where the line ends, and the way to take the reply off; a muted line of its own, as a chat app quotes what a reply
+   answers. */
+.talk-reply-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
   min-width: 0;
+  padding-left: var(--base-size-8);
+  border-left: var(--borderWidth-thick) solid var(--borderColor-accent-emphasis);
+  color: var(--fgColor-muted);
 }
 
-.talk-reply-tick label {
-  display: block;
-  min-width: 0;
+.talk-reply-icon {
+  flex: none;
 }
 
 .talk-reply-words {
-  display: block;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

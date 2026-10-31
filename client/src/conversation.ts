@@ -1,7 +1,7 @@
 // The owner's conversations as the page works them out from what the interface reads, apart from drawing them: the
 // list in its parts, what a conversation is called, who an entry is from and to whom it is said, in which voice the
-// page draws it, what of it streams, which question an architect pinned at the bottom of its one-to-one is open and
-// whether the owner's words reply to it, what the box at the bottom says things to and sends, how the bubble of a stage
+// page draws it, what of it streams, what waits for the owner and is pinned on the bar under the head, which question
+// of an architect's the owner's words reply to, what the box at the bottom says things to and sends, how the bubble of a stage
 // a work entered names it and says how it ended, what is new for the owner to be told of, and where a fault of
 // wf-agents can go and went.
 
@@ -182,23 +182,16 @@ export function ownerReplies(entries: ConversationEntry[]): Map<number, Conversa
 }
 
 /// What streams in a conversation, oldest first: everything but the owner's replies to what an engineer put to the
-/// architect, which show in the bubble they answer, the design cards, which the bubble of the stage that handed them in
-/// holds, and the questions an architect pinned for the owner's reply, which show at the bottom while they wait. An ask
-/// streams where it was asked, waiting or answered, the owner's answer in it; a question once replied to, with the
-/// reply in it.
+/// architect, which show in the bubble they answer, and the design cards, which the bubble of the stage that handed them
+/// in holds. An ask and an architect's question stream where they were asked, waiting or answered, the owner's answer or
+/// reply in them; while one waits the bar over the stream leads to it.
 export function streamOf(d: ConversationDetail): ConversationEntry[] {
   const replies = ownerReplies(d.entries);
-  const pinned = new Set(d.questions.map((q) => q.id));
-  return d.entries.filter(
-    (e) =>
-      !(e.source === 'reply' && replies.get(e.matter ?? e.id) === e) &&
-      !(e.source === 'ask' && pinned.has(e.id)) &&
-      voiceOf(e) !== 'none',
-  );
+  return d.entries.filter((e) => !(e.source === 'reply' && replies.get(e.matter ?? e.id) === e) && voiceOf(e) !== 'none');
 }
 
-/// Whether an ask is one an architect put to the owner: answered by the owner's words to the architect with it ticked,
-/// never in its bubble.
+/// Whether an ask is one an architect put to the owner: replied to by the owner's words to the architect, the box at the
+/// bottom set to reply to it, never in its bubble.
 export const architectAsk = (a: OwnerAsk): boolean => isObj(a.body) && a.body.from === 'architect';
 
 /// Whether an entry is the question whether the draft of a new policy that waits (`draft`) is approved: the ask the round
@@ -206,14 +199,14 @@ export const architectAsk = (a: OwnerAsk): boolean => isObj(a.body) && a.body.fr
 export const asksApproval = (e: ConversationEntry, draft: PolicyDraft | null): boolean =>
   draft !== null && e.source === 'ask' && e.work === draft.work && e.round === draft.round;
 
-/// The questions an architect pinned for the owner's reply, as entries of its one-to-one, newest first: each shows at
-/// the bottom while it waits, not where it was asked.
+/// The questions an architect put to the owner that wait for the owner's reply, as entries of its one-to-one, in the
+/// order the interface gives them, newest first.
 export function pinnedQuestions(d: ConversationDetail): ConversationEntry[] {
   return d.questions.flatMap((q) => d.entries.filter((e) => e.source === 'ask' && e.id === q.id).slice(0, 1));
 }
 
-/// The asks of the owner that wait in a conversation, as its entries, each pinned in the band at its top with what
-/// answers it: every ask that waits there, but an architect's question, which the box at the bottom replies to.
+/// The asks of the owner that wait in a conversation, as its entries, each answered in its bubble: every ask that waits
+/// there, but an architect's question, which the box at the bottom replies to.
 export function pinnedAsks(d: ConversationDetail): ConversationEntry[] {
   const waiting = new Set(d.asks.map((a) => a.id));
   return d.entries.filter(
@@ -221,24 +214,40 @@ export function pinnedAsks(d: ConversationDetail): ConversationEntry[] {
   );
 }
 
-/// The pinned question open at the bottom, the one the tick replies to: the one the owner opened, while it is still
-/// pinned, else the newest; the others are folded.
-export function openQuestion(pinned: ConversationEntry[], opened: number | null): ConversationEntry | null {
-  return pinned.find((e) => e.id === opened) ?? pinned[0] ?? null;
+/// What waits for the owner in a conversation and has its place in the stream, one pin each for the bar over the
+/// stream, oldest first: the design cards a work waits on to be ruled, the asks that wait, and the questions an
+/// architect put that wait for the owner's reply; each by its number and the words it says first.
+export type Pin = { kind: 'card' | 'ask' | 'question'; id: number; at: number; words: string };
+
+export function pinsOf(d: ConversationDetail): Pin[] {
+  const first = (text: string) => text.split('\n').find((x) => x.trim() !== '')?.trim() ?? '';
+  const pins: Pin[] = [
+    ...d.design_cards.map((x) => ({
+      kind: 'card' as const,
+      id: x.id,
+      at: x.at ?? 0,
+      words: t('pin_card', { id: x.id }),
+    })),
+    ...pinnedAsks(d).map((e) => ({ kind: 'ask' as const, id: e.id, at: e.at, words: first(e.text) })),
+    ...pinnedQuestions(d).map((e) => ({ kind: 'question' as const, id: e.id, at: e.at, words: first(e.text) })),
+  ];
+  return pins.sort((a, b) => a.at - b.at);
 }
 
-/// How the owner set the tick for a question: on or off.
-export type Ticked = { question: number; on: boolean };
-
-/// Whether the owner's words reply to the question open: as the owner set the tick for it, else only while the
-/// architect waits on it.
-export function replyTicked(open: ConversationEntry | null, waitsOn: number | null, ticked: Ticked | null): boolean {
-  if (open === null) return false;
-  return ticked !== null && ticked.question === open.id ? ticked.on : waitsOn === open.id;
+/// The question the box at the bottom of the one-to-one replies to: the one the owner chose to reply to (`chosen`),
+/// while it still waits; none once the owner took the reply off (`null`); else, while the owner chose nothing, the one
+/// the architect waits on (`waitsOn`).
+export function replyingTo(
+  pinned: ConversationEntry[],
+  chosen: number | null | undefined,
+  waitsOn: number | null,
+): ConversationEntry | null {
+  if (chosen === null) return null;
+  return pinned.find((e) => e.id === chosen) ?? pinned.find((e) => e.id === waitsOn) ?? null;
 }
 
 /// What the box at the bottom of the one-to-one sends to the architect: the owner's words, and the question they reply
-/// to when it is ticked.
+/// to when it replies to one.
 export const toArchitect = (text: string, replyTo: number | null): { text: string; reply_to?: number } =>
   replyTo === null ? { text } : { text, reply_to: replyTo };
 
