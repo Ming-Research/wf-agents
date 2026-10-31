@@ -1606,10 +1606,12 @@ fn observe(tx: &Transaction<'_>, project: &str, from: &str, o: &Value) -> Result
     match text(&o["kind"]) {
         "new" => {
             let source = format!("{} ({from})", text(&o["source"]).trim());
+            let title = Some(text(&o["title"]).trim()).filter(|t| !t.is_empty());
             tx.execute(
-                "INSERT INTO observations (project, what, tags, source, refs) VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO observations (project, title, what, tags, source, refs) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     project,
+                    title,
                     text(&o["what"]).trim(),
                     json!(texts(&o["tags"])).to_string(),
                     source,
@@ -2724,8 +2726,9 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
 }
 
 /// What is wrong with changes to a project's observations, as an answer's effects or the revision of a batch hands them
-/// in: a new one that says nothing or carries no tag of the project's, or one not of them; a merge or a close of an
-/// observation the project has no open one of; a close of one an item takes in, which is folded into that item instead.
+/// in: a new one that says nothing, has no title or one longer than an item's may be, or carries no tag of the
+/// project's, or one not of them; a merge or a close of an observation the project has no open one of; a close of one
+/// an item takes in, which is folded into that item instead.
 fn observation_problems(c: &checks::Ctx<'_>, project: &str, changes: &[Value]) -> Result<Vec<String>, String> {
     let conn = c.e.db.conn();
     let mut problems = Vec::new();
@@ -2743,6 +2746,14 @@ fn observation_problems(c: &checks::Ctx<'_>, project: &str, changes: &[Value]) -
                 if text(&o["what"]).trim().is_empty() {
                     problems.push(format!("observation change {n}: it says nothing of what it is"));
                 }
+                // A list of observations leads each with its title, which is as short as an item's.
+                let title = text(&o["title"]).trim();
+                if title.is_empty() {
+                    problems.push(format!("observation change {n}: it has no title"));
+                }
+                crate::arch_changes::title_fits(title, &mut |p: String| {
+                    problems.push(format!("observation change {n}: {p}"));
+                });
                 // Observations are summed up and looked for by their tags: once the project has tags, a new one carries
                 // one at least.
                 if !tags.is_empty() && texts(&o["tags"]).is_empty() {

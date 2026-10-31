@@ -10,6 +10,10 @@ export const NO_TAG = '';
 /// Whether an observation is handled: an item took it in, or it was closed.
 export const handled = (o: Observation): boolean => o.folded_into !== null || o.closed !== null;
 
+/// What an observation's row leads with: its title, or, for one recorded before observations had titles, what it is,
+/// which the row cuts to the words it starts with.
+export const rowLine = (o: Observation): string => o.title ?? o.what;
+
 /// The tags of a project's that an observation carries, each once; `NO_TAG` alone when it carries none of them.
 export function tagsOf(o: Observation, tags: readonly string[]): string[] {
   const of = tags.filter((x) => o.tags.includes(x));

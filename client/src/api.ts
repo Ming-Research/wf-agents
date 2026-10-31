@@ -1745,6 +1745,10 @@ outcome: JsonValue | null, };
  */
 export type Observation = { id: number, 
 /**
+ * What is wrong, as a short phrase; none for one recorded before observations had titles.
+ */
+title: string | null, 
+/**
  * What it is, why it is worth doing, and what happens if it is not done.
  */
 what: string, 

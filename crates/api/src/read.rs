@@ -2178,7 +2178,7 @@ pub fn observations_by_project(
 /// A project's observations: the open ones first, then those an item took in or that were closed, each newest first.
 fn observations(conn: &Connection, project: &str) -> Result<Vec<Observation>> {
     let mut st = conn.prepare(
-        "SELECT id, what, tags, source, times_reported, refs, folded_into, closed, closed_why, created, updated
+        "SELECT id, title, what, tags, source, times_reported, refs, folded_into, closed, closed_why, created, updated
          FROM observations_all WHERE project = ?1
          ORDER BY closed IS NOT NULL OR folded_into IS NOT NULL, coalesce(updated, created) DESC, id DESC",
     )?;
@@ -2193,16 +2193,17 @@ fn observations(conn: &Connection, project: &str) -> Result<Vec<Observation>> {
     let rows = st.query_map([project], |r| {
         Ok(Observation {
             id: r.get(0)?,
-            what: r.get(1)?,
-            tags: texts(r.get(2)?),
-            source: r.get(3)?,
-            times_reported: r.get(4)?,
-            refs: texts(r.get(5)?),
-            folded_into: r.get(6)?,
-            closed: r.get(7)?,
-            closed_why: r.get(8)?,
-            created: r.get(9)?,
-            updated: r.get(10)?,
+            title: r.get(1)?,
+            what: r.get(2)?,
+            tags: texts(r.get(3)?),
+            source: r.get(4)?,
+            times_reported: r.get(5)?,
+            refs: texts(r.get(6)?),
+            folded_into: r.get(7)?,
+            closed: r.get(8)?,
+            closed_why: r.get(9)?,
+            created: r.get(10)?,
+            updated: r.get(11)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -4027,14 +4028,16 @@ mod tests {
     }
 
     // The observations of each project that has any, by the project's name, with the tags its configuration gives
-    // them: the open ones first, then those an item took in or that were closed, each newest first. A project the
-    // configuration no longer names has no tags.
+    // them: the open ones first, then those an item took in or that were closed, each newest first, each with its
+    // title, none for one recorded before observations had titles. A project the configuration no longer names has no
+    // tags.
     #[test]
     fn the_observations_are_by_project_the_open_ones_first() {
         let mut s = architect_setup("observations");
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO observations (project, what, tags, source, folded_into) VALUES ('p', 'Taken.', '[]', 's', 1)",
+                "INSERT INTO observations (project, title, what, tags, source, folded_into)
+                 VALUES ('p', 'Slow first parse', 'Taken.', '[]', 's', 1)",
                 [],
             )?;
             Ok(())
@@ -4055,6 +4058,10 @@ mod tests {
         let p = &all[0].observations;
         assert_eq!(p[0].tags, ["perf"]);
         assert_eq!((p[1].folded_into, p[1].closed.as_deref()), (Some(1), None));
+        assert_eq!(
+            (p[1].title.as_deref(), p[0].title.as_deref()),
+            (Some("Slow first parse"), None)
+        );
         assert_eq!(
             (p[2].closed.as_deref(), p[2].closed_why.as_deref()),
             (Some("outdated"), Some("Gone."))

@@ -1948,6 +1948,12 @@
           "desc": "Record a new observation",
           "fields": [
             {
+              "name": "title",
+              "title": "Title",
+              "type": "text",
+              "desc": "What is wrong, as a short phrase, not an action (\"Stale slot count\", not \"Fix the slot count\"), in English, in at most 20 characters, spaces not counted, with no internal name the reader does not know"
+            },
+            {
               "name": "what",
               "title": "What it is",
               "type": "text",
@@ -3083,7 +3089,7 @@
       "understanding_written": "The understanding rewrites the notebook's sections on what the project is now and on what is unclear.",
       "plan_written": "The plan rewrites the notebook's plan.",
       "asked_before_writing": "The check of the policy hands in write_policy only once the owner said yes to a new policy: by the reply to the question whether to research one, or by the owner's own words, which asked for the check (queued by `H8`'s new_policy).",
-      "observation_changes_valid": "Each change to the observations holds, as effects_valid checks them: a new one says what it is and carries the project's tags; one merged into or closed is open; one an item takes in is folded into it, not closed."
+      "observation_changes_valid": "Each change to the observations holds, as effects_valid checks them: a new one has a title of at most 20 characters, spaces not counted, says what it is and carries the project's tags; one merged into or closed is open; one an item takes in is folded into it, not closed."
     },
     "inputs": {
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",

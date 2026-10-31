@@ -96,6 +96,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0058.sql"),
     include_str!("../../../db/migrations/0059.sql"),
     include_str!("../../../db/migrations/0060.sql"),
+    include_str!("../../../db/migrations/0061.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1289,6 +1290,42 @@ mod tests {
         assert!(
             old.conn()
                 .execute("UPDATE architect_matters SET what = 'x' WHERE id = 3", [])
+                .is_err()
+        );
+    }
+
+    // Taken to version 61, a database keeps each observation as it was, and one recorded before observations had titles
+    // has none, rather than one made up for it; the table made afresh is tracked again.
+    #[test]
+    fn an_observation_recorded_before_titles_is_kept_with_no_title() {
+        let mut old = at_version(60);
+        old.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO observations (project, what, tags, source, times_reported)
+                 VALUES ('p', 'Parsing is slow.', '[\"perf\"]', 'A report.', 2)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let new = Db::in_memory().unwrap();
+        assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
+        let row: (Option<String>, String, String, i64, bool) = old
+            .conn()
+            .query_row(
+                "SELECT title, what, tags, times_reported, created IS NOT NULL FROM observations_all WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            row,
+            (None, "Parsing is slow.".to_string(), "[\"perf\"]".to_string(), 2, true)
+        );
+        assert!(
+            old.conn()
+                .execute("UPDATE observations SET title = 'Slow parse' WHERE id = 1", [])
                 .is_err()
         );
     }

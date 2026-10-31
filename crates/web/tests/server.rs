@@ -621,8 +621,8 @@ fn the_owner_reads_each_project_s_observations_and_closes_one() {
     let mut db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
     db.write(db::Actor::Engine, |tx| {
         tx.execute(
-            "INSERT INTO observations (project, what, tags, source) VALUES ('p', 'Slow.', '[\"perf\"]', 's'),
-             ('gone', 'Old.', '[]', 's')",
+            "INSERT INTO observations (project, title, what, tags, source)
+             VALUES ('p', 'Slow parse', 'Slow.', '[\"perf\"]', 's'), ('gone', NULL, 'Old.', '[]', 's')",
             [],
         )?;
         Ok(())
@@ -632,12 +632,12 @@ fn the_owner_reads_each_project_s_observations_and_closes_one() {
     let (status, all) = get(s.port, "/api/v1/observations", &here, "");
     assert_eq!(status, 200, "{all}");
     assert!(
-        all.contains(r#"[{"project":"gone","tags":[],"observations":[{"id":2,"what":"Old.""#),
+        all.contains(r#"[{"project":"gone","tags":[],"observations":[{"id":2,"title":null,"what":"Old.""#),
         "{all}"
     );
     assert!(
         all.contains(
-            r#"{"project":"p","tags":[{"name":"perf","desc":"How fast"}],"observations":[{"id":1,"what":"Slow.""#
+            r#"{"project":"p","tags":[{"name":"perf","desc":"How fast"}],"observations":[{"id":1,"title":"Slow parse","what":"Slow.""#
         ),
         "{all}"
     );

@@ -17,7 +17,7 @@ import { postJson } from '../http';
 import { words } from '../labelled';
 import { reread, useResource, useShared } from '../live';
 import { firstWords, Markdown, MarkdownInline, MarkdownLine } from '../markdown';
-import { handled, NO_TAG, shownObservations, tagCounts } from '../observations';
+import { handled, NO_TAG, rowLine, shownObservations, tagCounts } from '../observations';
 import { Fold, HeadingLevel, ItemRef, ListSplit, SendForm, SubHeading } from '../parts';
 import { Link, navigate, observationsHref, type ObservationsRoute } from '../route';
 import { t, tn } from '../text';
@@ -49,11 +49,13 @@ function HandledChips({ o }: { o: Observation }) {
   );
 }
 
-/// One observation's row: the words it starts with, cut to one line and whole on hovering; under them its tags, how it
-/// was handled, and its facts, cut to one line and whole on hovering. A click opens it beside the list.
+/// One observation's row: its title, or for one recorded before observations had titles the words it starts with, cut
+/// to one line and whole on hovering; under them its tags, how it was handled, and its facts, cut to one line and whole
+/// on hovering. A click opens it beside the list.
 function Row({ o, project, open }: { o: Observation; project: string | null; open: number | null }) {
   const to = observationsHref(project, o.id);
   const said = joinedWords(facts(o));
+  const line = rowLine(o);
   return (
     <NavList.Item
       href={to}
@@ -65,8 +67,8 @@ function Row({ o, project, open }: { o: Observation; project: string | null; ope
         navigate(to);
       }}
     >
-      <span className="obs-what" title={firstWords(o.what)}>
-        <MarkdownLine text={o.what} />
+      <span className="obs-what" title={firstWords(line)}>
+        <MarkdownLine text={line} />
       </span>
       <NavList.Description variant="block" className="obs-facts">
         <span className="obs-facts-line" title={said}>

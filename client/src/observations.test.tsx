@@ -7,11 +7,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Observation, ProjectObservations } from './api';
-import { handled, NO_TAG, shownObservations, tagCounts, tagsOf } from './observations';
+import { handled, NO_TAG, rowLine, shownObservations, tagCounts, tagsOf } from './observations';
 import { Observations } from './pages/Observations';
 
 const observation = (id: number, extra: Partial<Observation> = {}): Observation => ({
   id,
+  title: null,
   what: `Observation ${id} says **this**.\n\nAnd more after it.`,
   tags: [],
   source: 'The review of #4 found it.',
@@ -33,7 +34,7 @@ const data: ProjectObservations[] = [
       { name: 'perf', desc: 'How fast it is.' },
     ],
     observations: [
-      observation(5, { tags: ['ui', 'perf'], times_reported: 3 }),
+      observation(5, { title: 'Stale slot count', tags: ['ui', 'perf'], times_reported: 3 }),
       observation(4, { tags: ['perf'] }),
       observation(3, { tags: ['gone'] }),
       observation(2, { tags: ['ui'], folded_into: 9 }),
@@ -57,6 +58,11 @@ describe("a project's observations", () => {
 
   it('are handled once an item took them in or they were closed', () => {
     expect(all.map(handled)).toEqual([false, false, false, true, true]);
+  });
+
+  it('lead their rows with their titles, and one recorded before titles with what it is', () => {
+    expect(rowLine(all[0])).toBe('Stale slot count');
+    expect(rowLine(all[1])).toBe(all[1].what);
   });
 
   it("are sorted by the project's tags, those carrying none of them apart", () => {
@@ -94,7 +100,8 @@ describe('the Observations view', () => {
     const html = view(null, null);
     expect(html).toContain('list-split list-split-whole');
     expect([...html.matchAll(/<h3[^>]*>([^<]+)<\/h3>/g)].map((m) => m[1])).toEqual(['p', 'q']);
-    expect(rows(html)).toEqual(['Observation 5 says this.', 'Observation 4 says this.', 'Observation 3 says this.', 'Observation 6 says this.']);
+    // A row leads with its title, and one with none with the words its text starts with.
+    expect(rows(html)).toEqual(['Stale slot count', 'Observation 4 says this.', 'Observation 3 says this.', 'Observation 6 says this.']);
     // A tag is its name and its count, in the neutral tone, the description of what it covers said on hovering.
     const p = buttons(html.slice(0, html.indexOf('>q<')));
     // Each button's text is its words and its count, with the copy of it Primer's counter keeps for a screen reader.

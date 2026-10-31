@@ -9120,10 +9120,11 @@ fn an_observation_closed_as_folded_is_sent_back_to_be_folded() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A new observation of a project that has tags carries one of them at least: one with no tag is sent back, saying
-// which tags there are, and the return handed in again with a tag records it.
+// A new observation of a project that has tags carries one of them at least, and a title as short as an item's: one
+// with no tag and a title too long is sent back, saying which tags there are and how long the title is, and the
+// return handed in again with a tag and a short title records it, its title with it.
 #[test]
-fn an_observation_with_no_tag_is_sent_back() {
+fn an_observation_with_no_tag_or_a_long_title_is_sent_back() {
     let s = setup("observation-untagged");
     let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
     write(
@@ -9142,8 +9143,12 @@ fn an_observation_with_no_tag_is_sent_back() {
             if n > 2 {
                 return (Vec::new(), Vec::new());
             }
-            let tags = if n == 1 { json!([]) } else { json!(["perf"]) };
-            let new = json!({ "kind": "new", "what": "Parsing large files is slow.", "tags": tags,
+            let (tags, title) = if n == 1 {
+                (json!([]), "Parsing of large files is slow")
+            } else {
+                (json!(["perf"]), "Slow large parses")
+            };
+            let new = json!({ "kind": "new", "title": title, "what": "Parsing large files is slow.", "tags": tags,
                               "source": "The owner's words.", "refs": [], "reason": "Worth keeping." });
             (
                 Vec::new(),
@@ -9176,12 +9181,23 @@ fn an_observation_with_no_tag_is_sent_back() {
         rejected[0].contains("observation change 1: it carries no tag") && rejected[0].contains("perf"),
         "{rejected:?}"
     );
-    let tags: Vec<Value> = engine::query_json(e.db.conn(), "SELECT tags FROM observations", &[], 10)
-        .unwrap()
-        .iter()
-        .map(|r| r["tags"].clone())
-        .collect();
-    assert_eq!(tags, [json!(["perf"])], "{tags:?}");
+    assert!(
+        rejected[0].contains(
+            "observation change 1: the title it gives has 25 characters, spaces not counted, and a title has 20 at most"
+        ),
+        "{rejected:?}"
+    );
+    let recorded: Vec<(Value, Value)> =
+        engine::query_json(e.db.conn(), "SELECT title, tags FROM observations", &[], 10)
+            .unwrap()
+            .iter()
+            .map(|r| (r["title"].clone(), r["tags"].clone()))
+            .collect();
+    assert_eq!(
+        recorded,
+        [(json!("Slow large parses"), json!(["perf"]))],
+        "{recorded:?}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

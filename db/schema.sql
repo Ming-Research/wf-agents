@@ -798,6 +798,10 @@ CREATE TABLE observations (
   id INTEGER PRIMARY KEY,
   -- The project it belongs to.
   project TEXT NOT NULL,
+  -- What is wrong, as a short phrase in English of at most 20 characters, spaces not counted, as the architect wrote it
+  -- when it recorded it; NULL for one recorded before observations had titles. Read by: the owner's interface, which
+  -- leads each row of a list of observations with it.
+  title TEXT,
   -- What it is, why it is worth doing, and what happens if it is not done.
   what TEXT NOT NULL,
   -- Its tags, JSON list, each one of the project's set in its configuration.
@@ -1324,7 +1328,7 @@ CREATE VIEW observations_all AS
   -- Every observation of each project as the owner's page shows it: closed or not and why (one an item took in is
   -- closed once that item's work merged), with when it was recorded and last changed, as changes has it.
   -- Read by: the owner's interface; observations_open; the engine, for the overview the architect is given.
-  SELECT o.project, o.id, o.what, o.tags, o.times_reported, o.source, o.refs, o.folded_into,
+  SELECT o.project, o.id, o.title, o.what, o.tags, o.times_reported, o.source, o.refs, o.folded_into,
     CASE WHEN o.closed IS NOT NULL THEN o.closed WHEN m.merged IS NOT NULL THEN 'folded' END AS closed,
     CASE WHEN o.closed IS NOT NULL THEN o.closed_why
          WHEN m.merged IS NOT NULL THEN 'Item ' || o.folded_into || ' took it in, and its work merged' END AS closed_why,
@@ -1339,10 +1343,10 @@ CREATE VIEW observations_all AS
       AND r.transition = 'merged' GROUP BY w.item) m ON m.item = o.folded_into;
 
 CREATE VIEW observations_open AS
-  -- Each project's open observations, each with its number, what it is, its tags, how many times it was reported, where
-  -- it came from, what it refers to and the item that took it in, if one has. Read by: cell `X2`, which searches
-  -- them; the engine.
-  SELECT project, id, what, tags, times_reported, source, refs, folded_into
+  -- Each project's open observations, each with its number, its title, what it is, its tags, how many times it was
+  -- reported, where it came from, what it refers to and the item that took it in, if one has. Read by: cell `X2`,
+  -- which searches them; the engine.
+  SELECT project, id, title, what, tags, times_reported, source, refs, folded_into
   FROM observations_all WHERE closed IS NULL;
 
 CREATE VIEW conversation_entries AS

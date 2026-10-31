@@ -127,7 +127,7 @@ fn dependency(kind: &Value, bad: &mut dyn FnMut(String)) {
     }
 }
 
-/// The most characters an item's title has, spaces not counted.
+/// The most characters an item's title has, spaces not counted, and an observation's.
 const TITLE_MOST: usize = 20;
 
 /// How many characters a title has, spaces not counted, as the earlier board counted them.
@@ -135,8 +135,8 @@ fn title_length(title: &str) -> usize {
     title.chars().filter(|c| !c.is_whitespace()).count()
 }
 
-/// Whether a title a change gives is short enough; otherwise says how long it is.
-fn title_fits(title: &str, bad: &mut dyn FnMut(String)) {
+/// Whether a title a change gives, an item's or an observation's, is short enough; otherwise says how long it is.
+pub(crate) fn title_fits(title: &str, bad: &mut dyn FnMut(String)) {
     let n = title_length(title);
     if n > TITLE_MOST {
         bad(format!(

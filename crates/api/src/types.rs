@@ -1554,6 +1554,8 @@ pub struct ItemChange {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Observation {
     pub id: i64,
+    /// What is wrong, as a short phrase; none for one recorded before observations had titles.
+    pub title: Option<String>,
     /// What it is, why it is worth doing, and what happens if it is not done.
     pub what: String,
     /// Its tags, from the project's set.
