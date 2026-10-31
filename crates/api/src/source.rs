@@ -74,14 +74,15 @@ pub fn commit(checkout: &Path, rev: &str) -> Result<String> {
     Ok(id.trim().to_string())
 }
 
-/// The flow at a commit of the checkout, compiled against the database schema at the same commit.
+/// The flow at a commit of the checkout, compiled against the database schema at the same commit to be shown, so that
+/// a flow written before its lines had colours is shown too.
 pub fn compile_at(checkout: &Path, commit: &str) -> Result<Compiled> {
     let text = git(checkout, &["show", &format!("{commit}:flow/flow.json")])?;
     let schema = git(checkout, &["show", &format!("{commit}:db/schema.sql")])?;
     let at = |e| Error::Invalid(format!("db/schema.sql at {commit}: {e}"));
     let relations = db::relations(&schema).map_err(at)?;
     let tables = db::index_of(&schema).map_err(at)?;
-    flow::compile(&text, &flow::Context { relations, tables })
+    flow::compile_shown(&text, &flow::Context { relations, tables })
         .map_err(|e| Error::Invalid(format!("flow/flow.json at {commit} does not compile:\n{e}")))
 }
 
@@ -125,11 +126,16 @@ mod tests {
 
     /// A repository whose one commit holds this repository's flow and schema.
     fn repo(name: &str) -> PathBuf {
+        repo_with(name, flow::FLOW)
+    }
+
+    /// A repository whose one commit holds a flow and this repository's schema.
+    fn repo_with(name: &str, flow: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("wf-agents-source-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("flow")).unwrap();
         std::fs::create_dir_all(dir.join("db")).unwrap();
-        std::fs::write(dir.join("flow/flow.json"), flow::FLOW).unwrap();
+        std::fs::write(dir.join("flow/flow.json"), flow).unwrap();
         std::fs::write(dir.join("db/schema.sql"), db::SCHEMA).unwrap();
         run(&dir, &["init", "--quiet", "--initial-branch=main"]);
         run(&dir, &["add", "."]);
@@ -151,6 +157,32 @@ mod tests {
         let (_, again) = sources.at(&dir, "HEAD").unwrap();
         assert!(Arc::ptr_eq(&c, &again));
         assert_eq!(refs(&dir).unwrap(), vec!["main".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A flow written before its lines had colours, as at an older commit, is compiled and shown, the page taking a
+    // line's colour from the flow built into the program, while a flow that runs must give every line one.
+    #[test]
+    fn a_flow_at_a_ref_from_before_lines_had_colours_is_shown() {
+        let mut v: serde_json::Value = serde_json::from_str(flow::FLOW).unwrap();
+        for f in v["flows"].as_array_mut().unwrap() {
+            for l in f["sessions"]["lines"].as_array_mut().unwrap() {
+                l.as_object_mut().unwrap().remove("colour");
+            }
+        }
+        let older = serde_json::to_string_pretty(&v).unwrap();
+        let dir = repo_with("uncoloured", &older);
+        let (_, c) = Sources::default().at(&dir, "main").unwrap();
+        let shown = crate::view(&c);
+        let names: Vec<&str> = shown.graphs.iter().map(|g| g.name.as_str()).collect();
+        assert_eq!(names, ["engineer", "architect"]);
+        assert!(shown.graphs.iter().all(|g| !g.cells.is_empty()));
+        let cx = flow::Context {
+            relations: db::relations(db::SCHEMA).unwrap(),
+            tables: db::index_of(db::SCHEMA).unwrap(),
+        };
+        let refused = flow::compile(&older, &cx).unwrap_err().to_string();
+        assert!(refused.contains("a line with no colour: engineer"), "{refused}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

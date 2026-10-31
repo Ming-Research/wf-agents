@@ -12,7 +12,9 @@
 //! - every return each cell's output allows, in every state: exactly one row holds, and nothing in it is dropped;
 //! - every row from one block into another goes to one of that block's entries;
 //! - every input is there on every way to its cell unless marked maybe, and missing on some way when it is;
-//! - every cell a text of the flow names, as cell `name`, is a cell of its graph ([`cells_named`]).
+//! - every cell a text of the flow names, as cell `name`, is a cell of its graph ([`cells_named`]);
+//! - every line has a colour, which no other line has; a flow compiled only to be shown ([`compile_shown`]), such as
+//!   one written before lines had colours, may have lines with none.
 //!
 //! What an agent's session already holds is not worked out here: the engine decides it as it runs, from what each
 //! session was given and handed back.
@@ -103,7 +105,28 @@ fn fail(p: impl Into<String>) -> Error {
 /// the architect has in hand.
 const BY: [&str; 4] = ["item", "work", "project", "matter"];
 
+/// Compiles and checks a flow that runs or will run: the flow built into the program, `wf-agents flow check`'s and
+/// the flow's tests'. Every line of it has a colour.
 pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
+    build(text, cx, Colours::Required)
+}
+
+/// Compiles and checks a flow only to show it, such as the flow at an older commit the flow page compares with the
+/// flow it runs, which may have been written before lines had colours: a line may have none, since the page draws a
+/// line's cells in the colour the flow built into the program gives that line, and in the grey of an agent with no
+/// colour of its own where it gives none. Everything else is checked as [`compile`] checks it.
+pub fn compile_shown(text: &str, cx: &Context) -> Result<Compiled, Error> {
+    build(text, cx, Colours::Optional)
+}
+
+/// Whether every line of a flow must have a colour, or only those that have one are checked.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Colours {
+    Required,
+    Optional,
+}
+
+fn build(text: &str, cx: &Context, colours: Colours) -> Result<Compiled, Error> {
     let mut source: Source = serde_json::from_str(text).map_err(|e| fail(format!("flow.json: {e}")))?;
     // A tool that reads the database says in its description what it reads: each table and view with its columns and
     // the start of the first line of what it holds. It comes with the return formats, once in a session.
@@ -147,13 +170,20 @@ pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
             )));
         }
     }
-    // Each line's role has a colour of its own on the owner's page: no two lines of the flow share one.
+    // Each line's role has a colour of its own on the owner's page: every line of a flow that runs has one, and no two
+    // lines of the flow share one.
     let mut coloured: BTreeMap<format::Colour, &str> = BTreeMap::new();
     for l in source.flows.iter().flat_map(|f| &f.sessions.lines) {
-        if let Some(other) = coloured.insert(l.colour, &l.name) {
+        let Some(colour) = l.colour else {
+            if colours == Colours::Required {
+                return Err(fail(format!("a line with no colour: {}", l.name)));
+            }
+            continue;
+        };
+        if let Some(other) = coloured.insert(colour, &l.name) {
             return Err(fail(format!(
-                "two lines share the colour {}: {other} and {}",
-                l.colour, l.name
+                "two lines share the colour {colour}: {other} and {}",
+                l.name
             )));
         }
     }

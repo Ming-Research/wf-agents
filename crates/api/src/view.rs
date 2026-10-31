@@ -37,7 +37,8 @@ pub fn view(c: &Compiled) -> FlowView {
 /// wherever the page shows it: a compiled flow version keeps the lines, not what they are, and a role has one colour
 /// on every page, whatever flow version a work runs on.
 pub fn flow_lines() -> Vec<GraphLines> {
-    // The flow built into this program compiles, as its tests hold; a source that does not read has no lines.
+    // The flow built into this program compiles, every line of it with a colour, as its tests hold; a source that does
+    // not read has no lines, and a line with no colour is not given.
     let Ok(source) = serde_json::from_str::<flow::format::Source>(flow::FLOW) else {
         return Vec::new();
     };
@@ -50,10 +51,12 @@ pub fn flow_lines() -> Vec<GraphLines> {
                 .sessions
                 .lines
                 .iter()
-                .map(|l| LineView {
-                    name: l.name.clone(),
-                    desc: l.desc.clone(),
-                    colour: l.colour,
+                .filter_map(|l| {
+                    Some(LineView {
+                        name: l.name.clone(),
+                        desc: l.desc.clone(),
+                        colour: l.colour?,
+                    })
                 })
                 .collect(),
         })

@@ -405,7 +405,10 @@ pub struct Line {
     pub name: String,
     pub desc: String,
     /// The colour the line's role is drawn in wherever the owner's page shows it; no two lines of the flow share one.
-    pub colour: Colour,
+    /// A flow that runs gives every line one (`crate::compile`); one written before lines had colours, which is only
+    /// shown (`crate::compile_shown`), has none.
+    #[serde(default)]
+    pub colour: Option<Colour>,
     /// Where the work goes when a new session of the line would start at one of its cells: a row every agent's cell
     /// of the line has, but those it names, which the engine takes itself in place of the cell's round.
     pub anew: Option<Anew>,

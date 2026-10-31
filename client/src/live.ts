@@ -228,21 +228,30 @@ export function useShared<T>(key: string, path: string): T | undefined {
     () => shared.get(path),
     () => shared.get(path),
   );
-  useEffect(() => {
-    const asked = `${v} ${path}`;
-    if ((shared.get(path)?.v ?? -1) >= v || reading.has(asked)) return;
-    reading.add(asked);
-    getJson<T>(path).then(
-      (data) => {
-        reading.delete(asked);
-        if ((shared.get(path)?.v ?? -1) > v) return;
-        shared.set(path, { v, data });
-        for (const l of listeners) l();
-      },
-      () => reading.delete(asked),
-    );
-  }, [path, v]);
+  useEffect(() => readShared(path, v), [path, v]);
   return got?.data as T | undefined;
+}
+
+/// Reads `path` for `useShared` before any part asks for it, at the count of changes `key` has now: for what the page
+/// reads as it starts, so that it is there once a part is drawn.
+export function readAhead(key: string, path: string): void {
+  readShared(path, version(key));
+}
+
+/// Reads `path` for `useShared` at the count of changes `v`, unless it was read at that count or is being read.
+function readShared(path: string, v: number): void {
+  const asked = `${v} ${path}`;
+  if ((shared.get(path)?.v ?? -1) >= v || reading.has(asked)) return;
+  reading.add(asked);
+  getJson<unknown>(path).then(
+    (data) => {
+      reading.delete(asked);
+      if ((shared.get(path)?.v ?? -1) > v) return;
+      shared.set(path, { v, data });
+      for (const l of listeners) l();
+    },
+    () => reading.delete(asked),
+  );
 }
 
 /// Reads each of `items` now, and one again each time an event names its key, as `useResource` reads one; the data in

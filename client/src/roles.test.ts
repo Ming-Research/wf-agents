@@ -2,10 +2,13 @@
 // class of that colour in roles.css, which sets the four tokens a chart's cell, a bubble and an avatar are drawn with;
 // an agent with no colour of its own the page's neutral grey, the engine's own steps' on a chart.
 
-import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { Colour } from './api';
-import { coloursOf, roleClass } from './roles';
+import type { Colour, GraphLines } from './api';
+import { Bubble } from './pages/Bubble';
+import { coloursOf, readColours, roleClass } from './roles';
 import chartCss from './styles/chart.css?raw';
 import rolesCss from './styles/roles.css?raw';
 
@@ -28,7 +31,28 @@ function rule(stylesheet: string, selector: string): Map<string, string> {
   );
 }
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe("a role's colour", () => {
+  // Read as the page starts, the lines are there before any bubble is drawn, which is then drawn in its role's colour
+  // and not in the grey of an agent with no colour of its own; asked for again while being read, they are read once.
+  it('is read as the page starts, before a bubble is drawn, and once', async () => {
+    const lines: GraphLines[] = [{ graph: 'engineer', lines: [{ name: 'engineer', desc: 'The engineer', colour: 'blue' }] }];
+    const asked: string[] = [];
+    vi.stubGlobal('fetch', async (path: string) => {
+      asked.push(path);
+      return new Response(JSON.stringify(lines), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    const drawn = () => renderToStaticMarkup(createElement(Bubble, { who: 'engineer', head: 'Engineer', children: 'Said.' }));
+    expect(drawn()).toContain('talk-bubble talk-bubble-agent role-none');
+    readColours();
+    readColours();
+    await vi.waitFor(() => expect(drawn()).toContain('talk-bubble talk-bubble-agent role-blue'));
+    expect(asked).toEqual(['/api/v1/flows/lines']);
+  });
+
   it("is the class of the colour the flow gives its line, or the neutral grey's for none", () => {
     const colours = coloursOf([
       {

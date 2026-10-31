@@ -11,13 +11,19 @@ import { Observations } from './pages/Observations';
 import { Settings } from './pages/Settings';
 import { System } from './pages/System';
 import { Works } from './pages/Works';
+import { readColours } from './roles';
 import { href, Link, navigate, useRoute } from './route';
 import { t } from './text';
 import { TopBar } from './TopBar';
 
 export function App() {
   const route = useRoute();
-  useEffect(() => connect(), []);
+  // The event stream, and the lines' colours, read as the page starts so that every bubble and chart cell is drawn in
+  // its role's colour from the first.
+  useEffect(() => {
+    connect();
+    readColours();
+  }, []);
   // The Spend view's old address goes on to the System view that took its place.
   useEffect(() => {
     if (route.page === 'system' && location.pathname === '/spend') navigate(href(route), true);

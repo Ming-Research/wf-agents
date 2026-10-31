@@ -56,10 +56,18 @@ fn remove_row(v: &mut Value, id: &str, name: &str) {
 
 /// The flow with one edit fails, and one of its problems says `want`.
 fn refused(edit: impl FnOnce(&mut Value), want: &str) {
+    refused_by(flow::compile, edit, want);
+}
+
+/// What compiles a flow: as a flow that runs, or only to show it.
+type Compile = fn(&str, &flow::Context) -> Result<flow::Compiled, flow::Error>;
+
+/// The flow with one edit fails to compile by `compile`, and one of its problems says `want`.
+fn refused_by(compile: Compile, edit: impl FnOnce(&mut Value), want: &str) {
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     edit(&mut v);
     let text = serde_json::to_string(&v).unwrap();
-    match flow::compile(&text, &context()) {
+    match compile(&text, &context()) {
         Ok(_) => panic!("compiled, but should fail with {want}"),
         Err(e) => assert!(e.to_string().contains(want), "wanted {want}, got:\n{e}"),
     }
@@ -84,7 +92,7 @@ case!(an_input_said_to_be_in_the_session, "fits none of the forms", |v| {
 case!(an_unknown_key, "unknown field", |v| {
     node(v, "D1")["colour"] = json!("red");
 });
-case!(a_line_with_no_colour, "missing field `colour`", |v| {
+case!(a_line_with_no_colour, "a line with no colour: engineer", |v| {
     obj(&mut graph(v)["sessions"]["lines"][0]).remove("colour");
 });
 case!(a_colour_the_page_does_not_know, "unknown variant `green`", |v| {
@@ -107,6 +115,31 @@ case!(
         v["flows"][1]["sessions"]["lines"][0]["colour"] = json!("blue");
     }
 );
+// A flow compiled only to be shown, as at an older commit, may have lines with no colour, and still neither two lines
+// with one colour nor a colour the page does not know.
+#[test]
+fn a_flow_only_shown_with_two_lines_of_one_colour() {
+    refused_by(
+        flow::compile_shown,
+        |v| {
+            obj(&mut graph(v)["sessions"]["lines"][0]).remove("colour");
+            graph(v)["sessions"]["lines"][2]["colour"] = json!("teal");
+        },
+        "two lines share the colour teal: review and adversarial",
+    );
+}
+
+#[test]
+fn a_flow_only_shown_with_a_colour_the_page_does_not_know() {
+    refused_by(
+        flow::compile_shown,
+        |v| {
+            obj(&mut graph(v)["sessions"]["lines"][0]).remove("colour");
+            graph(v)["sessions"]["lines"][1]["colour"] = json!("green");
+        },
+        "unknown variant `green`",
+    );
+}
 case!(an_engine_step_nothing_uses, "an engine step nothing uses: extra", |v| {
     v["engine"]["steps"]["extra"] = json!("x");
 });
