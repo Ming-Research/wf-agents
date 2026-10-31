@@ -902,10 +902,9 @@ pub struct Settings {
     pub architect: String,
     /// The context, in tokens, past which a line's session is replaced at its next round.
     pub context_limit: i64,
-    /// Keep-warm, which is not configuration: how many minutes after a waiting session's last call it is pinged, and
-    /// at most how many times in one wait.
+    /// Keep-warm, which is not configuration: how many minutes after an idle session's last call it is pinged; at most
+    /// how many times in one wait is each tier's.
     pub keep_warm_minutes: i64,
-    pub keep_warm_most: i64,
     /// The language everything the owner reads is written in.
     pub language: String,
     /// The machines works run on, by name.
@@ -925,12 +924,14 @@ pub struct Settings {
     pub commit: String,
 }
 
-/// A tier: its name, the model it runs, and what work it is for.
+/// A tier: its name, the model it runs, what work it is for, and at most how many keep-warm pings one wait of a
+/// session on its model has, which is not configuration: as many as cost no more than writing the session again.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Tier {
     pub name: String,
     pub model: String,
     pub desc: String,
+    pub keep_warm_most: i64,
 }
 
 /// A machine works run on: its name, and how many works may run on it at once.

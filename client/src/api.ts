@@ -1278,10 +1278,10 @@ architect: string,
  */
 context_limit: number, 
 /**
- * Keep-warm, which is not configuration: how many minutes after a waiting session's last call it is pinged, and
- * at most how many times in one wait.
+ * Keep-warm, which is not configuration: how many minutes after an idle session's last call it is pinged; at most
+ * how many times in one wait is each tier's.
  */
-keep_warm_minutes: number, keep_warm_most: number, 
+keep_warm_minutes: number, 
 /**
  * The language everything the owner reads is written in.
  */
@@ -1316,9 +1316,10 @@ rules: { [key in string]: string },
 commit: string, };
 
 /**
- * A tier: its name, the model it runs, and what work it is for.
+ * A tier: its name, the model it runs, what work it is for, and at most how many keep-warm pings one wait of a
+ * session on its model has, which is not configuration: as many as cost no more than writing the session again.
  */
-export type Tier = { name: string, model: string, desc: string, };
+export type Tier = { name: string, model: string, desc: string, keep_warm_most: number, };
 
 /**
  * A machine works run on: its name, and how many works may run on it at once.

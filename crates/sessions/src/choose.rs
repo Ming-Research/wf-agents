@@ -157,17 +157,8 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: O
     let (rounds, held) = held::of_session(conn, &cli_session)?;
     // A fixed place of the flow opens a new session at the work's first round there; a session set up for the line
     // that holds no round yet, as the start of a work sets up the engineer's, is new already.
-    if cell.new_session && !rounds.is_empty() {
-        let before: i64 = conn
-            .query_row(
-                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = ?2 AND session IS NOT NULL",
-                params![work, cell.id],
-                |r| r.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        if before == 0 {
-            return Ok(Plan::New(Start::Cell));
-        }
+    if !rounds.is_empty() && opens(conn, work, cell)? {
+        return Ok(Plan::New(Start::Cell));
     }
     // Another login account's configuration directory does not hold the session at all, so a new one starts even to
     // rewrite a return sent back.
@@ -196,6 +187,23 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: O
         resume,
         carried,
     })
+}
+
+/// Whether the work's next round at a cell opens a new session for its line because the flow fixes one there: the
+/// cell is one its line starts a new session at, and the work has had no round there yet. The session the line has
+/// going on before it ends there.
+pub fn opens(conn: &Connection, work: i64, cell: &CompiledCell) -> Result<bool, String> {
+    if !cell.new_session {
+        return Ok(false);
+    }
+    let before: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = ?2 AND session IS NOT NULL",
+            params![work, cell.id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(before == 0)
 }
 
 /// The line of the architect's works, whose session goes on from one of a project's architect works to the next.

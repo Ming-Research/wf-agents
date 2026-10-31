@@ -24,7 +24,8 @@ const messages = {
   settings_sessions: 'Sessions',
   settings_limit: 'A session is replaced past (tokens)',
   settings_keep_warm:
-    'A waiting session is pinged {after} after its last call, at most {most} in one wait; these are not settings.',
+    'An idle session is pinged {after} after its last call, at most as many times in one wait as cost no more than writing it again: {most}; these are not settings.',
+  settings_keep_warm_tier: '{n} on tier {tier}',
   settings_model_note: 'A changed model starts each line a new session at its next round, since a prompt cache is per model.',
   settings_no_model: 'Tier {tier} needs a model.',
   settings_bad_limit: 'The size limit is a number of tokens from 50,000 to 1,000,000.',
@@ -707,7 +708,7 @@ const messages = {
   us_pings_one: '1 keep-warm ping',
   us_pings_title: 'Keep-warm pings',
   us_pings_note:
-    "Each ping read a waiting session's prompt cache 55 minutes after its last call, before the cache let it go. A ping means the work waited over an hour, which should not happen: each says where the work waited and for what.",
+    "Each ping read an idle session's prompt cache 55 minutes after its last call, before the cache let it go, while its work waited or went on without its line: each says where the work stood and for what.",
   us_waited: 'at cell {cell}, on {on}: {what}',
   us_ping_failed: 'failed: {why}',
   us_of_window: 'of {n}',

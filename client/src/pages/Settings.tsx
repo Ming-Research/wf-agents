@@ -284,7 +284,12 @@ function Install({ s, d, set }: { s: SettingsData; d: Draft; set: (d: Draft) => 
           </FormControl>
         </div>
         <p className="settings-note">
-          {t('settings_keep_warm', { after: tn('n_minutes', s.keep_warm_minutes), most: tn('n_times', s.keep_warm_most) })}
+          {t('settings_keep_warm', {
+            after: tn('n_minutes', s.keep_warm_minutes),
+            most: s.tiers
+              .map((x) => t('settings_keep_warm_tier', { tier: x.name, n: tn('n_times', x.keep_warm_most) }))
+              .join(', '),
+          })}
         </p>
         <p className="settings-note">{t('settings_model_note')}</p>
       </Part>

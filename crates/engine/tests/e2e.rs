@@ -6330,6 +6330,18 @@ fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
 type Replayed = (Vec<String>, String);
 
 /// The sessions of a work's line, oldest first: why each started, whether it ended, and the cells of its rounds.
+/// A setup whose tier runs a model the session manager has prices for, by which it judges how many keep-warm pings a
+/// wait is worth.
+fn setup_priced(name: &str) -> Setup {
+    let s = setup(name);
+    let install = std::fs::read_to_string(s.data.join("install.toml"))
+        .unwrap()
+        .replace("model = \"m\"", "model = \"claude-sonnet-5-5\"");
+    write(&s.data, "install.toml", &install);
+    git(&s.data, &["commit", "-q", "-am", "a model with prices"]);
+    s
+}
+
 fn line_sessions(e: &Engine, work: i64, line: &str) -> Vec<(String, bool, String)> {
     let mut st =
         e.db.conn()
@@ -6535,7 +6547,7 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
 // session is not kept warm: the next round starts a new one anyway.
 #[test]
 fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
-    let s = setup("limit");
+    let s = setup_priced("limit");
     let mut scripts = scripts();
     scripts.insert(
         "R2",
@@ -6571,12 +6583,12 @@ fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
 }
 
 // A work that waits has the session its next round goes on in pinged 55 minutes after the session's last call, while
-// the cache still holds it, and every 55 minutes after, at most 39 times in a wait. Each ping runs the last round's
-// command line again, resuming the session, records where the work waited and for what, and costs what the session
-// grew by, which the next round's cost leaves out.
+// the cache still holds it, and every 55 minutes after, at most 39 times in a wait on Sonnet 5.5, whose write to the
+// cache costs forty reads. Each ping runs the last round's command line again, resuming the session, records where the
+// work waited and for what, and costs what the session grew by, which the next round's cost leaves out.
 #[test]
 fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
-    let s = setup("warm");
+    let s = setup_priced("warm");
     let mut scripts = scripts();
     scripts.insert(
         "R1",
@@ -6662,11 +6674,70 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// While a work goes on without a line, the line's session is kept warm as long as the flow can come back to it: the
+// review's, while the work stands at fixing, is pinged for the work going on; the engineer's implementing session is
+// not, since fixing starts the engineer a new session, but is once the work stands where a way leads back to it
+// without passing fixing, as choosing the way on after an interjection.
+#[test]
+fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
+    let s = setup_priced("warm-lines");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "T4");
+    let (work, _, _) = state(&e, item).unwrap();
+    // Each round recorded what it used, as the command line reports it.
+    let usage = used(1.0, 9_000).to_string();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET usage = ?2 WHERE work = ?1 AND session IS NOT NULL",
+            params![work, usage],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let from: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT max(ended_at) FROM rounds WHERE work = ?1 AND session IS NOT NULL",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let pinged = |e: &Engine| -> Vec<(String, Value)> {
+        engine::query_json(
+            e.db.conn(),
+            "SELECT s.line, p.waited FROM pings p JOIN sessions s ON s.id = p.session WHERE s.work = ?1 ORDER BY p.id",
+            &[&work],
+            100,
+        )
+        .unwrap()
+        .into_iter()
+        .map(|r| (r["line"].as_str().unwrap().to_string(), r["waited"].clone()))
+        .collect()
+    };
+    let now = from + 55 * 60_000 + 1_000;
+    move_to(&mut e, work, "T6");
+    let log = said.borrow().join("\n");
+    assert_eq!(e.keep_warm(now, None).unwrap(), 1, "{log}");
+    assert_eq!(
+        pinged(&e),
+        [(
+            "review".to_string(),
+            json!({ "cell": "T6", "on": "work", "what": "the work goes on" })
+        )]
+    );
+    move_to(&mut e, work, "M1");
+    assert_eq!(e.keep_warm(now + 2_000, None).unwrap(), 1, "{log}");
+    let pings = pinged(&e);
+    assert_eq!(pings.len(), 2, "{pings:?}");
+    assert_eq!((pings[1].0.as_str(), &pings[1].1["cell"]), ("engineer", &json!("M1")));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // No ping goes to a session whose next round starts a new one, at a cell the line starts one at, nor beside a round of
 // the session that runs.
 #[test]
 fn no_ping_before_a_new_session_or_beside_a_round() {
-    let s = setup("no-warm");
+    let s = setup_priced("no-warm");
     let mut scripts = scripts();
     scripts.insert(
         "D9",
@@ -6723,7 +6794,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
 // waited at the owner's cell for the owner's answer to that ask.
 #[test]
 fn a_ping_says_where_the_work_waited_and_for_what() {
-    let s = setup("warm-owner");
+    let s = setup_priced("warm-owner");
     let mut scripts = scripts();
     scripts.insert(
         "R2",
@@ -9453,10 +9524,10 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
 
 // While every work is paused, a work the pause holds waits on it: its session is kept warm as the session manager's
 // rules say, unless the owner switched keeping warm off, which holds across restarts; a work the owner started runs,
-// and is not kept warm for the pause.
+// and is kept warm as any work that goes on is, for its going on.
 #[test]
 fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_it_off() {
-    let s = setup("warm-paused");
+    let s = setup_priced("warm-paused");
     let mut scripts = scripts();
     scripts.insert(
         "R2",
@@ -9468,15 +9539,12 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
     assert_eq!(at, "D1", "{}", said.borrow().join("\n"));
     let from = last_call(&e, work);
     let due = from + 55 * 60_000 + 1_000;
-    // Works going on wait on nothing.
-    assert_eq!(e.keep_warm(due, None).unwrap(), 0);
     let paused = |warm: bool, runs: &[i64]| engine::GlobalPause {
         warm,
         runs: runs.iter().copied().collect(),
         architects: Default::default(),
     };
     assert_eq!(e.keep_warm(due, Some(&paused(false, &[]))).unwrap(), 0);
-    assert_eq!(e.keep_warm(due, Some(&paused(true, &[work]))).unwrap(), 0);
     assert_eq!(
         e.keep_warm(due, Some(&paused(true, &[]))).unwrap(),
         1,
@@ -9487,6 +9555,14 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
         pings_of(&e, work)[0].0,
         json!({ "cell": "D1", "on": "pause", "what": "the owner paused every work" })
     );
+    // A work the owner started runs on, as every work does with no pause: the line it comes back to is kept warm
+    // for its going on.
+    let later = due + 55 * 60_000 + 1_000;
+    assert_eq!(e.keep_warm(later, Some(&paused(true, &[work]))).unwrap(), 1);
+    let going_on = json!({ "cell": "D1", "on": "work", "what": "the work goes on" });
+    assert_eq!(pings_of(&e, work)[1].0, going_on);
+    assert_eq!(e.keep_warm(later + 55 * 60_000 + 1_000, None).unwrap(), 1);
+    assert_eq!(pings_of(&e, work)[2].0, going_on);
     // The owner's switch is kept in the database, as the owner's, across a restart.
     assert!(api::keep_warm_paused(e.db.conn()).unwrap());
     api::set_keep_warm_paused(&mut e.db, false).unwrap();

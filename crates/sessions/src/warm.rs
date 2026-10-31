@@ -1,9 +1,10 @@
-//! Keeping a waiting session's prompt cache warm. The CLI keeps a session's prompt in the cache an hour after its last
-//! call; a round after that writes the whole prompt again, at forty times the price of reading it. When a work waits
-//! and its next round will go on in a session, the session is sent one minimal message 55 minutes after its last call,
-//! so that the cache is read instead of expiring, and again every 55 minutes, at most 39 times in one wait: by then
-//! the pings have cost as much as writing the session again. This works around the cache's lifetime; needing it means
-//! the work waited over an hour, which is an anomaly, so each ping records where the work waited and for what.
+//! Keeping an idle session's prompt cache warm. The CLI keeps a session's prompt in the cache an hour after its last
+//! call; a round after that writes the whole prompt again, at many times the price of reading it. While a work goes on
+//! or waits, a session of one of its lines that the flow can still come back to is sent one minimal message 55 minutes
+//! after its last call, so that the cache is read instead of expiring, and again every 55 minutes, as many times in one
+//! wait as the reads cost no more than writing the session again would beyond reading it, at the session's model's
+//! prices ([`most`]). This works around the cache's lifetime; each ping records where the work stood and for what the
+//! line waited, so that a line that waits long shows where it comes from.
 
 use std::path::PathBuf;
 
@@ -24,22 +25,33 @@ pub const AFTER_MS: i64 = 55 * 60_000;
 /// again, for nothing.
 pub const CACHE_MS: i64 = 60 * 60_000;
 
-/// The most pings in one wait.
-pub const MOST: usize = 39;
+/// The most pings in one wait of a session on a model whose context is `prompt` tokens: as many as cost, each reading
+/// the session from the cache, no more than writing the session again for an hour would beyond reading it, which a ping
+/// saves when the session's next round comes before the cache lets it go. At the prices of the command line's catalog
+/// that is 39 on Opus 5.5 and Sonnet 5.5, whose write for an hour costs forty reads, 19 on Haiku 5.5 (twenty) and 79
+/// on Fable 5.1 (eighty). None for a model with no prices, whose worth cannot be told.
+pub fn most(model: &str, prompt: i64) -> usize {
+    let Some(p) = cost::prices(model, prompt).filter(|p| p.read > 0.0) else {
+        return 0;
+    };
+    // The small margin keeps a ratio such as (4.0 - 0.1) / 0.1, which floating point makes 38.99..., at 39.
+    let pings = (p.write_1h - p.read) / p.read + 1e-9;
+    if pings <= 0.0 { 0 } else { pings.floor() as usize }
+}
 
 /// How long after a ping that failed the next is tried, while the cache still keeps the prompt.
 pub const RETRY_MS: i64 = 60_000;
 
 /// What a ping says to the session.
-pub const MESSAGE: &str = "# Keep-warm ping\n\nThe work waits, and this message from the session manager only keeps \
-    your session's prompt cache from expiring. Do nothing and use no tool: hand in the smallest return the format \
-    allows, with an empty progress.\n";
+pub const MESSAGE: &str = "# Keep-warm ping\n\nYour line waits for its next round, and this message from the session \
+    manager only keeps your session's prompt cache from expiring. Do nothing and use no tool: hand in the smallest \
+    return the format allows, with an empty progress.\n";
 
-/// Where a work waited and for what, as a ping records it.
+/// Where a work stood while a line of it waited, and for what, as a ping records it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Waited {
     pub cell: String,
-    /// pause, owner, architect, items or tool.
+    /// What the work waited on (pause, owner, architect, items or tool), or `work` when it went on without the line.
     pub on: String,
     pub what: String,
 }
@@ -70,11 +82,12 @@ struct Sent {
     read: bool,
 }
 
-/// Whether the session the work's next round goes on in is due a ping at `now`, given the cells that round may be
-/// at, on what it runs on: none when they are not all on one line, when the round will start a new session anyway (the
-/// work's first at a cell its line starts one at, a session past the limit, on another model or under another login
-/// account), while a round runs, before 55 minutes have passed since its last call or once the cache has let it go, a
-/// minute after a ping that failed, and after 39 pings in this wait.
+/// Whether the session of a line of the work is due a ping at `now`, given the cells of the line the flow can come back
+/// to in that session, on what the line's rounds run on: none when they are not all on one line, when the line's next
+/// round will start a new session anyway (a session past the limit, on another model or under another login account,
+/// or a cell its line starts one at), while a round runs, before 55 minutes have passed since its last call or once the
+/// cache has let it go, a minute after a ping that failed, and after the most pings in one wait that its model's prices
+/// make worth it ([`most`]).
 pub fn due(
     conn: &Connection,
     work: i64,
@@ -120,7 +133,8 @@ pub fn due(
         return Ok(None);
     };
     let sent = pings_since(conn, &cli_session, waits_from)?;
-    if sent.len() >= MOST {
+    let model = choose::model(&rounds).unwrap_or_default();
+    if sent.len() >= most(&model, choose::context(&rounds).unwrap_or(0)) {
         return Ok(None);
     }
     let read_at = sent
@@ -232,6 +246,7 @@ pub fn ping(
         worktree: PathBuf::from(call["cwd"].as_str().unwrap_or(".")),
         config_dir: call["env"][crate::cli::CONFIG_DIR].as_str().map(PathBuf::from),
         resume: Some(due.cli_session.clone()),
+        system: None,
         new_session: due.cli_session.clone(),
         prompt: MESSAGE.to_string(),
         images: Vec::new(),
@@ -246,7 +261,6 @@ pub fn ping(
     };
     let session = due.session;
     let id = db
-        system: None,
         .write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO pings (session, waited, started_at) VALUES (?1, ?2, ?3)",
@@ -285,6 +299,25 @@ pub fn ping(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A wait has as many pings as cost no more than writing the session again for an hour beyond reading it, at its
+    // model's prices: forty reads make a write on Opus 5.5 and Sonnet 5.5, twenty on Haiku 5.5, whatever its context,
+    // eighty on Fable 5.1; a model with no prices has none.
+    #[test]
+    fn a_wait_has_as_many_pings_as_its_models_prices_make_worth_it() {
+        assert_eq!(most("claude-sonnet-5-5", 200_000), 39);
+        assert_eq!(most("claude-opus-5-5", 200_000), 39);
+        assert_eq!(most("claude-haiku-5-5", 50_000), 19);
+        assert_eq!(most("claude-haiku-5-5", 150_000), 19);
+        assert_eq!(most("claude-fable-5-1", 200_000), 79);
+        assert_eq!(most("claude-sonnet-5-5[1m]", 200_000), 39);
+        assert_eq!(most("some-other-model", 200_000), 0);
+        for (model, n) in [("claude-haiku-5-5", 19), ("claude-fable-5-1", 79)] {
+            let p = cost::prices(model, 1_000).unwrap();
+            assert!(n as f64 * p.read <= p.write_1h - p.read + 1e-12, "{model}");
+            assert!((n + 1) as f64 * p.read > p.write_1h - p.read, "{model}");
+        }
+    }
 
     // A ping runs the last round's command line as it ran, resuming the session whether that round started it or
     // resumed it.

@@ -125,13 +125,14 @@ fn view(c: &config::Config, commit: &str, compiled: &flow::Compiled) -> Settings
                 name: n.clone(),
                 model: agents.levels[n].model.clone(),
                 desc: agents.levels[n].desc.clone(),
+                // A model's write of the cache is the same number of its reads whatever the prompt's size.
+                keep_warm_most: sessions::warm::most(&agents.levels[n].model, 0) as i64,
             })
             .collect(),
         highest_level: install.items.highest_level.clone(),
         architect: c.architect_level(),
         context_limit: agents.context_limit as i64,
         keep_warm_minutes: sessions::warm::AFTER_MS / 60_000,
-        keep_warm_most: sessions::warm::MOST as i64,
         language: install.owner.language.clone(),
         hosts: install
             .machines

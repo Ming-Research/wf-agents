@@ -1958,16 +1958,15 @@ describe('what the agents spent by line and model', () => {
 describe('the settings on the page', () => {
   const settings: Settings = {
     tiers: [
-      { name: '1', model: 'claude-haiku-5-5', desc: 'small' },
-      { name: '2', model: 'claude-sonnet-5-5', desc: 'known' },
-      { name: '3', model: 'claude-opus-5-5', desc: 'new' },
-      { name: '4', model: 'claude-fable-5-1', desc: 'advisor' },
+      { name: '1', model: 'claude-haiku-5-5', desc: 'small', keep_warm_most: 19 },
+      { name: '2', model: 'claude-sonnet-5-5', desc: 'known', keep_warm_most: 39 },
+      { name: '3', model: 'claude-opus-5-5', desc: 'new', keep_warm_most: 39 },
+      { name: '4', model: 'claude-fable-5-1', desc: 'advisor', keep_warm_most: 79 },
     ],
     highest_level: '3',
     architect: '3',
     context_limit: 500_000,
     keep_warm_minutes: 55,
-    keep_warm_most: 39,
     language: 'Chinese',
     hosts: [{ name: 'macbook', slots: 2 }],
     clis: [{ name: 'claude', command: 'claude', args: ['--tools', 'Bash,Read'] }],

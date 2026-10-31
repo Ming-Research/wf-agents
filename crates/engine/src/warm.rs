@@ -1,8 +1,9 @@
-//! When a work waits, the session its next round will go on in, which the session manager keeps warm
-//! ([`sessions::warm`]): the engine knows where the work stands and what it waits on, and the flow where it goes next.
-//! A work the owner's global pause holds waits on it, and is kept warm while the owner keeps that switch on.
+//! While a work goes on or waits, the sessions of its lines the flow can come back to, which the session manager keeps
+//! warm ([`sessions::warm`]): the engine knows where the work stands and what it waits on, and the flow which lines
+//! each way from there leads back to. A work the owner's global pause holds waits on it, and is kept warm while the
+//! owner keeps that switch on.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use db::rusqlite::params;
 use flow::{CompiledCell, CompiledGraph, Position};
@@ -21,40 +22,58 @@ pub struct GlobalPause {
     pub architects: BTreeSet<String>,
 }
 
-/// The agents' cells a work's next round may be at, from where it stands: the cell itself when it is an agent's, else
-/// every agent's cell its rows lead to through the engine's, the tools' and the owner's cells; none when a way leads
-/// to the end with no agent's round, so that the next round may never come.
-pub fn next_cells(g: &CompiledGraph, pos: &Position) -> Option<Vec<String>> {
-    let mut out: Vec<String> = Vec::new();
-    let mut seen: Vec<(String, Vec<String>)> = Vec::new();
-    let mut todo = vec![pos.clone()];
-    while let Some(p) = todo.pop() {
-        let cell = g.cell(&p.at)?;
-        if cell.kind == "agent" {
-            if !out.contains(&cell.id) {
-                out.push(cell.id.clone());
-            }
-            continue;
-        }
-        if cell.rows.is_empty() {
-            return None;
-        }
-        let key = (p.at.clone(), p.callers.clone());
-        if seen.contains(&key) {
-            continue;
-        }
-        seen.push(key);
-        for r in &cell.rows {
-            // A row that waits where it is, or stays, is the wait itself.
-            if r.to == "@self" || r.to == cell.id {
+/// The lines whose sessions a work can come back to from where it stands, each with the agents' cells of the line it
+/// can come back at: every agent's cell of the line that some way from here reaches, through the cells of other lines,
+/// the engine's, the tools' and the owner's, before any cell of the line where the flow opens it a new session
+/// (`opens`), where the session it has going on ends; the cell the work stands at counts when it is an agent's. A line
+/// none of whose cells a way reaches, or reaches only past such a cell, is behind the work for good, and is left out.
+pub fn coming_back(
+    g: &CompiledGraph,
+    pos: &Position,
+    opens: &dyn Fn(&CompiledCell) -> bool,
+) -> BTreeMap<String, Vec<String>> {
+    let lines: BTreeSet<&str> = g
+        .cells
+        .iter()
+        .filter(|c| c.kind == "agent")
+        .filter_map(|c| c.line.as_deref())
+        .collect();
+    let mut out = BTreeMap::new();
+    for line in lines {
+        let mut found: Vec<String> = Vec::new();
+        let mut seen: Vec<(String, Vec<String>, Option<String>)> = Vec::new();
+        let mut todo = vec![pos.clone()];
+        while let Some(p) = todo.pop() {
+            let Some(cell) = g.cell(&p.at) else {
+                continue;
+            };
+            // A cell of the line is where its session comes back, unless the flow opens it a new one there.
+            if cell.kind == "agent" && cell.line.as_deref() == Some(line) {
+                if !opens(cell) && !found.contains(&cell.id) {
+                    found.push(cell.id.clone());
+                }
                 continue;
             }
-            if let Ok(next) = g.step(&p, r) {
-                todo.push(next);
+            let key = (p.at.clone(), p.callers.clone(), p.stopped.clone());
+            if seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
+            for r in &cell.rows {
+                // A row that waits where it is, or stays, leads nowhere new.
+                if r.to == "@self" || r.to == cell.id {
+                    continue;
+                }
+                if let Ok(next) = g.step(&p, r) {
+                    todo.push(next);
+                }
             }
         }
+        if !found.is_empty() {
+            out.insert(line.to_string(), found);
+        }
     }
-    (!out.is_empty()).then_some(out)
+    out
 }
 
 /// What a work waits on, where it stands: its pause, the owner's or the architect's answer, a row that waits for
@@ -112,11 +131,12 @@ fn waited_on(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Waite
     }
 }
 
-/// Sends a keep-warm ping to each session whose work waits and whose next round will go on in it, when the session
-/// manager finds it due at `now`; gives how many it sent. While the owner's global pause holds (`pause`), a work it
-/// holds waits on it; none is sent then if the owner switched keeping warm off, and none while a failed run's cause
-/// stops every work. A work whose next round starts the new session the owner asked for has nothing to keep warm, nor
-/// has a work on an older flow version that a new work will take over.
+/// Sends a keep-warm ping to each session of a work's line that the flow can come back to from where the work stands
+/// ([`coming_back`]), whether the work goes on or waits, when the session manager finds it due at `now`; gives how many
+/// it sent. While the owner's global pause holds (`pause`), a work it holds waits on it; none is sent then if the owner
+/// switched keeping warm off, and none while a failed run's cause stops every work. A work whose next round starts the
+/// new session the owner asked for has nothing to keep warm, nor has a work on an older flow version that a new work
+/// will take over.
 pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<usize, String> {
     if e.halted() || pause.is_some_and(|p| !p.warm) {
         return Ok(0);
@@ -154,41 +174,54 @@ pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Resul
                     what: "the owner paused every work".to_string(),
                 }
             }
-            None => continue,
+            // A work that goes on, at another line's round, a tool's or the engine's, keeps the lines it will come
+            // back to warm.
+            None => Waited {
+                cell: w.pos.at.clone(),
+                on: "work".to_string(),
+                what: "the work goes on".to_string(),
+            },
         };
-        let Some(next) = next_cells(&g, &w.pos) else {
-            continue;
+        // The lines the work can come back to, each in the session it has going on: not past a cell where the flow
+        // opens the line a new one.
+        let lines = {
+            let conn = e.db.conn();
+            let opens = |c: &CompiledCell| sessions::choose::opens(conn, w.id, c).unwrap_or(true);
+            coming_back(&g, &w.pos, &opens)
         };
-        let cells: Vec<&CompiledCell> = next.iter().filter_map(|c| g.cell(c)).collect();
-        let limit = e.config.config.install.agents.context_limit;
-        // The model and the login account the next round runs on: a session on another one starts anew, and is not
-        // kept warm.
         let item = e.subject(&w)?;
-        let Some(level) = cells
-            .first()
-            .and_then(|c| crate::steps::level_of(e, &g, c, item.as_ref()).ok())
-            .map(|(_, l, _)| l)
-        else {
-            continue;
-        };
-        let home = e.cli_dir(&level.cli);
-        let on = sessions::On {
-            model: &level.model,
-            home: home.as_deref(),
-        };
-        let Some(due) = sessions::warm::due(e.db.conn(), w.id, &cells, limit, on, now)? else {
-            continue;
-        };
-        (e.say)(&format!(
-            "work {id}: keep-warm ping {} of this wait to session {}, as the work waits at cell {} on {}: {}",
-            due.pings + 1,
-            due.session,
-            waited.cell,
-            waited.on,
-            waited.what
-        ));
-        sessions::warm::ping(&mut e.db, e.sessions.agents(), &e.config.config, &due, &waited, now)?;
-        sent += 1;
+        let limit = e.config.config.install.agents.context_limit;
+        for (line, next) in lines {
+            let cells: Vec<&CompiledCell> = next.iter().filter_map(|c| g.cell(c)).collect();
+            // The model and the login account the line's next round runs on: a session on another one starts anew,
+            // and is not kept warm.
+            let Some(level) = cells
+                .first()
+                .and_then(|c| crate::steps::level_of(e, &g, c, item.as_ref()).ok())
+                .map(|(_, l, _)| l)
+            else {
+                continue;
+            };
+            let home = e.cli_dir(&level.cli);
+            let on = sessions::On {
+                model: &level.model,
+                home: home.as_deref(),
+            };
+            let Some(due) = sessions::warm::due(e.db.conn(), w.id, &cells, limit, on, now)? else {
+                continue;
+            };
+            (e.say)(&format!(
+                "work {id}: keep-warm ping {} of this wait to session {} of the {line} line, as the work stands at \
+                 cell {} on {}: {}",
+                due.pings + 1,
+                due.session,
+                waited.cell,
+                waited.on,
+                waited.what
+            ));
+            sessions::warm::ping(&mut e.db, e.sessions.agents(), &e.config.config, &due, &waited, now)?;
+            sent += 1;
+        }
     }
     Ok(sent)
 }
@@ -213,19 +246,35 @@ mod tests {
         }
     }
 
-    // A work at an agent's cell goes on there; one waiting for the owner's answer goes back to the line that asked;
-    // one waiting at the merge gate may merge with no agent's round, so its next round may never come.
+    // While the engineer implements, every line of the work can come back: the engineer's at the cell it stands at,
+    // the reviews and adversarial testing after it, the advisor it may ask. A line comes back only at a cell where it
+    // goes on in its session, not past one where the flow opens it a new one: while the reviews run and fixing has not
+    // started, the engineer's implementing session comes back where the work chooses its way on, not at fixing; a line
+    // all of whose cells open a new session is behind the work for good, as is every line at the work's end.
     #[test]
-    fn the_next_round_is_where_every_way_from_the_wait_leads() {
+    fn a_line_comes_back_where_a_way_reaches_it_in_its_session() {
         let g = graph();
-        assert_eq!(next_cells(&g, &at("I1", &[], None)), Some(vec!["I1".to_string()]));
-        let asked = next_cells(&g, &at("A3", &["I1"], Some("I1"))).unwrap();
+        let none = |_: &CompiledCell| false;
+        let implementing = coming_back(&g, &at("I1", &[], None), &none);
+        assert_eq!(implementing["engineer"][0], "I1");
+        for line in ["review", "adversarial", "advisor"] {
+            assert!(implementing.contains_key(line), "{line}: {implementing:?}");
+        }
+        let fixing_first = |c: &CompiledCell| c.id == "T6";
+        let reviewing = coming_back(&g, &at("T4", &[], None), &fixing_first);
+        let engineer = &reviewing["engineer"];
+        assert!(!engineer.contains(&"T6".to_string()), "{engineer:?}");
+        assert!(engineer.contains(&"A4".to_string()), "{engineer:?}");
+        assert_eq!(reviewing["review"][0], "T4");
+        let review_anew = |c: &CompiledCell| c.line.as_deref() == Some("review");
+        let anew = coming_back(&g, &at("T6", &[], None), &review_anew);
         assert!(
-            asked
-                .iter()
-                .all(|c| g.cell(c).unwrap().line.as_deref() == Some("engineer")),
-            "{asked:?}"
+            !anew.contains_key("review") && anew.contains_key("engineer"),
+            "{anew:?}"
         );
-        assert_eq!(next_cells(&g, &at("M1", &[], None)), None);
+        // Asking the owner, the work comes back to the line that asked.
+        let asked = coming_back(&g, &at("A3", &["I1"], Some("I1")), &none);
+        assert!(asked["engineer"].contains(&"I1".to_string()), "{asked:?}");
+        assert!(coming_back(&g, &at("E1", &[], None), &none).is_empty());
     }
 }
