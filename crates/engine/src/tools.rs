@@ -362,19 +362,31 @@ struct JobLog<'a> {
     log: Result<String, String>,
 }
 
-/// The jobs of a run of the fast CI, each with its log.
-fn job_logs<'a>(e: &Engine, project: &config::Project, checks: &'a [CheckRun]) -> Vec<JobLog<'a>> {
+/// The jobs of a run of the fast CI, each with its log as `read_log` gives it.
+fn job_logs<'a>(
+    checks: &'a [CheckRun],
+    read_log: impl Fn(&CheckRun) -> Result<String, Failure>,
+) -> Vec<JobLog<'a>> {
     checks
         .iter()
         .map(|check| JobLog {
             check,
-            log: e
-                .github
-                .job_log(&repo(project), check)
-                .map(|log| hub::clean_log(&log))
-                .map_err(|f| f.what),
+            log: read_log(check).map(|log| hub::clean_log(&log)).map_err(|f| f.what),
         })
         .collect()
+}
+
+/// The results of the named tests in a run of the fast CI. The logs are read only when some test is named: a call that
+/// names none gets no results, and costs no download.
+fn results_of(
+    tests: &[String],
+    checks: &[CheckRun],
+    read_log: impl Fn(&CheckRun) -> Result<String, Failure>,
+) -> Vec<Value> {
+    if tests.is_empty() {
+        return Vec::new();
+    }
+    test_results(tests, &job_logs(checks, read_log))
 }
 
 /// Whether a test of a log is the one a name means: the name is the test's name in its test binary, or ends the path of
@@ -396,7 +408,8 @@ fn seconds(t: &Timed) -> f64 {
 
 /// Why no line of the logs ends a test, from the first of these that holds: the build failed, a log could not be read,
 /// a log says tests were not run because an earlier test failed (what the fast CI before it ran without
-/// `--no-fail-fast` does), a job was cancelled or timed out, or no test has that name. `shown` is how many tests the
+/// `--no-fail-fast` does), a job was cancelled or timed out, a job's step before `Test` failed or was cut off so that
+/// `Test` did not run, or no test has that name. `shown` is how many tests the
 /// logs show ended.
 fn why_not_run(jobs: &[JobLog<'_>], shown: usize) -> String {
     let build_failed = |j: &&JobLog<'_>| {
@@ -435,6 +448,22 @@ fn why_not_run(jobs: &[JobLog<'_>], shown: usize) -> String {
             "the run stopped before this test: the job {} was cancelled or timed out",
             j.check.name
         );
+    }
+    // A step before `Test` that failed or was cut off (checkout, toolchain, the page, or `Build` itself cancelled)
+    // leaves `Test` unrun: the job did not get to its tests, which says nothing of the names.
+    let cut_short = |j: &JobLog<'_>| {
+        let at = j.check.steps.iter().position(|s| s.name == TEST_STEP)?;
+        let test = &j.check.steps[at];
+        if matches!(test.conclusion.as_str(), "success" | "failure") {
+            return None;
+        }
+        j.check.steps[..at]
+            .iter()
+            .find(|s| matches!(s.conclusion.as_str(), "failure" | "cancelled" | "timed_out"))
+            .map(|s| (j.check.name.clone(), s.name.clone(), s.conclusion.clone()))
+    };
+    if let Some((job, step, how)) = jobs.iter().find_map(cut_short) {
+        return format!("the job {job} did not get to its tests: the step {step} ended {how}");
     }
     format!(
         "no test of that name ended in the fast CI (the logs show {shown} tests): the name is no test's, or the test is \
@@ -655,7 +684,7 @@ fn ci(
         )?;
         pr.set(Some(n));
         let checks = e.github.checks(&repo(project), &sha, &project.ci.fast)?;
-        let results = test_results(&tests, &job_logs(e, project, &checks));
+        let results = results_of(&tests, &checks, |c| e.github.job_log(&repo(project), c));
         Ok(
             json!({ "push": { "verdict": "pushed", "head": sha, "checks": checks_json(&checks), "tests": results }, "pr": n }),
         )
@@ -715,7 +744,7 @@ fn ci_before(
         let checks = e.github.checks(&repo(project), &commit, &project.ci.fast);
         let _ = hub::delete_ref(&wt, &refname);
         let checks = checks?;
-        let results = test_results(&tests, &job_logs(e, project, &checks));
+        let results = results_of(&tests, &checks, |c| e.github.job_log(&repo(project), c));
         Ok(json!({ "ran": { "verdict": "ran", "checks": checks_json(&checks), "tests": results } }))
     })
 }
@@ -1158,6 +1187,24 @@ mod tests {
             "the run stopped before this test: the job t3 was cancelled or timed out"
         );
         assert!(why(&[job(&timed_out, Ok(ok_log))]).starts_with("the run stopped before this test"));
+        // A step before Build failed (the page, the toolchain), so Build and Test were skipped: the job did not get to
+        // its tests, and the name is not blamed.
+        let no_page = check("t5", "red", &[("Build the page", "failure"), ("Build", "skipped"), ("Test", "skipped")]);
+        assert_eq!(
+            why(&[job(&built, Ok(ok_log)), job(&no_page, Ok(""))]),
+            "the job t5 did not get to its tests: the step Build the page ended failure"
+        );
+        // Build cut off in a red job, with Test skipped after it.
+        let build_cut = check("t6", "red", &[("Build", "cancelled"), ("Test", "skipped")]);
+        assert_eq!(
+            why(&[job(&build_cut, Ok(""))]),
+            "the job t6 did not get to its tests: the step Build ended cancelled"
+        );
+        // A job whose Test step ran to its end (even failed) is not one that did not get there; neither is a job with no
+        // Test step, such as lint.
+        let ran_red = check("t7", "red", &[("Checkout", "success"), ("Test", "failure")]);
+        let lint = check("lint", "red", &[("Clippy", "failure")]);
+        assert!(why(&[job(&ran_red, Ok(ok_log)), job(&lint, Ok(""))]).starts_with("no test of that name ended"));
         // None of these: no test has the name.
         assert!(why(&[job(&built, Ok(ok_log))]).starts_with("no test of that name ended"));
         // No jobs and no logs at all is no result either.
@@ -1178,6 +1225,25 @@ mod tests {
         let lines = "        PASS [   0.5s] (1/1) engine::e2e t\n";
         let r = test_results(&named, &[job(&built, Err("HTTP 404")), job(&not_built, Ok(lines))]);
         assert_eq!(r[0], json!({ "test": "t", "result": "passed", "time": "0.5s" }));
+    }
+
+    // A call that names no test reads no log, and one that names a test reads the log of every job.
+    #[test]
+    fn the_logs_are_read_only_when_a_test_is_named() {
+        let jobs = [
+            check("a", "green", &[("Build", "success"), ("Test", "success")]),
+            check("b", "green", &[("Build", "success"), ("Test", "success")]),
+        ];
+        let reads = std::cell::Cell::new(0);
+        let read = |_: &CheckRun| {
+            reads.set(reads.get() + 1);
+            Ok("        PASS [   0.1s] (1/1) engine::e2e t\n".to_string())
+        };
+        assert!(results_of(&[], &jobs, read).is_empty());
+        assert_eq!(reads.get(), 0);
+        let r = results_of(&names(&["t"]), &jobs, read);
+        assert_eq!(r, [json!({ "test": "t", "result": "passed", "time": "0.1s" })]);
+        assert_eq!(reads.get(), 2);
     }
 
     // A name holds the tests whose name in their binary is it or ends in `::` and it, not those it only starts or ends.

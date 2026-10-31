@@ -1134,9 +1134,19 @@ fn claim_fits_result(name: &str, claim: Option<&str>, when: &str, entry: &Value)
     }
 }
 
+/// What is said of a test that no run which records a result for each test named: the table cannot be checked against
+/// the run, and the checks and log tails are not a result for it.
+fn unnamed(name: &str, claim: Option<&str>, when: &str, tool: &str) -> String {
+    format!(
+        "{name} is said to be {} {when}, and no run of {tool} gave a result for it: name it in `tests` of {tool}",
+        claim.unwrap_or("not said"),
+    )
+}
+
 /// A test said to be green on the head while a run's result for it is not passed, or red while it is not failed, or
-/// cannot_run before the change while it did run, and the like, does not match the runs. A run recorded before the
-/// tools gave each test a result is read as before: a test said to be green while a red check's log names it, or red
+/// cannot_run before the change while it did run, and the like, does not match the runs; nor does a test that the
+/// newest run records results for, but not for it. A run recorded before the tools gave each test a result (no
+/// `tests` at all) is read as before: a test said to be green while a red check's log names it, or red
 /// while every check was green, does not match it.
 fn match_runs(table: &[Value], pushed: Option<&str>, ci: &[Value], ci_before: &[Value]) -> Result<(), String> {
     let on_head: Vec<Value> = ci
@@ -1160,6 +1170,9 @@ fn match_runs(table: &[Value], pushed: Option<&str>, ci: &[Value], ci_before: &[
         if let Some(entry) = recorded_result(&on_head, "push", name) {
             claim_fits_result(name, t["on_head"].as_str(), "on the head", &entry)?;
         } else if let Some(run) = on_head.first() {
+            if t["on_head"].is_string() && run["push"].get("tests").is_some() {
+                return fail(unnamed(name, t["on_head"].as_str(), "on the head", "ci"));
+            }
             let checks = run["push"].get("checks");
             match t["on_head"].as_str() {
                 Some("red") if all_green(checks) => {
@@ -1178,6 +1191,9 @@ fn match_runs(table: &[Value], pushed: Option<&str>, ci: &[Value], ci_before: &[
         if let Some(entry) = recorded_result(&before, "ran", name) {
             claim_fits_result(name, t["on_base"].as_str(), "before the change", &entry)?;
         } else if let Some(run) = before.first() {
+            if t["on_base"].is_string() && run["ran"].get("tests").is_some() {
+                return fail(unnamed(name, t["on_base"].as_str(), "before the change", "ci_before"));
+            }
             let checks = run["ran"].get("checks");
             match t["on_base"].as_str() {
                 Some("red") if all_green(checks) => {
@@ -1324,6 +1340,20 @@ mod tests {
         }
         // A table row that says nothing is not what any result is.
         assert!(match_runs(&[json!({ "name": "ok" })], Some("h"), &ci, &before).is_err());
+        // A test no run named is refused where the runs give results, even a run that named no test (`tests` is `[]`),
+        // on the head and before the change, saying which tool to name it in; a side the row says nothing of is not read.
+        let empty_ci = [ci_run("h", green.clone(), Some(json!([])))];
+        let empty_before = [ci_before_run(green.clone(), Some(json!([])))];
+        let why = match_runs(&[row("x", "green", "cannot_run")], Some("h"), &empty_ci, &[]).unwrap_err();
+        assert!(why.contains("x is said to be green on the head"), "{why}");
+        assert!(why.contains("name it in `tests` of ci"), "{why}");
+        let why = match_runs(&[row("x", "green", "cannot_run")], Some("h"), &[], &empty_before).unwrap_err();
+        assert!(why.contains("x is said to be cannot_run before the change"), "{why}");
+        assert!(why.contains("name it in `tests` of ci_before"), "{why}");
+        assert_eq!(
+            match_runs(&[json!({ "name": "x", "on_base": "green" })], Some("h"), &empty_ci, &[]),
+            Ok(())
+        );
     }
 
     // The newest run that names a test is the one its row is read against, on a head the work pushed; a run on another
@@ -1353,9 +1383,13 @@ mod tests {
         let r = |t: Value| match_runs(&[t], Some("h"), &newest_first, &[]);
         assert!(r(row("b", "green", "green")).is_err());
         assert_eq!(r(row("b", "red", "green")), Ok(()));
-        // The run on another head says nothing of c: no entry, so only the checks are read, and they are green.
-        assert!(r(row("c", "red", "green")).is_err());
-        assert_eq!(r(row("c", "green", "green")), Ok(()));
+        // The run on another head says nothing of c, and the newest run on h gives results but not for c: a row for c
+        // is refused whatever it says, and told to name c in `tests`.
+        for claim in ["red", "green"] {
+            let why = r(row("c", claim, "green")).unwrap_err();
+            assert!(why.contains("no run of ci gave a result for it"), "{why}");
+            assert!(why.contains("name it in `tests` of ci"), "{why}");
+        }
         // Without a head pushed no run is on it.
         assert_eq!(
             match_runs(&[row("b", "green", "green")], None, &newest_first, &[]),

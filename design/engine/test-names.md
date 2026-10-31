@@ -3,4 +3,5 @@ Decision: A test name given to the ci or ci_before tool means the test whose nam
 Rejected:
 
 - Substring matching, as the name filters of cargo-nextest do: rejected because naming one test would give the result of every test whose name contains it, and the result of one could stand for the other.
-- The full name only, with its module path: rejected because it asks agents for a path they do not write and the logs of a test binary do not show with the function's own name alone.
+- The full name only, with its module path: rejected because the names agents give are the function's own name, without a module path, and a rule that takes the full name only would answer not run to all of them.
+- A name that ends in `::` and the test's name also naming it, so that a path from the crate such as `engine::tools::tests::x` reads the result of `tools::tests::x` in the binary `engine`: rejected because `mod_a::a_row` would then read the result of a top-level `a_row`; no name given so far uses it.
