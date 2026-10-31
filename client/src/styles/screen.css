@@ -1,5 +1,5 @@
 /* A view that fills the window under the bar with a chart (the flow, a work, an architect), and the window floating
-   over the chart's right side: what is open on the chart as a panel (its way back, its title, who does it, its close),
+   over the chart's right side: what is open on the chart as a panel (its way back, its title, who does it),
    under the page's panel on a work's page and the architect's, split from it by a divider. The window's edge and the
    divider are drawn as Primer's PageLayout draws its divider: a line that turns the accent under the pointer. */
 
@@ -128,6 +128,13 @@
   box-shadow: inset 0 calc(-1 * var(--borderWidth-thin)) var(--borderColor-muted);
 }
 
+/* A click on the window's top row minimises or expands the window, as the button at its end does; a drag across its
+   text still selects the text. */
+.drawer-head-folds,
+.panel-head-folds {
+  cursor: pointer;
+}
+
 .dock-top {
   position: relative;
   flex: 1;
@@ -208,7 +215,7 @@
   }
 }
 
-/* The panel of what is open: its head (the way back, the title and who does it, the close), what it holds under it. */
+/* The panel of what is open: its head (the way back, the title and who does it), what it holds under it. */
 .panel {
   display: flex;
   flex-direction: column;

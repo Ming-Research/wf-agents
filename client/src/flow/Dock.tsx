@@ -1,15 +1,17 @@
 // The window floating over the right side of a chart, the flow's, a work's and an architect's alike: on a work's page
 // and an architect's the page's panel in tabs on top of it, and the panel of what is open on the chart under them, or
-// alone. It covers the chart and never moves it: opening it, closing it, minimising it, expanding it or dragging its
-// width lays nothing out again, and a cell the chart centres on is centred in the part of the chart the window leaves.
-// Minimised, it folds to its one head row at the chart's top right: what is open's title with its close, or else the
-// tabs with their counts; a tab, a click on the chart or the button at the row's right end expands it to where it
-// was. Its width and whether it is minimised are kept in this browser, one for every page.
+// alone. It covers the chart and never moves it: opening it, minimising it, expanding it or dragging its width lays
+// nothing out again, and a cell the chart centres on is centred in the part of the chart the window leaves.
+// Minimised, it folds to its one head row at the chart's top right: what is open's title, or else the tabs with their
+// counts; a click on the row, a tab, a click on the chart that opens something or the button at the row's right end
+// expands it to where it was. It starts minimised each time a chart page opens; its width is kept in this browser, one
+// for every page.
 
 import { ChevronDownIcon, ChevronUpIcon } from '@primer/octicons-react';
 import { IconButton } from '@primer/react';
 import {
   createContext,
+  type MouseEvent,
   type ReactNode,
   type Ref,
   type RefObject,
@@ -25,14 +27,13 @@ import { Grip, savedSize } from './Panel';
 
 const WIDTH_KEY = 'wf-agents.dock-width';
 const WIDTH_MIN = 320;
-const MINIMISED_KEY = 'wf-agents.dock-minimised';
 
 /// The least width of the chart the expanded window leaves that is room to centre a cell in. Where it leaves less, as
 /// at a phone's width, where it takes the chart's whole width, the chart centres as if nothing covered it.
 export const LEAST_SEEN = 120;
 
 /// How much of the chart's right side the window covers, in pixels: from the window's left edge to the chart's right
-/// edge while it is expanded (`dock`); none while it is minimised or closed, or when what it leaves is narrower than
+/// edge while it is expanded (`dock`); none while it is minimised or not there, or when what it leaves is narrower than
 /// `LEAST_SEEN`.
 export function coverOf(chart: { left: number; right: number } | null, dock: { left: number } | null): number {
   if (chart === null || dock === null) return 0;
@@ -47,9 +48,13 @@ export function foldIn(tabs: boolean, open: boolean, minimised: boolean): 'tabs'
   return tabs && !(minimised && open) ? 'tabs' : 'open';
 }
 
-/// What the page's panel in tabs needs of the window it is in: the button to put at the right end of its row while its
-/// row is the window's top row, and the window's expanding, which a tab picked does.
-export type DockHead = { fold: ReactNode | null; expand: () => void };
+/// What folds the window from its top row, minimising it or expanding it: the button at the row's right end, and a
+/// click on the row (`foldOnClick`).
+export type Fold = { button: ReactNode; onRow: (e: MouseEvent<HTMLElement>) => void };
+
+/// What the page's panel in tabs needs of the window it is in: what folds the window while its row is the window's top
+/// row, and the window's expanding, which a tab picked does.
+export type DockHead = { fold: Fold | null; expand: () => void };
 
 export const DockContext = createContext<DockHead | null>(null);
 
@@ -72,38 +77,40 @@ export function FoldButton({ minimised, onFold }: { minimised: boolean; onFold: 
   );
 }
 
-function savedMinimised(): boolean {
-  try {
-    return localStorage.getItem(MINIMISED_KEY) === '1';
-  } catch {
-    return false;
-  }
+/// The controls a top row may hold, each doing what it does when clicked instead of folding the window.
+const CONTROLS = 'a, button, input, select, textarea, [role="button"], [role="tab"]';
+
+/// Whether a click on the window's top row (`row`) folds the window: not one on a tab, a link or a button in the row
+/// (`target` is what was clicked), which does what it does, and not one that ends a drag selecting some of the row's
+/// text (`selection`), which stays selected.
+export function foldsOn(
+  row: { contains: (other: Node | null) => boolean },
+  target: { closest: (selector: string) => Element | null } | null,
+  selection: { isCollapsed: boolean; anchorNode: Node | null } | null,
+): boolean {
+  const control = target?.closest(CONTROLS) ?? null;
+  if (control !== null && row.contains(control)) return false;
+  return selection === null || selection.isCollapsed || !row.contains(selection.anchorNode);
 }
 
-function keepMinimised(minimised: boolean) {
-  try {
-    if (minimised) localStorage.setItem(MINIMISED_KEY, '1');
-    else localStorage.removeItem(MINIMISED_KEY);
-  } catch {
-    // Kept only where the browser lets it be.
-  }
+/// The click on the window's top row that minimises the window or expands it, as the button at the row's end does.
+export function foldOnClick(toggle: () => void) {
+  return (e: MouseEvent<HTMLElement>) => {
+    if (foldsOn(e.currentTarget, e.target instanceof Element ? e.target : null, window.getSelection())) toggle();
+  };
 }
 
-/// Whether the window `dock` is minimised, as this browser last kept it, and the two ways to change it. Expanding
+/// Whether the window `dock` is minimised, which it is as the page opens, and the two ways to change it. Expanding
 /// brings each part of the window back to where it was scrolled to when it was minimised.
 export function useMinimised(dock: RefObject<HTMLElement | null>) {
-  const [minimised, setMinimised] = useState(savedMinimised);
+  const [minimised, setMinimised] = useState(true);
   const scrolled = useRef(new Map<Element, number>());
   const minimise = useCallback(() => {
     const parts = dock.current?.querySelectorAll('.drawer-body, .panel-body') ?? [];
     scrolled.current = new Map([...parts].map((el) => [el, el.scrollTop]));
     setMinimised(true);
-    keepMinimised(true);
   }, [dock]);
-  const expand = useCallback(() => {
-    setMinimised(false);
-    keepMinimised(false);
-  }, []);
+  const expand = useCallback(() => setMinimised(false), []);
   useLayoutEffect(() => {
     if (minimised) return;
     for (const [el, top] of scrolled.current) {

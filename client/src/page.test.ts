@@ -30,7 +30,6 @@ import { fieldActions, titleOf } from './flow/Returns';
 import { enteredFrom, fallbackWords, lacksMoves, leavesTo, leftBy } from './flow/Rows';
 import { conditionsWords, conditionWords, placeIn, targetWords, valuesWords } from './flow/words';
 import { cost, duration } from './format';
-import { pickedOnChart } from './flow/FlowScreen';
 import {
   chartFonts,
   chipText,
@@ -1099,7 +1098,7 @@ describe('the chart of a flow', () => {
     expect(chartFonts().code.startsWith('600 ')).toBe(true);
   });
 
-  it('lets go of what is picked on a click on the background, not on an arrow, and of nothing a comparison opened', () => {
+  it('picks nothing on a click on the background, which leaves what is open as it is, and no pick at all on an arrow', () => {
     const under = (attrs: Record<string, string>): Under => ({
       closest: (selector) => {
         const name = /^\[(.+)\]$/.exec(selector)?.[1] ?? '';
@@ -1112,13 +1111,6 @@ describe('the chart of a flow', () => {
     expect(pick({ 'data-edge': 'c:b->c:z', 'data-sheet': '0' })).toBeNull();
     expect(pick({ 'data-node': 'c:b', 'data-sheet': '0' })).toEqual({ kind: 'cell', graph: 'engineer', cell: 'b' });
     expect(pick({ 'data-store': 'cards' })).toEqual({ kind: 'store', store: 'cards' });
-    // What a click on nothing lets go of: what the chart picked, a round whose cell it marks among them, as the panel's
-    // close does; not what changed in a comparison, which nothing on the chart picked.
-    expect(pickedOnChart({ kind: 'cell', cell: 'b' })).toBe(true);
-    expect(pickedOnChart({ kind: 'round', round: 3 })).toBe(true);
-    expect(pickedOnChart({ kind: 'store', store: 'cards' })).toBe(true);
-    expect(pickedOnChart({ kind: 'changes' })).toBe(false);
-    expect(pickedOnChart(null)).toBe(false);
   });
 });
 

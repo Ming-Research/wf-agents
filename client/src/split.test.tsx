@@ -1,12 +1,13 @@
 // A round picked on a work's page and on the architect's shows the same way, from the one part both draw the window
 // floating over their chart with: under the page's panel, whose list of rounds stays in view, split from it by a
-// divider that drags. The window minimises to its one head row and expands again, a click on the chart that opens
-// something expands it, and the chart centres in the part of it the window leaves.
+// divider that drags. The window starts minimised to its one head row; its button or a click on that row expands it
+// and minimises it again, a click on the chart that opens something expands it, what is open in it has no close, and
+// the chart centres in the part of it the window leaves.
 
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { coverOf, foldIn, LEAST_SEEN } from './flow/Dock';
+import { coverOf, DockContext, foldIn, FoldButton, foldsOn, LEAST_SEEN } from './flow/Dock';
 import { FlowScreen, pickExpands } from './flow/FlowScreen';
 import { Panel } from './flow/Panel';
 import { centredOn, inSight, seenOf } from './graph/Viewer';
@@ -22,6 +23,7 @@ import type {
 } from './api';
 import { Chart as ArchitectChart } from './pages/Architect';
 import { Body as WorkBody } from './pages/Work';
+import { ChartPanel } from './pages/WorkChart';
 
 // Drawn once, outside a browser: nothing is read, and the engine's state is not known.
 vi.mock('./live', async (importOriginal) => ({
@@ -238,34 +240,30 @@ describe('a round picked beside a chart', () => {
   });
 });
 
-/// The window as drawn: its classes, and the buttons at the end of each head, by what they say: the tabs row's, where
-/// the button that minimises and expands the window is while the tabs are its top row, and the head of what is open.
+/// The window as drawn: its classes, the buttons at the end of each head, by what they say (the tabs row's, where the
+/// button that minimises and expands the window is while the tabs are its top row, and the head of what is open's),
+/// and which of the two a click on folds the window.
 function windowOf(html: string) {
   const labels = (part: string) => [...part.matchAll(/data-component="Tooltip"[^>]*>([^<]*)</g)].map((m) => m[1]);
   return {
     dock: /<aside class="([^"]*)"/.exec(html)?.[1] ?? null,
     tabsRow: labels(/<div class="drawer-fold">(.*?)<\/div>/.exec(html)?.[1] ?? ''),
-    openRow: labels(/<div class="panel-head">(.*?)<\/div><div class="panel-body"/.exec(html)?.[1] ?? ''),
+    openRow: labels(/<div class="panel-head[^"]*">(.*?)<\/div><div class="panel-body"/.exec(html)?.[1] ?? ''),
+    folds: html.includes('class="drawer-head drawer-head-folds"')
+      ? 'tabs'
+      : html.includes('class="panel-head panel-head-folds"')
+        ? 'open'
+        : null,
   };
 }
 
 /// The counts on the tabs of the page's panel, in their order.
 const counts = (html: string) => [...html.matchAll(/class="[^"]*drawer-count[^"]*"[^>]*>(\d+)</g)].map((m) => Number(m[1]));
 
-/// This browser keeps the window minimised, as it does once the owner minimised it on any page.
-function keptMinimised() {
-  const kept = new Map([['wf-agents.dock-minimised', '1']]);
-  vi.stubGlobal('localStorage', {
-    getItem: (key: string) => kept.get(key) ?? null,
-    setItem: (key: string, value: string) => kept.set(key, value),
-    removeItem: (key: string) => kept.delete(key),
-  });
-}
+/// What folds the window while it is expanded, as the chart gives it to the window's top row.
+const expandedFold = { button: <FoldButton minimised={false} onFold={() => {}} />, onRow: () => {} };
 
 describe('the window floating over the chart', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
   const g = graph('engineer', ['A1', 'B1']);
   const { compiled, view } = flow(g);
   const d = detail(work(7, g));
@@ -273,32 +271,8 @@ describe('the window floating over the chart', () => {
     renderToStaticMarkup(
       <WorkBody r={{ page: 'work', id: 7, round, cell: null, tab: 'rounds', only: null }} d={d} compiled={compiled} view={view} />,
     );
-
-  it("expanded on a work's page, has the tabs as its top row, ending in the button that minimises it", () => {
-    expect(windowOf(workPage(6))).toEqual({
-      dock: 'dock dock-half',
-      tabsRow: ['Minimise the panel to its head'],
-      openRow: ['Close'],
-    });
-  });
-
-  it("minimised with a round open, is that round's head alone: its title, its close and the button that expands it", () => {
-    keptMinimised();
-    const html = workPage(6);
-    expect(windowOf(html)).toEqual({ dock: 'dock dock-half dock-min', tabsRow: [], openRow: ['Close', 'Expand the panel'] });
-    // The page's panel stays drawn out of sight, its round still picked, so that the window expands to where it was.
-    expect(column(html)).toMatchObject({ top: 'dock-top dock-top-split', picked: 'R7-6', open: 'R7-6 (B1 cell B1)' });
-  });
-
-  it('minimised with nothing open, is the tabs row, every tab with its count, and the button that expands it', () => {
-    keptMinimised();
-    const html = workPage(null);
-    expect(windowOf(html)).toEqual({ dock: 'dock dock-half dock-min', tabsRow: ['Expand the panel'], openRow: [] });
-    expect(counts(html)).toEqual([8, 0, 0]);
-  });
-
-  it('on the flow page, holds what is open alone, its head the top row: its close, then the button', () => {
-    const html = renderToStaticMarkup(
+  const flowPage = (round: number | null) =>
+    renderToStaticMarkup(
       <FlowScreen
         compiled={compiled}
         graphs={[{ g, view: view.graphs[0] }]}
@@ -309,17 +283,71 @@ describe('the window floating over the chart', () => {
         start={null}
         work={7}
         rounds={d.rounds}
-        round={6}
+        round={round}
         renderRound={() => null}
       />,
     );
-    expect(windowOf(html)).toEqual({ dock: 'dock', tabsRow: [], openRow: ['Close', 'Minimise the panel to its head'] });
+
+  it("starts minimised on a work's page opened on a round: that round's head alone, its title and the button", () => {
+    const html = workPage(6);
+    expect(windowOf(html)).toEqual({ dock: 'dock dock-half dock-min', tabsRow: [], openRow: ['Expand the panel'], folds: 'open' });
+    // The page's panel stays drawn out of sight, its round still picked, so that the window expands to where it was.
+    expect(column(html)).toMatchObject({ top: 'dock-top dock-top-split', picked: 'R7-6', open: 'R7-6 (B1 cell B1)' });
+  });
+
+  it('starts minimised with nothing open: the tabs row, every tab with its count, and the button that expands it', () => {
+    const html = workPage(null);
+    expect(windowOf(html)).toEqual({ dock: 'dock dock-half dock-min', tabsRow: ['Expand the panel'], openRow: [], folds: 'tabs' });
+    expect(counts(html)).toEqual([8, 0, 0]);
+  });
+
+  it('on the flow page, is not there until something is opened, then holds it alone, minimised, with no close', () => {
+    expect(windowOf(flowPage(null)).dock).toBeNull();
+    expect(windowOf(flowPage(6))).toEqual({ dock: 'dock dock-min', tabsRow: [], openRow: ['Expand the panel'], folds: 'open' });
+  });
+
+  it('expanded, has no close in the head of what is open, and the button that minimises it at the end of its top row', () => {
+    const panel = (fold: typeof expandedFold | null) =>
+      renderToStaticMarkup(
+        <Panel title="B1 cell B1" back={null} onBack={() => {}} shown="c" fold={fold}>
+          body
+        </Panel>,
+      );
+    // Under the page's panel on a work's page and an architect's: no button at all.
+    expect(windowOf(panel(null))).toMatchObject({ openRow: [], folds: null });
+    // The top row on the flow page.
+    expect(windowOf(panel(expandedFold))).toMatchObject({ openRow: ['Minimise the panel to its head'], folds: 'open' });
+    // The page's tabs as the top row.
+    const tabs = renderToStaticMarkup(
+      <DockContext.Provider value={{ fold: expandedFold, expand: () => {} }}>
+        <ChartPanel label="Work" tabs={[{ tab: 'rounds', label: 'Rounds', href: '/work?id=7', n: 8 }]} current="rounds" onTab={() => {}}>
+          body
+        </ChartPanel>
+      </DockContext.Provider>,
+    );
+    expect(windowOf(tabs)).toMatchObject({ tabsRow: ['Minimise the panel to its head'], folds: 'tabs' });
+  });
+
+  it('folds on a click on its top row, not on a tab, a link or a button in it, nor at the end of a drag selecting its text', () => {
+    const text = { name: 'the title' } as unknown as Node;
+    const control = { name: 'a control in the row' } as unknown as Element;
+    const row = { contains: (n: Node | null) => n === text || n === control };
+    const on = (what: string | null) => ({
+      closest: (selector: string) => (what !== null && selector.split(', ').includes(what) ? control : null),
+    });
+    const none = { isCollapsed: true, anchorNode: null };
+    expect(foldsOn(row, on(null), none)).toBe(true);
+    expect(foldsOn(row, on(null), null)).toBe(true);
+    for (const what of ['a', 'button', '[role="tab"]']) expect(foldsOn(row, on(what), none)).toBe(false);
+    expect(foldsOn(row, on(null), { isCollapsed: false, anchorNode: text })).toBe(false);
+    // Text selected elsewhere on the page is no drag across the row.
+    expect(foldsOn(row, on(null), { isCollapsed: false, anchorNode: { name: 'elsewhere' } as unknown as Node })).toBe(true);
   });
 
   it('minimised, leaves out of the head of what is open the way back and who does it', () => {
     const head = (minimised: boolean) =>
       renderToStaticMarkup(
-        <Panel title="B1 cell B1" who="The engine" back="A1 cell A1" onBack={() => {}} onClose={() => {}} shown="c" minimised={minimised}>
+        <Panel title="B1 cell B1" who="The engine" back="A1 cell A1" onBack={() => {}} shown="c" minimised={minimised}>
           body
         </Panel>,
       );
@@ -364,7 +392,7 @@ describe('what expands the window, and where the chart centres beside it', () =>
     expect(inSight({ x: 100, y: 100, width: 100, height: 40 }, { s: 1, x: 0, y: 0 }, seen)).toBe(true);
   });
 
-  it('counts nothing as covered while the window is minimised or closed, or where it leaves no room, as on a phone', () => {
+  it('counts nothing as covered while the window is minimised or not there, or where it leaves no room, as on a phone', () => {
     expect(coverOf({ left: 0, right: 1000 }, null)).toBe(0);
     expect(coverOf({ left: 0, right: 375 }, { left: 8 })).toBe(0);
     expect(coverOf({ left: 0, right: 1000 }, { left: LEAST_SEEN })).toBe(1000 - LEAST_SEEN);

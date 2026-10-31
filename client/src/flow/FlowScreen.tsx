@@ -1,11 +1,12 @@
 // A flow's chart filling the window under the bar, its graphs side by side, and a window floating over its right side
 // (Dock.tsx), whose width drags at its left edge, half the chart's width at first on a work's page and the architect's,
-// and which never moves the chart. On those two pages the page's panel is on top, at the window's full height, and
-// while a cell, a rule, the interjection, a comparison or a round is open, its panel is in the lower part, split from
-// the top by a divider that drags, at the share the owner last set on either page; closing it gives the page's panel
-// the full height again. On the flow page, which has no panel of its own, what is open is alone in the window. A click
-// on the chart that opens something expands the window when it is minimised. Every page that shows a flow shows it
-// here, in this one way, so that what is opened on one shows as on the others.
+// and which never moves the chart. On those two pages the page's panel is on top, at the window's full height until a
+// cell, a rule, the interjection, a comparison or a round is opened, whose panel is then in the lower part, split from
+// the top by a divider that drags, at the share the owner last set on either page. On the flow page, which has no
+// panel of its own, what is open is alone in the window, which shows from the first thing opened. What is open has no
+// close: it stays until something else is opened or the way back is taken. The window starts minimised; a click on
+// the chart that opens something expands it. Every page that shows a flow shows it here, in this one way, so that
+// what is opened on one shows as on the others.
 
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
@@ -20,7 +21,7 @@ import { CellPanel, type CellTab, cellWhere } from './CellPanel';
 import { DiffPanel } from './Changes';
 import { ActionPanel, StorePanel, storeWho } from './EnginePanels';
 import { type Flow, flowOf, FlowContext, type Subject, subjectKey } from './context';
-import { coverOf, Dock, DockContext, FoldButton, foldIn, useMinimised } from './Dock';
+import { coverOf, Dock, DockContext, type Fold, FoldButton, foldIn, foldOnClick, useMinimised } from './Dock';
 import { Grip, Panel, savedSize, useTrail } from './Panel';
 import { OPEN_FIRST, type Side, toggled } from './Sides';
 import { CellLinks, inline, sheetText } from './words';
@@ -48,15 +49,8 @@ export function withGraph(s: Subject, graphs: Graph[]): Subject {
   }
 }
 
-/// Whether what is open is picked on the chart, so that a click on the chart's background lets go of it: a cell, a
-/// rule, the interjection, the actions on a line, a store, or a round, whose cell is picked; not what a comparison
-/// changed, which nothing on the chart picks.
-export function pickedOnChart(now: Subject | null): boolean {
-  return now !== null && now.kind !== 'changes';
-}
-
 /// Whether a click on the chart expands the window floating over it, when it is minimised: a click that opens what it
-/// is on does, so that it is seen; a click on the chart's background, which only lets go, does not.
+/// is on does, so that it is seen; a click on the chart's background, which opens nothing, does not.
 export function pickExpands(p: Pick): boolean {
   return p.kind !== 'nothing';
 }
@@ -73,7 +67,7 @@ export type FlowScreenProps = {
   cell: string | null;
   /// The graph of that cell, where two graphs drawn may each have a cell of its name; with none, the first that has it.
   cellGraph?: string | null;
-  /// Called when the panel opens a cell, with its graph, or closes; the page keeps it in its address.
+  /// Called when the panel opens a cell, with its graph; the page keeps it in its address.
   onCell: (cell: string | null, graph?: string) => void;
   /// The cell the chart opens on, and its graph.
   start: string | null;
@@ -278,11 +272,8 @@ export function FlowScreen(props: FlowScreenProps) {
     window.setTimeout(() => chartRef.current?.focus(c, keep, graph), 0);
   const onPick = (p: Pick) => {
     if (pickExpands(p)) expand();
-    // A click on nothing lets go of what is picked on the chart, as the panel's close does.
-    if (p.kind === 'nothing') {
-      if (pickedOnChart(now)) trail.close();
-      return;
-    }
+    // A click on nothing leaves what is open as it is, since it has no close.
+    if (p.kind === 'nothing') return;
     // A store is every graph's.
     if (p.kind === 'store') {
       setPicked({ store: p.store });
@@ -463,11 +454,12 @@ export function FlowScreen(props: FlowScreenProps) {
   }, [now, rounds, first]);
   const shown = panel !== null && now !== null;
   const docked = side !== undefined || shown;
-  // The window's top row, which it folds to, holds the button that minimises and expands it.
+  // The window's top row, which it folds to, holds the button that minimises and expands it, and a click on the row
+  // does the same.
   const head = foldIn(side !== undefined, shown, minimised);
-  const fold = <FoldButton minimised={minimised} onFold={minimised ? expand : minimise} />;
-  // The chart reads again what the window covers as it opens, closes, minimises, expands or is dragged, and does not
-  // move.
+  const toggle = minimised ? expand : minimise;
+  const fold: Fold = { button: <FoldButton minimised={minimised} onFold={toggle} />, onRow: foldOnClick(toggle) };
+  // The chart reads again what the window covers as it opens, minimises, expands or is dragged, and does not move.
   useLayoutEffect(() => {
     chartRef.current?.covered();
   }, [docked, minimised]);
@@ -493,7 +485,6 @@ export function FlowScreen(props: FlowScreenProps) {
             chartRef.current?.focus(prev.cell, true, prev.graph);
           }
         }}
-        onClose={trail.close}
         shown={subjectKey(now)}
         minimised={minimised}
         fold={head === 'open' ? fold : null}

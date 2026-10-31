@@ -201,10 +201,10 @@ export type PanelTab<T extends string> = {
 
 /// A page's panel, on top of the window floating over the right of its chart, or beside the one-to-one with an
 /// architect: its tabs, each with its count and what in it waits for the owner as a count of its own, and at the row's
-/// right end, while the row is the window's top row, the button that minimises and expands the window, or, for a panel
-/// that closes (`onClose`), its close; and what the tab shown holds, shown from its top when the tab changes. A tab
-/// picked while the window is minimised expands it to that tab. A click with a modifier key opens a tab as the browser
-/// would.
+/// right end, while the row is the window's top row, the button that minimises and expands the window, a click on the
+/// row beside the tabs doing the same, or, for a panel that closes (`onClose`), its close; and what the tab shown
+/// holds, shown from its top when the tab changes. A tab picked while the window is minimised expands it to that tab.
+/// A click with a modifier key opens a tab as the browser would.
 export function ChartPanel<T extends string>({ label, tabs, current, onTab, onClose, children }: {
   label: string;
   tabs: Array<PanelTab<T>>;
@@ -220,7 +220,7 @@ export function ChartPanel<T extends string>({ label, tabs, current, onTab, onCl
   }, [current]);
   return (
     <div className="drawer">
-      <div className="drawer-head">
+      <div className={dock?.fold ? 'drawer-head drawer-head-folds' : 'drawer-head'} onClick={dock?.fold?.onRow}>
         <UnderlineNav aria-label={label} className="drawer-tabs">
           {tabs.map((x) => (
             <UnderlineNav.Item
@@ -244,7 +244,7 @@ export function ChartPanel<T extends string>({ label, tabs, current, onTab, onCl
             </UnderlineNav.Item>
           ))}
         </UnderlineNav>
-        {dock?.fold ? <div className="drawer-fold">{dock.fold}</div> : null}
+        {dock?.fold ? <div className="drawer-fold">{dock.fold.button}</div> : null}
         {onClose !== undefined ? (
           <div className="drawer-fold">
             <IconButton size="small" variant="invisible" icon={XIcon} aria-label={t('close')} onClick={onClose} />

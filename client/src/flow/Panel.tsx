@@ -1,14 +1,15 @@
-// The panel of what is open on a chart, in the window floating over the chart's right side: its title and who does it,
-// a way back to what it showed before, a close button (Escape closes it too); minimised, its title and its close
-// alone. The edges that drag the window's width and the share of it the page's panel takes are here too, kept in this
-// browser.
+// The panel of what is open on a chart, in the window floating over the chart's right side: its title and who does it
+// and a way back to what it showed before, and no close, for it stays open until something else is opened;
+// minimised, its title alone. The edges that drag the window's width and the share of it the page's panel takes are
+// here too, kept in this browser.
 
-import { ArrowLeftIcon, XIcon } from '@primer/octicons-react';
-import { Heading, IconButton } from '@primer/react';
+import { ArrowLeftIcon } from '@primer/octicons-react';
+import { Heading } from '@primer/react';
 import { type PointerEvent as Press, type ReactNode, type Ref, useEffect, useRef, useState } from 'react';
 
 import { LinkButton } from '../parts';
 import { t } from '../text';
+import type { Fold } from './Dock';
 
 /// A floating window's width or height as the owner dragged it, kept in this browser where it lets the page keep it;
 /// none for the window's own.
@@ -91,33 +92,27 @@ export function Panel(props: {
   /// The title of what the panel showed before, to go back to.
   back: string | null;
   onBack: () => void;
-  onClose: () => void;
   /// Bumped each time the panel shows something else, so that it starts at its top.
   shown: string;
-  /// Whether the window it is in is minimised: its head is then the window's one row, its title and its close.
+  /// Whether the window it is in is minimised: its head is then the window's one row, its title alone.
   minimised?: boolean;
-  /// The button that minimises or expands the window, at the head's right end while the head is the window's top row.
-  fold?: ReactNode;
+  /// What folds the window while the head is the window's top row: the button at the head's right end, and a click on
+  /// the head, its title or where it stands, which does the same.
+  fold?: Fold | null;
   children: ReactNode;
   ref?: Ref<HTMLElement>;
 }) {
-  const { title, who, back, onBack, onClose, shown, minimised = false, fold = null, children, ref } = props;
+  const { title, who, back, onBack, shown, minimised = false, fold = null, children, ref } = props;
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
   }, [shown]);
-  useEffect(() => {
-    // Escape pressed in a menu floating over the page closes the menu and leaves the panel open.
-    const key = (e: KeyboardEvent) => {
-      const floating = document.getElementById('__primerPortalRoot__');
-      if (e.key === 'Escape' && !(e.target instanceof Node && floating?.contains(e.target))) onClose();
-    };
-    document.addEventListener('keydown', key);
-    return () => document.removeEventListener('keydown', key);
-  }, [onClose]);
   return (
     <section className="panel" ref={ref}>
-      <div className="panel-head">
+      <div
+        className={fold !== null ? 'panel-head panel-head-folds' : 'panel-head'}
+        onClick={fold?.onRow}
+      >
         {back !== null && !minimised ? (
           <LinkButton className="panel-back" onClick={onBack}>
             <ArrowLeftIcon /> <span className="panel-back-to">{t('panel_back', { title: back })}</span>
@@ -129,8 +124,7 @@ export function Panel(props: {
           </Heading>
           {who && !minimised ? <p className="panel-who">{who}</p> : null}
         </div>
-        <IconButton size="small" variant="invisible" icon={XIcon} aria-label={t('close')} onClick={onClose} />
-        {fold}
+        {fold?.button ?? null}
       </div>
       <div className="panel-body" ref={body}>
         {children}
@@ -139,8 +133,7 @@ export function Panel(props: {
   );
 }
 
-/// What the panel shows, at first `first`, and the trail back through what it showed before. Closing it forgets the
-/// trail.
+/// What the panel shows, at first `first`, and the trail back through what it showed before.
 export function useTrail<S>(same: (a: S, b: S) => boolean, first: S | null = null) {
   const [state, setState] = useState<{ now: S | null; trail: S[] }>(() => ({ now: first, trail: [] }));
   const open = (s: S, from?: S) =>
@@ -158,7 +151,6 @@ export function useTrail<S>(same: (a: S, b: S) => boolean, first: S | null = nul
       const prev = trail.pop();
       return prev === undefined ? old : { now: prev, trail };
     });
-  const close = () => setState({ now: null, trail: [] });
   const last = state.trail.length > 0 ? state.trail[state.trail.length - 1] : null;
-  return { now: state.now, last, open, back, close };
+  return { now: state.now, last, open, back };
 }
