@@ -24,6 +24,7 @@ pub mod worktree;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use db::rusqlite::Connection;
 
@@ -40,36 +41,43 @@ pub enum Fresh {
     Architect(String),
 }
 
-/// The session manager as the engine holds it: the command line its agents run in, each CLI's version as it reported
-/// it, and the new sessions the owner asked for that have not started yet.
+/// The session manager as the engine holds it, one for every thread of the engine: the command line its agents run in,
+/// each CLI's version as it reported it, and the new sessions the owner asked for that have not started yet. Each lock
+/// is held only while what it guards is read or changed, never while a command runs.
 pub struct Manager {
     agents: Box<dyn cli::Agents>,
-    versions: BTreeMap<String, String>,
+    versions: Mutex<BTreeMap<String, String>>,
+    asked: Mutex<Asked>,
+}
+
+/// The new sessions the owner asked for that have not started yet.
+#[derive(Default)]
+struct Asked {
     /// The works whose next agent's round starts a new session, as the owner asked with its Start or Step.
-    asked: BTreeSet<i64>,
+    works: BTreeSet<i64>,
     /// The projects whose architect's next round starts a new session for its work, as the owner asked.
-    asked_architect: BTreeSet<String>,
+    architects: BTreeSet<String>,
 }
 
 impl Manager {
     pub fn new(agents: Box<dyn cli::Agents>) -> Manager {
         Manager {
             agents,
-            versions: BTreeMap::new(),
-            asked: BTreeSet::new(),
-            asked_architect: BTreeSet::new(),
+            versions: Mutex::default(),
+            asked: Mutex::default(),
         }
     }
 
     /// Asks that a work's next agent's round start a new session for its cell's line, or that a project's architect's
     /// next round start one for its work: the owner chose a new session with Start or Step.
-    pub fn ask_new(&mut self, fresh: Fresh) {
+    pub fn ask_new(&self, fresh: Fresh) {
+        let mut asked = lock(&self.asked);
         match fresh {
             Fresh::Work(w) => {
-                self.asked.insert(w);
+                asked.works.insert(w);
             }
             Fresh::Architect(p) => {
-                self.asked_architect.insert(p);
+                asked.architects.insert(p);
             }
         }
     }
@@ -77,7 +85,8 @@ impl Manager {
     /// Whether the owner asked that a work's next agent's round start a new session; `architect` names the project of
     /// a work of its architect's graph, for which the owner's ask is that architect's.
     pub fn asked_new(&self, work: i64, architect: Option<&str>) -> bool {
-        self.asked.contains(&work) || architect.is_some_and(|p| self.asked_architect.contains(p))
+        let asked = lock(&self.asked);
+        asked.works.contains(&work) || architect.is_some_and(|p| asked.architects.contains(p))
     }
 
     /// Where a work's next round at a cell runs ([`choose::plan`]), unless the owner asked for a new session, which it
@@ -99,10 +108,11 @@ impl Manager {
     }
 
     /// The new session the owner asked for started: the work's next rounds go on in it.
-    pub fn met(&mut self, work: i64, architect: Option<&str>) {
-        self.asked.remove(&work);
+    pub fn met(&self, work: i64, architect: Option<&str>) {
+        let mut asked = lock(&self.asked);
+        asked.works.remove(&work);
         if let Some(p) = architect {
-            self.asked_architect.remove(p);
+            asked.architects.remove(p);
         }
     }
 
@@ -118,8 +128,8 @@ impl Manager {
 
     /// A CLI's version as it reports it, asked the first time only, with its configuration directory; unknown for a
     /// CLI the configuration does not name.
-    pub fn version(&mut self, data: &Path, config: &config::Config, name: &str) -> String {
-        if let Some(v) = self.versions.get(name) {
+    pub fn version(&self, data: &Path, config: &config::Config, name: &str) -> String {
+        if let Some(v) = lock(&self.versions).get(name) {
             return v.clone();
         }
         let Some(c) = config.install.agents.clis.get(name) else {
@@ -127,9 +137,15 @@ impl Manager {
         };
         let (home, _) = cli::home(data, c, name);
         let v = self.agents.version(c, Some(&home));
-        self.versions.insert(name.to_string(), v.clone());
+        lock(&self.versions).insert(name.to_string(), v.clone());
         v
     }
+}
+
+/// What a lock guards, also after a thread panicked while it held it: each value it guards is whole after every
+/// change, so it is still good.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// The agent's cells whose forms and tools `format:common` gives a session of a cell's line: every agent's cell on the

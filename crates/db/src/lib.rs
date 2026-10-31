@@ -264,17 +264,31 @@ pub struct Changed {
     pub rowid: i64,
 }
 
-/// What is told the rows each committed write touched, given the connection that made it to look them up.
-pub type Listener = Box<dyn Fn(&Connection, &[Changed]) + Send>;
+/// What is told the rows each committed write touched, given the connection that made it to look them up. One listener
+/// may be registered on several connections, as each thread of the engine writes on a connection of its own.
+pub type Listener = Arc<dyn Fn(&Connection, &[Changed]) + Send + Sync>;
 
-/// The rows changed on a connection, kept until they can be told.
+/// The rows changed on a connection, kept until they can be told, and the rounds it wrote.
 #[derive(Default)]
 struct Watch {
+    /// Whether a listener is told the rows changed: only then are they kept.
+    listening: bool,
     /// Changed by the transaction still open.
     pending: Vec<Changed>,
     /// Changed by transactions that committed, not yet told.
     committed: Vec<Changed>,
+    /// The rounds the transaction still open changed, by rowid.
+    pending_rounds: Vec<i64>,
+    /// How many committed transactions on this connection changed a round.
+    written: u64,
+    /// Each round a committed transaction on this connection changed, by rowid, with the number of the last such
+    /// transaction (`written` as it counted it).
+    rounds: BTreeMap<i64, u64>,
 }
+
+/// Where a connection stood among the rounds it wrote: [`Db::rounds_since`] gives those it has changed since.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RoundsMark(u64);
 
 /// The database as the engine and the owner's commands use it. Every write goes through [`Db::write`]: a state
 /// table's triggers refuse a change made any other way, so none escapes `changes`.
@@ -339,17 +353,19 @@ impl Db {
         Ok(db)
     }
 
-    fn set_up(conn: Connection) -> Result<Db> {
+    fn set_up(mut conn: Connection) -> Result<Db> {
         conn.busy_timeout(Duration::from_secs(10))?;
         conn.pragma_update(None, "foreign_keys", true)?;
         let writer: Current = Arc::new(Mutex::new(None));
         register(&conn, "wf_tx", &writer, |w| w.tx)?;
         register(&conn, "wf_at", &writer, |w| w.at)?;
         register(&conn, "wf_actor", &writer, |w| w.actor.name())?;
+        let watch: Arc<Mutex<Watch>> = Arc::default();
+        watch_changes(&mut conn, &watch)?;
         Ok(Db {
             conn,
             writer,
-            watch: Arc::default(),
+            watch,
             listener: None,
         })
     }
@@ -358,26 +374,39 @@ impl Db {
     /// has committed: a reader that looks them up then sees them. Rows a statement outside [`Db::write`] changed are
     /// told after the next write commits.
     pub fn on_commit(&mut self, f: Listener) -> Result<()> {
-        let w = Arc::clone(&self.watch);
-        self.conn
-            .update_hook(Some(move |_: Action, _: &str, table: &str, rowid: i64| {
-                lock(&w).pending.push(Changed {
-                    table: table.to_string(),
-                    rowid,
-                });
-            }))?;
-        let w = Arc::clone(&self.watch);
-        self.conn.commit_hook(Some(move || {
-            let mut x = lock(&w);
-            let done = std::mem::take(&mut x.pending);
-            x.committed.extend(done);
-            // Lets the commit go on.
-            false
-        }))?;
-        let w = Arc::clone(&self.watch);
-        self.conn.rollback_hook(Some(move || lock(&w).pending.clear()))?;
+        lock(&self.watch).listening = true;
         self.listener = Some(f);
         Ok(())
+    }
+
+    /// Where this connection stands among the rounds it wrote, for [`Db::rounds_since`].
+    pub fn rounds_mark(&self) -> RoundsMark {
+        RoundsMark(lock(&self.watch).written)
+    }
+
+    /// The rounds this connection started or changed in transactions committed since `mark`, as `(work, n, cell)`, in
+    /// the order they started: what another connection wrote meanwhile is not among them, nor what a transaction
+    /// rolled back changed. A round is known by its rowid, which `rounds` keeps since its key is not an integer.
+    pub fn rounds_since(&self, mark: RoundsMark) -> Result<Vec<(i64, i64, Option<String>)>> {
+        let ids: Vec<String> = lock(&self.watch)
+            .rounds
+            .iter()
+            .filter(|(_, n)| **n > mark.0)
+            .map(|(id, _)| id.to_string())
+            .collect();
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut st = self.conn.prepare(
+            "SELECT work, n, cell FROM rounds WHERE rowid IN (SELECT value FROM json_each(?1))
+             ORDER BY started_at, work, n",
+        )?;
+        let rows = st
+            .query_map([format!("[{}]", ids.join(","))], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
     }
 
     /// Tells the listener the rows committed since it was last told, each once.
@@ -545,6 +574,47 @@ fn set(current: &Current, w: Option<Writer>) {
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Keeps, as each transaction on `conn` commits, the rounds it changed, and the rows of every table it changed while a
+/// listener is told them; what a transaction rolled back changed is dropped.
+fn watch_changes(conn: &mut Connection, watch: &Arc<Mutex<Watch>>) -> Result<()> {
+    let w = Arc::clone(watch);
+    conn.update_hook(Some(move |_: Action, _: &str, table: &str, rowid: i64| {
+        let mut x = lock(&w);
+        if table == "rounds" {
+            x.pending_rounds.push(rowid);
+        }
+        if x.listening {
+            x.pending.push(Changed {
+                table: table.to_string(),
+                rowid,
+            });
+        }
+    }))?;
+    let w = Arc::clone(watch);
+    conn.commit_hook(Some(move || {
+        let mut x = lock(&w);
+        let done = std::mem::take(&mut x.pending);
+        x.committed.extend(done);
+        let rounds = std::mem::take(&mut x.pending_rounds);
+        if !rounds.is_empty() {
+            x.written += 1;
+            let n = x.written;
+            for id in rounds {
+                x.rounds.insert(id, n);
+            }
+        }
+        // Lets the commit go on.
+        false
+    }))?;
+    let w = Arc::clone(watch);
+    conn.rollback_hook(Some(move || {
+        let mut x = lock(&w);
+        x.pending.clear();
+        x.pending_rounds.clear();
+    }))?;
+    Ok(())
 }
 
 /// A function the triggers call for the write in progress; outside one it fails, and so does the change.
@@ -1042,8 +1112,10 @@ mod tests {
         let mut db = Db::in_memory().unwrap();
         let told: Arc<Mutex<Vec<Changed>>> = Arc::default();
         let t = Arc::clone(&told);
-        db.on_commit(Box::new(move |_, rows| t.lock().unwrap().extend(rows.iter().cloned())))
-            .unwrap();
+        db.on_commit(Arc::new(move |_: &Connection, rows: &[Changed]| {
+            t.lock().unwrap().extend(rows.iter().cloned());
+        }))
+        .unwrap();
         let take = || -> Vec<Changed> {
             told.lock()
                 .unwrap()
@@ -1069,6 +1141,70 @@ mod tests {
         })
         .unwrap();
         assert_eq!(take(), items);
+    }
+
+    // A connection tells the rounds it started or changed since a mark, in the order they started: one it started
+    // before and ended after is among them; one it wrote before and left alone is not, nor one another connection wrote
+    // meanwhile, nor one a write that failed inserted.
+    #[test]
+    fn a_connection_tells_the_rounds_it_wrote_since_a_mark() {
+        let path = std::env::temp_dir().join(format!("wf-agents-db-rounds-{}.db", std::process::id()));
+        let files = |p: &Path| ["", "-wal", "-shm"].map(|x| format!("{}{x}", p.display()));
+        for f in files(&path) {
+            let _ = std::fs::remove_file(f);
+        }
+        let mut own = Db::create(&path).unwrap();
+        let mut other = Db::open(&path).unwrap();
+        own.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for _ in 0..4 {
+                tx.execute(
+                    "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'R1')",
+                    [],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let start = |db: &mut Db, work: i64, at: i64| {
+            db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, 1, 'R1', '{}', 'c', ?2)",
+                    params![work, at],
+                )?;
+                Ok(())
+            })
+        };
+        start(&mut own, 1, 10).unwrap();
+        start(&mut own, 2, 15).unwrap();
+        let mark = own.rounds_mark();
+        let others = other.rounds_mark();
+        assert!(own.rounds_since(mark).unwrap().is_empty());
+        start(&mut other, 3, 20).unwrap();
+        start(&mut own, 4, 30).unwrap();
+        own.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE rounds SET ended_at = 40 WHERE work = 1 AND n = 1", [])?;
+            Ok(())
+        })
+        .unwrap();
+        let failed = own.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (4, 2, 'R2', '{}', 'c', 50)",
+                [],
+            )?;
+            Err::<(), _>(Error::Abort("given up".into()))
+        });
+        assert!(failed.is_err());
+        let r1 = Some("R1".to_string());
+        assert_eq!(
+            own.rounds_since(mark).unwrap(),
+            [(1, 1, r1.clone()), (4, 1, r1.clone())]
+        );
+        assert_eq!(other.rounds_since(others).unwrap(), [(3, 1, r1)]);
+        drop((own, other));
+        for f in files(&path) {
+            let _ = std::fs::remove_file(f);
+        }
     }
 
     // Dependencies stay a directed acyclic graph.

@@ -308,8 +308,8 @@ pub fn recover(
         ..req.clone()
     };
     let again = e
-        .sessions
-        .run(&ask, &|what: &str| (e.activity)(round.work, round.n, what));
+        .sessions()
+        .run(&ask, &|what: &str| e.activity(round.work, round.n, what));
     record["again"] = json!({
         "message": message,
         "session": again.session,
@@ -371,8 +371,8 @@ fn repair(
         bare: true,
     };
     let r = e
-        .sessions
-        .run(&ask, &|what: &str| (e.activity)(round.work, round.n, what));
+        .sessions()
+        .run(&ask, &|what: &str| e.activity(round.work, round.n, what));
     let cost = r.usage["session_cost_usd"].as_f64().unwrap_or(0.0);
     let mut record = json!({ "level": name, "model": level.model, "session": r.session, "cost_usd": cost });
     match repaired(e, &r, u, accepts) {

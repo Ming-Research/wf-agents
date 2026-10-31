@@ -127,7 +127,7 @@ pub fn cache_miss(e: &mut Engine, w: &Work, round: RoundId, cell: &str, line: &s
         e.db.write(Actor::Engine, |tx| record(tx, round, line, m, None))
             .map_err(|x| x.to_string())?;
         let parts: Vec<&str> = m.before_messages().iter().map(|d| d.part.as_str()).collect();
-        (e.say)(&format!(
+        e.say(&format!(
             "{round} wrote its session's prompt cache again, as expected after {} changed since {}: kept for its cost, \
              no fault",
             parts.join(", "),
@@ -162,7 +162,7 @@ pub fn cache_miss(e: &mut Engine, w: &Work, round: RoundId, cell: &str, line: &s
     } else {
         "reported"
     };
-    (e.say)(&format!("{round} missed its session's prompt cache: {to}"));
+    e.say(&format!("{round} missed its session's prompt cache: {to}"));
     Ok(())
 }
 

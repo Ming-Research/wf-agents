@@ -159,7 +159,7 @@ pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Resul
             continue;
         }
         let architect = w.project.as_deref().filter(|_| w.graph == ARCHITECT);
-        if e.sessions.asked_new(w.id, architect) {
+        if e.sessions().asked_new(w.id, architect) {
             continue;
         }
         let g = e.graph_of(&w)?;
@@ -210,7 +210,7 @@ pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Resul
             let Some(due) = sessions::warm::due(e.db.conn(), w.id, &cells, limit, on, now)? else {
                 continue;
             };
-            (e.say)(&format!(
+            e.say(&format!(
                 "work {id}: keep-warm ping {} of this wait to session {} of the {line} line, as the work stands at \
                  cell {} on {}: {}",
                 due.pings + 1,
@@ -219,7 +219,14 @@ pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Resul
                 waited.on,
                 waited.what
             ));
-            sessions::warm::ping(&mut e.db, e.sessions.agents(), &e.config.config, &due, &waited, now)?;
+            sessions::warm::ping(
+                &mut e.db,
+                e.shared.sessions.agents(),
+                &e.config.config,
+                &due,
+                &waited,
+                now,
+            )?;
             sent += 1;
         }
     }

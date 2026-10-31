@@ -146,7 +146,8 @@ pub struct Reply {
     pub refused: Vec<Refused>,
 }
 
-pub trait Agents {
+/// The command line agents run in, which the engine's threads share.
+pub trait Agents: Send + Sync {
     /// Runs a round; `activity` is told what the agent is doing while it runs, as the CLI reports it.
     fn run(&self, r: &Request, activity: &dyn Fn(&str)) -> Reply;
 
