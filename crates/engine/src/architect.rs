@@ -255,6 +255,16 @@ const POLICY_CHECK: &str = "P1";
 /// The cell of the engineer's graph a work is done at, as the views read it.
 const ENGINEER_END: &str = "E1";
 
+/// The kinds the works that ended without a merge are counted under, as `numbers` gives them: the kinds
+/// `works.ended_kind` holds, and the end of a work that reached the end of its graph with no merge.
+const UNMERGED_KINDS: [&str; 5] = [
+    "flow_moved",
+    "item_cancelled",
+    "started_over",
+    "no_merge_at_end",
+    "other",
+];
+
 /// The most rows an input of the architect's gives of one list.
 const ROWS: usize = 200;
 
@@ -4193,12 +4203,16 @@ fn since_last_work(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
 
 /// The numbers the engine measures for a project, each as the architect's work started and earlier for the trend, so
 /// that they hold through the work: the size of its design paths and of every file on main; its items made, merged and
-/// cancelled, and what its items' works and its architect's works spent, each for the four weeks before the work one by
-/// one.
+/// cancelled, what its items' works and its architect's works spent, how many of its works ran together at most and
+/// for how long two or more did, and how many of its works ended without a merge, by kind, each for the four weeks
+/// before the work one by one.
 fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
     let week = 7 * 24 * HOUR;
     let now = work_start(conn, w.id)?;
+    // Read once for the four weeks, and told apart by week below.
+    let runs = rounds_running(conn, project, now - 4 * week, now - 1)?;
+    let ends = unmerged_ends(conn, project, now - 4 * week, now - 1)?;
     let mut weeks = Vec::new();
     for k in 0..4 {
         // Each week ends the millisecond before the next begins, the last before the work.
@@ -4236,9 +4250,12 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
             )
             .map_err(sql)?;
         let usd = |x: f64| (x * 100.0).round() / 100.0;
+        let (most, together) = running_together(&runs, from, to);
         weeks.push(json!({
             "weeks_ago": k, "items_made": made, "merged": merged, "cancelled": cancelled,
             "spent_usd": { "items": usd(items), "architect": usd(architect) },
+            "running_together": { "most_works": most, "seconds_two_or_more": together as f64 / 1000.0 },
+            "ended_unmerged": ended_unmerged(&ends, from, to),
         }));
     }
     let size = e.config.config.projects.get(project).map(|p| {
@@ -4279,9 +4296,151 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     Ok(json!({
         "size_on_main": size,
         "weeks": weeks,
-        "not_measured": "The engine measures nothing else yet: no test count, no CI time, no specification beyond the \
-                         design paths' size."
+        "not_measured": "Besides the sizes, the items made, merged and cancelled, what was spent, the works running \
+                         together and the works ended unmerged, the engine measures nothing yet: no test count, no CI \
+                         time, no specification beyond the design paths' size."
     }))
+}
+
+/// A round of an engineer's work under way, in milliseconds: from when it started, to when it ended, none while it
+/// is still under way.
+struct RoundSpan {
+    work: i64,
+    from: i64,
+    to: Option<i64>,
+}
+
+/// The rounds of the engineer's works on a project's items that were under way at some time from `from` to `to`, but
+/// those at which a work waits for an answer, which stay open for as long as the answer takes. A round waits for an
+/// answer when the cell it ran at has a step that asks the owner or the architect in the engineer's graph of the
+/// compiled flow version its work runs on, which the database keeps: each version used is read once, and a cell is
+/// judged by the name its own version gives it. A round with no end is trusted to be under way: the engine closes
+/// one cut off by its stopping only when it next steps the work, so that after a crash a work left paused or never
+/// stepped again keeps counting as running until then.
+fn rounds_running(conn: &Connection, project: &str, from: i64, to: i64) -> Result<Vec<RoundSpan>, String> {
+    let mut st = conn
+        .prepare(
+            "WITH used AS MATERIALIZED (
+               SELECT DISTINCT w.flow_version AS version
+               FROM works w JOIN items i ON i.id = w.item
+               WHERE i.project = ?1 AND w.graph = 'engineer'
+             ),
+             waiting AS MATERIALIZED (
+               SELECT used.version AS version, json_extract(c.value, '$.id') AS cell
+               FROM used JOIN flow_versions fv ON fv.id = used.version,
+                    json_each(fv.compiled, '$.graphs') g,
+                    json_each(g.value, '$.cells') c
+               WHERE json_extract(g.value, '$.name') = 'engineer'
+                 AND json_extract(c.value, '$.step') IN ('ask_owner', 'ask_architect')
+             )
+             SELECT r.work, r.started_at, r.ended_at
+             FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
+             WHERE i.project = ?1 AND w.graph = 'engineer'
+               AND NOT EXISTS (SELECT 1 FROM waiting x WHERE x.version = w.flow_version AND x.cell = r.cell)
+               AND r.started_at <= ?3 AND (r.ended_at IS NULL OR r.ended_at >= ?2)",
+        )
+        .map_err(sql)?;
+    st.query_map(params![project, from, to], |r| {
+        Ok(RoundSpan {
+            work: r.get(0)?,
+            from: r.get(1)?,
+            to: r.get(2)?,
+        })
+    })
+    .map_err(sql)?
+    .collect::<Result<_, _>>()
+    .map_err(sql)
+}
+
+/// From `from` to `to`, both included: the most works that had a round under way at the same moment, and for how many
+/// milliseconds two or more had. A round under way at either end counts from `from` or up to `to`; rounds of one work
+/// count the work once, and a round that ends where another starts overlaps nothing.
+fn running_together(runs: &[RoundSpan], from: i64, to: i64) -> (i64, i64) {
+    // A round counts from the millisecond it starts up to, not including, the millisecond it ends; one under way at
+    // `to` ends at the millisecond after it.
+    let mut events: Vec<(i64, i64, i64)> = Vec::new();
+    for r in runs {
+        let (start, end) = (r.from.max(from), r.to.map_or(to + 1, |t| t.min(to + 1)));
+        if start < end {
+            events.push((start, 1, r.work));
+            events.push((end, -1, r.work));
+        }
+    }
+    // At one moment the rounds that end go before those that start.
+    events.sort_unstable();
+    let mut going: BTreeMap<i64, i64> = BTreeMap::new();
+    let (mut most, mut together, mut since) = (0, 0, from);
+    for (at, change, work) in events {
+        if going.len() >= 2 {
+            together += at - since;
+        }
+        since = at;
+        let rounds = going.entry(work).or_insert(0);
+        *rounds += change;
+        if *rounds == 0 {
+            going.remove(&work);
+        }
+        most = most.max(going.len() as i64);
+    }
+    (most, together)
+}
+
+/// The works of the engineer's graph on a project's items that ended without a merge, each with its kind and when it
+/// ended, from `from` to `to`: a work stopped before the end of its graph, by the kind it records, when the change
+/// to its `ended` was made; a work that stood at the end of its graph and never merged, which the flow has only when
+/// all of its work went to sub-items, by the end of its last round, whether or not its item was cancelled after (a
+/// stop does not move a work from the end cell, where it had ended already). A work with a round that merged never
+/// counts, even when its item was cancelled after it, and a work that delivers a report is merged as any other.
+fn unmerged_ends(conn: &Connection, project: &str, from: i64, to: i64) -> Result<Vec<(&'static str, i64)>, String> {
+    let merged = format!(
+        "NOT EXISTS (SELECT 1 FROM rounds r WHERE r.work = w.id AND r.cell IN {} AND r.transition = 'merged')",
+        db::cells_sql(ENGINEER, &["M2"])
+    );
+    let stopped = format!(
+        "SELECT coalesce(w.ended_kind, 'other'),
+                (SELECT min(c.at) FROM changes c WHERE c.table_name = 'works' AND c.row_key = json_object('id', w.id)
+                   AND json_extract(c.new_row, '$.ended') IS NOT NULL AND json_extract(c.old_row, '$.ended') IS NULL)
+         FROM works w JOIN items i ON i.id = w.item
+         WHERE i.project = ?1 AND w.graph = 'engineer' AND w.ended IS NOT NULL AND w.at NOT IN {} AND {merged}",
+        db::cells_sql(ENGINEER, &[ENGINEER_END])
+    );
+    let at_the_end = format!(
+        "SELECT 'no_merge_at_end',
+                (SELECT coalesce(r.ended_at, r.started_at) FROM rounds r WHERE r.work = w.id ORDER BY r.n DESC LIMIT 1)
+         FROM works w JOIN items i ON i.id = w.item
+         WHERE i.project = ?1 AND w.graph = 'engineer' AND w.at IN {} AND {merged}",
+        db::cells_sql(ENGINEER, &[ENGINEER_END])
+    );
+    let mut out = Vec::new();
+    for q in [stopped, at_the_end] {
+        let mut st = conn.prepare(&q).map_err(sql)?;
+        let rows = st
+            .query_map([project], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?)))
+            .map_err(sql)?;
+        for row in rows {
+            let (kind, at) = row.map_err(sql)?;
+            let kind = UNMERGED_KINDS.into_iter().find(|k| *k == kind).unwrap_or("other");
+            if let Some(at) = at.filter(|at| (from..=to).contains(at)) {
+                out.push((kind, at));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// How many works ended without a merge from `from` to `to`, both included, under each kind and all together.
+fn ended_unmerged(ends: &[(&'static str, i64)], from: i64, to: i64) -> Value {
+    let in_the_week = |kind: Option<&str>| {
+        ends.iter()
+            .filter(|(k, at)| kind.is_none_or(|kind| kind == *k) && (from..=to).contains(at))
+            .count()
+    };
+    let mut counts: Map<String, Value> = UNMERGED_KINDS
+        .into_iter()
+        .map(|k| (k.to_string(), json!(in_the_week(Some(k)))))
+        .collect();
+    counts.insert("total".into(), json!(in_the_week(None)));
+    Value::Object(counts)
 }
 
 /// A project's observations: how many are open under each tag and how many times they were reported; the ten
@@ -5260,5 +5419,419 @@ mod tests {
         let (sound, dropped) = sorted_by_review(rows, &review);
         assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3]);
         assert_eq!(dropped.iter().map(|r| r.0.0).collect::<Vec<_>>(), [1, 2, 4]);
+    }
+
+    fn run(work: i64, from: i64, to: Option<i64>) -> RoundSpan {
+        RoundSpan { work, from, to }
+    }
+
+    // Works run together for as long as rounds of two of them are under way at once: the largest number of works is
+    // the most at one moment and the time is the overlap; rounds that do not overlap, or that meet end to start, never
+    // make two, and no rounds make none.
+    #[test]
+    fn works_run_together_while_their_rounds_overlap() {
+        let together = |runs: &[RoundSpan]| running_together(runs, 0, 99_999);
+        assert_eq!(
+            together(&[run(1, 0, Some(10_000)), run(2, 4_000, Some(12_000))]),
+            (2, 6_000)
+        );
+        assert_eq!(together(&[run(1, 0, Some(1_000)), run(2, 2_000, Some(3_000))]), (1, 0));
+        // One round ends where the other starts, whether of another work or of the same one.
+        assert_eq!(together(&[run(1, 0, Some(1_000)), run(2, 1_000, Some(2_000))]), (1, 0));
+        assert_eq!(together(&[run(1, 0, Some(1_000)), run(1, 1_000, Some(2_000))]), (1, 0));
+        // Rounds of one work overlapping count the work once.
+        assert_eq!(together(&[run(1, 0, Some(5_000)), run(1, 2_000, Some(6_000))]), (1, 0));
+        // Three at once, then two: the most is three, and two or more lasts from the second to the last end.
+        let three = [
+            run(1, 0, Some(9_000)),
+            run(2, 1_000, Some(8_000)),
+            run(3, 2_000, Some(3_000)),
+        ];
+        assert_eq!(together(&three), (3, 7_000));
+        // Rounds that start at the same moment.
+        assert_eq!(together(&[run(1, 100, Some(200)), run(2, 100, Some(300))]), (2, 100));
+        // A round with no time in it never ran, and none have no works.
+        assert_eq!(together(&[run(1, 500, Some(500))]), (0, 0));
+        assert_eq!(together(&[]), (0, 0));
+    }
+
+    // A round under way when the week ends counts up to its end, and a round that began in the week before from its
+    // start; the week's own milliseconds are the ones from `from` to `to`, both included.
+    #[test]
+    fn a_round_under_way_counts_only_inside_the_week_it_is_measured_for() {
+        let runs = [run(1, 500, None), run(2, 900, Some(1_300)), run(3, 1_999, Some(5_000))];
+        // Two for the 300 milliseconds of the first two, and for the last millisecond, in which the third starts.
+        assert_eq!(running_together(&runs, 1_000, 1_999), (2, 301));
+        assert_eq!(running_together(&runs, 0, 999), (2, 100));
+        // The round that starts at the last millisecond of a week is in that week for that millisecond only, and in
+        // the next from its first; one that ends where a week starts is not in it.
+        assert_eq!(running_together(&runs[2..], 1_000, 1_999), (1, 0));
+        assert_eq!(running_together(&runs[2..], 2_000, 2_999), (1, 0));
+        assert_eq!(running_together(&runs[2..], 5_000, 5_999), (0, 0));
+        // One under way from before the week is in it from its first millisecond.
+        assert_eq!(running_together(&runs[..1], 1_000, 1_999), (1, 0));
+    }
+
+    /// A work of the engineer's graph on a new item of a project, standing at a cell.
+    fn an_engineer_work(db: &mut db::Db, project: &str, at: &str) -> i64 {
+        an_engineer_work_on(db, 1, project, at)
+    }
+
+    /// A flow version with the compiled text given; version 1 is the one the works of most tests run on, with no
+    /// cells in it.
+    fn a_flow_version(db: &mut db::Db, id: i64, compiled: &str) {
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (?1, 'd' || ?1, ?2)",
+                params![id, compiled],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    /// A work of the engineer's graph on a new item of a project, standing at a cell, on a flow version.
+    fn an_engineer_work_on(db: &mut db::Db, version: i64, project: &str, at: &str) -> i64 {
+        a_flow_version(db, 1, "{}");
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES (?1, 't', 'x', 'y', 'change', 'l')",
+                [project],
+            )?;
+            let item = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?3, 'engineer', ?2)",
+                params![item, at, version],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap()
+    }
+
+    /// A round of a work, the `n`th, at a cell, from `from` to `to`, none while under way, with the row it took.
+    fn a_round(db: &mut db::Db, work: i64, n: i64, cell: &str, row: Option<&str>, from: i64, to: Option<i64>) {
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, ?2, ?3, '{}', ?4, 'c', ?5, ?6)",
+                params![work, n, cell, row, from, to],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    // The rounds that count are the engineer's, on the project's items, under way in the range; the rounds of a work
+    // waiting for the architect or the owner stay open as long as the answer takes and do not count, whatever the
+    // flow version's id for the cell, nor do the architect's own rounds or another project's.
+    #[test]
+    fn the_rounds_of_a_work_waiting_for_an_answer_are_not_running() {
+        let mut db = db::Db::in_memory().unwrap();
+        let running = an_engineer_work(&mut db, "p", "I1");
+        a_round(&mut db, running, 1, "I1", Some("tools"), 1_000, Some(5_000));
+        // Three flow versions that name the cells for the architect and the owner as the flow did at their time: by
+        // numbers, by the names of the direction, and as now. In the first, the architect's graph has a cell `I1`
+        // that asks, which does not make the engineer's `I1` a wait; in the last, `15` is an ordinary cell.
+        let step = |id: &str, asks: &str| format!(r#"{{"id":"{id}","step":"{asks}"}}"#);
+        let version = |engineer: &[String], architect: &[String]| {
+            format!(
+                r#"{{"graphs":[{{"name":"engineer","cells":[{}]}},{{"name":"architect","cells":[{}]}}]}}"#,
+                engineer.join(","),
+                architect.join(",")
+            )
+        };
+        let plain = |id: &str| format!(r#"{{"id":"{id}"}}"#);
+        a_flow_version(
+            &mut db,
+            2,
+            &version(
+                &[plain("I1"), step("15", "ask_architect"), step("16", "ask_owner")],
+                &[step("I1", "ask_owner")],
+            ),
+        );
+        a_flow_version(
+            &mut db,
+            3,
+            &version(
+                &[
+                    plain("I1"),
+                    step("to_architect", "ask_architect"),
+                    step("to_owner", "ask_owner"),
+                ],
+                &[],
+            ),
+        );
+        a_flow_version(
+            &mut db,
+            4,
+            &version(
+                &[
+                    plain("I1"),
+                    plain("15"),
+                    step("A2", "ask_architect"),
+                    step("A3", "ask_owner"),
+                ],
+                &[],
+            ),
+        );
+        // Early rounds under way for ever, each at a cell that asks in its own version.
+        for (v, cell) in [
+            (2, "15"),
+            (2, "16"),
+            (3, "to_architect"),
+            (3, "to_owner"),
+            (4, "A2"),
+            (4, "A3"),
+        ] {
+            let waiting = an_engineer_work_on(&mut db, v, "p", cell);
+            a_round(&mut db, waiting, 1, cell, None, 0, None);
+        }
+        // The same name as a cell that asks in another version, and the same name as one in the architect's graph:
+        // these run.
+        let same_id = an_engineer_work_on(&mut db, 4, "p", "15");
+        a_round(&mut db, same_id, 1, "15", None, 4_000, Some(4_500));
+        let same_name = an_engineer_work_on(&mut db, 2, "p", "I1");
+        a_round(&mut db, same_name, 1, "I1", None, 6_000, Some(7_000));
+        // Another project's work, and the round of a cell beside the two.
+        let other = an_engineer_work(&mut db, "q", "I1");
+        a_round(&mut db, other, 1, "I1", None, 0, None);
+        let tools = an_engineer_work(&mut db, "p", "X1");
+        a_round(&mut db, tools, 1, "X1", None, 2_000, Some(3_000));
+        // The architect's work has no item.
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'U1', 'p')",
+                [],
+            )?;
+            let work = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, 1, 'U1', '{}', 'c', 0)",
+                [work],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        // Before the range, and after it.
+        let early = an_engineer_work(&mut db, "p", "I1");
+        a_round(&mut db, early, 1, "I1", None, 0, Some(99));
+        let late = an_engineer_work(&mut db, "p", "I1");
+        a_round(&mut db, late, 1, "I1", None, 10_001, Some(11_000));
+        let runs = rounds_running(db.conn(), "p", 100, 10_000).unwrap();
+        let mut seen: Vec<(i64, i64, Option<i64>)> = runs.iter().map(|r| (r.work, r.from, r.to)).collect();
+        seen.sort();
+        let mut expected = vec![
+            (running, 1_000, Some(5_000)),
+            (tools, 2_000, Some(3_000)),
+            (same_id, 4_000, Some(4_500)),
+            (same_name, 6_000, Some(7_000)),
+        ];
+        expected.sort();
+        assert_eq!(seen, expected);
+        // The rounds of tools and of the work on the same id overlap the round of the work that runs, for as long as
+        // they last; the works waiting for an answer make no more.
+        assert_eq!(running_together(&runs, 100, 10_000), (2, 1_500));
+    }
+
+    // Each of the kinds a work ends under is counted once, for the works of the project's items only: a work that merged
+    // never counts, however its item ends after, and a work at the end of its graph that never merged counts when its
+    // last round ended; the range is those of the weeks, both ends included.
+    #[test]
+    fn a_work_ended_without_a_merge_is_counted_once_under_its_kind() {
+        use crate::ending::{End, EndKind, end};
+        let projects = BTreeMap::new();
+        let mut db = db::Db::in_memory().unwrap();
+        let stopped = |db: &mut db::Db, project: &str, how: End<'_>, merged: bool| {
+            let work = an_engineer_work(db, project, "I1");
+            if merged {
+                a_round(db, work, 1, "M2", Some("merged"), 1, Some(2));
+            }
+            db.write(Actor::Engine, |tx| {
+                end(tx, work, how, &projects).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        };
+        stopped(
+            &mut db,
+            "p",
+            End::TakenOver(EndKind::FlowMoved, "stopped: moved"),
+            false,
+        );
+        stopped(
+            &mut db,
+            "p",
+            End::Stopped(EndKind::ItemCancelled, "item cancelled: x"),
+            false,
+        );
+        stopped(
+            &mut db,
+            "p",
+            End::Stopped(EndKind::ItemCancelled, "item cancelled: y"),
+            false,
+        );
+        stopped(
+            &mut db,
+            "p",
+            End::Stopped(EndKind::StartedOver, "the owner started it over"),
+            false,
+        );
+        stopped(&mut db, "p", End::Stopped(EndKind::Other, "by hand"), false);
+        // Merged, and its item cancelled after; another project's; an architect's work that ended.
+        stopped(
+            &mut db,
+            "p",
+            End::Stopped(EndKind::ItemCancelled, "item cancelled: late"),
+            true,
+        );
+        stopped(
+            &mut db,
+            "q",
+            End::TakenOver(EndKind::FlowMoved, "stopped: moved"),
+            false,
+        );
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, ended, ended_kind, project)
+                 VALUES (NULL, 1, 'architect', 'E2', 'over', 'other', 'p')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        // Ended before the kind was kept: no kind is other.
+        let old = an_engineer_work(&mut db, "p", "I1");
+        db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE works SET ended = 'cancelled' WHERE id = ?1", [old])?;
+            Ok(())
+        })
+        .unwrap();
+        // At the end of its graph, which the flow reaches by the merge and the watch of main after it, or by the work
+        // all given to sub-items. Only the second never merged. A work that delivers a report is merged through a
+        // pull request as one that delivers a change is, so that it has its merged round and is not counted.
+        let to_sub_items = an_engineer_work(&mut db, "p", "E1");
+        a_round(&mut db, to_sub_items, 1, "T7", Some("all_to_sub_items"), 100, Some(700));
+        a_round(&mut db, to_sub_items, 2, "E1", None, 700, Some(777));
+        // The same, with its item cancelled after: still one end at the end of its graph, by its last round, and not
+        // another under the cancellation, since the stop does not move the work from the end cell.
+        let cancelled_after = an_engineer_work(&mut db, "p", "E1");
+        a_round(
+            &mut db,
+            cancelled_after,
+            1,
+            "T7",
+            Some("all_to_sub_items"),
+            100,
+            Some(800),
+        );
+        a_round(&mut db, cancelled_after, 2, "E1", None, 800, Some(888));
+        db.write(Actor::Engine, |tx| {
+            end(
+                tx,
+                cancelled_after,
+                End::Stopped(EndKind::ItemCancelled, "item cancelled: z"),
+                &projects,
+            )
+            .map_err(db::Error::Abort)
+        })
+        .unwrap();
+        let report = an_engineer_work(&mut db, "p", "E1");
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE items SET deliver = 'report' WHERE id = (SELECT item FROM works WHERE id = ?1)",
+                [report],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let change = an_engineer_work(&mut db, "p", "E1");
+        for work in [report, change] {
+            a_round(&mut db, work, 1, "M2", Some("merged"), 1, Some(2));
+            a_round(&mut db, work, 2, "L1", Some("green"), 2, Some(3));
+            a_round(&mut db, work, 3, "E1", None, 3, Some(4));
+        }
+        let all = unmerged_ends(db.conn(), "p", 0, i64::MAX).unwrap();
+        let mut kinds: Vec<&str> = all.iter().map(|(k, _)| *k).collect();
+        kinds.sort();
+        assert_eq!(
+            kinds,
+            [
+                "flow_moved",
+                "item_cancelled",
+                "item_cancelled",
+                "no_merge_at_end",
+                "no_merge_at_end",
+                "other",
+                "other",
+                "started_over"
+            ]
+        );
+        // The end of its last round is when a work at the end of its graph ended, both ends of the range included.
+        let at_end = |from, to| unmerged_ends(db.conn(), "p", from, to).unwrap();
+        let mut both = at_end(0, 1_000);
+        both.sort();
+        assert_eq!(both, [("no_merge_at_end", 777), ("no_merge_at_end", 888)]);
+        assert_eq!(at_end(777, 777), [("no_merge_at_end", 777)]);
+        assert_eq!(at_end(778, 1_000), [("no_merge_at_end", 888)]);
+        assert!(at_end(889, 1_000).is_empty());
+        assert!(at_end(0, 776).is_empty());
+    }
+
+    // A week's count has every kind and the total in it, zero for those with none, and counts the works that ended
+    // within the week, both of its ends included.
+    #[test]
+    fn a_week_counts_the_works_that_ended_in_it_with_zero_for_the_kinds_with_none() {
+        let ends = [
+            ("flow_moved", 100),
+            ("flow_moved", 200),
+            ("no_merge_at_end", 199),
+            ("item_cancelled", 99),
+            ("other", 150),
+        ];
+        assert_eq!(
+            ended_unmerged(&ends, 100, 199),
+            json!({ "flow_moved": 1, "item_cancelled": 0, "started_over": 0, "no_merge_at_end": 1, "other": 1,
+                    "total": 3 })
+        );
+        assert_eq!(
+            ended_unmerged(&[], 100, 199),
+            json!({ "flow_moved": 0, "item_cancelled": 0, "started_over": 0, "no_merge_at_end": 0, "other": 0,
+                    "total": 0 })
+        );
+    }
+
+    // The cells running together leaves out, read from the compiled flow as the engine stores it, are exactly those of
+    // the engineer's graph whose step asks the owner or the architect: a round at each cell of the real flow is
+    // measured, and the ones left out are the asking cells. A path of the stored text that the query reads wrongly
+    // would leave out none, or all.
+    #[test]
+    fn the_cells_left_out_of_running_together_are_those_whose_step_asks() {
+        let relations = db::relations(db::SCHEMA).unwrap();
+        let tables = db::index_of(db::SCHEMA).unwrap();
+        let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
+        let g = f.graph(ENGINEER).unwrap();
+        let mut db = db::Db::in_memory().unwrap();
+        a_flow_version(&mut db, 2, &f.json());
+        let work = an_engineer_work_on(&mut db, 2, "p", "I1");
+        // A round of its own time at each cell, so that the rounds measured say which cells they were at.
+        for (n, cell) in g.cells.iter().enumerate() {
+            let at = n as i64 + 1;
+            a_round(&mut db, work, at, &cell.id, None, at * 10, Some(at * 10 + 5));
+        }
+        let mut measured: Vec<i64> = rounds_running(db.conn(), "p", 0, 1_000_000)
+            .unwrap()
+            .iter()
+            .map(|r| r.from / 10 - 1)
+            .collect();
+        measured.sort();
+        let running: Vec<i64> = g
+            .cells
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect")))
+            .map(|(n, _)| n as i64)
+            .collect();
+        let asking = g.cells.len() - running.len();
+        // The flow has cells that ask and cells that do not, so that neither all nor none being left out passes.
+        assert!(asking > 0 && !running.is_empty());
+        assert_eq!(measured, running);
     }
 }

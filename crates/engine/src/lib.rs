@@ -229,7 +229,13 @@ impl Engine {
             let id = w.id;
             self.db
                 .write(Actor::Engine, |tx| {
-                    ending::end(tx, id, ending::End::TakenOver(&stopped), &projects).map_err(db::Error::Abort)?;
+                    ending::end(
+                        tx,
+                        id,
+                        ending::End::TakenOver(ending::EndKind::FlowMoved, &stopped),
+                        &projects,
+                    )
+                    .map_err(db::Error::Abort)?;
                     actions::notify(tx, Some(id), &format!("Work {id} stopped: {why}.")).map_err(db::Error::Abort)?;
                     Ok(())
                 })

@@ -78,6 +78,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0045.sql"),
     include_str!("../../../db/migrations/0046.sql"),
     include_str!("../../../db/migrations/0047.sql"),
+    include_str!("../../../db/migrations/0048.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1507,6 +1508,82 @@ mod tests {
         wrong.migrate(&["ALTER TABLE things ADD COLUMN size INTEGER;"]).unwrap();
         assert_ne!(shape(wrong.conn()).unwrap(), shape(new.conn()).unwrap());
         assert_eq!(VERSION, 1 + MIGRATIONS.len() as i64);
+    }
+
+    // Taken to version 48, a work already stopped has the kind the start of its text tells, read once and not as a
+    // change of a writer's, and a text that tells none is other; a work not stopped has none.
+    #[test]
+    fn a_work_stopped_before_its_kind_was_kept_has_the_kind_its_text_tells() {
+        let mut db = at_version(47);
+        let texts = [
+            ("item cancelled: a duplicate", Some("item_cancelled")),
+            (
+                "stopped: the flow moved to version 3, and a new work on it takes the item over",
+                Some("flow_moved"),
+            ),
+            ("stopped: the architect started it over", Some("started_over")),
+            ("stopped: the owner started it over", Some("started_over")),
+            (
+                "stopped: the architect's graph changed, and the next wake starts from its start",
+                Some("other"),
+            ),
+            ("cancelled", Some("other")),
+            // The start of the text decides, not a later clause.
+            ("item cancelled: the flow moved on", Some("item_cancelled")),
+        ];
+        db.write(Actor::Engine, |tx| {
+            item(tx, "t")?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for (text, _) in texts {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (1, 1, 'engineer', 'I1', ?1)",
+                    [text],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'I1')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let logged = |db: &Db| -> i64 {
+            db.conn()
+                .query_row("SELECT count(*) FROM changes WHERE table_name = 'works'", [], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        let before = logged(&db);
+        db.migrate(MIGRATIONS).unwrap();
+        let kinds: Vec<Option<String>> = {
+            let mut st = db.conn().prepare("SELECT ended_kind FROM works ORDER BY id").unwrap();
+            st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+        };
+        let want: Vec<Option<String>> = texts.iter().map(|(_, k)| k.map(str::to_string)).chain([None]).collect();
+        assert_eq!(kinds, want);
+        assert_eq!(logged(&db), before);
+        // A write after the migration is tracked, with the kind in its row.
+        db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE works SET ended = 'x', ended_kind = 'other' WHERE id = 8", [])?;
+            Ok(())
+        })
+        .unwrap();
+        let tracked: String = db
+            .conn()
+            .query_row(
+                "SELECT json_extract(new_row, '$.ended_kind') FROM changes WHERE table_name = 'works' ORDER BY id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tracked, "other");
+        // A kind outside the list is refused.
+        let refused = db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE works SET ended_kind = 'by_hand' WHERE id = 1", [])?;
+            Ok(())
+        });
+        assert!(refused.is_err());
     }
 
     // A design card an earlier engine left open beside a newer card of its work is replaced by the next one; the

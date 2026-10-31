@@ -5641,6 +5641,153 @@ fn the_numbers_hold_through_an_architect_work_and_split_what_was_spent() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// A work of the engineer's graph at a cell on a new item of a project, paused by the owner so that the engine leaves
+/// it be, with rounds it ran, each a cell, the row it took, when it started and when it ended (none while under way).
+fn a_work_that_ran(
+    tx: &db::rusqlite::Transaction<'_>,
+    v: i64,
+    project: &str,
+    at: &str,
+    rounds: &[(&str, Option<&str>, i64, Option<i64>)],
+) -> Result<i64, db::Error> {
+    tx.execute(
+        "INSERT INTO items (project, title, problem, why, deliver, level) VALUES (?1, 't', 'x', 'y', 'change', 'l')",
+        [project],
+    )?;
+    let item = tx.last_insert_rowid();
+    tx.execute(
+        "INSERT INTO works (item, flow_version, graph, at, paused, paused_by)
+         VALUES (?1, ?2, 'engineer', ?3, 'later', 'owner')",
+        params![item, v, at],
+    )?;
+    let work = tx.last_insert_rowid();
+    for (n, (cell, row, from, to)) in rounds.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at, ended_at)
+             VALUES (?1, ?2, ?3, '{}', ?4, 'c', ?5, ?6)",
+            params![work, n as i64 + 1, cell, row, from, to],
+        )?;
+    }
+    Ok(work)
+}
+
+// The seams of the numbers. Two rounds that overlap across the line between two weeks give, between the two weeks, all
+// of the overlap and no more (a day, three in all, here); a work stopped is placed in the week its end was written in,
+// one written more than four weeks before is in none; a work given to sub-items that stands at the end of its graph and
+// whose item is cancelled after is one work ended, at the end of its graph and not under the cancellation; the end
+// closes the round a work was in; and works waiting for an answer, and another project's, make no run together here.
+#[test]
+fn the_numbers_split_a_run_at_the_seam_of_two_weeks_and_place_an_end_by_when_it_was_written() {
+    use engine::ending::{End, EndKind, end};
+    let s = setup("numbers-seams");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    let v = e.flow_now;
+    let projects = e.config.config.projects.clone();
+    let (hour, day) = (3_600_000, 24 * 3_600_000);
+    let now = db::now();
+    let open_round =
+        e.db.write(Actor::Engine, |tx| {
+            // One work from ten days before to six, the other from nine to five: they overlap for three days, from
+            // the week before's second day to the week's first.
+            a_work_that_ran(tx, v, "p", "I1", &[("I1", None, now - 10 * day, Some(now - 6 * day))])?;
+            a_work_that_ran(tx, v, "p", "I1", &[("I1", None, now - 9 * day, Some(now - 5 * day))])?;
+            // Neither makes a third: one waiting for the owner, open all that time, and another project's work
+            // running beside them. (The ids the cell had in earlier flow versions are the unit test's.)
+            a_work_that_ran(tx, v, "p", "A3", &[("A3", None, now - 10 * day, None)])?;
+            a_work_that_ran(tx, v, "q", "I1", &[("I1", None, now - 9 * day, Some(now - 5 * day))])?;
+            // Stopped in the week before, in the third week before, and more than four weeks before: the times of the
+            // writes are set, since a test cannot have the engine write them in the past.
+            let stopped = [
+                (EndKind::Other, now - 8 * day),
+                (EndKind::FlowMoved, now - 25 * day),
+                (EndKind::StartedOver, now - 29 * day),
+            ];
+            for (kind, at) in stopped {
+                let work = a_work_that_ran(tx, v, "p", "I1", &[])?;
+                end(tx, work, End::Stopped(kind, "by hand"), &projects).map_err(db::Error::Abort)?;
+                tx.execute(
+                    "UPDATE changes SET at = ?2 WHERE table_name = 'works' AND row_key = json_object('id', ?1)
+                       AND json_extract(new_row, '$.ended') IS NOT NULL",
+                    params![work, at],
+                )?;
+            }
+            // At the end of its graph with all of its work given to sub-items, then its item cancelled.
+            let to_sub_items = a_work_that_ran(
+                tx,
+                v,
+                "p",
+                "E1",
+                &[
+                    ("T7", Some("all_to_sub_items"), now - 4 * hour, Some(now - 3 * hour)),
+                    ("E1", None, now - 3 * hour, Some(now - 2 * hour)),
+                ],
+            )?;
+            end(
+                tx,
+                to_sub_items,
+                End::Stopped(EndKind::ItemCancelled, "item cancelled: x"),
+                &projects,
+            )
+            .map_err(db::Error::Abort)?;
+            // Stopped with a round of it open.
+            let open = a_work_that_ran(tx, v, "p", "I1", &[("I1", None, now - hour, None)])?;
+            end(tx, open, End::Stopped(EndKind::Other, "by hand"), &projects).map_err(db::Error::Abort)?;
+            Ok(open)
+        })
+        .unwrap();
+    let closed: Option<i64> =
+        e.db.conn()
+            .query_row("SELECT ended_at FROM rounds WHERE work = ?1", [open_round], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert!(closed.is_some(), "the end of a work closes the round it was in");
+    say(&mut e, "Look at the numbers.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 10, |e| path_of(e, arch).iter().any(|c| c == "N1")),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let understanding = message_at(&e, arch, "U1", false);
+    let numbers = given_value(&understanding, "·engine·numbers").expect(&understanding);
+    let seconds = |k: usize| {
+        numbers["weeks"][k]["running_together"]["seconds_two_or_more"]
+            .as_f64()
+            .unwrap()
+    };
+    let most = |k: usize| numbers["weeks"][k]["running_together"]["most_works"].as_i64().unwrap();
+    // The seam is where the architect's work started, a little after `now`: the day on each side of it, less that
+    // little, and all three days together between the two weeks.
+    assert_eq!((most(0), most(1), most(2), most(3)), (2, 2, 0, 0), "{numbers}");
+    assert!((seconds(0) - 86_400.0).abs() < 600.0, "{numbers}");
+    assert!((seconds(0) + seconds(1) - 3.0 * 86_400.0).abs() < 1e-6, "{numbers}");
+    assert_eq!((seconds(2), seconds(3)), (0.0, 0.0), "{numbers}");
+    let total = |k: usize| numbers["weeks"][k]["ended_unmerged"].clone();
+    let kind = |k: usize, name: &str| numbers["weeks"][k]["ended_unmerged"][name].as_i64().unwrap();
+    // This week: the one given to sub-items, once, as an end of its graph and not also under the cancellation after it,
+    // and the one stopped open.
+    assert_eq!(total(0)["total"], json!(2), "{numbers}");
+    assert_eq!((kind(0, "no_merge_at_end"), kind(0, "other")), (1, 1), "{numbers}");
+    assert_eq!(kind(0, "item_cancelled"), 0, "{numbers}");
+    // The week before and the third before have their one each; the one written more than four weeks before is in none.
+    assert_eq!(
+        (total(1)["total"].clone(), kind(1, "other")),
+        (json!(1), 1),
+        "{numbers}"
+    );
+    assert_eq!(total(2)["total"], json!(0), "{numbers}");
+    assert_eq!(
+        (total(3)["total"].clone(), kind(3, "flow_moved")),
+        (json!(1), 1),
+        "{numbers}"
+    );
+    assert_eq!(kind(3, "started_over"), 0, "{numbers}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A round of the understanding that asks for tools hands in no state of things: until the cell answers, the project has
 // none, as at its architect's first work, and the cell's next round is still told it is the first work. The cell's own
 // inputs that have nothing are listed as none; the tool results, which every cell may have, only once there are some.
@@ -6339,6 +6486,28 @@ fn the_policy_s_signals_come_only_when_the_engine_measures_them_with_their_numbe
         "{signals}"
     );
     assert_eq!(signals.get("2"), None, "{signals}");
+    // The works running together and the works ended unmerged are measures too: a signal that names them has their
+    // numbers for each of the four weeks, zero where nothing ran or ended.
+    set(
+        &mut e,
+        json!([{ "what": "Works run in parallel", "how": "running together at most 2 works" },
+               { "what": "Works end without a merge", "how": "ended unmerged above 1 a week" }]),
+    );
+    let m = engine::next_message(&mut e, arch).unwrap().text;
+    let signals = given_value(&m, "·engine·policy_signals").expect(&m);
+    let ran = json!({ "most_works": 0, "seconds_two_or_more": 0.0 });
+    assert_eq!(
+        signals["1"]["numbers"]["running_together"]["by_week"],
+        json!([ran, ran, ran, ran]),
+        "{signals}"
+    );
+    let ended = json!({ "flow_moved": 0, "item_cancelled": 0, "started_over": 0, "no_merge_at_end": 0, "other": 0,
+                        "total": 0 });
+    assert_eq!(
+        signals["2"]["numbers"]["ended_unmerged"]["by_week"],
+        json!([ended, ended, ended, ended]),
+        "{signals}"
+    );
     set(
         &mut e,
         json!([{ "what": "The owner is unhappy", "how": "something the owner says" }]),
