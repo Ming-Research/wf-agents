@@ -714,8 +714,7 @@ function AskAbove({ e, to }: { e: ConversationEntry; to: string | null }) {
           {round ? <Link to={workHref(e.work ?? 0, { round: e.round ?? 0 })}>{`R${e.work}-${e.round}`}</Link> : null}
         </BubbleHead>
       }
-      live={false}
-      state={
+      line={
         <>
           <span className="live-line-now">
             <MarkdownLine text={e.text} />

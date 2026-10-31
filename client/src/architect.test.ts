@@ -6,15 +6,17 @@ import type {
   FlowDiff,
   GraphView,
   Handled,
+  MadeThing,
   Matter,
+  MatterProgress,
   WorkSummary,
 } from './api';
 import {
   architectState,
   cardWords,
   holdWords,
-  outcomes,
   matterKind,
+  matterResult,
   matterSentence,
   matterSteps,
   queueParts,
@@ -203,7 +205,7 @@ describe("the architect's page", () => {
     expect(named({ kind: 'architect' })).toEqual(['architect', 'messages', 'system']);
   });
 
-  it('says what became of a matter handled, one line for each kind of outcome, or why nothing did', () => {
+  it('says what came of a matter done in one shape: a summary in the order the owner reads it, then each thing', () => {
     const handled = (extra: Partial<Handled> = {}): Handled => ({
       matter: 4,
       kind: 'engineer_question',
@@ -227,34 +229,117 @@ describe("the architect's page", () => {
       nothing: false,
       ...extra,
     });
-    const lines = outcomes(
-      handled({
-        reply: 'Split it in two.',
-        reply_to: 7,
-        made: 2,
-        dropped: 1,
-        observations: ['new', 'close'],
-        actions: [
-          { kind: 'pause_work', item: 3 },
-          { kind: 'start_work_over', item: 4 },
+    const thing = (kind: string, change: string, id: number, extra: Partial<MadeThing> = {}): MadeThing => ({
+      kind,
+      change,
+      id,
+      title: `Thing ${id}`,
+      place: null,
+      next_to: null,
+      ...extra,
+    });
+    const matter = (h: Handled | null, made: MadeThing[] = []): MatterProgress => ({
+      matter: 4,
+      kind: 'engineer_question',
+      detail: 'split',
+      what: 'Split #3?',
+      state: 'done',
+      cell: null,
+      cell_title: null,
+      architect_work: null,
+      round: null,
+      work: null,
+      item: null,
+      handled: h,
+      withdrawn: null,
+      asked: null,
+      fix: null,
+      made,
+    });
+    // Every kind of result, in the order the owner reads it; the things it changed by name listed in the same order
+    // under it, whatever order they came in.
+    const all = matterResult(
+      matter(
+        handled({
+          reply: 'Split it in two.',
+          reply_to: 7,
+          made: 3,
+          dropped: 1,
+          observations: [
+            { kind: 'new', observation: null },
+            { kind: 'merge', observation: 22 },
+            { kind: 'close', observation: 9 },
+          ],
+          actions: [
+            { kind: 'pause_work', item: 3 },
+            { kind: 'start_work_over', item: 4 },
+          ],
+          messages: ['q', 'q'],
+        }),
+        [
+          thing('observation', 'close', 9),
+          thing('observation', 'new', 37),
+          thing('item', 'reordered', 5, { place: 'after', next_to: 6 }),
+          thing('observation', 'merge', 22),
+          thing('item', 'new', 11),
         ],
-        messages: ['q', 'q'],
-      }),
-      'p',
+      ),
     );
-    // The observations it recorded or changed lead to the project's observations, in a view of their own.
-    expect(lines.map((o) => [o.key, o.label, o.text, o.to])).toEqual([
-      ['reply', 'Replied to work 7:', 'Split it in two.', null],
-      ['changes', 'Item changes:', '2 made, 1 dropped', null],
-      ['observations', 'Observations:', '1 recorded, 1 closed', '/observations?project=p'],
-      ['actions', 'Did at once:', 'paused the work on #3; started the work on #4 over', null],
-      ['messages', 'Wrote to the architect of:', 'q', null],
+    expect(all.parts.map((p) => [p.key, p.words, p.to])).toEqual([
+      ['reply', 'replied to work 7', href({ page: 'messages', open: 'work:7' })],
+      ['item new', '1 item made', null],
+      ['item reordered', '1 item moved', null],
+      ['item other', '1 other item change made', null],
+      ['item dropped', '1 item change dropped', null],
+      ['observation new', '1 observation recorded', null],
+      ['observation merge', '1 merged into an observation already there', null],
+      ['observation close', '1 observation closed', null],
+      ['actions', 'did at once: paused the work on #3; started the work on #4 over', null],
+      ['messages', 'wrote to the architect of q', null],
     ]);
-    expect(outcomes(handled({ why: 'Already done by #2.' }), 'p').map((o) => [o.key, o.text])).toEqual([
-      ['nothing', 'Already done by #2.'],
+    expect(all.things.map((x) => `${x.kind} ${x.change} ${x.id}`)).toEqual([
+      'item new 11',
+      'item reordered 5',
+      'observation new 37',
+      'observation merge 22',
+      'observation close 9',
     ]);
-    expect(outcomes(handled({ told: 1 }), 'p').map((o) => o.label)).toEqual(['Told you once']);
-    expect(outcomes(handled({ told: 3 }), 'p').map((o) => o.label)).toEqual(['Told you 3 times']);
+    expect(all.one).toBeNull();
+    // A merge and a record are the same shape: counted on the line, each a line of its own under it.
+    const recorded = matterResult(
+      matter(handled({ observations: [{ kind: 'new', observation: null }, { kind: 'new', observation: null }] }), [
+        thing('observation', 'new', 37),
+        thing('observation', 'new', 38),
+      ]),
+    );
+    expect(recorded.parts.map((p) => p.words)).toEqual(['2 observations recorded']);
+    expect(recorded.things.map((x) => x.id)).toEqual([37, 38]);
+    // One thing changed and nothing else: the line is that thing, and no line under it says it again; so for a merge
+    // as for a record or an item made.
+    for (const x of [thing('observation', 'merge', 22), thing('observation', 'new', 37), thing('item', 'new', 11)]) {
+      const one = matterResult(matter(handled({ made: x.kind === 'item' ? 1 : 0 }), [x]));
+      expect(one.one, `${x.kind} ${x.change}`).toEqual(x);
+    }
+    // One thing beside another result is counted and listed.
+    const beside = matterResult(matter(handled({ reply: 'Yes.', reply_to: 7 }), [thing('observation', 'merge', 22)]));
+    expect(beside.one).toBeNull();
+    expect(beside.parts.map((p) => p.words)).toEqual(['replied to work 7', '1 merged into an observation already there']);
+    // Item changes beside none it names, what waits for the review, and a count of one or more.
+    expect(matterResult(matter(handled({ made: 2, collected: 1 }))).parts.map((p) => p.words)).toEqual([
+      '2 item changes made',
+      '1 item change waiting for the review',
+    ]);
+    expect(matterResult(matter(handled({ told: 1 }))).parts.map((p) => p.words)).toEqual(['told you once']);
+    expect(matterResult(matter(handled({ told: 3, ask: 12 }))).parts.map((p) => p.words)).toEqual([
+      'told you 3 times',
+      'put ask 12 to you',
+    ]);
+    // Nothing came of it: that, and why; what came of it no longer known: that it is done.
+    expect(matterResult(matter(handled({ why: 'Already done by #2.' }))).parts.map((p) => p.words)).toEqual([
+      'nothing changed: Already done by #2.',
+    ]);
+    expect(matterResult(matter(handled())).parts.map((p) => p.words)).toEqual(['nothing changed']);
+    expect(matterResult(matter(null)).parts.map((p) => p.words)).toEqual(['done']);
   });
 });
 

@@ -1064,8 +1064,8 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
 /// when it was handled without a pick (closed without a look), held by an ask, or withdrawn. One still waiting in the
 /// queue has no card: the queue in the panel beside the one-to-one lists it. The owner's words have none either: a card
 /// would repeat their bubble, under which a line says where they stand (`words_states`). A matter that changed nothing
-/// has none once done: the queue's list of those handled keeps it, with why. A matter done lists what it made by name
-/// (`made_by`).
+/// has none once done: the queue's list of those handled keeps it, with why. A matter done lists what it changed by
+/// name (`made_by`).
 fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<ConversationEntry>> {
     let handled: HashMap<i64, Handled> = read::matters_handled(conn, project)?
         .into_iter()
@@ -1161,7 +1161,11 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
         if handled.as_ref().is_some_and(|h| h.nothing) {
             continue;
         }
-        let made = if done { made_by(conn, id)? } else { Vec::new() };
+        let made = if done {
+            made_by(conn, id, handled.as_ref())?
+        } else {
+            Vec::new()
+        };
         let card = MatterProgress {
             matter: id,
             kind,
@@ -1196,51 +1200,90 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
     Ok(out)
 }
 
-/// What an architect's matter made that the owner reads by name: the observations it recorded, which the engine names
-/// the matter in where they came from ("... (matter 87)"), and the items its batch made, cancelled or moved in the
-/// queue, each by its number and its title.
-fn made_by(conn: &Connection, matter: i64) -> Result<Vec<MadeThing>> {
+/// What an architect's matter changed that the owner reads by name, in the order its bubble lists them: the items its
+/// batch made, cancelled or moved in the queue, each by its number and its title, a move with where to; then the
+/// observations it recorded, which the engine names the matter in where they came from ("... (matter 87)"), those it
+/// merged a report into and those it closed, as its path's changes to the observations name them (`handled`), each
+/// once, by its number and its title.
+fn made_by(conn: &Connection, matter: i64, handled: Option<&Handled>) -> Result<Vec<MadeThing>> {
     let mut out = Vec::new();
-    let mut st = conn.prepare("SELECT id, coalesce(title, what) FROM observations WHERE source LIKE ?1 ORDER BY id")?;
-    let recorded: Vec<(i64, String)> = st
-        .query_map([format!("%(matter {matter})")], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<db::rusqlite::Result<_>>()?;
-    for (id, what) in recorded {
-        out.push(MadeThing {
-            kind: "observation".into(),
-            change: "new".into(),
-            id,
-            title: what,
-        });
-    }
     let mut st = conn.prepare(
         "SELECT change, outcome FROM architect_item_changes WHERE matter = ?1 AND state = 'made' ORDER BY id",
     )?;
-    let changes: Vec<(String, Option<String>)> = st
+    let changes: Vec<(Value, Value)> = st
         .query_map([matter], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<db::rusqlite::Result<_>>()?;
+        .collect::<db::rusqlite::Result<Vec<(Option<String>, Option<String>)>>>()?
+        .into_iter()
+        .map(|(c, o)| {
+            (
+                read::json(c).unwrap_or(Value::Null),
+                read::json(o).unwrap_or(Value::Null),
+            )
+        })
+        .collect();
     let number = |v: &Value| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()));
-    for (change, outcome) in changes {
-        let Some(c) = read::json(Some(change)) else {
-            continue;
-        };
-        let (what, id) = match c["kind"].as_str() {
-            Some("create_item") => ("new", read::json(outcome).and_then(|o| number(&o["created"]))),
-            Some("cancel") => ("cancelled", number(&c["item"])),
-            Some("move") => ("reordered", number(&c["item"])),
+    // An item its batch made is named by a key until the batch is made: the key of each, and the number it was given.
+    let created: HashMap<String, i64> = changes
+        .iter()
+        .filter(|(c, _)| c["kind"] == "create_item")
+        .filter_map(|(c, o)| Some((c["key"].as_str()?.trim().to_string(), number(&o["created"])?)))
+        .collect();
+    let item = |v: &Value| number(v).or_else(|| v.as_str().and_then(|k| created.get(k.trim()).copied()));
+    let title_of =
+        |id: i64, sql: &str| -> Result<Option<String>> { Ok(conn.query_row(sql, [id], |r| r.get(0)).optional()?) };
+    for (c, o) in &changes {
+        let (change, id, place, next_to) = match c["kind"].as_str() {
+            Some("create_item") => ("new", number(&o["created"]), None, None),
+            Some("cancel") => ("cancelled", item(&c["item"]), None, None),
+            Some("move") => (
+                "reordered",
+                item(&c["item"]),
+                c["to"]["place"].as_str().map(str::to_string),
+                item(&c["to"]["item"]),
+            ),
             _ => continue,
         };
         let Some(id) = id else {
             continue;
         };
-        let title: Option<String> = conn
-            .query_row("SELECT title FROM items WHERE id = ?1", [id], |r| r.get(0))
-            .optional()?;
+        let title = title_of(id, "SELECT title FROM items WHERE id = ?1")?;
         out.push(MadeThing {
             kind: "item".into(),
-            change: what.into(),
+            change: change.into(),
             id,
             title: title.unwrap_or_else(|| c["title"].as_str().unwrap_or_default().to_string()),
+            place,
+            next_to,
+        });
+    }
+    let mut st = conn.prepare("SELECT id FROM observations WHERE source LIKE ?1 ORDER BY id")?;
+    let recorded: Vec<i64> = st
+        .query_map([format!("%(matter {matter})")], |r| r.get(0))?
+        .collect::<db::rusqlite::Result<_>>()?;
+    let mut observed: Vec<(&str, i64)> = recorded.into_iter().map(|id| ("new", id)).collect();
+    for kind in ["merge", "close"] {
+        for id in handled
+            .into_iter()
+            .flat_map(|h| &h.observations)
+            .filter(|c| c.kind == kind)
+            .filter_map(|c| c.observation)
+        {
+            if !observed.contains(&(kind, id)) {
+                observed.push((kind, id));
+            }
+        }
+    }
+    for (change, id) in observed {
+        let Some(title) = title_of(id, "SELECT coalesce(title, what) FROM observations WHERE id = ?1")? else {
+            continue;
+        };
+        out.push(MadeThing {
+            kind: "observation".into(),
+            change: change.into(),
+            id,
+            title,
+            place: None,
+            next_to: None,
         });
     }
     Ok(out)

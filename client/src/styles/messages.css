@@ -494,9 +494,10 @@
   margin: 0;
 }
 
-/* The one line of a thing that runs and then ends, a stage's bubble: its running mark, what happens now or how it
-   ended (a state's chip, why and its links), then the gist of what was said last, muted, all on one line cut where it
-   ends and whole on hovering; what the engine told of it meanwhile under it in the colour of what waits. */
+/* The one line of a thing that runs and then ends, a stage's bubble or a matter's: what happens now or what came of it,
+   in words with its links, then the gist of what was said last, muted, all on one line cut where it ends and whole on
+   hovering; how it stands is a mark in its head; what the engine told of it meanwhile under it in the colour of what
+   waits. */
 .live-line {
   display: flex;
   align-items: center;
@@ -542,7 +543,7 @@
   font-size: var(--text-body-size-small);
 }
 
-/* What a matter made, under its bubble's line, one to a line: what it is, then its link, cut where the line ends. */
+/* What a matter changed, under its bubble's line, one to a line, each a thing as the line would say it. */
 .live-made {
   margin: 0;
   padding: 0;
@@ -552,6 +553,27 @@
 .live-made > li {
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* One thing a matter changed, on its bubble's line or a line of its own under it: what was done to it, then the thing
+   by its number and title, the title cut where the line ends, then for an item moved where to, whole. */
+.live-thing {
+  display: flex;
+  align-items: baseline;
+  gap: var(--base-size-4);
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.live-thing-did,
+.live-thing-place {
+  flex: none;
+}
+
+.live-thing-ref {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
 

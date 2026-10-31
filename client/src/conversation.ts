@@ -5,6 +5,8 @@
 // a work entered names it and says how it ended, what is new for the owner to be told of, and where a fault of
 // wf-agents can go and went.
 
+import type { Icon } from '@primer/octicons-react';
+
 import type {
   Conversation,
   ConversationDetail,
@@ -18,7 +20,7 @@ import type {
   WorkState,
   WorkSummary,
 } from './api';
-import type { Tone } from './components';
+import { BACK_MARK, type Tone, WORK_MARK } from './components';
 import { ordinal } from './format';
 import { isObj, words } from './labelled';
 import { type Key, t, tn } from './messages';
@@ -309,23 +311,26 @@ export function stageTitle(s: StageCard): string {
   return s.again > 0 ? t('stage_pass', { stage: name, nth: ordinal(s.again + 1) }) : name;
 }
 
-/// How a stage ended, in its words and its state's tone: done, stands and the like, merged, main green and no findings
-/// as done; sent back and does not stand as what waits on someone; ended as a work ended. None while the work is at it.
-const OUTCOMES: Record<string, { key: Key; tone: Tone }> = {
-  done: { key: 'stage_outcome_done', tone: 'success' },
-  stands: { key: 'stage_outcome_stands', tone: 'success' },
-  does_not_stand: { key: 'stage_outcome_does_not_stand', tone: 'attention' },
-  no_findings: { key: 'stage_outcome_no_findings', tone: 'success' },
-  sent_back: { key: 'stage_outcome_sent_back', tone: 'attention' },
-  merged: { key: 'stage_outcome_merged', tone: 'success' },
-  green: { key: 'stage_outcome_green', tone: 'success' },
-  ended: { key: 'stage_outcome_ended', tone: 'neutral' },
+/// How a stage ended, in its words, its state's tone and its mark at the head of its bubble: done, stands and the like,
+/// merged, main green and no findings as done, with a work's mark of done; sent back and does not stand as what waits on
+/// someone, with the mark of going back; ended as a work ended, with its mark. None while the work is at it.
+const OUTCOMES: Record<string, { key: Key; tone: Tone; mark: Icon }> = {
+  done: { key: 'stage_outcome_done', tone: 'success', mark: WORK_MARK.done },
+  stands: { key: 'stage_outcome_stands', tone: 'success', mark: WORK_MARK.done },
+  does_not_stand: { key: 'stage_outcome_does_not_stand', tone: 'attention', mark: BACK_MARK },
+  no_findings: { key: 'stage_outcome_no_findings', tone: 'success', mark: WORK_MARK.done },
+  sent_back: { key: 'stage_outcome_sent_back', tone: 'attention', mark: BACK_MARK },
+  merged: { key: 'stage_outcome_merged', tone: 'success', mark: WORK_MARK.done },
+  green: { key: 'stage_outcome_green', tone: 'success', mark: WORK_MARK.done },
+  ended: { key: 'stage_outcome_ended', tone: 'neutral', mark: WORK_MARK.ended },
 };
 
-export function stageOutcome(s: StageCard): { words: string; tone: Tone } | null {
+export function stageOutcome(s: StageCard): { words: string; tone: Tone; mark: Icon } | null {
   if (s.outcome === null) return null;
   const o = OUTCOMES[s.outcome];
-  return o !== undefined ? { words: t(o.key), tone: o.tone } : { words: words(s.outcome), tone: 'success' };
+  return o !== undefined
+    ? { words: t(o.key), tone: o.tone, mark: o.mark }
+    : { words: words(s.outcome), tone: 'success', mark: WORK_MARK.done };
 }
 
 /// Why a stage ended as it did, in a few words: what its reviews found, or the flow's or the engine's words.

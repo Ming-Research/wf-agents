@@ -14,6 +14,7 @@ import {
   QuestionIcon,
   SkipIcon,
   StopIcon,
+  UndoIcon,
   XIcon,
 } from '@primer/octicons-react';
 import { Button, Flash, Label, type LabelColorOptions } from '@primer/react';
@@ -250,6 +251,10 @@ export const ITEM_MARK: Record<ItemState, Icon> = {
   cancelled: SkipIcon,
 };
 
+/// The Octicon of a thing that ran and went back to where it was before (a stage sent back, a matter back in the
+/// architect's queue), GitHub's mark of undoing, which no state of a work or of an item has.
+export const BACK_MARK: Icon = UndoIcon;
+
 /// The mark of a round running: the halo the chart draws round the cell a round runs at, at an icon's size round
 /// nothing, its arcs as wide as they must be to read beside an Octicon's strokes; the one mark of a state that moves,
 /// so that what runs looks the same on the chart and wherever else it shows.
@@ -270,10 +275,15 @@ export const workStateMark = (state: WorkState): ElementType => (state === 'runn
 /// says (a work's state by default). Nothing known yet keeps the mark's room empty, so that the rows stay in line.
 export function StateMark({ state, words }: { state: WorkState | null; words?: string }) {
   if (state === null) return <span className="state-mark" aria-hidden="true" />;
-  const said = words ?? t(`state_${state}`);
-  const Mark = workStateMark(state);
+  return <ToneMark mark={workStateMark(state)} tone={WORK_TONE[state]} words={words ?? t(`state_${state}`)} />;
+}
+
+/// Any state as a mark, drawn as a work's is (`StateMark`): its Octicon, or the running halo, in its tone's colour,
+/// saying its words on hovering and as its name; for a state that is no work's, such as how a stage ended or where an
+/// architect's matter stands, at the head of its bubble.
+export function ToneMark({ mark: Mark, tone, words }: { mark: ElementType; tone: Tone; words: string }) {
   return (
-    <span className={`state-mark state-mark-${WORK_TONE[state]}`} title={said} role="img" aria-label={said}>
+    <span className={`state-mark state-mark-${tone}`} title={words} role="img" aria-label={words}>
       <Mark />
     </span>
   );

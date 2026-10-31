@@ -17,10 +17,10 @@ use crate::view;
 use crate::{
     Architect, ArchitectRounds, ArchitectWork, DesignCard, DispatchHold, FlowVersion, FlowView, Handled, HandledAction,
     InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
-    LinkedItem, Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, OwnerAsk, OwnerMessage,
-    PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional,
-    RoundDetail, RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag,
-    TokenCosts, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
+    LinkedItem, Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, ObservationChange,
+    OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement,
+    RoundConditional, RoundDetail, RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound,
+    Session, Shown, Tag, TokenCosts, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2082,7 +2082,15 @@ pub(crate) fn matters_handled(conn: &Connection, project: &str) -> Result<Vec<Ha
             .collect::<rusqlite::Result<_>>()?;
         for e in effects.into_iter().filter_map(json) {
             for c in e["observation_changes"].as_array().into_iter().flatten() {
-                h.observations.push(c["kind"].as_str().unwrap_or_default().to_string());
+                let kind = c["kind"].as_str().unwrap_or_default();
+                h.observations.push(ObservationChange {
+                    kind: kind.to_string(),
+                    observation: match kind {
+                        "merge" => c["into"].as_i64(),
+                        "close" => c["id"].as_i64(),
+                        _ => None,
+                    },
+                });
             }
             for a in e["actions"].as_array().into_iter().flatten() {
                 h.actions.push(HandledAction {
@@ -3576,8 +3584,9 @@ mod tests {
     }
 
     // The one-to-one with an architect is a chat too: no notice of the engine's is an entry of it; a matter that changed
-    // nothing leaves it once done, and the queue's handled list keeps it; a matter done lists what it made by name; and
-    // each version of the plan is a bubble saying what changed.
+    // nothing leaves it once done, and the queue's handled list keeps it; a matter done lists what it changed by name,
+    // the items its batch moved with where to, and the observations it recorded, merged a report into or closed, each
+    // by its number and its title; and each version of the plan is a bubble saying what changed.
     #[test]
     fn the_one_to_one_holds_no_notice_nor_a_matter_that_changed_nothing() {
         let mut s = architect_setup("chat");
@@ -3591,6 +3600,18 @@ mod tests {
             run(
                 "INSERT INTO observations (project, title, what, tags, source)
                  VALUES ('p', 'Stale input', 'The input is stale.', '[]', 'flow feedback (matter 1)')",
+            )?;
+            // Its path merged a report into observation 1, closed observation 2 and moved item 2 after item 1.
+            run(
+                r#"UPDATE rounds SET output = json_set(output, '$.outcome.effects', json('{"observation_changes": [
+                     {"kind": "merge", "into": 1, "seen": "", "refs": [], "reason": "r"},
+                     {"kind": "close", "id": 2, "why": "outdated", "text": "Gone."}]}'))
+                   WHERE work = 2 AND n = 8"#,
+            )?;
+            run(
+                r#"INSERT INTO architect_item_changes (work, round, matter, change, state)
+                   VALUES (2, 8, 1, '{"kind": "move", "item": 2, "to": {"place": "after", "item": 1}, "reason": "r"}',
+                     'made')"#,
             )?;
             run(
                 "INSERT INTO notebook_edits (project, section, text, work, round) VALUES
@@ -3619,9 +3640,21 @@ mod tests {
         assert_eq!(
             one.made
                 .iter()
-                .map(|x| (x.kind.as_str(), x.change.as_str(), x.title.as_str()))
+                .map(|x| (
+                    x.kind.as_str(),
+                    x.change.as_str(),
+                    x.id,
+                    x.title.as_str(),
+                    x.place.as_deref(),
+                    x.next_to
+                ))
                 .collect::<Vec<_>>(),
-            [("observation", "new", "Stale input")]
+            [
+                ("item", "reordered", 2, "Second", Some("after"), Some(1)),
+                ("observation", "new", 4, "Stale input", None, None),
+                ("observation", "merge", 1, "Slow.", None, None),
+                ("observation", "close", 2, "Old.", None, None),
+            ]
         );
         let plans: Vec<(i64, Option<&str>)> = d
             .entries

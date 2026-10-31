@@ -20,6 +20,7 @@ import type {
   GraphLines,
   Handled,
   JsonValue,
+  MadeThing,
   Matter,
   MatterProgress,
   StageCard,
@@ -409,21 +410,22 @@ describe("a matter's bubble in the one-to-one with an architect", () => {
   const shown = (m: MatterProgress): string =>
     drawn(detail([entry('matter', { id: m.matter, sender: 'architect', work: null, round: null, matter: m.matter, matter_card: m })]));
 
-  it('names its kind in its head, opens its line with where it stands and what came of it, what it asks folded', () => {
+  it('names its kind and where it stands in its head, opens its line with what came of it, what it asks folded', () => {
     const html = shown(card());
     // The architect's bubble of one line, with no one named.
     expect(html).toContain('talk-bubble talk-bubble-agent role-purple');
     expect(html).not.toContain('talk-mention');
-    // The head: who, then what it is about, its kind, in the small muted look of a kind, then when.
+    // The head: who, then what it is about, its kind, in the small muted look of a kind, then where it stands as a
+    // mark, a work's tick of done saying so on hovering, then when.
     expect(html).toMatch(
-      /<div class="talk-bubble-head"><span class="talk-who">architect<\/span><span class="talk-card-kind">Plan fix: something missing<\/span><span class="talk-when">/,
+      /<div class="talk-bubble-head"><span class="talk-who">architect<\/span><span class="talk-card-kind">Plan fix: something missing<\/span><span class="state-mark state-mark-success" title="done" role="img" aria-label="done"><svg[^>]*octicon-check-circle[^>]*>.*?<\/svg><\/span><span class="talk-when">/,
     );
-    // The line: where the matter stands as a state's chip, then what came of it; what it asks whole on hovering.
+    // The line: what came of it in words, with no chip before it; what it asks whole on hovering.
     const line = html.slice(html.indexOf('class="live-line"'), html.indexOf('</div>', html.indexOf('class="live-line"')));
-    expect(line).toMatch(/data-variant="success" data-component="Label">done<\/span>/);
-    expect(line).toContain('<span class="live-line-why">Told you once</span>');
+    expect(line).not.toContain('data-component="Label"');
+    expect(line).toMatch(/^class="live-line" title="[^"]*"><span class="live-line-state"><span class="live-line-why">told you once<\/span>/);
     expect(line).not.toContain('Its acceptance names no test.</span>');
-    expect(line).toContain('title="done | Told you once | Plan fix: something missing | item 12: Its acceptance names no test."');
+    expect(line).toContain('title="told you once | Plan fix: something missing | item 12: Its acceptance names no test."');
     expect(html).not.toContain('To set straight');
     expect(html).not.toContain('Timeline');
     const fold = html.slice(html.indexOf('<details class="fold talk-fold"'));
@@ -439,31 +441,118 @@ describe("a matter's bubble in the one-to-one with an architect", () => {
 
   it('has no fold of steps for a matter with none, and reads working while in hand', () => {
     const html = shown(card({ kind: 'failure', detail: null, what: 'Work 4 failed its tests.', fix: null, handled: null, state: 'working' }));
-    expect(html).toContain('<span class="talk-card-kind">Have a failure fixed</span>');
-    expect(html).toMatch(/data-variant="accent" data-component="Label">working<\/span>/);
+    expect(html).toContain('<span class="talk-card-kind">Have a failure fixed</span><span class="state-mark state-mark-accent" title="working"');
+    expect(html).toContain('<span class="live-line-state"><span class="live-line-now">working</span>');
+    expect(html).not.toContain('data-component="Label"');
     expect(html).toContain('<p class="talk-fold-text">Work 4 failed its tests.</p>');
     expect([...html.matchAll(/<details/g)]).toHaveLength(1);
   });
 
-  it('lists what it made by name, each leading to it, not folded', () => {
-    const html = shown(
-      card({
-        fix: null,
-        made: [
-          { kind: 'observation', change: 'new', id: 37, title: 'Stale slots input' },
-          { kind: 'item', change: 'new', id: 11, title: 'Unify test name matching' },
-          { kind: 'item', change: 'reordered', id: 5, title: 'Run works in parallel' },
-        ],
-      }),
+  it('marks in its head where a matter stands, each state with its own mark, and says it in words on its line', () => {
+    const at = (state: string, extra: Partial<MatterProgress> = {}) => {
+      const html = shown(card({ state, handled: null, fix: null, ...extra }));
+      const head = html.slice(html.indexOf('talk-bubble-head'), html.indexOf('talk-when'));
+      return {
+        mark: /octicon-([a-z-]+)/.exec(head)?.[1] ?? null,
+        tone: /state-mark-([a-z]+)/.exec(head)?.[1] ?? null,
+        line: /<span class="live-line-state"><span class="live-line-now">([^<]*)<\/span>/.exec(html)?.[1] ?? null,
+      };
+    };
+    expect(at('queued')).toEqual({ mark: 'undo', tone: 'attention', line: 'back in the queue' });
+    expect(at('held')).toEqual({ mark: 'question', tone: 'attention', line: 'held by your ask' });
+    expect(at('withdrawn', { withdrawn: 'The work ended.' })).toEqual({
+      mark: 'skip',
+      tone: 'neutral',
+      line: 'withdrawn: The work ended.',
+    });
+  });
+
+  const thing = (kind: string, change: string, id: number, title: string, extra: Partial<MadeThing> = {}): MadeThing => ({
+    kind,
+    change,
+    id,
+    title,
+    place: null,
+    next_to: null,
+    ...extra,
+  });
+  const told = (made: MadeThing[], extra: Partial<Handled> = {}): MatterProgress =>
+    card({ fix: null, made, handled: { ...handled, told: 0, ...extra } });
+  /// What a matter's bubble says of what came of it: its line, and the lines under it.
+  const result = (html: string) => {
+    const at = html.indexOf('class="live-line"');
+    const made = html.indexOf('<ul class="live-made">');
+    return {
+      line: html.slice(at, html.indexOf('</div>', at)),
+      under: made < 0 ? '' : html.slice(made, html.indexOf('</ul>', made) + '</ul>'.length),
+    };
+  };
+  /// A result drawn with what is particular to each thing (its words, number, title and address) taken out.
+  const shape = (html: string) =>
+    html
+      .replace(/\d+ (observations recorded|merged into observations already there)/g, 'counted')
+      .replace(/(merged into|recorded|closed) observation/g, 'did')
+      .replace(/(made|cancelled|moved) item/g, 'did')
+      .replace(/\/(observations|items)\/\d+/g, '/thing')
+      .replace(/#\d+/g, '#n')
+      .replace(/(Stale slots input|Slow parser|Old gap)/g, 'Title');
+
+  it('says one merged into an observation and one recorded in the same shape: the one thing, linked, on the line', () => {
+    const merged = result(shown(told([thing('observation', 'merge', 22, 'Slow parser')], { observations: [{ kind: 'merge', observation: 22 }] })));
+    const recorded = result(shown(told([thing('observation', 'new', 37, 'Stale slots input')])));
+    // The line is the thing: what was done to it, then its number and title, a link to it; nothing under the line.
+    expect(merged.line).toContain('<span class="live-thing"><span class="live-thing-did">merged into observation</span>');
+    expect(merged.line).toContain('href="/observations/22"');
+    expect(merged.line).toContain('<span class="item-ref-n">#22</span>');
+    expect(merged.line).toContain('Slow parser');
+    expect(merged.under).toBe('');
+    expect(recorded.line).toContain('<span class="live-thing-did">recorded observation</span>');
+    expect(recorded.line).toContain('href="/observations/37"');
+    expect(recorded.under).toBe('');
+    expect(shape(merged.line)).toBe(shape(recorded.line));
+  });
+
+  it('says many merged and many recorded in the same shape: counted on the line, each on a line of its own under it', () => {
+    const merged = result(
+      shown(told([thing('observation', 'merge', 22, 'Slow parser'), thing('observation', 'merge', 23, 'Old gap')])),
     );
-    expect(html).toContain('Recorded observation');
-    expect(html).toContain('href="/observations/37"');
-    expect(html).toContain('Stale slots input');
-    expect(html).toContain('New item');
-    expect(html).toContain('href="/items/11"');
-    expect(html).toContain('Moved in the queue');
-    expect(html).toContain('href="/items/5"');
-    expect(html.indexOf('Recorded observation')).toBeLessThan(html.indexOf('<details') < 0 ? html.length : html.indexOf('<details'));
+    const recorded = result(
+      shown(told([thing('observation', 'new', 37, 'Stale slots input'), thing('observation', 'new', 38, 'Old gap')])),
+    );
+    expect(merged.line).toContain('<span class="live-line-why">2 merged into observations already there</span>');
+    expect(recorded.line).toContain('<span class="live-line-why">2 observations recorded</span>');
+    expect([...merged.under.matchAll(/<li /g)]).toHaveLength(2);
+    expect(merged.under).toContain('href="/observations/23"');
+    expect(shape(merged.line)).toBe(shape(recorded.line));
+    expect(shape(merged.under)).toBe(shape(recorded.under));
+  });
+
+  it('lists every kind of thing a matter changed in one look, in the order its line counts them, not folded', () => {
+    const html = shown(
+      told(
+        [
+          thing('observation', 'new', 37, 'Stale slots input'),
+          thing('item', 'new', 11, 'Unify test name matching'),
+          thing('item', 'reordered', 5, 'Run works in parallel', { place: 'after', next_to: 6 }),
+        ],
+        { made: 2 },
+      ),
+    );
+    const { line, under } = result(html);
+    expect(line).toContain('1 item made | 1 item moved | 1 observation recorded');
+    const lines = [...under.matchAll(/<li [^>]*>(.*?)<\/li>/g)].map((m) => m[1]);
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toContain('<span class="live-thing-did">made item</span>');
+    expect(lines[0]).toContain('href="/items/11"');
+    expect(lines[1]).toContain('<span class="live-thing-did">moved item</span>');
+    expect(lines[1]).toContain('href="/items/5"');
+    expect(lines[1]).toContain('<span class="live-thing-place">after <a');
+    expect(lines[1]).toContain('href="/items/6"');
+    expect(lines[2]).toContain('<span class="live-thing-did">recorded observation</span>');
+    expect(lines[2]).toContain('href="/observations/37"');
+    // Each line says itself whole on hovering.
+    expect(under).toContain('title="moved item #5 Run works in parallel after #6"');
+    expect(html.indexOf('live-made')).toBeLessThan(html.indexOf('<details'));
   });
 });
 
@@ -1013,20 +1102,24 @@ describe("a work's group as a chat", () => {
       }),
     );
     expect(html).toContain('talk-bubble talk-bubble-agent role-blue');
-    // Its head: who says it, then the stage it is about in the small muted look of a kind, when, and its rounds.
+    // Its head: who says it, then the stage it is about in the small muted look of a kind, how it ended as a mark (sent
+    // back, the mark of going back, saying so on hovering), when, and its rounds.
     expect(html).toMatch(
-      /<div class="talk-bubble-head"><span class="talk-who">engineer<\/span><span class="talk-card-kind">Testing and fixing, 2nd time<\/span><span class="talk-when">/,
+      /<div class="talk-bubble-head"><span class="talk-who">engineer<\/span><span class="talk-card-kind">Testing and fixing, 2nd time<\/span><span class="state-mark state-mark-attention" title="sent back" role="img" aria-label="sent back"><svg[^>]*octicon-undo[^>]*>.*?<\/svg><\/span><span class="talk-when">/,
     );
     expect(html).toContain('R5-30 to R5-41');
     // How long it took and what it cost, after its rounds.
     expect(html).toContain('1m 00s | $3.02');
     const line = html.slice(html.indexOf('class="live-line"'), html.indexOf('</div>', html.indexOf('class="live-line"')));
-    expect(line).toContain('sent back');
-    expect(line).toContain('4 findings in “Table review”; 1 finding in “Review the design tree”');
+    // The line opens with how it ended and why, in words, no chip before them.
+    expect(line).toContain(
+      '<span class="live-line-state"><span class="live-line-why">sent back: 4 findings in “Table review”; 1 finding in “Review the design tree”</span>',
+    );
+    expect(line).not.toContain('data-component="Label"');
     expect(line).toContain('Six findings in the design tree.');
     expect(line).not.toContain('running-mark');
     // No cell's code, and the rest folded: what its rounds said.
-    expect(html).not.toMatch(/\bT[0-9]\b|\bM1\b/);
+    expect(html.replace(/<svg.*?<\/svg>/g, '')).not.toMatch(/\bT[0-9]\b|\bM1\b/);
     expect(html).toContain('What its rounds said (2)');
     // In the stream it is a bubble, not an engine's card on a timeline.
     expect(html).not.toContain('Timeline');
@@ -1034,15 +1127,16 @@ describe("a work's group as a chat", () => {
 
   it('says a merge with its pull request and commit, and a work taken over with the work that took it', () => {
     const merged = bubble(stage({ stage: 'merge', outcome: 'merged', pr: 7, commit: 'abc1234def', notes: [] }));
-    expect(merged).toContain('merged');
+    expect(merged).toContain('<span class="state-mark state-mark-success" title="merged"');
+    expect(merged).toContain('<span class="live-line-why">merged</span>');
     expect(merged).toContain('PR #7');
     expect(merged).toContain('abc1234');
     expect(merged).not.toContain('abc1234def<');
     const over = bubble(
       stage({ stage: 'research', outcome: 'ended', why: 'the flow moved to version 18', taken_over_by: 31, notes: [] }),
     );
-    expect(over).toContain('ended');
-    expect(over).toContain('the flow moved to version 18');
+    expect(over).toContain('<span class="state-mark state-mark-neutral" title="ended"');
+    expect(over).toContain('ended: the flow moved to version 18');
     expect(over).toContain('taken over by work 31');
     expect(over).toContain('href="/messages?c=work%3A31"');
   });
@@ -1056,11 +1150,19 @@ describe("a work's group as a chat", () => {
     expect(html).not.toContain('Judge whether it may enter the merge queue');
     expect(html).not.toMatch(/\bM1\b/);
     expect(html).toContain('R5-72 to R5-72');
+    // Its mark in the head the work's own, as the list of conversations shows it: paused.
+    expect(html).toContain('<span class="talk-card-kind">Merge</span><span class="state-mark state-mark-attention" title="paused"');
     expect(html).not.toContain('running-mark');
     // A round of the review running: who is at work, with the running mark.
     const running = work({ state: 'running', paused: null, paused_by: null, waits: null, running: { n: 73, cell: 'T4', started_at: 1, tool: false, line: 'review' } });
     const c = course(running, null);
     expect(nowWords({ ...c, running: 'goes_on' }, running)).toBe('the review is at work');
+    // The running mark in the head, after the stage it is about; the line holds words alone.
+    const live = bubble(now, running);
+    const head = live.slice(live.indexOf('talk-bubble-head'), live.indexOf('talk-when'));
+    expect(head).toContain('<span class="talk-card-kind">Merge</span><span class="state-mark state-mark-accent" title="running"');
+    expect(head).toContain('running-mark');
+    expect(live.slice(live.indexOf('class="live-line"'))).not.toContain('running-mark');
     expect(nowWords({ ...c, running: 'goes_on' }, { ...running, running: { n: 73, cell: 'X1', started_at: 1, tool: true, line: 'engineer' } })).toBe(
       "the engineer's tools are running",
     );
@@ -1338,10 +1440,13 @@ describe('a bubble of one line in a conversation', () => {
     expect(rule('.talk-row')).toContain('max-width:');
     expect(rule('.talk-bubble')).toContain('min-width: 0');
     expect(rule('.live-line')).toContain('white-space: nowrap');
-    for (const part of ['.live-line', '.live-line-state', '.live-line-now', '.live-line-why', '.live-line-gist']) {
+    for (const part of ['.live-line', '.live-line-state', '.live-line-now', '.live-line-why', '.live-line-gist', '.live-thing', '.live-thing-ref']) {
       expect(rule(part), part).toContain('min-width: 0');
     }
-    for (const part of ['.live-line-now', '.live-line-why', '.live-line-gist', '.live-made > li']) {
+    // A thing a matter changed keeps what was done to it and where it went whole, its title cut.
+    expect(rule('.live-thing-did')).toContain('flex: none');
+    expect(rule('.live-thing-place')).toContain('flex: none');
+    for (const part of ['.live-line-now', '.live-line-why', '.live-line-gist', '.live-made > li', '.live-thing-ref']) {
       expect(rule(part), part).toContain('text-overflow: ellipsis');
     }
   });
@@ -1456,10 +1561,14 @@ describe("the one-to-one with an architect as a chat", () => {
     for (const h of heads) expect(h).toMatch(/^<span class="talk-who">(engineer|architect)<\/span>/);
     // To whom for what is said, what it is about for an agent's own work, in the small muted look of a kind.
     expect(heads[0]).toMatch(/^<span class="talk-who">engineer<\/span><span class="talk-mention">@you<\/span><span class="talk-when">/);
-    expect(heads[1]).toMatch(/^<span class="talk-who">engineer<\/span><span class="talk-card-kind">Merge, 3rd time<\/span><span class="talk-when">/);
-    expect(heads[2]).toMatch(/^<span class="talk-who">architect<\/span><span class="talk-card-kind">Go through side reports<\/span><span class="talk-when">/);
+    // How a thing that runs and ends stands is a mark after what it is about, never a chip.
+    expect(heads[1]).toMatch(
+      /^<span class="talk-who">engineer<\/span><span class="talk-card-kind">Merge, 3rd time<\/span><span class="state-mark state-mark-success" title="merged" role="img" aria-label="merged"><svg.*?<\/svg><\/span><span class="talk-when">/,
+    );
+    expect(heads[2]).toMatch(
+      /^<span class="talk-who">architect<\/span><span class="talk-card-kind">Go through side reports<\/span><span class="state-mark state-mark-[a-z]+" title="[^"]+" role="img" aria-label="[^"]+"><svg.*?<\/svg><\/span><span class="talk-when">/,
+    );
     expect(heads[3]).toMatch(/^<span class="talk-who">architect<\/span><span class="talk-when">/);
-    // The state stays on the line, not in the head.
     expect(heads.join('')).not.toContain('data-component="Label"');
   });
 

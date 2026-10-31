@@ -1,13 +1,14 @@
 // What the engine writes into a conversation from the flow, each a bubble of one line of the agent whose doing it is
-// (`LiveBubble`), posted when it began and updated in place: in a work's group, the work's own bubble for each stage it
-// entered, saying what happens now and, once the stage is over, how it ended, with what more there is folded under it;
-// in an architect's one-to-one, a bubble of the architect's for each matter it took up but the owner's words (whose
-// own bubble says where they stand), working on it, held by an ask, done with what it made, or withdrawn, a matter
-// that changed nothing leaving once done; each version of its plan; and the policy as it took effect. Each leads to
-// where its detail is: a stage to its rounds, its pull request and commit, a matter to its cell on the architect's
-// chart or its work's group, what it made to each observation and item, the policy to the panel beside the one-to-one.
+// (`LiveBubble`), posted when it began and updated in place, how it stands a mark at its head: in a work's group, the
+// work's own bubble for each stage it entered, saying what happens now and, once the stage is over, how it ended, with
+// what more there is folded under it; in an architect's one-to-one, a bubble of the architect's for each matter it took
+// up but the owner's words (whose own bubble says where they stand), working on it, held by an ask, done with what came
+// of it, or withdrawn, a matter that changed nothing leaving once done; each version of its plan; and the policy as it
+// took effect. Each leads to where its detail is: a stage to its rounds, its pull request and commit, a matter to its
+// cell on the architect's chart or its work's group, what it changed to each observation and item, the policy to the
+// panel beside the one-to-one.
 
-import { Fragment, type ReactNode } from 'react';
+import { type ElementType, Fragment, type ReactNode } from 'react';
 
 import type {
   ConversationEntry,
@@ -18,8 +19,25 @@ import type {
   StageCard,
   WorkSummary,
 } from '../api';
-import { matterKind, matterSentence, matterSteps, type Outcome, outcomes, type MatterWords } from '../architect';
-import { course, heldName, heldWords, StateChip, type Tone } from '../components';
+import {
+  matterKind,
+  type MatterResult,
+  matterResult,
+  matterSentence,
+  matterSteps,
+  type MatterWords,
+} from '../architect';
+import {
+  BACK_MARK,
+  course,
+  heldName,
+  ITEM_MARK,
+  liveState,
+  StateMark,
+  type Tone,
+  ToneMark,
+  WORK_MARK,
+} from '../components';
 import { stageOutcome, stageTitle, stageWhy } from '../conversation';
 import { lineWho, nowWords } from '../course';
 import { cost, duration } from '../format';
@@ -29,7 +47,7 @@ import { firstWords, Markdown, MarkdownLine } from '../markdown';
 import { CommitLink, Fold, ItemRef, LinkButton, PrLink, RoundLink } from '../parts';
 import { architectHref, href, Link, observationsHref, roundAt, sideHref } from '../route';
 import { t, tn, type Key } from '../text';
-import { joinedWords } from '../voices';
+import { joinedWords, SEP } from '../voices';
 import { BubbleHead, LiveBubble } from './Bubble';
 import { DesignCardView } from './Decide';
 import { DesignShown } from './Item';
@@ -119,14 +137,16 @@ function StageFolds({ s, w, work, pinned }: {
 }
 
 /// The bubble of a stage a work entered, in the engineer's look as the work's own voice, posted when the work came in
-/// and updated in place (`LiveBubble`): its head the stage and which time the work is at it, when the work came in,
-/// its rounds and, once over, how long it took and what it cost; its one line, while the work is at it what happens
-/// now in the owner's words, who is at work, what holds it and what it waits for, live and as the head of the group
-/// says it, with no cell's title, its rounds' link leading to the cell, and what the engine told of the work meanwhile
-/// under it; once over, how it ended and why: what its reviews found, the pull request and the commit that merged the
-/// work, or why it ended and the work that took it over; then the gist of what its last round said; and what more there
-/// is folded under it (`StageFolds`), the design card pinned for the owner (`pinned`) named there in one line. Its
-/// links go to the work's project on GitHub (`project`).
+/// and updated in place (`LiveBubble`): its head the stage and which time the work is at it, its mark, when the work
+/// came in, its rounds and, once over, how long it took and what it cost; the mark, while the work is at it, the work's
+/// own as the list of conversations shows it (`StateMark`, the running halo while a round runs), once over how it ended
+/// (`ToneMark`); its one line, while the work is at it what happens now in the owner's words, who is at work, what
+/// holds it and what it waits for, live and as the head of the group says it, with no cell's title, its rounds' link
+/// leading to the cell, and what the engine told of the work meanwhile under it; once over, how it ended and why in
+/// words ("sent back: 6 findings in “Design tree review”"), then the pull request and the commit that merged the work,
+/// or the work that took it over; then the gist of what its last round said; and what more there is folded under it
+/// (`StageFolds`), the design card pinned for the owner (`pinned`) named there in one line. Its links go to the work's
+/// project on GitHub (`project`).
 export function StageBubble({ e, s, w, project, pinned }: {
   e: ConversationEntry;
   s: StageCard;
@@ -142,12 +162,18 @@ export function StageBubble({ e, s, w, project, pinned }: {
   const outcome = stageOutcome(s);
   const why = stageWhy(s);
   const now = c !== null && w !== null ? nowWords(c, w) : '';
-  const state = s.current ? (
+  const ended =
+    outcome !== null && why !== null ? t('stage_outcome_why', { outcome: outcome.words, why }) : (outcome?.words ?? why);
+  const mark = s.current ? (
+    <StateMark state={w !== null ? liveState(w, status) : null} />
+  ) : outcome !== null ? (
+    <ToneMark mark={outcome.mark} tone={outcome.tone} words={outcome.words} />
+  ) : null;
+  const line = s.current ? (
     <span className="live-line-now">{now}</span>
   ) : (
     <>
-      {outcome !== null ? <StateChip tone={outcome.tone}>{outcome.words}</StateChip> : null}
-      {why !== null ? <span className="live-line-why">{why}</span> : null}
+      {ended !== null ? <span className="live-line-why">{ended}</span> : null}
       {s.pr !== null ? <PrLink project={project} n={s.pr} /> : null}
       {s.commit !== null ? <CommitLink project={project} sha={s.commit} /> : null}
       {s.taken_over_by !== null ? (
@@ -158,7 +184,7 @@ export function StageBubble({ e, s, w, project, pinned }: {
     </>
   );
   const head = (
-    <BubbleHead who={words('engineer')} about={stageTitle(s)} at={s.started_at}>
+    <BubbleHead who={words('engineer')} about={stageTitle(s)} mark={mark} at={s.started_at}>
       <Link to={rounds}>{t('stage_rounds', { first: s.first, last: s.last, work })}</Link>
       {s.ended_at !== null ? (
         <span className="talk-when">
@@ -167,14 +193,12 @@ export function StageBubble({ e, s, w, project, pinned }: {
       ) : null}
     </BubbleHead>
   );
-  const said = s.current ? now : joinedWords([outcome?.words ?? null, why]);
-  const title = joinedWords([said, latest !== null ? firstWords(latest.text) : null]);
+  const title = joinedWords([s.current ? now : ended, latest !== null ? firstWords(latest.text) : null]);
   return (
     <LiveBubble
       who="engineer"
       head={head}
-      live={c !== null && c.running !== null}
-      state={state}
+      line={line}
       gist={latest?.text ?? null}
       title={title}
     >
@@ -190,23 +214,50 @@ export function StageBubble({ e, s, w, project, pinned }: {
   );
 }
 
-/// What the line of a matter's bubble opens with, by where the matter stands, as a state's chip in its tone: back in the
-/// queue and held by an ask of the owner wait on someone; in hand goes on; done; withdrawn, no meaning of its own.
-const MATTER_STATE: Record<string, { key: Key; tone: Tone }> = {
-  queued: { key: 'matter_line_queued', tone: 'attention' },
-  held: { key: 'matter_line_held', tone: 'attention' },
-  working: { key: 'matter_line_working', tone: 'accent' },
-  done: { key: 'matter_line_done', tone: 'success' },
-  withdrawn: { key: 'matter_line_withdrawn', tone: 'neutral' },
+/// Where a matter stands, by its state, in words and as the mark at the head of its bubble, in its state's tone: back in
+/// the queue, the mark of going back, and held by an ask of the owner, a work's mark of asking, wait on someone; in
+/// hand goes on, the architect's own mark while it has the matter (`MatterBubble`); done, a work's mark of done;
+/// withdrawn, no meaning of its own, an item's mark of cancelled.
+const MATTER_STATE: Record<string, { key: Key; tone: Tone; mark: ElementType }> = {
+  queued: { key: 'matter_line_queued', tone: 'attention', mark: BACK_MARK },
+  held: { key: 'matter_line_held', tone: 'attention', mark: WORK_MARK.asking },
+  working: { key: 'matter_line_working', tone: 'accent', mark: WORK_MARK.ready },
+  done: { key: 'matter_line_done', tone: 'success', mark: WORK_MARK.done },
+  withdrawn: { key: 'matter_line_withdrawn', tone: 'neutral', mark: ITEM_MARK.cancelled },
 };
 
-/// What a matter made, by its kind and what became of it, as the line before it says it.
-const MADE: Record<string, Key> = {
-  'observation new': 'made_observation',
-  'item new': 'made_item_new',
-  'item cancelled': 'made_item_cancelled',
-  'item reordered': 'made_item_reordered',
+/// What was done to a thing a matter changed, by its kind and change, in the words before it.
+const THING: Record<string, Key> = {
+  'item new': 'thing_item_new',
+  'item cancelled': 'thing_item_cancelled',
+  'item reordered': 'thing_item_reordered',
+  'observation new': 'thing_observation_new',
+  'observation merge': 'thing_observation_merge',
+  'observation close': 'thing_observation_close',
 };
+
+/// Where an item was moved in the queue: first, last, or before, after or under another item.
+const PLACE: Record<string, Key> = {
+  first: 'thing_place_first',
+  last: 'thing_place_last',
+  before: 'thing_place_before',
+  after: 'thing_place_after',
+  under: 'thing_place_under',
+};
+
+const did = (x: MadeThing): string => {
+  const key = THING[`${x.kind} ${x.change}`];
+  return key !== undefined ? t(key) : words(x.change);
+};
+
+const place = (x: MadeThing): string | null => {
+  const key = x.place !== null ? PLACE[x.place] : undefined;
+  if (key === undefined) return null;
+  return x.next_to !== null ? `${t(key)} #${x.next_to}` : t(key);
+};
+
+/// A thing a matter changed, in words, as its line says it, for hovering.
+const thingWords = (x: MadeThing): string => [did(x), `#${x.id}`, firstWords(x.title), place(x)].filter((p) => p !== null).join(' ');
 
 /// A matter as the owner reads it wherever it shows, in its bubble and in the architect's queue: its kind, small and
 /// muted, then what it asks to be done, in one sentence, whole, wrapping with the line it is in.
@@ -218,64 +269,95 @@ export function MatterWhat({ m }: { m: MatterWords }) {
   );
 }
 
-/// What a matter made, listed under its line and not folded, each leading to it: the observations it recorded, each
-/// by its title, and the items it made, cancelled or moved in the queue, each by its number and its title.
-function Made({ made }: { made: MadeThing[] }) {
-  if (made.length === 0) return null;
+/// One thing a matter changed, in one look wherever it shows, on the bubble's line or on a line of its own under it:
+/// what was done to it in words, then the thing by its number and its title, a link to it (an item to its page, an
+/// observation to it among the observations), its title cut where the line ends; for an item moved, then where to.
+function Thing({ x }: { x: MadeThing }) {
+  const to = place(x);
+  return (
+    <span className="live-thing">
+      <span className="live-thing-did">{did(x)}</span>
+      <span className="live-thing-ref">
+        {x.kind === 'observation' ? (
+          <Link to={observationsHref(null, x.id)} className="item-ref" title={firstWords(x.title)}>
+            <span className="item-ref-n">#{x.id}</span> <MarkdownLine text={x.title} />
+          </Link>
+        ) : (
+          <ItemRef id={x.id} title={x.title} />
+        )}
+      </span>
+      {to !== null ? (
+        <span className="live-thing-place">
+          {t(PLACE[x.place ?? ''])}
+          {x.next_to !== null ? (
+            <>
+              {' '}
+              <ItemRef id={x.next_to} />
+            </>
+          ) : null}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/// What came of a matter done, on its bubble's line in words with nothing before them (`matterResult`): its parts
+/// joined by a bar, the reply leading to the group it went to; or, when it changed one thing and nothing else, that
+/// thing (`Thing`).
+function ResultLine({ r }: { r: MatterResult }) {
+  if (r.one !== null) return <Thing x={r.one} />;
+  return (
+    <span className="live-line-why">
+      {r.parts.map((p, i) => (
+        <Fragment key={p.key}>
+          {i > 0 ? SEP : null}
+          {p.to !== null ? <Link to={p.to}>{p.words}</Link> : p.words}
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
+/// What a matter changed, under its bubble's line and not folded, one to a line in the order its line counts them, each
+/// as the line would say it (`Thing`); none when the line says the one thing it changed.
+function ResultThings({ r }: { r: MatterResult }) {
+  if (r.one !== null || r.things.length === 0) return null;
   return (
     <ul className="live-made">
-      {made.map((x) => (
-        <li key={`${x.kind}-${x.id}`}>
-          <span className="talk-card-kind">{MADE[`${x.kind} ${x.change}`] !== undefined ? t(MADE[`${x.kind} ${x.change}`]) : words(x.change)}</span>{' '}
-          {x.kind === 'observation' ? (
-            <Link to={observationsHref(null, x.id)} title={firstWords(x.title)}>
-              <MarkdownLine text={x.title} />
-            </Link>
-          ) : (
-            <ItemRef id={x.id} title={x.title} />
-          )}
+      {r.things.map((x) => (
+        <li key={`${x.kind}-${x.change}-${x.id}`} title={thingWords(x)}>
+          <Thing x={x} />
         </li>
       ))}
     </ul>
   );
 }
 
-/// The head of a bubble of the architect's own, every bubble's (`BubbleHead`): who it is, what it is about, when, and
-/// where more of it is.
-function ArchitectHead({ at, about = null, children }: { at: number | null; about?: string | null; children?: ReactNode }) {
+/// The head of a bubble of the architect's own, every bubble's (`BubbleHead`): who it is, what it is about, how it
+/// stands, when, and where more of it is.
+function ArchitectHead({ at, about = null, mark = null, children }: {
+  at: number | null;
+  about?: string | null;
+  mark?: ReactNode;
+  children?: ReactNode;
+}) {
   return (
-    <BubbleHead who={words('architect')} about={about} at={at}>
+    <BubbleHead who={words('architect')} about={about} mark={mark} at={at}>
       {children}
     </BubbleHead>
   );
 }
 
-/// One thing that came of a matter done, in words: the reply by the work it went to, else its name and what it says,
-/// a name with nothing after it without its colon.
-function cameWords(o: Outcome, replyTo: number | null): string {
-  if (o.key === 'reply') return t('matter_replied', { work: replyTo ?? '' });
-  return o.text !== '' ? `${o.label} ${o.text}` : o.label.replace(/:$/, '');
-}
-
-/// What came of a matter done, on its bubble's line after its state, in a few words, each leading where it is: the
-/// reply taken back to the work that asked, to that work's group, where the reply is; what its path told and asked the
-/// owner; the item changes and the observations it collected or changed, the latter to the project's observations;
-/// what it did at once; whom it wrote to; or why nothing was to be done.
-function cameOf(o: Outcome, replyTo: number | null): ReactNode {
-  const said = cameWords(o, replyTo);
-  const to = o.key === 'reply' ? (replyTo !== null ? href({ page: 'messages', open: `work:${replyTo}` }) : null) : o.to;
-  return to !== null ? <Link to={to}>{said}</Link> : said;
-}
-
 /// A matter of the architect's, as one bubble of the architect's of one line, with no one named, posted when it took
-/// the matter up and updated in place (`LiveBubble`): its head names its kind, what it is about; its line opens with
-/// where it stands as a state's chip, in hand, held by the owner's ask, back in the queue, done or withdrawn, live while
-/// a round of the architect runs, with what holds the architect, its own trouble, when anything does (`architect`, its
-/// work going on); once withdrawn, why; once done, what came of it in a few words, each leading to it (`cameOf`), and
-/// under the line what it made, each by name and leading to it (`Made`); what it asks, whole, on hovering and in a fold
-/// under the line, and a place to set straight with its steps folded too. A matter about a work leads to that work's
-/// group, which holds it in full. A matter that changed nothing is not in the conversation once done: the queue beside
-/// it lists it among those handled.
+/// the matter up and updated in place (`LiveBubble`): its head names its kind, what it is about, then where it stands as
+/// a mark (back in the queue, held by the owner's ask, done or withdrawn; while in hand the architect's own, as its
+/// one-to-one's row shows it: the running halo while a round of it runs, its own trouble while held); its line, in
+/// words: while in hand what happens now, as a stage's line says it; once done what came of it (`matterResult`), and
+/// under the line what it changed, one to a line, each by number and title and leading to it, one shape for every
+/// result and every matter (`ResultLine`, `ResultThings`); once withdrawn, why; what it asks, whole, on hovering and in
+/// a fold under the line, and a place to set straight with its steps folded too. A matter about a work leads to that
+/// work's group, which holds it in full. A matter that changed nothing is not in the conversation once done: the queue
+/// beside it lists it among those handled.
 export function MatterBubble({ e, m, project, architect }: {
   e: ConversationEntry;
   m: MatterProgress;
@@ -291,22 +373,33 @@ export function MatterBubble({ e, m, project, architect }: {
       : m.handled !== null
         ? architectHref({ project, round: roundAt(m.handled.work, m.handled.round) })
         : null;
-  // The architect's own trouble shows on the matter it has in hand.
+  // The architect's own state and trouble show on the matter it has in hand.
   const c = m.state === 'working' && architect !== null ? course(architect, status) : null;
   const held = c !== null && c.held !== null ? heldName(c) : null;
   const stands = MATTER_STATE[m.state] ?? MATTER_STATE.queued;
   const kind = matterKind(m.kind, m.detail);
-  const made = new Set(m.made.map((x) => x.kind));
-  const came =
-    m.state === 'done' && m.handled !== null
-      ? outcomes(m.handled, project).filter(
-          (o) => !(o.key === 'observations' && made.has('observation')) && !(o.key === 'changes' && made.has('item')),
-        )
-      : [];
-  const replyTo = m.handled?.reply_to ?? null;
-  const why = m.state === 'withdrawn' ? m.withdrawn : null;
+  const result = m.state === 'done' ? matterResult(m) : null;
+  const mark =
+    c !== null && architect !== null ? (
+      <StateMark
+        state={liveState(architect, status)}
+        words={c.running !== null ? t(stands.key) : (held?.name ?? undefined)}
+      />
+    ) : (
+      <ToneMark mark={stands.mark} tone={stands.tone} words={t(stands.key)} />
+    );
+  const said =
+    result !== null
+      ? result.one !== null
+        ? thingWords(result.one)
+        : joinedWords(result.parts.map((p) => p.words))
+      : c !== null && architect !== null
+        ? nowWords(c, architect)
+        : m.state === 'withdrawn' && m.withdrawn !== null
+          ? t('matter_withdrawn_why', { why: m.withdrawn })
+          : t(stands.key);
   const head = (
-    <ArchitectHead at={e.at} about={kind}>
+    <ArchitectHead at={e.at} about={kind} mark={mark}>
       {group !== null ? <Link to={group}>{t('matter_in_group', { work: m.work ?? '' })}</Link> : null}
       {where !== null ? (
         <Link to={where}>
@@ -315,37 +408,15 @@ export function MatterBubble({ e, m, project, architect }: {
       ) : null}
     </ArchitectHead>
   );
-  const state = (
-    <>
-      <StateChip tone={stands.tone}>{t(stands.key)}</StateChip>
-      {held !== null && architect !== null ? (
-        <StateChip tone={held.problem ? 'danger' : 'attention'} title={heldWords(c ?? course(architect, status), architect.paused)}>
-          {held.name}
-        </StateChip>
-      ) : null}
-      {came.length > 0 ? (
-        <span className="live-line-why">
-          {came.map((o, i) => (
-            <Fragment key={o.key}>
-              {i > 0 ? ' | ' : null}
-              {cameOf(o, replyTo)}
-            </Fragment>
-          ))}
-        </span>
-      ) : null}
-    </>
-  );
-  const saidCame = came.map((o) => cameWords(o, replyTo));
   return (
     <LiveBubble
       who="architect"
       head={head}
-      live={c !== null && c.running !== null}
-      state={state}
-      gist={why}
-      title={joinedWords([t(stands.key), held?.name ?? null, ...saidCame, why, kind, matterSentence(m)])}
+      line={result !== null ? <ResultLine r={result} /> : <span className="live-line-now">{said}</span>}
+      gist={null}
+      title={joinedWords([said, kind, matterSentence(m)])}
     >
-      <Made made={m.made} />
+      {result !== null ? <ResultThings r={result} /> : null}
       <Fold className="talk-fold" summary={t('matter_whole')}>
         <p className="talk-fold-text">{matterSentence(m)}</p>
       </Fold>
@@ -365,8 +436,7 @@ export function PolicyBubble({ p, project }: { p: PolicyInForce; project: string
     <LiveBubble
       who="architect"
       head={<ArchitectHead at={p.at} />}
-      live={false}
-      state={
+      line={
         <span className="live-line-now">
           {t('policy_took_effect_card')} <Link to={sideHref(project, 'policy')}>{t('policy_read_it')}</Link>
         </span>
@@ -390,8 +460,7 @@ export function PlanBubble({ e, p, project }: { e: ConversationEntry; p: PlanCha
           <Link to={architectHref({ project, round: roundAt(p.work, p.round) })}>{`R${p.work}-${p.round}`}</Link>
         </ArchitectHead>
       }
-      live={false}
-      state={<span className="live-line-now">{said}</span>}
+      line={<span className="live-line-now">{said}</span>}
       gist={p.changed}
       title={joinedWords([said, p.changed])}
     >

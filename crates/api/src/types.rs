@@ -1312,20 +1312,23 @@ pub struct MatterProgress {
     /// For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
     /// steps to set it straight); none for a matter of another kind.
     pub fix: Option<Value>,
-    /// What its path made that the owner reads by name, listed in its bubble: the observations it recorded, and the
-    /// items it made, cancelled or moved in the queue.
+    /// What its path changed that the owner reads by name, listed in its bubble: the observations it recorded, merged
+    /// a report into or closed, and the items it made, cancelled or moved in the queue.
     pub made: Vec<MadeThing>,
 }
 
-/// Something an architect's matter made, by its kind: an observation it recorded (new), or an item it made (new),
-/// cancelled or moved in the queue (reordered); its number, and its title, for an observation recorded before
-/// observations had titles what it says.
+/// Something an architect's matter changed, by its kind: an observation it recorded (new), merged a report into
+/// (merge) or closed (close), or an item it made (new), cancelled or moved in the queue (reordered); its number, and
+/// its title, for an observation recorded before observations had titles what it says; for an item moved, where to
+/// (`place`: first, last, before, after or under) and the item it went before, after or under (`next_to`).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct MadeThing {
     pub kind: String,
     pub change: String,
     pub id: i64,
     pub title: String,
+    pub place: Option<String>,
+    pub next_to: Option<i64>,
 }
 
 /// Where the owner's words stand with the architect they were said to, once it took them up, as one line under their
@@ -1520,8 +1523,8 @@ pub struct Handled {
     pub made: i64,
     pub dropped: i64,
     pub collected: i64,
-    /// The kind of each change its path made to the observations: new, merge or close.
-    pub observations: Vec<String>,
+    /// Each change its path made to the observations.
+    pub observations: Vec<ObservationChange>,
     /// What its path did at once: each action's kind, with the item it was about.
     pub actions: Vec<HandledAction>,
     /// The projects whose architects its path wrote to.
@@ -1533,6 +1536,14 @@ pub struct Handled {
     /// Whether nothing came of it: no reply, nothing told the owner, no item change, no observation, nothing done at
     /// once, no message to another architect and no ask of the owner.
     pub nothing: bool,
+}
+
+/// A change a matter's path made to the observations: its kind (new, merge or close), and the observation a merge
+/// reported once more or a close closed; none for a new one, whose number its source's matter finds.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ObservationChange {
+    pub kind: String,
+    pub observation: Option<i64>,
 }
 
 /// Something a matter's path did at once: its kind (pause_work, resume_work, start_work_over, hold_starts,

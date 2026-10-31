@@ -740,17 +740,18 @@ asked: number | null,
  */
 fix: JsonValue | null, 
 /**
- * What its path made that the owner reads by name, listed in its bubble: the observations it recorded, and the
- * items it made, cancelled or moved in the queue.
+ * What its path changed that the owner reads by name, listed in its bubble: the observations it recorded, merged
+ * a report into or closed, and the items it made, cancelled or moved in the queue.
  */
 made: Array<MadeThing>, };
 
 /**
- * Something an architect's matter made, by its kind: an observation it recorded (new), or an item it made (new),
- * cancelled or moved in the queue (reordered); its number, and its title, for an observation recorded before
- * observations had titles what it says.
+ * Something an architect's matter changed, by its kind: an observation it recorded (new), merged a report into
+ * (merge) or closed (close), or an item it made (new), cancelled or moved in the queue (reordered); its number, and
+ * its title, for an observation recorded before observations had titles what it says; for an item moved, where to
+ * (`place`: first, last, before, after or under) and the item it went before, after or under (`next_to`).
  */
-export type MadeThing = { kind: string, change: string, id: number, title: string, };
+export type MadeThing = { kind: string, change: string, id: number, title: string, place: string | null, next_to: number | null, };
 
 /**
  * Where the owner's words stand with the architect they were said to, once it took them up, as one line under their
@@ -1686,9 +1687,9 @@ told: number,
  */
 made: number, dropped: number, collected: number, 
 /**
- * The kind of each change its path made to the observations: new, merge or close.
+ * Each change its path made to the observations.
  */
-observations: Array<string>, 
+observations: Array<ObservationChange>, 
 /**
  * What its path did at once: each action's kind, with the item it was about.
  */
@@ -1710,6 +1711,12 @@ why: string | null,
  * once, no message to another architect and no ask of the owner.
  */
 nothing: boolean, };
+
+/**
+ * A change a matter's path made to the observations: its kind (new, merge or close), and the observation a merge
+ * reported once more or a close closed; none for a new one, whose number its source's matter finds.
+ */
+export type ObservationChange = { kind: string, observation: number | null, };
 
 /**
  * Something a matter's path did at once: its kind (pause_work, resume_work, start_work_over, hold_starts,

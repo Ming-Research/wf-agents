@@ -9,7 +9,6 @@
 import { BugIcon, CodeReviewIcon, LightBulbIcon, ProjectRoadmapIcon, ToolsIcon } from '@primer/octicons-react';
 import type { ReactNode } from 'react';
 
-import { RunningMark } from '../components';
 import { time } from '../format';
 import { MarkdownLine } from '../markdown';
 import { roleClass, useColours } from '../roles';
@@ -38,11 +37,13 @@ function Avatar({ who, role }: { who: string; role: string }) {
 /// whom, as a mention (`to`: `@you` for what is said to the owner, `@engineer`, `@architect` or a helper between agents,
 /// none for an agent's own work); what it is about, for a bubble of an agent's own work (`about`: a stage with its pass,
 /// a matter's kind), in the matter part's look of a kind, small, muted and of normal weight, so that only who says it
-/// is semibold; when; then its links (`children`: its rounds, its group, what more there is).
-export function BubbleHead({ who, to = null, about = null, at, children }: {
+/// is semibold; for a thing that runs and then ends, how it stands as a state's mark (`mark`: `StateMark` or
+/// `ToneMark`); when; then its links (`children`: its rounds, its group, what more there is).
+export function BubbleHead({ who, to = null, about = null, mark = null, at, children }: {
   who: string | null;
   to?: string | null;
   about?: string | null;
+  mark?: ReactNode;
   at: number | null;
   children?: ReactNode;
 }) {
@@ -51,6 +52,7 @@ export function BubbleHead({ who, to = null, about = null, at, children }: {
       {who !== null ? <span className="talk-who">{who}</span> : null}
       {to !== null ? <span className="talk-mention">{to}</span> : null}
       {about !== null ? <span className="talk-card-kind">{about}</span> : null}
+      {mark}
       {at !== null ? <span className="talk-when">{time(at)}</span> : null}
       {children}
     </>
@@ -91,16 +93,15 @@ export function Bubble({ who, right = false, wide = false, ask, head, after, und
 
 /// A thing that runs and then ends, said as one bubble of one line (ours, one part for every such thing: a stage a work
 /// entered, an architect's matter, a version of its plan, its policy): `who` says it, in its bubble's look; over the
-/// line its head, every bubble's (`BubbleHead`: who, what it is about, when it began, and links to where more of it
-/// is); the line itself, packed: while it goes on the running mark when a
-/// round of it runs and what happens now (`state`), once over its result as a state's chip and why; after them the
+/// line its head, every bubble's (`BubbleHead`: who, what it is about, how it stands as a state's mark, the running
+/// halo while a round of it runs, when it began, and links to where more of it is); the line itself, packed, in words
+/// and with nothing before them (`line`): while it goes on what happens now, once over what came of it; after them the
 /// gist of what was said last, cut where the line ends; the whole line said on hovering (`title`); and under the line
-/// what more there is, each a fold that opens in place.
-export function LiveBubble({ who, head, live, state, gist, title, children }: {
+/// what more there is.
+export function LiveBubble({ who, head, line, gist, title, children }: {
   who: string;
   head: ReactNode;
-  live: boolean;
-  state: ReactNode;
+  line: ReactNode;
   gist: string | null;
   title: string;
   children?: ReactNode;
@@ -108,8 +109,7 @@ export function LiveBubble({ who, head, live, state, gist, title, children }: {
   return (
     <Bubble who={who} head={head}>
       <div className="live-line" title={title}>
-        {live ? <RunningMark /> : null}
-        <span className="live-line-state">{state}</span>
+        <span className="live-line-state">{line}</span>
         {gist !== null ? (
           <span className="live-line-gist">
             <MarkdownLine text={gist} />
