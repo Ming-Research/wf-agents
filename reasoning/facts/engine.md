@@ -6,6 +6,8 @@ Fact attempt-rewrites-return: Each attempt at a return writes the whole return a
 
 Fact before-run-lint-main: A lint on the code before the change checks main's code with only the tests added.
 
+Fact cancel-cuts-round: Cancelling an item, from the owner's page or by an architect's change, ends its work at once in the same transaction, cutting off the round the work is in, whatever its step is doing.
+
 Fact cargo-test-binary-time: `cargo test` gives only the time of the whole test binary that holds a test.
 
 Fact fast-ci-stops-first-red: The fast CI stops a job at its first red test.
