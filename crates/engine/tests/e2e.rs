@@ -2371,8 +2371,8 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
             .is_some_and(|d| d.ends_with("agents/claude")),
         "{call}"
     );
-    // The record keeps each large text once: the shared formats of each line (the engineer's and the review's) and
-    // the structured-output schema are in contents once, however many rounds and sessions were given them, and a
+    // The record keeps each large text once: the shared formats and the structured-output schema of each line (the
+    // engineer's and the review's) are in contents once, however many rounds and sessions were given them, and a
     // round's record refers to them.
     let kept = |like: &str| -> i64 {
         e.db.conn()
@@ -2380,7 +2380,7 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
             .unwrap()
     };
     assert_eq!(kept("The forms every agent's return shares.%"), 2);
-    assert_eq!(kept("{\"type\":\"object\"%"), 1);
+    assert_eq!(kept("{\"type\":\"object\"%"), 2);
     let raw: String =
         e.db.conn()
             .query_row(
