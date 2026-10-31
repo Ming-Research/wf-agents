@@ -14,6 +14,7 @@ import {
   QuestionIcon,
   SkipIcon,
   StopIcon,
+  XIcon,
 } from '@primer/octicons-react';
 import { Button, Flash, Label, type LabelColorOptions } from '@primer/react';
 import { type ElementType, type ReactNode, useSyncExternalStore } from 'react';
@@ -352,35 +353,43 @@ function shownStates<S extends string>(key: string, all: readonly S[], first: re
   return states;
 }
 
-/// The states whose rows a list shows, as the owner set them with its `StateFilter`, one choice for every project in
-/// the list, kept in this browser under `key`; `first` until the owner sets them. With the way to show or hide one
-/// state's rows. Every part that reads one key reads the same states and changes with them.
+/// The states whose rows a list shows, or that the owner picked, as the owner set them with its `StateFilter`, one
+/// choice for every project in the list, kept in this browser under `key`; `first` until the owner sets them. With the
+/// way to turn one on or off, and to set them all at once (the observations' clear of every pick). Every part that
+/// reads one key reads the same states and changes with them.
 export function useShownStates<S extends string>(
   key: string,
   all: readonly S[],
   first: readonly S[],
-): [S[], (s: S) => void] {
+): [S[], (s: S) => void, (states: readonly S[]) => void] {
   const read = () => shownStates(key, all, first);
   const shown = useSyncExternalStore(readShown, read, read);
-  const toggle = (s: S) => {
-    const now = read();
-    const next = now.includes(s) ? now.filter((x) => x !== s) : [...now, s];
+  const set = (states: readonly S[]) => {
+    const next = [...states];
     keep(key, next);
     shownByKey.set(key, { text: keptText(key), states: next });
     for (const told of shownReaders) told();
   };
-  return [shown, toggle];
+  const toggle = (s: S) => {
+    const now = read();
+    set(now.includes(s) ? now.filter((x) => x !== s) : [...now, s]);
+  };
+  return [shown, toggle, set];
 }
 
 /// The buttons over a project's rows in a list (the items' tree, the works in the list of conversations, the
-/// observations) that show or hide its rows in each state, or with each tag: one for each state among them, in the
-/// list's order of states (`order`), with how many are in it (`states`, the state of each row, a row with several tags
-/// once for each); each the state's mark (`mark`, a work's state's or an item's) and its count with no words, so that
-/// the row of buttons fits on one line, the state, its count and what a click does said on hovering and as the button's
-/// name (`title`); a tag, which has no mark, its name (`words`) and its count; each a fill with no edge, in its state's
-/// colour as the state's chip while its rows show and in its tint while they hide, a tag in the neutral one, which
-/// stands for no meaning of its own, from the one set of a state's colours that the items' cards take too (items.css);
-/// a click shows or hides that state's rows.
+/// observations) that show or hide its rows in each state, or pick its rows by tag and by state: one for each state
+/// among them, in the list's order of states (`order`), with how many are in it (`states`, the state of each row, a
+/// row with several tags once for each); each the state's mark (`mark`, a work's state's or an item's) and its count
+/// with no words, so that the row of buttons fits on one line, the state, its count and what a click does said on
+/// hovering and as the button's name (`title`); a tag, which has no mark, its name (`words`) and its count; each a fill
+/// with no edge, in its state's colour as the state's chip while it is on and in its tint while it is off, a tag in
+/// the neutral one, which stands for no meaning of its own, from the one set of a state's colours that the items' cards
+/// take too (items.css). By default a button is on while its rows show, and a click shows or hides them, a state with
+/// no row having no button. With `pick` (the observations') a button is on while it is picked (`shown`): the list
+/// shows every row while nothing is picked and else only those the picks match, and each button in `order` is drawn,
+/// its count what it would show under the other picks, none among them, so that a pick keeps its button to be taken
+/// back by.
 export function StateFilter<S extends string>(props: {
   order: readonly S[];
   states: readonly S[];
@@ -390,12 +399,13 @@ export function StateFilter<S extends string>(props: {
   words?: (s: S) => string;
   title: (s: S, n: number, shown: boolean) => string;
   onShown: (s: S) => void;
+  pick?: boolean;
 }) {
   return (
     <span className="tree-states">
       {props.order.map((s) => {
         const n = props.states.filter((x) => x === s).length;
-        if (n === 0) return null;
+        if (n === 0 && props.pick !== true) return null;
         const on = props.shown.includes(s);
         const said = props.title(s, n, on);
         const tone = typeof props.tone === 'string' ? props.tone : props.tone[s];
@@ -417,6 +427,17 @@ export function StateFilter<S extends string>(props: {
         );
       })}
     </span>
+  );
+}
+
+/// The command that takes back every pick of a list's `StateFilter`s in their `pick` mode, shown only while something
+/// is picked: a small invisible `Button` with an `XIcon`, as GitHub clears a list's filters, saying on hovering what it
+/// does.
+export function ClearPicks({ title, onClear }: { title: string; onClear: () => void }) {
+  return (
+    <Button size="small" variant="invisible" className="filter-clear" leadingVisual={XIcon} title={title} onClick={onClear}>
+      {t('filter_clear')}
+    </Button>
   );
 }
 

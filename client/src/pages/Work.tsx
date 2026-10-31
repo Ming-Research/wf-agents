@@ -15,8 +15,7 @@ import { useResource } from '../live';
 import { RoundAt, RoundLink, Section } from '../parts';
 import { href, navigate, type WorkRoute, type WorkTab } from '../route';
 import { t } from '../text';
-import { time } from '../format';
-import { Bubble } from './Bubble';
+import { Bubble, BubbleHead } from './Bubble';
 import { currentCard, DesignCardView, words } from './Decide';
 import { RoundTold } from './RoundView';
 import { Usage } from './Usage';
@@ -115,11 +114,13 @@ export function helperThread(rounds: RoundSummary[], line: string, g: CompiledGr
 }
 
 /// One message of a helper's thread in its side's bubble, the helper's on the right: what the round said it did, its
-/// whole return folded under it; its head says who, the round at its cell, opening it on the chart, and when.
-function Said({ work, r, line, g, onRound }: {
+/// whole return folded under it; its head every bubble's (`BubbleHead`): who, to whom (`to`, the other side of the
+/// thread), when, and the round at its cell, opening it on the chart.
+function Said({ work, r, line, to, g, onRound }: {
   work: number;
   r: RoundSummary;
   line: string;
+  to: string;
   g: CompiledGraph;
   onRound: (round: number) => void;
 }) {
@@ -130,16 +131,22 @@ function Said({ work, r, line, g, onRound }: {
       who={who}
       right={who === line}
       head={
-        <>
-          <span className="talk-who">{words(who)}</span>
+        <BubbleHead who={words(who)} to={`@${words(to)}`} at={r.ended_at ?? r.started_at}>
           <RoundAt round={<RoundLink work={work} round={r.n} onRound={(_, n) => onRound(n)} />} cell={r.cell} title={cell?.title} />
-          <span className="talk-when">{time(r.ended_at ?? r.started_at)}</span>
-        </>
+        </BubbleHead>
       }
     >
       <RoundTold work={work} r={r} cell={cell} within={g.within} />
     </Bubble>
   );
+}
+
+/// Whom a round of a helper's thread speaks to: the helper's to the side that handed it its work, the line of the
+/// round before it in the thread that is not the helper's (the engineer when none is), and the other side's to the
+/// helper.
+function toOf(rounds: RoundSummary[], k: number, line: string): string {
+  if (rounds[k].line !== line) return line;
+  return rounds.slice(0, k).reverse().find((r) => r.line !== line)?.line ?? 'engineer';
 }
 
 /// What a work's helpers and its engineer said to each other, read only, one thread for each helper and never mixed,
@@ -155,8 +162,8 @@ function Helpers({ d, g, onRound }: { d: WorkDetail; g: CompiledGraph; onRound: 
       {threads.map((x) => (
         <Section key={x.line} title={t('helpers_thread', { line: words(x.line) })} n={x.rounds.filter((r) => r.line === x.line).length} open>
           <div className="talk-messages">
-            {x.rounds.map((r) => (
-              <Said key={r.n} work={d.work.id} r={r} line={x.line} g={g} onRound={onRound} />
+            {x.rounds.map((r, k) => (
+              <Said key={r.n} work={d.work.id} r={r} line={x.line} to={toOf(x.rounds, k, x.line)} g={g} onRound={onRound} />
             ))}
           </div>
         </Section>

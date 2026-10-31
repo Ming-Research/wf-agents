@@ -50,6 +50,7 @@ import { Bubble } from './pages/Bubble';
 import { AskView, DesignCardView } from './pages/Decide';
 import { Composer, Questions, type Reply, Stream, workMark } from './pages/Messages';
 import { SayBox } from './parts';
+import messagesCss from './styles/messages.css?raw';
 import { t } from './text';
 
 /// The flow's lines with their colours, as the interface serves them, which every bubble and avatar is drawn in.
@@ -386,31 +387,40 @@ describe("a matter's bubble in the one-to-one with an architect", () => {
   const shown = (m: MatterProgress): string =>
     drawn(detail([entry('matter', { id: m.matter, sender: 'architect', work: null, round: null, matter: m.matter, matter_card: m })]));
 
-  it('says its kind and what it asks as the queue does, whole, the steps folded under it, and what became of it', () => {
+  it('names its kind in its head, opens its line with where it stands and what came of it, what it asks folded', () => {
     const html = shown(card());
     // The architect's bubble of one line, with no one named.
     expect(html).toContain('talk-bubble talk-bubble-agent role-purple');
     expect(html).not.toContain('talk-mention');
-    expect(html).toContain('Done:');
-    expect(html).toContain('Plan fix: something missing');
-    expect(html).toContain('item 12: Its acceptance names no test.');
+    // The head: who, then what it is about, its kind, in the small muted look of a kind, then when.
+    expect(html).toMatch(
+      /<div class="talk-bubble-head"><span class="talk-who">architect<\/span><span class="talk-card-kind">Plan fix: something missing<\/span><span class="talk-when">/,
+    );
+    // The line: where the matter stands as a state's chip, then what came of it; what it asks whole on hovering.
+    const line = html.slice(html.indexOf('class="live-line"'), html.indexOf('</div>', html.indexOf('class="live-line"')));
+    expect(line).toMatch(/data-variant="success" data-component="Label">done<\/span>/);
+    expect(line).toContain('<span class="live-line-why">Told you once</span>');
+    expect(line).not.toContain('Its acceptance names no test.</span>');
+    expect(line).toContain('title="done | Told you once | Plan fix: something missing | item 12: Its acceptance names no test."');
     expect(html).not.toContain('To set straight');
     expect(html).not.toContain('Timeline');
     const fold = html.slice(html.indexOf('<details class="fold talk-fold"'));
     expect(fold).toMatch(/^<details class="fold talk-fold"><summary>/);
+    // What it asks, whole, folded first; then its steps.
+    expect(fold.indexOf('The matter in full')).toBeLessThan(fold.indexOf('The steps to fix it (2)'));
+    expect(fold).toContain('<p class="talk-fold-text">item 12: Its acceptance names no test.</p>');
     expect(fold).toContain('The steps to fix it (2)');
     expect(fold).toContain('<ol');
     expect(fold).toContain('Add the test.');
     expect(fold).toContain('Note it.');
-    expect(html).toContain('Told you once');
   });
 
-  it('has no fold for a matter with no steps, and reads "Working on:" while in hand', () => {
+  it('has no fold of steps for a matter with none, and reads working while in hand', () => {
     const html = shown(card({ kind: 'failure', detail: null, what: 'Work 4 failed its tests.', fix: null, handled: null, state: 'working' }));
-    expect(html).toContain('Working on:');
-    expect(html).toContain('Have a failure fixed');
-    expect(html).toContain('Work 4 failed its tests.');
-    expect(html).not.toContain('<details');
+    expect(html).toContain('<span class="talk-card-kind">Have a failure fixed</span>');
+    expect(html).toMatch(/data-variant="accent" data-component="Label">working<\/span>/);
+    expect(html).toContain('<p class="talk-fold-text">Work 4 failed its tests.</p>');
+    expect([...html.matchAll(/<details/g)]).toHaveLength(1);
   });
 
   it('lists what it made by name, each leading to it, not folded', () => {
@@ -981,7 +991,10 @@ describe("a work's group as a chat", () => {
       }),
     );
     expect(html).toContain('talk-bubble talk-bubble-agent role-blue');
-    expect(html).toContain('<span class="talk-who">Testing and fixing, 2nd time</span>');
+    // Its head: who says it, then the stage it is about in the small muted look of a kind, when, and its rounds.
+    expect(html).toMatch(
+      /<div class="talk-bubble-head"><span class="talk-who">engineer<\/span><span class="talk-card-kind">Testing and fixing, 2nd time<\/span><span class="talk-when">/,
+    );
     expect(html).toContain('R5-30 to R5-41');
     // How long it took and what it cost, after its rounds.
     expect(html).toContain('1m 00s | $3.02');
@@ -1012,13 +1025,15 @@ describe("a work's group as a chat", () => {
     expect(over).toContain('href="/messages?c=work%3A31"');
   });
 
-  it('says what happens now on the stage the work is at, live, as the head says it', () => {
+  it('says what happens now on the stage the work is at, live, as the head says it, in words with no cell', () => {
     const now = stage({ stage: 'merge', first: 72, last: 72, current: true, ended_at: null, outcome: null, notes: [] });
     const html = bubble(now, work());
-    expect(html).toContain('<span class="talk-who">Merge</span>');
-    expect(html).toContain(
-      'Judge whether it may enter the merge queue | paused by you, then waiting for your ruling on design card 15',
-    );
+    expect(html).toContain('<span class="talk-who">engineer</span><span class="talk-card-kind">Merge</span>');
+    expect(html).toContain('paused by you; then it waits for your ruling on design card 15 before it can merge');
+    // No cell's title or code: the rounds' link leads to the cell.
+    expect(html).not.toContain('Judge whether it may enter the merge queue');
+    expect(html).not.toMatch(/\bM1\b/);
+    expect(html).toContain('R5-72 to R5-72');
     expect(html).not.toContain('running-mark');
     // A round of the review running: who is at work, with the running mark.
     const running = work({ state: 'running', paused: null, paused_by: null, waits: null, running: { n: 73, cell: 'T4', started_at: 1, tool: false, line: 'review' } });
@@ -1047,6 +1062,69 @@ describe("a work's group as a chat", () => {
     // The engine halted it: its own state, said as such.
     const halted = work({ state: 'halted', paused: 'cell T6: no return', paused_by: 'engine', waits: null });
     expect(nowWords(course(halted, null), halted)).toBe('halted: cell T6: no return');
+  });
+
+  it('says every live line of a stage in words, what it waits for at the merge stage what it must have to merge', () => {
+    const line = (w: WorkSummary) => nowWords(course(w, null), w);
+    const waiting = (waits: WorkSummary['waits'], stage = 'merge') =>
+      line(work({ state: 'waiting', paused: null, paused_by: null, waits, stage }));
+    expect(waiting({ kind: 'ruling', design_card: 15 })).toBe('waiting for your ruling on design card 15 before it can merge');
+    expect(waiting({ kind: 'items', items: [3, 4] })).toBe('waiting for items #3, #4 to be merged before it can merge');
+    // Elsewhere the stage the bubble names is where it waits.
+    expect(waiting({ kind: 'answer', ask: 7 }, 'design')).toBe('waiting for your answer to ask 7');
+    expect(waiting({ kind: 'architect', matter: 9 }, 'test')).toBe("waiting for the architect's reply to matter 9");
+    expect(waiting({ kind: 'architect', matter: 9, project: 'q' }, 'test')).toBe(
+      "waiting for the reply of q's architect to matter 9",
+    );
+    // A row that waits for none of these is not named by its cell and row.
+    expect(waiting({ kind: 'row', cell: 'M1', row: 'wait' }, 'test')).toBe('waiting for what its next round names');
+    // Held by the architect, then what it waits for.
+    expect(line(work({ paused: 'Wait for #2', paused_by: 'architect', waits: { kind: 'answer', ask: 7 }, stage: 'design' }))).toBe(
+      'paused by the architect; then it waits for your answer to ask 7',
+    );
+    // Nothing holds it and it waits for nothing: its next round is due.
+    expect(line(work({ state: 'ready', paused: null, paused_by: null, waits: null }))).toBe('its next round is due');
+  });
+
+  it('names the design card pinned for the owner in one line in its stage, leading to it, and folds one ruled', () => {
+    const card = (id: number, status: string): DesignCard => ({
+      id,
+      round: 63,
+      work: 5,
+      item: 3,
+      status,
+      body: [],
+      rulings: [],
+      replaced_by: null,
+      replaced: null,
+      cell: null,
+      title: null,
+      at: null,
+      replaces: null,
+      changed: null,
+      ruled_before: null,
+    });
+    const s = stage({ again: 2, design_cards: [card(12, 'ruled'), card(15, 'open')] });
+    const html = renderToStaticMarkup(
+      <AnswersHere.Provider value={true}>
+        <Stream
+          d={{ ...detail([entry('stage', { id: 1, at: s.started_at, round: s.first, stage: s })]), design_cards: [card(15, 'open')] }}
+          c={group}
+          w={null}
+        />
+      </AnswersHere.Provider>,
+    );
+    // The one pinned is drawn once, in the band over the stream, and named here in one line that leads there.
+    expect(html).not.toContain('id="design-card-15"');
+    expect(html).toContain('design card 15, waiting for you above');
+    expect(html).toContain('<button class="link-button');
+    // One ruled stays in its stage, folded.
+    expect(html).toContain('id="design-card-12"');
+    expect(html).not.toContain('design card 12, waiting for you above');
+    // Once it is ruled, and no longer pinned, it is folded in its stage as any other.
+    const after = bubble(s);
+    expect(after).toContain('id="design-card-15"');
+    expect(after).not.toContain('waiting for you above');
   });
 
   it('says on a design card that waits that it changed since the card the owner ruled on, folded too', () => {
@@ -1174,6 +1252,33 @@ describe('a design card and an ask, where they stand said by the chip and the fa
   });
 });
 
+// A bubble of one line is at most the stream's width, whatever its line holds: the stream's column is no wider than the
+// stream, a row and its bubble no wider than that, and each part of the line that holds words may shrink below its
+// words' length, so that the line is cut with an ellipsis at the bubble's edge, whole on hovering, and the page never
+// scrolls sideways. Positions are checked in the browser; this holds the rules that keep them.
+describe('a bubble of one line in a conversation', () => {
+  const css = messagesCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  /// The declarations of the rules whose selectors include `selector`.
+  const rule = (selector: string): string =>
+    [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+      .filter((m) => m[1].split(',').map((s) => s.trim()).includes(selector))
+      .map((m) => m[2])
+      .join('\n');
+
+  it('is no wider than the stream, its line cut where the bubble ends', () => {
+    expect(rule('.talk-messages')).toContain('grid-template-columns: minmax(0, 1fr)');
+    expect(rule('.talk-row')).toContain('max-width:');
+    expect(rule('.talk-bubble')).toContain('min-width: 0');
+    expect(rule('.live-line')).toContain('white-space: nowrap');
+    for (const part of ['.live-line', '.live-line-state', '.live-line-now', '.live-line-why', '.live-line-gist']) {
+      expect(rule(part), part).toContain('min-width: 0');
+    }
+    for (const part of ['.live-line-now', '.live-line-why', '.live-line-gist', '.live-made > li']) {
+      expect(rule(part), part).toContain('text-overflow: ellipsis');
+    }
+  });
+});
+
 describe("the one-to-one with an architect as a chat", () => {
   const one: Conversation = { ...group, key: 'architect:p', kind: 'architect', work: null, item: null, title: null };
   const drawnIn = (entries: ConversationEntry[]): string =>
@@ -1207,6 +1312,87 @@ describe("the one-to-one with an architect as a chat", () => {
     expect(html).not.toContain('talk-mention');
     const first = drawnIn([{ ...plan, plan: { changed: null, plan: '1. Finish #10.', work: 9, round: 12 } }]);
     expect(first).toContain('Made the plan');
+  });
+
+  it("heads every bubble alike, who first, then to whom or what it is about, then when; only who in semibold", () => {
+    const s: StageCard = {
+      stage: 'merge',
+      again: 2,
+      first: 72,
+      last: 72,
+      started_at: 5,
+      ended_at: null,
+      cost_usd: 0,
+      current: false,
+      outcome: 'merged',
+      why: null,
+      findings: [],
+      pr: null,
+      commit: null,
+      taken_over_by: null,
+      notes: [],
+      events: [],
+      shown: [],
+      design_cards: [],
+    };
+    const matter: MatterProgress = {
+      matter: 5,
+      kind: 'report',
+      detail: 'other',
+      what: 'A side report.',
+      state: 'working',
+      cell: null,
+      cell_title: null,
+      architect_work: null,
+      round: null,
+      work: null,
+      item: null,
+      handled: null,
+      withdrawn: null,
+      asked: null,
+      fix: null,
+      made: [],
+    };
+    const html = renderToStaticMarkup(
+      <AnswersHere.Provider value={true}>
+        <Stream
+          d={detail([
+            entry('message', { id: 1, text: 'Merged.', at: 1 }),
+            entry('stage', { id: 2, at: 5, round: 72, stage: s }),
+            entry('matter', { id: 3, sender: 'architect', work: null, round: null, matter: 5, matter_card: matter, at: 6 }),
+            entry('plan', {
+              id: 4,
+              sender: 'architect',
+              recipient: 'architect',
+              work: 9,
+              round: 12,
+              at: 7,
+              plan: { changed: null, plan: '1. A.', work: 9, round: 12 },
+            }),
+            entry('policy', {
+              id: 6,
+              sender: 'architect',
+              work: 9,
+              round: 6,
+              at: 8,
+              policy: { work: 9, round: 6, cell: 'P3', at: 8, policy: { direction: 'Ship the parser.' } },
+            }),
+          ])}
+          c={group}
+          w={null}
+        />
+      </AnswersHere.Provider>,
+    );
+    const heads = [...html.matchAll(/<div class="talk-bubble-head">(.*?)<\/div>/g)].map((m) => m[1]);
+    expect(heads).toHaveLength(5);
+    for (const h of heads) expect(h).toMatch(/^<span class="talk-who">(engineer|architect)<\/span>/);
+    // To whom for what is said, what it is about for an agent's own work, in the small muted look of a kind.
+    expect(heads[0]).toMatch(/^<span class="talk-who">engineer<\/span><span class="talk-mention">@you<\/span><span class="talk-when">/);
+    expect(heads[1]).toMatch(/^<span class="talk-who">engineer<\/span><span class="talk-card-kind">Merge, 3rd time<\/span><span class="talk-when">/);
+    expect(heads[2]).toMatch(/^<span class="talk-who">architect<\/span><span class="talk-card-kind">Go through side reports<\/span><span class="talk-when">/);
+    expect(heads[3]).toMatch(/^<span class="talk-who">architect<\/span><span class="talk-when">/);
+    // The state stays on the line, not in the head.
+    expect(heads.join('')).not.toContain('data-component="Label"');
   });
 
   it('says the policy took effect in one line, leading to it', () => {

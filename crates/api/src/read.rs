@@ -3475,6 +3475,46 @@ mod tests {
         let two = list.iter().find(|c| c.key == "work:2").unwrap();
         assert_eq!((two.waiting, two.unread), (1, 1));
     }
+    // A helper's words go to the one it helps and never show in the owner's conversations: what the architect's helpers
+    // (the review of its batch, the search of its observations) told the owner before only the architect could is no
+    // entry of the one-to-one, whatever its age, and counts as nothing unread there; what the architect told the owner
+    // stays.
+    #[test]
+    fn the_one_to_one_leaves_out_what_the_architect_s_helpers_told_the_owner() {
+        let mut s = architect_setup("helpers");
+        s.db.write(Actor::Engine, |tx| {
+            let run = |sql: &str| tx.execute(sql, []).map(|_| ());
+            run("INSERT INTO sessions (id, work, line, cli, cli_session) VALUES
+                 (40, 2, 'architect_review', 'claude', 'r'), (41, 2, 'observer', 'claude', 'o')")?;
+            run(
+                "INSERT INTO rounds (work, n, cell, session, input, transition, config_commit, started_at, ended_at)
+                 VALUES (2, 20, 'B2', 40, '{}', 'done', 'c', 500, 501), (2, 21, 'O1', 41, '{}', 'done', 'c', 510, 511),
+                 (2, 22, 'B1', NULL, '{}', 'done', 'c', 520, 521)",
+            )?;
+            run(
+                "INSERT INTO owner_messages (work, round, text) VALUES (2, 20, 'The batch reads well.'),
+                 (2, 21, 'Found two like it.'), (2, 22, 'The batch is in.')",
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let t = crate::Talks {
+            projects: vec!["p".into(), "q".into()],
+            ..crate::Talks::default()
+        };
+        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let said: Vec<(&str, &str)> = d
+            .entries
+            .iter()
+            .filter(|e| e.source == "message")
+            .map(|e| (e.sender.as_str(), e.text.as_str()))
+            .collect();
+        assert_eq!(said, [("architect", "The batch is in.")]);
+        let all = crate::conversations(s.db.conn(), &t).unwrap();
+        let p = all.iter().find(|c| c.key == "architect:p").unwrap();
+        assert_eq!(p.unread, 1);
+    }
+
     // The one-to-one with an architect is a chat too: no notice of the engine's is an entry of it; a matter that changed
     // nothing leaves it once done, and the queue's handled list keeps it; a matter done lists what it made by name; and
     // each version of the plan is a bubble saying what changed.

@@ -10,6 +10,7 @@ import { BugIcon, CodeReviewIcon, LightBulbIcon, ProjectRoadmapIcon, ToolsIcon }
 import type { ReactNode } from 'react';
 
 import { RunningMark } from '../components';
+import { time } from '../format';
 import { MarkdownLine } from '../markdown';
 import { roleClass, useColours } from '../roles';
 
@@ -29,6 +30,30 @@ function Avatar({ who, role }: { who: string; role: string }) {
     <span className={`talk-avatar ${role}`} aria-hidden="true">
       {MARKS[who] ?? <ToolsIcon />}
     </span>
+  );
+}
+
+/// The head of every bubble, one part in a work's group, the one-to-one with an architect and a work's helpers' threads,
+/// in one order: who says it, semibold (`who`, none on the owner's own sheet, which its side and its look say); to
+/// whom, as a mention (`to`: `@you` for what is said to the owner, `@engineer`, `@architect` or a helper between agents,
+/// none for an agent's own work); what it is about, for a bubble of an agent's own work (`about`: a stage with its pass,
+/// a matter's kind), in the matter part's look of a kind, small, muted and of normal weight, so that only who says it
+/// is semibold; when; then its links (`children`: its rounds, its group, what more there is).
+export function BubbleHead({ who, to = null, about = null, at, children }: {
+  who: string | null;
+  to?: string | null;
+  about?: string | null;
+  at: number | null;
+  children?: ReactNode;
+}) {
+  return (
+    <>
+      {who !== null ? <span className="talk-who">{who}</span> : null}
+      {to !== null ? <span className="talk-mention">{to}</span> : null}
+      {about !== null ? <span className="talk-card-kind">{about}</span> : null}
+      {at !== null ? <span className="talk-when">{time(at)}</span> : null}
+      {children}
+    </>
   );
 }
 
@@ -65,8 +90,9 @@ export function Bubble({ who, right = false, wide = false, ask, head, after, und
 }
 
 /// A thing that runs and then ends, said as one bubble of one line (ours, one part for every such thing: a stage a work
-/// entered, and next an architect's matter): `who` says it, in its bubble's look; over the line its head (what it is,
-/// when it began, and links to where more of it is); the line itself, packed: while it goes on the running mark when a
+/// entered, an architect's matter, a version of its plan, its policy): `who` says it, in its bubble's look; over the
+/// line its head, every bubble's (`BubbleHead`: who, what it is about, when it began, and links to where more of it
+/// is); the line itself, packed: while it goes on the running mark when a
 /// round of it runs and what happens now (`state`), once over its result as a state's chip and why; after them the
 /// gist of what was said last, cut where the line ends; the whole line said on hovering (`title`); and under the line
 /// what more there is, each a fold that opens in place.

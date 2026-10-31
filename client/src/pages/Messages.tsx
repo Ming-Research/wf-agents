@@ -121,7 +121,7 @@ import { t, tn } from '../text';
 import { joinedWords, SEP } from '../voices';
 import { ArchitectAskBlock } from './ArchitectAsk';
 import { ArchitectSide, useSideOpen } from './ArchitectSide';
-import { Bubble } from './Bubble';
+import { Bubble, BubbleHead } from './Bubble';
 import { AskView, DesignCardView } from './Decide';
 import { ArchitectHead, PlainHead, WfAgentsHead, WorkHead } from './TalkHead';
 import { MatterBubble, PlanBubble, PolicyBubble, StageBubble } from './TalkCards';
@@ -532,10 +532,7 @@ function Message({ e, to, reply, draft = null }: {
       wide={answers}
       ask={ask !== null ? ask.id : undefined}
       head={
-        <>
-          {own ? null : <span className="talk-who">{party(e, e.sender)}</span>}
-          {to !== null ? <span className="talk-mention">{to}</span> : null}
-          <span className="talk-when">{time(e.at)}</span>
+        <BubbleHead who={own ? null : party(e, e.sender)} to={to} at={e.at}>
           {round ? (
             <Link to={workHref(e.work ?? 0, { round: e.round ?? 0 })}>
               {`R${e.work}-${e.round}`}
@@ -544,7 +541,7 @@ function Message({ e, to, reply, draft = null }: {
           {draft !== null ? <Link to={draft}>{t('conv_draft')}</Link> : null}
           {e.pending && own ? <span className="talk-state">{t('conv_pending')}</span> : null}
           {e.undelivered ? <span className="talk-state talk-state-bad">{t('conv_undelivered')}</span> : null}
-        </>
+        </BubbleHead>
       }
       after={
         <>
@@ -563,10 +560,10 @@ function Message({ e, to, reply, draft = null }: {
   );
 }
 
-/// A line of the page's own, small and grey, for what the engine says, and what a helper of the work told the owner:
-/// an item of the run's Timeline, as a card is, its CpuIcon its badge, so that every badge of the run is in one column.
+/// A line of the page's own, small and grey, for what the engine says: an item of the run's Timeline, as a card is, its
+/// CpuIcon its badge, so that every badge of the run is in one column. What a helper told the owner before only the
+/// engineer and the architect could is in no conversation (the interface leaves it out).
 function SystemLine({ e }: { e: ConversationEntry }) {
-  const helper = e.sender !== 'engine';
   return (
     <Timeline.Item condensed className="talk-card">
       <Timeline.Badge>
@@ -575,7 +572,6 @@ function SystemLine({ e }: { e: ConversationEntry }) {
       <Timeline.Body className="talk-card-body">
         <div className="talk-line">
           <span className="talk-line-text">
-            {helper ? `${t('conv_helper_said', { line: words(e.sender) })} ` : null}
             {e.source === 'card' ? t('conv_card', { id: e.design_card ?? e.id }) : e.text}
           </span>
           <span className="talk-when">{time(e.at)}</span>
@@ -701,8 +697,9 @@ function Fault({ e, forwarding }: { e: ConversationEntry; forwarding: Forwarding
 
 /// One entry of the stream, in its voice; a question with the owner's answer to it (`replies`, by its matter); the
 /// question whether the draft of a new policy that waits (`draft`) is approved leading to the draft; the bubble of the
-/// matter the architect has in hand with how its work goes on (`architect`).
-function Entry({ e, c, w, architect, replies, forwarding, draft }: {
+/// matter the architect has in hand with how its work goes on (`architect`); the design cards pinned at the top
+/// (`pinned`), which a stage's bubble names instead of drawing them again.
+function Entry({ e, c, w, architect, replies, forwarding, draft, pinned }: {
   e: ConversationEntry;
   c: Conversation;
   w: WorkSummary | null;
@@ -710,11 +707,12 @@ function Entry({ e, c, w, architect, replies, forwarding, draft }: {
   replies: ReadonlyMap<number, ConversationEntry>;
   forwarding: Forwarding | null;
   draft: PolicyDraft | null;
+  pinned: readonly number[];
 }) {
   const voice = voiceOf(e);
   if (voice === 'live') {
     const project = c.project ?? '';
-    if (e.stage !== null) return <StageBubble e={e} s={e.stage} w={w} project={c.project} />;
+    if (e.stage !== null) return <StageBubble e={e} s={e.stage} w={w} project={c.project} pinned={pinned} />;
     if (e.matter_card !== null) return <MatterBubble e={e} m={e.matter_card} project={project} architect={architect} />;
     if (e.policy !== null) return <PolicyBubble p={e.policy} project={project} />;
     if (e.plan !== null) return <PlanBubble e={e} p={e.plan} project={project} />;
@@ -1014,6 +1012,7 @@ export function Stream({ d, c, w, draft = null, architect = null }: {
   architect?: Architect | null;
 }) {
   const replies = useMemo(() => ownerReplies(d.entries), [d]);
+  const pinned = d.design_cards.map((x) => x.id);
   const stream = streamOf(d);
   const going = architect !== null ? architectState(architect.works, architect.queue) : null;
   const aw = going !== null && going.kind === 'working' ? going.work : null;
@@ -1081,6 +1080,7 @@ export function Stream({ d, c, w, draft = null, architect = null }: {
               replies={replies}
               forwarding={d.forwarding}
               draft={draft}
+              pinned={pinned}
             />
           ));
           return run.cards ? (

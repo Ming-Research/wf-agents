@@ -1,30 +1,48 @@
 // The observations: what each project's architect recorded on the project's behalf, a problem, an idea or feedback
 // not yet worth an item, the project's pool of what is not an item yet. A view of its own beside the items, since a
 // project's observations far outnumber its items. On the left, each project's under its name, as the list of
-// conversations groups its rows, with the buttons that show or hide those with each of the project's tags and, off at
-// first, those handled (taken in by an item or closed), then a row for each, which opens it; on the right, the one
-// open, in full, where the owner closes it, saying why. While none is open the list fills the view; the split is the
-// one the items take (`ListSplit`), for one look and one code.
+// conversations groups its rows, with the buttons that pick them by the project's tags and by state (open or
+// handled), nothing picked at first so that every observation shows, and the clear of every pick while something is
+// picked; then a row for each, which opens it; on the right, the one open, in full, where the owner closes it, saying
+// why. While none is open the list fills the view; the split is the one the items take (`ListSplit`), for one look and
+// one code.
 
 import { XIcon } from '@primer/octicons-react';
 import { IconButton, NavList, PageHeader } from '@primer/react';
 import { Fragment, type MouseEvent, useState } from 'react';
 
 import type { Items as ItemsData, Observation, ProjectObservations } from '../api';
-import { Loaded, StateChip, StateFilter, TagChip, useShownStates } from '../components';
+import { ClearPicks, Loaded, StateChip, StateFilter, TagChip, useShownStates } from '../components';
 import { time } from '../format';
 import { postJson } from '../http';
 import { words } from '../labelled';
 import { reread, useResource, useShared } from '../live';
 import { firstWords, Markdown, MarkdownInline, MarkdownLine } from '../markdown';
-import { handled, NO_TAG, rowLine, shownObservations, tagCounts } from '../observations';
+import {
+  filters,
+  handled,
+  NO_TAG,
+  OBSERVATION_STATES,
+  type ObservationState,
+  type Picks,
+  rowLine,
+  shownObservations,
+} from '../observations';
 import { Fold, HeadingLevel, ItemRef, ListSplit, SendForm, SubHeading } from '../parts';
 import { Link, navigate, observationsHref, type ObservationsRoute } from '../route';
 import { t, tn } from '../text';
 import { factsAfter, joinedWords } from '../voices';
 
-/// The one choice of the handled button, for every project, kept in this browser: off until the owner turns it on.
-const HANDLED = ['handled'] as const;
+/// What a click on a button over the list does, by whether it is picked and whether its group has another pick: take
+/// it back, add it to the group's picks, or show only what it matches.
+function clickWords(on: boolean, others: boolean): string {
+  if (on) return t('observations_unpick');
+  return t(others ? 'observations_pick_too' : 'observations_pick_only');
+}
+
+/// What a state's button says its count is.
+const stateSaid = (s: ObservationState, n: number): string =>
+  s === 'open' ? tn('observations_open', n) : tn('observations_handled', n);
 
 /// An observation's facts, as words: how many times it was reported, when it was recorded, and where it came from.
 function facts(o: Observation): Array<string | null> {
@@ -49,12 +67,18 @@ function HandledChips({ o }: { o: Observation }) {
   );
 }
 
-/// One observation's row: its title, or for one recorded before observations had titles the words it starts with, cut
-/// to one line and whole on hovering; under them its tags, how it was handled, and its facts, cut to one line and whole
-/// on hovering. A click opens it beside the list.
+/// One observation's row, one block parted from the next by a line: its title, or for one recorded before observations
+/// had titles the words it starts with, cut to one line and whole on hovering; under them its tags, how it was handled,
+/// and its facts, cut to one line and whole on hovering. A row handled is muted. A click opens it beside the list.
 function Row({ o, project, open }: { o: Observation; project: string | null; open: number | null }) {
   const to = observationsHref(project, o.id);
   const said = joinedWords(facts(o));
+  const whole = joinedWords([
+    o.tags.length > 0 ? o.tags.join(', ') : null,
+    o.folded_into !== null ? t('observation_folded', { item: o.folded_into }) : null,
+    o.closed !== null ? t('observation_closed', { why: words(o.closed) }) : null,
+    said,
+  ]);
   const line = rowLine(o);
   return (
     <NavList.Item
@@ -71,7 +95,7 @@ function Row({ o, project, open }: { o: Observation; project: string | null; ope
         <MarkdownLine text={line} />
       </span>
       <NavList.Description variant="block" className="obs-facts">
-        <span className="obs-facts-line" title={said}>
+        <span className="obs-facts-line" title={whole}>
           {o.tags.map((x) => (
             <TagChip key={x}>{x}</TagChip>
           ))}
@@ -83,50 +107,60 @@ function Row({ o, project, open }: { o: Observation; project: string | null; ope
   );
 }
 
-/// One project's observations: its name, the buttons that show or hide those with each of its tags, in its order, and
-/// those carrying none of them, each with how many there are among those shown (`StateFilter`, the part the items' tree
-/// and the list of conversations show or hide their rows with), and the button of those handled, off at first; then
-/// its rows. The owner's choice of tags is one for every project, as the items' states are, and kept in this browser.
-function Project({ p, project, open, hidden, onTag, withHandled, onHandled }: {
+/// The owner's picks over the list, one choice for every project, kept in this browser: the tags and the states picked,
+/// nothing at first, with the way to pick or take back one and to take back every pick.
+type Picking = {
+  picks: Picks;
+  onTag: (tag: string) => void;
+  onState: (s: ObservationState) => void;
+  onClear: () => void;
+};
+
+/// One project's observations: its name; the buttons that pick them by its tags, in its order, then by none of them,
+/// and by state, open or handled (`StateFilter` in its `pick` mode, the part the items' tree and the list of
+/// conversations show or hide their rows with), each with how many it would show under the picks of the other group,
+/// and while anything is picked the clear of every pick; then its rows, every one while nothing is picked.
+function Project({ p, project, open, picking }: {
   p: ProjectObservations;
   /// The project the address names, which the rows' addresses keep.
   project: string | null;
   open: number | null;
-  hidden: readonly string[];
-  onTag: (tag: string) => void;
-  withHandled: boolean;
-  onHandled: () => void;
+  picking: Picking;
 }) {
+  const { picks } = picking;
   const tags = p.tags.map((x) => x.name);
-  const order = [...tags, NO_TAG];
   const covers = new Map(p.tags.map((x) => [x.name, x.desc]));
-  const counts = tagCounts(p.observations, tags, withHandled);
-  const rows = shownObservations(p.observations, tags, hidden, withHandled, open);
+  const f = filters(p.observations, tags, picks);
+  const rows = shownObservations(p.observations, tags, picks, open);
+  const picked = picks.tags.length + picks.states.length > 0;
   return (
     <NavList.Group title={p.project}>
       <li className="obs-filters">
         <StateFilter
-          order={order}
-          states={counts.tags}
-          shown={order.filter((x) => !hidden.includes(x))}
+          pick
+          order={f.tags.order}
+          states={f.tags.counts}
+          shown={picks.tags}
           tone="neutral"
           words={(x) => (x === NO_TAG ? t('observation_no_tag') : x)}
-          title={(x, n, on) =>
-            x === NO_TAG
-              ? tn(on ? 'observations_hide_untagged' : 'observations_show_untagged', n)
-              : `${tn(on ? 'observations_hide_tag' : 'observations_show_tag', n, { tag: x })} ${covers.get(x) ?? ''}`.trim()
-          }
-          onShown={onTag}
+          title={(x, n, on) => {
+            const said = x === NO_TAG ? tn('observations_untagged', n) : tn('observations_tagged', n, { tag: x });
+            const click = clickWords(on, picks.tags.some((y) => y !== x));
+            return [said, click, x !== NO_TAG ? (covers.get(x) ?? '') : ''].join(' ').trim();
+          }}
+          onShown={picking.onTag}
         />
         <StateFilter
-          order={HANDLED}
-          states={Array.from({ length: counts.handled }, () => 'handled' as const)}
-          shown={withHandled ? HANDLED : []}
+          pick
+          order={f.states.order}
+          states={f.states.counts}
+          shown={picks.states}
           tone="neutral"
-          words={() => t('observation_handled')}
-          title={(_, n, on) => tn(on ? 'observations_hide_handled' : 'observations_show_handled', n)}
-          onShown={onHandled}
+          words={(x) => t(x === 'open' ? 'observation_open' : 'observation_handled')}
+          title={(x, n, on) => `${stateSaid(x, n)} ${clickWords(on, picks.states.some((y) => y !== x))}`}
+          onShown={picking.onState}
         />
+        {picked ? <ClearPicks title={t('observations_clear')} onClear={picking.onClear} /> : null}
       </li>
       {rows.length === 0 ? <li className="obs-none muted">{t('observations_none_shown')}</li> : null}
       {rows.map((o) => (
@@ -139,8 +173,17 @@ function Project({ p, project, open, hidden, onTag, withHandled, onHandled }: {
 /// Every project's observations, or the one project's the address names, with the way back to every project's.
 function List({ all, route }: { all: ProjectObservations[]; route: ObservationsRoute }) {
   const names = [...new Set(all.flatMap((p) => [...p.tags.map((x) => x.name), ...p.observations.flatMap((o) => o.tags)]))];
-  const [hidden, toggleTag] = useShownStates('observations-hidden-tags', [...names, NO_TAG], []);
-  const [withHandled, toggleHandled] = useShownStates('observations-handled', HANDLED, []);
+  const [tags, onTag, setTags] = useShownStates('observations-picked-tags', [...names, NO_TAG], []);
+  const [states, onState, setStates] = useShownStates('observations-picked-states', OBSERVATION_STATES, []);
+  const picking: Picking = {
+    picks: { tags, states },
+    onTag,
+    onState,
+    onClear: () => {
+      setTags([]);
+      setStates([]);
+    },
+  };
   const projects = route.project !== null ? all.filter((p) => p.project === route.project) : all;
   return (
     <>
@@ -158,10 +201,7 @@ function List({ all, route }: { all: ProjectObservations[]; route: ObservationsR
               p={p}
               project={route.project}
               open={route.open}
-              hidden={hidden}
-              onTag={toggleTag}
-              withHandled={withHandled.length > 0}
-              onHandled={() => toggleHandled('handled')}
+              picking={picking}
             />
           ))}
         </NavList>

@@ -24,12 +24,14 @@ type Result<T> = std::result::Result<T, Error>;
 /// What a work's group and the one-to-one with an architect leave out of what `conversation_entries` gathers for them,
 /// as a condition on the view's columns: the engine's notices, which the bubble of the stage the work was at, the
 /// bubble of the matter the architect has in hand and their heads say instead; in a work's group, the side reports a
-/// work's lines handed in, which are the architect's to read in its queue, and what a helper of the work (the review,
-/// the adversarial testing, the advisor) told the owner before only the engineer and the architect could, which its
-/// round's progress note in the stage's bubble says.
+/// work's lines handed in, which are the architect's to read in its queue; and in both, what a helper told the owner
+/// before only the engineer and the architect could, a helper of the work (the review, the adversarial testing, the
+/// advisor) or of the architect (the review of its batch, the search of its observations), whose words go to the one
+/// it helps: a work's round's progress note in the stage's bubble says it, and the architect reads the rest.
 const LEFT_OUT: &str = "NOT ((conversation LIKE 'work:%' OR conversation LIKE 'architect:%') AND source = 'notice')
-    AND NOT (conversation LIKE 'work:%' AND (source = 'report'
-      OR (source = 'message' AND sender NOT IN ('engineer', 'architect', 'policy'))))";
+    AND NOT (conversation LIKE 'work:%' AND source = 'report')
+    AND NOT ((conversation LIKE 'work:%' OR conversation LIKE 'architect:%') AND source = 'message'
+      AND sender NOT IN ('engineer', 'architect', 'policy'))";
 
 /// What the conversations need of the configuration: its projects, in order, the groups of two projects or more it
 /// connects through each project's `other_projects`, and how long, in milliseconds, an architect waits for the owner's

@@ -239,8 +239,11 @@
   padding: var(--base-size-16);
 }
 
+/* Its one column is the stream's width and no wider, so that a row is at most that width, and what is on one line in
+   a bubble is cut at the bubble's edge rather than widening the row and the stream with it. */
 .talk-messages {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--base-size-12);
 }
 
@@ -504,8 +507,11 @@
   overflow: hidden;
 }
 
+/* Each part of the line that holds words may shrink below its words' length (min-width 0), so that it is cut there
+   with an ellipsis rather than pushing the bubble wider. */
 .live-line-now,
 .live-line-why {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -554,6 +560,12 @@
   color: var(--fgColor-accent);
   font-size: var(--text-body-size-small);
   cursor: pointer;
+}
+
+/* A matter in full, in a fold under its bubble's line: its sentence as body text, wrapping. */
+.talk-fold-text {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .talk-fold-body {

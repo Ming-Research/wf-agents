@@ -1,18 +1,33 @@
 /* The observations: each project's in the pane of the split of a list and what is open from it (parts.css), grouped as
-   the list of conversations groups its rows: under the project's name the buttons that show or hide those with each
-   tag and those handled, then a row for each, the words it starts with on one line and its tags and facts on the line
-   under them, a row handled greyed in place; the one open beside them, a reading page as an item's. */
+   the list of conversations groups its rows: under the project's name the buttons that pick them by tag and by state
+   and the clear of every pick, then a row for each, one block parted from the next by a line, the words it starts with
+   on one line and its tags and facts on the line under them, a row handled greyed in place; the one open beside them,
+   a reading page as an item's. */
 
 .obs-list {
   padding: var(--base-size-8) 0;
 }
 
+/* The buttons of each group (the tags, the states) --base-size-4 apart, as marks on one line are, and the groups and
+   the clear --base-size-12 apart, so that the two groups, which a pick narrows each on its own, read as two. */
 .obs-filters {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--base-size-4);
-  padding: 0 var(--base-size-8) var(--base-size-4);
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-12);
+  padding: 0 var(--base-size-8) var(--base-size-8);
   list-style: none;
+}
+
+/* A row is one block: its two lines --base-size-8 inside its edges, and a --borderColor-muted line between it and the
+   next, as the lines between a table's rows, since its long first line and its line of chips and facts ran into the
+   next row's without one. */
+.obs-row + .obs-row {
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+
+.obs-row > a {
+  padding-block: var(--base-size-8);
 }
 
 .obs-only {

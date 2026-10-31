@@ -7,7 +7,7 @@
 // where its detail is: a stage to its rounds, its pull request and commit, a matter to its cell on the architect's
 // chart or its work's group, what it made to each observation and item, the policy to the panel beside the one-to-one.
 
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 
 import type {
   ConversationEntry,
@@ -18,19 +18,19 @@ import type {
   StageCard,
   WorkSummary,
 } from '../api';
-import { matterKind, matterSentence, matterSteps, outcomes, type MatterWords } from '../architect';
-import { course, heldName, heldWords, StateChip } from '../components';
+import { matterKind, matterSentence, matterSteps, type Outcome, outcomes, type MatterWords } from '../architect';
+import { course, heldName, heldWords, StateChip, type Tone } from '../components';
 import { stageOutcome, stageTitle, stageWhy } from '../conversation';
 import { lineWho, nowWords } from '../course';
-import { cost, duration, time } from '../format';
+import { cost, duration } from '../format';
 import { useStatus } from '../live';
 import { words } from '../labelled';
 import { firstWords, Markdown, MarkdownLine } from '../markdown';
-import { CommitLink, Fold, ItemRef, PrLink, RoundLink } from '../parts';
+import { CommitLink, Fold, ItemRef, LinkButton, PrLink, RoundLink } from '../parts';
 import { architectHref, href, Link, observationsHref, sideHref } from '../route';
 import { t, tn, type Key } from '../text';
 import { joinedWords } from '../voices';
-import { LiveBubble } from './Bubble';
+import { BubbleHead, LiveBubble } from './Bubble';
 import { DesignCardView } from './Decide';
 import { DesignShown } from './Item';
 
@@ -43,12 +43,36 @@ function Said({ text }: { text: string }) {
   );
 }
 
+/// A design card pinned for the owner, named where else it would show: one line that says it waits above, a click
+/// bringing the pinned card into view, instead of the card drawn a second time.
+function PinnedAbove({ id }: { id: number }) {
+  return (
+    <p className="talk-card-note">
+      <LinkButton
+        onClick={() => {
+          const el = document.getElementById(`design-card-${id}`);
+          el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          el?.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true });
+        }}
+      >
+        {t('stage_card_pinned', { id })}
+      </LinkButton>
+    </p>
+  );
+}
+
 /// What a stage's bubble folds under its line: what its rounds said, oldest first, each with who said it and its round;
 /// at the design stage, the design (the approaches compared, the one chosen, the design and the acceptance, or while
 /// none is chosen, where the engineer leans and what the choice waits for); the design cards its rounds handed in,
-/// each folded to its head line, the one that waits for the owner's ruling with its buttons once opened; and, once the
-/// stage is over, what the engine told of the work meanwhile.
-function StageFolds({ s, w, work }: { s: StageCard; w: WorkSummary | null; work: number }) {
+/// each folded to its head line, but one pinned for the owner's ruling (`pinned`), which the band at the top holds and
+/// this names in one line that leads there, so that it shows once; and, once the stage is over, what the engine told
+/// of the work meanwhile.
+function StageFolds({ s, w, work, pinned }: {
+  s: StageCard;
+  w: WorkSummary | null;
+  work: number;
+  pinned: readonly number[];
+}) {
   const engineer = s.notes.filter((n) => n.line === 'engineer');
   const leans = engineer.length > 0 ? engineer[engineer.length - 1].text : null;
   const design = s.stage === 'design' && s.shown.some((x) => ['options', 'chosen', 'design', 'acceptance'].includes(x.path));
@@ -74,9 +98,13 @@ function StageFolds({ s, w, work }: { s: StageCard; w: WorkSummary | null; work:
           </div>
         </Fold>
       ) : null}
-      {s.design_cards.map((c) => (
-        <DesignCardView key={c.id} c={c} round={<RoundLink work={c.work} round={c.round} />} folded />
-      ))}
+      {s.design_cards.map((c) =>
+        pinned.includes(c.id) ? (
+          <PinnedAbove key={c.id} id={c.id} />
+        ) : (
+          <DesignCardView key={c.id} c={c} round={<RoundLink work={c.work} round={c.round} />} folded />
+        ),
+      )}
       {!s.current && s.events.length > 0 ? (
         <Fold className="talk-fold" summary={tn('stage_events', s.events.length)}>
           {s.events.map((x, i) => (
@@ -93,15 +121,18 @@ function StageFolds({ s, w, work }: { s: StageCard; w: WorkSummary | null; work:
 /// The bubble of a stage a work entered, in the engineer's look as the work's own voice, posted when the work came in
 /// and updated in place (`LiveBubble`): its head the stage and which time the work is at it, when the work came in,
 /// its rounds and, once over, how long it took and what it cost; its one line, while the work is at it what happens
-/// now, where and with who at work, live and as the head of the group says it, with what the engine told of the work
-/// meanwhile under it; once over, how it ended and why: what its reviews found, the pull request and the commit that
-/// merged the work, or why it ended and the work that took it over; then the gist of what its last round said; and
-/// what more there is folded under it (`StageFolds`). Its links go to the work's project on GitHub (`project`).
-export function StageBubble({ e, s, w, project }: {
+/// now in the owner's words, who is at work, what holds it and what it waits for, live and as the head of the group
+/// says it, with no cell's title, its rounds' link leading to the cell, and what the engine told of the work meanwhile
+/// under it; once over, how it ended and why: what its reviews found, the pull request and the commit that merged the
+/// work, or why it ended and the work that took it over; then the gist of what its last round said; and what more there
+/// is folded under it (`StageFolds`), the design card pinned for the owner (`pinned`) named there in one line. Its
+/// links go to the work's project on GitHub (`project`).
+export function StageBubble({ e, s, w, project, pinned }: {
   e: ConversationEntry;
   s: StageCard;
   w: WorkSummary | null;
   project: string | null;
+  pinned: readonly number[];
 }) {
   const status = useStatus();
   const work = e.work ?? 0;
@@ -110,7 +141,7 @@ export function StageBubble({ e, s, w, project }: {
   const c = s.current && w !== null ? course(w, status) : null;
   const outcome = stageOutcome(s);
   const why = stageWhy(s);
-  const now = c !== null && w !== null ? joinedWords([w.at_title, nowWords(c, w)]) : '';
+  const now = c !== null && w !== null ? nowWords(c, w) : '';
   const state = s.current ? (
     <span className="live-line-now">{now}</span>
   ) : (
@@ -127,16 +158,14 @@ export function StageBubble({ e, s, w, project }: {
     </>
   );
   const head = (
-    <>
-      <span className="talk-who">{stageTitle(s)}</span>
-      <span className="talk-when">{time(s.started_at)}</span>
+    <BubbleHead who={words('engineer')} about={stageTitle(s)} at={s.started_at}>
       <Link to={rounds}>{t('stage_rounds', { first: s.first, last: s.last, work })}</Link>
       {s.ended_at !== null ? (
         <span className="talk-when">
           {joinedWords([duration(s.ended_at - s.started_at), s.cost_usd > 0 ? cost(s.cost_usd) : null])}
         </span>
       ) : null}
-    </>
+    </BubbleHead>
   );
   const said = s.current ? now : joinedWords([outcome?.words ?? null, why]);
   const title = joinedWords([said, latest !== null ? firstWords(latest.text) : null]);
@@ -156,19 +185,19 @@ export function StageBubble({ e, s, w, project }: {
             </p>
           ))
         : null}
-      <StageFolds s={s} w={w} work={work} />
+      <StageFolds s={s} w={w} work={work} pinned={pinned} />
     </LiveBubble>
   );
 }
 
-/// What the line of a matter's bubble opens with, by where the matter stands: back in the queue, held by an ask of the
-/// owner, in hand, done, or withdrawn.
-const MATTER_LINE: Record<string, Key> = {
-  queued: 'matter_line_queued',
-  held: 'matter_line_held',
-  working: 'matter_line_working',
-  done: 'matter_line_done',
-  withdrawn: 'matter_line_withdrawn',
+/// What the line of a matter's bubble opens with, by where the matter stands, as a state's chip in its tone: back in the
+/// queue and held by an ask of the owner wait on someone; in hand goes on; done; withdrawn, no meaning of its own.
+const MATTER_STATE: Record<string, { key: Key; tone: Tone }> = {
+  queued: { key: 'matter_line_queued', tone: 'attention' },
+  held: { key: 'matter_line_held', tone: 'attention' },
+  working: { key: 'matter_line_working', tone: 'accent' },
+  done: { key: 'matter_line_done', tone: 'success' },
+  withdrawn: { key: 'matter_line_withdrawn', tone: 'neutral' },
 };
 
 /// What a matter made, by its kind and what became of it, as the line before it says it.
@@ -211,25 +240,42 @@ function Made({ made }: { made: MadeThing[] }) {
   );
 }
 
-/// The head of a bubble of the architect's own: who it is, when, and where more of it is.
-function ArchitectHead({ at, children }: { at: number | null; children?: ReactNode }) {
+/// The head of a bubble of the architect's own, every bubble's (`BubbleHead`): who it is, what it is about, when, and
+/// where more of it is.
+function ArchitectHead({ at, about = null, children }: { at: number | null; about?: string | null; children?: ReactNode }) {
   return (
-    <>
-      <span className="talk-who">{t('conv_architect_short')}</span>
-      <span className="talk-when">{time(at)}</span>
+    <BubbleHead who={words('architect')} about={about} at={at}>
       {children}
-    </>
+    </BubbleHead>
   );
 }
 
+/// One thing that came of a matter done, in words: the reply by the work it went to, else its name and what it says,
+/// a name with nothing after it without its colon.
+function cameWords(o: Outcome, replyTo: number | null): string {
+  if (o.key === 'reply') return t('matter_replied', { work: replyTo ?? '' });
+  return o.text !== '' ? `${o.label} ${o.text}` : o.label.replace(/:$/, '');
+}
+
+/// What came of a matter done, on its bubble's line after its state, in a few words, each leading where it is: the
+/// reply taken back to the work that asked, to that work's group, where the reply is; what its path told and asked the
+/// owner; the item changes and the observations it collected or changed, the latter to the project's observations;
+/// what it did at once; whom it wrote to; or why nothing was to be done.
+function cameOf(o: Outcome, replyTo: number | null): ReactNode {
+  const said = cameWords(o, replyTo);
+  const to = o.key === 'reply' ? (replyTo !== null ? href({ page: 'messages', open: `work:${replyTo}` }) : null) : o.to;
+  return to !== null ? <Link to={to}>{said}</Link> : said;
+}
+
 /// A matter of the architect's, as one bubble of the architect's of one line, with no one named, posted when it took
-/// the matter up and updated in place (`LiveBubble`): while it is in hand, "Working on:" and the matter, live while a
-/// round of the architect runs, with where it is at and what holds the architect, its own trouble, when anything does
-/// (`architect`, its work going on); held by the owner's ask, back in the queue or withdrawn with why, so; once done,
-/// its result: the matter, then under the line what it made, each by name and leading to it (`Made`), and what else
-/// came of it, the engineer it answered leading to that work's group; a place to set straight with its steps folded
-/// under it. A matter about a work leads to that work's group, which holds it in full. A matter that changed nothing is
-/// not in the conversation once done: the queue beside it lists it among those handled.
+/// the matter up and updated in place (`LiveBubble`): its head names its kind, what it is about; its line opens with
+/// where it stands as a state's chip, in hand, held by the owner's ask, back in the queue, done or withdrawn, live while
+/// a round of the architect runs, with what holds the architect, its own trouble, when anything does (`architect`, its
+/// work going on); once withdrawn, why; once done, what came of it in a few words, each leading to it (`cameOf`), and
+/// under the line what it made, each by name and leading to it (`Made`); what it asks, whole, on hovering and in a fold
+/// under the line, and a place to set straight with its steps folded too. A matter about a work leads to that work's
+/// group, which holds it in full. A matter that changed nothing is not in the conversation once done: the queue beside
+/// it lists it among those handled.
 export function MatterBubble({ e, m, project, architect }: {
   e: ConversationEntry;
   m: MatterProgress;
@@ -248,17 +294,19 @@ export function MatterBubble({ e, m, project, architect }: {
   // The architect's own trouble shows on the matter it has in hand.
   const c = m.state === 'working' && architect !== null ? course(architect, status) : null;
   const held = c !== null && c.held !== null ? heldName(c) : null;
-  const lead = t(MATTER_LINE[m.state] ?? 'matter_line_queued');
-  const gist = m.state === 'working' ? m.cell_title : m.state === 'withdrawn' ? m.withdrawn : null;
+  const stands = MATTER_STATE[m.state] ?? MATTER_STATE.queued;
+  const kind = matterKind(m.kind, m.detail);
   const made = new Set(m.made.map((x) => x.kind));
-  const rest =
-    m.handled !== null
+  const came =
+    m.state === 'done' && m.handled !== null
       ? outcomes(m.handled, project).filter(
           (o) => !(o.key === 'observations' && made.has('observation')) && !(o.key === 'changes' && made.has('item')),
         )
       : [];
+  const replyTo = m.handled?.reply_to ?? null;
+  const why = m.state === 'withdrawn' ? m.withdrawn : null;
   const head = (
-    <ArchitectHead at={e.at}>
+    <ArchitectHead at={e.at} about={kind}>
       {group !== null ? <Link to={group}>{t('matter_in_group', { work: m.work ?? '' })}</Link> : null}
       {where !== null ? (
         <Link to={where}>
@@ -269,36 +317,38 @@ export function MatterBubble({ e, m, project, architect }: {
   );
   const state = (
     <>
-      <span className="live-line-now">
-        {lead} <MatterWhat m={m} />
-      </span>
+      <StateChip tone={stands.tone}>{t(stands.key)}</StateChip>
       {held !== null && architect !== null ? (
         <StateChip tone={held.problem ? 'danger' : 'attention'} title={heldWords(c ?? course(architect, status), architect.paused)}>
           {held.name}
         </StateChip>
       ) : null}
+      {came.length > 0 ? (
+        <span className="live-line-why">
+          {came.map((o, i) => (
+            <Fragment key={o.key}>
+              {i > 0 ? ' | ' : null}
+              {cameOf(o, replyTo)}
+            </Fragment>
+          ))}
+        </span>
+      ) : null}
     </>
   );
+  const saidCame = came.map((o) => cameWords(o, replyTo));
   return (
     <LiveBubble
       who="architect"
       head={head}
       live={c !== null && c.running !== null}
       state={state}
-      gist={gist}
-      title={joinedWords([lead, matterKind(m.kind, m.detail), matterSentence(m), held?.name ?? null, gist])}
+      gist={why}
+      title={joinedWords([t(stands.key), held?.name ?? null, ...saidCame, why, kind, matterSentence(m)])}
     >
       <Made made={m.made} />
-      {rest.map((o) => (
-        <p key={o.key} className="talk-card-note">
-          {o.key === 'reply' && m.handled?.reply_to != null ? (
-            <Link to={href({ page: 'messages', open: `work:${m.handled.reply_to}` })}>{o.label}</Link>
-          ) : (
-            <span className="talk-card-kind">{o.label}</span>
-          )}{' '}
-          {o.to !== null ? <Link to={o.to}>{o.text}</Link> : o.text}
-        </p>
-      ))}
+      <Fold className="talk-fold" summary={t('matter_whole')}>
+        <p className="talk-fold-text">{matterSentence(m)}</p>
+      </Fold>
       {steps.length > 0 ? (
         <Fold className="talk-fold" summary={tn('matter_steps', steps.length)}>
           <Said text={steps.map((x, i) => `${i + 1}. ${x}`).join('\n')} />

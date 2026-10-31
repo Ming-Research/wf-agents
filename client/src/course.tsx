@@ -85,17 +85,40 @@ export function holdsWords(c: Course, w: WorkSummary): string | null {
   return parts.length > 0 ? parts.join(' ') : null;
 }
 
+/// What a work waits for, as the words after "waits for", with no cell or row of the flow named: the owner's answer or
+/// ruling, an architect's reply, the items it depends on, or, at a row that waits for none of these, what its next
+/// round names.
+function waitsFor(w: Waits): string {
+  switch (w.kind) {
+    case 'answer':
+      return t('now_for_answer', { id: w.ask });
+    case 'ruling':
+      return t('now_for_ruling', { id: w.design_card });
+    case 'architect':
+      return w.project === undefined
+        ? t('now_for_architect', { id: w.matter })
+        : t('now_for_architect_of', { id: w.matter, project: w.project });
+    case 'items':
+      return t('now_for_items', { items: w.items.map((i) => `#${i}`).join(', ') });
+    default:
+      return t('now_for_row');
+  }
+}
+
 /// What happens to a work now, in a few words, as the live line of the bubble of the stage it is at says it, in step
-/// with its head: who is at work while a round runs; what holds it, and what it waits for once it goes on; what it
-/// waits for; a free slot; or its next round due.
+/// with its head and in the owner's words, with no cell's title or code, which its rounds' link leads to: who is at
+/// work while a round runs; what holds it, and what it waits for once it goes on; what it waits for; a free slot; or
+/// its next round due. At the merge stage what it waits for is what it must have before it can merge, and the line says
+/// so; at the others the stage the bubble names is where it waits.
 export function nowWords(c: Course, w: WorkSummary): string {
   if (c.running !== null && w.running !== null) return atWork(w.running);
   if (c.running !== null) return runningWords(c);
+  const until = (now: string) => (w.stage === 'merge' ? t('now_before_merge', { now }) : now);
   if (c.held !== null) {
     const held = c.held === 'engine' ? heldWords(c, w.paused) : heldName(c).name;
-    return c.waits !== null ? t('now_held_then', { held, waits: waitsWords(c.waits) }) : held;
+    return c.waits !== null ? until(t('now_held_then', { held, what: waitsFor(c.waits) })) : held;
   }
-  if (c.waits !== null) return waitsWords(c.waits);
+  if (c.waits !== null) return until(t('now_waits', { what: waitsFor(c.waits) }));
   if (c.slot) return t('state_waiting_for_slot');
   return t('now_ready');
 }
