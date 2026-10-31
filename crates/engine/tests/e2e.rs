@@ -5693,10 +5693,9 @@ fn the_numbers_split_a_run_at_the_seam_of_two_weeks_and_place_an_end_by_when_it_
             // the week before's second day to the week's first.
             a_work_that_ran(tx, v, "p", "I1", &[("I1", None, now - 10 * day, Some(now - 6 * day))])?;
             a_work_that_ran(tx, v, "p", "I1", &[("I1", None, now - 9 * day, Some(now - 5 * day))])?;
-            // Neither makes a third: one waiting for the owner, and one waiting under the id the cell had in an
-            // earlier version, both open all that time; and another project's work running beside them.
+            // Neither makes a third: one waiting for the owner, open all that time, and another project's work
+            // running beside them. (The ids the cell had in earlier flow versions are the unit test's.)
             a_work_that_ran(tx, v, "p", "A3", &[("A3", None, now - 10 * day, None)])?;
-            a_work_that_ran(tx, v, "p", "16", &[("16", None, now - 10 * day, None)])?;
             a_work_that_ran(tx, v, "q", "I1", &[("I1", None, now - 9 * day, Some(now - 5 * day))])?;
             // Stopped in the week before, in the third week before, and more than four weeks before: the times of the
             // writes are set, since a test cannot have the engine write them in the past.

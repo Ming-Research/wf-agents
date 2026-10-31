@@ -255,11 +255,6 @@ const POLICY_CHECK: &str = "P1";
 /// The cell of the engineer's graph a work is done at, as the views read it.
 const ENGINEER_END: &str = "E1";
 
-/// The cells of the engineer's graph at which a work waits for an answer, the architect's (`A2`) and the owner's
-/// (`A3`): their round stays open for as long as the answer takes, so that a work there is waiting, not running. A
-/// test holds the list to the cells of the flow whose step asks.
-const WAITING_FOR_ANSWER: [&str; 2] = ["A2", "A3"];
-
 /// The kinds the works that ended without a merge are counted under, as `numbers` gives them: the kinds
 /// `works.ended_kind` holds, and the end of a work that reached the end of its graph with no merge.
 const UNMERGED_KINDS: [&str; 5] = [
@@ -4316,18 +4311,34 @@ struct RoundSpan {
 }
 
 /// The rounds of the engineer's works on a project's items that were under way at some time from `from` to `to`, but
-/// those at which a work waits for an answer, which stay open for as long as the answer takes. A round with no end is
-/// trusted to be under way: the engine closes one cut off by its stopping only when it next steps the work, so that
-/// after a crash a work left paused or never stepped again keeps counting as running until then.
+/// those at which a work waits for an answer, which stay open for as long as the answer takes. A round waits for an
+/// answer when the cell it ran at has a step that asks the owner or the architect in the engineer's graph of the
+/// compiled flow version its work runs on, which the database keeps: each version used is read once, and a cell is
+/// judged by the name its own version gives it. A round with no end is trusted to be under way: the engine closes
+/// one cut off by its stopping only when it next steps the work, so that after a crash a work left paused or never
+/// stepped again keeps counting as running until then.
 fn rounds_running(conn: &Connection, project: &str, from: i64, to: i64) -> Result<Vec<RoundSpan>, String> {
     let mut st = conn
-        .prepare(&format!(
-            "SELECT r.work, r.started_at, r.ended_at
+        .prepare(
+            "WITH used AS MATERIALIZED (
+               SELECT DISTINCT w.flow_version AS version
+               FROM works w JOIN items i ON i.id = w.item
+               WHERE i.project = ?1 AND w.graph = 'engineer'
+             ),
+             waiting AS MATERIALIZED (
+               SELECT used.version AS version, json_extract(c.value, '$.id') AS cell
+               FROM used JOIN flow_versions fv ON fv.id = used.version,
+                    json_each(fv.compiled, '$.graphs') g,
+                    json_each(g.value, '$.cells') c
+               WHERE json_extract(g.value, '$.name') = 'engineer'
+                 AND json_extract(c.value, '$.step') IN ('ask_owner', 'ask_architect')
+             )
+             SELECT r.work, r.started_at, r.ended_at
              FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
-             WHERE i.project = ?1 AND w.graph = 'engineer' AND r.cell NOT IN {}
+             WHERE i.project = ?1 AND w.graph = 'engineer'
+               AND NOT EXISTS (SELECT 1 FROM waiting x WHERE x.version = w.flow_version AND x.cell = r.cell)
                AND r.started_at <= ?3 AND (r.ended_at IS NULL OR r.ended_at >= ?2)",
-            db::cells_sql(ENGINEER, &WAITING_FOR_ANSWER)
-        ))
+        )
         .map_err(sql)?;
     st.query_map(params![project, from, to], |r| {
         Ok(RoundSpan {
@@ -5463,19 +5474,34 @@ mod tests {
 
     /// A work of the engineer's graph on a new item of a project, standing at a cell.
     fn an_engineer_work(db: &mut db::Db, project: &str, at: &str) -> i64 {
+        an_engineer_work_on(db, 1, project, at)
+    }
+
+    /// A flow version with the compiled text given; version 1 is the one the works of most tests run on, with no
+    /// cells in it.
+    fn a_flow_version(db: &mut db::Db, id: i64, compiled: &str) {
         db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')",
-                [],
+                "INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (?1, 'd' || ?1, ?2)",
+                params![id, compiled],
             )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    /// A work of the engineer's graph on a new item of a project, standing at a cell, on a flow version.
+    fn an_engineer_work_on(db: &mut db::Db, version: i64, project: &str, at: &str) -> i64 {
+        a_flow_version(db, 1, "{}");
+        db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO items (project, title, problem, why, deliver, level) VALUES (?1, 't', 'x', 'y', 'change', 'l')",
                 [project],
             )?;
             let item = tx.last_insert_rowid();
             tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', ?2)",
-                params![item, at],
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?3, 'engineer', ?2)",
+                params![item, at, version],
             )?;
             Ok(tx.last_insert_rowid())
         })
@@ -5503,11 +5529,69 @@ mod tests {
         let mut db = db::Db::in_memory().unwrap();
         let running = an_engineer_work(&mut db, "p", "I1");
         a_round(&mut db, running, 1, "I1", Some("tools"), 1_000, Some(5_000));
-        // Early rounds under way for ever, at the cell for the owner and the architect and by their ids before.
-        for cell in ["A2", "A3", "15", "16"] {
-            let waiting = an_engineer_work(&mut db, "p", cell);
+        // Three flow versions that name the cells for the architect and the owner as the flow did at their time: by
+        // numbers, by the names of the direction, and as now. In the first, the architect's graph has a cell `I1`
+        // that asks, which does not make the engineer's `I1` a wait; in the last, `15` is an ordinary cell.
+        let step = |id: &str, asks: &str| format!(r#"{{"id":"{id}","step":"{asks}"}}"#);
+        let version = |engineer: &[String], architect: &[String]| {
+            format!(
+                r#"{{"graphs":[{{"name":"engineer","cells":[{}]}},{{"name":"architect","cells":[{}]}}]}}"#,
+                engineer.join(","),
+                architect.join(",")
+            )
+        };
+        let plain = |id: &str| format!(r#"{{"id":"{id}"}}"#);
+        a_flow_version(
+            &mut db,
+            2,
+            &version(
+                &[plain("I1"), step("15", "ask_architect"), step("16", "ask_owner")],
+                &[step("I1", "ask_owner")],
+            ),
+        );
+        a_flow_version(
+            &mut db,
+            3,
+            &version(
+                &[
+                    plain("I1"),
+                    step("to_architect", "ask_architect"),
+                    step("to_owner", "ask_owner"),
+                ],
+                &[],
+            ),
+        );
+        a_flow_version(
+            &mut db,
+            4,
+            &version(
+                &[
+                    plain("I1"),
+                    plain("15"),
+                    step("A2", "ask_architect"),
+                    step("A3", "ask_owner"),
+                ],
+                &[],
+            ),
+        );
+        // Early rounds under way for ever, each at a cell that asks in its own version.
+        for (v, cell) in [
+            (2, "15"),
+            (2, "16"),
+            (3, "to_architect"),
+            (3, "to_owner"),
+            (4, "A2"),
+            (4, "A3"),
+        ] {
+            let waiting = an_engineer_work_on(&mut db, v, "p", cell);
             a_round(&mut db, waiting, 1, cell, None, 0, None);
         }
+        // The same name as a cell that asks in another version, and the same name as one in the architect's graph:
+        // these run.
+        let same_id = an_engineer_work_on(&mut db, 4, "p", "15");
+        a_round(&mut db, same_id, 1, "15", None, 4_000, Some(4_500));
+        let same_name = an_engineer_work_on(&mut db, 2, "p", "I1");
+        a_round(&mut db, same_name, 1, "I1", None, 6_000, Some(7_000));
         // Another project's work, and the round of a cell beside the two.
         let other = an_engineer_work(&mut db, "q", "I1");
         a_round(&mut db, other, 1, "I1", None, 0, None);
@@ -5535,10 +5619,17 @@ mod tests {
         let runs = rounds_running(db.conn(), "p", 100, 10_000).unwrap();
         let mut seen: Vec<(i64, i64, Option<i64>)> = runs.iter().map(|r| (r.work, r.from, r.to)).collect();
         seen.sort();
-        assert_eq!(seen, [(running, 1_000, Some(5_000)), (tools, 2_000, Some(3_000))]);
-        // The round of tools overlaps the round of the work that runs, for as long as it lasts; the works waiting
-        // for an answer make no third.
-        assert_eq!(running_together(&runs, 100, 10_000), (2, 1_000));
+        let mut expected = vec![
+            (running, 1_000, Some(5_000)),
+            (tools, 2_000, Some(3_000)),
+            (same_id, 4_000, Some(4_500)),
+            (same_name, 6_000, Some(7_000)),
+        ];
+        expected.sort();
+        assert_eq!(seen, expected);
+        // The rounds of tools and of the work on the same id overlap the round of the work that runs, for as long as
+        // they last; the works waiting for an answer make no more.
+        assert_eq!(running_together(&runs, 100, 10_000), (2, 1_500));
     }
 
     // Each of the kinds a work ends under is counted once, for the works of the project's items only: a work that merged
@@ -5707,23 +5798,40 @@ mod tests {
         );
     }
 
-    // The cells a work waits at for an answer, which running together leaves out, are those of the engineer's graph
-    // whose step asks the owner or the architect.
+    // The cells running together leaves out, read from the compiled flow as the engine stores it, are exactly those of
+    // the engineer's graph whose step asks the owner or the architect: a round at each cell of the real flow is
+    // measured, and the ones left out are the asking cells. A path of the stored text that the query reads wrongly
+    // would leave out none, or all.
     #[test]
     fn the_cells_left_out_of_running_together_are_those_whose_step_asks() {
         let relations = db::relations(db::SCHEMA).unwrap();
         let tables = db::index_of(db::SCHEMA).unwrap();
         let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
         let g = f.graph(ENGINEER).unwrap();
-        let mut asking: Vec<&str> = g
+        let mut db = db::Db::in_memory().unwrap();
+        a_flow_version(&mut db, 2, &f.json());
+        let work = an_engineer_work_on(&mut db, 2, "p", "I1");
+        // A round of its own time at each cell, so that the rounds measured say which cells they were at.
+        for (n, cell) in g.cells.iter().enumerate() {
+            let at = n as i64 + 1;
+            a_round(&mut db, work, at, &cell.id, None, at * 10, Some(at * 10 + 5));
+        }
+        let mut measured: Vec<i64> = rounds_running(db.conn(), "p", 0, 1_000_000)
+            .unwrap()
+            .iter()
+            .map(|r| r.from / 10 - 1)
+            .collect();
+        measured.sort();
+        let running: Vec<i64> = g
             .cells
             .iter()
-            .filter(|c| matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect")))
-            .map(|c| c.id.as_str())
+            .enumerate()
+            .filter(|(_, c)| !matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect")))
+            .map(|(n, _)| n as i64)
             .collect();
-        asking.sort();
-        let mut left_out = WAITING_FOR_ANSWER.to_vec();
-        left_out.sort();
-        assert_eq!(asking, left_out);
+        let asking = g.cells.len() - running.len();
+        // The flow has cells that ask and cells that do not, so that neither all nor none being left out passes.
+        assert!(asking > 0 && !running.is_empty());
+        assert_eq!(measured, running);
     }
 }
