@@ -35,7 +35,7 @@ pub struct Request {
     pub images: Vec<Image>,
     /// What the return must be, as JSON Schema; the engine checks the return against it.
     pub schema: Value,
-    /// The schema the CLI is given, the same for every cell of the graph: [`envelope`].
+    /// The schema the CLI is given, the same for every cell of the line: [`envelope`].
     pub envelope: Value,
     /// The tools and commands the round may not use, as the CLI's tool rules name them: its line's permissions.
     pub refused: Vec<String>,
@@ -181,8 +181,8 @@ pub fn command_line(r: &Request) -> Vec<String> {
         .map(|s| s.to_string()),
     );
     // The CLI gives the model the schema with the session's tools, so a schema that changed from one round to the
-    // next would leave nothing of the session's prompt cache: it is the graph's envelope, the same for every cell. A
-    // bare call is given no schema and no tools.
+    // next would leave nothing of the session's prompt cache: it is the line's envelope, the same for every cell of the
+    // line. A bare call is given no schema and no tools.
     if r.bare {
         out.extend(["--tools".to_string(), String::new()]);
     } else {
@@ -681,19 +681,22 @@ fn activity_of_value(v: &Value) -> Option<String> {
     }
 }
 
-/// The schema the CLI is given for every round of a graph's agents, the same for every cell, since a schema that
-/// changed from one round to the next leaves nothing of the session's prompt cache. It holds a return's top-level
-/// fields: the short fields every return holds first, each with only its type, and the field an agent's forms are under
-/// last, so that only closing brackets come after the long answer; that field with the [`shape`] of every form of every
-/// agent's cell of the graph taken together ([`merged`]), each object with its fields and each list with its items,
-/// down to every value. It refuses what no agent's cell of the graph takes, as far as types and fields tell: an object
-/// requires the fields every one of its alternatives requires, at the top those every agent's cell requires, and a
+/// The schema the CLI is given for every round of a line's agents, those of the graph's agents' cells on `line`, the
+/// same for every cell of the line, since a schema that changed from one round to the next leaves nothing of the
+/// session's prompt cache, and a session is a line's; the line's own, instead of the graph's, since a field every return
+/// of some lines holds (`tell_owner`) is one another line's agents must not hand in, which the schema the CLI gives the
+/// model would otherwise offer them. It holds a return's top-level fields: the short fields every return holds first,
+/// each with only its type, and the field an agent's forms are under last, so that only closing brackets come after
+/// the long answer; that field with the [`shape`] of every form of every agent's cell of the line taken together
+/// ([`merged`]), each object with its fields and each list with its items, down to every value. It refuses what no
+/// agent's cell of the line takes, as far as types and fields tell: an object requires the fields every one of its
+/// alternatives requires, at the top those every agent's cell of the line requires, and a
 /// field some forms leave out unless the return is one of those forms ([`unless_left_out`]: `progress`, which `tools`
 /// and `search` leave out, so that a return of the architect's `B4` without it, which a trial's engine sent back, is
 /// refused by the command line); and it takes no field beyond those it lists when none of its alternatives does, the
 /// field of the forms included, so that a field written inside the form it does not belong to is refused, and a field
 /// every return holds written inside the field of the forms is too. Each form that has a field no other form of the
-/// graph has is told apart by it, and then requires what that form requires and takes no field it does not take
+/// line has is told apart by it, and then requires what that form requires and takes no field it does not take
 /// ([`told_apart`]), so that a return of a cell's own answer without a field the answer requires is refused naming it,
 /// as `why` of the engineer's `D2`, which no other form has and which the shape of every form taken together cannot
 /// require. A form all of whose fields other forms have too, such as the engineer's `I1`, whose fields `T6`'s form has
@@ -707,14 +710,14 @@ fn activity_of_value(v: &Value) -> Option<String> {
 /// up from inside the field of the forms. A field its object may leave out may also be null, which the engine takes as
 /// the field left out. Without the types the model hands in each field as the JSON text of its value, and with the
 /// field of the forms an object with no fields it handed in the whole form as a string holding its JSON.
-pub fn envelope(g: &flow::CompiledGraph) -> Value {
-    let schemas: Vec<&Value> = g
+pub fn envelope(g: &flow::CompiledGraph, line: Option<&str>) -> Value {
+    let cells: Vec<&flow::CompiledCell> = g
         .cells
         .iter()
-        .filter(|c| c.kind == "agent")
-        .filter_map(|c| c.schema.as_ref())
+        .filter(|c| c.kind == "agent" && c.line.as_deref() == line)
         .collect();
-    // The fields beside the forms', of every agent's cell, in the order the cells give them.
+    let schemas: Vec<&Value> = cells.iter().filter_map(|c| c.schema.as_ref()).collect();
+    // The fields beside the forms', of every agent's cell of the line, in the order the cells give them.
     let mut props = serde_json::Map::new();
     for (k, v) in schemas
         .iter()
@@ -764,15 +767,13 @@ pub fn envelope(g: &flow::CompiledGraph) -> Value {
         "required": required,
         "additionalProperties": false,
     });
-    // The fields some forms leave out, which every agent's cell has and requires of its other forms, as the engine
-    // checks: grouped by the forms that leave them out.
+    // The fields some forms leave out, which every agent's cell of the line has and requires of its other forms, as the
+    // engine checks: grouped by the forms that leave them out.
     let mut left: BTreeMap<Vec<String>, Vec<String>> = BTreeMap::new();
     for k in beside.iter().filter(|k| !required_of(&out).contains(&k.as_str())) {
         let has = |s: &&Value| s.get("properties").is_some_and(|p| p.get(k.as_str()).is_some());
-        let forms: BTreeSet<String> = g
-            .cells
+        let forms: BTreeSet<String> = cells
             .iter()
-            .filter(|c| c.kind == "agent")
             .flat_map(|c| &c.forms)
             .filter(|f| f.without.contains(k))
             .filter_map(|f| f.field.clone())
@@ -1403,15 +1404,28 @@ mod tests {
         flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap()
     }
 
-    // The CLI is given one schema for a whole graph: the short fields every return holds first, the field its forms are
-    // under last, with the shape of every form of the graph. Required are the fields every agent's cell requires, so
-    // not `progress`, which the form `tools` leaves out, and the field of the forms takes no field beyond those of the
-    // forms, so a field beside it written inside it is refused. Nothing a cell's own schema takes is refused.
+    /// The lines of a graph's agents' cells, each once, in the order the cells give them.
+    fn lines_of(g: &flow::CompiledGraph) -> Vec<Option<&str>> {
+        let mut out: Vec<Option<&str>> = Vec::new();
+        for c in g.cells.iter().filter(|c| c.kind == "agent") {
+            if !out.contains(&c.line.as_deref()) {
+                out.push(c.line.as_deref());
+            }
+        }
+        out
+    }
+
+    // The CLI is given one schema for every cell of a line: the short fields every return of the line holds first, the
+    // field its forms are under last, with the shape of every form of the line. Required are the fields every agent's
+    // cell of the line requires, so not `progress`, which the form `tools` leaves out, and the field of the forms takes
+    // no field beyond those of the forms, so a field beside it written inside it is refused. Nothing a cell's own
+    // schema takes is refused. Only the engineer and the architect tell the owner: the lines that help them have no
+    // `tell_owner` to hand in.
     #[test]
-    fn every_cell_of_a_graph_gives_the_cli_the_same_schema() {
+    fn every_cell_of_a_line_gives_the_cli_the_same_schema() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
-        let s = envelope(g);
+        let s = envelope(g, Some("engineer"));
         let keys = |s: &Value| -> Vec<String> { s["properties"].as_object().unwrap().keys().cloned().collect() };
         assert_eq!(
             keys(&s),
@@ -1429,31 +1443,60 @@ mod tests {
             json!(["tell_owner", "side_reports", "flow_feedback", "outcome"])
         );
         assert_eq!(s["properties"][&g.within]["additionalProperties"], false);
-        let a = envelope(f.graph("architect").unwrap());
-        assert_eq!(keys(&a), ["tell_owner", "progress", "flow_feedback", "outcome"]);
-        assert_eq!(a["required"], json!(["tell_owner", "flow_feedback", "outcome"]));
+        for line in ["review", "adversarial", "advisor"] {
+            let h = envelope(g, Some(line));
+            assert_eq!(
+                keys(&h),
+                ["progress", "side_reports", "flow_feedback", "outcome"],
+                "{line}"
+            );
+            assert_eq!(
+                h["required"],
+                json!(["side_reports", "flow_feedback", "outcome"]),
+                "{line}"
+            );
+        }
+        let a = f.graph("architect").unwrap();
+        let arch = envelope(a, Some("architect"));
+        assert_eq!(keys(&arch), ["tell_owner", "progress", "flow_feedback", "outcome"]);
+        assert_eq!(arch["required"], json!(["tell_owner", "flow_feedback", "outcome"]));
+        // The search of observations asks for no tools, so nothing it hands in leaves out `progress`.
+        for (line, required) in [
+            ("architect_review", json!(["flow_feedback", "outcome"])),
+            ("observer", json!(["progress", "flow_feedback", "outcome"])),
+        ] {
+            let h = envelope(a, Some(line));
+            assert_eq!(keys(&h), ["progress", "flow_feedback", "outcome"], "{line}");
+            assert_eq!(h["required"], required, "{line}");
+        }
         // A project that does not ask for flow feedback gives its agents no such field.
-        let off = envelope(&g.clone().as_asked(|_| false));
+        let off = envelope(&g.clone().as_asked(|_| false), Some("engineer"));
         assert!(off["properties"].get("flow_feedback").is_none(), "{off}");
         assert_eq!(off["required"], json!(["tell_owner", "side_reports", "outcome"]));
-        // The field of the forms is never an object with no fields: it holds every form of every agent's cell, each
-        // value with its type, which a string holding the JSON of one does not have.
+        // The field of the forms is never an object with no fields: it holds every form of every agent's cell of the
+        // line, each value with its type, which a string holding the JSON of one does not have.
         for g in &f.graphs {
-            let s = envelope(g);
-            let within = &s["properties"][&g.within];
-            assert!(
-                within["properties"].as_object().is_some_and(|p| !p.is_empty()),
-                "{within}"
-            );
-            for c in g.cells.iter().filter(|c| c.kind == "agent") {
-                let schema = c.schema.as_ref().unwrap();
-                let form = shape(&schema["properties"][&g.within]);
-                assert_eq!(beyond(&form, within, ""), None, "cell {}", c.id);
-                for k in schema["properties"].as_object().unwrap().keys() {
-                    assert!(s["properties"].get(k).is_some(), "cell {}: {k}", c.id);
-                }
-                for k in required_of(&s) {
-                    assert!(required_of(schema).contains(&k), "cell {}: {k}", c.id);
+            for line in lines_of(g) {
+                let s = envelope(g, line);
+                let within = &s["properties"][&g.within];
+                assert!(
+                    within["properties"].as_object().is_some_and(|p| !p.is_empty()),
+                    "{within}"
+                );
+                for c in g
+                    .cells
+                    .iter()
+                    .filter(|c| c.kind == "agent" && c.line.as_deref() == line)
+                {
+                    let schema = c.schema.as_ref().unwrap();
+                    let form = shape(&schema["properties"][&g.within]);
+                    assert_eq!(beyond(&form, within, ""), None, "cell {}", c.id);
+                    for k in schema["properties"].as_object().unwrap().keys() {
+                        assert!(s["properties"].get(k).is_some(), "cell {}: {k}", c.id);
+                    }
+                    for k in required_of(&s) {
+                        assert!(required_of(schema).contains(&k), "cell {}: {k}", c.id);
+                    }
                 }
             }
         }
@@ -1529,15 +1572,16 @@ mod tests {
         None
     }
 
-    // In a trial, a round of the architect's cell U1 handed in no `tell_owner`, which every return of the graph holds,
-    // and the engine sent the return back, which cost a whole round. The command line now refuses it, saying what is
-    // missing, as the installed one did when tried (2.1.312), and the agent hands it in again within its run.
+    // In a trial, a round of the architect's cell U1 handed in no `tell_owner`, which every return of the architect's
+    // line holds, and the engine sent the return back, which cost a whole round. The command line now refuses it, saying
+    // what is missing, as the installed one did when tried (2.1.312), and the agent hands it in again within its run.
+    // The search of observations, a line that tells the owner nothing, has it refused.
     #[test]
     fn a_return_without_a_field_every_return_holds_is_refused_by_the_command_line() {
         let f = compiled();
         let g = f.graph("architect").unwrap();
         let schema = g.cell("U1").unwrap().schema.clone().unwrap();
-        let s = envelope(g);
+        let s = envelope(g, Some("architect"));
         let notebook = json!([
             { "section": "project_now", "text": "The parser: half done." },
             { "section": "unclear", "text": "Nothing." }
@@ -1561,6 +1605,17 @@ mod tests {
             refused(&s, &ret, "").as_deref(),
             Some("/outcome: must NOT have additional properties ('tell_owner' is not allowed)")
         );
+        let observer = envelope(g, Some("observer"));
+        let search = json!({
+            "tell_owner": [],
+            "progress": "Found none",
+            "flow_feedback": "none",
+            "outcome": { "candidates": [] },
+        });
+        assert_eq!(
+            refused(&observer, &search, "").as_deref(),
+            Some("root: must NOT have additional properties ('tell_owner' is not allowed)")
+        );
     }
 
     // In a trial, a round of the architect's cell H5 wrote `effects` inside `take`, beside `way` and `why`, instead of
@@ -1571,7 +1626,7 @@ mod tests {
         let f = compiled();
         let g = f.graph("architect").unwrap();
         let schema = g.cell("H5").unwrap().schema.clone().unwrap();
-        let s = envelope(g);
+        let s = envelope(g, Some("architect"));
         let take = json!({ "way": "nothing", "why": "Nothing in it to take in" });
         let mut inside = take.clone();
         inside["effects"] = json!({});
@@ -1596,12 +1651,13 @@ mod tests {
     // schema the command line was given had left it out. It now requires it unless the return is one of those forms,
     // and the command line refuses a return without it, naming it, as the installed one did when tried (2.1.312:
     // "root: must have required property 'progress', root: must match \"then\" schema"), while a return asking for
-    // tools without it passed. So in each graph: a pause without it is refused, and a return asking for tools is not.
+    // tools without it passed. So on the engineer's and the architect's lines: a pause without it is refused, and a
+    // return asking for tools is not.
     #[test]
     fn a_return_without_progress_is_refused_unless_its_form_leaves_it_out() {
         let f = compiled();
         let g = f.graph("architect").unwrap();
-        let s = envelope(g);
+        let s = envelope(g, Some("architect"));
         let schema = g.cell("B4").unwrap().schema.clone().unwrap();
         let mut ret = json!({
             "tell_owner": [],
@@ -1615,8 +1671,9 @@ mod tests {
         ret["progress"] = json!("Judged what the batch changed");
         assert!(flow::valid(&schema, &ret), "{ret}");
         assert_eq!(refused(&s, &ret, ""), None);
-        for g in &f.graphs {
-            let s = envelope(g);
+        for (g, line) in [("engineer", "engineer"), ("architect", "architect")] {
+            let g = f.graph(g).unwrap();
+            let s = envelope(g, Some(line));
             let mut base = json!({});
             for k in required_of(&s).into_iter().filter(|k| *k != g.within) {
                 base[k] = if k == "flow_feedback" { json!("none") } else { json!([]) };
@@ -1635,7 +1692,8 @@ mod tests {
             let takes = g
                 .cells
                 .iter()
-                .filter(|c| c.kind == "agent" && c.forms.iter().any(|x| x.field.as_deref() == Some("tools")))
+                .filter(|c| c.kind == "agent" && c.line.as_deref() == Some(line))
+                .filter(|c| c.forms.iter().any(|x| x.field.as_deref() == Some("tools")))
                 .any(|c| flow::valid(c.schema.as_ref().unwrap(), &tools));
             assert!(takes, "graph {}: no cell takes {tools}", g.name);
         }
@@ -1651,7 +1709,7 @@ mod tests {
     fn a_cell_s_own_answer_without_a_field_it_requires_is_refused_by_the_command_line() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
-        let s = envelope(g);
+        let s = envelope(g, Some("engineer"));
         let schema = g.cell("D2").unwrap().schema.clone().unwrap();
         let mut ret = json!({
             "tell_owner": [],
@@ -1689,52 +1747,65 @@ mod tests {
 
     // The rules that tell the forms apart refuse nothing a cell takes: for each form of each agent's cell of each graph,
     // the rule of every form whose own fields it holds requires no field the form does not require and, when it takes
-    // no other field, takes every field the form takes. Each graph has such rules.
+    // no other field, takes every field the form takes. The engineer's and the architect's lines have such rules.
     #[test]
     fn the_rules_that_tell_the_forms_apart_refuse_nothing_a_cell_takes() {
         let f = compiled();
         for g in &f.graphs {
-            let s = envelope(g);
-            let rules = s["properties"][&g.within]["allOf"]
+            for line in lines_of(g) {
+                check_rules_of(g, line);
+            }
+        }
+    }
+
+    /// The test above for the agents' cells of one line.
+    fn check_rules_of(g: &flow::CompiledGraph, line: Option<&str>) {
+        let s = envelope(g, line);
+        let rules = s["properties"][&g.within]["allOf"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if matches!(line, Some("engineer" | "architect")) {
+            assert!(!rules.is_empty(), "graph {}", g.name);
+        }
+        for c in g
+            .cells
+            .iter()
+            .filter(|c| c.kind == "agent" && c.line.as_deref() == line)
+        {
+            let within = &c.schema.as_ref().unwrap()["properties"][&g.within];
+            let alts = within["anyOf"]
                 .as_array()
                 .cloned()
-                .unwrap_or_default();
-            assert!(!rules.is_empty(), "graph {}", g.name);
-            for c in g.cells.iter().filter(|c| c.kind == "agent") {
-                let within = &c.schema.as_ref().unwrap()["properties"][&g.within];
-                let alts = within["anyOf"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_else(|| vec![within.clone()]);
-                for form in alts.iter().map(shape) {
-                    let fields = fields_of(&form);
-                    for r in &rules {
-                        let when = &r["if"];
-                        let names: Vec<&str> = match when.get("anyOf").and_then(Value::as_array) {
-                            Some(xs) => xs.iter().flat_map(required_of).collect(),
-                            None => required_of(when),
-                        };
-                        if !names.iter().any(|n| fields.iter().any(|k| k == n)) {
-                            continue;
-                        }
-                        let then = &r["then"];
-                        for k in required_of(then) {
+                .unwrap_or_else(|| vec![within.clone()]);
+            for form in alts.iter().map(shape) {
+                let fields = fields_of(&form);
+                for r in &rules {
+                    let when = &r["if"];
+                    let names: Vec<&str> = match when.get("anyOf").and_then(Value::as_array) {
+                        Some(xs) => xs.iter().flat_map(required_of).collect(),
+                        None => required_of(when),
+                    };
+                    if !names.iter().any(|n| fields.iter().any(|k| k == n)) {
+                        continue;
+                    }
+                    let then = &r["then"];
+                    for k in required_of(then) {
+                        assert!(
+                            required_of(&form).contains(&k),
+                            "graph {}, cell {}: {k} required by {r}",
+                            g.name,
+                            c.id
+                        );
+                    }
+                    if closed(then) {
+                        for k in &fields {
                             assert!(
-                                required_of(&form).contains(&k),
-                                "graph {}, cell {}: {k} required by {r}",
+                                then["properties"].get(k).is_some(),
+                                "graph {}, cell {}: {k} refused by {r}",
                                 g.name,
                                 c.id
                             );
-                        }
-                        if closed(then) {
-                            for k in &fields {
-                                assert!(
-                                    then["properties"].get(k).is_some(),
-                                    "graph {}, cell {}: {k} refused by {r}",
-                                    g.name,
-                                    c.id
-                                );
-                            }
                         }
                     }
                 }

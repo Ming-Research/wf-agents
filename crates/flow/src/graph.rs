@@ -461,6 +461,16 @@ impl<'s> Graph<'s> {
                 "a field needs no such need: {field} {need}"
             );
         }
+        for (field, ls) in &common.lines {
+            ensure!(
+                ret.every.contains(field),
+                "a field kept to some lines that does not come every time: {field}"
+            );
+            ensure!(
+                !ls.is_empty() && ls.iter().all(|l| lines.contains(l)),
+                "a field kept to no such line: {field} {ls:?}"
+            );
+        }
         for p in ["{forms}", "{every}", "{in}"] {
             ensure!(ret.say.contains(p), "returns.say does not hold {p}: {}", ret.say);
         }
@@ -519,10 +529,17 @@ impl<'s> Graph<'s> {
                     Some(ls) => n.line.as_ref().is_some_and(|l| ls.contains(l)) && !flow.asking.nodes.contains(&n.id),
                 }
         };
-        let say_of = |forms: &[Form]| {
+        // A field every return holds that is kept to some lines is held by the agents' cells of those lines alone.
+        let held = |n: &Node, field: &String| {
+            common
+                .lines
+                .get(field)
+                .is_none_or(|ls| n.line.as_ref().is_some_and(|l| ls.contains(l)))
+        };
+        let say_of = |forms: &[Form], gone: &BTreeSet<String>| {
             let nm = |x: &str| ret.name.replace("{name}", x);
             let fs: Vec<String> = forms.iter().map(|f| f.say.clone()).collect();
-            let ev: Vec<String> = ret.every.iter().map(|x| nm(x)).collect();
+            let ev: Vec<String> = ret.every.iter().filter(|x| !gone.contains(*x)).map(|x| nm(x)).collect();
             ret.say
                 .replace("{in}", &nm(&ret.within.name))
                 .replace("{forms}", &fs.join(&ret.join))
@@ -559,12 +576,14 @@ impl<'s> Graph<'s> {
                 !roles.iter().any(|r| &r.node == nid && names.contains(&r.name)),
                 "a cell that asks itself: {nid}"
             );
-            // The common fields whose form this cell does not have; without the ask, it asks no one.
+            // The common fields whose form this cell does not have, and those every return of other lines holds; without
+            // the ask, it asks no one.
             let gone: BTreeSet<String> = if agent {
                 ret.forms
                     .iter()
                     .filter(|f| !has_form(n, f))
                     .filter_map(|f| f.field.clone())
+                    .chain(ret.every.iter().filter(|x| !held(n, x)).cloned())
                     .collect()
             } else {
                 BTreeSet::new()
@@ -808,7 +827,7 @@ impl<'s> Graph<'s> {
                     }
                 }
                 forms = ret.forms.iter().filter(|f| has_form(n, f)).cloned().collect();
-                say = say_of(&forms);
+                say = say_of(&forms, &gone);
                 always.extend(common.always.iter().filter(|x| !gone.contains(head(&x.at))).cloned());
                 shown.extend(common.shown.iter().filter(|p| !gone.contains(head(p))).cloned());
                 read_by.extend(common.read_by.iter().filter(|x| !gone.contains(head(&x.at))).cloned());

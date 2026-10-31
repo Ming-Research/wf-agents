@@ -1362,7 +1362,9 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
         e.step(None).unwrap();
     }
     let (work, _, _) = state(&e, item).unwrap();
-    let returned = |outcome: Value| json!({ "outcome": outcome, "progress": "p", "tell_owner": [], "side_reports": [], "flow_feedback": "none" });
+    // Returns of the review, which tells the owner nothing.
+    let returned =
+        |outcome: Value| json!({ "outcome": outcome, "progress": "p", "side_reports": [], "flow_feedback": "none" });
     let add = |e: &mut Engine, cell: &str, output: &Value, row: &str, at: &str| {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(

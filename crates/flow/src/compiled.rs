@@ -804,7 +804,7 @@ impl Schemas<'_> {
         let required: Vec<Value> = g
             .every
             .iter()
-            .filter(|n| !left_out(n))
+            .filter(|n| com(n).is_some() && !left_out(n))
             .cloned()
             .chain(std::iter::once(ret.within.name.clone()))
             .map(Value::String)

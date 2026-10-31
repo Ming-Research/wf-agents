@@ -872,6 +872,37 @@ fn an_agent_schema_holds_its_forms_in_outcome() {
     );
 }
 
+// Only the engineer and the architect tell the owner: an agent's cell of a line that helps them (the review, adversarial
+// testing, the advisor, the review of the architect's batch and the search of observations) has no `tell_owner` in its
+// return, its description does not name one, and nothing is done with it or shown of it there. The helpers of a work
+// still hand in side reports, which the architect reads.
+#[test]
+fn only_the_engineer_and_the_architect_tell_the_owner() {
+    let c = compiled();
+    let mut helpers = Vec::new();
+    for g in &c.graphs {
+        for cell in g.cells.iter().filter(|x| x.kind == "agent") {
+            let tells = matches!(cell.line.as_deref(), Some("engineer" | "architect"));
+            let s = cell.schema.as_ref().unwrap();
+            let id = &cell.id;
+            assert_eq!(s["properties"].get("tell_owner").is_some(), tells, "{id}");
+            assert_eq!(
+                s["description"].as_str().unwrap().contains("`tell_owner`"),
+                tells,
+                "{id}"
+            );
+            assert_eq!(cell.always.iter().any(|a| a.at == "tell_owner"), tells, "{id}");
+            assert_eq!(cell.shown.iter().any(|p| p == "tell_owner"), tells, "{id}");
+            if !tells {
+                helpers.push(id.as_str());
+                let reports = s["properties"].get("side_reports").is_some();
+                assert_eq!(reports, g.name == "engineer", "{id}");
+            }
+        }
+    }
+    assert_eq!(helpers, ["T1", "T3", "T4", "T5", "A1", "B2", "X2"]);
+}
+
 // A work moves as the rows say: into the tool cell and back to the agent that called it, out to the advisor and,
 // through choosing the way on, back to where it stopped.
 #[test]

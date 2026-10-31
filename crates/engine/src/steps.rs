@@ -642,7 +642,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
 }
 
 /// A round's call as its record keeps it: the structured-output schema the command line gives, the same for every
-/// round of a graph, kept once in `contents` and referred to there.
+/// round of a line, kept once in `contents` and referred to there.
 fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
     if let Some(args) = call["command"].as_array_mut()
         && let Some(i) = args.iter().position(|a| a == "--json-schema").map(|i| i + 1)
@@ -698,7 +698,7 @@ pub fn cell_request(
         prompt: String::new(),
         images: Vec::new(),
         schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
-        envelope: sessions::cli::envelope(g),
+        envelope: sessions::cli::envelope(g, cell.line.as_deref()),
         refused: e.config.config.install.agents.permissions.refused(&line),
         readable,
         replay: None,

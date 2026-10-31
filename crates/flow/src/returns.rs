@@ -435,7 +435,9 @@ impl Analysis<'_, '_> {
             let pseudo = c.sw.iter().filter(|f| f.name.starts_with('@')).cloned();
             for form in &c.forms {
                 let mut fs = Vec::new();
-                for n in g.every.iter().filter(|n| !form.without.contains(n)) {
+                // A field every return holds that this cell's line does not hold is not in its output.
+                let held = |n: &&String| c.out.iter().any(|f| &f.name == *n);
+                for n in g.every.iter().filter(held).filter(|n| !form.without.contains(n)) {
                     fs.push(field_of(n)?.clone());
                 }
                 fs.extend(pseudo.clone());

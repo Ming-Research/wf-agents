@@ -552,8 +552,10 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     continue;
                 }
                 let urgent = r["urgent"] == true;
+                // The line that handed it in: the engineer's, or a line that helps it and tells the owner nothing.
+                let line = line_of(ctx);
                 let what = format!(
-                    "A side report from {} at cell {}: {}",
+                    "A side report from the {line} of {} at cell {}: {}",
                     ctx.about(),
                     ctx.cell.id,
                     db::one_sentence(r["what"].as_str().unwrap_or_default())
@@ -563,7 +565,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     kind: "report".into(),
                     detail: r["kind"].as_str().map(str::to_string),
                     what,
-                    body: json!({ "report": r, "index": index, "cell": ctx.cell.id, "urgent": urgent }),
+                    body: json!({ "report": r, "index": index, "cell": ctx.cell.id, "line": line, "urgent": urgent }),
                     item: Some(item.id),
                     raised: Some((ctx.round.work, ctx.round.n)),
                 };

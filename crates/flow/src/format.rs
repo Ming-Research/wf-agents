@@ -566,6 +566,10 @@ pub struct AgentCommon {
     /// an agent working on a project that does not meet it is not asked for the field.
     #[serde(default)]
     pub needs: BTreeMap<String, String>,
+    /// Fields of `every` that only the agents' cells of some lines hold, each with those lines: a cell of another line
+    /// neither holds the field nor does, shows or has read what is at it.
+    #[serde(default)]
+    pub lines: BTreeMap<String, Vec<String>>,
 }
 
 /// A place of a return a role reads outside this flow, through the database, such as the architect reading side

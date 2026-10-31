@@ -563,6 +563,16 @@ case!(
         graph(v)["agentCommon"]["needs"] = json!({ "ask": "flow_feedback" });
     }
 );
+case!(a_field_kept_to_no_such_line, "a field kept to no such line", |v| {
+    graph(v)["agentCommon"]["lines"] = json!({ "tell_owner": ["owner"] });
+});
+case!(
+    a_field_kept_to_lines_that_does_not_come_every_time,
+    "a field kept to some lines that does not come every time",
+    |v| {
+        graph(v)["agentCommon"]["lines"] = json!({ "ask": ["engineer"] });
+    }
+);
 // The re-review reads its own last findings too, so both reads go.
 case!(a_cell_reads_part_of_an_input_and_drops_the_rest, "dropped", |v| {
     drop_source(v, "T6", json!(["T4", "columns[findings]"]));
