@@ -485,6 +485,48 @@
   overflow-x: auto;
 }
 
+/* A diagram in a text, on the text's background at its own size: wider than the text, it scrolls inside its box and
+   never widens the page. The button that shows its source sits in its top right corner, seen under the pointer or the
+   keyboard's focus, and always where there is no pointer to hover with. */
+.diagram {
+  position: relative;
+  min-width: 0;
+}
+
+.diagram-drawing {
+  overflow-x: auto;
+}
+
+.diagram-drawing > svg {
+  display: block;
+  max-width: none;
+}
+
+.diagram-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  opacity: 0;
+}
+
+.diagram:hover .diagram-toggle,
+.diagram:focus-within .diagram-toggle,
+.diagram-toggle[aria-pressed='true'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .diagram-toggle {
+    opacity: 1;
+  }
+}
+
+.diagram-note {
+  margin: var(--base-size-4) 0 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
 /* A value whose shape the page does not know: its fields each under its name, a list as a list. */
 .labelled {
   display: grid;

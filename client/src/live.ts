@@ -195,6 +195,42 @@ export function useResource<T>(key: string | null, path: string | null): Resourc
   return got.path === path ? { data: got.data, error: got.error } : { data: undefined, error: null };
 }
 
+/// What each path read by `useShared` held, at the count of changes it was read at.
+const shared = new Map<string, { v: number; data: unknown }>();
+/// The paths being read for `useShared`, each at the count of changes it is read at.
+const reading = new Set<string>();
+
+/// Reads `path` once for every part on the page that asks for it, and again each time an event names `key`, as
+/// `useResource` reads it for one part: for what many parts read alike, such as the items every text an agent wrote may
+/// name by number. Undefined until it is first read, and while it cannot be.
+export function useShared<T>(key: string, path: string): T | undefined {
+  const v = useSyncExternalStore(
+    subscribe,
+    () => version(key),
+    () => version(key),
+  );
+  const got = useSyncExternalStore(
+    subscribe,
+    () => shared.get(path),
+    () => shared.get(path),
+  );
+  useEffect(() => {
+    const asked = `${v} ${path}`;
+    if ((shared.get(path)?.v ?? -1) >= v || reading.has(asked)) return;
+    reading.add(asked);
+    getJson<T>(path).then(
+      (data) => {
+        reading.delete(asked);
+        if ((shared.get(path)?.v ?? -1) > v) return;
+        shared.set(path, { v, data });
+        for (const l of listeners) l();
+      },
+      () => reading.delete(asked),
+    );
+  }, [path, v]);
+  return got?.data as T | undefined;
+}
+
 /// Reads each of `items` now, and one again each time an event names its key, as `useResource` reads one; the data in
 /// the order given once every one has been read. One read already and not named since is not read again.
 export function useResources<T>(items: ReadonlyArray<{ key: string; path: string }>): Resource<T[]> {

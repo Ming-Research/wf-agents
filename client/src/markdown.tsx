@@ -1,23 +1,32 @@
-// Text the agents write, as it reads: the markdown they write in it (paragraphs, lists, headings, fenced code, inline
-// code, bold and links) drawn as such, and a paragraph that is plainly code, such as a command to run, kept as code.
-// A small parser of its own, since the page needs only these, and what an agent writes must never become markup
-// the page did not mean: nothing in the text is taken as HTML.
+// Text the agents and the owner write, as it reads: the markdown they write in it (paragraphs, lists, headings, fenced
+// code, inline code, bold and links) drawn as such, a paragraph that is plainly code, such as a command to run, kept as
+// code, a fence of a diagram's kind drawn as that diagram (diagram.tsx), and an item named by its number, `#12`, a link
+// to its page. A small parser of its own, since the page needs only these, and what is written must never become
+// markup the page did not mean: nothing in the text is taken as HTML, and a diagram is drawn by its library and
+// sanitised before it is shown.
 
 import type { ReactNode } from 'react';
+
+import type { Items as ItemsData } from './api';
+import { Diagram, diagramKind, type DiagramKind } from './diagram';
+import { useShared } from './live';
+import { ItemRef } from './parts';
 
 export type Inline =
   | { kind: 'text'; text: string }
   | { kind: 'code'; text: string }
   | { kind: 'bold'; children: Inline[] }
-  | { kind: 'link'; href: string; children: Inline[] };
+  | { kind: 'link'; href: string; children: Inline[] }
+  | { kind: 'item'; id: number };
 
 export type Block =
   | { kind: 'para'; text: string }
   | { kind: 'code'; text: string }
+  | { kind: 'diagram'; diagram: DiagramKind; text: string }
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'list'; ordered: boolean; start: number; items: Block[][] };
 
-const FENCE = /^ {0,3}(```|~~~)/;
+const FENCE = /^ {0,3}(```|~~~)[ \t]*([^\s`]*)/;
 const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)[ \t#]*$/;
 const ITEM = /^( *)([-*+]|\d{1,9}[.)])(?:[ \t]+(.*))?$/;
 
@@ -51,7 +60,8 @@ function blocksOf(lines: string[]): Block[] {
       }
       i += 1;
       const code = body.join('\n').replace(/^\n+|\n+$/g, '');
-      if (code !== '') out.push({ kind: 'code', text: code });
+      const diagram = diagramKind(fence[2]);
+      if (code !== '') out.push(diagram !== null ? { kind: 'diagram', diagram, text: code } : { kind: 'code', text: code });
       continue;
     }
     const heading = HEADING.exec(line);
@@ -125,8 +135,32 @@ function list(lines: string[], start: number, out: Block[]): number {
   return i;
 }
 
-/// The inline parts of a paragraph: code between backticks, bold between double asterisks, links, and text.
-export function inline(text: string): Inline[] {
+/// What may stand right before or after an item's number without making it part of something else: an ASCII letter,
+/// digit or underscore joins it to a word (`C#`, `#12a`), and these join it to an address, a path or a code
+/// (`page#12`, `/#12`, `?id=#12`, `#12.5`, `#12-3`).
+const WORD = /[A-Za-z0-9_]/;
+const JOINS = /[/&#?=.@~+\-\\$%]/;
+/// The word before a number that names another numbered thing than an item (`PR #7`, `pull request #7`, `matter #3`).
+const OTHER = /\b(?:PRs?|pull requests?|issues?|matters?|questions?|asks?|cards?|works?|rounds?|changes?|commits?|comments?)\s*$/i;
+
+/// The item a `#` at `at` names, and where its number ends: a `#` then a number not starting with 0, standing apart
+/// from what is round it (not inside a word, an address or a code), and not after a word that names another
+/// numbered thing; a heading's `#` is followed by a space and is never one.
+export function itemAt(text: string, at: number): { id: number; end: number } | null {
+  const m = /^#([1-9]\d{0,8})/.exec(text.slice(at));
+  if (m === null) return null;
+  const before = text[at - 1] ?? '';
+  if (WORD.test(before) || JOINS.test(before)) return null;
+  const end = at + m[0].length;
+  const after = text[end] ?? '';
+  if (WORD.test(after) || (/[.\-/:@#]/.test(after) && WORD.test(text[end + 1] ?? ''))) return null;
+  if (OTHER.test(text.slice(Math.max(0, at - 20), at))) return null;
+  return { id: Number(m[1]), end };
+}
+
+/// The inline parts of a paragraph: code between backticks, bold between double asterisks, links, items by their
+/// number (`items` false inside a link, which holds no link), and text.
+export function inline(text: string, items = true): Inline[] {
   const out: Inline[] = [];
   let buf = '';
   const flush = () => {
@@ -161,7 +195,7 @@ export function inline(text: string): Inline[] {
       const end = text.indexOf('**', i + 2);
       if (end > i + 2) {
         flush();
-        out.push({ kind: 'bold', children: inline(text.slice(i + 2, end)) });
+        out.push({ kind: 'bold', children: inline(text.slice(i + 2, end), items) });
         i = end + 2;
         continue;
       }
@@ -170,8 +204,17 @@ export function inline(text: string): Inline[] {
       const m = /^\[([^\]\n]+)\]\(([^()\s]+)\)/.exec(text.slice(i));
       if (m !== null) {
         flush();
-        out.push({ kind: 'link', href: m[2], children: inline(m[1]) });
+        out.push({ kind: 'link', href: m[2], children: inline(m[1], false) });
         i += m[0].length;
+        continue;
+      }
+    }
+    if (c === '#' && items) {
+      const item = itemAt(text, i);
+      if (item !== null) {
+        flush();
+        out.push({ kind: 'item', id: item.id });
+        i = item.end;
         continue;
       }
     }
@@ -185,6 +228,26 @@ export function inline(text: string): Inline[] {
 /// Only a link to the web leaves the page; any other target an agent wrote, such as a path in its repository, is
 /// shown as its words.
 const WEB = /^https?:\/\//;
+
+/// The items' titles by their numbers, worked out once for each read of the items.
+const titles = new WeakMap<ItemsData, Map<number, string>>();
+
+function titlesOf(data: ItemsData): Map<number, string> {
+  let found = titles.get(data);
+  if (found === undefined) {
+    found = new Map(data.items.map((i) => [i.id, i.title]));
+    titles.set(data, found);
+  }
+  return found;
+}
+
+/// An item named by its number: a link to its page, as an item is linked everywhere, its title on hovering; a number
+/// no item has, or one not known yet, stays as written.
+function ItemNumber({ id }: { id: number }) {
+  const items = useShared<ItemsData>('items', '/api/v1/items');
+  const title = items !== undefined ? titlesOf(items).get(id) : undefined;
+  return title !== undefined ? <ItemRef id={id} hint={title} /> : `#${id}`;
+}
 
 function Inlines({ parts }: { parts: Inline[] }): ReactNode {
   return parts.map((p, i) => {
@@ -209,6 +272,8 @@ function Inlines({ parts }: { parts: Inline[] }): ReactNode {
             <Inlines parts={p.children} />
           </span>
         );
+      case 'item':
+        return <ItemNumber key={i} id={p.id} />;
     }
     return null;
   });
@@ -229,6 +294,8 @@ function Blocks({ blocks }: { blocks: Block[] }) {
             {b.text}
           </pre>
         );
+      case 'diagram':
+        return <Diagram key={i} kind={b.diagram} source={b.text} />;
       case 'heading':
         return (
           <p key={i} className={`md-h md-h${Math.min(b.level, 3)}`}>
@@ -261,7 +328,7 @@ function Blocks({ blocks }: { blocks: Block[] }) {
   });
 }
 
-/// A text an agent wrote, as it reads.
+/// A text an agent or the owner wrote, as it reads.
 export function Markdown({ text }: { text: string }) {
   return (
     <div className="md">

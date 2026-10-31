@@ -1,12 +1,14 @@
 // The items view and an item's page: the tree of what depends on what, the checklist of a work's rounds, and the
-// markdown agents write.
+// markdown agents write, with its diagrams and the items it names by number.
 
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import type { CompiledCell, CompiledGraph, CompiledRow, ItemLink, ItemSummary, RoundSummary } from './api';
 import { byStage, mainPath, progress, type Step } from './item/checklist';
 import { depsDone, firstShown, stageAt, tree, type TreeRow } from './item/tree';
-import { inline, parse } from './markdown';
+import { inline, Markdown, parse } from './markdown';
 
 function item(id: number, state: ItemSummary['state'], extra: Partial<ItemSummary> = {}): ItemSummary {
   return {
@@ -249,6 +251,9 @@ describe('the checklist of a work', () => {
 });
 
 describe('the markdown agents write', () => {
+  const plain = (text: string) => ({ kind: 'text', text });
+  const ref = (id: number) => ({ kind: 'item', id });
+
   it('reads headings, lists in lists, fences and paragraphs', () => {
     const text = [
       '## The plan',
@@ -299,4 +304,74 @@ describe('the markdown agents write', () => {
     expect(inline('a `b')).toEqual([{ kind: 'text', text: 'a `b' }]);
     expect(inline('snake_case_name')).toEqual([{ kind: 'text', text: 'snake_case_name' }]);
   });
+
+  it('reads a fence of mermaid or dot as a diagram, and any other as code', () => {
+    const fences = ['```mermaid', 'flowchart LR', '  a --> b', '```', '~~~ Dot', 'digraph { a -> b }', '~~~', '```js', 'go()', '```'];
+    expect(parse(fences.join('\n'))).toEqual([
+      { kind: 'diagram', diagram: 'mermaid', text: 'flowchart LR\n  a --> b' },
+      { kind: 'diagram', diagram: 'dot', text: 'digraph { a -> b }' },
+      { kind: 'code', text: 'go()' },
+    ]);
+    // Until it is drawn, which happens on the screen only, a diagram shows its source as code.
+    const html = renderToStaticMarkup(createElement(Markdown, { text: '```dot\ndigraph { a -> b }\n```' }));
+    expect(html).toBe('<div class="md"><div class="diagram"><pre class="code-block">digraph { a -&gt; b }</pre></div></div>');
+  });
+
+  it('reads an item named by its number, standing apart from what is round it', () => {
+    expect(inline('See #12 and #3.')).toEqual([plain('See '), ref(12), plain(' and '), ref(3), plain('.')]);
+    expect(inline('#12 first, (#13), item #14, [#15], #16: done')).toEqual([
+      ref(12),
+      plain(' first, ('),
+      ref(13),
+      plain('), item '),
+      ref(14),
+      plain(', ['),
+      ref(15),
+      plain('], '),
+      ref(16),
+      plain(': done'),
+    ]);
+    // A non-ASCII mark round it, as a dash, sets it apart as a space does.
+    expect(inline('one\u2014#12\u2014two')).toEqual([plain('one\u2014'), ref(12), plain('\u2014two')]);
+    expect(inline('**#12** and `#13`')).toEqual([{ kind: 'bold', children: [ref(12)] }, plain(' and '), { kind: 'code', text: '#13' }]);
+    // A link holds no link.
+    expect(inline('[see #12](https://example.com)')).toEqual([
+      { kind: 'link', href: 'https://example.com', children: [plain('see #12')] },
+    ]);
+  });
+
+  it('leaves a number that is part of something else, or names another thing, as text', () => {
+    for (const s of [
+      'PR #7',
+      'PRs #7',
+      'pull request #7',
+      'issue #7',
+      'matter #3',
+      'the work #5',
+      'round #2',
+      'C# 12',
+      'C#12',
+      'https://example.com/page#12',
+      'https://example.com/#12',
+      'see ?id=#12',
+      'a/#12',
+      '#12a',
+      '#12_b',
+      '#12.5',
+      '#12-3',
+      '#12/4',
+      '#12#13',
+      '##12',
+      '#0',
+      '#012',
+      '# 12',
+    ]) {
+      expect(inline(s), s).toEqual([plain(s)]);
+    }
+    expect(parse('## #12 and # 13')).toEqual([{ kind: 'heading', level: 2, text: '#12 and # 13' }]);
+    expect(parse('```\nsee #12\n```')).toEqual([{ kind: 'code', text: 'see #12' }]);
+    // A number no item has, or before the items are read, stays as written.
+    expect(renderToStaticMarkup(createElement(Markdown, { text: 'See #12.' }))).toBe('<div class="md"><p class="prose">See #12.</p></div>');
+  });
 });
+
