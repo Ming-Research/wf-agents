@@ -687,10 +687,10 @@ fn hand_over_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>, at: Option<&Val
         "advisor" => (
             format!(
                 "the advisor hands it on: {}",
-                at["points"][0]["kind"]
+                at["points"][0]["what"]
                     .as_str()
-                    .unwrap_or("what it cannot decide")
-                    .replace('_', " ")
+                    .map(db::one_sentence)
+                    .unwrap_or_else(|| "what it cannot decide".into())
             ),
             points(&at),
         ),

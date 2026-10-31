@@ -410,8 +410,6 @@ pub struct OwnerAsk {
     pub work: i64,
     pub item: Option<i64>,
     pub body: Value,
-    /// The kind of each point it asks about, in order, with the kind's group.
-    pub kinds: Vec<AskKind>,
     /// None while it waits.
     pub answer: Option<Value>,
     /// The images the owner sent with the answer, by their ids, in order.
@@ -419,16 +417,6 @@ pub struct OwnerAsk {
     /// When the owner was told of it, from which it waits: the engine's notice of it, or else the start of the round
     /// that put it.
     pub asked_at: i64,
-}
-
-/// The kind of a point an ask is about, with the group of kinds it is in, so that the owner sees at a glance what
-/// sort of question it is.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-pub struct AskKind {
-    pub kind: String,
-    /// The group the flow built into this program puts the kind in; none for a kind it does not have, such as one
-    /// an earlier flow version had.
-    pub group: Option<String>,
 }
 
 /// What an agent told the owner in a return, or the engine of its own accord, needing no answer.
@@ -449,9 +437,8 @@ pub struct OwnerMessage {
     pub text: String,
     /// When the owner marked it read; none while it is unread.
     pub read_at: Option<i64>,
-    /// For the engine's notice of a new ask of the owner: that ask, and the kinds of the points it asks about.
+    /// For the engine's notice of a new ask of the owner: that ask.
     pub ask: Option<i64>,
-    pub ask_kinds: Vec<AskKind>,
     /// For one that came of a work of an architect, told by one of its rounds or the engine's notice of one: the
     /// architect's project; none otherwise.
     pub architect: Option<String>,
@@ -1449,7 +1436,7 @@ pub struct Matter {
     /// Its kind, which decides its path: set_straight, engineer_question, report, design_card, failure, owner_words,
     /// other_architect or slots_free.
     pub kind: String,
-    /// What more its kind says, such as an engineer's question's own kind.
+    /// What more its kind says, such as a side report's kind; none for an engineer's question, which carries no kind.
     pub detail: Option<String>,
     /// What it is, in one sentence, as the engine wrote it.
     pub what: String,

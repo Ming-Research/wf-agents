@@ -400,10 +400,6 @@ export type OwnerAsk = { id: number,
  */
 round: number, work: number, item: number | null, body: JsonValue, 
 /**
- * The kind of each point it asks about, in order, with the kind's group.
- */
-kinds: Array<AskKind>, 
-/**
  * None while it waits.
  */
 answer: JsonValue | null, 
@@ -416,17 +412,6 @@ answer_images: Array<number>,
  * that put it.
  */
 asked_at: number, };
-
-/**
- * The kind of a point an ask is about, with the group of kinds it is in, so that the owner sees at a glance what
- * sort of question it is.
- */
-export type AskKind = { kind: string, 
-/**
- * The group the flow built into this program puts the kind in; none for a kind it does not have, such as one
- * an earlier flow version had.
- */
-group: string | null, };
 
 /**
  * What an agent told the owner in a return, or the engine of its own accord, needing no answer.
@@ -446,9 +431,9 @@ round: number | null, cell: string | null, line: string | null, at: number | nul
  */
 read_at: number | null, 
 /**
- * For the engine's notice of a new ask of the owner: that ask, and the kinds of the points it asks about.
+ * For the engine's notice of a new ask of the owner: that ask.
  */
-ask: number | null, ask_kinds: Array<AskKind>, 
+ask: number | null, 
 /**
  * For one that came of a work of an architect, told by one of its rounds or the engine's notice of one: the
  * architect's project; none otherwise.
@@ -1612,7 +1597,7 @@ export type Matter = { id: number,
  */
 kind: string, 
 /**
- * What more its kind says, such as an engineer's question's own kind.
+ * What more its kind says, such as a side report's kind; none for an engineer's question, which carries no kind.
  */
 detail: string | null, 
 /**
@@ -2468,11 +2453,6 @@ within: string,
  */
 asking: Array<string>, receive: string | null, counters: Array<Counter>, rules: Array<Rule>, interject: CompiledInterject | null, 
 /**
- * The kinds of question that only a project meeting a need can meet: an agent working on a project that does
- * not meet it is not told of the kind.
- */
-ask_needs?: Array<AskNeed>, 
-/**
  * The fields of every agent's return that only a project meeting a need is asked for, each with the need: an
  * agent working on a project that does not meet it is not asked for the field.
  */
@@ -2516,20 +2496,6 @@ lines?: Array<string>,
 givenWith?: Array<string>, };
 
 export type CompiledInterject = { name: string, desc: string, text: Array<string>, from: Array<Named>, };
-
-/**
- * A kind of question only a project meeting a need can meet.
- */
-export type AskNeed = { kind: string, 
-/**
- * One of `engine.needs`.
- */
-need: string, 
-/**
- * The kind with what it means, as a return format's description of the field that names a kind says it: what
- * is taken out of that description when the kind is left out.
- */
-text: string, };
 
 export type Named = { name: string, desc: string, };
 

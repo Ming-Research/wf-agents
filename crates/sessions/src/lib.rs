@@ -162,8 +162,8 @@ mod tests {
     fn each_line_is_given_only_its_own_common_forms() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
-        let all = flow::formats::common_format(g, &[]);
-        let of = |cell: &str| flow::formats::common_format_of(g, &format_cells(g, g.cell(cell).unwrap()), &[]);
+        let all = flow::formats::common_format(g);
+        let of = |cell: &str| flow::formats::common_format_of(g, &format_cells(g, g.cell(cell).unwrap()));
         assert_eq!(of("R1"), of("T6"));
         assert_eq!(of("T3"), of("T4"));
         for cell in ["R1", "T3", "T1", "A1"] {

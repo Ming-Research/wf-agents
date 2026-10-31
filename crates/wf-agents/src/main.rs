@@ -339,7 +339,7 @@ fn flow_check(flow: &Path, schema: Option<&Path>) -> Result<(), String> {
             };
             seen.push(line);
             let cells = sessions::format_cells(g, c);
-            let size = flow::formats::common_format_of(g, &cells, &[]).chars().count();
+            let size = flow::formats::common_format_of(g, &cells).chars().count();
             let starts: Vec<&str> = cells.iter().filter(|x| x.new_session).map(|x| x.id.as_str()).collect();
             let at = if starts.is_empty() {
                 String::new()
@@ -351,7 +351,7 @@ fn flow_check(flow: &Path, schema: Option<&Path>) -> Result<(), String> {
         println!(
             "{}: format:common {} characters, by line: {}",
             g.name,
-            flow::formats::common_format(g, &[]).chars().count(),
+            flow::formats::common_format(g).chars().count(),
             lines.join("; ")
         );
     }

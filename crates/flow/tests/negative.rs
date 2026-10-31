@@ -230,22 +230,15 @@ case!(
     }
 );
 case!(
-    a_gate_that_asks_about_no_such_kind,
-    "a gate asks about no such kind",
-    |v| {
-        node(v, "D4")["about"] = json!("gap");
-    }
-);
-case!(
-    a_gate_prompt_that_does_not_name_the_kind,
-    "gate.prompt does not name the kind",
+    a_gate_prompt_that_does_not_name_the_outcomes,
+    "gate.prompt does not name the two outcomes",
     |v| {
         graph(v)["gate"]["prompt"] = json!("If yes, ask.");
     }
 );
 case!(
     a_gate_not_applicable_prompt_without_the_example,
-    "does not name the kind, the two outcomes and the example",
+    "does not name the two outcomes and the example",
     |v| {
         let p = graph(v)["gate"]["na"]["prompt"].as_str().unwrap().replace("{na}", "");
         graph(v)["gate"]["na"]["prompt"] = json!(p);
@@ -337,12 +330,48 @@ case!(a_cell_on_no_such_line, "no such line", |v| {
     node(v, "I1")["line"] = json!("test");
 });
 case!(
-    a_group_of_kinds_only_for_no_such_role,
-    "a group of kinds names no such role",
+    a_flow_whose_asks_carry_kinds,
+    "an ask carries no kind, and askKinds lists some",
     |v| {
-        graph(v)["askKinds"][2]["only"] = json!("boss");
+        graph(v)["askKinds"] = json!([{ "group": "technical", "kinds": [["split", "It must be split"]] }]);
     }
 );
+case!(
+    a_gate_that_names_a_kind,
+    "an ask carries no kind, and gate D8 names one",
+    |v| {
+        node(v, "D8")["about"] = json!("split");
+    }
+);
+// A flow from before asks lost their kinds, as at an older commit, is still shown: its kinds of question, the kind its
+// ask's points name from them and the kind each gate asks about are read as they were. It does not run.
+#[test]
+fn a_flow_from_before_asks_lost_their_kinds_is_shown_and_does_not_run() {
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    graph(&mut v)["askKinds"] = json!([{ "group": "technical", "kinds": [["an_old_kind", "A kind a flow before had"]],
+                                          "only": "advisor", "needs": {} }]);
+    v["shapes"]["ask_form"]["common"][0]["item"]["fields"]
+        .as_array_mut()
+        .unwrap()
+        .insert(
+            0,
+            json!({ "name": "kind", "title": "Kind", "type": "enum", "desc": "Which kind", "values": "askKinds" }),
+        );
+    node(&mut v, "D8")["about"] = json!("an_old_kind");
+    let text = serde_json::to_string(&v).unwrap();
+    let shown = flow::compile_shown(&text, &context()).unwrap();
+    let ask = shown
+        .graph("engineer")
+        .unwrap()
+        .cell("R1")
+        .unwrap()
+        .schema
+        .clone()
+        .unwrap();
+    assert!(ask.to_string().contains("an_old_kind"), "{ask}");
+    let e = flow::compile(&text, &context()).unwrap_err().to_string();
+    assert!(e.contains("an ask carries no kind"), "{e}");
+}
 case!(a_rule_no_cell_uses, "a rule no cell uses", |v| {
     graph(v)["rules"]
         .as_array_mut()
@@ -606,9 +635,13 @@ case!(
         node(v, "T6")["inputs"][1]["empty"] = json!({ "to": "T7", "note": "Nothing." });
     }
 );
-case!(a_kind_that_needs_no_such_need, "no such need", |v| {
-    graph(v)["askKinds"][0]["needs"] = json!({ "gap_under_test": "nothing_known" });
-});
+case!(
+    a_gate_that_needs_no_such_need,
+    "no such engine need: nothing_known",
+    |v| {
+        node(v, "D4")["needs"] = json!("nothing_known");
+    }
+);
 case!(a_field_that_needs_no_such_need, "a field needs no such need", |v| {
     graph(v)["agentCommon"]["needs"] = json!({ "flow_feedback": "nothing_known" });
 });

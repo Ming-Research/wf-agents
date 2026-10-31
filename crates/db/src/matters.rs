@@ -21,7 +21,7 @@ pub struct Matter {
     /// Its kind, which decides its path: set_straight, engineer_question, report, design_card, failure, owner_words,
     /// other_architect, slots_free, or check_policy and make_plan, which come at the head of the queue.
     pub kind: String,
-    /// What more its kind says, such as an engineer's question's own kind; none when nothing more.
+    /// What more its kind says, such as a side report's kind; none when nothing more, as for an engineer's question.
     pub detail: Option<String>,
     /// What it is, in one sentence.
     pub what: String,

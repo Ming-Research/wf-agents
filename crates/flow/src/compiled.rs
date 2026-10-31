@@ -63,10 +63,6 @@ pub struct CompiledGraph {
     pub counters: Vec<Counter>,
     pub rules: Vec<Rule>,
     pub interject: Option<CompiledInterject>,
-    /// The kinds of question that only a project meeting a need can meet: an agent working on a project that does
-    /// not meet it is not told of the kind.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ask_needs: Vec<AskNeed>,
     /// The fields of every agent's return that only a project meeting a need is asked for, each with the need: an
     /// agent working on a project that does not meet it is not asked for the field.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -119,17 +115,6 @@ pub struct CompiledInput {
     /// It reads each place from its cell's newest answer only: a field that answer leaves out is none there.
     #[serde(default, skip_serializing_if = "is_false")]
     pub newest: bool,
-}
-
-/// A kind of question only a project meeting a need can meet.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub struct AskNeed {
-    pub kind: String,
-    /// One of `engine.needs`.
-    pub need: String,
-    /// The kind with what it means, as a return format's description of the field that names a kind says it: what
-    /// is taken out of that description when the kind is left out.
-    pub text: String,
 }
 
 /// A rule of the flow an agent's cell is given, by its name.
@@ -1040,27 +1025,6 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             text: i.text.clone(),
             from: i.from.clone(),
         }),
-        ask_needs: f
-            .ask_kinds
-            .iter()
-            .flat_map(|grp| {
-                grp.kinds.iter().filter_map(|(kind, means)| {
-                    grp.needs.get(kind).map(|need| AskNeed {
-                        kind: kind.clone(),
-                        need: need.clone(),
-                        text: if means.is_empty() {
-                            kind.clone()
-                        } else {
-                            g.source
-                                .enum_text
-                                .value
-                                .replace("{value}", kind)
-                                .replace("{means}", means)
-                        },
-                    })
-                })
-            })
-            .collect(),
         every_needs: f.agent_common.needs.clone(),
         write: f.agent_common.returns.write.clone(),
         once: f.agent_common.returns.once.clone(),

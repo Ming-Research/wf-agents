@@ -15,12 +15,12 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Architect, ArchitectWork, AskKind, DesignCard, DispatchHold, FlowVersion, FlowView, Handled, HandledAction,
-    InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
-    LinkedItem, Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, OwnerAsk, OwnerMessage,
-    PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional,
-    RoundDetail, RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag,
-    TokenCosts, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
+    Architect, ArchitectWork, DesignCard, DispatchHold, FlowVersion, FlowView, Handled, HandledAction, InputsNow,
+    Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem,
+    Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, OwnerAsk, OwnerMessage, PausedBy,
+    Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional, RoundDetail,
+    RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts,
+    ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -762,40 +762,6 @@ const ASK: &str = "SELECT a.id, a.round, a.work, w.item, a.body, a.answer,
                 (SELECT r.started_at FROM rounds r WHERE r.work = a.work AND r.n = a.round), 0), w.graph
 FROM owner_asks a JOIN works w ON w.id = a.work";
 
-/// The group of each kind of question an agent may ask, by kind, as the flow built into this program groups them: a
-/// compiled flow version keeps the kinds, not their groups.
-static ASK_GROUPS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
-    let Ok(source) = serde_json::from_str::<flow::format::Source>(flow::FLOW) else {
-        return HashMap::new();
-    };
-    let mut out = HashMap::new();
-    for g in source.flows.iter().flat_map(|f| &f.ask_kinds) {
-        for (kind, _) in &g.kinds {
-            out.entry(kind.clone()).or_insert_with(|| g.group.clone());
-        }
-    }
-    out
-});
-
-/// The kind of each point an ask is about, in order, with its group. The engine keeps what the cells handed in under
-/// `asked`, each with its value; an ask written as one is its own.
-fn ask_kinds(body: &Value) -> Vec<AskKind> {
-    let asked: Vec<&Value> = body["asked"]
-        .as_array()
-        .map(|a| a.iter().map(|x| &x["value"]).filter(|v| v.is_object()).collect())
-        .unwrap_or_default();
-    let parts = if asked.is_empty() { vec![body] } else { asked };
-    parts
-        .into_iter()
-        .flat_map(|p| p["points"].as_array().into_iter().flatten())
-        .filter_map(|p| p["kind"].as_str())
-        .map(|kind| AskKind {
-            kind: kind.to_string(),
-            group: ASK_GROUPS.get(kind).cloned(),
-        })
-        .collect()
-}
-
 pub(crate) fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerAsk>> {
     let mut st = conn.prepare(&format!("{ASK} {filter} ORDER BY a.id"))?;
     let rows = st.query_map(params_from_iter(args), |r| {
@@ -805,7 +771,6 @@ pub(crate) fn asks(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<
             round: r.get(1)?,
             work: r.get(2)?,
             item: r.get(3)?,
-            kinds: ask_kinds(&body),
             body,
             answer: json(r.get(5)?),
             answer_images: Vec::new(),
@@ -840,17 +805,15 @@ fn messages_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<O
             text: r.get(8)?,
             read_at: r.get(9)?,
             ask: None,
-            ask_kinds: Vec::new(),
             architect: r.get(10)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at, n.ask, a.body,
+const NOTICE: &str = "SELECT n.id, n.work, w.item, i.title, n.text, n.at, n.read_at, n.ask,
        CASE WHEN w.graph IN ('architect', 'policy') THEN w.project END
-FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item
-LEFT JOIN owner_asks a ON a.id = n.ask";
+FROM engine_notices n LEFT JOIN works w ON w.id = n.work LEFT JOIN items i ON i.id = w.item";
 
 fn notices_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<OwnerMessage>> {
     let mut st = conn.prepare(&format!("{NOTICE} {filter} ORDER BY n.id"))?;
@@ -868,8 +831,7 @@ fn notices_where(conn: &Connection, filter: &str, args: &[i64]) -> Result<Vec<Ow
             at: Some(r.get(5)?),
             read_at: r.get(6)?,
             ask: r.get(7)?,
-            ask_kinds: json(r.get(8)?).map(|b| ask_kinds(&b)).unwrap_or_default(),
-            architect: r.get(9)?,
+            architect: r.get(8)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -2869,26 +2831,26 @@ mod tests {
         );
     }
 
-    // An ask's kinds come with the group the flow puts each in; a kind the flow does not have has none.
+    // An ask carries no kind; one recorded with kinds before still loads, its points as they were, and nothing reads
+    // the kinds.
     #[test]
-    fn an_ask_says_the_group_of_each_kind_it_asks_about() {
-        let held = json!({ "asked": [{ "what": "w", "value": { "to": "owner", "points": [
+    fn an_ask_recorded_with_a_kind_still_loads() {
+        let mut s = setup("ask-kind");
+        let held = json!({ "asked": [{ "what": "w", "value": { "to": "architect", "points": [
             { "kind": "blocked_by_permission", "what": "x" },
-            { "kind": "no_such_kind", "what": "y" },
+            { "what": "y" },
         ] } }] });
-        let kind = |kind: &str, group: Option<&str>| AskKind {
-            kind: kind.into(),
-            group: group.map(Into::into),
-        };
-        assert_eq!(
-            ask_kinds(&held),
-            [
-                kind("blocked_by_permission", Some("environment")),
-                kind("no_such_kind", None)
-            ]
-        );
-        let own = json!({ "to": "owner", "points": [{ "kind": "split", "what": "z" }] });
-        assert_eq!(ask_kinds(&own), [kind("split", Some("technical"))]);
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body) VALUES (1, 2, ?1)",
+                [held.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let loaded = asks(s.db.conn(), "WHERE a.work = ?1", &[1]).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].body, held);
     }
 
     // What a round held is found by the hash its record names it with: as the round of the work that gave it gave it,

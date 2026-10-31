@@ -106,7 +106,7 @@ fn graph(g: &CompiledGraph) -> GraphView {
     GraphView {
         name: g.name.clone(),
         cells,
-        common_format: flow::formats::common_format(g, &[]),
+        common_format: flow::formats::common_format(g),
     }
 }
 
@@ -380,7 +380,7 @@ impl<'a> Ways<'a> {
         if agent {
             out.push(given(CellInputOf::CommonFormat, "format:common".into()));
             out.push(CellInput {
-                holds: Some(flow::formats::cell_format(self.g, c, &[])),
+                holds: Some(flow::formats::cell_format(self.g, c)),
                 ..given(CellInputOf::CellFormat, format!("format:{}", c.id))
             });
             if c.inputs.iter().any(|x| x.from.iter().any(|s| *s != Src::Itself)) {

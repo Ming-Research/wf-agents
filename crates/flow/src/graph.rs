@@ -261,6 +261,7 @@ impl<'s> Graph<'s> {
         let ret = &common.returns;
         let all_tools: BTreeMap<&str, _> = source.tools.iter().map(|t| (t.name.as_str(), t)).collect();
         ensure!(all_tools.len() == source.tools.len(), "two tools with one name");
+        // The kinds of question of a flow from before asks lost their kinds, which its ask's form still names.
         let ask_kinds: Vec<(String, String)> = flow.ask_kinds.iter().flat_map(|g| g.kinds.iter().cloned()).collect();
         let mut uses: BTreeSet<&str> = flow
             .nodes
@@ -283,15 +284,11 @@ impl<'s> Graph<'s> {
         let shapes = Shapes {
             shapes: &source.shapes,
             tools: source.tools.iter().filter(|t| uses.contains(t.name.as_str())).collect(),
-            ask_kinds: ask_kinds.clone(),
+            ask_kinds,
             interject_from,
         };
         let roles = &flow.asking.roles;
         let role_names: BTreeSet<&str> = roles.iter().map(|r| r.name.as_str()).collect();
-        for g in &flow.ask_kinds {
-            let ok = g.only.as_deref().is_none_or(|o| role_names.contains(o));
-            ensure!(ok, "a group of kinds names no such role: {}", g.group);
-        }
         let counters: BTreeSet<&str> = flow.limits.counters.iter().map(|c| c.name.as_str()).collect();
         ensure!(
             counters.len() == flow.limits.counters.len(),
@@ -307,15 +304,15 @@ impl<'s> Graph<'s> {
             "gate cells in a flow with no gate"
         );
         if let Some(g) = gate {
-            let named = |p: &str| ["{about}", "{on}", "{problem}"].iter().all(|x| p.contains(x));
+            let named = |p: &str| ["{on}", "{problem}"].iter().all(|x| p.contains(x));
             ensure!(
                 named(g.prompt.as_str()),
-                "gate.prompt does not name the kind and the two outcomes: {}",
+                "gate.prompt does not name the two outcomes: {}",
                 g.prompt
             );
             ensure!(
                 named(g.na.prompt.as_str()) && g.na.prompt.contains("{na}"),
-                "gate.na.prompt does not name the kind, the two outcomes and the example: {}",
+                "gate.na.prompt does not name the two outcomes and the example: {}",
                 g.na.prompt
             );
         }
@@ -367,7 +364,7 @@ impl<'s> Graph<'s> {
                 n.id
             );
             nodes.push(match (n.kind, gate) {
-                (NodeKind::Gate, Some(g)) => from_gate(n, g, &ask_kinds)?,
+                (NodeKind::Gate, Some(g)) => from_gate(n, g)?,
                 _ => n.clone(),
             });
         }
@@ -438,19 +435,6 @@ impl<'s> Graph<'s> {
             common_named.len() == common.inputs.len(),
             "two inputs every agent's cell has with one name"
         );
-        for g in &flow.ask_kinds {
-            for (kind, need) in &g.needs {
-                ensure!(
-                    g.kinds.iter().any(|(k, _)| k == kind),
-                    "a group of kinds names a need for a kind it does not hold: {} {kind}",
-                    g.group
-                );
-                ensure!(
-                    source.engine.needs.contains_key(need),
-                    "a kind needs no such need: {kind} {need}"
-                );
-            }
-        }
         for (field, need) in &common.needs {
             ensure!(
                 ret.every.contains(field),
@@ -1527,14 +1511,9 @@ fn asks_for(shapes: &Shapes, x: &RawField, what: &str) -> Result<bool, String> {
 
 /// A gate as the agent's cell it is: one question, answered by one of two named outcomes. The one that goes on is its
 /// own answer, whose row is named after it and goes on to one cell or by the gate's rows; the problem is asked about,
-/// with the gate's kind.
-fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) -> Result<Node, String> {
+/// as the question says.
+fn from_gate(n: &Node, g: &crate::format::Gate) -> Result<Node, String> {
     let id = &n.id;
-    let about = n.about.clone().unwrap_or_default();
-    ensure!(
-        ask_kinds.iter().any(|(k, _)| *k == about),
-        "a gate asks about no such kind: {id} {about}"
-    );
     ensure!(
         n.to.is_some() != n.rows.is_some(),
         "a gate goes on to one cell or by rows: {id}"
@@ -1593,7 +1572,8 @@ fn from_gate(n: &Node, g: &crate::format::Gate, ask_kinds: &[(String, String)]) 
         }],
     };
     let fill = |text: &str| {
-        text.replace("{about}", &about)
+        // A gate of a flow from before asks lost their kinds named the kind it asked about.
+        text.replace("{about}", n.about.as_deref().unwrap_or_default())
             .replace("{on}", on)
             .replace("{problem}", problem)
             .replace("{na}", n.na.as_deref().unwrap_or(""))

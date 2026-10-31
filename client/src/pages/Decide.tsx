@@ -20,7 +20,7 @@ import { Button, ButtonGroup, Label, Textarea, type LabelColorOptions } from '@p
 import { Fragment, useState, type MouseEvent, type ReactNode } from 'react';
 
 import { askChoice, askParts, useAnswersHere } from '../answer';
-import type { AskKind, DesignCard, JsonValue, OwnerAsk } from '../api';
+import type { DesignCard, JsonValue, OwnerAsk } from '../api';
 import { toneVariant } from '../components';
 import { duration, time } from '../format';
 import { postJson } from '../http';
@@ -588,19 +588,6 @@ export function currentCard(cards: DesignCard[]): number | null {
   return live.length > 0 ? Math.max(...live.map((c) => c.id)) : null;
 }
 
-/// The kind of a point an ask is about, as a chip coloured by the kind's group, so that the sort of question shows at
-/// a glance.
-export function KindChip({ k }: { k: AskKind }) {
-  return (
-    <Label
-      className={`kind kind-${k.group ?? 'none'}`}
-      title={k.group !== null ? t('kind_group', { group: words(k.group) }) : undefined}
-    >
-      {words(k.kind)}
-    </Label>
-  );
-}
-
 /// The part of an ask's card about the owner's answer: none in a conversation, where what answers the ask and the
 /// answer once given are in its bubble; elsewhere the answer once given (`given`), or where the ask waits to be
 /// answered.
@@ -643,10 +630,10 @@ function Answer({ answer }: { answer: Obj }) {
 
 /// An ask of the owner as the owner reads and answers it, in the card every card shares: its head (its number, whether
 /// it waits and for how long as its status's chip, the round that asked, and its facts: who answered and when, and
-/// whether it is for the architect); for each point, its kind as a chip, what it says and what was tried, in boxes; the
-/// choice, when there is one, its question and its options in option boxes with the one recommended and the one the
-/// owner chose; then, but in a conversation, the answer, or where it waits to be answered. `round` is the link to the
-/// round that asked.
+/// whether it is for the architect); for each point, what it asks and what was checked, in boxes, with no kind, which
+/// an ask no longer carries and one recorded with a kind before does not show; the choice, when there is one, its
+/// question and its options in option boxes with the one recommended and the one the owner chose; then, but in a
+/// conversation, the answer, or where it waits to be answered. `round` is the link to the round that asked.
 export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; round?: ReactNode; folded?: boolean }) {
   const body = isObj(a.body) ? a.body : {};
   const held = askParts(body);
@@ -654,7 +641,6 @@ export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; roun
   const choice = askChoice(body);
   const options = choice !== null && Array.isArray(choice.options) ? choice.options.filter(isObj) : [];
   const answer = a.answer !== null && isObj(a.answer) ? a.answer : null;
-  const kind = (k: string): AskKind => a.kinds.find((x) => x.kind === k) ?? { kind: k, group: null };
   const waits = answer === null;
   const facts = joined([
     answer !== null ? answeredFact(answer) : null,
@@ -679,7 +665,6 @@ export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; roun
     <CardFrame id={`ask-${a.id}`} head={head} folded={folded}>
       {points.map((p, i) => (
         <div key={i} className="dc-point">
-          <KindChip k={kind(str(p.kind))} />
           <TextBox label={t('dc_what')} value={p.what} />
           <TextBox label={t('ask_tried_label')} value={p.tried} />
         </div>

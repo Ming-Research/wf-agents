@@ -243,29 +243,6 @@ details.dc:not([open]) > summary > .fold-open,
   margin-bottom: var(--base-size-8);
 }
 
-/* An ask's kind, in the display colour of its group, so that the sort of question shows at a glance; a kind of no
-   group, and the views not yet converted, set --kind themselves. */
-.kind {
-  border-color: var(--kind, var(--borderColor-default));
-  color: var(--kind, var(--fgColor-default));
-}
-
-.kind-technical {
-  --kind: var(--display-indigo-fgColor);
-}
-
-.kind-coordination {
-  --kind: var(--display-teal-fgColor);
-}
-
-.kind-owner_only {
-  --kind: var(--display-coral-fgColor);
-}
-
-.kind-environment {
-  --kind: var(--display-yellow-fgColor);
-}
-
 /* The owner's verdict on a decision, and the form that sends the verdicts. */
 .decide {
   display: grid;

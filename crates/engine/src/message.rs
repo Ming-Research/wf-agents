@@ -46,7 +46,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use flow::format::{Rule, Src};
 pub use flow::formats::{cell_format, cell_inputs, common_format, common_format_of, hash};
-use flow::{AskNeed, CompiledCell, CompiledGraph};
+use flow::{CompiledCell, CompiledGraph};
 use serde_json::{Map, Value, json};
 pub use sessions::give::Conditional;
 use sessions::give::{Giver, empty, render};
@@ -132,14 +132,6 @@ fn project_own(o: &Origin) -> bool {
     matches!(o, Origin::Config(_)) || matches!(o, Origin::Engine(n) if n == GUIDE)
 }
 
-/// The kinds of question a project cannot meet, which its agents are not told of: those whose need it does not meet.
-pub fn kinds_left_out<'g>(g: &'g CompiledGraph, project: Option<&config::Project>) -> Vec<&'g AskNeed> {
-    g.ask_needs
-        .iter()
-        .filter(|k| !project.is_some_and(|p| p.has(&k.need).unwrap_or(false)))
-        .collect()
-}
-
 /// A return format or a rule with the value of each setting it names written beside the setting's name, such as
 /// the owner's language beside `owner.language`: the flow and the rules name a setting, never its value, which the
 /// configuration holds. In a return format, which holds the schema as JSON, the value is written as JSON writes it
@@ -160,9 +152,9 @@ fn with_settings(e: &Engine, project: &str, text: String, in_json: bool) -> Stri
 }
 
 /// `format:common` for a cell: the forms every return of its line shares, only those some cell of the line has, with
-/// the value of each setting they name beside it, and without the kinds of question the project cannot meet.
-fn common_part(e: &Engine, g: &CompiledGraph, cell: &CompiledCell, project: &str, gone: &[&AskNeed]) -> Value {
-    let common = common_format_of(g, &sessions::format_cells(g, cell), gone);
+/// the value of each setting they name beside it.
+fn common_part(e: &Engine, g: &CompiledGraph, cell: &CompiledCell, project: &str) -> Value {
+    let common = common_format_of(g, &sessions::format_cells(g, cell));
     Value::String(with_settings(e, project, common, true))
 }
 
@@ -195,9 +187,8 @@ fn flow_rule(e: &Engine, project: &str, rule: &Rule) -> Value {
 /// main, every value of the work) is not; for a cell on no line, whose session is its own, the line is the cell.
 pub fn line_parts(e: &Engine, g: &CompiledGraph, cell: &CompiledCell, named: &str) -> Vec<(String, Value)> {
     let project = e.config.config.projects.get(named);
-    let gone = kinds_left_out(g, project);
     let cells = sessions::format_cells(g, cell);
-    let mut out: Vec<(String, Value)> = vec![("format:common".to_string(), common_part(e, g, cell, named, &gone))];
+    let mut out: Vec<(String, Value)> = vec![("format:common".to_string(), common_part(e, g, cell, named))];
     let mut add = |address: String, content: Value| {
         if !empty(&content) && !out.iter().any(|(a, _)| *a == address) {
             out.push((address, content));
@@ -576,19 +567,18 @@ impl Context<'_> {
         let mut m = Giver::new(self.held, self.registry, e.db.conn(), self.rounds);
         // What every round needs from the start: the return formats (the query tool's description in them lists the
         // database's tables and views), what each numbered input of the cell is, the rules and the worktree; the value
-        // of each setting the formats and the rules name is written beside its name, and the kinds of question the
-        // project cannot meet are left out of the formats. A work of an architect is for its project.
+        // of each setting the formats and the rules name is written beside its name. A work of an architect is for its
+        // project.
         let named = item
             .map(|i| i.project.as_str())
             .or(w.project.as_deref())
             .unwrap_or_default();
         let project = e.config.config.projects.get(named);
-        let gone = kinds_left_out(g, project);
         // The forms every return of the session's line shares: only those some cell of the line has.
-        m.give("format:common".into(), common_part(e, g, c, named, &gone));
+        m.give("format:common".into(), common_part(e, g, c, named));
         m.give(
             format!("format:{}", c.id),
-            Value::String(with_settings(e, named, cell_format(g, c, &gone), true)),
+            Value::String(with_settings(e, named, cell_format(g, c), true)),
         );
         let numbered = cell_inputs(c);
         if !numbered.is_empty() {
@@ -1182,7 +1172,7 @@ mod tests {
     #[test]
     fn the_common_format_holds_every_alternative_and_a_cell_says_which_it_has() {
         let g = graph();
-        let common = common_format(&g, &[]);
+        let common = common_format(&g);
         for t in [
             "\"ci\"",
             "\"ci_before\"",
@@ -1202,20 +1192,22 @@ mod tests {
         );
         // The query tool lists each table and view with its columns.
         assert!(common.contains("- items (id, project, title, "), "{common}");
-        // The kinds of ask, the same under every role asked, are written once.
+        // What an ask's point holds, the same under every role asked, is written once.
         assert_eq!(
-            common.matches("The existing architecture or design has a flaw").count(),
+            common
+                .matches("What is needed and why, what is known and where")
+                .count(),
             1,
             "{common}"
         );
         assert!(common.contains("\"$ref\":\"#/$defs/"), "{common}");
-        let implement = cell_format(&g, g.cell("I1").unwrap(), &[]);
+        let implement = cell_format(&g, g.cell("I1").unwrap());
         assert!(
             implement.contains("`tools` (of ci, ci_before, measure, gh, query)"),
             "{implement}"
         );
         assert!(implement.contains("`ask` (to advisor, architect)"), "{implement}");
-        let advisor = cell_format(&g, g.cell("A1").unwrap(), &[]);
+        let advisor = cell_format(&g, g.cell("A1").unwrap());
         assert!(advisor.contains("`ask` (to architect)"), "{advisor}");
         assert!(!advisor.contains("`redirect`"), "{advisor}");
     }
@@ -1225,7 +1217,7 @@ mod tests {
     #[test]
     fn the_inputs_every_cell_has_are_described_once() {
         let g = graph();
-        let common = common_format(&g, &[]);
+        let common = common_format(&g);
         let implement = g.cell("I1").unwrap();
         let goal = implement
             .inputs
@@ -1240,19 +1232,5 @@ mod tests {
             "{listed}"
         );
         assert!(listed.contains(implement.inputs[0].what.as_str()), "{listed}");
-    }
-
-    // A kind of question whose need the project does not meet is left out of the formats, value and meaning, and the
-    // other kinds stay.
-    #[test]
-    fn a_kind_the_project_cannot_meet_is_left_out_of_the_formats() {
-        let g = graph();
-        let gone = kinds_left_out(&g, None);
-        assert!(gone.iter().any(|k| k.kind == "gap_under_test"), "{gone:?}");
-        let common = common_format(&g, &gone);
-        assert!(!common.contains("gap_under_test"), "{common}");
-        assert!(!common.contains("rejects a natural way of writing"), "{common}");
-        assert!(common.contains("\"unsure\""), "{common}");
-        assert!(common_format(&g, &[]).contains("gap_under_test"));
     }
 }

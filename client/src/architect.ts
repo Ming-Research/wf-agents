@@ -70,7 +70,8 @@ const FAILURES: Record<string, Key> = {
 };
 
 /// The kind of a matter in words, as what is to be done, and what more its kind says where that helps: the kind of a
-/// place to set straight, of a failure and of an engineer's question.
+/// place to set straight and of a failure. An engineer's question carries no kind; one queued with a kind before asks
+/// lost their kinds is named without it.
 export function matterKind(kind: string, detail: string | null): string {
   // A fault of wf-agents the owner forwarded comes as a report, and is looked into rather than gone through.
   if (kind === 'report' && detail === 'fault') return t('matter_kind_fault');
@@ -78,8 +79,7 @@ export function matterKind(kind: string, detail: string | null): string {
   const name = key !== undefined ? t(key) : words(kind);
   if (detail === null) return name;
   const of = (keys: Record<string, Key>) => (keys[detail] !== undefined ? t(keys[detail]) : words(detail));
-  const more =
-    kind === 'set_straight' ? of(STRAIGHT) : kind === 'failure' ? of(FAILURES) : kind === 'engineer_question' ? words(detail) : null;
+  const more = kind === 'set_straight' ? of(STRAIGHT) : kind === 'failure' ? of(FAILURES) : null;
   return more !== null ? t('matter_kind_more', { kind: name, more }) : name;
 }
 

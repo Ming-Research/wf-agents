@@ -860,7 +860,6 @@ const messages = {
   option_cost: 'Cost and risk',
   rule_pick_hint: 'Confirm or disagree; or open the approaches compared and click another to choose it for this decision.',
   rule_chosen_option: 'Choosing {option} instead of the approach recommended; click it again to clear.',
-  kind_group: 'Group: {group}',
 
   decision_chosen: 'chosen',
   sure_5: 'The evidence settles it',
@@ -893,7 +892,7 @@ const messages = {
     "The question goes back to the project's architect, with your words as the decision it carries out, and the architect answers the work.",
   answer_send: 'Answer',
   ask_for_architect: "Asked of the architect: your answer is the architect's reply.",
-  ask_tried_label: 'What was tried',
+  ask_tried_label: 'What was checked',
   ask_recommended: 'recommended',
   ask_confidence: 'How sure of the recommendation: {n} of 5',
   shown_before: 'Earlier versions',

@@ -196,7 +196,7 @@ pub enum Kind {
 }
 
 /// An enum's values: each value with what it means, or a name for values given elsewhere: an enum shape,
-/// `askKinds` (the kinds of question an agent may ask) or `interjectFrom` (who may interject).
+/// `interjectFrom` (who may interject), or, in a flow from before asks lost their kinds, `askKinds`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum Values {
@@ -245,8 +245,9 @@ pub struct Flow {
     pub asking: Asking,
     /// The counters that keep every loop finite.
     pub limits: Limits,
-    /// The kinds of question an agent may ask, in groups.
-    #[serde(rename = "askKinds")]
+    /// The kinds of question an agent could ask, in groups, which a flow from before asks lost their kinds held: read
+    /// only so that such a flow, at an older commit, can still be shown; a flow that runs has none.
+    #[serde(default, rename = "askKinds")]
     pub ask_kinds: Vec<AskGroup>,
     /// What every agent's cell has.
     #[serde(rename = "agentCommon")]
@@ -554,17 +555,11 @@ pub struct Counter {
     pub time: bool,
 }
 
+/// A group of the kinds of question a flow from before asks lost their kinds held; its role and needs are not read.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct AskGroup {
     pub group: String,
     pub kinds: Vec<(String, String)>,
-    /// The one role these kinds may be asked of.
-    pub only: Option<String>,
-    /// Kinds of the group that only a project meeting a need can meet, each with the need, one of `engine.needs`: an
-    /// agent working on a project that does not meet it is not told of the kind.
-    #[serde(default)]
-    pub needs: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -668,8 +663,7 @@ pub struct Gate {
     pub line: String,
     #[serde(default)]
     pub inputs: Vec<Input>,
-    /// Said after the gate's question, with `{on}` and `{problem}` for its two outcomes and `{about}` for the kind
-    /// to ask about.
+    /// Said after the gate's question, with `{on}` and `{problem}` for its two outcomes.
     pub prompt: String,
     /// What the answer is, with `{problem}`.
     pub answer: String,
@@ -688,7 +682,7 @@ pub struct Gate {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GateNa {
-    /// With `{on}`, `{problem}`, `{about}`, and `{na}` for the gate's example of when it does not apply.
+    /// With `{on}`, `{problem}`, and `{na}` for the gate's example of when it does not apply.
     pub prompt: String,
     /// The outcome not applicable, with what it means, and what its why is.
     pub value: (String, String),
@@ -701,7 +695,7 @@ pub struct GateNa {
 pub struct Outcomes {
     /// The outcome that goes on: the gate hands it in as its answer, and its row is named after it.
     pub on: (String, String),
-    /// The outcome that is the problem: the gate asks about it, with the gate's kind.
+    /// The outcome that is the problem: the gate asks about it, as its question says.
     pub problem: (String, String),
 }
 
@@ -765,7 +759,8 @@ pub struct Node {
     /// The forms of the return every agent's cell shares that this cell does not have, by their fields: an agent's
     /// cell of a line that may ask, run tools or search, but that is to answer by itself, says so here.
     pub without: Option<Vec<String>>,
-    /// A gate's kind of question to ask about, one of `askKinds`.
+    /// A gate's kind of question to ask about, which a flow from before asks lost their kinds named: read only so that
+    /// such a flow can still be shown; a gate of a flow that runs has none.
     pub about: Option<String>,
     /// A gate's two outcomes.
     pub outcomes: Option<Outcomes>,

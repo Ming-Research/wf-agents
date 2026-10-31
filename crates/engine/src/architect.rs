@@ -180,28 +180,6 @@ const APPROVED: &str = "approved";
 /// The engine's short question to the owner whether the draft of a new policy is approved.
 const APPROVAL: &str = "Approve this policy? Reply exactly: approved";
 
-/// The kinds of point an engineer's question is queued with as its detail; a question of any other kind is a capability
-/// gap ([`CAPABILITY_KINDS`]) or an other_question.
-const QUESTION_KINDS: [&str; 6] = [
-    "split",
-    "duplicate",
-    "depends_on_other_item",
-    "out_of_scope_defect",
-    "root_elsewhere",
-    "too_costly",
-];
-
-/// The kind an engineer's question is queued with when its first point is of one of the kinds of point that say the
-/// system lacks what the work needs (the ask kinds of the environment group): a capability gap, a defect of the system
-/// and not of the agent, which its path unblocks first and then takes in as a report.
-const CAPABILITY_GAP: &str = "capability_gap";
-const CAPABILITY_KINDS: [&str; 4] = [
-    "cannot_read",
-    "missing_tool",
-    "missing_credentials",
-    "blocked_by_permission",
-];
-
 /// How many times an observation no item took in yet may be reported before it is work: a merge that makes it
 /// reported this many times or more folds it into an item of the batch, which a change of the batch moves ahead.
 const RECURS: i64 = 3;
@@ -1021,20 +999,16 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "route" => route(e, w, g)?,
         "next_in_batch" => next_in_batch(e, w, g)?.into(),
         "fixes_before" => if fixes_found(conn, w.id)? >= 2 { "two" } else { "fewer" }.into(),
+        // A flow version from before asks lost their kinds weighed a question by its kind: the kind its matter was
+        // queued with, when that version has a case of it, else another question. No question is queued with a kind
+        // now.
         "question" => {
             let d = picked_detail(conn, w.id)?.unwrap_or_default();
-            // A flow version before had no case of its own for a capability gap, which was another question there.
-            let gap = d == CAPABILITY_GAP
-                && g.cells.iter().any(|c| {
-                    c.inenums
-                        .get("question")
-                        .is_some_and(|vs| vs.iter().any(|v| v.0 == CAPABILITY_GAP))
-                });
-            if QUESTION_KINDS.contains(&d.as_str()) || gap {
-                d
-            } else {
-                "other_question".into()
-            }
+            let known = g
+                .cells
+                .iter()
+                .any(|c| c.inenums.get("question").is_some_and(|vs| vs.iter().any(|v| v.0 == d)));
+            if known { d } else { "other_question".into() }
         }
         "report" => match picked_detail(conn, w.id)?.as_deref() {
             Some("followup") => "followup",
@@ -1282,9 +1256,10 @@ pub fn ask_owner(
 
 // An engineer's question.
 
-/// The kind of matter a question to the architect is, with its detail: by the kind of the ask's first point when a cell
-/// asked, an engineer's question; for an engine tool that failed, or main's environment that changed, a failure.
-fn question_kind(gathered: &[Gathered]) -> (&'static str, String) {
+/// The kind of matter a question to the architect is, with its detail: when a cell asked, an engineer's question, with
+/// none, since an ask carries no kind and the architect reads what it is about from what it says; for an engine tool
+/// that failed, or main's environment that changed, a failure, with which.
+fn question_kind(gathered: &[Gathered]) -> (&'static str, Option<String>) {
     fn path_of(p: &inputs::Part) -> String {
         match &p.origin {
             Origin::Place { path, .. } => path.clone(),
@@ -1292,32 +1267,22 @@ fn question_kind(gathered: &[Gathered]) -> (&'static str, String) {
         }
     }
     let parts: Vec<&inputs::Part> = gathered.iter().flat_map(|x| &x.parts).collect();
-    if let Some(ask) = parts.iter().find(|p| path_of(p) == "ask" && !empty(&p.value)) {
-        let kind = ask.value["points"][0]["kind"].as_str().unwrap_or_default();
-        let detail = if CAPABILITY_KINDS.contains(&kind) {
-            CAPABILITY_GAP
-        } else {
-            QUESTION_KINDS
-                .iter()
-                .find(|k| **k == kind)
-                .copied()
-                .unwrap_or("other_question")
-        };
-        return ("engineer_question", detail.into());
+    if parts.iter().any(|p| path_of(p) == "ask" && !empty(&p.value)) {
+        return ("engineer_question", None);
     }
     if parts
         .iter()
         .any(|p| path_of(p).contains("environment_changed") && !empty(&p.value))
     {
-        return ("failure", "environment_changed".into());
+        return ("failure", Some("environment_changed".into()));
     }
     if parts
         .iter()
         .any(|p| !matches!(path_of(p).as_str(), "" | "ask" | "progress") && !empty(&p.value))
     {
-        return ("failure", "tool_failed".into());
+        return ("failure", Some("tool_failed".into()));
     }
-    ("engineer_question", "other_question".into())
+    ("engineer_question", None)
 }
 
 /// Cell `A2`: the work's blocker, held by an architect: the question, or the tool's failure, is queued for the
@@ -1415,7 +1380,7 @@ pub fn ask_architect(
     let (kind, detail) = match b.kind.as_str() {
         "tool_failure" => question_kind(&gathered),
         _ => match question_kind(&gathered) {
-            ("failure", _) => ("engineer_question", "other_question".to_string()),
+            ("failure", _) => ("engineer_question", None),
             x => x,
         },
     };
@@ -1434,9 +1399,9 @@ pub fn ask_architect(
         let cell = if kind == "failure" { "H7" } else { "H3" };
         (a, cell)
     });
-    let about = match what_is_asked(&asked) {
-        a if a.is_empty() => format!(" ({})", detail.replace('_', " ")),
-        a => a,
+    let about = match (what_is_asked(&asked), &detail) {
+        (a, Some(d)) if a.is_empty() => format!(" ({})", d.replace('_', " ")),
+        (a, _) => a,
     };
     let of = if project == item.project {
         String::new()
@@ -1465,7 +1430,7 @@ pub fn ask_architect(
             let m = Matter {
                 project: project.clone(),
                 kind: kind.into(),
-                detail: Some(detail.clone()),
+                detail: detail.clone(),
                 what: what.clone(),
                 body: body.clone(),
                 item: Some(item.id),
@@ -1916,10 +1881,10 @@ struct Reporter {
     said: String,
 }
 
-/// The work a matter came from that is told what became of it: for a side report, and for an engineer's question about
-/// a capability gap; none for any other matter (what to do next after a report, an answer, flow feedback, a fault, the
-/// side reports a migration put in one matter, another question), nor when the work no longer runs, since nothing can be
-/// said to a work that ended or is at its end.
+/// The work a matter came from that is told what became of it: for a side report, and for an engineer's question; none
+/// for any other matter (what to do next after a report, an answer, flow feedback, a fault, the side reports a
+/// migration put in one matter), nor when the work no longer runs, since nothing can be said to a work that ended or is
+/// at its end.
 fn reporter(tx: &Transaction<'_>, matter: i64) -> Result<Option<Reporter>, String> {
     let (kind, detail, work, body): (String, Option<String>, Option<i64>, String) = tx
         .query_row(
@@ -1937,7 +1902,7 @@ fn reporter(tx: &Transaction<'_>, matter: i64) -> Result<Option<Reporter>, Strin
             text(&body["cell"]).to_string(),
             text(&body["report"]["what"]).to_string(),
         ),
-        ("engineer_question", Some(CAPABILITY_GAP)) => {
+        ("engineer_question", _) => {
             let cell = crate::blockers::of_matter(tx, matter)?
                 .map(|b| b.cell)
                 .unwrap_or_default();
@@ -1973,9 +1938,9 @@ fn item_number(v: &Value) -> Option<i64> {
 
 /// What became of a matter, each part of the line that says it: the observations recorded from it and those its round
 /// reported once more, each with its number, title and how many times it was reported now; the items the changes it
-/// made created, and those they changed, folded observations into or moved, each with its number and title. `outcome`
-/// is what its round handed in, its effects among it.
-fn became(tx: &Transaction<'_>, matter: i64, outcome: &Value) -> Result<Vec<String>, String> {
+/// made created, and those they changed, folded observations into or moved, each with its number and title, but those
+/// in `told` already. `outcome` is what its round handed in, its effects among it.
+fn became(tx: &Transaction<'_>, matter: i64, outcome: &Value, told: BTreeSet<i64>) -> Result<Vec<String>, String> {
     let mut parts = Vec::new();
     let observation = |id: i64| -> Result<(String, i64), String> {
         tx.query_row(
@@ -2022,7 +1987,7 @@ fn became(tx: &Transaction<'_>, matter: i64, outcome: &Value) -> Result<Vec<Stri
             ))
         })
         .collect();
-    let mut told = BTreeSet::new();
+    let mut told = told;
     for r in &made {
         let c = &r["change"];
         let (new, id) = match c["kind"].as_str() {
@@ -2076,13 +2041,24 @@ fn not_recorded(outcome: &Value) -> String {
 
 /// Tells the work that handed a matter in what became of it, in one line to its engineer that needs no answer and
 /// turns nothing (`informs`), so that it does not report it again: what [`became`] of it; for a side report of which
-/// nothing was recorded, why ([`not_recorded`]); a question's line only when something was recorded, its reply saying
-/// the rest. `outcome` is what the round that handled it handed in.
+/// nothing was recorded, why ([`not_recorded`]); for a question, only what its reply does not say, the items it names
+/// left out, and nothing when that is all. `outcome` is what the round that handled it handed in.
 fn answer(tx: &Transaction<'_>, matter: i64, outcome: &Value) -> Result<(), String> {
     let Some(r) = reporter(tx, matter)? else {
         return Ok(());
     };
-    let mut parts = became(tx, matter, outcome)?;
+    let reply: Option<String> = tx
+        .query_row("SELECT reply FROM architect_matters WHERE id = ?1", [matter], |x| {
+            x.get(0)
+        })
+        .map_err(sql)?;
+    let reply = json_col(reply).unwrap_or(Value::Null);
+    let named: BTreeSet<i64> = ["children", "waits"]
+        .iter()
+        .flat_map(|list| items(reply.get(*list)))
+        .filter_map(|x| item_number(&x["key"]))
+        .collect();
+    let mut parts = became(tx, matter, outcome, named)?;
     if parts.is_empty() {
         if r.called == QUESTION {
             return Ok(());

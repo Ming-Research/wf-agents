@@ -43,6 +43,7 @@ pub(crate) struct Shapes<'s> {
     pub shapes: &'s BTreeMap<String, RawField>,
     /// The flow's tools, in the order the source lists them.
     pub tools: Vec<&'s Tool>,
+    /// The kinds of question of a flow from before asks lost their kinds, which only such a flow names.
     pub ask_kinds: Vec<(String, String)>,
     pub interject_from: Vec<(String, String)>,
 }

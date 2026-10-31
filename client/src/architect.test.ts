@@ -98,6 +98,8 @@ describe('a matter in words', () => {
     expect(matterKind('report', 'fault')).toBe('Look into a fault of wf-agents');
     expect(matterKind('owner_words', 'said')).toBe('Your words');
     expect(matterKind('failure', 'tool_failed')).toBe('Have a failure fixed: a tool failed');
+    // A question carries no kind, and one queued with a kind before is named without it.
+    expect(matterKind('engineer_question', null)).toBe(matterKind('engineer_question', 'split'));
     expect(matterKind('new_kind', null)).toBe('new kind');
   });
 

@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::{AskNeed, CompiledCell, CompiledGraph};
+use crate::{CompiledCell, CompiledGraph};
 
 /// The hash a content is known by, as a round's record names each conditional input it gave or referred to: SHA-256
 /// of its JSON with every object's keys in order, so that the same content is one conditional input however its keys
@@ -181,38 +181,6 @@ fn quoted(names: &[String]) -> String {
     names.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", ")
 }
 
-/// A schema without the kinds of question left out: each taken out of the list of values of the field that names a
-/// kind, and its meaning out of that field's description, where the flow joins the kinds' meanings with "; ".
-fn without_kinds(schema: &mut Value, gone: &[&AskNeed]) {
-    match schema {
-        Value::Object(o) => {
-            if let Some(Value::Array(values)) = o.get_mut("enum")
-                && values
-                    .iter()
-                    .any(|v| gone.iter().any(|k| v.as_str() == Some(k.kind.as_str())))
-            {
-                values.retain(|v| !gone.iter().any(|k| v.as_str() == Some(k.kind.as_str())));
-                if let Some(Value::String(d)) = o.get_mut("description") {
-                    for k in gone {
-                        *d = d
-                            .replace(&format!("; {}", k.text), "")
-                            .replace(&format!("{}; ", k.text), "");
-                    }
-                }
-            }
-            for v in o.values_mut() {
-                without_kinds(v, gone);
-            }
-        }
-        Value::Array(xs) => {
-            for x in xs {
-                without_kinds(x, gone);
-            }
-        }
-        _ => {}
-    }
-}
-
 /// The inputs every agent's cell of those given may have besides its own, each by its name with what it is, in the
 /// order the cells have them.
 fn common_inputs<'g>(cells: &[&'g CompiledCell]) -> Vec<(&'g str, &'g str)> {
@@ -234,16 +202,16 @@ fn common_inputs<'g>(cells: &[&'g CompiledCell]) -> Vec<(&'g str, &'g str)> {
 
 /// The forms every agent's return in a graph shares, with each cell's own answer apart, and the inputs every agent's
 /// cell may have: [`common_format_of`] every agent's cell.
-pub fn common_format(g: &CompiledGraph, gone: &[&AskNeed]) -> String {
+pub fn common_format(g: &CompiledGraph) -> String {
     let cells: Vec<&CompiledCell> = g.cells.iter().filter(|c| c.kind == "agent").collect();
-    common_format_of(g, &cells, gone)
+    common_format_of(g, &cells)
 }
 
 /// The forms the returns of the agents' cells given share, with each cell's own answer apart, and the inputs those
 /// cells may have: what `format:common` gives a session whose rounds are at those cells. A form some cells have with
 /// fewer alternatives (fewer tools, fewer roles to ask) is given with all of them; `format:<cell>` says which a cell
-/// has. The kinds of question left out for the project are not in it.
-pub fn common_format_of(g: &CompiledGraph, cells: &[&CompiledCell], gone: &[&AskNeed]) -> String {
+/// has.
+pub fn common_format_of(g: &CompiledGraph, cells: &[&CompiledCell]) -> String {
     let mut forms: Vec<(String, Value)> = Vec::new();
     let mut every: Map<String, Value> = Map::new();
     let mut without: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -341,9 +309,7 @@ pub fn common_format_of(g: &CompiledGraph, cells: &[&CompiledCell], gone: &[&Ask
             lines.join("\n")
         ));
     }
-    let mut schema = lean(&Value::Object(schema));
-    without_kinds(&mut schema, gone);
-    let mut schema = once(schema);
+    let mut schema = once(lean(&Value::Object(schema)));
     // The parts of the cells' own answers given once: each as the first of the cells that holds it has it.
     let shared: Vec<(&String, Value)> = g
         .once
@@ -352,9 +318,7 @@ pub fn common_format_of(g: &CompiledGraph, cells: &[&CompiledCell], gone: &[&Ask
             let part = cells
                 .iter()
                 .find_map(|c| crate::compiled::own_answer(c, &g.within)?.get("properties")?.get(name))?;
-            let mut part = lean(part);
-            without_kinds(&mut part, gone);
-            Some((name, part))
+            Some((name, lean(part)))
         })
         .collect();
     if !shared.is_empty() {
@@ -378,9 +342,8 @@ pub fn common_format_of(g: &CompiledGraph, cells: &[&CompiledCell], gone: &[&Ask
     parts.join("\n\n")
 }
 
-/// A cell's own answer, and which of the forms every return shares the cell has: what `format:<cell>` gives. The
-/// kinds of question left out for the project are not in it.
-pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell, gone: &[&AskNeed]) -> String {
+/// A cell's own answer, and which of the forms every return shares the cell has: what `format:<cell>` gives.
+pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell) -> String {
     let alts = cell
         .schema
         .as_ref()
@@ -412,7 +375,6 @@ pub fn cell_format(g: &CompiledGraph, cell: &CompiledCell, gone: &[&AskNeed]) ->
         }
     }
     let mut own = lean(&own);
-    without_kinds(&mut own, gone);
     // A part given once in the forms every return shares is referred to there.
     for name in &g.once {
         if let Some(part) = own.get_mut("properties").and_then(|p| p.get_mut(name)) {

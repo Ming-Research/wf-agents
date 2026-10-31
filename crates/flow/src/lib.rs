@@ -14,7 +14,9 @@
 //! - every input is there on every way to its cell unless marked maybe, and missing on some way when it is;
 //! - every cell a text of the flow names, as cell `name`, is a cell of its graph ([`cells_named`]);
 //! - every line has a colour, which no other line has; a flow compiled only to be shown ([`compile_shown`]), such as
-//!   one written before lines had colours, may have lines with none.
+//!   one written before lines had colours, may have lines with none;
+//! - no ask carries a kind: a flow that runs has no kinds of question and no gate that names one, which a flow
+//!   compiled only to be shown, written before asks lost their kinds, may have.
 //!
 //! What an agent's session already holds is not worked out here: the engine decides it as it runs, from what each
 //! session was given and handed back.
@@ -36,8 +38,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub use compiled::{
-    AskNeed, COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, RuleUse,
-    Stats, ToolUse, found_at, misfit, valid, without_null_options,
+    COMPILED, Compiled, CompiledCell, CompiledGraph, CompiledInput, CompiledInterject, CompiledRow, RuleUse, Stats,
+    ToolUse, found_at, misfit, valid, without_null_options,
 };
 pub use run::Position;
 pub use texts::cells_named;
@@ -106,27 +108,29 @@ fn fail(p: impl Into<String>) -> Error {
 const BY: [&str; 4] = ["item", "work", "project", "matter"];
 
 /// Compiles and checks a flow that runs or will run: the flow built into the program, `wf-agents flow check`'s and
-/// the flow's tests'. Every line of it has a colour.
+/// the flow's tests'. Every line of it has a colour, and no ask of it carries a kind.
 pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
-    build(text, cx, Colours::Required)
+    build(text, cx, Purpose::Run)
 }
 
 /// Compiles and checks a flow only to show it, such as the flow at an older commit the flow page compares with the
 /// flow it runs, which may have been written before lines had colours: a line may have none, since the page draws a
 /// line's cells in the colour the flow built into the program gives that line, and in the grey of an agent with no
-/// colour of its own where it gives none. Everything else is checked as [`compile`] checks it.
+/// colour of its own where it gives none; or before asks lost their kinds, whose kinds are read only so that its forms
+/// are shown as they were. Everything else is checked as [`compile`] checks it.
 pub fn compile_shown(text: &str, cx: &Context) -> Result<Compiled, Error> {
-    build(text, cx, Colours::Optional)
+    build(text, cx, Purpose::Show)
 }
 
-/// Whether every line of a flow must have a colour, or only those that have one are checked.
+/// What a flow is compiled for: to run, when every line must have a colour and no ask carries a kind; or only to be
+/// shown, when a line may have no colour and kinds of question are read as they were.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Colours {
-    Required,
-    Optional,
+enum Purpose {
+    Run,
+    Show,
 }
 
-fn build(text: &str, cx: &Context, colours: Colours) -> Result<Compiled, Error> {
+fn build(text: &str, cx: &Context, purpose: Purpose) -> Result<Compiled, Error> {
     let mut source: Source = serde_json::from_str(text).map_err(|e| fail(format!("flow.json: {e}")))?;
     // A tool that reads the database says in its description what it reads: each table and view with its columns and
     // the start of the first line of what it holds. It comes with the return formats, once in a session.
@@ -175,7 +179,7 @@ fn build(text: &str, cx: &Context, colours: Colours) -> Result<Compiled, Error> 
     let mut coloured: BTreeMap<format::Colour, &str> = BTreeMap::new();
     for l in source.flows.iter().flat_map(|f| &f.sessions.lines) {
         let Some(colour) = l.colour else {
-            if colours == Colours::Required {
+            if purpose == Purpose::Run {
                 return Err(fail(format!("a line with no colour: {}", l.name)));
             }
             continue;
@@ -185,6 +189,23 @@ fn build(text: &str, cx: &Context, colours: Colours) -> Result<Compiled, Error> 
                 "two lines share the colour {colour}: {other} and {}",
                 l.name
             )));
+        }
+    }
+    // An ask carries no kind: what it is about, the one asked reads from what it says.
+    if purpose == Purpose::Run {
+        for f in &source.flows {
+            if !f.ask_kinds.is_empty() {
+                return Err(fail(format!(
+                    "{}: an ask carries no kind, and askKinds lists some",
+                    f.name
+                )));
+            }
+            if let Some(n) = f.nodes.iter().find(|n| n.about.is_some()) {
+                return Err(fail(format!(
+                    "{}: an ask carries no kind, and gate {} names one",
+                    f.name, n.id
+                )));
+            }
         }
     }
     let mut problems = Vec::new();
@@ -250,9 +271,6 @@ fn names(source: &Source, graphs: &[Graph], cx: &Context, problems: &mut Vec<Str
             .collect();
         for r in &g.flow.asking.roles {
             actions.extend(r.actions.iter().flatten().map(|d| d.name().to_string()));
-        }
-        for grp in &g.flow.ask_kinds {
-            needs.extend(grp.needs.values().cloned());
         }
         needs.extend(g.flow.agent_common.needs.values().cloned());
         for c in &g.cells {

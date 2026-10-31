@@ -1679,16 +1679,15 @@ fn ask(
     Ok(Advance::Waits(format!("ask {id} waits for the owner")))
 }
 
-/// What an ask is about, for the notice that tells the owner of it: the kind of its first point, in words, and the
-/// first sentence of what that point says; nothing when the ask holds no point.
+/// What an ask is about, for the notice that tells the owner of it: the first sentence of what its first point says;
+/// nothing when the ask holds no point. An ask carries no kind; a kind one recorded before still holds is not said.
 pub fn what_is_asked(asked: &[Value]) -> String {
     let point = asked
         .iter()
         .find_map(|a| a["value"]["points"].as_array().and_then(|ps| ps.first()).cloned());
     let Some(point) = point else { return String::new() };
-    let kind = point["kind"].as_str().unwrap_or_default().replace('_', " ");
     let what = point["what"].as_str().unwrap_or_default();
-    format!(" ({kind}): {}", db::one_sentence(what))
+    format!(": {}", db::one_sentence(what))
 }
 
 /// The directories outside the worktree an agent may read: where the engine saves a tool's output too long to give
@@ -1767,13 +1766,15 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
 mod tests {
     use super::*;
 
-    // The notice of a new ask says its kind and the first sentence of what it asks.
+    // The notice of a new ask says the first sentence of what it asks, and no kind, even of an ask recorded with one.
     #[test]
-    fn an_ask_is_told_by_its_kind_and_first_sentence() {
+    fn an_ask_is_told_by_its_first_sentence() {
         let asked = vec![json!({ "what": "w", "value": { "to": "owner", "points": [
-            { "kind": "blocked_by_permission", "what": "Please run a probe. Why: the lock.\n\npython3 - <<'EOF'\nEOF" }
+            { "what": "Please run a probe. Why: the lock.\n\npython3 - <<'EOF'\nEOF" }
         ] } })];
-        assert_eq!(what_is_asked(&asked), " (blocked by permission): Please run a probe.");
+        assert_eq!(what_is_asked(&asked), ": Please run a probe.");
+        let before = vec![json!({ "value": { "points": [{ "kind": "blocked_by_permission", "what": "Run it." }] } })];
+        assert_eq!(what_is_asked(&before), ": Run it.");
         assert_eq!(what_is_asked(&[]), "");
     }
 }

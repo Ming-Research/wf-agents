@@ -255,7 +255,7 @@
           },
           {
             "value": "design_changed",
-            "desc": "The chosen approach stays, the acceptance is untouched and nothing on the list of ask kinds came up: you changed the design yourself",
+            "desc": "The chosen approach stays, the acceptance is untouched and nothing came up that you must ask about: you changed the design yourself",
             "fields": [
               {
                 "name": "what",
@@ -1113,7 +1113,7 @@
       "title": "Ask",
       "type": "union",
       "by": "to",
-      "desc": "Something to ask someone else, waiting for their reply. You must hand this in whenever you meet any of the kinds kind lists: you may not decide it yourself or work around it. You must also hand it in, to the architect, when a field you are asked to return cannot sensibly be filled in the situation; never force a value into it. Hand it in too when you cannot answer this round's question, or meet something someone else must decide first. When the reply comes, you carry on. When several must be asked, ask one, and the next when the reply comes",
+      "desc": "Something to ask someone else, waiting for their reply. Ask, and never decide it yourself or work around it, when the architecture has a flaw this work cannot get around; the work is above your level; a specified behaviour, a safety guarantee, an interface between projects, the work's direction, approach, acceptance or split must be decided, or no approach can be chosen; a fact that would change the direction is unchecked; the work does not stand, duplicates another or is not worth its cost; another item or project must deliver first, or a defect or a root outside the work blocks it; a merge conflict cannot be resolved; the system lacks what the work needs (a tool, data, credentials, a permission); or a field you are asked to return cannot sensibly be filled, never forcing a value into it. What only the owner can do (a step that cannot be undone, publishing or sending outside, live data, another machine, a permission, accepting a slowdown) you ask the architect too, who hands it on. Hand it in too when you cannot answer this round's question, or meet something someone else must decide first. When the reply comes, you carry on. When several must be asked, ask one, and the next when the reply comes",
       "common": [
         {
           "name": "points",
@@ -1124,23 +1124,16 @@
             "type": "obj",
             "fields": [
               {
-                "name": "kind",
-                "title": "Kind",
-                "type": "enum",
-                "desc": "Which kind of thing you met: pick the one that fits best. You must ask whenever you meet any of these. Kinds go by what the thing is: something asked as one kind during design is asked as the same kind during implementation or a fix. The owner_only group is the owner's to decide: ask the architect, who hands it on to the owner",
-                "values": "askKinds"
-              },
-              {
                 "name": "what",
-                "title": "What happened",
+                "title": "What is asked",
                 "type": "text",
-                "desc": "What happened: where, what you saw, and what you recommend. The owner reads it in the work's group: write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
+                "desc": "What is needed and why, what is known and where, and the options with your recommendation. The owner reads it in the work's group: write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
               },
               {
                 "name": "tried",
-                "title": "What was tried",
+                "title": "What was checked",
                 "type": "text",
-                "desc": "What you have already tried. Required for cannot_read, missing_tool, missing_credentials and blocked_by_permission. The owner reads it in the work's group: write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original",
+                "desc": "What you checked or tried, and how, such as a command you ran and the error it really gave; leave it out when nothing. The owner reads it in the work's group: write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original",
                 "optional": true
               }
             ]
@@ -2989,7 +2982,7 @@
     },
     "actions": {
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
-      "answer_reporter": "Tells the work that handed in the matter, a side report or a question about a capability gap, in one line to its engineer that needs no answer, what became of it, so that it does not report it again: the observation recorded or reported once more, or the items that took it in, by number and title; for a side report of which nothing was recorded, why. At once, or, when the round's item changes say it, once the batch is made; a question's line only when something was recorded, its reply saying the rest; a work that ended is told nothing.",
+      "answer_reporter": "Tells the work that handed in the matter, a side report or a question, in one line to its engineer that needs no answer, what became of it, so that it does not report it again: the observation recorded or reported once more, or the items that took it in, by number and title; for a side report of which nothing was recorded, why; for a question, only what its reply does not say. At once, or, when the round's item changes say it, once the batch is made; a work that ended is told nothing.",
       "apply_batch": "Makes every item change of the batch but those the review drops, as the architect, in one transaction, logs each with its reason, and those dropped with why, sends the replies and the lines to the works that handed matters in that waited on them, and ends the review's session.",
       "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review, a cancel of an item the batch creates cancelling that create out, so that the item is never made and the create, the changes that name its key and the cancel are dropped, saying so; changes to observations, actions and messages to other architects are made at once, and each is logged. A message sent on a matter of flow feedback is marked as flow feedback forwarded, which starts no work of an architect: the architect it goes to takes it in a work that started after it came.",
       "apply_reviewed": "Makes the item changes the review found sound, leaves out those it drops, drops those it still finds to fix and logs them with what the review found, puts them to the owner in an ask that holds the matters they came from, sends the replies and the lines to the works that handed in the other matters that waited on them, and ends the review's session.",
@@ -3048,7 +3041,7 @@
       "measure_matches_runs": "An answer of measured has this work's measure runs in this cell among the engine's records; an answer of not_measured has none.",
       "design_card_matches_tree": "The design paths changed on the branch and are committed. Each decision on the design card matches a changed node (except those it says sub-items carry, which are not on this branch), and every changed node is on the design card. A decision it says comes from the parent is word for word that section of the parent's design card. An answer of unchanged changed nothing; a report can only answer unchanged; an answer of design_paths_only changed nothing outside the design paths.",
       "design_tree_check": "When the design paths changed, the design tree check the project's configuration names passes on the branch, given the fork point with main.",
-      "acceptance_matches_locked": "Locked acceptance conditions are handed in word for word; to change them, the agent asks the advisor with the kind acceptance_change first, or, after a ruling of the owner's that disagrees with a decision of the design card, the design changes them as the ruling needs. Those the advisor changed were locked by the engine then. A work that delivers a change has no report_answer condition.",
+      "acceptance_matches_locked": "Locked acceptance conditions are handed in word for word; to change them, the agent asks the advisor first, or, after a ruling of the owner's that disagrees with a decision of the design card, the design changes them as the ruling needs. Those the advisor changed were locked by the engine then. A work that delivers a change has no report_answer condition.",
       "chosen_matches_ruling": "When the owner chose another approach for a decision in a ruling on the design card, the new design card's decision in the same node chooses it; otherwise the agent asks the owner first.",
       "head_pushed_and_green": "The head is the local HEAD, the worktree is clean, it was pushed with ci, and the latest fast CI run on it is green.",
       "branch_changes_fit_work": "Against main, an implementation change has some change, otherwise the agent asks (another PR may have fixed it); a change to the design paths only changes nothing outside them; a report changes nothing outside `research/`.",
@@ -3147,7 +3140,6 @@
       "interjection": "Whether an interjection for the engineer is waiting to be delivered.",
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
       "next_in_batch": "Whether the batch goes on, goes to review, is done, or is done with nothing to rethink: no matter handled and no item changed since the last rethink.",
-      "question": "The kind of question an engineer asks, as its matter says.",
       "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, flow feedback, or a fault of wf-agents forwarded to the architect.",
       "review_round": "Whether the review starts with a blind review or goes straight to the table.",
       "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's reply, the cell of the owner's words when the flow no longer has that cell; a check of the policy back with the owner's reply to its draft takes effect when the reply is exactly approved, and is written again otherwise.",
@@ -3757,12 +3749,6 @@
           "batch"
         ]
       },
-      "question": {
-        "says": "the kind of the engineer's question picked",
-        "stores": [
-          "architect_queue"
-        ]
-      },
       "report": {
         "says": "the kind of report picked: beside a work, what to do next, an answer, flow feedback, or a fault",
         "stores": [
@@ -3856,8 +3842,8 @@
         "Judging: you are this project's architect, and judge its matters by its constitution and by the policy in force for it. Act by an article and by the policy as written until the owner changes them, even where one seems wrong for a case; say so to the owner: for the policy where you judge whether it is right, for the constitution with the kind constitution_and_policy. While you set a new policy, the policy in force is still the one you judge by: the draft governs nothing until it takes effect.",
         "Judging: when the constitution and the policy allow more than one way and choose none, take the way that frees the most work waiting, and say that this decided it. When one kind of matter keeps ending this way, the policy does not cover it: say so where you judge whether the policy is right.",
         "Judging: read what a judgment needs, on every side, until you can say it, and no further. Your session goes on from one of your works to the next, and what you read without need crowds out what later rounds need. What you remember from an earlier work of yours is how things stood then: before you act on it, check it against what has changed since.",
-        "Yours and the owner's: decide what is yours without asking: changes to the items (creating, splitting, merging and cancelling them, their dependencies, levels and order), which a review of the whole batch looks at before they are made; and what you do at once (pausing and resuming works, holding new starts, interjecting, replying to engineers, messages to other projects' architects, observations). The owner reads your rounds afterwards and corrects you; an ask costs the owner's time and holds the matter it is about. The owner's, even when the owner is away: the constitution and the policy; the decisions on design cards; loosening a line the policy writes; accepting a slowdown; the kinds of the owner_only group.",
-        "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what only the owner decides, such as an engineer's point of the owner_only group: hand it on to the owner; and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
+        "Yours and the owner's: decide what is yours without asking: changes to the items (creating, splitting, merging and cancelling them, their dependencies, levels and order), which a review of the whole batch looks at before they are made; and what you do at once (pausing and resuming works, holding new starts, interjecting, replying to engineers, messages to other projects' architects, observations). The owner reads your rounds afterwards and corrects you; an ask costs the owner's time and holds the matter it is about. The owner's, even when the owner is away: the constitution and the policy; the decisions on design cards; loosening a line the policy writes; accepting a slowdown; what only the owner can do, such as a step that cannot be undone, publishing or a permission.",
+        "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what only the owner decides, such as what an engineer asks that only the owner can do: hand it on to the owner; and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
         "Other projects: you judge only your project. What another project's architect must know or do, tell it with a message; what it asks of you comes to your queue. An item of yours may depend on an item of another project; that item's changes and place in the order are its architect's.",
         "The engineers' work: you do not do it. You write no code, design or study, and you do not review, test or redo a work: its engineer, its review, its adversarial testing and its advisor do that. What needs the project's code changed, or an engineer's time (fixing an environment, finding a root cause, a study), becomes an item. What only the owner can do (the system's configuration, credentials, a permission, another of the owner's machines) goes to the owner.",
         "The engineers' work: look at a work where it meets the whole: whether it still serves the policy's direction; whether it duplicates another work, collides with one or waits on one; whether its problem changed under it. Two works that would change the same code in ways that conflict run one after the other, by a dependency: blocking when the later must not start before the earlier is merged, parallel when it may start and wait before it merges. When a work others wait on changes its approach or its result, or stops, look at those waiting: whether the dependency still holds, and whether their approach or acceptance must change.",
@@ -4020,7 +4006,7 @@
             "Writing code: ported code keeps its license notice beside it.",
             "Writing code: a small defect outside the task in a file you are already changing, fix it and say so in the PR description; any other defect outside the task goes into side reports.",
             "Design and architecture: examine the responsibilities, interfaces, representations and consumers the change touches for design gaps and clearly better designs. A defect outside the scope goes into side reports, or to the advisor as an ask.",
-            "Design and architecture: architecture beyond your own item (how modules relate, their interfaces and contracts, the formats components exchange) is the architect's and the owner's, not yours or the advisor's to change. If an interface is not enough, do not change it yourself: show it with a minimal example and ask the architect, with the kind architecture_flaw, or cross_project_interface between projects.",
+            "Design and architecture: architecture beyond your own item (how modules relate, their interfaces and contracts, the formats components exchange) is the architect's and the owner's, not yours or the advisor's to change. If an interface is not enough, do not change it yourself: show it with a minimal example and ask the architect.",
             "Priorities: after the project's own priorities, first make the implementation understandable and easy to change. Add only the evidence needed to trust the current result. Defer robustness, infrastructure and polish that no current work needs.",
             "Evidence: a passing result is evidence only if a wrong result would have failed it. Prefer an observation that separates two hypotheses. Before trusting a new check, watch it fail once for each condition it protects, in CI too. Read an exit code from the command itself, not through a pipe.",
             "Evidence: a pass reached by weakening a requirement counts for nothing. Every removed, skipped, narrowed, regenerated or weakened test or check has a technical reason in the same change. A tool's limitation, a timeout or an unimplemented feature never changes an expected result. New or changed check machinery shows that a representative wrong result or missing input is detected; reusing established machinery needs no new demonstration.",
@@ -4032,7 +4018,7 @@
             "Experiments: for a chosen direction, open an investigation in `research/`. Before measuring, write the question, the comparison that could answer it either way, and the result that would reject the proposal; a prediction without that prior criterion is exploratory. Report a conclusion no wider than what was tested.",
             "Experiments: before a measurement expected to run 20 minutes or more, write every side to compare (including the sides that would locate the cause of a change, if one shows) and what each result would show; then measure them all in one run. Start a follow-up measurement only when the first one's result raises a question you could not have foreseen, and say in this round's return why it could not answer it. The smallest sample run first, and a rerun of the same comparison (a run with no usable result, more pairs, a run on the head to be merged), are not follow-ups.",
             "Experiments: a performance comparison names the workload, machine, versions and settings, and gives every side the same conditions. Precise timing runs on the machine set aside for it (the setting `machines.timing`), one run at a time.",
-            "Experiments: decide whether performance changed from measured noise, never from a picked threshold such as 1% or 5%. Run the same source before (base) and after (candidate) in interleaved pairs, with a twin of the base as a control, whose difference from the base is this run's noise. For each workload class on each machine, record the usual noise once as the floor, and measure it again when the machine, its settings or the toolchain change; a run noisier than the floor does not count: rerun it or report it unresolved. If the 95% interval of the candidate-to-base ratio lies wholly on the slower side, it is a regression of any size; wholly on the faster side, an improvement; across 1, no detected change; if it does not decide, add pairs, and stop as soon as it does. To attribute a change to this work, add a check that could refute the attribution. Accepting a detected regression is the owner's, asked with the kind accept_slowdown. Report the pairs, noise, floor, interval and verdict.",
+            "Experiments: decide whether performance changed from measured noise, never from a picked threshold such as 1% or 5%. Run the same source before (base) and after (candidate) in interleaved pairs, with a twin of the base as a control, whose difference from the base is this run's noise. For each workload class on each machine, record the usual noise once as the floor, and measure it again when the machine, its settings or the toolchain change; a run noisier than the floor does not count: rerun it or report it unresolved. If the 95% interval of the candidate-to-base ratio lies wholly on the slower side, it is a regression of any size; wholly on the faster side, an improvement; across 1, no detected change; if it does not decide, add pairs, and stop as soon as it does. To attribute a change to this work, add a check that could refute the attribution. Accepting a detected regression is the owner's: ask it. Report the pairs, noise, floor, interval and verdict.",
             "Design judgment: judge a design only on itself: correct, elegant, sound, maintainable, robust. How much code, tests and documents it changes, how hard it is to build and what it costs are no reason for or against it; cost decides only which work comes first.",
             "Design judgment: work a design needs only because of a poor abstraction is a flaw of that design.",
             "Design judgment: how often a form appears in a project's own tests and programs is no evidence of how much real programs need it.",
@@ -4224,7 +4210,7 @@
           },
           {
             "name": "architect",
-            "desc": "This project's architect: what touches other items or the overall structure, such as splitting off sub-items, adding dependencies, duplicating another item, or a root cause in another item or project; and what only the owner can do or decide, such as the owner_only group of the ask kinds, missing credentials or a permission block, which the architect hands on to the owner",
+            "desc": "This project's architect: what touches other items or the overall structure, such as splitting off sub-items, adding dependencies, duplicating another item, or a root cause in another item or project; and what only the owner can do or decide, such as a step that cannot be undone, missing credentials or a permission block, which the architect hands on to the owner",
             "node": "A2",
             "row": "ask_architect",
             "fields": [],
@@ -4309,160 +4295,6 @@
           }
         ]
       },
-      "askKinds": [
-        {
-          "group": "technical",
-          "kinds": [
-            [
-              "architecture_flaw",
-              "The existing architecture or design has a flaw this work cannot get around"
-            ],
-            [
-              "above_level",
-              "It is harder than the level you were given, and you cannot judge it"
-            ],
-            [
-              "specified_behaviour",
-              "The behaviour something the project specifies must have (a language, a format, a protocol) has to be decided"
-            ],
-            [
-              "safety_guarantee",
-              "It touches a safety guarantee the project makes"
-            ],
-            [
-              "cross_project_interface",
-              "An interface, convention or data format between projects must change"
-            ],
-            [
-              "change_direction",
-              "This work's direction must change"
-            ],
-            [
-              "gap_under_test",
-              "What is under test (named in the project's configuration) rejects a natural way of writing something, or handles it badly. In what, give the code you want to write, the error it really gives (run it, not from memory), and why this way of writing it is natural"
-            ],
-            [
-              "unsure",
-              "A fact not yet checked would change the direction if it were wrong. In what, say what you are unsure of, which fact would change the direction, and how to check it"
-            ],
-            [
-              "split",
-              "This work cannot be done in one PR and must be split; or a question holds only part of it and the rest can merge on its own, so that part is split off with the question. In what, say what each sub-item does and what the parent keeps. If it was split before, ask, given the sub-items already split off, whether what remains must be split again"
-            ],
-            [
-              "work_does_not_stand",
-              "The problem is not worth solving, or the item is framed wrongly: the pain does not exist, solving it would not remove the pain, or the item's scope, deliverable or place is wrong. In what, say where it does not stand and why you judge so"
-            ],
-            [
-              "design_undecided",
-              "After comparing, no approach can be chosen. In what, say where it is stuck and what is missing to decide"
-            ],
-            [
-              "approach_does_not_stand",
-              "The approach the design chose does not work, or a fact it rests on is wrong, and it must be redesigned. In what, say which one and how you found out"
-            ],
-            [
-              "acceptance_change",
-              "An acceptance condition itself must change. In what, say which one and why"
-            ],
-            [
-              "unresolvable_conflict",
-              "You cannot resolve a merge conflict with main. In what, say where the conflict is and why you cannot resolve it"
-            ]
-          ],
-          "needs": {
-            "gap_under_test": "under_test"
-          }
-        },
-        {
-          "group": "coordination",
-          "kinds": [
-            [
-              "duplicate",
-              "It duplicates another work, and this work must stop until someone decides"
-            ],
-            [
-              "depends_on_other_item",
-              "It cannot go on until another item or project delivers something. In what, say which project, what it must deliver, and the items already in the database for it"
-            ],
-            [
-              "out_of_scope_defect",
-              "A defect that blocks this work but does not belong to it"
-            ],
-            [
-              "root_elsewhere",
-              "The problem's root is in another item, project or module"
-            ],
-            [
-              "too_costly",
-              "The change this work needs is so large it is not worth it: a heavier architectural burden, a higher cost to maintain. In what, say where the burden lies and give at least three ways out, such as building this design, a smaller change, or not doing it"
-            ]
-          ]
-        },
-        {
-          "group": "owner_only",
-          "kinds": [
-            [
-              "irreversible_action",
-              "The next step cannot be undone"
-            ],
-            [
-              "publish_or_send",
-              "Something must be published, posted or sent outside"
-            ],
-            [
-              "change_live_data",
-              "Live data must change"
-            ],
-            [
-              "other_machine",
-              "Another of the owner's machines is needed (CI does not count)"
-            ],
-            [
-              "permission",
-              "The owner must grant a permission or approve"
-            ],
-            [
-              "accept_slowdown",
-              "A slowdown was measured and must be accepted: only the owner can agree. In what, say how much slower, how it was measured, and why it should be accepted"
-            ],
-            [
-              "return_format_unfit",
-              "A field of what this cell asks you to return cannot be filled in the situation at hand, or would mean nothing if filled, such as saying how each part of a change is handled when there is no change yet. When you meet this you must ask; never force a value, invent one or fill in something empty to get past it. In what, say which field, what the situation is, and why it does not fit"
-            ]
-          ]
-        },
-        {
-          "group": "environment",
-          "kinds": [
-            [
-              "cannot_read",
-              "A file, web page or data you need cannot be read"
-            ],
-            [
-              "missing_tool",
-              "A tool you need is not there"
-            ],
-            [
-              "missing_credentials",
-              "Credentials you need are not there"
-            ],
-            [
-              "blocked_by_permission",
-              "A permission check refused an action you need"
-            ]
-          ]
-        },
-        {
-          "group": "unclear",
-          "kinds": [
-            [
-              "other",
-              "None of the kinds above"
-            ]
-          ]
-        }
-      ],
       "agentCommon": {
         "returns": {
           "forms": [
@@ -4776,9 +4608,9 @@
         ],
         "line": "engineer",
         "inputs": [],
-        "prompt": "Answer `{on}` or `{problem}`. For `{problem}`, ask: one point of the kind `{about}`, its what written as that kind says, and whom to ask chosen by what to says. For `{on}`, hand in answer, with why. Anything else this round must ask about, ask too.",
+        "prompt": "Answer `{on}` or `{problem}`. For `{problem}`, ask: one point, saying what the question asks for, and whom to ask chosen by what to says. For `{on}`, hand in answer, with why. Anything else this round must ask about, ask too.",
         "na": {
-          "prompt": "Answer `{on}` or `{problem}`. For `{problem}`, ask: one point of the kind `{about}`, its what written as that kind says, and whom to ask chosen by what to says. For `{on}`, or when this question does not apply to this work, hand in answer, with why; it does not apply when, for instance, {na}. Anything else this round must ask about, ask too.",
+          "prompt": "Answer `{on}` or `{problem}`. For `{problem}`, ask: one point, saying what the question asks for, and whom to ask chosen by what to says. For `{on}`, or when this question does not apply to this work, hand in answer, with why; it does not apply when, for instance, {na}. Anything else this round must ask about, ask too.",
           "value": [
             "not_applicable",
             "This question does not apply to this work: what it asks about, this work does not have"
@@ -5229,8 +5061,7 @@
           "kind": "gate",
           "title": "Whether it stands",
           "effort": "medium",
-          "about": "work_does_not_stand",
-          "question": "Judge whether this work stands: whether the problem itself is worth solving; the approach the item writes does not count. If the root lies in another item, project or module, report root_elsewhere. A work that does not stand may have several reasons, each asked with its own; not standing does not mean cancelling: someone decides later.",
+          "question": "Judge whether this work stands: whether the problem itself is worth solving and the item framed right (the pain exists, solving it removes the pain, and its scope, deliverable and place are right); the approach the item writes does not count. If the root lies in another item, project or module, ask, saying where. A work that does not stand may have several reasons, each asked with its own, saying where it does not stand and why you judge so; not standing does not mean cancelling: someone decides later.",
           "to": "D1",
           "sets": {
             "stage": "design_on"
@@ -5450,7 +5281,7 @@
             "design_tree_writing"
           ],
           "prompt": [
-            "This round only designs. If you need to measure, you may write measurement code, put it in `research/`, commit it locally and run it with measure; the measurement code stays on this work's branch; change no file other than the measurement code and the design tree. Choose one of the approaches compared; if the owner chose another approach for a decision of a design card, choose that one for that decision, and if the owner changed the acceptance, write it as changed; say in what point it beats each of the others, covering every one not chosen. If only a measurement can decide, measure first and judge the results yourself; if you measured, say how the results shaped the choice, and if not, why no measurement was needed. Then write the design itself: how it solves the problem, until it is clear, with code before and after and diagrams if useful; for a change to language rules, a checker or a library interface, give the code after the change and show how the problem's example is accepted after it; then where it changes, what it leaves out, and its constraints and pitfalls. If the design tree must change (the design paths the project's configuration names, such as design/), change the nodes in this round as the design tree rules say and commit them locally, then write the design card: one section per decision added, changed or removed, before, after and why, at least three approaches compared, the chosen one the recommendation and why each other was not chosen; how sure you are, on what grounds, and what would overturn it; provisional or to check for what cannot be settled; if the tree does not change, say why. Write the acceptance conditions to test at the end, each one sentence of plain language, saying whether a test or a measurement meets it; if they are locked already, write them as locked, and if you think they must change, first ask the advisor with the kind acceptance_change and write them as the reply says. If you cannot choose, ask, with one point design_undecided saying where it is stuck and what is missing to decide. When designing again after sub-items were split off: the design card still covers the whole work, and each decision says who carries it, this work itself or which sub-item; the branch keeps only the nodes this work carries itself and drops those given to sub-items. When this work was split off and the parent's design card has decisions it says this work carries: write those nodes exactly as on it, copy those decisions unchanged onto your design card and say they come from the parent; the owner's rulings on the parent's design card count for them as they are; decisions not on the parent's design card are written as usual."
+            "This round only designs. If you need to measure, you may write measurement code, put it in `research/`, commit it locally and run it with measure; the measurement code stays on this work's branch; change no file other than the measurement code and the design tree. Choose one of the approaches compared; if the owner chose another approach for a decision of a design card, choose that one for that decision, and if the owner changed the acceptance, write it as changed; say in what point it beats each of the others, covering every one not chosen. If only a measurement can decide, measure first and judge the results yourself; if you measured, say how the results shaped the choice, and if not, why no measurement was needed. Then write the design itself: how it solves the problem, until it is clear, with code before and after and diagrams if useful; for a change to language rules, a checker or a library interface, give the code after the change and show how the problem's example is accepted after it; then where it changes, what it leaves out, and its constraints and pitfalls. If the design tree must change (the design paths the project's configuration names, such as design/), change the nodes in this round as the design tree rules say and commit them locally, then write the design card: one section per decision added, changed or removed, before, after and why, at least three approaches compared, the chosen one the recommendation and why each other was not chosen; how sure you are, on what grounds, and what would overturn it; provisional or to check for what cannot be settled; if the tree does not change, say why. Write the acceptance conditions to test at the end, each one sentence of plain language, saying whether a test or a measurement meets it; if they are locked already, write them as locked, and if you think they must change, first ask the advisor and write them as the reply says. If you cannot choose, ask, saying where it is stuck and what is missing to decide. When designing again after sub-items were split off: the design card still covers the whole work, and each decision says who carries it, this work itself or which sub-item; the branch keeps only the nodes this work carries itself and drops those given to sub-items. When this work was split off and the parent's design card has decisions it says this work carries: write those nodes exactly as on it, copy those decisions unchanged onto your design card and say they come from the parent; the owner's rulings on the parent's design card count for them as they are; decisions not on the parent's design card are written as usual."
           ],
           "promptBy": {
             "by": "deliver",
@@ -6068,9 +5899,8 @@
           "kind": "gate",
           "title": "Gaps in what is under test",
           "effort": "medium",
-          "about": "gap_under_test",
           "needs": "under_test",
-          "question": "Judge whether carrying out your design meets a way of writing something that a programmer would naturally write, but that what is under test rejects or handles badly.",
+          "question": "Judge whether carrying out your design meets a way of writing something that a programmer would naturally write, but that what is under test rejects or handles badly. If it does, give the code you want to write, the error it really gives (run it, not from memory), and why this way of writing it is natural.",
           "na": "the work writes and changes no code that uses what is under test, such as a change to documents only",
           "to": "D5",
           "inputs": [
@@ -6109,8 +5939,7 @@
           "kind": "gate",
           "title": "Whether you are sure",
           "effort": "high",
-          "about": "unsure",
-          "question": "Judge whether every fact your design rests on that would change the direction if it were wrong is checked.",
+          "question": "Judge whether every fact your design rests on that would change the direction if it were wrong is checked. If not, say what you are unsure of, which fact would change the direction, and how to check it.",
           "na": "for a report, the facts the research plan has not checked are exactly what the work sets out to check",
           "to": "D6",
           "inputs": [
@@ -6149,8 +5978,7 @@
           "kind": "gate",
           "title": "Cost: architectural burden",
           "effort": "medium",
-          "about": "too_costly",
-          "question": "Judge, by your design, whether the change is worth its architectural burden and what it costs to maintain.",
+          "question": "Judge, by your design, whether the change is worth its architectural burden and what it costs to maintain. If not, say where the burden lies, and give at least three ways out, such as building this design, a smaller change, or not doing it.",
           "na": "a report, or a change to documents only, changes no architecture and adds no burden",
           "to": "D7",
           "inputs": [
@@ -6189,9 +6017,8 @@
           "kind": "gate",
           "title": "Cross-project dependency",
           "effort": "medium",
-          "about": "depends_on_other_item",
           "needs": "other_projects",
-          "question": "Judge, by your design, whether this work can go on by itself, or must wait for another project to deliver something.",
+          "question": "Judge, by your design, whether this work can go on by itself, or must wait for another project to deliver something. If it must wait, say which project, what it must deliver, and the items already in the database for it.",
           "to": "D8",
           "inputs": [
             {
@@ -6229,8 +6056,7 @@
           "kind": "gate",
           "title": "Size: one PR or split",
           "effort": "medium",
-          "about": "split",
-          "question": "Judge, by your design and its estimate, whether one PR can do this work, meaning one engineer can do it in a day and a reader can take it in at a glance, or whether it must be split into several, as it must when a part has to merge on its own before the rest can go on.",
+          "question": "Judge, by your design and its estimate, whether one PR can do this work, meaning one engineer can do it in a day and a reader can take it in at a glance, or whether it must be split into several, as it must when a part has to merge on its own before the rest can go on. If it must be split, say what each sub-item does and what the parent keeps; if it was split before, ask, given the sub-items already split off, whether what remains must be split again.",
           "inputs": [
             {
               "name": "The estimate",
@@ -6608,7 +6434,7 @@
             "design_tree_writing"
           ],
           "prompt": [
-            "To run CI or a measurement, commit locally and use ci or measure. Before handing in done, your last commit must have run with ci and the fast CI must be green. With your answer, write where you departed from the plan, as surprise, workaround or design_changed; leave it empty if nowhere. If the design chose no dedicated adversarial testing, done also hands in the acceptance table and the results of each new test you added, run once after the change with ci and once before it with ci_before. When done, write what changed in tests and checks: for each added, what errors it catches, how long it runs on its own and why it is worth that time; for each removed, skipped or relaxed, its technical reason. If the chosen approach stays, the acceptance is untouched and nothing on the list of ask kinds comes up, you may change the design yourself and write it as design_changed; to change the approach or the acceptance, or when something on the list comes up, do not work around it: ask, picking the kind from the list. If you change the design tree (the design paths the project's configuration names), change it as the design tree rules say, and the return carries the whole design card as it stands after the change."
+            "To run CI or a measurement, commit locally and use ci or measure. Before handing in done, your last commit must have run with ci and the fast CI must be green. With your answer, write where you departed from the plan, as surprise, workaround or design_changed; leave it empty if nowhere. If the design chose no dedicated adversarial testing, done also hands in the acceptance table and the results of each new test you added, run once after the change with ci and once before it with ci_before. When done, write what changed in tests and checks: for each added, what errors it catches, how long it runs on its own and why it is worth that time; for each removed, skipped or relaxed, its technical reason. If the chosen approach stays, the acceptance is untouched and nothing comes up that you must ask about, you may change the design yourself and write it as design_changed; to change the approach or the acceptance, or when something comes up that you must ask about, do not work around it: ask. If you change the design tree (the design paths the project's configuration names), change it as the design tree rules say, and the return carries the whole design card as it stands after the change."
           ],
           "promptBy": {
             "by": "work",
@@ -6838,7 +6664,7 @@
             }
           ],
           "prompt": [
-            "You only write tests: change only files in the test paths the project's configuration names, not the implementation; if you think the implementation is wrong, write a test that turns red, and the engineer fixes it. Every acceptance condition must be met by a test: one the engineer wrote that really tests the condition can be used as it is; otherwise write one. Then dig for corner cases; if the project's configuration names places to attack, attack them. Each test names the independent reference its verdict rests on, such as a specification, or an established implementation the project is compared with. New tests are of two kinds, handed in apart: new-behaviour tests test what this change brings, so they should fail before the change, or what they test does not exist before it; old-behaviour tests guard old behaviour the change must not alter, so they should pass before and after it; for an optimization or a refactoring, for instance, they check the meaning against the reference. Tests the engineer added go by the kind the engineer gave in the test changes. Run every new test, the engineer's and yours, once after the change with ci and once before it with ci_before: for the run before, the engine puts the test files on the code before the change, so you need not set it up. If a test of yours gives a result before the change that does not fit its kind (a new-behaviour test that passes before the change, an old-behaviour test that fails or cannot run before it), fix it in this round and run it again yourself; do not hand it to the engineer. A test ci_before did not reach, its job having stopped at an earlier red test, is not_run before the change, whatever its kind; the table review judges it. If a test of yours is red after the change, first check the test itself against its reference; if it is wrong, fix it and run it again; hand in only what is still red after that, for the engineer to fix. For each test you write, give how long it runs on its own, as ci reports, and show it is worth that time: it catches errors no other test catches, and cannot be made smaller or faster or folded into another test. Places you suspect are wrong but cannot write a test for, such as something that only shows on a particular machine or is unstable under concurrency, go into suspects, for the review. For an acceptance condition you cannot write a test for, ask with the kind acceptance_change, saying which one and why it cannot be tested. If you asked someone, carry on with this round when the reply comes.",
+            "You only write tests: change only files in the test paths the project's configuration names, not the implementation; if you think the implementation is wrong, write a test that turns red, and the engineer fixes it. Every acceptance condition must be met by a test: one the engineer wrote that really tests the condition can be used as it is; otherwise write one. Then dig for corner cases; if the project's configuration names places to attack, attack them. Each test names the independent reference its verdict rests on, such as a specification, or an established implementation the project is compared with. New tests are of two kinds, handed in apart: new-behaviour tests test what this change brings, so they should fail before the change, or what they test does not exist before it; old-behaviour tests guard old behaviour the change must not alter, so they should pass before and after it; for an optimization or a refactoring, for instance, they check the meaning against the reference. Tests the engineer added go by the kind the engineer gave in the test changes. Run every new test, the engineer's and yours, once after the change with ci and once before it with ci_before: for the run before, the engine puts the test files on the code before the change, so you need not set it up. If a test of yours gives a result before the change that does not fit its kind (a new-behaviour test that passes before the change, an old-behaviour test that fails or cannot run before it), fix it in this round and run it again yourself; do not hand it to the engineer. A test ci_before did not reach, its job having stopped at an earlier red test, is not_run before the change, whatever its kind; the table review judges it. If a test of yours is red after the change, first check the test itself against its reference; if it is wrong, fix it and run it again; hand in only what is still red after that, for the engineer to fix. For each test you write, give how long it runs on its own, as ci reports, and show it is worth that time: it catches errors no other test catches, and cannot be made smaller or faster or folded into another test. Places you suspect are wrong but cannot write a test for, such as something that only shows on a particular machine or is unstable under concurrency, go into suspects, for the review. For an acceptance condition you cannot write a test for, ask, saying which one and why it cannot be tested. If you asked someone, carry on with this round when the reply comes.",
             "At a re-check, hand in only what this round did: only the rows of the condition table that changed, only the directions newly tried, only the new tests run in this round. For each test the engineer called test_wrong, answer one row: withdraw or insist; to insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result; for one the engineer answered advisor_ruled, withdraw it by the advisor's ruling."
           ],
           "out": [
@@ -9216,7 +9042,7 @@
             "- A finding of the review, by its column and the finding's number: fix it and answer fixed; or, when you think it wrong, answer disagree with your reason and what it rests on, or cannot_verify. A finding the review insisted on is not answered disagree again: ask the advisor, and once it is ruled, answer advisor_ruled.",
             "- A column the review could not verify: give it what it lacked, such as the evidence or a test, and answer fixed, or answer cannot_verify with why; the review then decides it.",
             "- A test adversarial testing wrote that is red after the change, or whose result before the change does not fit its kind: fix the implementation and answer fixed, or answer test_wrong when the test itself is wrong. A test adversarial testing insisted on goes to the advisor when neither side gives way.",
-            "- A conflict while catching up with main: merge main into the branch, resolve every file in conflict, commit the merge and answer resolved with that commit; if you cannot resolve it, ask with the kind unresolvable_conflict.",
+            "- A conflict while catching up with main: merge main into the branch, resolve every file in conflict, commit the merge and answer resolved with that commit; if you cannot resolve it, ask, saying where the conflict is and why you cannot resolve it.",
             "- A red or flaky check: fix what turned it red and answer fixed; when this change did not cause it, answer not_caused_by_change with the evidence, such as the same check red on main, or unrelated_flake.",
             "Before fixing a defect, search for others of its kind and fix them with it; say in your progress what you found.",
             "Before handing in, your last commit must have run with ci and the fast CI must be green. Hand in, as when implementing, the head, what changed in tests and checks, and where this round departed from the design; when the design chose no dedicated adversarial testing, also the rows of the acceptance table and the results of the new tests that changed in this round. If you change the design tree (the design paths the project's configuration names), change it as the design tree rules say, and the return carries the whole design card as it stands after the change."
@@ -10652,7 +10478,7 @@
           "inputs": [
             {
               "name": "What is asked",
-              "what": "What is asked: from which cell (recorded by the engine), its kind, the question and the reasons",
+              "what": "What is asked: from which cell (recorded by the engine), the question and the reasons",
               "from": [
                 [
                   "@caller",
@@ -10735,7 +10561,7 @@
             }
           ],
           "prompt": [
-            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, change an interface beyond this item, or when the root lies in another item, hand the question to the architect. specified_behaviour, safety_guarantee, change_direction and gap_under_test are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge something a gap_under_test there, have the engineer write it into the report and what to do next, which reaches the architect when the work ends, and the architect tells the owner of it. The owner_only group of the ask kinds is the owner's alone: hand such a question to the architect, who hands it on to the owner. You never ask and wait: what you cannot decide, you hand on to the architect with ask, saying in it why and what you found, and the architect answers the cell that asked in your place or hands it on. The code is read-only for you: change no file and commit nothing."
+            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, change an interface beyond this item, or when the root lies in another item, hand the question to the architect. The behaviour something the project specifies must have, a safety guarantee, the work's direction and what is under test rejecting a natural way of writing something are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge that what is under test rejects something there, have the engineer write it into the report and what to do next, which reaches the architect when the work ends, and the architect tells the owner of it. What only the owner can do or decide is the owner's alone: hand such a question to the architect, who hands it on to the owner. You never ask and wait: what you cannot decide, you hand on to the architect with ask, saying in it why and what you found, and the architect answers the cell that asked in your place or hands it on. The code is read-only for you: change no file and commit nothing."
           ],
           "out": [
             {
@@ -10804,7 +10630,7 @@
           "inputs": [
             {
               "name": "What is asked",
-              "what": "What is asked: from which cell (recorded by the engine), its kind, the question and the reasons; none when asking because an engine tool failed or main's environment changed",
+              "what": "What is asked: from which cell (recorded by the engine), the question and the reasons; none when asking because an engine tool failed or main's environment changed",
               "from": [
                 [
                   "@caller",
@@ -11890,7 +11716,6 @@
           }
         ]
       },
-      "askKinds": [],
       "agentCommon": {
         "returns": {
           "forms": [
@@ -14593,6 +14418,7 @@
           ],
           "prompt": [
             "This round weighs the ways for this question. The crux is answered: think by it, and do not go back to the question on the surface. See which articles of the constitution it touches and what each implies; then which items it touches and how (a duplicate, a dependency, blocking others, a root in another item or project), and who waits. Think of at least three ways, with what follows from each, choose one, and say why it and why not the others. A conclusion deduced from reading code is said to be deduced; an inference that decides the direction and is not checked is checked first by an item, and the structure is not changed on it.",
+            "What the question needs, judge from what it says. A defect or a root outside the work is fixed where it lies, by an item, made when there is none, or by a message to its project's architect, and not worked around in the work. A duplicate is the same thing, not the same code; when the asking work's item is merged away, what is useful on its branch and the owner's rulings on its design cards go to the item kept by an interjection. A capability gap, the system lacking what the work needs (a tool, an input, a permission, a rule that says enough, data it cannot reach), is a defect of the system and not of the agent: unblock the work first, by the first way that works, a way around within the rules said in the reply, what only the owner can give (a credential, a configuration in the data directory) handed to the owner with hand_over, else an item that fixes it, which the work's item depends on, blocking, and the reply's waits name; then take the gap in as a report is: an item that covers it takes it, else an observation, merged into the same one when it is recorded already. A question that need not touch other items or the structure changes nothing: the reply says whom to ask.",
             "Reply to the engineer concretely enough to carry on from: if sub-items were split off, say plainly that the work must redesign for the part that remains; if it must stop now and wait for other items to deliver, list them in the reply's waits, while a parallel dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this batch creates by its key: the engine puts its number there once it is made. The reply goes at once, or, when your item changes are what it says, once the review lets them be made; if an item it names is not made after all, it does not go out, and the question comes back to you with why.",
             "Works start in the order you give: first the items the owner queued, then each project's items by their rank. A new item goes last among its project's items, and moving one puts it first, last, or just before or after another item of its project. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them.",
             "What the constitution, the policy or what goes outside decides, and what only the owner can do or decide, hand to the owner with the reply's hand_over, saying why and, in its text, what you found; what belongs to a related project's architect, hand to it the same way. You never ask and wait: whoever you hand it to answers the engineer."
@@ -14626,71 +14452,6 @@
               ]
             }
           ],
-          "promptBy": {
-            "by": "question",
-            "cases": {
-              "split": [
-                "What is asked is whether to split the work, and how. To split is to create new items and have the work's item depend on them. Given the items it already depends on, see whether what remains must be split again: each new item must be worth an engineer, a branch, a CI run and a merge; each acceptance condition of the item goes to one new item, or stays with the item. The item is done when the new items are; when no condition stays with it, its own work has nothing left to do. Place the new items in the order where they should start, before the items waiting for them."
-              ],
-              "duplicate": [
-                "What is asked is a duplicate of another item. First check that it is the same thing: touching the same code does not count. If it is, merge them; when the one merged away is the asking work's, what is useful on its branch goes to the one kept by an interjection, with the owner's rulings on its design cards, which hold for the one kept too."
-              ],
-              "depends_on_other_item": [
-                "What is asked is waiting for another item or project to deliver. First tell apart whether the work cannot go on now or only has to wait before merging. If it cannot go on now, list them in the reply's waits; if it only waits before merging, a parallel dependency is enough. If what it waits for has no item yet: in this project, create it and place it where it should start; in another project, ask that project's architect with a message, and have the work wait."
-              ],
-              "out_of_scope_defect": [
-                "What is asked is a defect that blocks that work but does not belong to it. Create an item to fix it, and place it where it should start; in another project, tell that project's architect with a message. If the work cannot go on until it is fixed, list it in waits; if it is not blocked, it carries on as usual. Do not let the work get around the defect."
-              ],
-              "root_elsewhere": [
-                "What is asked is a root that lies in another item, project or module. Find the item the root lies in, and create one if there is none; then decide what the work does: wait for the root to be fixed, have the root's item do it instead (cancel this one, saying where its work went), or go on with the part that remains. If the root changes what must start first, change the order."
-              ],
-              "too_costly": [
-                "What is asked is a change so large for this work that it is not worth it. The cost is no reason in itself: a design is judged only on itself, and the cost only decides the order. See where the burden lies: in a flaw of the design itself, or in doing it too early. Giving up a goal, or changing how goals are traded against each other, is the owner's: ask the owner."
-              ],
-              "capability_gap": [
-                "What is asked is a capability gap: the system lacks what the work needs, a defect of the system and not of the agent. Unblock the work first, by the first way that works: a way around within the rules, said in the reply; what only the owner can give (a credential, a configuration in the data directory), handed to the owner with hand_over; else an item that fixes it, which the work's item depends on, blocking, and the reply's waits name, so that the work waits for it to merge. Then take the gap itself in as a report is: an item that covers it takes it, else an observation, merged into the same one when it is recorded already."
-              ],
-              "other_question": [
-                "What is asked is of another kind. First think whether it really must touch other items or the structure; if not, say in the reply whom to ask, and change nothing."
-              ]
-            }
-          },
-          "inenums": {
-            "question": [
-              [
-                "split",
-                "An engineer asks whether to split its work, and how"
-              ],
-              [
-                "duplicate",
-                "An engineer reported that its work duplicates another item"
-              ],
-              [
-                "depends_on_other_item",
-                "An engineer must wait for another item or project to deliver something"
-              ],
-              [
-                "out_of_scope_defect",
-                "An engineer met a defect that blocks it but does not belong to its work"
-              ],
-              [
-                "root_elsewhere",
-                "An engineer sees the root of its problem in another item, project or module"
-              ],
-              [
-                "too_costly",
-                "An engineer finds the change its work needs not worth it"
-              ],
-              [
-                "capability_gap",
-                "An engineer lacks what the system should give it: a tool, data it cannot read, credentials or a permission"
-              ],
-              [
-                "other_question",
-                "An engineer asks something of another kind"
-              ]
-            ]
-          },
           "always": [
             {
               "at": "effects",

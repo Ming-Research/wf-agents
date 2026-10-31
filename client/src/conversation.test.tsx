@@ -76,7 +76,6 @@ const ask = (id: number, body: JsonValue, answer: JsonValue | null = null): Owne
   work: 5,
   item: 3,
   body,
-  kinds: [],
   answer,
   answer_images: [],
   asked_at: 0,
@@ -1251,6 +1250,9 @@ describe('a design card and an ask, where they stand said by the chip and the fa
     const [waitsHead, waitsBody] = parts(renderToStaticMarkup(<AskView a={ask(4, choice)} round="R5-2" />));
     expect(waitsHead).toContain('waits for you');
     expect(waitsBody).not.toContain('Waits for your answer');
+    // Its point says what it asks; an ask recorded with a kind before asks lost their kinds shows none.
+    expect(waitsBody).toContain('Which table?');
+    expect(waitsBody).not.toContain('>design<');
     const answered = ask(4, choice, { by: 'owner', at, choice: 'Two tables', text: 'Split them.' });
     const [head, body] = parts(renderToStaticMarkup(<AskView a={answered} round="R5-2" />));
     expect(head).toContain('>answered<');

@@ -418,26 +418,25 @@ fn what_was_said_in_the_groups_is_a_matter_of_its_own() {
     }
 }
 
-// A capability report, an agent saying the system lacks what its work needs, is a defect of the system: an engineer's
-// question about such a gap has a case of its own in the ways (`capability_gap`), which unblocks the work first, by a
-// way around within the rules, by the owner for what only the owner can give, or by an item that fixes it, which the
-// work waits for, and then takes the gap in as a report is taken in. The work that handed in a side report or such a
-// question is told what became of it (`answer_reporter`), after the round's effects are made; and an observation a merge
-// makes reported three times is work, which the taking in says and the check of the effects holds.
+// A capability report, an agent saying the system lacks what its work needs, is a defect of the system: the ways read
+// it from what a question says, with no kind, and unblock the work first, by a way around within the rules, by the
+// owner for what only the owner can give, or by an item that fixes it, which the work waits for, and then take the gap
+// in as a report is taken in. The work that handed in a side report or a question is told what became of it
+// (`answer_reporter`), after the round's effects are made; and an observation a merge makes reported three times is
+// work, which the taking in says and the check of the effects holds.
 #[test]
 fn a_capability_report_unblocks_first_is_answered_and_is_work_once_it_recurs() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
     let ways = g.cell("H3").unwrap();
-    assert!(ways.inenums["question"].iter().any(|v| v.0 == "capability_gap"));
-    let gap = &ways.prompt_by.as_ref().unwrap().cases["capability_gap"];
     for way in [
+        "A capability gap, the system lacking what the work needs",
         "a way around within the rules",
         "handed to the owner with hand_over",
         "which the work's item depends on, blocking, and the reply's waits name",
-        "Then take the gap itself in as a report is",
+        "then take the gap in as a report is",
     ] {
-        assert!(gap.iter().any(|t| t.contains(way)), "{way}");
+        assert!(ways.prompt.iter().any(|t| t.contains(way)), "{way}");
     }
     for (cell, at) in [("H3", "effects"), ("H5", "take")] {
         let always: Vec<(String, String)> = g
@@ -466,6 +465,36 @@ fn a_capability_report_unblocks_first_is_answered_and_is_work_once_it_recurs() {
             .unwrap()
             .contains("reported three times or more is folded into an item by a change of the batch")
     );
+}
+
+// An ask carries no kind: the one asked reads what it is about from what it says. An ask's point is what is asked and
+// what was checked, with no kind among its fields; a gate asks what its question says, the one that needs something
+// under test saying what to give; the ways (`H3`) weigh a question by what it says, with no case for a kind of
+// question; and no graph lists kinds of question.
+#[test]
+fn an_ask_carries_no_kind() {
+    let c = compiled();
+    let engineer = c.graph("engineer").unwrap();
+    let forms = &engineer.cell("R1").unwrap().schema.as_ref().unwrap()["properties"]["outcome"]["anyOf"];
+    let point = forms
+        .as_array()
+        .unwrap()
+        .iter()
+        .find_map(|a| a["properties"]["ask"]["oneOf"][0]["properties"]["points"]["items"]["properties"].as_object())
+        .unwrap();
+    assert_eq!(point.keys().collect::<Vec<_>>(), ["what", "tried"]);
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    for f in v["flows"].as_array().unwrap() {
+        assert!(f.get("askKinds").is_none(), "{}", f["name"]);
+        for n in f["nodes"].as_array().unwrap() {
+            assert!(n.get("about").is_none(), "{}", n["id"]);
+        }
+    }
+    let gap = engineer.cell("D4").unwrap();
+    assert!(gap.prompt[0].contains("give the code you want to write, the error it really gives"));
+    assert_eq!(gap.needs.as_deref(), Some("under_test"));
+    let ways = c.graph("architect").unwrap().cell("H3").unwrap();
+    assert!(ways.prompt_by.is_none() && ways.inenums.is_empty());
 }
 
 // A matter that comes again and again is not queued while the facts it would carry are those of the last one the
@@ -513,7 +542,7 @@ fn a_matter_that_comes_again_is_not_queued_on_the_same_facts() {
 fn a_part_several_cells_hold_alike_is_given_once() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
-    let straight = flow::formats::cell_format(g, g.cell("H1").unwrap(), &[]);
+    let straight = flow::formats::cell_format(g, g.cell("H1").unwrap());
     assert!(
         straight.contains(r#""effects":{"$ref":"format:common#/$defs/effects"}"#),
         "{straight}"
@@ -526,9 +555,9 @@ fn a_part_several_cells_hold_alike_is_given_once() {
             .filter(|x| x.kind == "agent" && &x.line == line)
             .collect()
     };
-    let architect = flow::formats::common_format_of(g, &line("H1"), &[]);
+    let architect = flow::formats::common_format_of(g, &line("H1"));
     assert_eq!(architect.matches(r#""item_changes""#).count(), 1, "{architect}");
-    let review = flow::formats::common_format_of(g, &line("B2"), &[]);
+    let review = flow::formats::common_format_of(g, &line("B2"));
     assert!(!review.contains(r#""item_changes""#), "{review}");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     v["flows"][1]["agentCommon"]["returns"]["once"] = serde_json::json!(["settled"]);
@@ -604,8 +633,8 @@ fn a_field_a_project_does_not_ask_for_is_taken_out_of_every_agent_cell() {
             assert!(cell.always.iter().all(|a| a.at != "flow_feedback"), "{}", cell.id);
             assert!(cell.read_by.iter().all(|x| x.at != "flow_feedback"), "{}", cell.id);
         }
-        assert!(flow::formats::common_format(&asked, &[]).contains("flow_feedback"));
-        assert!(!flow::formats::common_format(&off, &[]).contains("flow_feedback"));
+        assert!(flow::formats::common_format(&asked).contains("flow_feedback"));
+        assert!(!flow::formats::common_format(&off).contains("flow_feedback"));
     }
 }
 
@@ -836,17 +865,11 @@ fn no_agent_is_sent_a_title_or_the_name_of_an_input_only_the_owner_reads() {
         "a title or an input's name reached what agents are sent"
     );
     for (g, h) in c.graphs.iter().zip(&other.graphs) {
-        assert_eq!(
-            flow::formats::common_format(g, &[]),
-            flow::formats::common_format(h, &[])
-        );
+        assert_eq!(flow::formats::common_format(g), flow::formats::common_format(h));
         for (x, y) in g.cells.iter().zip(&h.cells) {
             assert_eq!(x.schema, y.schema, "{} {}", g.name, x.id);
             assert_eq!(x.prompt, y.prompt, "{} {}", g.name, x.id);
-            assert_eq!(
-                flow::formats::cell_format(g, x, &[]),
-                flow::formats::cell_format(h, y, &[])
-            );
+            assert_eq!(flow::formats::cell_format(g, x), flow::formats::cell_format(h, y));
             assert_eq!(
                 flow::formats::cell_inputs(x),
                 flow::formats::cell_inputs(y),

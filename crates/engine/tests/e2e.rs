@@ -4155,11 +4155,7 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
         Box::new(|_: &Request, n: usize| {
             if n == 1 {
                 return (
-                    vec![
-                        ("outcome", "ask"),
-                        ("outcome.ask", "architect"),
-                        ("outcome.ask.points[].kind", "split"),
-                    ],
+                    vec![("outcome", "ask"), ("outcome.ask", "architect")],
                     vec![(
                         "outcome.ask.points[].what",
                         json!("The work holds two separate changes."),
@@ -4189,15 +4185,17 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     assert!(steps_until(&mut e, 10, |e| question(e).is_some()));
     let log = said.borrow().join("\n");
     assert_eq!(matters(&e), [("engineer_question".to_string(), true, false)], "{log}");
-    let (detail, project): (String, String) =
+    let (detail, project, what): (Option<String>, String, String) =
         e.db.conn()
             .query_row(
-                "SELECT detail, project FROM architect_matters WHERE kind = 'engineer_question'",
+                "SELECT detail, project, what FROM architect_matters WHERE kind = 'engineer_question'",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .unwrap();
-    assert_eq!((detail.as_str(), project.as_str()), ("split", "p"));
+    // A question carries no kind: the matter says what it asks, and its detail is none.
+    assert_eq!((detail, project.as_str()), (None, "p"));
+    assert!(what.ends_with("asks: The work holds two separate changes."), "{what}");
     assert_eq!(e.free_slots().unwrap(), 1, "{log}");
     let started = e.step(None).unwrap();
     let arch = started.work.unwrap();
@@ -4212,7 +4210,11 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     // The ways were given the crux by its address in the session, not again.
     let ways = message_at(&e, arch, "H3", false);
     assert!(ways.contains("·H2·crux"), "{ways}");
-    assert!(ways.contains("What is asked is whether to split the work"), "{ways}");
+    assert!(
+        ways.contains("What the question needs, judge from what it says"),
+        "{ways}"
+    );
+    assert!(!ways.contains("What is asked is whether to split the work"), "{ways}");
     let (output, _) = question(&e).unwrap();
     let output: Value = serde_json::from_str(&output.unwrap()).unwrap();
     assert_eq!(output, json!({ "reply": reply }));
@@ -4233,18 +4235,14 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
 
 // Capability reports: an agent says the system lacks what its work needs, a defect of the system and not of the agent.
 
-/// A first round of the item's work that asks the architect about a capability gap of the given kind, saying what.
-fn asks_about_a_gap(kind: &'static str, what: &'static str) -> Script {
+/// A first round of the item's work that asks the architect about a capability gap, saying what, with no kind.
+fn asks_about_a_gap(what: &'static str) -> Script {
     Box::new(move |_: &Request, n: usize| {
         if n > 1 {
             return (Vec::new(), Vec::new());
         }
         (
-            vec![
-                ("outcome", "ask"),
-                ("outcome.ask", "architect"),
-                ("outcome.ask.points[].kind", kind),
-            ],
+            vec![("outcome", "ask"), ("outcome.ask", "architect")],
             vec![
                 ("outcome.ask.points[].what", json!(what)),
                 ("outcome.ask.points[].tried", json!("Ran it: the shell found nothing.")),
@@ -4335,20 +4333,14 @@ fn a_capability_gap_is_unblocked_by_a_way_around_and_its_work_told_what_became_o
             ],
         )
     });
-    let ask = asks_about_a_gap("missing_tool", "The `jq` command is not on the machine.");
+    let ask = asks_about_a_gap("The `jq` command is not on the machine.");
     let (e, said, _, work, arch) = a_gap_asked(&s, ask, vec![("H3", ways)]);
     let log = said.borrow().join("\n");
-    let detail: String =
-        e.db.conn()
-            .query_row(
-                "SELECT detail FROM architect_matters WHERE kind = 'engineer_question'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-    assert_eq!(detail, "capability_gap", "{log}");
     let ways = message_at(&e, arch, "H3", false);
-    assert!(ways.contains("What is asked is a capability gap"), "{ways}");
+    assert!(
+        ways.contains("A capability gap, the system lacking what the work needs"),
+        "{ways}"
+    );
     assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
     let id: i64 =
         e.db.conn()
@@ -4372,7 +4364,8 @@ fn a_capability_gap_is_unblocked_by_a_way_around_and_its_work_told_what_became_o
 
 // A capability gap only the owner can fill, a credential the data directory lacks, is handed to the owner with the
 // reply's hand_over, which pins it in the work's group for the owner's reply: the work waits there for the owner. The
-// ways recorded nothing, so the work is told nothing beside the hand-over.
+// ask carries no kind on its way: the engineer's question is queued with none, and the owner's ask holds what it asks
+// and what was checked. The ways recorded nothing, so the work is told nothing beside the hand-over.
 #[test]
 fn a_capability_gap_only_the_owner_can_fill_is_pinned_for_the_owner() {
     let s = setup("gap-owner");
@@ -4384,7 +4377,7 @@ fn a_capability_gap_only_the_owner_can_fill_is_pinned_for_the_owner() {
         });
         (Vec::new(), vec![("outcome.reply", reply)])
     });
-    let ask = asks_about_a_gap("missing_credentials", "There is no token to read the registry with.");
+    let ask = asks_about_a_gap("There is no token to read the registry with.");
     let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H3", ways)]);
     let log = said.borrow().join("\n");
     assert_eq!(question_took(&e, work).as_deref(), Some("to_owner"), "{log}");
@@ -4408,14 +4401,31 @@ fn a_capability_gap_only_the_owner_can_fill_is_pinned_for_the_owner() {
             )
             .unwrap();
     assert_eq!((holder.as_str(), ask), ("owner", pinned(&e)), "{log}");
+    let detail: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT detail FROM architect_matters WHERE kind = 'engineer_question'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(detail, None, "{log}");
+    let body: String =
+        e.db.conn()
+            .query_row("SELECT body FROM owner_asks WHERE id = ?1", [ask.unwrap()], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert!(body.contains("There is no token to read the registry with."), "{body}");
+    assert!(!body.contains("\"kind\":\"missing"), "{body}");
     assert_eq!(lines_told(&e, work), Vec::<String>::new());
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
 // A capability gap with no way around that the owner need not fill is fixed by an item: the ways create it, have the
 // work's item depend on it, blocking, and name it in the reply's waits. Once the review of the batch lets it be made,
-// the reply goes with the item's number, the work stops to wait for it to merge, and the work is told the gap was taken
-// into that item.
+// the reply goes with the item's number and the work stops to wait for it to merge; the reply says what became of the
+// gap, so that the work is told nothing beside it.
 #[test]
 fn a_capability_gap_with_no_way_around_has_its_work_wait_for_the_item_that_fixes_it() {
     let s = setup("gap-fix");
@@ -4444,7 +4454,7 @@ fn a_capability_gap_with_no_way_around_has_its_work_wait_for_the_item_that_fixes
         (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2)]))])
     });
     let way_on: Script = Box::new(|_: &Request, _: usize| (vec![("outcome.next", "wait_for_items")], Vec::new()));
-    let ask = asks_about_a_gap("missing_tool", "The `jq` command is not on the machine.");
+    let ask = asks_about_a_gap("The `jq` command is not on the machine.");
     let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H3", ways), ("B2", review), ("A4", way_on)]);
     assert_eq!(item, 1);
     let log = said.borrow().join("\n");
@@ -4473,14 +4483,7 @@ fn a_capability_gap_with_no_way_around_has_its_work_wait_for_the_item_that_fixes
             )
             .unwrap();
     assert_eq!(kind, "blocking", "{log}");
-    let told = lines_told(&e, work);
-    assert_eq!(told.len(), 1, "{told:?}\n{log}");
-    assert!(
-        told[0].ends_with(&format!(
-            ": taken into new item #{fix} \"Install jq\". You need not report it again."
-        )),
-        "{told:?}"
-    );
+    assert_eq!(lines_told(&e, work), Vec::<String>::new(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -10235,18 +10238,10 @@ impl Dice {
 /// What a round hands in: its picks and what it sets.
 type Picked = (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>);
 
-/// An ask of `to`, of a kind that role may be asked.
+/// An ask of `to`, saying what it asks, with no kind.
 fn an_ask(to: &'static str) -> Picked {
-    let kind = match to {
-        "advisor" => "unsure",
-        _ => "split",
-    };
     (
-        vec![
-            ("outcome", "ask"),
-            ("outcome.ask", to),
-            ("outcome.ask.points[].kind", kind),
-        ],
+        vec![("outcome", "ask"), ("outcome.ask", to)],
         vec![("outcome.ask.points[].what", json!(format!("A point for the {to}.")))],
     )
 }
