@@ -7583,9 +7583,13 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_notebook
     );
     assert_eq!(states(&e), 2);
     let (first, second) = (message_at(&e, arch, "U1", false), message_at(&e, arch, "U1", true));
-    for m in [&first, &second] {
-        assert!(m.contains("This is your first work on the project"), "{m}");
-    }
+    // The first round is given the task of a first work; the round after its tools is told it holds it.
+    assert!(first.contains("This is your first work on the project"), "{first}");
+    assert!(!second.contains("This is your first work on the project"), "{second}");
+    assert!(
+        second.contains("task:U1·entry=first, given to you before in R"),
+        "{second}"
+    );
     let w = e.work(arch).unwrap();
     let g = e.graph_of(&w).unwrap();
     let numbered: Vec<&flow::CompiledInput> = g
