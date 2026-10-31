@@ -387,7 +387,8 @@ pub struct Project {
     pub main: String,
     /// What the project's designs aim for, such as performance and correctness with no regard for migration cost.
     pub design_goal: String,
-    /// The paths whose change is a change of design, and gives a design card.
+    /// The paths whose change is a change of design, and gives a design card. Every project should have a design tree;
+    /// one that has none yet names none, and its works raise no design card.
     pub design_paths: Vec<String>,
     /// The command that checks the design tree, run in the worktree with the fork point from main as its argument.
     #[serde(default, skip_serializing_if = "Option::is_none")]

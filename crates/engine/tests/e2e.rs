@@ -1316,6 +1316,40 @@ fn a_settled_row_leaves_the_fix_table() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The re-review after a fix is given the table the fix answered, as the fix was given it: a red check with its run and
+// the end of its log, beside the fix's answer to it; before any fix it is given none.
+#[test]
+fn the_review_after_a_fix_is_given_the_table_the_fix_answered() {
+    let s = setup("fix-table");
+    let (mut e, _, item) = start(&s, scripts());
+    for _ in 0..3 {
+        e.step(None).unwrap();
+    }
+    let (work, _, _) = state(&e, item).unwrap();
+    move_to(&mut e, work, "T4");
+    let m = engine::next_message(&mut e, work).unwrap().text;
+    assert_eq!(given_value(&m, "·engine·fix_table"), None, "{m}");
+    let row = json!({ "row": "F1", "from": "T2·result[red]", "kind": "red", "name": "lint", "result": "red",
+                      "run": "https://example.com/runs/7", "log_tail": "error: an unused import" });
+    let input = json!({ "engine": { "table": [row] } });
+    let output = json!({ "outcome": { "rows": [{ "answer": "fixed", "id": "F1", "commit": "abc" }], "head": "abc" },
+                         "progress": "p", "tell_owner": [], "side_reports": [], "flow_feedback": "none" });
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+             VALUES (?1, ?2, 'T6', ?3, ?4, 'done', 'c', 1, 2)",
+            params![work, next_round(tx, work)?, input.to_string(), output.to_string()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    move_to(&mut e, work, "T4");
+    let m = engine::next_message(&mut e, work).unwrap().text;
+    let table = given_value(&m, "·engine·fix_table").expect(&m);
+    assert_eq!(table, json!([row]), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The judgment whether a work may enter the merge queue reads the newest review, as the fix table does: a column the
 // first review could not verify sends the work to the fix; the re-review that looks only at disputes is given that
 // column again, and only it; and once it hands in no table, the first review's column no longer sends the work to a

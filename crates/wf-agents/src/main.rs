@@ -32,8 +32,9 @@ enum Command {
     /// Makes the database in the data directory, once. It is the only command that makes one: every command that
     /// works on the database, the engine included, opens the one that is there, and fails when there is none.
     Init,
-    /// Checks the design tree of the repository here: its nodes, depth and decisions at HEAD, and how many more than
-    /// at the fork point given. A project names it as its design_check.
+    /// Checks the design tree of the repository here: prints its nodes, depth and decisions at HEAD, and how many more
+    /// than at the fork point given, and fails with each fault of a node changed since then against the node format.
+    /// A project names it as its design_check.
     TreeCheck {
         /// The directory the design tree is in.
         #[arg(long, default_value = "design")]
@@ -279,13 +280,25 @@ enum ConfigCommand {
     Check,
 }
 
+/// Prints the design tree's numbers, then fails with the faults of the nodes changed since the fork point, if any.
+fn tree_check(fork: &str, root: &str) -> Result<(), String> {
+    let here = Path::new(".");
+    print!("{}", tree::report(here, fork, root)?);
+    let faults = tree::node_faults(here, fork, root)?;
+    if faults.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("nodes out of the node format:\n{}", faults.join("\n")))
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
         None => Ok(()),
         Some(Command::Flow(FlowCommand::Check { flow, schema })) => flow_check(&flow, schema.as_deref()),
         Some(Command::Config(ConfigCommand::Check)) => data(cli.data.as_deref()).and_then(config_check),
-        Some(Command::TreeCheck { root, fork }) => tree::report(Path::new("."), &fork, &root).map(|r| print!("{r}")),
+        Some(Command::TreeCheck { root, fork }) => tree_check(&fork, &root),
         Some(c) => data(cli.data.as_deref()).and_then(|d| owners(d, c)),
     };
     match result {

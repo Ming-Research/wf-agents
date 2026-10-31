@@ -9,8 +9,8 @@
 //! yet: CI gives each job's result, not each test's, so test results are checked only against what the jobs show;
 //! cited files are checked to exist, not to be in the diff; a table of findings is checked for one answer per id;
 //! a red check said not to be caused by the change is taken as written when main's checks cannot be read; a ruling
-//! said to be the advisor's is taken as written once the advisor was asked; and a decision copied from a parent's
-//! design card is not compared with it.
+//! said to be the advisor's, or the architect's or the owner's in its place, is taken as written once the advisor was
+//! asked; and a decision copied from a parent's design card is not compared with it.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -769,7 +769,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             for r in items(v) {
                 let id = r["fid"].as_str().or(r["test"].as_str()).unwrap_or_default();
                 if ruled.contains(id) {
-                    return fail(format!("{id} was ruled by the advisor; it is not insisted on"));
+                    return fail(format!("{id} was ruled on; it is not insisted on"));
                 }
             }
             if c.cell.id == "T4" {
@@ -779,7 +779,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 {
                     let id = r["fid"].as_str().unwrap_or_default();
                     if ruled.contains(id) {
-                        return fail(format!("{id} was ruled by the advisor; it is not marked not_fixed"));
+                        return fail(format!("{id} was ruled on; it is not marked not_fixed"));
                     }
                 }
             }
@@ -1025,13 +1025,10 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             }
         }
         "ruling_matches_advisor" => {
-            if v.is_none() {
-                return Ok(());
-            }
-            if c.accepted("A1")?.is_empty() {
-                fail("this work never asked the advisor")
-            } else {
+            if v.is_none() || asked_the_advisor(c.e.db.conn(), c.w.id)? {
                 Ok(())
+            } else {
+                fail("this work never asked the advisor")
             }
         }
         // A flow version stored before an engineer asked the architect what only the owner decides names this check;
@@ -1086,6 +1083,12 @@ fn mentions(r: &Round, id: &str) -> bool {
     r.output
         .as_ref()
         .is_some_and(|o| o.to_string().contains(&format!("\"{id}\"")))
+}
+
+/// Whether the work asked its advisor: a round of the advisor, whether it ruled or handed the question on, the
+/// architect or the owner then ruling in its place.
+fn asked_the_advisor(conn: &db::rusqlite::Connection, work: i64) -> Result<bool, String> {
+    Ok(!work::rounds_at(conn, work, "A1")?.is_empty())
 }
 
 /// The ids the engineer answered advisor_ruled in the fixes since the last review.
@@ -1230,6 +1233,43 @@ mod tests {
         let green = json!({ "checks": [{ "name": "test", "result": "green" }] });
         assert!(base_matches_run("old", Some("red"), &green).is_err());
         assert!(base_matches_run("old", Some("not_run"), &green).is_ok());
+    }
+
+    // A ruling counts once the work asked its advisor, also when the advisor handed the question on and the architect
+    // ruled in its place; a work that never asked the advisor has none.
+    #[test]
+    fn a_ruling_counts_once_the_advisor_was_asked_whoever_ruled() {
+        let mut base = db::Db::in_memory().unwrap();
+        let work = base
+            .write(db::Actor::Engine, |tx| {
+                tx.execute(
+                    "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', 'l')",
+                    [],
+                )?;
+                let item = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', 'T6')",
+                    [item],
+                )?;
+                Ok(tx.last_insert_rowid())
+            })
+            .unwrap();
+        assert!(!asked_the_advisor(base.conn(), work).unwrap());
+        let handed_on = json!({ "ask": { "to": "architect", "points": [] } }).to_string();
+        base.write(db::Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, 1, 'A1', '{}', ?2, 'to_architect', 'c', 1, 2)",
+                db::rusqlite::params![work, handed_on],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(asked_the_advisor(base.conn(), work).unwrap());
     }
 
     // A cited file or node is its path, whatever follows it: lines, or a note, as in the sixth trial a review cited

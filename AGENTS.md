@@ -16,3 +16,5 @@ What an agent needs to know for this repository, beyond the rules every agent is
   `npm run check:ui` in `client/`.
 - `flow/flow.json` is the only definition of the flow. A change to it, to the views it reads or to the compiler
   passes `wf-agents flow check`; the flow crate's tests run the same check.
+- A change to the node format the flow's rule `design_tree_writing` sets changes the format check of
+  `wf-agents tree-check` (`crates/wf-agents/src/tree.rs`) and its tests in the same change.

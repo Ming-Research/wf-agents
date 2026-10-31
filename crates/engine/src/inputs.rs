@@ -15,6 +15,9 @@ use crate::{Engine, form_of, git};
 /// The most rows an input read from the database gives.
 const ROWS: usize = 200;
 
+/// The engineer's cell that fixes what the checks after implementing found, answering a numbered table.
+const FIX: &str = "T6";
+
 /// The view of the work's rounds that a flow version stored before the history was removed still names. It re-sent
 /// every round's whole record, so no input gives it any longer.
 const HISTORY: &str = "work_history";
@@ -520,6 +523,12 @@ pub fn engine_input(
             git::git(wt, &["log", "--format=%H %s", &range]).ok().map(Value::String)
         }),
         "existing_work" => existing_work(e, w, g, item, &main)?.map(Value::String),
+        // The table the latest fix answered, as its round was given it; its answers are the fix's own return.
+        "fix_table" => answered(e, w, g, FIX)?
+            .into_iter()
+            .next()
+            .and_then(|r| r.input.get("engine").and_then(|x| x.get("table")).cloned())
+            .filter(|t| t.as_array().is_some_and(|rows| !rows.is_empty())),
         // What a review reviews, by commits the worktree has: main as it has it fetched, the pull request's base, the
         // commit of main the branch was cut from or last took main in at, the head under review, and at a re-review
         // the head the last table review looked at.

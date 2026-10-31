@@ -1134,7 +1134,7 @@
                 "name": "what",
                 "title": "What happened",
                 "type": "text",
-                "desc": "What happened: where, and what you saw. The owner reads it in the work's group: write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
+                "desc": "What happened: where, what you saw, and what you recommend. The owner reads it in the work's group: write it in the owner's language (the setting `owner.language`), as `format:common` says a field the owner reads is written, with technical terms in their English original"
               },
               {
                 "name": "tried",
@@ -2434,7 +2434,7 @@
               "name": "body",
               "title": "PR description",
               "type": "text",
-              "desc": "The PR description: what was done and why, then what changed: few files, one line per file with its path and what changed; many, grouped by directory or kind. One line says what changed, not how"
+              "desc": "The PR description: what was done and why, then what changed, covering every file of the PR's diff: few files, one line per file with its path and what changed; many, grouped by directory or kind. One line says what changed, not how"
             }
           ]
         }
@@ -3014,7 +3014,7 @@
       "design_card_when_tree_changed": "The engine compares the design paths on the branch with the version the last design card matched: if they changed and this round handed in no new design card, or did not change and it handed one in, the return is rejected.",
       "tests_only": "The commits from the head the engineer handed over to this head touch only the test paths the project's configuration names.",
       "disputed_tests_answered": "At a re-check, there is a row for each test the engineer called test_wrong or answered advisor_ruled.",
-      "no_insisting_after_ruling": "What the engineer answered advisor_ruled is not insisted on, nor marked not_fixed.",
+      "no_insisting_after_ruling": "What the engineer answered advisor_ruled, ruled by the advisor or in its place, is not insisted on, nor marked not_fixed.",
       "fact_basis_ran": "A basis of fact names a run the engine recorded, and its result is what that run gave.",
       "conclusions_cover_questions": "A report hands in a conclusion for each report_answer condition; other work hands in none.",
       "columns_answered": "There is exactly one row for each column the engine listed in this round; with no column listed, none is handed in.",
@@ -3026,7 +3026,7 @@
       "table_answered": "Every row of the table is answered once, with an answer the table allows for that row.",
       "no_disagreeing_after_insist": "A finding the review insisted on, or a test adversarial testing insisted on, is not answered disagree or test_wrong again; when neither side gives way, the engineer asks.",
       "not_caused_by_change": "For a red check said not to be caused by the change, the engine checks it itself: the check is red on main as the worktree last fetched it, or in the table of known red checks; a flaky one is answered unrelated_flake. When main's checks cannot be read, it is taken as written.",
-      "ruling_matches_advisor": "This work did ask the advisor about this row, and the ruling written matches the advisor's reply.",
+      "ruling_matches_advisor": "This work did ask the advisor about this row, which ruled or had the architect or the owner rule in its place.",
       "answers_match_speakers": "Each answer goes to a side that interjected in this round, one answer per side.",
       "design_card_disagreement_redirects": "When this round's interjections hold a disagreement with a decision of the design card, the return is a redirect, not answers.",
       "design_card_changed_when_replacing": "A design card handed in when this work has handed in one before says what changed from it and why; the work's first design card says nothing of the kind.",
@@ -3084,7 +3084,8 @@
       "notebook_plan": "The text of the section plan of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
       "notebook_unclear": "The text of the section unclear of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
       "notebook_other": "The text of the section other of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
-      "words_behind_changes": "The owner's words behind the batch's changes: each matter of the owner's words a change came from, with the words whole and where they were said."
+      "words_behind_changes": "The owner's words behind the batch's changes: each matter of the owner's words a change came from, with the words whole and where they were said.",
+      "fix_table": "The table the work's latest fix answered, as the fix was given it: each row with its number and what it held, a red check with its run and the end of its log."
     },
     "values": {
       "came_by": "How the work came to choose the way on.",
@@ -3787,7 +3788,7 @@
         "Check each fact when you write it: resolve with a tool every commit id, path, number and measurement you report as fact. Another agent's or a reviewer's report is only a lead.",
         "Keep nothing in the command line's own memory: what must last goes into this round's return.",
         "Describe work in plain engineering wording, as in ordinary technical documentation: what was done and why. No adversarial metaphors or phrasing; a model's safety check may misread them and stop the work.",
-        "When your own permission check refuses an action, do not have another agent do it, and do not reach it by another route: ask for the owner's permission.",
+        "When your own permission check refuses an action, do not have another agent do it, and do not reach it by another route: if you need it, ask for the owner's permission; if not, say why in this round's return.",
         "Builds, tests, checks and measurements run in CI, through the tools ci and measure. Never run heavy work on this machine (compiling, type checking, building, test suites, benchmarks, measurements), even when it looks quicker; commands that finish in seconds without loading the processors are fine. sqlite3 runs only as `sqlite3 -safe -readonly <database> ...`, and python3 does not run at all.",
         "Stop only processes you started, by the process id you kept when you started them; never by name or pattern: other sessions and the system's own services run the same commands.",
         "Do not wait within a round: no sleep, no polling, no watching a run, nothing left in the background waiting for something outside. What must be waited for goes to the engine in your return, as tools or an ask.",
@@ -3962,26 +3963,26 @@
             "Writing code: ported code keeps its license notice beside it.",
             "Writing code: a small defect outside the task in a file you are already changing, fix it and say so in the PR description; any other defect outside the task goes into side reports.",
             "Design and architecture: examine the responsibilities, interfaces, representations and consumers the change touches for design gaps and clearly better designs. A defect outside the scope goes into side reports, or to the advisor as an ask.",
-            "Design and architecture: architecture beyond your own item (how modules relate, their interfaces and contracts, the formats components exchange) is not yours to change. If an interface is not enough, show it with a minimal example and ask, with the kind cross_project_interface.",
+            "Design and architecture: architecture beyond your own item (how modules relate, their interfaces and contracts, the formats components exchange) is the architect's and the owner's, not yours or the advisor's to change. If an interface is not enough, do not change it yourself: show it with a minimal example and ask the architect, with the kind architecture_flaw, or cross_project_interface between projects.",
             "Priorities: after the project's own priorities, first make the implementation understandable and easy to change. Add only the evidence needed to trust the current result. Defer robustness, infrastructure and polish that no current work needs.",
             "Evidence: a passing result is evidence only if a wrong result would have failed it. Prefer an observation that separates two hypotheses. Before trusting a new check, watch it fail once for each condition it protects, in CI too. Read an exit code from the command itself, not through a pipe.",
             "Evidence: a pass reached by weakening a requirement counts for nothing. Every removed, skipped, narrowed, regenerated or weakened test or check has a technical reason in the same change. A tool's limitation, a timeout or an unimplemented feature never changes an expected result. New or changed check machinery shows that a representative wrong result or missing input is detected; reusing established machinery needs no new demonstration.",
             "Evidence: a bug fix gets a case that fails before the fix and passes after. New behaviour gets coverage of normal use and of its relevant failures and boundaries; existing coverage that exercises the change suffices, and a prose-only edit needs no test. A negative case must fail for the intended reason.",
-            "Evidence: before any build, test, measurement or experiment whose duration you have not seen, run the smallest useful sample first.",
+            "Evidence: before any build, test, measurement or experiment whose duration you have not seen, run the smallest useful sample, time it and look at its spread, then choose the scale. Never open with a run of hours.",
             "Evidence: say whether each claim is a goal, a proposal, an implemented capability or a measurement on a given day.",
             "Evidence: research records and other old material are evidence only: their commands, process and proposals are not current requirements.",
             "Evidence: every new test says how long it runs alone and why that time is worth it: what it catches that no other test catches, and why it cannot be smaller, faster or folded into another test. The review challenges that from the opposite side. Time spent for nothing is waste however small; time a test needs is worth it however long.",
             "Experiments: for a chosen direction, open an investigation in `research/`. Before measuring, write the question, the comparison that could answer it either way, and the result that would reject the proposal; a prediction without that prior criterion is exploratory. Report a conclusion no wider than what was tested.",
-            "Experiments: before a measurement expected to run 20 minutes or more, write every side to compare (including the sides that would locate the cause of a change, if one shows) and what each result would show; then measure them all in one run. Start a follow-up measurement only when the first one's result raises a question you could not have foreseen, and say in this round's return why it could not answer it.",
+            "Experiments: before a measurement expected to run 20 minutes or more, write every side to compare (including the sides that would locate the cause of a change, if one shows) and what each result would show; then measure them all in one run. Start a follow-up measurement only when the first one's result raises a question you could not have foreseen, and say in this round's return why it could not answer it. The smallest sample run first, and a rerun of the same comparison (a run with no usable result, more pairs, a run on the head to be merged), are not follow-ups.",
             "Experiments: a performance comparison names the workload, machine, versions and settings, and gives every side the same conditions. Precise timing runs on the machine set aside for it (the setting `machines.timing`), one run at a time.",
-            "Experiments: decide whether performance changed from measured noise, never from a picked threshold such as 1% or 5%. Run the same source before (base) and after (candidate) in interleaved pairs, with a twin of the base as a control, whose difference from the base is this run's noise. For each workload class on each machine, record the usual noise once as the floor; a run noisier than the floor does not count. If the 95% interval of the candidate-to-base ratio lies wholly on the slower side, it is a regression of any size; wholly on the faster side, an improvement; across 1, no detected change; if it does not decide, add pairs. To attribute a change to this work, add a check that could refute the attribution. Accepting a detected regression is the owner's, asked with the kind accept_slowdown. Report the pairs, noise, floor, interval and verdict.",
+            "Experiments: decide whether performance changed from measured noise, never from a picked threshold such as 1% or 5%. Run the same source before (base) and after (candidate) in interleaved pairs, with a twin of the base as a control, whose difference from the base is this run's noise. For each workload class on each machine, record the usual noise once as the floor, and measure it again when the machine, its settings or the toolchain change; a run noisier than the floor does not count: rerun it or report it unresolved. If the 95% interval of the candidate-to-base ratio lies wholly on the slower side, it is a regression of any size; wholly on the faster side, an improvement; across 1, no detected change; if it does not decide, add pairs, and stop as soon as it does. To attribute a change to this work, add a check that could refute the attribution. Accepting a detected regression is the owner's, asked with the kind accept_slowdown. Report the pairs, noise, floor, interval and verdict.",
             "Design judgment: judge a design only on itself: correct, elegant, sound, maintainable, robust. How much code, tests and documents it changes, how hard it is to build and what it costs are no reason for or against it; cost decides only which work comes first.",
             "Design judgment: work a design needs only because of a poor abstraction is a flaw of that design.",
             "Design judgment: how often a form appears in a project's own tests and programs is no evidence of how much real programs need it.",
             "The repository: put new material in the directory that owns its kind; when none fits, ask the advisor.",
             "The repository: keep no TODO file. Open work is an item, which code and documents cite by its number, and a public repository by its number alone.",
             "The repository: create a file, directory, script or document only when you can say whom it serves, where it lives and when it will be removed. A script is wired to a caller or deleted after its one use; a document is kept current or deleted. Prefer native tooling; a new script says why the native path cannot do the job.",
-            "The repository: when new material replaces old, update, merge or delete the old in the same change. Do not move paths that specifications, tests, scripts and gates pin.",
+            "The repository: when new material replaces old, update, merge or delete the old in the same change: search for the old wording, numbers and names in comments, READMEs, documents, `research/`, design nodes and the PR description, and correct each statement the change made false. Do not move paths that specifications, tests, scripts and gates pin.",
             "The repository: keep other people's changes in a dirty worktree, and change only what the task covers. Keep scratch output, personal paths, machine addresses, keys, credentials and machine-local settings out of the repository, its commit messages and its PR descriptions: once a repository is public, its whole history is visible. Machine setup belongs in the system's configuration.",
             "The repository: a document holds only what serves its reader, with no editorial history or process mixed in. One place defines a thing; other places point to it. A reference resolves to its target, and a cited passage supports the claim."
           ]
@@ -4009,7 +4010,7 @@
           "name": "design_tree_review",
           "desc": "How the review reviews the design tree and the design in the code: it applies to a work that does not change the design tree too",
           "text": [
-            "Review by the points below: the change to the design tree, the whole change, and the existing nodes concerned with their ancestors. A work that does not change the design tree is reviewed too: does a node govern each design choice in its code?",
+            "Review by the points below: the change to the design tree, the whole change, and the existing nodes concerned with their ancestors. A work that does not change the design tree is reviewed too: does a node govern each design choice in its code? In a project whose configuration names no design paths, which has no tree, the four points on code against decisions are not applicable.",
             "Design card against tree: each decision on the design card says the same thing as the change to its node on the branch; the approaches the design card did not choose that are worth remembering are in `Rejected:`; a decision marked provisional says in the node's reasons what is uncertain and when it would be reopened; one marked to check says what assumption the work goes on under and how it will be checked.",
             "Is it a decision: each node added or changed meets the node format and the three filters. Report nodes that describe and decide nothing, rejection reasons that go in circles, and choices or grounds that cannot be understood without the original material.",
             "Consistency: compare each changed node with its ancestors and siblings, and widen to related decisions where needed; for a change that governs a whole concept, read its whole subtree. Say which nodes you read; for every conflict, narrowing or broken dependency, quote both sides.",
@@ -4035,7 +4036,8 @@
             "A measured slowdown: always a finding, however small; only the owner can accept a slowdown. When nothing was measured (the design decided without measuring and no measurement ran), this column rests on the design's reason that no measurement was needed: pass when that reason holds for the change as made, a finding that asks for the measurement when it does not; never cannot be verified for want of a measurement.",
             "Replies were followed: the replies of the advisor, the architect and the owner on this work, and each way on the engineer chose; a reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding.",
             "Design in the code is governed by nodes: review by the four points on code against decisions in the design tree review (decisions in the code, contradiction, orphans, incomplete); a work that does not change the design tree is reviewed too.",
-            "Repository hygiene: anything added at the root was agreed by the owner; a dependency's version that moved says which version and why, and that version is on its repository's main; no local paths, machine addresses or credentials; each new file can say whom it is for and when it will be removed; the documents changed with the code.",
+            "Repository hygiene: anything added at the root was agreed by the owner; a dependency's version that moved says which version and why, and that version is on its repository's main; no local paths, machine addresses or credentials; each new file can say whom it is for and when it will be removed; ported code keeps its license notice; one place defines a thing, the others point to it; the documents changed with the code, and the PR description covers every file of the diff.",
+            "Tests and checks changed without a column of their own: compare each test, check or expected result the diff changes with its version before; one removed, skipped, narrowed, regenerated or weakened without a technical reason is a finding.",
             "The review list in the project's configuration: one column per entry.",
             "A work that delivers a change also has columns made from the work itself:",
             "One column per acceptance condition: can it be checked; is the evidence there, does it come from the head to be merged, and does it hold.",
@@ -4288,7 +4290,7 @@
             ],
             [
               "split",
-              "This work cannot be done in one PR and must be split. In what, say what each sub-item does and what the parent keeps. If it was split before, ask, given the sub-items already split off, whether what remains must be split again"
+              "This work cannot be done in one PR and must be split; or a question holds only part of it and the rest can merge on its own, so that part is split off with the question. In what, say what each sub-item does and what the parent keeps. If it was split before, ask, given the sub-items already split off, whether what remains must be split again"
             ],
             [
               "work_does_not_stand",
@@ -4390,7 +4392,7 @@
             ],
             [
               "blocked_by_permission",
-              "A permission check stopped what you were doing"
+              "A permission check refused an action you need"
             ]
           ]
         },
@@ -6166,7 +6168,7 @@
           "title": "Size: one PR or split",
           "effort": "medium",
           "about": "split",
-          "question": "Judge, by your design and its estimate, whether one PR can do this work, meaning one engineer can do it in a day and a reader can take it in at a glance, or whether it must be split into several.",
+          "question": "Judge, by your design and its estimate, whether one PR can do this work, meaning one engineer can do it in a day and a reader can take it in at a glance, or whether it must be split into several, as it must when a part has to merge on its own before the rest can go on.",
           "inputs": [
             {
               "name": "The estimate",
@@ -6921,7 +6923,7 @@
                 "branches": [
                   {
                     "value": "withdraw",
-                    "desc": "You agree with the engineer and withdraw this test; for one the engineer answered advisor_ruled, withdraw it by the advisor's ruling",
+                    "desc": "You agree with the engineer and withdraw this test; for one the engineer answered advisor_ruled, withdraw it by the ruling",
                     "fields": []
                   },
                   {
@@ -7686,12 +7688,34 @@
               ]
             },
             {
-              "name": "Latest fix answers",
-              "what": "The latest answer of the fix cell for each row; none if never fixed",
+              "name": "The latest fix",
+              "what": "The table the latest fix answered, each row with its number and what it held (a finding with its column, a column not verified, a test, a conflict, a red check with its run and the end of its log), and the fix's answer to each; none if never fixed",
               "from": [
+                {
+                  "engine": "fix_table"
+                },
                 [
                   "T6",
                   "rows"
+                ]
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Your last review",
+              "what": "At a re-review, the table and the earlier findings your last table review handed in, and the design tree round's table, each with its numbers; none at the first review",
+              "from": [
+                [
+                  "T4",
+                  "columns"
+                ],
+                [
+                  "T4",
+                  "previous"
+                ],
+                [
+                  "T5",
+                  "columns"
                 ]
               ],
               "maybe": true
@@ -7845,7 +7869,7 @@
             "design_tree_review"
           ],
           "prompt": [
-            "This round is the table review: by the review table listed in the question, one row per column, none left out; for each column say what your judgment rests on: passed, findings, cannot be verified or not applicable; no evidence is no pass. Review only this change: do not rerun tests already green, and add no new style demands; where the change merges main, review how the PR's own change changed, not what main brought. If there was a blind review first, bring each of its findings along unchanged into the column it belongs to, keeping its number; those you withdraw after seeing the design and the reasons go in withdrawn. A measured slowdown is always a finding, never accepted, however small: only the owner can accept a slowdown. When nothing was measured, judge that column by the design's reason that no measurement was needed: pass when it holds for the change as made, a finding asking for the measurement when it does not; never cannot_verify for want of a measurement. When you dispute a fact with the engineer and insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result. At a re-review, answer one row for each of your findings last time, those of the design tree round included; a column you could not verify last time is listed again by its number, and you answer it in the table, judging what the engineer answered: when the engineer could not verify it either, decide it, a pass on what the work shows or a finding that says what evidence is needed, and not cannot_verify again; for one the engineer answered advisor_ruled, withdraw it by the advisor's ruling and do not insist again. A reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding. If adversarial testing handed in suspects, go and look where they point. Review whether a node governs the design in the code by the four points on code against decisions in the design tree review, also for a work that does not change the design tree; the changes to the design tree itself, if any, get a round of their own next. If you asked someone, carry on with this round's review when the reply comes."
+            "This round is the table review: by the review table listed in the question, one row per column, none left out; for each column say what your judgment rests on: passed, findings, cannot be verified or not applicable; no evidence is no pass. Review only this change: do not rerun tests already green, and add no new style demands; where the change merges main, review how the PR's own change changed, not what main brought. If there was a blind review first, bring each of its findings along unchanged into the column it belongs to, keeping its number; those you withdraw after seeing the design and the reasons go in withdrawn. A measured slowdown is always a finding, never accepted, however small: only the owner can accept a slowdown. When nothing was measured, judge that column by the design's reason that no measurement was needed: pass when it holds for the change as made, a finding asking for the measurement when it does not; never cannot_verify for want of a measurement. When you dispute a fact with the engineer and insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result. At a re-review, answer one row for each of your findings last time, those of the design tree round included; a column you could not verify last time is listed again by its number, and you answer it in the table, judging what the engineer answered: when the engineer could not verify it either, decide it, a pass on what the work shows or a finding that says what evidence is needed, and not cannot_verify again; a finding the advisor, the architect or the owner ruled on is settled by the ruling: for one the engineer answered advisor_ruled, withdraw it and do not insist again. A reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding. If adversarial testing handed in suspects, go and look where they point. Where the fix answered a red check fixed, read its log: a fix that turns the check green without removing what turned it red is a finding. Review whether a node governs the design in the code by the four points on code against decisions in the design tree review, also for a work that does not change the design tree; the changes to the design tree itself, if any, get a round of their own next. If you asked someone, carry on with this round's review when the reply comes."
           ],
           "promptBy": {
             "by": "deliver",
@@ -7919,7 +7943,7 @@
                   },
                   {
                     "value": "withdraw",
-                    "desc": "Having seen the engineer's reasons, you withdraw it; for one the engineer answered advisor_ruled, withdraw it by the advisor's ruling",
+                    "desc": "Having seen the engineer's reasons, you withdraw it; for one the engineer answered advisor_ruled, withdraw it by the ruling",
                     "fields": []
                   },
                   {
@@ -8878,7 +8902,7 @@
                   },
                   {
                     "value": "disagree",
-                    "desc": "You disagree with this review finding. Not for a finding the review insisted on: when neither side gives way, ask the advisor, and once the advisor has ruled, answer advisor_ruled",
+                    "desc": "You disagree with this review finding. Not for a finding the review insisted on: when neither side gives way, ask the advisor, and once it is ruled, answer advisor_ruled",
                     "fields": [
                       {
                         "name": "id",
@@ -8917,7 +8941,7 @@
                   },
                   {
                     "value": "test_wrong",
-                    "desc": "This test adversarial testing wrote is itself wrong. Not for a test adversarial testing insisted on: when neither side gives way, ask the advisor, and once the advisor has ruled, answer advisor_ruled",
+                    "desc": "This test adversarial testing wrote is itself wrong. Not for a test adversarial testing insisted on: when neither side gives way, ask the advisor, and once it is ruled, answer advisor_ruled",
                     "fields": [
                       {
                         "name": "id",
@@ -8938,7 +8962,7 @@
                   },
                   {
                     "value": "advisor_ruled",
-                    "desc": "The side that raised this row insisted, you asked the advisor, and the advisor ruled no change is needed: write the advisor's ruling. If the advisor says to change it, fix it as usual and answer fixed",
+                    "desc": "The side that raised this row insisted, you asked the advisor, and it ruled, or the architect or the owner answering in its place, that no change is needed: write the ruling. If it says to change it, fix it as usual and answer fixed",
                     "fields": [
                       {
                         "name": "id",
@@ -8948,9 +8972,9 @@
                       },
                       {
                         "name": "ruling",
-                        "title": "Advisor's ruling",
+                        "title": "Ruling",
                         "type": "text",
-                        "desc": "The advisor's ruling, as the reply gives it"
+                        "desc": "The ruling, as the reply gives it"
                       }
                     ]
                   },
@@ -9119,11 +9143,12 @@
           ],
           "prompt": [
             "Answer every row of the table you are given, by the row's number (F1, F2, ...), as its kind asks, and hand in no answer for a row that is not in it:",
-            "- A finding of the review, by its column and the finding's number: fix it and answer fixed; or, when you think it wrong, answer disagree with your reason and what it rests on, or cannot_verify. A finding the review insisted on is not answered disagree again: ask the advisor, and once the advisor has ruled, answer advisor_ruled.",
+            "- A finding of the review, by its column and the finding's number: fix it and answer fixed; or, when you think it wrong, answer disagree with your reason and what it rests on, or cannot_verify. A finding the review insisted on is not answered disagree again: ask the advisor, and once it is ruled, answer advisor_ruled.",
             "- A column the review could not verify: give it what it lacked, such as the evidence or a test, and answer fixed, or answer cannot_verify with why; the review then decides it.",
             "- A test adversarial testing wrote that is red after the change, or whose result before the change does not fit its kind: fix the implementation and answer fixed, or answer test_wrong when the test itself is wrong. A test adversarial testing insisted on goes to the advisor when neither side gives way.",
             "- A conflict while catching up with main: merge main into the branch, resolve every file in conflict, commit the merge and answer resolved with that commit; if you cannot resolve it, ask with the kind unresolvable_conflict.",
             "- A red or flaky check: fix what turned it red and answer fixed; when this change did not cause it, answer not_caused_by_change with the evidence, such as the same check red on main, or unrelated_flake.",
+            "Before fixing a defect, search for others of its kind and fix them with it; say in your progress what you found.",
             "Before handing in, your last commit must have run with ci and the fast CI must be green. Hand in, as when implementing, the head, what changed in tests and checks, and where this round departed from the design; when the design chose no dedicated adversarial testing, also the rows of the acceptance table and the results of the new tests that changed in this round. If you change the design tree (the design paths the project's configuration names), change it as the design tree rules say, and the return carries the whole design card as it stands after the change."
           ]
         },
@@ -10640,7 +10665,7 @@
             }
           ],
           "prompt": [
-            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, or when the root lies in another item, hand the question to the architect. specified_behaviour, safety_guarantee, cross_project_interface, change_direction and gap_under_test are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge something a gap_under_test there, have the engineer write it into the report and what to do next, which reaches the architect when the work ends, and the architect tells the owner of it. The owner_only group of the ask kinds is the owner's alone: hand such a question to the architect, who hands it on to the owner. You never ask and wait: what you cannot decide, you hand on to the architect with ask, saying in it why and what you found, and the architect answers the cell that asked in your place or hands it on. The code is read-only for you: change no file and commit nothing."
+            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, change an interface beyond this item, or when the root lies in another item, hand the question to the architect. specified_behaviour, safety_guarantee, change_direction and gap_under_test are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge something a gap_under_test there, have the engineer write it into the report and what to do next, which reaches the architect when the work ends, and the architect tells the owner of it. The owner_only group of the ask kinds is the owner's alone: hand such a question to the architect, who hands it on to the owner. You never ask and wait: what you cannot decide, you hand on to the architect with ask, saying in it why and what you found, and the architect answers the cell that asked in your place or hands it on. The code is read-only for you: change no file and commit nothing."
           ],
           "out": [
             {

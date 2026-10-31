@@ -854,12 +854,9 @@ pub fn columns(
             if review.as_ref().and_then(Value::as_str) == Some("disputes") {
                 only = Some(unverified_last(e, w, g));
             }
-            let table = rule("review_table");
             let project = e.config.config.projects.get(&item.project);
-            if item.deliver == "report" {
-                cols.extend(table.get(16).cloned());
-            } else {
-                cols.extend(table.iter().skip(2).take(7).cloned());
+            cols.extend(fixed_columns(&rule("review_table"), item.deliver == "report"));
+            if item.deliver != "report" {
                 for entry in project.map(|p| p.review_list.clone()).unwrap_or_default() {
                     cols.push(format!("From the review list in the project's configuration: {entry}"));
                 }
@@ -951,6 +948,25 @@ pub fn columns(
         .collect()
 }
 
+/// The columns of the review table its rule writes out: for a change, the lines after the rule's opening two up to the
+/// line of the project's review list; for a report, the line of its own table. They are found by those lines' words,
+/// since flow versions differ in how many columns come before.
+fn fixed_columns(table: &[String], report: bool) -> Vec<String> {
+    if report {
+        return table
+            .iter()
+            .find(|l| l.starts_with("A work that delivers a report"))
+            .cloned()
+            .into_iter()
+            .collect();
+    }
+    let list = table
+        .iter()
+        .position(|l| l.starts_with("The review list in the project's configuration"))
+        .unwrap_or(table.len());
+    table.iter().take(list).skip(2).cloned().collect()
+}
+
 /// The numbers of the columns the last table review that handed in a table could not verify.
 pub(crate) fn unverified_last(e: &Engine, w: &Work, g: &CompiledGraph) -> Vec<String> {
     let last = crate::inputs::returns_holding(e, w, g, "T4", "columns")
@@ -980,6 +996,35 @@ mod tests {
         )
         .unwrap();
         f.graph(crate::ENGINEER).unwrap().clone()
+    }
+
+    // The review table's fixed columns are the lines of its rule up to the project's review list, the column of tests
+    // and checks changed without one of their own the last, and a report has its own table; a flow version with a
+    // column fewer before the review list still gives its own columns and its report's table.
+    #[test]
+    fn the_review_table_gives_its_columns_by_their_words() {
+        let g = graph();
+        let table = g
+            .rules
+            .iter()
+            .find(|r| r.name == "review_table")
+            .map(|r| r.text.clone())
+            .unwrap();
+        let change = fixed_columns(&table, false);
+        assert_eq!(change.len(), 8, "{change:?}");
+        assert!(change[0].starts_with("The change matches the design"), "{}", change[0]);
+        assert!(
+            change[7].starts_with("Tests and checks changed without"),
+            "{}",
+            change[7]
+        );
+        let report = fixed_columns(&table, true);
+        assert_eq!(report.len(), 1);
+        assert!(report[0].starts_with("A work that delivers a report"), "{}", report[0]);
+        let mut older = table.clone();
+        older.remove(9);
+        assert_eq!(fixed_columns(&older, false), change[..7].to_vec());
+        assert_eq!(fixed_columns(&older, true), report);
     }
 
     // The forms every return shares hold every tool and every role any cell has, and show a return's shape and the

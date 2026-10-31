@@ -20,6 +20,24 @@ Decision: An input that only says to read something yourself is not an input: wh
 
 Decision: The project's design goal is given to every agent's cell, as a conditional input, instead of to the cells that compare approaches only, because every judgment a cell makes is made toward it.
 
+Decision: The engineering standards keep the earlier board's lines on evidence, experiments and the repository whole: the smallest sample is timed and its spread read before the scale is chosen, never a run of hours first; the smallest sample and a rerun of the same comparison are no follow-up measurements; the noise floor is measured again when the machine, its settings or the toolchain change, a run noisier than it is rerun or reported unresolved, and pairs stop being added as soon as the interval decides; and a change searches for the old wording, numbers and names it made false and corrects each, instead of lines that kept only the first step of each, because each step left out is a run wasted or a false statement left behind.
+
+Decision: Architecture beyond an engineer's own item (how modules relate, their interfaces and contracts, the formats components exchange) is the architect's and the owner's: an engineer whose interface is not enough asks the architect, with the kind architecture_flaw within the project or cross_project_interface between projects, and the advisor hands such a question on, instead of the kind cross_project_interface that the advisor decided itself, because an interface beyond one item serves the works on both sides of it, which one work's advisor does not see.
+
+Decision: An action an agent's own permission check refuses is asked of the owner only when the agent needs it, and for one it does not need the agent says why in its return, as the earlier board's rules said, instead of every refusal asked of the owner, because a refused action the work can do without takes the owner's time for nothing.
+
+Decision: The review table names what the engineering standards ask of a change that a review can see in it: its column of repository hygiene checks that ported code keeps its license notice, that one place defines a thing, and that the PR description covers every file of the diff; and a column compares each test, check or expected result the diff changes without a column of its own with its version before, instead of the review given the engineering standards, because the standards say how an agent works, and an expected result changed but not listed among the test changes is a weakened test no other column reaches.
+
+Decision: Every project should have a design tree; one with none yet names no design paths, so its works raise no design card, and the design tree review answers its four points on code against decisions not applicable there, as the earlier board's rules skipped every step about a tree, instead of a review that asks for nodes a project has no tree to hold, because such a finding could not be fixed and would only send the work round the fix.
+
+Decision: A work is split when a part of it must merge on its own before the rest can go on, and when a question holds only part of it while the rest can merge on its own, the held part then split off with the question, as the earlier board's rules said, instead of its size alone deciding a split and a question holding the whole work, because the rest would otherwise wait for nothing.
+
+Decision: An ask says what its asker recommends, in what happened, beside what was tried, as the earlier board's rules asked of a question to the architect, instead of a field of its own, because the one who answers decides faster from a proposal, and the owner reads it in the same place in the work's group.
+
+Decision: The fix searches for others of a defect's kind before fixing it and fixes them with it, as the earlier board's rules said, instead of only the row it is given, because a defect found once is seldom alone, and each one left costs another round of review.
+
+Decision: A ruling on a finding or a disputed test settles it whoever gave it, the advisor or the architect or the owner answering in its place: the fix answers advisor_ruled for each, the review or adversarial testing withdraws it and does not insist, and the engine takes such a ruling once the work asked the advisor, instead of the advisor's own ruling only, because a question the advisor hands on is answered in its place, and the earlier board's reviewer took the architect's answer and the owner's ruling as settled too.
+
 Rejected:
 - Rule files in each project's configuration for how agents work: rejected because the same rules then have to be kept in every project, and the flow cannot be checked against them.
 - One rule of item writing given to every engineer's cell: rejected because it repeats the descriptions of the fields it governs and gives every cell the parts only other cells write.

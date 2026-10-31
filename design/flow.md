@@ -40,5 +40,9 @@ Decision: A row of an engine step that takes an interjection, as `T7`'s, sets as
 
 Decision: Every agent's return holds flow feedback (`flow_feedback`): what was wrong with the round's cell, in the fewest words, or none, which the action `queue_flow_feedback` hands to the project's architect and never to the owner; it is a field of every return that needs `flow_feedback` (`agentCommon.needs`), which a project meets while its configuration leaves `flow_feedback` on, as it is by default, and the engine asks the agents of a project that turns it off without the field, in no schema or format of theirs, instead of a project rule that has every agent write it into what it tells the owner, because a trial found most of the flow's problems that way while flooding the owner's conversations, and a field of the flow shows on its chart, can stay on through other projects until it brings nothing of value, and costs nothing where it is off.
 
+Decision: The table review after a fix is given the table the fix answered, as the fix was given it (`fix_table`), beside the fix's answers, so that a red check comes with its run and the end of its log, and it judges whether the fix removed what turned the check red, instead of the fix's answers alone, by row numbers the review never saw, because a fix that only turns a check green passes a review that cannot see the check, as the earlier board's reviewer read the failed run's log.
+
+Decision: A re-review is given its own last table and earlier findings with their numbers, and the design tree round's table, instead of only what its session holds, because it answers each of them row by row, and a session started afresh holds none of them.
+
 Rejected:
 - Project names, branches or rules written into the flow: rejected because the flow would then work for one project only.
