@@ -3819,18 +3819,7 @@ mod tests {
         let out = |v: Value| json!({ "outcome": v, "progress": "p" }).to_string();
         let first = json!({ "direction": "d1", "why": "w", "principles": [{ "no": 1, "text": "t" }], "signals": [] });
         let second = json!({ "direction": "d2", "why": "w", "principles": [{ "no": 1, "text": "t" }], "signals": [] });
-        let read = |s: &Setup| {
-            architect(
-                s.db.conn(),
-                &Flows::default(),
-                "p",
-                vec!["p".into()],
-                Vec::new(),
-                false,
-                None,
-            )
-            .unwrap()
-        };
+        let read = |s: &Setup| architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()], None).unwrap();
         let round = |s: &mut Setup, work: i64, n: i64, cell: &str, output: String, transition: &str| {
             s.db.write(Actor::Engine, |tx| {
                 tx.execute(
@@ -3904,16 +3893,7 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        let a = architect(
-            s.db.conn(),
-            &Flows::default(),
-            "p",
-            vec!["p".into()],
-            Vec::new(),
-            false,
-            None,
-        )
-        .unwrap();
+        let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()], None).unwrap();
         let version = |text: &str, round: i64, cell: &str| NotebookVersion {
             text: text.into(),
             work: 2,
