@@ -87,11 +87,12 @@ fn failures(results: &[Result<String, String>]) -> Vec<&String> {
 
 // Two threads each set up a work's worktree on the same project's checkout at once, as the session manager does: fetch
 // main, then add a worktree on a new branch from it, which writes the branch's tracking into the repository's
-// configuration. Every one of the worktrees is added.
+// configuration. Main moves on before each turn, as it does between the starts of works, so that both fetches move the
+// same remote-tracking branch. Every one of the worktrees is added.
 #[test]
 fn worktrees_set_up_at_once_on_one_checkout_are_all_added() {
     let r = Repo::new("add");
-    let start = Arc::new(Barrier::new(2));
+    let start = Arc::new(Barrier::new(3));
     let threads: Vec<_> = ["a", "b"]
         .into_iter()
         .map(|t| {
@@ -108,6 +109,10 @@ fn worktrees_set_up_at_once_on_one_checkout_are_all_added() {
             })
         })
         .collect();
+    for n in 0..TIMES {
+        r.main_moves_on(n + 1);
+        start.wait();
+    }
     let results: Vec<Result<String, String>> = threads.into_iter().flat_map(|h| h.join().unwrap()).collect();
     assert_eq!(failures(&results), Vec::<&String>::new());
     assert_eq!(results.len(), 2 * TIMES);

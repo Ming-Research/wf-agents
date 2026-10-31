@@ -10,6 +10,8 @@ Fact gh-needs-repository: gh in a directory that is no repository knows no repos
 
 Fact git-config-lock-fails: With the lock file of a repository's configuration held, git does not wait for it: `git config x.y z` fails at once, exiting 255, and `git branch -D` deletes the branch but keeps its section in the configuration, with only a warning and exit 0 (git 2.56.0).
 
+Fact git-fetches-race: With main moving on before each turn, a fetch of main in a worktree, run beside a thread setting up worktrees on the same checkout (each a fetch of main and a worktree added from it) with nothing making them take turns, failed in each of twenty turns with `cannot lock ref 'refs/remotes/origin/main': is at <commit> but expected <commit>`, on the CI's Ubuntu 24.04 runner.
+
 Fact git-worktrees-share: Every worktree of a repository shares the repository's common git directory: a fetch in any of them moves the same remote-tracking branches, and a worktree added on a new branch from a remote-tracking branch writes the branch's tracking into the shared configuration.
 
 Fact global-round-numbers: With one sequence of round numbers across all works, a work's rounds jump: work 1's 102 rounds are spread over 1 to 240.

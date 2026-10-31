@@ -12,7 +12,7 @@ Ruling: the owner's ruling of 2026-10-31 to start step 3, moving wf-agents' desi
 
 ## 2026-10-31 Share the engine's state between threads
 
-Changed: D:engine-threads added, D:git-repository-lock added, F:git-config-lock-fails added, F:git-worktrees-share added, F:page-writes-own-connection added, F:sqlite-hooks-per-connection added, F:sqlite-immediate-write-lock added
+Changed: D:engine-threads added, D:git-repository-lock added, F:git-config-lock-fails added, F:git-fetches-race added, F:git-worktrees-share added, F:page-writes-own-connection added, F:sqlite-hooks-per-connection added, F:sqlite-immediate-write-lock added
 
 Why: A step of one work is to run on any thread beside the steps of others, which the engine's one value with one connection did not allow; the derivations record how its state is split, how a step tells the rounds it took, and how the engine's git commands on a repository's shared state take turns. They keep the words of the decisions of design/engine/threads.md.
 
