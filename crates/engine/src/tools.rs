@@ -406,7 +406,7 @@ fn seconds(t: &Timed) -> f64 {
 /// Why no line of the logs ends a test, from the first of these that holds: the build failed, a log could not be read,
 /// a log says tests were not run because an earlier test failed (what the fast CI before it ran without
 /// `--no-fail-fast` does), a job was cancelled or timed out, a job's step before `Test` failed or was cut off so that
-/// `Test` did not run, or no test has that name. `shown` is how many tests the
+/// `Test` did not run, the logs hold no line of a test ending at all, or no test has that name. `shown` is how many tests the
 /// logs show ended.
 fn why_not_run(jobs: &[JobLog<'_>], shown: usize) -> String {
     let build_failed = |j: &&JobLog<'_>| {
@@ -461,6 +461,13 @@ fn why_not_run(jobs: &[JobLog<'_>], shown: usize) -> String {
     };
     if let Some((job, step, how)) = jobs.iter().find_map(cut_short) {
         return format!("the job {job} did not get to its tests: the step {step} ended {how}");
+    }
+    // Logs were read and not one line of a test ending is in them: it is the runner that is not as read, not the name.
+    if shown == 0 && jobs.iter().any(|j| j.log.is_ok()) {
+        return format!(
+            "no log of the fast CI has a line in the form cargo-nextest writes as a test ends (the logs show 0 tests): \
+             the fast CI may not run its tests with cargo-nextest"
+        );
     }
     format!(
         "no test of that name ended in the fast CI (the logs show {shown} tests): the name is no test's, or the test is \
@@ -1210,6 +1217,14 @@ mod tests {
         assert!(why(&[job(&built, Ok(ok_log))]).starts_with("no test of that name ended"));
         // No jobs and no logs at all is no result either.
         assert!(why(&[]).starts_with("no test of that name ended"));
+        // Logs read and not one line of a test ending in any of them (a fast CI that does not run cargo-nextest): the
+        // runner is told, not the name.
+        let other_runner = "test a::b ... ok\ntest result: ok. 1 passed; 0 failed\n";
+        let r = why(&[job(&built, Ok(other_runner)), job(&built, Ok(""))]);
+        assert!(r.starts_with("no log of the fast CI has a line in the form cargo-nextest writes"), "{r}");
+        assert!(r.contains("may not run its tests with cargo-nextest"), "{r}");
+        // An unreadable log is told first, as before.
+        assert!(why(&[job(&built, Err("x"))]).starts_with("the log of the job t1"));
         // The order: a build that failed is told before an unreadable log, before a stop at a failed test, before a
         // cancelled job.
         assert!(
