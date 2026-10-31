@@ -1,0 +1,22 @@
+Decision owner-web-page: The owner works through a web page, instead of the command line, because the owner must see each work's state as it changes and answer an ask of the owner with its options and recommendation in view, while the command line shows a snapshot and needs exact command syntax for every answer.
+
+Rests on: C:information, F:cli-snapshot
+
+Rejected:
+- Command line only: rejected because watching works means running commands again and again, and answering an ask of the owner means retyping its options as flags.
+
+Decision page-over-interface: The page is written in TypeScript over an interface that wf-agents exposes, instead of pages rendered inside the engine, because the interface is the one way in for every client, and the page can change without touching the engine.
+
+Rests on: C:design-on-merit, D:owner-web-page
+
+Decision owner-operations: The owner's operations (adding items and dependencies, cancelling items, ordering the queue, answering asks of the owner, ruling on design cards, interjecting, pausing and resuming works, and the views of where everything stands) have one implementation that the command line and the interface's handlers both call, and its reads return structured data that the command line only formats as text, instead of each client reading and writing the database itself, because two implementations of one action drift, and the page and the command line must show the same state.
+
+Rests on: C:information, F:copies-drift
+
+Decision card-ask-apart: There are two things the owner is put before, never called by one name: a design card, a change to the design tree to confirm before it is merged, which asks nothing, and an ask of the owner, which waits for an answer; they are kept, read and shown apart, and ruled on and answered by operations of their own, instead of one kind of card with two kinds, because the owner confirms the one and answers the other, and one name for both let agents put a question on a design card and a decision in an ask.
+
+Rests on: C:information, F:one-name-confusion
+
+Decision tell-owner-field: Any agent's return may tell the owner, in a few sentences each, what the owner should know and need not answer; the engine keeps each message with the round that told it and notifies the owner, the page shows each in the conversation about the work or the architect that told it, and the owner's opening that conversation marks it read, the one write the interface makes to the database itself, instead of only asks that stop the work, because an agent, the architect or a reviewer that only wants the owner to know something had no way to say it without stopping the work, and a field of the return costs no round, while asking for a tool would end one.
+
+Rests on: C:information, C:efficient, D:tools-through-cell

@@ -1,0 +1,9 @@
+Decision ask-reminders: An ask of the owner has no deadline and no answer the engine gives in the owner's place: the work or the matter it holds waits for the owner however long that takes. While any ask waits for the owner's answer, as the owner's conversations count what waits, the engine reminds the owner once an interval, the installation's setting `owner.remind_interval` (3600 seconds unless set, 0 for no reminder): one notice about no work, on the path every notice of the engine's takes (the owner's page and the notifications log), saying how many asks wait and which is the oldest and how long it has waited; the first comes an interval after the oldest was put to the owner and each next an interval after the last, whatever the works do, the global pause included. The engine's notices mark which are reminders, and the next is timed from the last, so that a restart of the engine neither repeats one nor puts one off. Each ask that waits shows on the page how long it has waited since the owner was told of it. Instead of a deadline after which the engine answers or the work goes on by a default, because the owner settled that an ask waits for the owner's answer and asked only for a timer that reminds every hour; and instead of a notice for each ask, because the owner asked for one reminder, and one for each would bury the rest of what the engine says.
+
+Rests on: C:information
+
+Open: the premise behind the owner settling that an ask has no deadline and no default answer, and asking for a timer that reminds every hour; to ask the owner.
+
+Rejected:
+- A deadline with a default answer: rejected because the owner settled that asks have no deadline and no default.
+- One reminder for each ask waiting: rejected because the owner asked for one notice saying how many wait.
