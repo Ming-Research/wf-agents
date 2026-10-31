@@ -1,0 +1,113 @@
+/* The page's own palette, as the UI spec says (design/harness/owner-interface/ui-spec.md): the values the page gives
+   Primer's colour tokens of the states' roles, for the light theme and the dark, in place of Primer's, which the owner
+   found too heavy and dark for the light, cheerful, low-saturated look the owner asked for. Every part of the page and
+   every Primer component that draws in a role's colour reads these tokens, so this file is the one place the palette
+   is set. It holds tokens only, whose raw values the UI check lets through, as in tokens.css.
+
+   One colour to a role, the same in both themes, for a state's fill, its edge and its mark alike, white words on it:
+   accent #3b87ff, attention #f29a1f, neutral #8d9bb3 (a slate with a little blue), danger #f45d58, success #24b574.
+   A role's muted background is a tint of its colour, and its muted border the same tint, so that nothing is framed in
+   a colour other than its fill. A role's foreground (--fgColor-*), which colours words, is the colour itself where it
+   reads on the background, as in the dark theme, and a darker step of the same hue in the light theme, where the
+   colour itself is too light to read on white; a mark, an icon or a line in a role's colour takes the fill or the edge
+   (--bgColor-*-emphasis, --borderColor-*-emphasis) instead, so that it is the colour itself in both themes.
+
+   Primer sets its tokens on every element whose data-color-mode, data-light-theme and data-dark-theme name its themes
+   (the root element and the ThemeProvider's div): each rule here is Primer's own selector with one [data-color-mode]
+   more, as Primer's dark theme outranks its light one, so that the palette wins whatever order the stylesheets load
+   in. The page runs in the auto mode only (index.html, main.tsx), and each theme here holds only under the system's
+   appearance it is for. */
+
+@media (prefers-color-scheme: light) {
+  [data-color-mode][data-color-mode='auto'][data-light-theme='light'] {
+    --bgColor-accent-emphasis: #3b87ff;
+    --bgColor-attention-emphasis: #f29a1f;
+    --bgColor-neutral-emphasis: #8d9bb3;
+    --bgColor-danger-emphasis: #f45d58;
+    --bgColor-success-emphasis: #24b574;
+
+    --borderColor-accent-emphasis: #3b87ff;
+    --borderColor-attention-emphasis: #f29a1f;
+    --borderColor-neutral-emphasis: #8d9bb3;
+    --borderColor-danger-emphasis: #f45d58;
+    --borderColor-success-emphasis: #24b574;
+
+    /* The colour at 14% on white; the neutral one, which is a row under the pointer and code on any background,
+       translucent, as Primer's is. */
+    --bgColor-accent-muted: #e4eeff;
+    --bgColor-attention-muted: #fdf1e0;
+    --bgColor-neutral-muted: #8d9bb31f;
+    --bgColor-danger-muted: #fde8e8;
+    --bgColor-success-muted: #e0f5ec;
+
+    --borderColor-accent-muted: #e4eeff;
+    --borderColor-attention-muted: #fdf1e0;
+    --borderColor-danger-muted: #fde8e8;
+    --borderColor-success-muted: #e0f5ec;
+
+    /* Words in a role's colour on white: the same hue, darker and a little less saturated, read at 5:1 or more on
+       white and 4.5:1 or more on the role's tint. */
+    --fgColor-accent: #2567d0;
+    --fgColor-attention: #9b6315;
+    --fgColor-neutral: #5e6c84;
+    --fgColor-danger: #c6342f;
+    --fgColor-success: #217952;
+
+    /* The primary button, filled in the success colour with no edge of another colour, a step darker under the
+       pointer and pressed, a tint while disabled; the danger button filled in the danger colour under the pointer,
+       a step darker pressed; a checked control in the accent colour, a step darker under the pointer and pressed. */
+    --button-primary-borderColor-rest: transparent;
+    --button-primary-bgColor-hover: #21a76b;
+    --button-primary-bgColor-active: #1e9861;
+    --button-primary-bgColor-disabled: #92daba;
+    --button-danger-bgColor-active: #cd4e4a;
+    --control-checked-bgColor-hover: #367ceb;
+    --control-checked-bgColor-active: #3271d6;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-color-mode][data-color-mode][data-color-mode='auto'][data-dark-theme='dark'] {
+    --bgColor-accent-emphasis: #3b87ff;
+    --bgColor-attention-emphasis: #f29a1f;
+    --bgColor-neutral-emphasis: #8d9bb3;
+    --bgColor-danger-emphasis: #f45d58;
+    --bgColor-success-emphasis: #24b574;
+
+    --borderColor-accent-emphasis: #3b87ff;
+    --borderColor-attention-emphasis: #f29a1f;
+    --borderColor-neutral-emphasis: #8d9bb3;
+    --borderColor-danger-emphasis: #f45d58;
+    --borderColor-success-emphasis: #24b574;
+
+    /* The colour at 15% over the dark background, translucent, as Primer's dark tints are. */
+    --bgColor-accent-muted: #3b87ff26;
+    --bgColor-attention-muted: #f29a1f26;
+    --bgColor-neutral-muted: #8d9bb326;
+    --bgColor-danger-muted: #f45d5826;
+    --bgColor-success-muted: #24b57426;
+
+    --borderColor-accent-muted: #3b87ff26;
+    --borderColor-attention-muted: #f29a1f26;
+    --borderColor-danger-muted: #f45d5826;
+    --borderColor-success-muted: #24b57426;
+
+    /* Words in a role's colour on the dark background: the colour itself, which reads there at 5:1 or more. */
+    --fgColor-accent: #3b87ff;
+    --fgColor-attention: #f29a1f;
+    --fgColor-neutral: #8d9bb3;
+    --fgColor-danger: #f45d58;
+    --fgColor-success: #24b574;
+
+    --button-primary-borderColor-rest: transparent;
+    --button-primary-borderColor-disabled: var(--button-primary-bgColor-disabled);
+    --button-primary-bgColor-hover: #21a76b;
+    --button-primary-bgColor-active: #1e9861;
+    --button-primary-bgColor-disabled: #16533c;
+    --button-danger-fgColor-rest: var(--fgColor-danger);
+    --button-danger-bgColor-hover: var(--bgColor-danger-emphasis);
+    --button-danger-bgColor-active: #cd4e4a;
+    --control-checked-bgColor-hover: #367ceb;
+    --control-checked-bgColor-active: #3271d6;
+  }
+}

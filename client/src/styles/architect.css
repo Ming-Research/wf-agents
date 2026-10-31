@@ -1,0 +1,29 @@
+/* An architect's page, laid out as a work's with no line over its chart: the chart right under the bar, and its panel
+   on top of the window floating over the chart's right side, in the tabs a work's panel has. */
+
+.arch-screen {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* A list in what the architect wrote: its items apart by the rhythm, a numbered one's numbers in the text's colour. */
+.arch-list {
+  display: grid;
+  gap: var(--base-size-4);
+  margin: 0;
+  padding-left: var(--base-size-24);
+}
+
+/* An ask of the architect's by its kind: its parts apart by the rhythm, the question it asks heading them. */
+.card-view {
+  display: grid;
+  gap: var(--base-size-8);
+}
+
+.ask-question {
+  margin: 0;
+  font-weight: var(--base-text-weight-semibold);
+}

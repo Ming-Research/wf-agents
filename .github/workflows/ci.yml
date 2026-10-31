@@ -1,0 +1,152 @@
+name: ci
+
+# Every pushed commit on every branch is checked, not only pull requests, but for the engine's temporary branches of
+# the code before a change (its tool ci_before): the engine runs this workflow on one of those by hand, with the tests
+# to run, which then runs exactly them, each to its end, and skips the lint, so that each named test has a result of
+# its own on the code before the change instead of a run that stops at its first red test. The project's
+# configuration names the input (`tests_input`).
+on:
+  push:
+    branches-ignore:
+      - 'wf-agents-before/**'
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: The tests to run, by their names separated by spaces, each to its end; empty for the whole CI
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the older run pointless; main keeps every run. So does first-version, which
+# works merge into until the first version is reviewed: the engine watches the run on each merge commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/first-version' }}
+
+# The Rust tests take most of the time, so they run split across three jobs, beside a job for everything else; the
+# job `check` is red whenever any of them is, which is the check the projects' configuration waits for to merge.
+jobs:
+  lint:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.tests == '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Installs the toolchain rust-toolchain.toml pins, with its components.
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      # Formatting first: it needs no build, so a misformatted push fails in seconds.
+      - name: Format
+        run: cargo fmt --all --check
+      # The page's TypeScript types are generated from the Rust types; the page is checked against what they generate
+      # now, and the last step fails when that differs from the committed file. The same run writes the flow as the
+      # engine stores it, which the page's tests read.
+      - name: Generate the page's types and the flow its tests read
+        run: WF_AGENTS_GENERATE=1 cargo test -p api --locked --test typescript
+      - name: Install the page's dependencies
+        working-directory: client
+        run: npm ci
+      - name: Type-check the page
+        working-directory: client
+        run: npm run typecheck
+      - name: Lint the page
+        working-directory: client
+        run: npm run lint
+      # Every colour, size and spacing in the page's styles is a token, as its UI spec says
+      # (design/harness/owner-interface/ui-spec.md); the tests of the next step leave this to it.
+      - name: Check the page against its UI spec
+        working-directory: client
+        run: npm run check:ui
+      - name: Test the page
+        working-directory: client
+        run: npm test
+      # Before any cargo step that compiles the crate the page is built into.
+      - name: Build the page
+        working-directory: client
+        run: npm run build
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: The page's types are current
+        run: git diff --exit-code -- client/src/api.ts
+      # What the Rust types generate, to commit when the step before fails.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: page-types
+          path: client/src/api.ts
+          if-no-files-found: ignore
+
+  test:
+    name: test ${{ matrix.shard }} of 3
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-nextest@0.9.146
+      # The three jobs build the same, so one of them keeps the cache.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ matrix.shard == 1 }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      # Before any cargo step that compiles the crate the page is built into.
+      - name: Build the page
+        working-directory: client
+        run: |
+          npm ci
+          npm run build
+      # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test
+      # at 60 s; each job runs a third of every test binary's tests, and stops at its first red test, which keeps a
+      # red run short. Given tests to run, it runs those only, a test named by its name or the end of its path, and
+      # each to its end.
+      - name: Test
+        env:
+          TESTS: ${{ inputs.tests }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          if [ -z "$TESTS" ]; then
+            exec cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition "count:$SHARD/3"
+          fi
+          set -f
+          filter=""
+          for t in $TESTS; do
+            name=$(printf '%s' "$t" | sed 's/[][\\.^$*+?(){}|]/\\&/g')
+            filter="${filter:+$filter | }test(/(^|::)${name}\$/)"
+          done
+          exec cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition "count:$SHARD/3" \
+            --no-fail-fast --no-tests=pass -E "$filter"
+
+  check:
+    needs: [lint, test]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Every other job passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        # The lint is skipped only on a run of the tests named.
+        run: |
+          echo "lint and test: $RESULTS"
+          for r in $RESULTS; do [ "$r" = success ] || [ "$r" = skipped ] || exit 1; done

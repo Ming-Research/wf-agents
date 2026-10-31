@@ -1,0 +1,106 @@
+# wf-agents
+
+wf-agents runs coding agents through a defined flow. Each piece of work goes through research, design,
+implementation, testing, review and merge, and the flow fixes what every step is given, what it hands back and where
+the work goes next. wf-agents belongs to no project: everything about a project lives in that project's
+configuration, outside this repository. [CONSTITUTION.md](CONSTITUTION.md) holds the values its decisions come from.
+
+## Layout
+
+- `crates/wf-agents`: the `wf-agents` command.
+- `crates/flow`: the flow's compiler; `wf-agents flow check` runs it.
+- `crates/db`: creating, migrating and opening the database; every change to its state is kept in `changes`.
+- `crates/config`: the configuration's types, read from the data directory (`--data`), which lives outside this
+  repository.
+- `crates/sessions`: the session manager: the session each agent's round runs in, what the session holds and costs,
+  the command line it runs in, keeping a waiting session's prompt cache warm, and telling a round that missed it.
+- `crates/api`: the owner's interface apart from serving it: its types (the page's TypeScript types are generated from
+  them), the reads that fill them, the bus its live events go through, and what the owner asks of the running engine.
+- `crates/web`: the interface as `wf-agents run` serves it on the loopback address: HTTP and JSON under `/api/v1`, the
+  event stream, and the page built into the binary.
+- `client/`: the owner's page, in TypeScript with React and Vite; `client/src/api.ts` is generated, not written.
+- `flow/flow.json`: the flow every piece of work goes through.
+- `db/schema.sql`: the only definition of the database's tables and views.
+- `design/`: the design tree, the key decisions this project rests on, written as the flow's design tree rules say.
+- `.github/workflows/ci.yml`: the checks every pushed commit runs; `.config/nextest.toml`: how they run the tests;
+  `.config/english-exempt.txt`: the files the check that the repository is in English leaves out.
+
+## Checks
+
+Every commit pushed to any branch runs `ci`: rustfmt, clippy with warnings as errors, and the tests, on the toolchain
+`rust-toolchain.toml` pins, the tests run by cargo-nextest split across three jobs, each test stopped at 60 s; the page's type check, lint, check against its UI spec (`npm run check:ui`), tests and
+build, which come before any cargo step that compiles `crates/web`; and that `client/src/api.ts` is what the Rust types generate
+(`WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes it, and with it `client/src/stored-flow.json`, the
+flow as the engine stores it, which the page's tests read and git leaves out). Its job `check` is red whenever another
+of its jobs is. One of the tests, `crates/wf-agents/tests/english.rs`, holds the repository to English: it fails on a
+tracked file that holds a letter that is not ASCII, written as itself or as an escape, but for the files
+`.config/english-exempt.txt` names, such as a document made as a translation.
+
+## Installing
+
+The program is installed on its own, never in the data directory: build the page (`npm ci` and `npm run build` in
+`client/`), then `cargo build --release`, and copy `target/release/wf-agents` to a directory on the `PATH`, such as
+`~/.local/bin`; the `build` workflow's artifact is the same binary for macOS. The data directory, named by `--data` or
+`WF_AGENTS_DATA`, holds the configuration, the database, the files the database refers to, and the works' and the
+architects' worktrees under `worktrees/`, which its git leaves out. Once the configuration is committed,
+`wf-agents init` makes the database; it is the only command that does, and every command that works on the database,
+the engine included, fails when there is none, so a wrong `--data` is an error and not an empty view.
+
+## The agents' own configuration
+
+The engine runs every agent's command line with a configuration directory of its own (`CLAUDE_CONFIG_DIR` for
+`claude`), so the owner's own settings, memory, plugins and tool servers never reach an agent. It is `agents/<cli>` in
+the data directory unless the CLI's `config_dir` in `install.toml` names another, and the engine keeps it out of git.
+Log in to the command line there once: `CLAUDE_CONFIG_DIR=<data>/agents/claude claude`, then `/login`.
+
+Each login account the agents may run under is such a directory beside the one in use, named for the CLI and the
+account (`agents/claude-work`), signed in once the same way; boards whose `config_dir` names a directory in another
+data directory share its accounts, each board choosing its own. The Settings view lists them with the account each is
+signed in as, shows the command that signs a new one in, and switches the agents to another by writing its directory as
+`config_dir` and committing it, after which every line starts a new session at its next round, since a session is kept
+in the directory it ran in.
+
+## The architect
+
+Each project has an architect of its own. It runs at the level `install.toml` names under `[agents]` as `architect`
+(such as `architect = "4"`), the top level when it names none; its search of observations runs at the level named as
+`observer`, `1` when none is named. Each project's file names its constitution, a path in the project's checkout, such
+as `constitution = "CONSTITUTION.md"`, which its architect checks the project against article by article (the
+level-two headings that start with "Article"), and the tags its observations may carry, each with what it covers:
+`observation_tags = [{ name = "ui", desc = "What the owner sees on the page" }]`.
+
+Every agent hands in flow feedback, what was wrong with its round's cell, which goes to its project's architect and
+never to the owner; the architect of the project that is wf-agents itself, the one whose repository wf-agents is built
+from, takes in what of it belongs to wf-agents. A project's file turns it off with `flow_feedback = false`, and its
+agents are then not asked for it.
+
+## The owner's page
+
+`wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). The engine starts with
+every work paused, so nothing runs until the owner presses Start all in the page's bar, which is also how the page is
+looked at against a copy of the data; Pause all stops every work at the end of the round it is in, and beside it a
+switch keeps waiting sessions warm meanwhile. Each work has its own Start, Pause and Step in the head of its
+group in the Messages view, which win over the global state when they come later, Start all aside, which lifts no
+work's own pause; Step runs one round of a work, after showing what it will be, and leaves it paused; Start and Step
+resume the work's session or start a new one, as the owner chooses. Start over, after asking, ends a work on an item
+at once, a round of it under way cut off, and a new work begins the item again from the first cell, taking over its
+branch, worktree and pull request; the item's architect can start a work over too.
+
+The Messages view is the one place the owner acts: the one-to-one with each project's architect, wf-agents' own
+conversation (its faults), a group for each work of the owner, its engineer and its project's architect, where
+everything said reaches all three, and a group for the architects of connected projects. An ask of the owner waits where
+it was asked and is answered in its own bubble, and a design card a work waits on is pinned at the top of its
+conversation; every other view only reads, but for the bar's Start all, Pause all and Keep warm, the Settings view, and
+the Observations view, where the owner closes an observation, saying why. `npm run dev` in `client/` serves the page
+from its sources and passes the interface's requests to a running `wf-agents run`.
+
+The flow page shows a stored flow version, or `flow/flow.json` as it is at a git ref of a project's checkout (read
+with git and compiled, nothing written), its graphs side by side, and compares two of them, so that a change to the
+flow is reviewed there.
+
+The Architect view shows a project's architect, read only, with a switch to another project's when there are several:
+what it does now, its rounds on its graph, the item changes its batches made, what to do next and the policy in force,
+each a tab of the column at its right. Its conversation with the owner, its queue with a card for each matter, and its
+Start, Pause and Step are in its one-to-one in the Messages view. The Observations view shows each project's
+observations, what its architect recorded and no item does yet, filtered by their tags, those taken in by an item or
+closed shown when asked for; one opened shows whole beside them, where the owner closes it.

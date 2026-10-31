@@ -1,0 +1,27 @@
+/* The System view, over the window's width: its five parts as the page's sections, each saying after its heading what
+   it is for; the period the parts after Now count over; their tiles, tables and columns. */
+
+.page.sys {
+  max-width: none;
+}
+
+.sys-for {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+/* The period the parts after Now count over (the shared period switch): it heads the parts it counts for, the line
+   that parts a page's sections over it, and none between it and the first of them. */
+.sys-period {
+  margin-top: var(--base-size-24);
+}
+
+.sys-period + .section[data-level='2']:not(:first-child) {
+  margin-top: var(--base-size-16);
+  padding-top: 0;
+  border-top: 0;
+}
+
+.sys .us-tiles + .us-tiles {
+  margin-top: var(--base-size-8);
+}

@@ -1,0 +1,67 @@
+/* The page's own tokens: the values Primer has no token for, each named once here with why, as the UI spec says
+   (design/harness/owner-interface/ui-spec.md). The UI check lets this file write values raw; everything else uses
+   these names or Primer's. */
+
+:root {
+  /* The bar's height, as tall as Primer's UnderlineNav: a view that fills the window under it, with parts that scroll
+     on their own (the messages view), takes what is left. */
+  --bar-height: 48px;
+
+  /* A count's pill on a fill of a state's colour (the items' buttons of the states shown): white, translucent, so
+     that the fill shows through it under the count's white digits, as the owner chose; Primer's pill of a count on a
+     button is grey. */
+  --counter-onEmphasis-bgColor: #ffffff40;
+
+  /* The chart's corner badges (a cell's reasoning effort, its rounds, a row's number) keep their small text, which
+     the owner kept: Primer's smallest text step is 12px. The chart reads it to measure the badges. */
+  --chart-badge-text-size: 10px;
+
+  /* The widths of the chart's lines, in its own units: an arrow is thin, and the main path, a row the work took and
+     the rows lit into or out of the cell lit, or the round chosen's, as thin as any, as the owner asked; the row
+     pointed at, on the chart or by its line in a panel's From or To, is marked, as heavy as a cell added, as the owner
+     asked to find it. A cell's edge, which the owner asked to stand out from the shapes round it, is heavy, and every
+     other shape's edge (a stage's box, a circle, the actions, a rule, the interjection, a store, a mark or badge) thin;
+     the lines to a store and the map's marks between them; a wider line no one sees takes the pointer. Primer's border
+     widths are for the page's boxes, not for lines drawn to scale. */
+  --chart-line-arrow: 1.3;
+  --chart-line-rule: 1.4;
+  --chart-line-hit: 10;
+  --chart-line-box: 1.5;
+  --chart-line-cell: 2.5;
+  --chart-line-ring: 2.5;
+  --chart-line-marked: 3.5;
+  --chart-line-thin: 1;
+  --chart-line-map: 0.75;
+  /* The ring round a stage's letter on the map, in the map's surface, wide enough that no cell's mark meets it. */
+  --chart-line-letter: 3;
+
+  /* The dashes of the chart's lines, a cell's edge being solid: a move a cell lacks, the line to what the engine does
+     every time a cell returns, a computed store, what is read, and the rows a work took, which flow the way it went. */
+  --chart-dash-lack: 2 2;
+  --chart-dash-does: 3 3;
+  --chart-dash-computed: 4 3;
+  --chart-dash-read: 5 4;
+  --chart-dash-flow: 10 6;
+
+  /* How long a flowing row's dashes take to move one dash on, and how far that is. */
+  --chart-flow-time: 0.9s;
+  --chart-flow-step: -16;
+
+  /* The halo round the cell a round runs at: three arcs, their width (a narrower one at a small cell, and a wider one
+     as the mark of a round running at an icon's size, in the list of conversations and a conversation's head, where
+     the owner asked for it plainly in motion and a narrower one read fainter than the Octicons beside it), the share
+     of the way round each covers, and how long they take to go round, which the owner chose. */
+  --chart-halo-width: 6;
+  --chart-halo-width-small: 2;
+  --chart-halo-width-mark: 3;
+  --chart-halo-dash: 20 80;
+  --chart-halo-time: 2.4s;
+
+  /* What a work never went by, and the rows it never took, faded on its chart. */
+  --chart-faded: 0.55;
+  --chart-quiet: 0.35;
+  --chart-quiet-label: 0.45;
+
+  /* How long a bubble the bar of what waits brought into view stays lit, long enough to find it after the scroll. */
+  --talk-lit-time: 1.6s;
+}

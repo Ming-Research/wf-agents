@@ -1,0 +1,819 @@
+/* A flow's chart, drawn as the UI spec says a chart is: its layout, shapes and lines as the page's decisions draw them,
+   its look in Primer's tokens. Text, boxes and fills take the functional tokens. Only the cells, every place a work can
+   stand at (an agent's a box, every other rounded), have colours, each named once by what it marks: an agent's round
+   its role's, the colour the flow gives its line, through the one lookup every place that shows a role draws it by
+   (roles.css), and an agent's cell with no colour of its own (on no line, a session of its own every round, or on a
+   line the flow no longer has) the page's neutral grey; the engine's own step the same grey, rounded; a tool the
+   engine runs a quiet yellow; the owner orange; every cell's edge solid. A circle that names a cell takes that cell's
+   colours. Everything else (the actions on a line or every time a cell returns, a rule, the interjection, a
+   store) is light grey, edged grey; the stage boxes are the display scale's light grey, as the owner asked. A cell,
+   where a work stands, is edged heavier than every shape beside it and titled semibold. The arrows are grey, the main
+   path blue at the same width; the rows into the cell picked or pointed at green and those out of it red. The values
+   Primer has no token for are in tokens.css. */
+
+:root {
+  --fc-text: var(--fgColor-default);
+  --fc-group: var(--display-gray-bgColor-muted);
+  --fc-group-line: var(--display-gray-borderColor-muted);
+  /* The engine's own steps in the page's neutral grey, a role's colour being the flow's to give (roles.css): its edge
+     the neutral colour and its fill the neutral tint, which over a stage's light grey box still reads, where the
+     display grey's tint is the box's own fill and would leave the step looking empty. */
+  --fc-engine: var(--borderColor-neutral-emphasis);
+  --fc-engine-fill: var(--bgColor-neutral-muted);
+  /* A tool in a quiet yellow, the display yellow a little lightened into the page's background: told from the engine's
+     own step, which handles no tool, yet standing back from the cells an agent or the owner works. */
+  --fc-tool: color-mix(in srgb, var(--data-yellow-color-emphasis) 75%, var(--bgColor-default));
+  --fc-tool-fill: color-mix(in srgb, var(--data-yellow-color-muted) 75%, var(--bgColor-default));
+  --fc-owner: var(--data-orange-color-emphasis);
+  --fc-owner-fill: var(--data-orange-color-muted);
+  /* What is no cell, light grey with a grey edge; and in the legend, a cell of any kind. */
+  --fc-plain: var(--borderColor-emphasis);
+  --fc-plain-fill: var(--data-gray-color-muted);
+  --fc-any: var(--data-gray-color-emphasis);
+  --fc-any-fill: var(--data-gray-color-muted);
+  /* The arrows: the lines of the chart, a step darker than a box's border so that they read on the chart's inset
+     background; the main path in the accent's blue instead of heavier, as the owner asked. The rows into the cell lit
+     green and out of it red, the page's success and danger colours, at an arrow's width, and the round chosen came in
+     and left by the same; their labels filled in the same colours, white letters on them. */
+  --fc-arrow: var(--borderColor-emphasis);
+  --fc-arrow-main: var(--borderColor-accent-emphasis);
+  --fc-taken: var(--data-blue-color-emphasis);
+  --fc-way-in: var(--borderColor-success-emphasis);
+  --fc-way-out: var(--borderColor-danger-emphasis);
+  --fc-way-in-label: var(--bgColor-success-emphasis);
+  --fc-way-out-label: var(--bgColor-danger-emphasis);
+  --fc-label: var(--bgColor-muted);
+  /* The effort badges, as the owner chose them: green, blue, orange, red and purple from low to max, each with white
+     letters but high, a plain orange, lighter than the dark orange that was too close to xhigh's red and stronger than
+     the pale one that hardly showed on a stage box, lettered in the text's colour, which white does not read on in the
+     light theme; Primer's emphasis backgrounds and its data orange, which follow light and dark themselves. */
+  --fc-effort-low: var(--bgColor-success-emphasis);
+  --fc-effort-medium: var(--bgColor-accent-emphasis);
+  --fc-effort-high: var(--data-orange-color-emphasis);
+  --fc-effort-high-text: var(--fgColor-default);
+  --fc-effort-xhigh: var(--bgColor-danger-emphasis);
+  --fc-effort-max: var(--bgColor-done-emphasis);
+  --fc-effort-text: var(--fgColor-onEmphasis);
+}
+
+.chart {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.flowchart {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.flowchart-note {
+  padding: var(--base-size-16);
+}
+
+/* The plain arrow over the chart's empty space, the pointing finger over what a click or hovering does something
+   with, and the grabbing hand only while the button is down to move it. */
+.viewer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: default;
+  touch-action: none;
+  background: var(--bgColor-inset);
+}
+
+.viewer [data-edge] {
+  cursor: pointer;
+}
+
+.viewer.dragging,
+.viewer.dragging * {
+  cursor: grabbing;
+}
+
+.viewer-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+/* The chart's text: a cell's title body large, its notes, the arrows' labels and the nodes beside the cells body
+   medium, a stage's name title small, a code monospace. */
+svg.fc {
+  display: block;
+  font-family: var(--fontStack-sansSerif);
+  font-size: var(--text-body-size-large);
+  user-select: none;
+}
+
+.fc text {
+  fill: var(--fc-text);
+}
+
+.fc-group rect {
+  fill: var(--fc-group);
+  stroke: var(--fc-group-line);
+  stroke-width: var(--chart-line-thin);
+}
+
+.fc-group text,
+.fc-group-name text {
+  font-size: var(--text-title-size-medium);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.fc-group-name rect {
+  fill: var(--fc-group);
+}
+
+.fc-cell,
+.fc-circle,
+.fc-rule,
+.fc-flag,
+.fc-act,
+.fc-store,
+.fc-chip {
+  cursor: pointer;
+}
+
+/* A cell, where a work stands, edged heavier than every shape beside it, and its title, its code with it, semibold. */
+.fc-cell > rect:not(.fc-ring) {
+  stroke-width: var(--chart-line-cell);
+}
+
+.fc-title {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+/* A cell's code before its title, as the page writes a code: monospace, in the title's colour, no weight of its own. */
+.fc-id {
+  font-family: var(--fontStack-monospace);
+}
+
+/* Who does a cell's work sets its two colours, its edge's and its fill's, which its box, a circle naming it and its mark
+   on the map take from it: an agent's cell its role's, through the one lookup from a colour to how it is drawn (a
+   role's class, roles.css), and each kind of cell that is no role's the same two from this file, one rule to a kind,
+   so that the three never differ; and the words on its fill, where a list of rounds names who ran a round. */
+.kind-engine {
+  --role-edge: var(--fc-engine);
+  --role-fill: var(--fc-engine-fill);
+  --role-text: var(--fc-text);
+}
+
+.kind-tool {
+  --role-edge: var(--fc-tool);
+  --role-fill: var(--fc-tool-fill);
+  --role-text: var(--fc-text);
+}
+
+.kind-owner {
+  --role-edge: var(--fc-owner);
+  --role-fill: var(--fc-owner-fill);
+  --role-text: var(--fc-text);
+}
+
+.fc-any {
+  --role-edge: var(--fc-any);
+  --role-fill: var(--fc-any-fill);
+}
+
+.fc-cell > rect:not(.fc-ring),
+.fc-circle ellipse,
+.fc-map-cell {
+  fill: var(--role-fill, var(--fc-plain-fill));
+  stroke: var(--role-edge, var(--fc-plain));
+}
+
+.fc-circle ellipse {
+  stroke-width: var(--chart-line-thin);
+}
+
+.fc-circle text,
+.fc-act text,
+.fc-rule text,
+.fc-flag text,
+.fc-label text,
+.fc .fc-reads,
+.fc .fc-lack text,
+.fc .fc-store-note,
+.fc-wait text {
+  font-size: var(--text-body-size-medium);
+}
+
+/* What is no cell, light grey with a grey edge and no colour: what the engine does on a line or every time a cell
+   returns, a rule, the interjection and a store. */
+.fc-act polygon,
+.fc-rule polygon,
+.fc-flag polygon,
+.fc-store rect {
+  fill: var(--fc-plain-fill);
+  stroke: var(--fc-plain);
+  stroke-width: var(--chart-line-thin);
+}
+
+.fc-edge.fc-edge-does {
+  stroke-dasharray: var(--chart-dash-does);
+}
+
+/* Under a step the engine decides, what its values read; on a cell, a move it lacks. */
+.fc .fc-reads {
+  fill: var(--fgColor-muted);
+}
+
+.fc-reads-line {
+  stroke: var(--fgColor-muted);
+  stroke-width: var(--chart-line-box);
+}
+
+.fc-lack rect {
+  fill: var(--fc-label);
+  stroke: var(--fc-arrow);
+  stroke-width: var(--chart-line-thin);
+  stroke-dasharray: var(--chart-dash-lack);
+}
+
+.fc .fc-lack text {
+  fill: var(--fgColor-muted);
+}
+
+/* The stores, in boxes by what they belong to, and the lines to them from what is pointed at or open. */
+.fc-store-computed rect {
+  stroke-dasharray: var(--chart-dash-computed);
+}
+
+.fc-store-lit rect {
+  stroke-width: var(--chart-line-marked);
+}
+
+.fc .fc-store-note {
+  fill: var(--fgColor-muted);
+}
+
+/* Beside a cell, a store it reads or writes: light grey and rounded as no cell is, the store's part of the flow (the
+   project, an item, a work) in muted words before its title; the line from it into the cell dashed for a read, the
+   line from the cell to it solid for a write. */
+.fc-chip rect {
+  fill: var(--fc-plain-fill);
+  stroke: var(--fc-plain);
+  stroke-width: var(--chart-line-thin);
+}
+
+.fc .fc-chip-scope {
+  fill: var(--fgColor-muted);
+}
+
+.fc .fc-chip text {
+  font-size: var(--text-body-size-small);
+}
+
+.fc-edge.fc-edge-read {
+  stroke-dasharray: var(--chart-dash-read);
+}
+
+.fc-selected > rect:not(.fc-ring),
+.fc-selected > polygon,
+.fc-selected > ellipse {
+  filter: drop-shadow(0 0 3px var(--borderColor-accent-emphasis))
+    drop-shadow(0 0 7px var(--borderColor-accent-emphasis));
+}
+
+.fc-ring {
+  fill: none;
+  stroke: var(--fc-taken);
+  stroke-width: var(--chart-line-ring);
+}
+
+.fc-ring-running {
+  stroke: var(--borderColor-success-emphasis);
+}
+
+/* The cell a round runs at wears a halo, so that the eye finds it at once, at the zoom a work's chart opens at and over
+   the whole chart: three arcs of the page's red, orange and blue (the danger, attention and accent colours) running
+   round the cell, a third of the way apart. Only the running cell has it, and it is the chart's only motion but the
+   rows a work took. */
+.fc-halo {
+  pointer-events: none;
+}
+
+.fc-halo rect {
+  fill: none;
+}
+
+.fc-halo-arc {
+  stroke-width: var(--chart-halo-width);
+  stroke-linecap: round;
+  stroke-dasharray: var(--chart-halo-dash);
+  animation: fc-halo-run var(--chart-halo-time) linear infinite;
+}
+
+.fc-halo-a {
+  stroke: var(--borderColor-danger-emphasis);
+}
+
+.fc-halo-b {
+  stroke: var(--borderColor-attention-emphasis);
+  stroke-dashoffset: -33.3;
+  animation-delay: calc(var(--chart-halo-time) / -3);
+}
+
+.fc-halo-c {
+  stroke: var(--borderColor-accent-emphasis);
+  stroke-dashoffset: -66.7;
+  animation-delay: calc(var(--chart-halo-time) * -2 / 3);
+}
+
+.fc-halo-small .fc-halo-arc {
+  stroke-width: var(--chart-halo-width-small);
+}
+
+@keyframes fc-halo-run {
+  from {
+    stroke-dashoffset: 0;
+  }
+
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+/* Beside the cell a work waits at: why, in a few words, still. */
+.fc-wait rect {
+  fill: var(--bgColor-attention-emphasis);
+}
+
+.fc .fc-wait text {
+  fill: var(--fgColor-onEmphasis);
+}
+
+.fc-unvisited {
+  opacity: var(--chart-faded);
+}
+
+/* What a comparison found: a cell added in the success colour, one changed in the attention colour, with its mark. */
+.fc-added > rect:not(.fc-ring) {
+  stroke: var(--borderColor-success-emphasis);
+  stroke-width: var(--chart-line-marked);
+}
+
+.fc-changed > rect:not(.fc-ring) {
+  stroke: var(--borderColor-attention-emphasis);
+  stroke-width: var(--chart-line-marked);
+}
+
+.fc-mark {
+  font-size: var(--text-body-size-small);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.fc .fc-added .fc-mark {
+  fill: var(--fgColor-success);
+}
+
+.fc .fc-changed .fc-mark {
+  fill: var(--fgColor-attention);
+}
+
+/* A cell's corner badges: its rounds, those sent back and failed, the reasoning effort it runs at, and, on a cell that
+   starts a new session every round, a badge saying so, outlined on the page's background instead of filled, so that it
+   reads as no effort level. */
+.fc-badge rect {
+  fill: var(--bgColor-accent-emphasis);
+}
+
+.fc-session rect {
+  fill: var(--bgColor-default);
+  stroke: var(--borderColor-emphasis);
+  stroke-width: var(--chart-line-thin);
+}
+
+.fc .fc-badge text,
+.fc .fc-effort text,
+.fc .fc-session text {
+  fill: var(--fgColor-onEmphasis);
+  font-size: var(--chart-badge-text-size);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.fc .fc-session text {
+  fill: var(--fgColor-default);
+}
+
+.fc-b-back rect {
+  fill: var(--bgColor-attention-emphasis);
+}
+
+.fc-b-failed rect {
+  fill: var(--bgColor-danger-emphasis);
+}
+
+/* Each level sets its badge's colour and its letters', which one rule each draws; a level the page does not know is
+   grey. */
+.fc-effort {
+  --fc-effort-fill: var(--bgColor-neutral-emphasis);
+  --fc-effort-ink: var(--fc-effort-text);
+}
+
+.fc-effort-low {
+  --fc-effort-fill: var(--fc-effort-low);
+}
+
+.fc-effort-medium {
+  --fc-effort-fill: var(--fc-effort-medium);
+}
+
+.fc-effort-high {
+  --fc-effort-fill: var(--fc-effort-high);
+  --fc-effort-ink: var(--fc-effort-high-text);
+}
+
+.fc-effort-xhigh {
+  --fc-effort-fill: var(--fc-effort-xhigh);
+}
+
+.fc-effort-max {
+  --fc-effort-fill: var(--fc-effort-max);
+}
+
+.fc-effort rect {
+  fill: var(--fc-effort-fill);
+}
+
+.fc .fc-effort text {
+  fill: var(--fc-effort-ink);
+}
+
+/* The arrows: thin, the main path as thin in blue, not heavy black. */
+.fc-edge {
+  fill: none;
+  stroke: var(--fc-arrow);
+  stroke-width: var(--chart-line-arrow);
+}
+
+.fc-edge-main {
+  stroke: var(--fc-arrow-main);
+}
+
+.fc-edge-rule {
+  stroke-width: var(--chart-line-rule);
+}
+
+/* The rows a work took: their dashes flow the way the work went, as thin as any arrow. */
+.fc-edge-taken {
+  stroke: var(--fc-taken);
+  stroke-dasharray: var(--chart-dash-flow);
+  animation: fc-flow var(--chart-flow-time) linear infinite;
+}
+
+/* The rows into the cell picked, or the cell under the pointer, green, and out of it red, as thin as any arrow. */
+.fc-edge-in {
+  stroke: var(--fc-way-in);
+}
+
+.fc-edge-out {
+  stroke: var(--fc-way-out);
+}
+
+/* A cell's rows in and out, and the arrows the round chosen in the rounds list came in by and left by, green and red,
+   their dashes flowing the way the row goes, as a row a work took flows, as the owner asked. */
+.fc-edge-in,
+.fc-edge-out,
+.fc-edge-lit-in,
+.fc-edge-lit-out {
+  stroke-dasharray: var(--chart-dash-flow);
+  animation: fc-flow var(--chart-flow-time) linear infinite;
+}
+
+.fc-edge-lit-in {
+  stroke: var(--fc-way-in);
+}
+
+.fc-edge-lit-out {
+  stroke: var(--fc-way-out);
+}
+
+/* The row the pointer is on, from its source to its target, one clicked, or one a line of the panel's From or To
+   lights: heavier and nothing else, its colour, dashes and flow its own, as the owner asked; after every rule that
+   sets a line's width, so that it wins. */
+.fc-edge.fc-edge-heavy {
+  stroke-width: var(--chart-line-marked);
+}
+
+@keyframes fc-flow {
+  to {
+    stroke-dashoffset: var(--chart-flow-step);
+  }
+}
+
+/* Arrows are thin: a wider line no one sees takes the pointer. */
+.fc-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: var(--chart-line-hit);
+  pointer-events: stroke;
+}
+
+.fc-edge-quiet {
+  opacity: var(--chart-quiet);
+}
+
+.fc-head path {
+  fill: var(--fc-arrow);
+}
+
+.fc-head-main path {
+  fill: var(--fc-arrow-main);
+}
+
+.fc-head-rule path {
+  fill: var(--fc-arrow);
+}
+
+.fc-head-taken path {
+  fill: var(--fc-taken);
+}
+
+.fc-head-quiet path {
+  fill: var(--fc-arrow);
+  opacity: var(--chart-quiet);
+}
+
+.fc-head-in path,
+.fc-head-lit-in path {
+  fill: var(--fc-way-in);
+}
+
+.fc-head-out path,
+.fc-head-lit-out path {
+  fill: var(--fc-way-out);
+}
+
+/* An arrow's label: on the muted background over the line; the main path's, a row the work took, a row lit into or
+   out of a cell and the row drawn heavier semibold, a row taken or lit in its line's colour. */
+.fc-label rect {
+  fill: var(--fc-label);
+}
+
+.fc-label-main text,
+.fc .fc-label-taken text,
+.fc .fc-label-in text,
+.fc .fc-label-out text,
+.fc .fc-label-heavy text {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.fc .fc-label-taken text {
+  fill: var(--fc-taken);
+}
+
+/* The label of a row lit into or out of a cell: on its colour, a step darker for its white letters to read. */
+.fc-label-in rect {
+  fill: var(--fc-way-in-label);
+}
+
+.fc-label-out rect {
+  fill: var(--fc-way-out-label);
+}
+
+.fc .fc-label-in > text,
+.fc .fc-label-out > text {
+  fill: var(--fgColor-onEmphasis);
+}
+
+/* On a work's chart, the label of a row the work never took, muted as the arrow is. */
+.fc-label-quiet {
+  opacity: var(--chart-quiet-label);
+}
+
+.fc-label-quiet text {
+  font-weight: var(--base-text-weight-normal);
+}
+
+/* Several graphs on one chart, side by side, each in a dashed frame round its drawing with its name on the frame's
+   top edge at the left, as its heading, so that the name plainly belongs to its graph. */
+.fc-sheets {
+  position: relative;
+}
+
+.fc-sheet {
+  position: absolute;
+  top: 0;
+}
+
+.fc-sheet-body {
+  position: relative;
+}
+
+.fc-sheet-body > svg {
+  display: block;
+}
+
+.fc-sheet-frame {
+  position: absolute;
+  inset: 0;
+  border: var(--borderWidth-thick) dashed var(--borderColor-emphasis);
+  border-radius: var(--borderRadius-large);
+  pointer-events: none;
+}
+
+.fc-sheet-name {
+  position: absolute;
+  top: 0;
+  left: var(--base-size-20);
+  padding: 0 var(--base-size-8);
+  background: var(--bgColor-inset);
+  color: var(--fgColor-default);
+  font: var(--text-title-shorthand-medium);
+  white-space: nowrap;
+  transform: translateY(-50%);
+}
+
+/* The chart's "?" in its bottom left corner, a round floating surface as the flow's tools are, where it stays while the
+   legend is open, drawn then as the option picked; named with its element to outweigh the rule that gives a button of
+   the page's own the text round it. */
+button.legend-button {
+  position: absolute;
+  left: var(--base-size-8);
+  bottom: var(--base-size-8);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-small-size);
+  height: var(--control-small-size);
+  padding: 0;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-full);
+  background: var(--overlay-bgColor);
+  box-shadow: var(--shadow-floating-small);
+  color: var(--fgColor-accent);
+  font: var(--text-title-shorthand-small);
+  cursor: pointer;
+}
+
+button.legend-button[aria-expanded='true'] {
+  border-color: var(--borderColor-accent-muted);
+  background: var(--bgColor-accent-muted);
+}
+
+/* The legend the "?" opens, above it, its left edge with the "?"'s: one floating surface, as the flow's tools are, its
+   words small text, its keys drawn as the chart draws them. */
+.legend {
+  position: absolute;
+  left: var(--base-size-8);
+  bottom: calc(2 * var(--base-size-8) + var(--control-small-size));
+  z-index: 5;
+  max-width: min(420px, calc(100vw - 2 * var(--base-size-16)));
+  /* No taller than the chart's room above the "?", which ends below the flow's tools over its top left corner, where
+     the map starts; what does not fit scrolls inside. */
+  max-height: calc(100% - 4 * var(--base-size-8) - 2 * var(--control-small-size) - 2 * var(--base-size-4) - 2 * var(--borderWidth-thin));
+  padding: var(--base-size-4) var(--base-size-12);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--overlay-bgColor);
+  box-shadow: var(--shadow-floating-small);
+  font-size: var(--text-body-size-small);
+  overflow-y: auto;
+}
+
+.legend ul {
+  display: grid;
+  gap: var(--base-size-4);
+  margin: var(--base-size-4) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+
+.legend-swatch {
+  flex: none;
+}
+
+.legend-keys {
+  margin: var(--base-size-4) 0;
+  color: var(--fgColor-muted);
+}
+
+.legend-moves ul {
+  margin: var(--base-size-4) 0 var(--base-size-4) var(--base-size-12);
+  color: var(--fgColor-muted);
+}
+
+/* The shares of a round's cost in the legend, as the rounds list draws them. */
+.fc-spent-read {
+  fill: var(--share-read);
+}
+
+.fc-spent-new {
+  fill: var(--share-new);
+}
+
+.fc-spent-output {
+  fill: var(--share-output);
+}
+
+.fc .fc-spent-steps {
+  fill: var(--fgColor-muted);
+  font-size: var(--chart-badge-text-size);
+}
+
+/* The map over the chart's top left corner, under the flow's tools on the flow page and under the legend when that is
+   open: the whole chart small, its boxes and cells as plain shapes, each cell and store in the chart's own colours for
+   it, which its class on the chart gives it, the cell a work is at ringed as on the chart, and the part in view framed.
+   It shows only while some of the chart is out of view. */
+.fc-map {
+  position: absolute;
+  top: var(--base-size-8);
+  left: var(--base-size-8);
+  z-index: 4;
+  visibility: hidden;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--overlay-bgColor);
+  box-shadow: var(--shadow-floating-small);
+  cursor: pointer;
+  user-select: none;
+}
+
+.fc-map[data-on] {
+  visibility: visible;
+}
+
+.fc-map[data-dragging],
+.fc-map[data-dragging] * {
+  cursor: grabbing;
+}
+
+.fc-map svg {
+  display: block;
+}
+
+.fc-map-box {
+  fill: var(--fc-group);
+  stroke: var(--fc-group-line);
+  stroke-width: var(--chart-line-map);
+}
+
+/* A stage's letter in the middle of its box on the map, body small semibold, ringed in the map's surface so that the
+   cells under it do not cross it. */
+.fc-map-letter {
+  fill: var(--fgColor-default);
+  font-size: var(--text-body-size-small);
+  font-weight: var(--base-text-weight-semibold);
+  stroke: var(--overlay-bgColor);
+  stroke-width: var(--chart-line-letter);
+  stroke-linejoin: round;
+  paint-order: stroke;
+}
+
+/* A cell's fill and edge are the chart's, from the class of its kind or line; only the edge's width is the map's. */
+.fc-map .fc-map-cell {
+  stroke-width: var(--chart-line-map);
+}
+
+.fc-map-ring {
+  fill: none;
+  stroke: var(--fc-taken);
+  stroke-width: var(--chart-line-box);
+}
+
+.fc-map-ring.fc-map-running {
+  stroke: var(--borderColor-success-emphasis);
+}
+
+/* The chart's zoom, under the map or in its place while the map hides: small muted text on a surface as the map's. */
+.fc-zoom {
+  position: absolute;
+  top: var(--base-size-8);
+  left: var(--base-size-8);
+  z-index: 4;
+  padding: 0 var(--base-size-4);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--overlay-bgColor);
+  box-shadow: var(--shadow-floating-small);
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.fc-zoom:empty {
+  visibility: hidden;
+}
+
+/* The part of the chart in view: a light wash over the map, so that what lies under it still shows. */
+.fc-map-frame {
+  fill: var(--bgColor-accent-muted);
+  fill-opacity: 0.35;
+  stroke: var(--borderColor-accent-emphasis);
+  stroke-width: var(--chart-line-box);
+}

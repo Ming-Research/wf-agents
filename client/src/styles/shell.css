@@ -1,0 +1,107 @@
+/* The bar, as the UI spec draws it: one row as tall as Primer's UnderlineNav, on the inset background, the name at
+   the left, the views, and the engine at the right end. The nav draws its own line under it; the name and the engine
+   draw the same line under them, so that it runs the bar's width once. */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  /* Above the chart, which moves under it. */
+  z-index: var(--zIndex-sticky);
+  display: flex;
+  align-items: stretch;
+  background: var(--bgColor-inset);
+}
+
+.brand,
+.engine {
+  display: flex;
+  align-items: center;
+  box-shadow: inset 0 calc(-1 * var(--borderWidth-thin)) 0 var(--borderColor-muted);
+}
+
+.brand {
+  padding: 0 var(--base-size-8) 0 var(--base-size-16);
+  font: var(--text-title-shorthand-small);
+  white-space: nowrap;
+}
+
+/* The views take the room the name and the engine leave, those it has none for in its "More"; never less than that
+   button, so that the views are always reached. */
+.topbar-nav {
+  flex: 1 1 0;
+  min-width: 5.5rem;
+}
+
+.topbar-count {
+  margin-left: var(--base-size-4);
+}
+
+/* The engine at the bar's right end: what the width leaves no room for is in its overflow (TopBar.tsx), and the
+   state's words, which can be long, give way before anything else, cut and whole on hovering, so that the bar is never
+   wider than the window. */
+.engine {
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: var(--base-size-12);
+  padding: 0 var(--base-size-16);
+  white-space: nowrap;
+}
+
+.engine > * {
+  flex: none;
+}
+
+.engine-state,
+.keep-warm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+.engine > .engine-state,
+.engine > .bad {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.engine > .bad {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.engine-state > svg {
+  flex: none;
+}
+
+.engine-words {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The overflow, open under its button over the page: the parts it holds one under another, as the bar draws them. */
+.engine-more {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--base-size-12);
+  padding: var(--base-size-12) var(--base-size-16);
+  white-space: nowrap;
+}
+
+/* The engine's state as a dot in its state's colour, the one its chip would be filled in. */
+.engine-dot-run {
+  color: var(--bgColor-success-emphasis);
+}
+
+.engine-dot-pausing {
+  color: var(--bgColor-attention-emphasis);
+}
+
+.engine-dot-paused {
+  color: var(--fgColor-muted);
+}
+
+.engine-dot-off {
+  color: var(--bgColor-danger-emphasis);
+}

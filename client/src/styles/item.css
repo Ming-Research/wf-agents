@@ -1,0 +1,215 @@
+/* An item's page, as the UI spec lays out a reading page: its header (its number and title with its facts on the
+   title's line, and the work that goes on under them), then what needs the owner, where the work stands, the problem,
+   the design, the acceptance, the changes on the way, what it depends on and its history, each a section of one
+   document. An observation's page is a reading page as an item's is. */
+
+.item-page,
+.obs-page {
+  max-width: var(--breakpoint-large);
+  padding: var(--base-size-16) var(--base-size-24) var(--base-size-32);
+}
+
+.item-head-id {
+  color: var(--fgColor-muted);
+  font-weight: var(--base-text-weight-normal);
+}
+
+/* The title's line: the title, then its facts, aligned with the title's words, under it where the line is short. */
+.item-head .item-head-title {
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+/* After the title: Primer orders the title 1 among its title area's parts, which put the facts, unordered, before it,
+   and over it where the line is short. */
+.item-head .item-head-title > .item-head-facts {
+  order: 2;
+}
+
+/* The head's facts, on the title's line and under it, each run as one line that wraps between two facts where it
+   must, in body text whatever the size of the title beside them, their chips in the line's size. */
+.item-head .item-head-facts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4);
+  font-size: var(--text-body-size-medium);
+  font-weight: var(--base-text-weight-normal);
+  line-height: var(--text-body-lineHeight-medium);
+}
+
+/* A fact and the chip that goes with it, kept together: the item's state and the items it waits for, the work that
+   goes on and its state. */
+.item-head-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+.item-cancelled {
+  margin-top: var(--base-size-8);
+}
+
+/* A part with who wrote it beside its name. */
+.change-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+.change {
+  display: grid;
+  gap: var(--base-size-4);
+}
+
+.shown-from {
+  font-size: var(--text-body-size-small);
+}
+
+/* An earlier version, set off by a line at its left. */
+.shown-old {
+  display: grid;
+  gap: var(--base-size-8);
+  padding-left: var(--base-size-12);
+  border-left: var(--borderWidth-thick) solid var(--borderColor-muted);
+}
+
+.shape {
+  display: grid;
+  gap: var(--base-size-12);
+}
+
+.grounds {
+  display: grid;
+  gap: var(--base-size-8);
+  margin: 0;
+  padding-left: var(--base-size-24);
+}
+
+.grounds > li {
+  display: grid;
+  justify-items: start;
+  gap: var(--base-size-4);
+}
+
+.deviation > .field {
+  margin-top: var(--base-size-8);
+}
+
+.acceptance-by {
+  width: 30%;
+  font-size: var(--text-body-size-small);
+}
+
+/* What the item depends on and what depends on it, side by side. */
+.two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--base-size-24);
+  margin-top: var(--base-size-24);
+}
+
+/* The two sections side by side are set apart as one, by the line over them both. */
+.two > .section[data-level='2'],
+.two > .section[data-level='2']:not(:first-child) {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.linked {
+  display: grid;
+  gap: var(--base-size-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.linked-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+/* Why the owner's removal of a dependency failed, beside its button. */
+.linked-error {
+  color: var(--fgColor-danger);
+}
+
+/* The checklist of where the work stands: done with a filled tick, the cell it is at with a dot, what is ahead with a
+   hollow circle, under each stage's name. */
+.checklist {
+  display: grid;
+  gap: var(--base-size-12);
+}
+
+.checklist-stage {
+  display: grid;
+  gap: var(--base-size-4);
+}
+
+.step > summary,
+.step-ahead {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+
+.step > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.step > summary::-webkit-details-marker {
+  display: none;
+}
+
+.step-mark {
+  display: inline-flex;
+  flex: none;
+}
+
+/* A step's mark in its state's colour, the one its chip would be filled in. */
+.step-done .step-mark {
+  color: var(--bgColor-success-emphasis);
+}
+
+.step-now .step-mark {
+  color: var(--bgColor-accent-emphasis);
+}
+
+.step-now .step-title {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.step-ahead,
+.step-ahead .step-mark {
+  color: var(--fgColor-muted);
+}
+
+.step-row {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.step-body {
+  display: grid;
+  justify-items: start;
+  gap: var(--base-size-4);
+  margin: var(--base-size-4) 0 var(--base-size-8) var(--base-size-24);
+}
+
+.step-waits {
+  margin: 0;
+  text-align: left;
+}
+
+.step-notes {
+  display: grid;
+  gap: var(--base-size-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

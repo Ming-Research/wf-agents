@@ -1,0 +1,16 @@
+[package]
+name = "sessions"
+description = "The wf-agents session manager: the agents' sessions, what each holds and costs, and the command line they run in."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+config = { path = "../config" }
+db = { path = "../db" }
+flow = { path = "../flow" }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+
+[lints]
+workspace = true

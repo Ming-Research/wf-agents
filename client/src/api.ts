@@ -1,0 +1,2768 @@
+// The types of the owner's interface, generated from the Rust types in crates/api and crates/flow. Do not edit:
+// change the Rust types and run `WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` to write this file again.
+
+export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]: JsonValue } | null;
+
+/**
+ * What the owner sends with a work's or the architect's Start and Step: whether its next round resumes the session
+ * its line goes on in (the default) or starts a new one.
+ */
+export type RunAsk = { new_session: boolean, };
+
+/**
+ * What the owner sends with the switch that keeps waiting sessions warm while every work is paused.
+ */
+export type KeepWarm = { on: boolean, };
+
+/**
+ * The round of a work the owner asked for, and what it came to.
+ */
+export type StepTaken = { 
+/**
+ * When the round ended.
+ */
+at: number, 
+/**
+ * The work the owner asked a round of, and the work the round was of: the new work that took the asked work's
+ * item over, when the asked work was on an older flow version.
+ */
+asked: number, work: number, 
+/**
+ * The rounds of the work it started or ended, by their numbers in the work, and the cell of the last of them.
+ */
+rounds: Array<number>, cell: string | null, };
+
+/**
+ * The engine as it runs now, and what the page needs of the installation.
+ */
+export type Status = { 
+/**
+ * Whether the owner paused every work, as the engine starts: no work goes on by itself and no new work starts,
+ * but for the works the owner started since; a work's round the owner asks for runs.
+ */
+paused: boolean, 
+/**
+ * Whether the sessions of waiting works are kept warm while every work is paused: the owner's switch beside the
+ * pause, on at first and kept across restarts.
+ */
+keep_warm: boolean, 
+/**
+ * The works the owner started since every work was last paused: each goes on whatever the global state.
+ */
+started: Array<number>, 
+/**
+ * The works the owner started that are still paused, until their machine has a slot free: the engine then lifts
+ * their pause.
+ */
+releasing: Array<number>, 
+/**
+ * The works whose wait is over, the owner's or the architect's answer come or what their row waited for, that
+ * wait on, holding no slot, until their machine has a slot free, as the engine's last step of each found: each
+ * then goes on before any new work starts. A work's state on the page is waiting for a free slot while it is
+ * named here.
+ */
+waiting_for_slot: Array<number>, 
+/**
+ * The projects whose architect the owner started since every work was last paused: its works go on whatever the
+ * global state.
+ */
+architects_started: Array<string>, 
+/**
+ * The work the engine is taking a step of now: its round runs. While every work is paused it is the last round
+ * before the pause, unless the owner asked for it.
+ */
+running: number | null, 
+/**
+ * The work whose round the owner asked for, until that round has ended.
+ */
+stepping: number | null, 
+/**
+ * The last round the owner asked for since the engine started.
+ */
+last_step: StepTaken | null, 
+/**
+ * The slots of every machine together, and how many of them works hold.
+ */
+slots: number, slots_used: number, 
+/**
+ * The flow version new works start on.
+ */
+flow_version: number, 
+/**
+ * The configuration commit the engine runs with.
+ */
+config_commit: string, 
+/**
+ * Each project's GitHub repository, as owner/name, by the project's name: the page links a work's pull request.
+ */
+repos: { [key in string]: string }, 
+/**
+ * When the engine started.
+ */
+started_at: number, 
+/**
+ * The version of wf-agents that runs.
+ */
+version: string, 
+/**
+ * While a failed run's cause stops every work alike, such as a usage limit or no network: no new round starts
+ * until it is over.
+ */
+halt: Halt | null, };
+
+/**
+ * Why the engine starts no new round for any work, and until when.
+ */
+export type Halt = { 
+/**
+ * The kind of failed run, as the flow names it: `usage_limit`, `offline` or `cannot_run`.
+ */
+kind: string, 
+/**
+ * Until when: when the usage limit resets, or when the engine next lets a round find out whether the cause has
+ * passed.
+ */
+until: number, 
+/**
+ * What the command line reported.
+ */
+why: string, };
+
+/**
+ * What changed, as the event stream gives it. An event names what to read again and never carries that state,
+ * except the engine's status, which lives only in the engine. The stream gives each event an id; a client that
+ * reconnects with the last id it saw is given what it missed.
+ */
+export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "design_card", design_card: number, work: number | null, } | { "kind": "ask", ask: number, work: number | null, } | { "kind": "owner_message", message: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, } | { "kind": "architect" } | { "kind": "observations" } | { "kind": "activity", work: number, round: number, what: string, at: number, };
+
+/**
+ * Where a work stands.
+ */
+export type WorkState = "running" | "ready" | "asking" | "waiting" | "waiting_for_slot" | "paused" | "halted" | "done" | "ended";
+
+/**
+ * The round of a work that is running.
+ */
+export type RunningRound = { 
+/**
+ * Its number in the work.
+ */
+n: number, cell: string | null, started_at: number, 
+/**
+ * Whether a tool it runs is under way: started, as tool_runs records it, and not ended.
+ */
+tool: boolean, 
+/**
+ * Who is at work in it, by its line: the agent whose cell it is; for a cell that runs the tools an agent asked
+ * for, the line that asked; none for the engine's own steps and the tools it runs of its own.
+ */
+line: string | null, };
+
+/**
+ * Who paused a work.
+ */
+export type PausedBy = "owner" | "engine" | "architect";
+
+/**
+ * What a work waits for: once it comes, the work goes on by itself, unless it is paused.
+ */
+export type Waits = { "kind": "answer", ask: number, } | { "kind": "ruling", design_card: number, } | { "kind": "architect", matter: number, project?: string, } | { "kind": "items", items: Array<number>, } | { "kind": "row", cell: string, row: string, };
+
+/**
+ * A work as a list shows it: what it works on, where it stands and what it has cost.
+ */
+export type WorkSummary = { id: number, 
+/**
+ * The item worked on, its title and its project; for a work of an architect, no item and the architect's project.
+ */
+item: number | null, title: string | null, project: string | null, 
+/**
+ * The graph it runs, of the flow version it is pinned to.
+ */
+graph: string, flow_version: number, 
+/**
+ * The flow version it last moved from to the one it runs on, when it went on after the flow moved to a new version
+ * at a cell unchanged there; none for a work that never moved.
+ */
+moved_from: number | null, 
+/**
+ * The cell it is at, with the cell's title and the stage the work is at, in its flow version.
+ */
+at: string, at_title: string | null, stage: string | null, state: WorkState, 
+/**
+ * Why it was paused, and who paused it (for a work the architect stopped, the architect's reason); why it ended
+ * before its end.
+ */
+paused: string | null, paused_by: PausedBy | null, ended: string | null, 
+/**
+ * What it waits for before it goes on by itself.
+ */
+waits: Waits | null, branch: string | null, pr: number | null, 
+/**
+ * When its first round started, and when its last round started or ended.
+ */
+started_at: number | null, last_at: number | null, rounds: number, 
+/**
+ * Rounds whose return was sent back, and rounds whose run failed or was cut off.
+ */
+sent_back: number, failed: number, running: RunningRound | null, 
+/**
+ * What its rounds and the keep-warm pings of its sessions cost, as the command lines reported it, in US dollars.
+ */
+cost_usd: number, 
+/**
+ * Its asks of the owner still waiting for an answer.
+ */
+open_asks: number, 
+/**
+ * Its design cards still waiting for a ruling.
+ */
+open_design_cards: number, };
+
+/**
+ * How a round ended.
+ */
+export type RoundOutcome = "running" | "took" | "sent_back" | "failed" | "interrupted" | "ended";
+
+/**
+ * A round as a list of rounds shows it.
+ */
+export type RoundSummary = { 
+/**
+ * The work it is a round of, and its number in that work.
+ */
+work: number, n: number, 
+/**
+ * Its cell; none for a round that only answered an interjection.
+ */
+cell: string | null, 
+/**
+ * The line whose session it ran in; none for the engine's own steps, tool cells and the owner.
+ */
+line: string | null, outcome: RoundOutcome, 
+/**
+ * The row its return took.
+ */
+transition: string | null, 
+/**
+ * Why it was sent back, failed or was cut off; for a row the engine took as a session would start afresh, why.
+ */
+why: string | null, started_at: number, ended_at: number | null, model: string | null, cost_usd: number | null, compactions: number, tool_runs: number, 
+/**
+ * What the round said it did.
+ */
+progress: string | null, 
+/**
+ * For a gate the engine answered itself, since the project does not have what it needs: that need.
+ */
+not_asked: string | null, 
+/**
+ * For an agent's round, where it spent its tokens, from its usage record.
+ */
+tokens: RoundTokens | null, 
+/**
+ * The session it ran in, by its row; none for the engine's own steps, tool cells and the owner.
+ */
+session: number | null, 
+/**
+ * When it started a new session: why, as the session manager recorded it: line, the line had none going on (its
+ * first in the work, or a cell on no line, whose session is its own every round); cell, a cell the line starts a
+ * new session at; limit, the line's session before was past the context limit; model or account, the model or the
+ * login account its rounds run under changed; owner, the owner asked for one.
+ */
+new_session: string | null, };
+
+/**
+ * Where an agent's round spent its tokens, as its usage record gives them, and how large its context was, which
+ * the page divides the round's cost by.
+ */
+export type RoundTokens = { 
+/**
+ * The command line's steps in the round.
+ */
+steps: number, 
+/**
+ * Tokens of input not read from the cache.
+ */
+input: number, 
+/**
+ * Tokens read again from the cache.
+ */
+read: number, 
+/**
+ * Tokens newly written to the cache, kept five minutes and kept an hour.
+ */
+written_5m: number, written_1h: number, 
+/**
+ * Tokens of output, and of them thinking.
+ */
+output: number, thinking: number, 
+/**
+ * The context at the round's end: its last call's prompt; none when the record does not give the last call.
+ */
+context_end: number | null, 
+/**
+ * The size of the context window, as the command line reported it for the models of the session.
+ */
+window: number | null, 
+/**
+ * The context at the round's start: the end of the latest round before it in the same session, since the usage
+ * record keeps only the round's last call; none for a round that started its session.
+ */
+context_before: number | null, 
+/**
+ * The level the round ran at, as its call record says it; none for a round recorded before it said.
+ */
+level: string | null, 
+/**
+ * The reasoning effort its command line gave it.
+ */
+effort: string | null, 
+/**
+ * The models besides the round's own whose tokens grew during the round, by the command line's usage per model,
+ * which counts the whole session: the subagents that ran on other models.
+ */
+others: Array<string>, 
+/**
+ * What each kind of these tokens cost, by the prices of the round's model as the session manager keeps them;
+ * none for a model with no prices there.
+ */
+costs: TokenCosts | null, };
+
+/**
+ * What each kind of a round's tokens cost, in US dollars, by its model's prices.
+ */
+export type TokenCosts = { 
+/**
+ * Input not read from the cache, reads from the cache, writes to it, and output.
+ */
+input: number, read: number, written: number, output: number, };
+
+/**
+ * A design card, as the round that handed it in wrote it, with its rulings.
+ */
+export type DesignCard = { id: number, 
+/**
+ * The round that handed it in: its number in the work.
+ */
+round: number, work: number, item: number | null, 
+/**
+ * open, ruled or replaced.
+ */
+status: string, body: JsonValue, rulings: JsonValue, replaced_by: number | null, 
+/**
+ * For a design card a newer one replaced: that one, as the engine knows it.
+ */
+replaced: Replacement | null, 
+/**
+ * The cell of the round that handed it in, the cell's title in the work's flow version, and when that round
+ * ended.
+ */
+cell: string | null, title: string | null, at: number | null, 
+/**
+ * The design card this one replaced, if any, and what this one changed from it and why, in a sentence or two of
+ * its agent's.
+ */
+replaces: number | null, changed: string | null, 
+/**
+ * The newest design card of its work the owner ruled on that this one took the place of, directly or through cards
+ * between: the owner confirms again what changed since.
+ */
+ruled_before: number | null, };
+
+/**
+ * The design card that replaced another: the round that handed it in, at which cell and when.
+ */
+export type Replacement = { design_card: number, 
+/**
+ * The round that handed it in: its number in the work.
+ */
+round: number, work: number, 
+/**
+ * The cell of that round, and the cell's title in the work's flow version.
+ */
+cell: string | null, title: string | null, 
+/**
+ * When that round ended.
+ */
+at: number | null, 
+/**
+ * What the newer design card changed and why, in a sentence or two of its agent's; none for one handed in before
+ * the flow asked for it.
+ */
+changed: string | null, };
+
+/**
+ * An ask of the owner: what is asked, and the owner's answer.
+ */
+export type OwnerAsk = { id: number, 
+/**
+ * The round that put it to the owner: its number in the work.
+ */
+round: number, work: number, item: number | null, body: JsonValue, 
+/**
+ * None while it waits.
+ */
+answer: JsonValue | null, 
+/**
+ * The images the owner sent with the answer, by their ids, in order.
+ */
+answer_images: Array<number>, 
+/**
+ * When the owner was told of it, from which it waits: the engine's notice of it, or else the start of the round
+ * that put it.
+ */
+asked_at: number, };
+
+/**
+ * What an agent told the owner in a return, or the engine of its own accord, needing no answer.
+ */
+export type OwnerMessage = { id: number, 
+/**
+ * Whether the engine wrote it: then `id` is the engine's notice's, and it has no round.
+ */
+engine: boolean, 
+/**
+ * The round whose return holds it, by its number in the work, its cell and line, and when it ended; for the
+ * engine's notice, when it was written.
+ */
+round: number | null, cell: string | null, line: string | null, at: number | null, work: number | null, item: number | null, title: string | null, text: string, 
+/**
+ * When the owner marked it read; none while it is unread.
+ */
+read_at: number | null, 
+/**
+ * For the engine's notice of a new ask of the owner: that ask.
+ */
+ask: number | null, 
+/**
+ * For one that came of a work of an architect, told by one of its rounds or the engine's notice of one: the
+ * architect's project; none otherwise.
+ */
+architect: string | null, };
+
+/**
+ * The cache misses a notice tells of: how many, the tokens they wrote to the cache again, what that cost beyond
+ * reading the cache, and when the latest came.
+ */
+export type Misses = { count: number, written: number, cost_usd: number, last_at: number | null, };
+
+/**
+ * Where a fault of wf-agents went: the project whose architect it was forwarded to, who forwarded it, and how the
+ * matter it became stands there.
+ */
+export type Forwarded = { project: string, 
+/**
+ * `owner`, forwarded by hand; `setting`, by the owner's setting that forwards each new fault as it comes.
+ */
+by: string, 
+/**
+ * The matter it is in that architect's queue.
+ */
+matter: number, 
+/**
+ * `queued` while the matter is not handled; `handled`, with the architect's round that handled it, by its work
+ * and its number; `withdrawn`.
+ */
+state: string, handled_work: number | null, handled_round: number | null, };
+
+/**
+ * Where the faults of wf-agents can go, for wf-agents' own conversation: the projects whose architects a fault may
+ * be forwarded to, every project of the configuration in its order, and the one whose architect the owner's setting
+ * forwards each new fault to as it comes, none for nobody.
+ */
+export type Forwarding = { projects: Array<string>, auto: string | null, };
+
+/**
+ * One of the owner's conversations, as their list shows it.
+ */
+export type Conversation = { 
+/**
+ * Which: `architect:<project>` for the owner's one-to-one with a project's architect, `wf-agents` for wf-agents
+ * itself, `work:<id>` for a work's group of the owner, its engineer and its project's architect, and
+ * `projects:<project>|<project>...` for the architects of projects the configuration connects.
+ */
+key: string, 
+/**
+ * architect, wf_agents, work or projects.
+ */
+kind: string, 
+/**
+ * The project it is about; none for wf-agents' and a group of projects.
+ */
+project: string | null, 
+/**
+ * For a group of projects: its projects, in order.
+ */
+projects: Array<string>, 
+/**
+ * For a work's group: the work, its item, the item's title and the tier the item is at, and whether the work is
+ * over (done or ended), which greys the group out in place.
+ */
+work: number | null, item: number | null, title: string | null, level: string | null, over: boolean, 
+/**
+ * How many things in it wait for the owner: the open blockers the owner holds, design cards not ruled, faults not
+ * read.
+ */
+waiting: number, 
+/**
+ * How many of its entries from anyone but the owner came after the latest the owner read, what waits aside.
+ */
+unread: number, 
+/**
+ * When its latest entry came; none while it has none.
+ */
+last_at: number | null, };
+
+/**
+ * One entry of a conversation of the owner's: what `conversation_entries` gives, or what the engine writes from the
+ * flow (a work's stage card, an architect's matter card, the policy taking effect).
+ */
+export type ConversationEntry = { 
+/**
+ * What it is: message, notice, ask, interjection, words, talk (the owner's words added to a talk with the
+ * architect), question, report, reply, card, ruling, between; stage, matter or policy. The owner's answer to an
+ * ask is in the ask's entry, never one of its own.
+ */
+source: string, 
+/**
+ * Its row in the table it comes from; for a stage card, its number in the work's stage cards, from 1.
+ */
+id: number, 
+/**
+ * Who said it and to whom: a line, the owner, the engine or wf-agents; the owner's words in a work's group are to
+ * the engineer, the architect or both; for between, the projects.
+ */
+sender: string, recipient: string, text: string, at: number, 
+/**
+ * The work and the round it came with, when it came with one.
+ */
+work: number | null, round: number | null, 
+/**
+ * For an ask, the ask; for a design card and a ruling on it, the card; for what is or holds an
+ * architect's matter, or is an entry of the talk about it, the matter.
+ */
+ask: number | null, design_card: number | null, matter: number | null, 
+/**
+ * For a message or a notice: when the owner marked it read; none while it is unread.
+ */
+read_at: number | null, 
+/**
+ * Whether it waits for the owner: an open blocker the owner holds, a design card not ruled, a fault not read.
+ */
+waiting: boolean, 
+/**
+ * Whether the owner's words in it are not taken up yet.
+ */
+pending: boolean, 
+/**
+ * Whether the owner's words in it were never taken in: the work ended first.
+ */
+undelivered: boolean, 
+/**
+ * Whether it is an engineer's question the architect holds now, which the owner may answer in the group.
+ */
+answerable: boolean, 
+/**
+ * For a notice of a fault of wf-agents, to be fixed in wf-agents whichever project it came up in, its kind:
+ * cache_miss or flow_anomaly.
+ */
+fault: string | null, 
+/**
+ * For a notice of cache misses: the misses it tells of, the first and those added to it since.
+ */
+misses: Misses | null, 
+/**
+ * For a notice of a fault of wf-agents: the architects it was forwarded to, in the order it went; none for
+ * another entry.
+ */
+forwards: Array<Forwarded>, 
+/**
+ * The images the owner sent with the owner's words it holds, by their ids, in order; each is read at
+ * `/api/v1/attachments/<id>`. Empty for anything else.
+ */
+images: Array<number>, 
+/**
+ * For an ask: the ask in full.
+ */
+ask_detail: OwnerAsk | null, 
+/**
+ * For a stage card: the stage the work went through.
+ */
+stage: StageCard | null, 
+/**
+ * For a matter card: where the matter stands with the architect.
+ */
+matter_card: MatterProgress | null, 
+/**
+ * For the owner's words the architect they were said to took up, which have no matter card: where they stand
+ * with it, shown under their bubble.
+ */
+words_state: WordsState | null, 
+/**
+ * For the policy taking effect: the policy in force.
+ */
+policy: PolicyInForce | null, 
+/**
+ * For a version of the architect's plan: what changed and the plan whole.
+ */
+plan: PlanChange | null, };
+
+/**
+ * A stage a work entered (research, design, implementation, testing and fixing, merge, watching main), as its bubble
+ * in the work's group says it: posted when the work came into the stage, from the round that came in to the round
+ * that left, and updated in place while the work is there. A stage the work comes back to is a stage of its own. A
+ * stretch of the engine's own steps that sent the work straight back, such as the merge's judge finding the reviews'
+ * findings open, is none of its own: its sending back is how the stage before it ended.
+ */
+export type StageCard = { 
+/**
+ * The stage, as the flow names it.
+ */
+stage: string, 
+/**
+ * How many times the work was at this stage before.
+ */
+again: number, 
+/**
+ * Its rounds, by their numbers in the work: the first and the last.
+ */
+first: number, last: number, 
+/**
+ * When its first round started, and when its last ended; none while the work is at it.
+ */
+started_at: number, ended_at: number | null, 
+/**
+ * What its rounds cost.
+ */
+cost_usd: number, 
+/**
+ * Whether the work is at this stage now.
+ */
+current: boolean, 
+/**
+ * How it ended; none while the work is at it: done; the verdict of the gate or the tool it left by, as the row's
+ * name (stands, does_not_stand, merged, green); no_findings, its reviews found nothing; sent_back; or ended, the
+ * work ended before its end.
+ */
+outcome: string | null, 
+/**
+ * Why it was sent back or the work ended, in the flow's or the engine's words, where its reviews' findings do not
+ * say it.
+ */
+why: string | null, 
+/**
+ * For a stage sent back for what its reviews found: each review that found something, and how many it found.
+ */
+findings: Array<ReviewFindings>, 
+/**
+ * For a stage that merged the work: its pull request and the merge commit.
+ */
+pr: number | null, commit: string | null, 
+/**
+ * For a work taken over by a new work on its item: that work.
+ */
+taken_over_by: number | null, 
+/**
+ * What its rounds said they did, oldest first, the latest last.
+ */
+notes: Array<StageNote>, 
+/**
+ * What the engine told the owner of the work while it was at the stage, such as a limit passed or main broken by
+ * its merge, in words that do not name the work; its pauses and stops are how the work stands, which its group
+ * says where the work is, and not said again here.
+ */
+events: Array<string>, 
+/**
+ * What the agents' rounds in it handed back that the flow shows on the item, oldest first: for the design, the
+ * approaches compared, the one chosen, the design and the acceptance.
+ */
+shown: Array<Shown>, 
+/**
+ * The design cards its rounds handed in, the one that waits for the owner's ruling among them.
+ */
+design_cards: Array<DesignCard>, };
+
+/**
+ * What a round said it did, its progress note: the round, the line whose round it was, and the note.
+ */
+export type StageNote = { round: number, line: string | null, text: string, };
+
+/**
+ * What a review found: the review, by its cell's title, its round, and how many findings it left open.
+ */
+export type ReviewFindings = { review: string, round: number, findings: number, };
+
+/**
+ * A version of the plan in an architect's notebook, as its bubble in the one-to-one says it: what changed from the
+ * version before, as the first line the new one has that the one before had not, none for the first plan; the plan
+ * whole; and the round of the architect's line that wrote it.
+ */
+export type PlanChange = { changed: string | null, plan: string, work: number, round: number, };
+
+/**
+ * Where a matter stands with its architect, as the engine writes it from the flow: queued, held by an ask of the
+ * owner, worked on at a cell, handled with what became of it, or withdrawn with why.
+ */
+export type MatterProgress = { matter: number, kind: string, detail: string | null, 
+/**
+ * What it is, in one sentence, as the engine wrote it.
+ */
+what: string, 
+/**
+ * queued, held, working, done or withdrawn.
+ */
+state: string, 
+/**
+ * While it is worked on: the cell the architect is at, with its title, and the round of the architect's work
+ * there.
+ */
+cell: string | null, cell_title: string | null, architect_work: number | null, round: number | null, 
+/**
+ * The work it is about, whose group holds it in full, and that work's item.
+ */
+work: number | null, item: number | null, 
+/**
+ * Once handled: what became of it.
+ */
+handled: Handled | null, 
+/**
+ * Once withdrawn: why.
+ */
+withdrawn: string | null, 
+/**
+ * The ask of the owner that holds it, or held it.
+ */
+asked: number | null, 
+/**
+ * For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
+ * steps to set it straight); none for a matter of another kind.
+ */
+fix: JsonValue | null, 
+/**
+ * What its path changed that the owner reads by name, listed in its bubble: the observations it recorded, merged
+ * a report into or closed, and the items it made, cancelled or moved in the queue.
+ */
+made: Array<MadeThing>, };
+
+/**
+ * Something an architect's matter changed, by its kind: an observation it recorded (new), merged a report into
+ * (merge) or closed (close), or an item it made (new), cancelled or moved in the queue (reordered); its number, and
+ * its title, for an observation recorded before observations had titles what it says; for an item moved, where to
+ * (`place`: first, last, before, after or under) and the item it went before, after or under (`next_to`).
+ */
+export type MadeThing = { kind: string, change: string, id: number, title: string, place: string | null, next_to: number | null, };
+
+/**
+ * Where the owner's words stand with the architect they were said to, once it took them up, as one line under their
+ * bubble says it, in place of a matter card that would repeat them.
+ */
+export type WordsState = { 
+/**
+ * replying while the architect has them in hand; replied once handled; asked while a question of the architect's
+ * to the owner holds them; withdrawn. (waits and held, a talk's wait for the owner's reply, a flow version before
+ * had.)
+ */
+state: string, 
+/**
+ * The project of the architect they were said to; while it has them in hand, its work, the work's latest round
+ * and the cell it is at, where its chart shows them handled.
+ */
+project: string, architect_work: number | null, round: number | null, cell: string | null, };
+
+/**
+ * A conversation in full: its entries in time order; what waits for the owner in it, the open blockers the owner
+ * holds with their forms (the asks, which show where they were asked, and the design cards whose ruling a work waits
+ * for, pinned at its top); in the one-to-one with an architect, the questions it pinned for the owner's reply, at its
+ * bottom, and the one it waits on now; and how far the owner has read it.
+ */
+export type ConversationDetail = { key: string, entries: Array<ConversationEntry>, 
+/**
+ * The asks that wait for the owner where they were asked; the questions pinned are not among them.
+ */
+asks: Array<OwnerAsk>, design_cards: Array<DesignCard>, 
+/**
+ * In the one-to-one with an architect: the questions it pinned for the owner's reply, newest first, each an ask of
+ * the architect's that waits and parks a matter still open, as the engine reads them; none in another
+ * conversation. Each is an entry too, where it was asked.
+ */
+questions: Array<OwnerAsk>, 
+/**
+ * In the one-to-one with an architect: the question it waits for the owner's reply to now at its look at the queue
+ * (`Q0`'s row `waits`), as the engine works it out: the newest pinned, put less than the installation's wait for
+ * the owner's reply ago, with nothing said by the owner since; none otherwise.
+ */
+waits_on: number | null, 
+/**
+ * The time of the latest entry the owner read; none before the first.
+ */
+read_to: number | null, 
+/**
+ * For wf-agents' own conversation: where its faults can go; none for another.
+ */
+forwarding: Forwarding | null, };
+
+/**
+ * What the owner says in a work's group: to its engineer, to its project's architect, or to both. Saying it to the
+ * architect alone, the engineer is given it as a word that needs no answer; to the engineer alone, the architect is
+ * given it at its next pick. With `question`, it answers that question of the engineer's, which the architect holds:
+ * the answer is the reply, and the architect is told.
+ */
+export type WorkSaid = { text: string, 
+/**
+ * engineer (the default), architect or both.
+ */
+to?: string, 
+/**
+ * The architect's matter that holds the question the words answer.
+ */
+question?: number, 
+/**
+ * The images sent with the words, in the order the owner added them; words may be images alone.
+ */
+images: Array<ImageSent>, };
+
+/**
+ * What the owner says in a group of projects: to one of their architects, or to every one.
+ */
+export type ProjectsSaid = { 
+/**
+ * The group, by its key.
+ */
+key: string, text: string, 
+/**
+ * The project whose architect it is for; none for every architect of the group.
+ */
+to?: string, 
+/**
+ * The images sent with the words, in the order the owner added them; words may be images alone.
+ */
+images: Array<ImageSent>, };
+
+/**
+ * What the owner says to a project's architect in their one-to-one: the words, the images sent with them, and the
+ * question of the architect's they reply to, when the box replies to one.
+ */
+export type ArchitectSaid = { text: string, 
+/**
+ * The item it is about, if any.
+ */
+item?: number, 
+/**
+ * The question pinned in the one-to-one that the words reply to.
+ */
+reply_to?: number, 
+/**
+ * The images sent with the words, in the order the owner added them; words may be images alone.
+ */
+images: Array<ImageSent>, };
+
+/**
+ * An image the owner sends with words, as the page hands it in: a PNG, JPEG, GIF or WebP image of at most 5 MB, at
+ * most 10 to a message.
+ */
+export type ImageSent = { 
+/**
+ * image/png, image/jpeg, image/gif or image/webp.
+ */
+media_type: string, 
+/**
+ * Its bytes, as base64.
+ */
+data: string, };
+
+/**
+ * How far the owner has read a conversation: the time of the latest entry the page showed.
+ */
+export type ReadTo = { key: string, at: number, };
+
+/**
+ * Which messages to the owner the owner marks read: those named (agents' messages by `ids`, the engine's notices by
+ * `notices`), or every one unread.
+ */
+export type MarkRead = { ids: Array<number>, notices: Array<number>, all: boolean, };
+
+/**
+ * What the owner sends to forward a fault of wf-agents: the project whose architect takes it.
+ */
+export type ForwardFault = { project: string, };
+
+/**
+ * What the owner sends to set where each new fault of wf-agents goes as it comes: a project, whose architect takes
+ * it, or none for nobody.
+ */
+export type ForwardNew = { project: string | null, };
+
+/**
+ * The owner's answer to an ask of the owner, as the page and the command line hand it in.
+ */
+export type Answer = { text: string, 
+/**
+ * For what the architect is asked: why it was decided this way.
+ */
+why?: string, 
+/**
+ * For what the architect is asked: the rest of the architect's reply (children, rest, waits).
+ */
+reply?: JsonValue, 
+/**
+ * For an ask that holds an engineer's work: `architect` to hand the question back to the project's architect with
+ * the answer as a decision for it to carry out, instead of resolving it.
+ */
+to?: string, 
+/**
+ * The images sent with the answer, in the order the owner added them.
+ */
+images: Array<ImageSent>, };
+
+/**
+ * The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
+ * decisions, all sent at once.
+ */
+export type Ruling = { 
+/**
+ * One for each decision of the design card.
+ */
+decisions: Array<DecisionRuling>, };
+
+/**
+ * The ruling on one decision of a design card.
+ */
+export type DecisionRuling = { 
+/**
+ * The decision's number on the design card, from 1.
+ */
+decision: number, 
+/**
+ * confirm or disagree.
+ */
+verdict: string, 
+/**
+ * Why, for a disagreement; it may be left out when another approach is chosen.
+ */
+text?: string, 
+/**
+ * For a disagreement: another of the decision's approaches, chosen instead of the one recommended, by its name.
+ */
+option?: string, };
+
+/**
+ * What an answer or a ruling did, in words.
+ */
+export type Done = { done: string, };
+
+/**
+ * How many messages a mark made read.
+ */
+export type Marked = { marked: number, };
+
+/**
+ * What the owner or the architect said to a work.
+ */
+export type Interjection = { id: number, work: number, line: string, speaker: string, text: string, 
+/**
+ * The round of the work it was handed in, by its number in the work; none while it waits.
+ */
+delivered_round: number | null, };
+
+/**
+ * A work in full: where it stands as the engine keeps it, and every round it went through.
+ */
+export type WorkDetail = { work: WorkSummary, machine: string | null, worktree: string | null, pushed_head: string | null, 
+/**
+ * The cell the work left to ask, and the cells waiting for an answer, innermost last.
+ */
+resume_at: string | null, waiting: JsonValue, 
+/**
+ * The values its rows recorded.
+ */
+recorded: JsonValue, rounds: Array<RoundSummary>, design_cards: Array<DesignCard>, asks: Array<OwnerAsk>, 
+/**
+ * What its agents told the owner, and what the engine told the owner of it, oldest first.
+ */
+messages: Array<OwnerMessage>, interjections: Array<Interjection>, 
+/**
+ * The sessions its lines ran in, oldest first.
+ */
+sessions: Array<WorkSession>, 
+/**
+ * The keep-warm pings sent to its sessions while it waited, oldest first.
+ */
+pings: Array<Ping>, };
+
+/**
+ * The session of a line, as the command line knows it.
+ */
+export type Session = { line: string, cli: string, cli_session: string, };
+
+/**
+ * A session one of a work's lines ran in.
+ */
+export type WorkSession = { id: number, line: string, 
+/**
+ * Why it started: line, cell, limit, or carried (a work of the architect going on in the CLI session the project's
+ * previous architect work left).
+ */
+started: string, 
+/**
+ * When it ended, so that the line's next round started a new one; none while it goes on.
+ */
+ended: number | null, };
+
+/**
+ * A keep-warm ping: a minimal message the session manager sent a session while its work waited, so that the
+ * session's prompt cache was read instead of expiring. A ping means the work waited over an hour.
+ */
+export type Ping = { id: number, session: number, line: string, 
+/**
+ * The cell the work waited at, what it waited on (pause, owner, architect, items or tool) and that in words.
+ */
+cell: string, on: string, what: string, started_at: number, ended_at: number | null, model: string | null, 
+/**
+ * What it cost, as the command line reported it; none for one that failed or runs.
+ */
+cost_usd: number | null, 
+/**
+ * Tokens read from the cache, and written to it.
+ */
+read: number, written: number, 
+/**
+ * Why it failed, when it did.
+ */
+error: string | null, };
+
+/**
+ * One input a round was given, as a step that is not an agent's round records it, or as an agent's round recorded it
+ * before its message was recorded with its conditional inputs: what it is, its value, and where its cell reads it
+ * from.
+ */
+export type RoundInput = { what: string, value: JsonValue, 
+/**
+ * The sources the cell's definition names for it; empty when the cell no longer names this input.
+ */
+from: Array<Src>, };
+
+/**
+ * One conditional input of an agent round's message.
+ */
+export type RoundConditional = { 
+/**
+ * Its address, such as `R5-12·D2·design`, `rule:ground` or `format:common`.
+ */
+address: string, 
+/**
+ * The hash of its content, which tells two versions under one address apart.
+ */
+hash: string, 
+/**
+ * Given in the message; otherwise the session already held it, and the message only referred to it.
+ */
+given: boolean, };
+
+/**
+ * An image the owner sent that an agent round's message named.
+ */
+export type RoundImage = { 
+/**
+ * The image, by its id; it is read at `/api/v1/attachments/<id>`.
+ */
+attachment: number, 
+/**
+ * The address of what the message gave that named it: the owner's words it came with, or what holds them.
+ */
+with: string, 
+/**
+ * Given after the message's text; otherwise the session held it, and the message only referred to it.
+ */
+given: boolean, };
+
+/**
+ * A file a tool run kept, or that its result points to, under the data directory.
+ */
+export type KeptFile = { 
+/**
+ * The path as the database holds it.
+ */
+path: string, 
+/**
+ * Where the interface serves it: `logs/<name>` or `tool-output/<name>`, under `/api/v1/files/`.
+ */
+file: string, };
+
+/**
+ * One attempt of a tool the engine ran.
+ */
+export type ToolRun = { id: number, tool: string, args: JsonValue, attempt: number, 
+/**
+ * The result, a refusal and its reason included; none while it runs.
+ */
+result: JsonValue | null, files: Array<KeptFile>, queued_at: number, started_at: number | null, ended_at: number | null, };
+
+/**
+ * A round in full: everything the engine gave, the return, what the engine made of it, and what it cost.
+ */
+export type RoundDetail = { round: RoundSummary, work: number, 
+/**
+ * The work's flow version and graph, in which the round's cell is found.
+ */
+flow_version: number, graph: string, session: Session | null, config_commit: string, 
+/**
+ * The message exactly as the agent was sent it (for a round recorded before messages were, its prompt); none
+ * for a round no agent ran.
+ */
+message: string | null, 
+/**
+ * Each conditional input the message gave or referred to; empty for a round no agent ran, or one recorded
+ * before.
+ */
+conditional: Array<RoundConditional>, 
+/**
+ * The images the owner sent that the message named, in the order named: those given after its text, and those
+ * its session held, which it only referred to.
+ */
+images: Array<RoundImage>, 
+/**
+ * How the command line was called: the whole command line, the session started or resumed, the engine's and
+ * the command line's versions; none for a round no agent ran, or one recorded before.
+ */
+call: JsonValue | null, 
+/**
+ * The level an agent's round ran at: as its call record says, or for a round recorded before it said, the one
+ * level the configuration at the round's commit maps its model and effort to; none when no one level does.
+ */
+level: string | null, 
+/**
+ * The effort an agent's round ran with, as its command line gave it.
+ */
+effort: string | null, 
+/**
+ * For a round that locked a new acceptance: the acceptance locked before, which it replaced; none for one that
+ * locked the first.
+ */
+acceptance_before: JsonValue | null, 
+/**
+ * The limits of the flow's counters for the work's project, as the configuration the round ran with sets them,
+ * by counter.
+ */
+limits: { [key in string]: number }, 
+/**
+ * The inputs of a step that is not an agent's round, or of an agent's round recorded before its conditional
+ * inputs were.
+ */
+inputs: Array<RoundInput>, 
+/**
+ * What the engine gave, as recorded: the message, conditional inputs, call or inputs above, and what the engine knew
+ * besides, such as the head and the interjections handed in.
+ */
+input: JsonValue, output: JsonValue | null, 
+/**
+ * Why the return was sent back or the run failed.
+ */
+rejected: JsonValue | null, 
+/**
+ * Tokens and cost as the command line reported them.
+ */
+usage: JsonValue | null, tool_runs: Array<ToolRun>, design_cards: Array<DesignCard>, asks: Array<OwnerAsk>, 
+/**
+ * What was said to the work and handed in with this round.
+ */
+interjections: Array<Interjection>, };
+
+/**
+ * A stored flow version.
+ */
+export type FlowVersion = { id: number, digest: string, 
+/**
+ * How many works are pinned to it.
+ */
+works: number, };
+
+/**
+ * Where an item stands.
+ */
+export type ItemState = "new" | "queued" | "working" | "done" | "stopped" | "cancelled";
+
+/**
+ * An item as a list shows it.
+ */
+export type ItemSummary = { id: number, project: string, title: string, 
+/**
+ * change or report.
+ */
+deliver: string, level: string, cancelled: string | null, state: ItemState, 
+/**
+ * Its place in the dispatch queue, lower first; none when it is not queued.
+ */
+queued: number | null, 
+/**
+ * Its latest work and the cell that work is at.
+ */
+work: number | null, at: string | null, 
+/**
+ * The stage its latest work is at, and the stages of that work's graph in their order, among which it stands;
+ * none and empty before a work starts.
+ */
+stage: string | null, stages: Array<string>, 
+/**
+ * Its latest work's asks of the owner still waiting for an answer, and its design cards still waiting for a
+ * ruling.
+ */
+open_asks: number, open_design_cards: number, 
+/**
+ * Its pull request: that of its latest work that has one, or the one it was imported with.
+ */
+pr: number | null, 
+/**
+ * The items not merged yet that it depends on by a blocking dependency, which keep it from starting; empty while a
+ * work on it goes on, or it is done or cancelled.
+ */
+blocked_by: Array<number>, };
+
+/**
+ * A dependency: `item` cannot finish until `depends_on` is done.
+ */
+export type ItemLink = { item: number, depends_on: number, 
+/**
+ * What `item` needs `depends_on` to hand in.
+ */
+needs: string, 
+/**
+ * blocking: `item` does not start until `depends_on` is merged; parallel: it may start before.
+ */
+kind: string, };
+
+/**
+ * Every item, and the dependencies between them.
+ */
+export type Items = { items: Array<ItemSummary>, links: Array<ItemLink>, };
+
+/**
+ * An item on the other end of a dependency, with what the dependency needs and its kind, blocking or parallel.
+ */
+export type LinkedItem = { item: ItemSummary, needs: string, kind: string, };
+
+/**
+ * An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works, design cards
+ * and asks of the owner.
+ */
+export type ItemDetail = { item: ItemSummary, problem: string, why: string, approach: string | null, 
+/**
+ * The locked acceptance, and the round that locked it, by its work and its number in the work; none until a first
+ * design passes its checks.
+ */
+acceptance: JsonValue | null, acceptance_work: number | null, acceptance_round: number | null, 
+/**
+ * The items it depends on, and the items that depend on it.
+ */
+depends_on: Array<LinkedItem>, depended_on_by: Array<LinkedItem>, 
+/**
+ * Its works, the earlier ones too: a work stopped when the flow moved to a new version, and the work after it
+ * that took the item over.
+ */
+works: Array<WorkSummary>, 
+/**
+ * What an import recorded of work on the item outside this flow: where it came from, its branch and its pull
+ * request; none for an item made here.
+ */
+imported_from: string | null, imported_branch: string | null, imported_pr: number | null, design_cards: Array<DesignCard>, asks: Array<OwnerAsk>, 
+/**
+ * What the rounds of its works handed back that their flow versions show on the item, oldest first.
+ */
+shown: Array<Shown>, 
+/**
+ * Each time its tier changed after it was made, oldest first: when, by whom, from what to what.
+ */
+level_changes: Array<LevelChange>, };
+
+/**
+ * A value a round handed back that the flow shows on the item the work is on: the owner reads it there.
+ */
+export type Shown = { work: number, 
+/**
+ * The round that handed it back: its number in the work.
+ */
+round: number, cell: string, 
+/**
+ * The path of the return it is at, as the flow writes it.
+ */
+path: string, value: JsonValue, };
+
+/**
+ * A change of an item's tier, as its history keeps it.
+ */
+export type LevelChange = { at: number, 
+/**
+ * owner, architect or engine.
+ */
+by: string, from: string, to: string, };
+
+/**
+ * The settings the owner keeps on the page, as the configuration's last commit has them: the installation's and each
+ * project's, those the owner changes there and those only shown, and the text of each rule a project takes in.
+ */
+export type Settings = { 
+/**
+ * Each tier, in order.
+ */
+tiers: Array<Tier>, 
+/**
+ * The highest tier an item may be at; none, any.
+ */
+highest_level: string | null, 
+/**
+ * The tier the architect runs at.
+ */
+architect: string, 
+/**
+ * The context, in tokens, past which a line's session is replaced at its next round.
+ */
+context_limit: number, 
+/**
+ * Keep-warm, which is not configuration: how many minutes after an idle session's last call it is pinged; at most
+ * how many times in one wait is each tier's.
+ */
+keep_warm_minutes: number, 
+/**
+ * The language everything the owner reads is written in.
+ */
+language: string, 
+/**
+ * The machines works run on, by name.
+ */
+hosts: Array<HostSlots>, 
+/**
+ * The CLIs agents run in, by name.
+ */
+clis: Array<CliArgs>, 
+/**
+ * The gh commands agents may have the engine run, each as the words it starts with.
+ */
+gh_allow: Array<string>, 
+/**
+ * The most rows a query hands back, and how long it may run, in milliseconds.
+ */
+query_max_rows: number, query_timeout_ms: number, 
+/**
+ * Each project, by name.
+ */
+projects: Array<ProjectSettings>, 
+/**
+ * The text of each rule a project takes in, by the rule's name.
+ */
+rules: { [key in string]: string }, 
+/**
+ * The configuration commit they are read from.
+ */
+commit: string, };
+
+/**
+ * A tier: its name, the model it runs, what work it is for, and at most how many keep-warm pings one wait of a
+ * session on its model has, which is not configuration: as many as cost no more than writing the session again.
+ */
+export type Tier = { name: string, model: string, desc: string, keep_warm_most: number, };
+
+/**
+ * A machine works run on: its name, and how many works may run on it at once.
+ */
+export type HostSlots = { name: string, slots: number, };
+
+/**
+ * A CLI agents run in: its name, the command that starts it, and the arguments put before the ones the engine adds.
+ */
+export type CliArgs = { name: string, command: string, args: Array<string>, };
+
+/**
+ * A project's settings: those the owner changes on the page (the limits of its counters, the tags its observations
+ * may carry, and whether its agents hand in flow feedback) and those only shown (where it is, how its design and its
+ * CI are set up, its constitution and the rules it takes in).
+ */
+export type ProjectSettings = { name: string, 
+/**
+ * The limit of each counter of the flow the project sets one for, in the flow's order.
+ */
+limits: Array<CounterLimit>, 
+/**
+ * The tags its observations may carry, in order.
+ */
+observation_tags: Array<Tag>, 
+/**
+ * Whether its agents hand in what was wrong with their rounds' cells.
+ */
+flow_feedback: boolean, 
+/**
+ * The GitHub repository, as owner/name.
+ */
+repo: string, 
+/**
+ * Its clone on the engine's machine.
+ */
+checkout: string, 
+/**
+ * The branch works merge into.
+ */
+main: string, 
+/**
+ * The paths whose change is a change of design, and those that hold tests.
+ */
+design_paths: Array<string>, test_paths: Array<string>, 
+/**
+ * The command that checks the design tree; none when there is none.
+ */
+design_check: string | null, 
+/**
+ * The workflow each push of a work's branch runs, those that make up the full CI, and the checks a merge needs.
+ */
+ci_fast: string, ci_full: Array<string>, merge_checks: Array<string>, 
+/**
+ * Its constitution, a path in its checkout; none when it has none.
+ */
+constitution: string | null, 
+/**
+ * The rules it takes in, by name.
+ */
+rules: Array<string>, };
+
+/**
+ * The limit a project sets on a counter of the flow, with what the counter counts.
+ */
+export type CounterLimit = { counter: string, limit: number, desc: string, };
+
+/**
+ * A change to the settings the owner makes on the page: each value given takes the place of the one there.
+ */
+export type SettingsChange = { 
+/**
+ * A model for each tier changed, by the tier's name.
+ */
+models: { [key in string]: string }, highest_level: string | null, architect: string | null, context_limit: number | null, language: string | null, 
+/**
+ * How many works may run at once on each machine changed, by its name.
+ */
+slots: { [key in string]: number }, 
+/**
+ * What changed of each project, by its name.
+ */
+projects: { [key in string]: ProjectChange }, };
+
+/**
+ * A change to a project's settings the owner makes on the page: each value given takes the place of the one there.
+ */
+export type ProjectChange = { 
+/**
+ * The limit of each counter changed, by the counter's name.
+ */
+limits: { [key in string]: number }, 
+/**
+ * The tags its observations may carry, all of them in order, when they changed.
+ */
+observation_tags: Array<Tag> | null, flow_feedback: boolean | null, };
+
+/**
+ * The login accounts the agents of a CLI may run under: the CLI's configuration directories in the directory of the
+ * one they run with now, each signed in once by hand.
+ */
+export type CliAccounts = { 
+/**
+ * The CLI's name in the configuration, which each account's directory is named by: the CLI's name alone, or it
+ * and a dash and the account's own name.
+ */
+cli: string, 
+/**
+ * The command that starts it.
+ */
+command: string, 
+/**
+ * The directory the accounts' directories are in.
+ */
+dir: string, 
+/**
+ * How a new account's directory is signed in: the variable that names the directory to the CLI, and what to type
+ * once it runs.
+ */
+env: string, login: string, 
+/**
+ * Each account, by its directory's name.
+ */
+accounts: Array<Account>, };
+
+/**
+ * A login account the agents may run under: a configuration directory of the CLI.
+ */
+export type Account = { 
+/**
+ * The directory's name, such as `claude-work`.
+ */
+name: string, 
+/**
+ * The directory, whole.
+ */
+path: string, 
+/**
+ * The account it is signed in as, by its email; none when it is not signed in.
+ */
+email: string | null, 
+/**
+ * Whether the agents run under it now.
+ */
+used: boolean, };
+
+/**
+ * The login account the owner has the agents of a CLI run under: the CLI's name and the account's directory's name.
+ */
+export type AccountChoice = { cli: string, name: string, };
+
+/**
+ * An item's new tier, as the owner sets it on the item's page.
+ */
+export type NewLevel = { level: string, };
+
+/**
+ * A project's architect, as its page and the panel beside its one-to-one show it: its works, its queue, what it asked
+ * the owner, the matters it handled, the item changes its batches made, the policy it works by and the draft of a new
+ * one, and its notebook. Its works are works of the architect's graph for the project, on no item.
+ */
+export type Architect = { 
+/**
+ * The project whose architect it is.
+ */
+project: string, 
+/**
+ * Every project of the configuration, each of which has its architect.
+ */
+projects: Array<string>, 
+/**
+ * Its works, newest first.
+ */
+works: Array<ArchitectWork>, 
+/**
+ * The matters it has not handled: those in its queue, in the order they came; then those an ask of the owner holds.
+ */
+queue: Array<Matter>, 
+/**
+ * What stops the project's new works from starting, oldest first.
+ */
+holds: Array<DispatchHold>, 
+/**
+ * What its works asked the owner, oldest first.
+ */
+asks: Array<OwnerAsk>, 
+/**
+ * The matters it handled, newest first, each with what became of it.
+ */
+handled: Array<Handled>, 
+/**
+ * The item changes its batches made or dropped, newest first.
+ */
+changes: Array<ItemChange>, 
+/**
+ * The policy in force for the project; none before the first takes effect.
+ */
+policy: PolicyInForce | null, 
+/**
+ * The draft of a new policy that waits for the owner's approval: the latest the architect wrote, until a new
+ * policy takes effect; none otherwise.
+ */
+draft: PolicyDraft | null, 
+/**
+ * Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
+ * each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
+ */
+notebook: Array<NotebookSection>, 
+/**
+ * The project's constitution, which the architect judges by with the policy: its path in the project's checkout,
+ * as the configuration names it, and its text there now, empty when it cannot be read; none when the project names
+ * none.
+ */
+constitution: NamedText | null, };
+
+/**
+ * One work of an architect.
+ */
+export type ArchitectWork = { work: WorkSummary, 
+/**
+ * The matter it handles now: the one its latest pick chose, until that matter is handled or held by an ask; none
+ * when it handles none, or is over.
+ */
+handling: number | null, };
+
+/**
+ * A window of a project's architect's rounds, across its works, in the order they started, oldest first; and whether
+ * rounds older than its first and newer than its last are there to read.
+ */
+export type ArchitectRounds = { rounds: Array<RoundSummary>, older: boolean, newer: boolean, };
+
+/**
+ * A matter for an architect that it has not handled.
+ */
+export type Matter = { id: number, 
+/**
+ * Its kind, which decides its path: set_straight, engineer_question, report, design_card, failure, owner_words,
+ * other_architect or slots_free.
+ */
+kind: string, 
+/**
+ * What more its kind says, such as a side report's kind; none for an engineer's question, which carries no kind.
+ */
+detail: string | null, 
+/**
+ * What it is, in one sentence, as the engine wrote it.
+ */
+what: string, 
+/**
+ * Who raised it: `work`, a round of a work; `architect`, a round of an architect's; `owner`, the owner's words;
+ * `engine`, the engine.
+ */
+source: string, 
+/**
+ * The item it concerns, and the item's title.
+ */
+item: number | null, title: string | null, 
+/**
+ * The round that raised it, by its work and its number in the work.
+ */
+work: number | null, round: number | null, 
+/**
+ * When it came.
+ */
+at: number, 
+/**
+ * The ask of the owner that holds it until answered, and the cell it goes back to with the answer.
+ */
+asked: number | null, resume_cell: string | null, 
+/**
+ * Whether the owner answered that ask, so that it is back in the queue, for the cell that asked.
+ */
+answered: boolean, 
+/**
+ * For a matter in the queue: who waits for it (`agent`, an engineer stopped for its question; `owner`; or
+ * `none`), and how long since it came, in milliseconds.
+ */
+waits: string | null, waited_ms: number | null, 
+/**
+ * Whether the report it holds was marked urgent.
+ */
+urgent: boolean, 
+/**
+ * For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
+ * steps to set it straight); none for a matter of another kind.
+ */
+fix: JsonValue | null, 
+/**
+ * For a design card to look at: how the card stands.
+ */
+card: MatterCard | null, };
+
+/**
+ * How the design card a matter is about stands: its number; open, ruled or replaced; its rulings, the owner's and the
+ * architect's alike; and the card that replaced it.
+ */
+export type MatterCard = { id: number, status: string, rulings: JsonValue, replaced_by: number | null, };
+
+/**
+ * What stops a project's new works from starting: `architect`, its architect's own hold; `set_straight`, while its
+ * architect sets it straight (`policy`, while a new policy was set, a flow version before); since when; and for the
+ * architect's own hold, why, as it said it.
+ */
+export type DispatchHold = { reason: string, since: number, why: string | null, };
+
+/**
+ * A matter an architect handled, and what became of it, from what was done on its path rather than what was said of
+ * it: each kind of outcome it had.
+ */
+export type Handled = { matter: number, kind: string, detail: string | null, what: string, 
+/**
+ * The round that closed it: its work, its number and its cell, and when it ended.
+ */
+work: number, round: number, cell: string, at: number | null, 
+/**
+ * The reply taken back to the work that asked, and that work.
+ */
+reply: string | null, reply_to: number | null, 
+/**
+ * How many messages its path told the owner.
+ */
+told: number, 
+/**
+ * The item changes it collected: made, dropped, and still waiting for the review of their batch.
+ */
+made: number, dropped: number, collected: number, 
+/**
+ * Each change its path made to the observations.
+ */
+observations: Array<ObservationChange>, 
+/**
+ * What its path did at once: each action's kind, with the item it was about.
+ */
+actions: Array<HandledAction>, 
+/**
+ * The projects whose architects its path wrote to.
+ */
+messages: Array<string>, 
+/**
+ * The ask of the owner its path put about it.
+ */
+ask: number | null, 
+/**
+ * When nothing else came of it: why, as the cell that closed it said.
+ */
+why: string | null, 
+/**
+ * Whether nothing came of it: no reply, nothing told the owner, no item change, no observation, nothing done at
+ * once, no message to another architect and no ask of the owner.
+ */
+nothing: boolean, };
+
+/**
+ * A change a matter's path made to the observations: its kind (new, merge or close), and the observation a merge
+ * reported once more or a close closed; none for a new one, whose number its source's matter finds.
+ */
+export type ObservationChange = { kind: string, observation: number | null, };
+
+/**
+ * Something a matter's path did at once: its kind (pause_work, resume_work, start_work_over, hold_starts,
+ * release_starts, interject), with the item it was about.
+ */
+export type HandledAction = { kind: string, item: number | null, };
+
+/**
+ * An item change an architect's batch made or dropped, with the matter it came from.
+ */
+export type ItemChange = { id: number, 
+/**
+ * The round that handed it in: its work and its number.
+ */
+work: number, round: number, 
+/**
+ * The cell of that round.
+ */
+cell: string, matter: number, 
+/**
+ * The change as handed in, with its reason.
+ */
+change: JsonValue, 
+/**
+ * made, or dropped when the review still found it wrong at its third look.
+ */
+state: string, 
+/**
+ * What it made, such as the item it created; for one dropped, what the review found.
+ */
+outcome: JsonValue | null, };
+
+/**
+ * One of a project's observations: something worth doing that no item does yet.
+ */
+export type Observation = { id: number, 
+/**
+ * What is wrong, as a short phrase; none for one recorded before observations had titles.
+ */
+title: string | null, 
+/**
+ * What it is, why it is worth doing, and what happens if it is not done.
+ */
+what: string, 
+/**
+ * Its tags, from the project's set.
+ */
+tags: Array<string>, 
+/**
+ * Who found it, in what situation, and the matter it came from.
+ */
+source: string, times_reported: number, 
+/**
+ * What it refers to: PRs, branches, design cards, the owner's words.
+ */
+refs: Array<string>, 
+/**
+ * The item that took it in, which closes it once its work merges.
+ */
+folded_into: number | null, 
+/**
+ * Why it was closed (outdated, folded, owner or other), in a word and in a sentence; none while it is open.
+ */
+closed: string | null, closed_why: string | null, 
+/**
+ * When it was recorded, and last changed.
+ */
+created: number | null, updated: number | null, };
+
+/**
+ * A project's observations, as the Observations view shows them: the tags they may carry, in the project's order, each
+ * with what it covers, and the observations, the open ones first, then those an item took in or that were closed,
+ * each newest first.
+ */
+export type ProjectObservations = { project: string, tags: Array<Tag>, observations: Array<Observation>, };
+
+/**
+ * A tag a project's observations may carry, with what it covers.
+ */
+export type Tag = { name: string, desc: string, };
+
+/**
+ * What the owner sends to close an observation: why.
+ */
+export type CloseObservation = { why: string, };
+
+/**
+ * The policy in force: its text, and the round of the architect's work in which it took effect, after the owner
+ * approved it.
+ */
+export type PolicyInForce = { work: number, round: number, 
+/**
+ * The cell of the round that wrote it.
+ */
+cell: string, at: number | null, policy: JsonValue, };
+
+/**
+ * The draft of a new policy that waits for the owner's approval: its text, and the round of the architect's work that
+ * wrote it (cell `P2`).
+ */
+export type PolicyDraft = { work: number, round: number, at: number | null, policy: JsonValue, };
+
+/**
+ * A section of a project's architect's notebook: which (`project_now`, `plan`, `unclear` or `other`), what it says
+ * now, none before a round wrote it, and every version of it, newest first.
+ */
+export type NotebookSection = { section: string, now: NotebookVersion | null, versions: Array<NotebookVersion>, };
+
+/**
+ * A version of a section of an architect's notebook: its whole text, and the round of the architect's line that wrote
+ * it, by its work and its number in the work, with its cell and when it ended.
+ */
+export type NotebookVersion = { text: string, work: number, round: number, cell: string, at: number | null, };
+
+/**
+ * How the whole system stands now, and what it did over a period of whole weeks, the week under way the last: what
+ * the System view shows.
+ */
+export type System = { 
+/**
+ * When the period starts, on a Monday at midnight in the owner's time zone; none for all time.
+ */
+from: number | null, 
+/**
+ * When it was read, which ends the period.
+ */
+at: number, now: SystemNow, 
+/**
+ * The period's weeks, oldest first.
+ */
+weeks: Array<Week>, output: SystemOutput, spend: SystemSpend, waste: SystemWaste, 
+/**
+ * What went wrong in the period, the latest first.
+ */
+anomalies: Array<Anomaly>, };
+
+/**
+ * What may need the owner now besides the works: each project's architect, and what waits for the owner.
+ */
+export type SystemNow = { architects: Array<ArchitectNow>, 
+/**
+ * The asks of the owner not answered, the design cards not ruled on and the faults of wf-agents not read.
+ */
+asks: Waiting, design_cards: Waiting, faults: Waiting, };
+
+/**
+ * A project's architect now.
+ */
+export type ArchitectNow = { project: string, 
+/**
+ * Its work not over, by its id, while one runs; none while none runs.
+ */
+work: number | null, 
+/**
+ * Whether that work is paused.
+ */
+paused: boolean, 
+/**
+ * The matters in its queue, and when the oldest of them came.
+ */
+queue: number, oldest: number | null, };
+
+/**
+ * Things that wait for the owner: how many, and when the oldest of them came.
+ */
+export type Waiting = { n: number, oldest: number | null, };
+
+/**
+ * One week of the period.
+ */
+export type Week = { 
+/**
+ * When it starts: Monday at midnight in the owner's time zone.
+ */
+start: number, 
+/**
+ * The items merged, made and cancelled in it.
+ */
+merged: number, made: number, cancelled: number, 
+/**
+ * The pull requests open at its end, or now for the week under way.
+ */
+open_prs: number, 
+/**
+ * What the engineers' works and the architects' works spent in it, their keep-warm pings included, in US dollars.
+ */
+engineers_usd: number, architects_usd: number, };
+
+/**
+ * What got done in the period.
+ */
+export type SystemOutput = { 
+/**
+ * The items merged in the period, the latest first.
+ */
+merged: Array<Merged>, 
+/**
+ * The items made, and those cancelled, in the period, the latest first.
+ */
+made: Array<ItemAt>, cancelled: Array<ItemAt>, 
+/**
+ * The pull requests open now, the oldest first.
+ */
+open_prs: Array<OpenPr>, };
+
+/**
+ * An item merged, by the work that merged it.
+ */
+export type Merged = { item: number, title: string, work: number, 
+/**
+ * When the work's first round started, and when it merged.
+ */
+started_at: number, merged_at: number, 
+/**
+ * What the work cost, its keep-warm pings included, in US dollars.
+ */
+cost_usd: number, };
+
+/**
+ * An item made or cancelled, and when; for one cancelled, why.
+ */
+export type ItemAt = { item: number, title: string, at: number, why: string | null, };
+
+/**
+ * A pull request open now, by the work it is of.
+ */
+export type OpenPr = { pr: number, project: string | null, work: number, item: number | null, title: string | null, 
+/**
+ * When a work first recorded it.
+ */
+since: number, };
+
+/**
+ * Where the money went in the period.
+ */
+export type SystemSpend = { 
+/**
+ * What the rounds and the keep-warm pings cost, by the line of their session and the model they ran on.
+ */
+by_line_model: Array<LineSpend>, 
+/**
+ * What each item's works cost, the costliest first.
+ */
+by_item: Array<ItemSpend>, 
+/**
+ * The ten cells whose rounds cost most, the costliest first.
+ */
+cells: Array<CellSpend>, };
+
+/**
+ * What the rounds and the keep-warm pings of one line on one model cost.
+ */
+export type LineSpend = { line: string, model: string, rounds: number, pings: number, 
+/**
+ * What they cost, as the command lines reported it, in US dollars.
+ */
+cost_usd: number, };
+
+/**
+ * What an item's works cost, and how many works and rounds they took.
+ */
+export type ItemSpend = { item: number, title: string, works: number, rounds: number, cost_usd: number, };
+
+/**
+ * What a cell's rounds cost: the cell by its code now, with its title.
+ */
+export type CellSpend = { graph: string, cell: string, title: string | null, rounds: number, cost_usd: number, };
+
+/**
+ * Where the period spent for nothing, and how well the prompt cache did.
+ */
+export type SystemWaste = { 
+/**
+ * The input tokens of the agents' rounds: read from the prompt cache, written to it, and given without it.
+ */
+read: number, written: number, input: number, 
+/**
+ * The rounds that missed their session's prompt cache as a fault of wf-agents, the tokens they wrote to it again,
+ * and what that cost beyond reading them, in US dollars; a miss the engine expects is no fault.
+ */
+misses: number, missed: number, miss_usd: number, 
+/**
+ * The rounds whose return was sent back, and those whose run failed or was cut off, by work, the costliest first.
+ */
+sent_back: Array<WorkCount>, failed: Array<WorkCount>, 
+/**
+ * How long no agent's round could start, a failed run's cause stopping every work: by that cause, and in all.
+ */
+halts: Array<HaltTime>, halted_ms: number, 
+/**
+ * The keep-warm pings, by work, the costliest first.
+ */
+pings: Array<WorkCount>, };
+
+/**
+ * How many rounds or pings of one work, and what they cost.
+ */
+export type WorkCount = { work: number, graph: string, 
+/**
+ * Its item and the item's title, and its project.
+ */
+item: number | null, title: string | null, project: string | null, n: number, cost_usd: number, };
+
+/**
+ * How long one cause of failed runs stopped every work.
+ */
+export type HaltTime = { 
+/**
+ * The kind of failed run, as the flow names it: `usage_limit`, `offline` or `cannot_run`.
+ */
+kind: string, ms: number, 
+/**
+ * The failed runs that found it.
+ */
+runs: number, };
+
+/**
+ * Something that went wrong, in a work.
+ */
+export type Anomaly = { work: number, graph: string, item: number | null, title: string | null, project: string | null, 
+/**
+ * The round it came of, by its number in the work; none when the engine stopped the work, which no round records.
+ */
+round: number | null, at: number, what: AnomalyKind, };
+
+/**
+ * What went wrong, each kind of its own.
+ */
+export type AnomalyKind = { "kind": "flow_anomaly", row: string, } | { "kind": "counter", counter: string, limit: number, } | { "kind": "stopped", why: string, } | { "kind": "tool_failed", cell: string, } | { "kind": "main_red", how: string, checks: Array<string>, };
+
+/**
+ * Why a request failed.
+ */
+export type ApiError = { error: string, };
+
+/**
+ * What the flow page shows of a compiled flow besides the flow itself, graph by graph.
+ */
+export type FlowView = { graphs: Array<GraphView>, };
+
+export type GraphView = { name: string, 
+/**
+ * Each cell, in the order the graph has them.
+ */
+cells: Array<CellView>, 
+/**
+ * The forms every agent's return shares, as `format:common` gives them, with no project's settings written beside
+ * their names and no kind of question left out.
+ */
+common_format: string, };
+
+/**
+ * One cell, as the flow page explains it.
+ */
+export type CellView = { id: string, 
+/**
+ * For each row of its transition table, in order, the cells the row can lead to: its target, or the cells a
+ * target the engine keeps track of (`@self`, `@caller`, `@asker`, `@stopped`) can be.
+ */
+targets: Array<Array<string>>, 
+/**
+ * Every row of every cell that can lead here, in the order of the cells and of their rows.
+ */
+entered_from: Array<RowRef>, 
+/**
+ * What a round of the cell is given: for an agent's cell, every input, always or conditional, each with its
+ * source and address; for any other cell, the sources of its inputs.
+ */
+inputs: Array<CellInput>, 
+/**
+ * What the cell hands back, with whatever reads each field.
+ */
+returns: Returns, };
+
+/**
+ * A row of a cell, by its place in the cell's transition table, from 0.
+ */
+export type RowRef = { cell: string, row: number, };
+
+/**
+ * One input a round of a cell is given.
+ */
+export type CellInput = { 
+/**
+ * Given every time the cell is entered: what the agent reads itself. Every other input is conditional: given
+ * when the session does not hold it, and referred to by its address when it does.
+ */
+always: boolean, of: CellInputOf, 
+/**
+ * The address it is given under, as the engine addresses it, with `‹work›`, `‹n›`, `‹id›`, `‹cell›` or `‹name›`
+ * standing for what is known only when the round runs; none for what the agent reads itself.
+ */
+address: string | null, 
+/**
+ * For a place of the cell the work came from, the cell that called or the cell the work stopped at: the cells
+ * it can be.
+ */
+cells: Array<string>, 
+/**
+ * What it holds, for a text the flow itself writes: the cell's own return format and what each of its inputs
+ * is, as the engine gives them, with no project's settings beside their names.
+ */
+holds: string | null, };
+
+/**
+ * What an input is.
+ */
+export type CellInputOf = { "kind": "input", input: number, source: number, } | { "kind": "project_rules" } | { "kind": "rule", name: string, } | { "kind": "common_format" } | { "kind": "cell_format" } | { "kind": "cell_inputs" } | { "kind": "workspace" };
+
+/**
+ * What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
+ * project's settings, guide and rules, as its configuration and its checkout have them, and what each table and view
+ * of the database holds.
+ */
+export type InputsNow = { projects: Array<ProjectNow>, 
+/**
+ * Each table and view agents can read, with what its definition says it holds.
+ */
+tables: Array<NamedText>, };
+
+/**
+ * One project's part of what the inputs from outside the flow hold now.
+ */
+export type ProjectNow = { project: string, 
+/**
+ * Each setting the flow may read, by its name, with its value as text: a text as it is, anything else as JSON.
+ */
+settings: Array<NamedText>, 
+/**
+ * The project's AGENTS.md as its checkout has it now.
+ */
+agents_md: string, 
+/**
+ * The index of its design tree as its checkout has it now: each node's path with its first line. The full text
+ * of the nodes an item cites is added for each item.
+ */
+design_tree: Array<NamedText>, 
+/**
+ * The project's own rules, each by its name with its text.
+ */
+rules: Array<NamedText>, };
+
+/**
+ * A name with a text.
+ */
+export type NamedText = { name: string, text: string, };
+
+/**
+ * What a cell hands back, as a tree of fields.
+ */
+export type Returns = { 
+/**
+ * For an agent's cell: the field its return holds exactly one form in.
+ */
+within: string | null, 
+/**
+ * For an agent's cell: the forms it may hand in, its own answer first.
+ */
+forms: Array<ReturnForm>, 
+/**
+ * The fields every return holds: for an agent's cell those beside the form, for any other cell all of them.
+ */
+every: Array<Field>, 
+/**
+ * What reads the return as a whole.
+ */
+used_by: Array<Use>, };
+
+/**
+ * One form an agent's return may hold.
+ */
+export type ReturnForm = { 
+/**
+ * The form's field, such as `ask` or `tools`; none for the cell's own answer.
+ */
+field: string | null, 
+/**
+ * The form's fields: the own answer's fields, or the one field the form is.
+ */
+fields: Array<Field>, 
+/**
+ * What reads that a return is this form: the rows whose condition is the cell's own answer.
+ */
+used_by: Array<Use>, };
+
+/**
+ * The kind of value a field holds.
+ */
+export type FieldKind = "text" | "integer" | "number" | "boolean" | "enum" | "object" | "list" | "union" | "any";
+
+/**
+ * A field of a return, with whatever reads it.
+ */
+export type Field = { name: string, 
+/**
+ * Its path as the flow writes it, such as `end.test_changes[added].catches`.
+ */
+path: string, kind: FieldKind, 
+/**
+ * For a list, the kind of its items.
+ */
+item: FieldKind | null, desc: string | null, optional: boolean, 
+/**
+ * For a list, the fewest items it holds.
+ */
+min: number | null, 
+/**
+ * For one of a fixed set of values: each value, with what it means when the flow says.
+ */
+values: Array<[string, string | null]>, used_by: Array<Use>, 
+/**
+ * The fields of an object, or of the objects a list holds.
+ */
+fields: Array<Field>, 
+/**
+ * For one of several shapes: the field whose value says which, and what reads that field.
+ */
+disc: string | null, disc_used_by: Array<Use>, 
+/**
+ * For one of several shapes: the fields every shape has, and each shape.
+ */
+common: Array<Field>, branches: Array<Branch>, };
+
+/**
+ * One of the shapes a field may take.
+ */
+export type Branch = { 
+/**
+ * The value of the field that says which shape it is.
+ */
+value: string, 
+/**
+ * Its path as the flow writes it, such as `result[green]`.
+ */
+path: string, desc: string | null, used_by: Array<Use>, fields: Array<Field>, };
+
+/**
+ * Something that reads a field of a return.
+ */
+export type Use = { "kind": "input", cell: string, input: number, } | { "kind": "condition", cell: string, row: number, } | { "kind": "action", cell: string, row: number, action: string, } | { "kind": "always", cell: string, view: string | null, action: string | null, } | { "kind": "check", cell: string, check: string, } | { "kind": "handoff", cell: string, } | { "kind": "shown", cell: string, } | { "kind": "role", cell: string, role: string, };
+
+/**
+ * What changed from one compiled flow to another, graph by graph.
+ */
+export type FlowDiff = { graphs: Array<GraphDiff>, };
+
+export type GraphDiff = { name: string, 
+/**
+ * Whether the graph was added or removed whole, or changed.
+ */
+status: ChangeKind, 
+/**
+ * What changed in the graph apart from its cells: its start and end, its rules, the interjection, the counters.
+ */
+changes: Array<Change>, 
+/**
+ * Each cell added, removed or changed, in the order of the newer flow, the removed ones last.
+ */
+cells: Array<CellDiff>, };
+
+/**
+ * Whether a thing was added, removed or changed.
+ */
+export type ChangeKind = "added" | "removed" | "changed";
+
+export type CellDiff = { id: string, 
+/**
+ * Its title in the newer flow, or in the older one for a cell removed.
+ */
+title: string, status: ChangeKind, changes: Array<Change>, };
+
+/**
+ * The part of a cell or a graph a change is in.
+ */
+export type Part = "title" | "kind" | "gate" | "line" | "stage" | "step" | "needs" | "input" | "rule" | "prompt" | "prompt_by" | "forms" | "field" | "row" | "row_order" | "check" | "always" | "handoff" | "shown" | "read_by" | "inenum" | "start" | "end" | "asking" | "receive" | "counter" | "interjection" | "rounds";
+
+/**
+ * One change: the part, which one of it, and what it was and is, as the compiled flow writes it.
+ */
+export type Change = { part: Part, 
+/**
+ * Which one of the part: an input's text, a rule's or a row's name, a field's path, a check's name; empty for
+ * a part a cell has one of.
+ */
+key: string, 
+/**
+ * What it was; none for what was added.
+ */
+before: JsonValue | null, 
+/**
+ * What it is; none for what was removed.
+ */
+after: JsonValue | null, };
+
+/**
+ * A project's checkout, where the flow can be read at a git ref.
+ */
+export type FlowSource = { project: string, checkout: string, 
+/**
+ * Its branches, the most recently committed first.
+ */
+refs: Array<string>, };
+
+/**
+ * The flow as `flow/flow.json` is at a git ref of a project's checkout, compiled by the flow's compiler.
+ */
+export type FlowAt = { project: string, 
+/**
+ * The ref as it was asked for, and the commit it names.
+ */
+rev: string, commit: string, digest: string, 
+/**
+ * The stored flow version with the same digest, when there is one.
+ */
+version: number | null, compiled: Compiled, view: FlowView, };
+
+/**
+ * The lines of a graph of the flow built into this program: a compiled flow version keeps the lines, not what they
+ * are.
+ */
+export type GraphLines = { graph: string, lines: Array<LineView>, };
+
+/**
+ * A line, the agent whose cells go on in one session.
+ */
+export type LineView = { name: string, 
+/**
+ * How its session is kept (when it starts and which cells continue it).
+ */
+desc: string, 
+/**
+ * The colour its role is drawn in wherever the page shows it: its cells on a chart, its avatar and its bubbles.
+ */
+colour: Colour, };
+
+/**
+ * A colour a line's role is drawn in on the owner's page (its cells on a chart, its avatar and its bubbles), by the
+ * name of Primer's display colour the page draws it with. Only the colours the page knows are here, and none of
+ * those it keeps for other things: orange for the owner's cells, yellow for the tools', red for danger and grey for
+ * the engine's own steps.
+ */
+export type Colour = "blue" | "teal" | "auburn" | "pink" | "purple" | "indigo" | "lime";
+
+export type Compiled = { format: string, engine: EngineNames, tools: Array<ToolUse>, graphs: Array<CompiledGraph>, 
+/**
+ * The configuration settings the flow reads, for `config check`.
+ */
+settings: Array<string>, };
+
+/**
+ * The engine's part of the flow, by name. Each map takes a name to what it does.
+ */
+export type EngineNames = { 
+/**
+ * What a cell that is not an agent does when the work reaches it: a cell's `step`.
+ */
+steps: { [key in string]: string }, 
+/**
+ * What the engine does on a row, or every time a cell returns a field: a row's `do`, an `always` with `do`.
+ */
+actions: { [key in string]: string }, 
+/**
+ * What the engine checks on a return before it takes a row; a return that fails goes back to the agent.
+ */
+checks: { [key in string]: string }, 
+/**
+ * What the engine computes for a cell's input: an input source `{"engine": name}`.
+ */
+inputs: { [key in string]: string }, 
+/**
+ * The values the engine itself knows about a work, which rows switch on with `inp` and cells name in
+ * `inenums`; a value rows record with `sets` is not one of these.
+ */
+values: { [key in string]: string }, 
+/**
+ * What a gate needs to apply to a project. A gate whose need the project does not meet is passed by the
+ * engine on its own row, without a round.
+ */
+needs: { [key in string]: string }, 
+/**
+ * The places the engine keeps what it writes and reads later, by name: what each holds, the layer it belongs to
+ * and the tables and views that hold it. None in a flow version stored before the flow named them.
+ */
+stores?: { [key in string]: Store }, 
+/**
+ * The stores each action writes, and each step that writes one itself: every action has an entry, an empty
+ * list for one that only tells the owner or acts outside the database.
+ */
+writes?: { [key in string]: Array<string> }, 
+/**
+ * What each of the engine's values reads, in a few words for the chart, and the stores it reads; each value has
+ * an entry, and a step that reads a store no input of its cell names has one too.
+ */
+reads?: { [key in string]: Reads }, };
+
+/**
+ * A place the engine keeps something in, which a cell or the owner writes and a cell reads later.
+ */
+export type Store = { title: string, desc: string, layer: Layer, 
+/**
+ * Worked out from the rounds when it is read, not written by anyone.
+ */
+computed?: boolean, 
+/**
+ * The tables and views of the database that hold it: an input that reads one of them reads this store.
+ */
+relations?: Array<string>, 
+/**
+ * The engine's inputs computed from it: an input that names one of them reads this store.
+ */
+inputs?: Array<string>, 
+/**
+ * What the owner does that writes it, when the owner writes it.
+ */
+owner?: string | null, };
+
+/**
+ * Where a store belongs: a project holds items, an item holds works, a work holds rounds.
+ */
+export type Layer = "project" | "item" | "work" | "round";
+
+/**
+ * What a value of the engine, or a step, reads.
+ */
+export type Reads = { 
+/**
+ * What it is worked out from, in a few words, as the chart says it under the cell; every value has it.
+ */
+says?: string | null, stores?: Array<string>, };
+
+export type ToolUse = { name: string, runs: string, };
+
+export type CompiledGraph = { name: string, start: string, end: string, 
+/**
+ * The end a work cancelled or taken over ends at, from wherever it stands; none in a graph without one.
+ */
+cancel?: string | null, 
+/**
+ * The field an agent's return holds its one form in.
+ */
+within: string, 
+/**
+ * The cells of the asking part, and the one that receives answers to the cells of its line.
+ */
+asking: Array<string>, receive: string | null, counters: Array<Counter>, rules: Array<Rule>, interject: CompiledInterject | null, 
+/**
+ * The fields of every agent's return that only a project meeting a need is asked for, each with the need: an
+ * agent working on a project that does not meet it is not asked for the field.
+ */
+every_needs?: { [key in string]: string }, 
+/**
+ * How every agent's return is written, which the forms every return shares say once.
+ */
+write?: Array<string>, 
+/**
+ * Fields of agents' own answers that several cells hand in alike, which the forms every return shares give once
+ * and each cell's own format refers to.
+ */
+once?: Array<string>, 
+/**
+ * What the engine does with an agent's round that does not end in a return the cell takes; none in a flow
+ * version stored before the flow said it in this form, which runs by the section of the flow built into the
+ * engine.
+ */
+rounds?: Rounds | null, 
+/**
+ * The cells a stopped task stands at while its blocker is held, each with who holds it there; none in a graph whose
+ * works are no tasks, or in a flow version stored before blockers were.
+ */
+blockers?: Blockers | null, cells: Array<CompiledCell>, };
+
+export type Counter = { name: string, desc: string, 
+/**
+ * The counter is the work's total time; exactly one is.
+ */
+time?: boolean, };
+
+export type Rule = { name: string, desc: string, text: Array<string>, 
+/**
+ * The lines every agent's cell of which is given the rule, besides the cells that name it; none: only those.
+ */
+lines?: Array<string>, 
+/**
+ * What a cell given any of must be given the rule with, by an engine input's name, a table's or a view's, or a
+ * cell's return place as `cell·place`: the compiler refuses an agent's cell given one of them without the rule.
+ */
+givenWith?: Array<string>, };
+
+export type CompiledInterject = { name: string, desc: string, text: Array<string>, from: Array<Named>, };
+
+export type Named = { name: string, desc: string, };
+
+/**
+ * What the engine does with an agent's round that does not end in a return the cell takes: a return sent back, or
+ * a run of the agent's command line that ended without one. Every agent's cell has this alike.
+ */
+export type Rounds = { desc: string, sentBack: SentBack, failed: Failed, 
+/**
+ * What every round records.
+ */
+record: Array<string>, 
+/**
+ * What an agent's command line starts with, apart from what the flow gives it.
+ */
+environment: Array<string>, 
+/**
+ * The other ways a round ends in no return the cell takes, each the engine's own: every agent's cell has a
+ * shared row of each one's name for it.
+ */
+engine?: Array<EngineCase>, };
+
+/**
+ * What a task of a graph waits on when it stops: a blocker, raised at the cell where its problem arose and held by
+ * one holder at a time, at whose cell the task stands. Every move of a blocker is a row: the rows into a holder's cell
+ * raise it, the rows between holders' cells hand it on, and the rows out of them resolve or withdraw it.
+ */
+export type Blockers = { desc: string, 
+/**
+ * The cells a stopped task stands at, each with whom it is held by there.
+ */
+cells: Array<BlockerCell>, };
+
+/**
+ * A cell a stopped task stands at while its blocker is held there.
+ */
+export type BlockerCell = { cell: string, 
+/**
+ * Who may hold the blocker while the task stands here: advisor, architect, owner or items.
+ */
+holders: Array<string>, 
+/**
+ * The rows that take the task on when its holder fails it, each named after the way it fails, such as an item it
+ * waits for cancelled.
+ */
+fails?: Array<string>, 
+/**
+ * The task stands here on its blocker only once it took the cell's row that waits, which raises it; without, from
+ * the row that brought it here.
+ */
+waits?: boolean, };
+
+export type SentBack = { desc: string, 
+/**
+ * How many returns of one cell in a row may be sent back before the engine pauses the work.
+ */
+pauseAfter: number, pause: string, };
+
+export type Failed = { desc: string, kinds: Array<Failure>, };
+
+/**
+ * One kind of run that ended without a return; every agent's cell has a shared row of its name for it.
+ */
+export type Failure = { name: string, 
+/**
+ * What the command line reports when this happens.
+ */
+when: string, handle: Handle, desc: string, };
+
+export type Handle = "wait" | "retry" | "pause" | "repair";
+
+/**
+ * A way a round ends that is the engine's, not the agent's: a round cut off, a step it cannot take, a message it does
+ * not send, a work that ended meanwhile.
+ */
+export type EngineCase = { name: string, when: string, desc: string, 
+/**
+ * The work pauses, and the owner is told: a blocker the owner holds at the cell.
+ */
+pauses?: boolean, };
+
+export type CompiledCell = { id: string, 
+/**
+ * engine, agent, tool or owner.
+ */
+kind: string, 
+/**
+ * Written as a gate.
+ */
+gate: boolean, title: string, step?: string | null, needs?: string | null, line?: string | null, 
+/**
+ * A row leads here with the action `open_session`: the cell starts a new session of its line at its first round in
+ * a work.
+ */
+new_session?: boolean, 
+/**
+ * The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
+ * declared one.
+ */
+effort?: string | null, stage?: string | null, tools?: Array<string>, inputs: Array<CompiledInput>, 
+/**
+ * The flow's rules an agent's cell is given, besides the project's rules, which every agent is given.
+ */
+rules?: Array<RuleUse>, prompt?: Array<string>, prompt_by?: PromptBy | null, forms?: Array<Form>, 
+/**
+ * What the cell's return must be, as JSON Schema; for an agent, its round's prompt gives it.
+ */
+schema?: JsonValue | null, rows: Array<CompiledRow>, always?: Array<Always>, 
+/**
+ * What an engine's cell does besides its step and its rows, in order: at an end, how the work ends.
+ */
+actions?: Array<string>, 
+/**
+ * A gate's two outcomes, by name: the one it hands in to go on, whose row is named after it, and the problem,
+ * which it asks about.
+ */
+outcomes?: Array<string>, 
+/**
+ * An owner's cell that rules by buttons: one for each value of its `ruling.choice`, in order, saying what it does
+ * and what happens next. No agent is sent these.
+ */
+choices?: Array<Choice>, checks?: Array<Check>, handoff?: Array<string>, 
+/**
+ * Paths of the return the owner's page shows on the item the work is on.
+ */
+shown?: Array<string>, 
+/**
+ * Places of the return a role reads outside this flow, through the database.
+ */
+read_by?: Array<ReadBy>, inenums?: { [key in string]: Array<[string, string]> }, 
+/**
+ * Each field of the return by its path (`understanding.grounds[verified].claim`), with the title the owner's
+ * page heads it with. No agent is sent these.
+ */
+titles?: { [key in string]: string }, };
+
+export type CompiledInput = { id?: string | null, 
+/**
+ * What the input is called, as the owner's page heads it; none in a flow version stored before every input had
+ * a name, where only an input every agent's cell has had one.
+ */
+name?: string | null, 
+/**
+ * An input every agent's cell has: the agent knows it by its name. A cell's list of what its inputs are names
+ * it only; the forms every return shares say what it is.
+ */
+common?: boolean, 
+/**
+ * For a table the cell answers row by row: the prefix the engine numbers its rows with, across all its sources.
+ */
+numbered?: string | null, what: string, from: Array<Src>, maybe: boolean, 
+/**
+ * It reads each place from its cell's newest answer only: a field that answer leaves out is none there.
+ */
+newest?: boolean, };
+
+/**
+ * Where an input comes from.
+ */
+export type Src = [string, string] | "self" | { config: string } | { db: string, by?: string } | { engine: string } | { recorded: string };
+
+/**
+ * A rule of the flow an agent's cell is given, by its name.
+ */
+export type RuleUse = { name: string, 
+/**
+ * Given to every agent's cell of the cell's line, not named by the cell itself.
+ */
+shared: boolean, };
+
+export type PromptBy = { by: string, cases: { [key in string]: Array<string> }, };
+
+/**
+ * A button an owner's cell rules by: the value of `ruling.choice` it hands back, what the button says it does, and
+ * what happens next, in one line under it. The owner's page shows them where the owner rules and on the cell's panel;
+ * no agent is sent them.
+ */
+export type Choice = { value: string, title: string, desc: string, };
+
+/**
+ * One form of an agent's return: the cell's own answer, or one of the common fields.
+ */
+export type Form = { own?: boolean, field?: string | null, say: string, 
+/**
+ * The lines whose cells outside the asking part have this form; with none, every agent's cell has it.
+ */
+lines?: Array<string> | null, 
+/**
+ * Fields of `every` a return of this form does not hold. It leaves them as an earlier return wrote them.
+ */
+without?: Array<string>, };
+
+export type CompiledRow = { name: string, if: Array<Atom>, to: string, sets?: { [key in string]: string }, do?: Array<Do>, counts?: string | null, waits: boolean, 
+/**
+ * The row pauses the work and tells the owner; once the owner lets it go on, the row goes where it says.
+ */
+pauses: boolean, interject: boolean, main: boolean, 
+/**
+ * The row goes on without answering the cells that wait for an answer, which get it later another way.
+ */
+drops?: boolean, 
+/**
+ * The row passes the work on to another cell that answers the cell that asked in place of the one it leaves: a
+ * blocker handed to another holder. The cells that wait for an answer stay as they are.
+ */
+passes?: boolean, 
+/**
+ * A row every agent's cell has that its agent chooses: to ask, run tools, search, pause, answer an interjection
+ * or take it to choose the way on; or that the engine takes for the cell's line, as a new session's.
+ */
+common: boolean, 
+/**
+ * A row of the engine's fallback, the same for every agent's cell: what the engine does with a round that ends
+ * in no return the cell takes. No return takes it; the engine does what it says itself.
+ */
+fallback?: boolean, note?: string | null, };
+
+/**
+ * A condition of a row, written as a list: `["all"]`; `["own"]` (the return is the cell's own answer);
+ * `["or", [conditions]]`; `["has", path]` (the place is there); `["is", path, values]` (its value is one of
+ * them); `["any", path, values]` and `["none", path, values]` (some value, or no value, in a list is one of them);
+ * `["inp", name, values]` (a value the engine knows or rows recorded is one of them). Three hold for no return, and
+ * only the shared rows the compiler gives every agent's cell have them: `["sent_back"]` (the return is sent back),
+ * with a number (that many of the cell's returns in a row are), `["failed", kind]` (the run ended without a return,
+ * of that kind) and `["engine", case]` (the engine took the row itself, for that case: one of the rounds section's
+ * own, or a line's new session).
+ */
+export type Atom = ["all"] | ["own"] | ["or", Array<Atom>] | ["has", string] | ["is" | "any" | "none" | "inp", string, Array<string>] | ["sent_back"] | ["sent_back", number] | ["failed", string] | ["engine", string];
+
+/**
+ * An action on a row: a name, or a name done for a place of the output.
+ */
+export type Do = string | DoAt;
+
+export type DoAt = { at: string, do: string, };
+
+/**
+ * What the engine does every time a cell's return holds a place: the place that sets it off, and the action. The
+ * flow names only actions here; a flow version stored before may name a view instead, which did nothing.
+ */
+export type Always = { 
+/**
+ * The place of the return whose presence sets the action off.
+ */
+at: string, view?: string | null, do?: string | null, };
+
+/**
+ * A check the engine makes on a return, on a place of it or on the whole.
+ */
+export type Check = { at?: string | null, check: string, };
+
+/**
+ * A place of a return a role reads outside this flow, through the database, such as the architect reading side
+ * reports: what the role does with it is not a cell of this flow.
+ */
+export type ReadBy = { at: string, 
+/**
+ * The role that reads it, one of the roles an agent may ask.
+ */
+role: string, };

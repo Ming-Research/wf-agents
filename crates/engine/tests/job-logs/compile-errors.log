@@ -1,0 +1,156 @@
+test 2 of 3	Test	﻿2026-10-30T21:15:37.4393298Z ##[group]Run cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition count:2/3
+test 2 of 3	Test	2026-10-30T21:15:37.4394639Z ^[[36;1mcargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition count:2/3^[[0m
+test 2 of 3	Test	2026-10-30T21:15:37.4424896Z shell: /usr/bin/bash -e {0}
+test 2 of 3	Test	2026-10-30T21:15:37.4425322Z env:
+test 2 of 3	Test	2026-10-30T21:15:37.4425643Z   CARGO_TERM_COLOR: always
+test 2 of 3	Test	2026-10-30T21:15:37.4426054Z   CACHE_ON_FAILURE: false
+test 2 of 3	Test	2026-10-30T21:15:37.4426452Z   CARGO_INCREMENTAL: 0
+test 2 of 3	Test	2026-10-30T21:15:37.4426843Z ##[endgroup]
+test 2 of 3	Test	2026-10-30T21:16:57.9351289Z ^[[1m^[[92m   Compiling^[[0m strsim v0.11.1
+test 2 of 3	Test	2026-10-30T21:16:58.8661187Z ^[[1m^[[92m   Compiling^[[0m clap_lex v1.1.1
+test 2 of 3	Test	2026-10-30T21:16:59.1454780Z ^[[1m^[[92m   Compiling^[[0m heck v0.5.0
+test 2 of 3	Test	2026-10-30T21:16:59.3731185Z ^[[1m^[[92m   Compiling^[[0m clap_builder v4.6.7
+test 2 of 3	Test	2026-10-30T21:17:00.0461123Z ^[[1m^[[92m   Compiling^[[0m clap_derive v4.6.7
+test 2 of 3	Test	2026-10-30T21:17:19.8781215Z ^[[1m^[[92m   Compiling^[[0m clap v4.6.7
+test 2 of 3	Test	2026-10-30T21:17:33.8022588Z ^[[1m^[[92m   Compiling^[[0m rusqlite v0.41.0
+test 2 of 3	Test	2026-10-30T21:17:34.5973856Z ^[[1m^[[92m   Compiling^[[0m db v0.1.0 (/home/runner/work/wf-agents/wf-agents/crates/db)
+test 2 of 3	Test	2026-10-30T21:17:35.4191433Z ^[[1m^[[92m   Compiling^[[0m sessions v0.1.0 (/home/runner/work/wf-agents/wf-agents/crates/sessions)
+test 2 of 3	Test	2026-10-30T21:17:36.2944080Z ^[[1m^[[92m   Compiling^[[0m api v0.1.0 (/home/runner/work/wf-agents/wf-agents/crates/api)
+test 2 of 3	Test	2026-10-30T21:18:21.9391948Z ^[[1m^[[92m   Compiling^[[0m wf-agents v0.1.0 (/home/runner/work/wf-agents/wf-agents/crates/wf-agents)
+test 2 of 3	Test	2026-10-30T21:18:24.2593512Z ^[[1m^[[91merror[E0432]^[[0m^[[1m: unresolved import `engine::ending::EndKind`^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.2601365Z     ^[[1m^[[94m--> ^[[0mcrates/engine/tests/e2e.rs:5680:31
+test 2 of 3	Test	2026-10-30T21:18:24.2630466Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.2660923Z ^[[1m^[[94m5680^[[0m ^[[1m^[[94m|^[[0m     use engine::ending::{End, EndKind, end};
+test 2 of 3	Test	2026-10-30T21:18:24.2663626Z      ^[[1m^[[94m|^[[0m                               ^[[1m^[[91m^^^^^^^^[[0m ^[[1m^[[91mno `EndKind` in `ending`^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.2719949Z 
+test 2 of 3	Test	2026-10-30T21:18:24.2721156Z ^[[1m^[[91merror[E0432]^[[0m^[[1m: unresolved import `engine::ending::EndKind`^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.2750415Z     ^[[1m^[[94m--> ^[[0mcrates/engine/tests/e2e.rs:5842:31
+test 2 of 3	Test	2026-10-30T21:18:24.2751472Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.2780918Z ^[[1m^[[94m5842^[[0m ^[[1m^[[94m|^[[0m     use engine::ending::{End, EndKind, end};
+test 2 of 3	Test	2026-10-30T21:18:24.2810763Z      ^[[1m^[[94m|^[[0m                               ^[[1m^[[91m^^^^^^^^[[0m ^[[1m^[[91mno `EndKind` in `ending`^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.2829927Z 
+test 2 of 3	Test	2026-10-30T21:18:24.8891561Z ^[[1m^[[91merror[E0061]^[[0m^[[1m: this enum variant takes 1 argument but 2 arguments were supplied^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.8920536Z     ^[[1m^[[94m--> ^[[0mcrates/engine/tests/e2e.rs:5729:13
+test 2 of 3	Test	2026-10-30T21:18:24.8950435Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.8981196Z ^[[1m^[[94m5729^[[0m ^[[1m^[[94m|^[[0m             End::TakenOver(EndKind::FlowMoved, "stopped: moved"),
+test 2 of 3	Test	2026-10-30T21:18:24.9010831Z      ^[[1m^[[94m|^[[0m             ^[[1m^[[91m^^^^^^^^^^^^^^^[[0m ^[[1m^[[94m------------------^[[0m ^[[1m^[[94munexpected argument #1^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9040196Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9070411Z ^[[1m^[[92mnote^[[0m: tuple variant defined here
+test 2 of 3	Test	2026-10-30T21:18:24.9100397Z     ^[[1m^[[94m--> ^[[0mcrates/engine/src/ending.rs:26:5
+test 2 of 3	Test	2026-10-30T21:18:24.9130228Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9160505Z ^[[1m^[[94m  26^[[0m ^[[1m^[[94m|^[[0m     TakenOver(&'a str),
+test 2 of 3	Test	2026-10-30T21:18:24.9190367Z      ^[[1m^[[94m|^[[0m     ^[[1m^[[92m^^^^^^^^^^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9220392Z ^[[1m^[[96mhelp^[[0m: remove the extra argument
+test 2 of 3	Test	2026-10-30T21:18:24.9250229Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9281020Z ^[[1m^[[94m5729^[[0m ^[[91m- ^[[0m            End::TakenOver(^[[91mEndKind::FlowMoved, ^[[0m"stopped: moved"),
+test 2 of 3	Test	2026-10-30T21:18:24.9290960Z ^[[1m^[[94m5729^[[0m ^[[92m+ ^[[0m            End::TakenOver("stopped: moved"),
+test 2 of 3	Test	2026-10-30T21:18:24.9310590Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9339915Z 
+test 2 of 3	Test	2026-10-30T21:18:24.9350761Z ^[[1m^[[91merror[E0061]^[[0m^[[1m: this enum variant takes 1 argument but 2 arguments were supplied^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9380474Z     ^[[1m^[[94m--> ^[[0mcrates/engine/tests/e2e.rs:5737:13
+test 2 of 3	Test	2026-10-30T21:18:24.9400366Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9411084Z ^[[1m^[[94m5737^[[0m ^[[1m^[[94m|^[[0m             End::Stopped(EndKind::ItemCancelled, "item cancelled: x"),
+test 2 of 3	Test	2026-10-30T21:18:24.9440773Z      ^[[1m^[[94m|^[[0m             ^[[1m^[[91m^^^^^^^^^^^^^[[0m ^[[1m^[[94m----------------------^[[0m ^[[1m^[[94munexpected argument #1^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9470315Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9480536Z ^[[1m^[[92mnote^[[0m: tuple variant defined here
+test 2 of 3	Test	2026-10-30T21:18:24.9500517Z     ^[[1m^[[94m--> ^[[0mcrates/engine/src/ending.rs:24:5
+test 2 of 3	Test	2026-10-30T21:18:24.9530312Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9560530Z ^[[1m^[[94m  24^[[0m ^[[1m^[[94m|^[[0m     Stopped(&'a str),
+test 2 of 3	Test	2026-10-30T21:18:24.9570438Z      ^[[1m^[[94m|^[[0m     ^[[1m^[[92m^^^^^^^^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9590553Z ^[[1m^[[96mhelp^[[0m: remove the extra argument
+test 2 of 3	Test	2026-10-30T21:18:24.9620434Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9631060Z ^[[1m^[[94m5737^[[0m ^[[91m- ^[[0m            End::Stopped(^[[91mEndKind::ItemCancelled, ^[[0m"item cancelled: x"),
+test 2 of 3	Test	2026-10-30T21:18:24.9660678Z ^[[1m^[[94m5737^[[0m ^[[92m+ ^[[0m            End::Stopped("item cancelled: x"),
+test 2 of 3	Test	2026-10-30T21:18:24.9680331Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9710019Z 
+test 2 of 3	Test	2026-10-30T21:18:24.9720826Z ^[[1m^[[91merror[E0061]^[[0m^[[1m: this enum variant takes 1 argument but 2 arguments were supplied^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9740578Z     ^[[1m^[[94m--> ^[[0mcrates/engine/tests/e2e.rs:5751:13
+test 2 of 3	Test	2026-10-30T21:18:24.9770291Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9780894Z ^[[1m^[[94m5751^[[0m ^[[1m^[[94m|^[[0m             End::Stopped(EndKind::ItemCancelled, "item cancelled: y"),
+test 2 of 3	Test	2026-10-30T21:18:24.9810747Z      ^[[1m^[[94m|^[[0m             ^[[1m^[[91m^^^^^^^^^^^^^[[0m ^[[1m^[[94m----------------------^[[0m ^[[1m^[[94munexpected argument #1^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9830337Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9860494Z ^[[1m^[[92mnote^[[0m: tuple variant defined here
+test 2 of 3	Test	2026-10-30T21:18:24.9870375Z     ^[[1m^[[94m--> ^[[0mcrates/engine/src/ending.rs:24:5
+test 2 of 3	Test	2026-10-30T21:18:24.9890357Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9920535Z ^[[1m^[[94m  24^[[0m ^[[1m^[[94m|^[[0m     Stopped(&'a str),
+test 2 of 3	Test	2026-10-30T21:18:24.9930333Z      ^[[1m^[[94m|^[[0m     ^[[1m^[[92m^^^^^^^^[[0m
+test 2 of 3	Test	2026-10-30T21:18:24.9960395Z ^[[1m^[[96mhelp^[[0m: remove the extra argument
+test 2 of 3	Test	2026-10-30T21:18:24.9980340Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0011133Z ^[[1m^[[94m5751^[[0m ^[[91m- ^[[0m            End::Stopped(^[[91mEndKind::ItemCancelled, ^[[0m"item cancelled: y"),
+test 2 of 3	Test	2026-10-30T21:18:25.0020703Z ^[[1m^[[94m5751^[[0m ^[[92m+ ^[[0m            End::Stopped("item cancelled: y"),
+test 2 of 3	Test	2026-10-30T21:18:25.0050200Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0070027Z 
+test 2 of 3	Test	2026-10-30T21:18:25.0100910Z ^[[1m^[[91merror[E0061]^[[0m^[[1m: this enum variant takes 1 argument but 2 arguments were supplied^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0110415Z     ^[[1m^[[94m--> ^[[0mcrates/engine/tests/e2e.rs:5759:13
+test 2 of 3	Test	2026-10-30T21:18:25.0130354Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0160976Z ^[[1m^[[94m5759^[[0m ^[[1m^[[94m|^[[0m             End::TakenOver(EndKind::FlowMoved, "stopped: moved"),
+test 2 of 3	Test	2026-10-30T21:18:25.0170763Z      ^[[1m^[[94m|^[[0m             ^[[1m^[[91m^^^^^^^^^^^^^^^[[0m ^[[1m^[[94m------------------^[[0m ^[[1m^[[94munexpected argument #1^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0200213Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0220541Z ^[[1m^[[92mnote^[[0m: tuple variant defined here
+test 2 of 3	Test	2026-10-30T21:18:25.0250521Z     ^[[1m^[[94m--> ^[[0mcrates/engine/src/ending.rs:26:5
+test 2 of 3	Test	2026-10-30T21:18:25.0260207Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0280608Z ^[[1m^[[94m  26^[[0m ^[[1m^[[94m|^[[0m     TakenOver(&'a str),
+test 2 of 3	Test	2026-10-30T21:18:25.0310425Z      ^[[1m^[[94m|^[[0m     ^[[1m^[[92m^^^^^^^^^^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0340495Z ^[[1m^[[96mhelp^[[0m: remove the extra argument
+test 2 of 3	Test	2026-10-30T21:18:25.0350193Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0371151Z ^[[1m^[[94m5759^[[0m ^[[91m- ^[[0m            End::TakenOver(^[[91mEndKind::FlowMoved, ^[[0m"stopped: moved"),
+test 2 of 3	Test	2026-10-30T21:18:25.0400827Z ^[[1m^[[94m5759^[[0m ^[[92m+ ^[[0m            End::TakenOver("stopped: moved"),
+test 2 of 3	Test	2026-10-30T21:18:25.0410210Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0439879Z 
+test 2 of 3	Test	2026-10-30T21:18:25.0460986Z ^[[1m^[[91merror[E0061]^[[0m^[[1m: this enum variant takes 1 argument but 2 arguments were supplied^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0490473Z     ^[[1m^[[94m--> ^[[0mcrates/engine/tests/e2e.rs:5866:31
+test 2 of 3	Test	2026-10-30T21:18:25.0500227Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0531190Z ^[[1m^[[94m5866^[[0m ^[[1m^[[94m|^[[0m                 end(tx, work, End::Stopped(kind, "by hand"), &projects).map_err(db::Error::Abort)?;
+test 2 of 3	Test	2026-10-30T21:18:25.0551078Z      ^[[1m^[[94m|^[[0m                               ^[[1m^[[91m^^^^^^^^^^^^^[[0m       ^[[1m^[[94m---------^[[0m ^[[1m^[[94munexpected argument #2 of type `&'static str`^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0580322Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0590392Z ^[[1m^[[92mnote^[[0m: tuple variant defined here
+test 2 of 3	Test	2026-10-30T21:18:25.0610546Z     ^[[1m^[[94m--> ^[[0mcrates/engine/src/ending.rs:24:5
+test 2 of 3	Test	2026-10-30T21:18:25.0640303Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0650433Z ^[[1m^[[94m  24^[[0m ^[[1m^[[94m|^[[0m     Stopped(&'a str),
+test 2 of 3	Test	2026-10-30T21:18:25.0680293Z      ^[[1m^[[94m|^[[0m     ^[[1m^[[92m^^^^^^^^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0700521Z ^[[1m^[[96mhelp^[[0m: remove the extra argument
+test 2 of 3	Test	2026-10-30T21:18:25.0730288Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0741264Z ^[[1m^[[94m5866^[[0m ^[[91m- ^[[0m                end(tx, work, End::Stopped(kind^[[91m, "by hand"^[[0m), &projects).map_err(db::Error::Abort)?;
+test 2 of 3	Test	2026-10-30T21:18:25.0761223Z ^[[1m^[[94m5866^[[0m ^[[92m+ ^[[0m                end(tx, work, End::Stopped(kind), &projects).map_err(db::Error::Abort)?;
+test 2 of 3	Test	2026-10-30T21:18:25.0790349Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0820015Z 
+test 2 of 3	Test	2026-10-30T21:18:25.0830908Z ^[[1m^[[91merror[E0061]^[[0m^[[1m: this enum variant takes 1 argument but 2 arguments were supplied^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0850537Z     ^[[1m^[[94m--> ^[[0mcrates/engine/tests/e2e.rs:5887:17
+test 2 of 3	Test	2026-10-30T21:18:25.0880280Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0891070Z ^[[1m^[[94m5887^[[0m ^[[1m^[[94m|^[[0m                 End::Stopped(EndKind::ItemCancelled, "item cancelled: x"),
+test 2 of 3	Test	2026-10-30T21:18:25.0920850Z      ^[[1m^[[94m|^[[0m                 ^[[1m^[[91m^^^^^^^^^^^^^[[0m ^[[1m^[[94m----------------------^[[0m ^[[1m^[[94munexpected argument #1^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0940337Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.0970516Z ^[[1m^[[92mnote^[[0m: tuple variant defined here
+test 2 of 3	Test	2026-10-30T21:18:25.0971329Z     ^[[1m^[[94m--> ^[[0mcrates/engine/src/ending.rs:24:5
+test 2 of 3	Test	2026-10-30T21:18:25.1000333Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.1030505Z ^[[1m^[[94m  24^[[0m ^[[1m^[[94m|^[[0m     Stopped(&'a str),
+test 2 of 3	Test	2026-10-30T21:18:25.1040338Z      ^[[1m^[[94m|^[[0m     ^[[1m^[[92m^^^^^^^^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.1070408Z ^[[1m^[[96mhelp^[[0m: remove the extra argument
+test 2 of 3	Test	2026-10-30T21:18:25.1090362Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.1121139Z ^[[1m^[[94m5887^[[0m ^[[91m- ^[[0m                End::Stopped(^[[91mEndKind::ItemCancelled, ^[[0m"item cancelled: x"),
+test 2 of 3	Test	2026-10-30T21:18:25.1130731Z ^[[1m^[[94m5887^[[0m ^[[92m+ ^[[0m                End::Stopped("item cancelled: x"),
+test 2 of 3	Test	2026-10-30T21:18:25.1150221Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.1180044Z 
+test 2 of 3	Test	2026-10-30T21:18:25.1210889Z ^[[1m^[[91merror[E0061]^[[0m^[[1m: this enum variant takes 1 argument but 2 arguments were supplied^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.1240579Z     ^[[1m^[[94m--> ^[[0mcrates/engine/tests/e2e.rs:5893:27
+test 2 of 3	Test	2026-10-30T21:18:25.1270198Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.1301296Z ^[[1m^[[94m5893^[[0m ^[[1m^[[94m|^[[0m             end(tx, open, End::Stopped(EndKind::Other, "by hand"), &projects).map_err(db::Error::Abort)?;
+test 2 of 3	Test	2026-10-30T21:18:25.1330787Z      ^[[1m^[[94m|^[[0m                           ^[[1m^[[91m^^^^^^^^^^^^^[[0m ^[[1m^[[94m--------------^[[0m ^[[1m^[[94munexpected argument #1^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.1360234Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.1390423Z ^[[1m^[[92mnote^[[0m: tuple variant defined here
+test 2 of 3	Test	2026-10-30T21:18:25.1420401Z     ^[[1m^[[94m--> ^[[0mcrates/engine/src/ending.rs:24:5
+test 2 of 3	Test	2026-10-30T21:18:25.1450212Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.1480451Z ^[[1m^[[94m  24^[[0m ^[[1m^[[94m|^[[0m     Stopped(&'a str),
+test 2 of 3	Test	2026-10-30T21:18:25.1510347Z      ^[[1m^[[94m|^[[0m     ^[[1m^[[92m^^^^^^^^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.1540425Z ^[[1m^[[96mhelp^[[0m: remove the extra argument
+test 2 of 3	Test	2026-10-30T21:18:25.1570228Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.1601450Z ^[[1m^[[94m5893^[[0m ^[[91m- ^[[0m            end(tx, open, End::Stopped(^[[91mEndKind::Other, ^[[0m"by hand"), &projects).map_err(db::Error::Abort)?;
+test 2 of 3	Test	2026-10-30T21:18:25.1631084Z ^[[1m^[[94m5893^[[0m ^[[92m+ ^[[0m            end(tx, open, End::Stopped("by hand"), &projects).map_err(db::Error::Abort)?;
+test 2 of 3	Test	2026-10-30T21:18:25.1660221Z      ^[[1m^[[94m|^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.1689925Z 
+test 2 of 3	Test	2026-10-30T21:18:25.8751254Z ^[[1mSome errors have detailed explanations: E0061, E0432.^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.8810947Z ^[[1mFor more information about an error, try `rustc --explain E0061`.^[[0m
+test 2 of 3	Test	2026-10-30T21:18:25.8890857Z ^[[1m^[[91merror^[[0m: could not compile `engine` (test "e2e") due to 9 previous errors
+test 2 of 3	Test	2026-10-30T21:18:25.8892144Z ^[[1m^[[33mwarning^[[0m: build failed, waiting for other jobs to finish...
+test 2 of 3	Test	2026-10-30T21:18:32.6060880Z ^[[31;1merror^[[0m: command `^[[1m/home/runner/.rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/cargo '--color=always' test --no-run --message-format json-render-diagnostics --workspace --profile ci --locked^[[0m` exited with code ^[[1m101^[[0m
+test 2 of 3	Test	2026-10-30T21:18:32.6085572Z ##[error]Process completed with exit code 101.

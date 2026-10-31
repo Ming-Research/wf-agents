@@ -1,0 +1,107 @@
+/* The settings, as the UI spec lays out a reading page: one column, its header, a section for the installation and one
+   for each project, each part in them its sub-heading over what it holds, then Save. */
+
+.settings-page {
+  width: 100%;
+  max-width: var(--breakpoint-large);
+  padding: var(--base-size-16) var(--base-size-24) var(--base-size-32);
+}
+
+/* The sections set the room between them themselves, with the line the shared section part draws; what follows them
+   stands a section's room below. */
+.settings-form > :not(.section) {
+  margin-top: var(--base-size-24);
+}
+
+/* A part of a section: its sub-heading and what it holds, a heading's rhythm apart. */
+.settings-part {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-8);
+  min-width: 0;
+}
+
+.settings-note {
+  margin: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.settings-commit {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+table.list.settings-tiers td,
+table.list.settings-limits td,
+table.list.settings-tags td {
+  vertical-align: middle;
+}
+
+/* The model takes the room a model's name needs; what the tier is for, the rest. */
+.settings-tiers th:nth-child(2) {
+  width: 40%;
+}
+
+/* A limit is a short number; what the counter counts, the rest. */
+.settings-limits th:nth-child(2) {
+  width: 8em;
+}
+
+/* A tag's name is a word; what it covers, the rest; the control that takes it out, its own width. */
+.settings-tags th:nth-child(1) {
+  width: 25%;
+}
+
+.settings-tags th:nth-child(3) {
+  width: 1%;
+}
+
+.settings-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-16) var(--base-size-24);
+}
+
+/* The login accounts, one to a line: the account it is signed in as, its directory's name, and whether it is in use
+   or the button that uses it. */
+.settings-accounts {
+  display: grid;
+  gap: var(--base-size-8);
+}
+
+.settings-account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+.settings-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-8);
+}
+
+/* A command for the owner to copy and run: a code block, as the page's markdown draws one, its copy button beside it. */
+.settings-command {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  padding: var(--base-size-8) var(--base-size-12);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-neutral-muted);
+}
+
+.settings-command > code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeBlock-size);
+  overflow-wrap: anywhere;
+}
+
+.settings-save {
+  display: flex;
+  gap: var(--base-size-8);
+}

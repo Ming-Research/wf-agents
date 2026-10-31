@@ -1,0 +1,403 @@
+// The owner's conversations as the page works them out from what the interface reads, apart from drawing them: the
+// list in its parts, what a conversation is called, who an entry is from and to whom it is said, in which voice the
+// page draws it, what of it streams, what waits for the owner and is pinned on the bar under the head, which question
+// of an architect's the owner's words reply to, what the box at the bottom says things to and sends, how the bubble of a stage
+// a work entered names it and says how it ended, what is new for the owner to be told of, and where a fault of
+// wf-agents can go and went.
+
+import type { Icon } from '@primer/octicons-react';
+
+import type {
+  Conversation,
+  ConversationDetail,
+  ConversationEntry,
+  Forwarded,
+  Forwarding,
+  OwnerAsk,
+  PolicyDraft,
+  StageCard,
+  WordsState,
+  WorkState,
+  WorkSummary,
+} from './api';
+import { BACK_MARK, type Tone, WORK_MARK } from './components';
+import { ordinal } from './format';
+import { isObj, words } from './labelled';
+import { type Key, t, tn } from './messages';
+import { joinedWords } from './voices';
+
+/// The parts of the list, in its order, which waiting and new entries never change: wf-agents' own, which belongs to no
+/// project; a group for each project (`project`), by name as the items' view orders its projects, holding the
+/// one-to-one with its architect and then a group for each of its works, newest first; the groups of connected
+/// projects, which belong to no project either.
+export type ListPart = { part: 'top' | 'project' | 'projects'; project: string | null; conversations: Conversation[] };
+
+export function listParts(list: Conversation[]): ListPart[] {
+  const of = (kind: string, project?: string) =>
+    list.filter((c) => c.kind === kind && (project === undefined || (c.project ?? '') === project));
+  const projects = [
+    ...new Set(list.filter((c) => c.kind === 'architect' || c.kind === 'work').map((c) => c.project ?? '')),
+  ].sort();
+  const parts: ListPart[] = [
+    { part: 'top', project: null, conversations: of('wf_agents') },
+    ...projects.map(
+      (p): ListPart => ({ part: 'project', project: p, conversations: [...of('architect', p), ...of('work', p)] }),
+    ),
+    { part: 'projects', project: null, conversations: of('projects') },
+  ];
+  return parts.filter((p) => p.conversations.length > 0);
+}
+
+/// Whether the list's buttons of a work's states show a conversation (`shown`, the state of a work's group as its mark
+/// says it, `stateOf`): every conversation but a work's group, and the group of a work in a state shown. A work whose
+/// state is not read yet is not shown until it is. What they hide counts nowhere: not on its row, not in the bar.
+export function shownByState(
+  c: Conversation,
+  stateOf: (c: Conversation) => WorkState | null,
+  shown: readonly WorkState[],
+): boolean {
+  if (c.kind !== 'work') return true;
+  const s = stateOf(c);
+  return s !== null && shown.includes(s);
+}
+
+/// The rows of a project's group the list shows: the one-to-one with its architect, and the groups of those of its
+/// works the buttons of its states show (`shownByState`); the one open (`open`) whatever its state, so that it never
+/// leaves the list.
+export function rowsShown(
+  conversations: Conversation[],
+  stateOf: (c: Conversation) => WorkState | null,
+  shown: readonly WorkState[],
+  open: string | null,
+): Conversation[] {
+  return conversations.filter((c) => c.key === open || shownByState(c, stateOf, shown));
+}
+
+/// How many things wait for the owner across the conversations, and how many entries are unread.
+export function totals(list: Conversation[]): { waiting: number; unread: number } {
+  return {
+    waiting: list.reduce((n, c) => n + c.waiting, 0),
+    unread: list.reduce((n, c) => n + c.unread, 0),
+  };
+}
+
+/// What a conversation is called in the list and over it.
+export function conversationTitle(c: Pick<Conversation, 'key' | 'kind' | 'project' | 'projects' | 'work' | 'title'>): string {
+  switch (c.kind) {
+    case 'architect':
+      return t('conv_architect', { project: c.project ?? c.key.slice('architect:'.length) });
+    case 'work':
+      return t('conv_work_item', { id: c.work ?? '', title: c.title ?? '' });
+    case 'projects':
+      return t('conv_projects', { projects: c.projects.join(', ') });
+    default:
+      return t('conv_wf_agents');
+  }
+}
+
+/// The voice the page draws an entry in: the owner's words, on the right; an agent's, beside its avatar; a live
+/// bubble of one line the engine writes from the flow in the voice of the agent whose doing it is (a stage a work
+/// entered, the engineer's; a matter of the architect's, a version of its plan or the policy as it took effect, the
+/// architect's); the page's own line for what the engine says in wf-agents' own conversation; a fault of wf-agents,
+/// which the owner marks read; or nothing, for a design card, which the bubble of the stage that handed it in holds.
+export type Voice = 'owner' | 'agent' | 'live' | 'system' | 'fault' | 'none';
+
+/// The lines that are members of a work's group besides the owner: its engineer and its project's architect.
+const MEMBERS = ['engineer', 'architect'];
+
+/// The member a line speaks as: the architect for the line a flow version before set the architect's policy on, since
+/// to the owner the architect is one; any other line as itself.
+export const member = (line: string): string => (line === 'policy' ? 'architect' : line);
+
+export function voiceOf(e: ConversationEntry): Voice {
+  switch (e.source) {
+    case 'stage':
+    case 'matter':
+    case 'policy':
+    case 'plan':
+      return 'live';
+    case 'notice':
+      return e.fault !== null ? 'fault' : 'system';
+    case 'card':
+      return 'none';
+    case 'between':
+      return 'agent';
+    default:
+      if (e.sender === 'owner') return 'owner';
+      return MEMBERS.includes(member(e.sender)) ? 'agent' : 'system';
+  }
+}
+
+/// Who a party of an entry is, in words: you, the engine, a line; in a group of projects, the architect of a project.
+export function party(e: ConversationEntry, side: string): string {
+  if (e.source === 'between') return t('conv_architect_of', { project: side });
+  if (side === 'owner') return t('conv_you');
+  if (side === 'engine') return t('conv_engine');
+  if (side === 'wf-agents') return t('conv_wf_agents');
+  if (side === 'architects') return t('conv_every_architect');
+  if (side === 'both') return t('conv_both');
+  return words(member(side));
+}
+
+/// To whom an entry is said, as a group says it at the head of a message: @ and the member, or both; in the one-to-one
+/// with an architect, the architect, to whose works the owner's words were said while they ran, as a flow version before
+/// let the owner interject into them.
+export function mention(e: ConversationEntry, kind: Conversation['kind'] = 'work'): string {
+  if (e.source === 'between') return `@${t('conv_architect_of', { project: e.recipient })}`;
+  if (e.recipient === 'both') {
+    return kind === 'architect' ? `@${t('conv_architect_short')}` : `@${t('conv_engineer')} @${t('conv_architect_short')}`;
+  }
+  if (e.recipient === 'owner') return `@${t('conv_you')}`;
+  if (e.recipient === 'architects') return `@${t('conv_every_architect')}`;
+  if (e.recipient === 'architect') return `@${t('conv_architect_short')}`;
+  if (e.recipient === 'policy') return `@${t('conv_architect_short')}`;
+  return `@${words(e.recipient)}`;
+}
+
+/// Whether a message shows to whom it is said at its head: every one in a group; in the one-to-one with an architect,
+/// what the architect says to the owner, `@you`, apart from what it does, which its own bubbles say with no one named,
+/// and the owner's words said to a work of the architect's while it ran, as a flow version before let the owner
+/// interject.
+export const mentions = (e: ConversationEntry, kind: Conversation['kind']): boolean =>
+  kind === 'work' ||
+  kind === 'projects' ||
+  e.source === 'between' ||
+  (kind === 'architect' && (e.source === 'interjection' || (e.recipient === 'owner' && e.sender !== 'owner')));
+
+/// The reply the flow takes as the owner's approval of the architect's draft of a new policy: exactly this word.
+export const DRAFT_APPROVED = 'approved';
+
+/// Whether an entry is what an engineer put to the architect (a question, a failure, a report), which the owner may
+/// answer in the group while the architect holds it.
+export const isQuestion = (e: ConversationEntry): boolean => e.source === 'question' || e.source === 'report';
+
+/// The owner's replies to what an engineer put to the architect, by its matter, each shown in the bubble it answers.
+export function ownerReplies(entries: ConversationEntry[]): Map<number, ConversationEntry> {
+  const put = new Set(entries.filter(isQuestion).map((e) => e.matter ?? e.id));
+  return new Map(
+    entries
+      .filter((e) => e.source === 'reply' && e.sender === 'owner' && put.has(e.matter ?? e.id))
+      .map((e) => [e.matter ?? e.id, e]),
+  );
+}
+
+/// What streams in a conversation, oldest first: everything but the owner's replies to what an engineer put to the
+/// architect, which show in the bubble they answer, and the design cards, which the bubble of the stage that handed them
+/// in holds. An ask and an architect's question stream where they were asked, waiting or answered, the owner's answer or
+/// reply in them; while one waits the bar over the stream leads to it.
+export function streamOf(d: ConversationDetail): ConversationEntry[] {
+  const replies = ownerReplies(d.entries);
+  return d.entries.filter((e) => !(e.source === 'reply' && replies.get(e.matter ?? e.id) === e) && voiceOf(e) !== 'none');
+}
+
+/// Whether an ask is one an architect put to the owner: replied to by the owner's words to the architect, the box at the
+/// bottom set to reply to it, never in its bubble.
+export const architectAsk = (a: OwnerAsk): boolean => isObj(a.body) && a.body.from === 'architect';
+
+/// Whether an entry is the question whether the draft of a new policy that waits (`draft`) is approved: the ask the round
+/// that wrote the draft put.
+export const asksApproval = (e: ConversationEntry, draft: PolicyDraft | null): boolean =>
+  draft !== null && e.source === 'ask' && e.work === draft.work && e.round === draft.round;
+
+/// The questions an architect put to the owner that wait for the owner's reply, as entries of its one-to-one, in the
+/// order the interface gives them, newest first.
+export function pinnedQuestions(d: ConversationDetail): ConversationEntry[] {
+  return d.questions.flatMap((q) => d.entries.filter((e) => e.source === 'ask' && e.id === q.id).slice(0, 1));
+}
+
+/// The asks of the owner that wait in a conversation, as its entries, each answered in its bubble: every ask that waits
+/// there, but an architect's question, which the box at the bottom replies to.
+export function pinnedAsks(d: ConversationDetail): ConversationEntry[] {
+  const waiting = new Set(d.asks.map((a) => a.id));
+  return d.entries.filter(
+    (e) => e.source === 'ask' && e.ask_detail !== null && waiting.has(e.ask_detail.id) && !architectAsk(e.ask_detail),
+  );
+}
+
+/// What waits for the owner in a conversation and has its place in the stream, one pin each for the bar over the
+/// stream, oldest first: the design cards a work waits on to be ruled, the asks that wait, and the questions an
+/// architect put that wait for the owner's reply; each by its number and the words it says first.
+export type Pin = { kind: 'card' | 'ask' | 'question'; id: number; at: number; words: string };
+
+export function pinsOf(d: ConversationDetail): Pin[] {
+  const first = (text: string) => text.split('\n').find((x) => x.trim() !== '')?.trim() ?? '';
+  const pins: Pin[] = [
+    ...d.design_cards.map((x) => ({
+      kind: 'card' as const,
+      id: x.id,
+      at: x.at ?? 0,
+      words: t('pin_card', { id: x.id }),
+    })),
+    ...pinnedAsks(d).map((e) => ({ kind: 'ask' as const, id: e.id, at: e.at, words: first(e.text) })),
+    ...pinnedQuestions(d).map((e) => ({ kind: 'question' as const, id: e.id, at: e.at, words: first(e.text) })),
+  ];
+  return pins.sort((a, b) => a.at - b.at);
+}
+
+/// The question the box at the bottom of the one-to-one replies to: the one the owner chose to reply to (`chosen`),
+/// while it still waits; none once the owner took the reply off (`null`); else, while the owner chose nothing, the one
+/// the architect waits on (`waitsOn`).
+export function replyingTo(
+  pinned: ConversationEntry[],
+  chosen: number | null | undefined,
+  waitsOn: number | null,
+): ConversationEntry | null {
+  if (chosen === null) return null;
+  return pinned.find((e) => e.id === chosen) ?? pinned.find((e) => e.id === waitsOn) ?? null;
+}
+
+/// What the box at the bottom of the one-to-one sends to the architect: the owner's words, and the question they reply
+/// to when it replies to one.
+export const toArchitect = (text: string, replyTo: number | null): { text: string; reply_to?: number } =>
+  replyTo === null ? { text } : { text, reply_to: replyTo };
+
+/// The time of the latest entry of a conversation, up to which opening it reads it.
+export function latestAt(d: ConversationDetail): number | null {
+  return d.entries.reduce<number | null>((m, e) => (m === null || e.at > m ? e.at : m), null);
+}
+
+/// What the line under the owner's words says of where they stand with the architect they were said to.
+const WORDS_STATES: Record<string, Key> = {
+  replying: 'words_replying',
+  replied: 'words_replied',
+  asked: 'matter_held',
+  withdrawn: 'matter_withdrawn',
+};
+
+export const wordsStateText = (w: WordsState): string =>
+  WORDS_STATES[w.state] !== undefined ? t(WORDS_STATES[w.state]) : words(w.state);
+
+/// The owner's words in a conversation that the agent they are for has not taken up yet.
+export const pendingWords = (entries: ConversationEntry[]): ConversationEntry[] =>
+  entries.filter((e) => e.pending && e.sender === 'owner');
+
+/// Whom the box at the bottom of a conversation can say something to, each one ticked or not: in a work's group its
+/// engineer (ticked at first) and its architect; in a group of projects each project's architect; in the one-to-one the
+/// architect alone; in wf-agents' own, nobody.
+export function sayTo(c: Conversation): string[] {
+  if (c.kind === 'work') return ['engineer', 'architect'];
+  if (c.kind === 'projects') return [...c.projects];
+  if (c.kind === 'architect') return ['architect'];
+  return [];
+}
+
+/// What the parties ticked come to as whom a group's words are for: in a work's group `engineer`, `architect` or
+/// `both`; in a group of projects `all` when every architect is ticked, else each ticked project; none when nobody is.
+export function sayToTicked(c: Conversation, ticked: string[]): string[] {
+  const all = sayTo(c);
+  const on = all.filter((x) => ticked.includes(x));
+  if (on.length === 0) return [];
+  if (c.kind === 'work') return on.length === 2 ? ['both'] : on;
+  if (c.kind === 'projects') return on.length === all.length && all.length > 1 ? ['all'] : on;
+  return on;
+}
+
+/// Why the box of a work's group cannot say anything now, or null when it can: the work is at its end or over, and
+/// its way on no longer changes.
+export function closedWhy(c: Conversation, w: WorkSummary | null): string | null {
+  if (c.kind !== 'work') return null;
+  if (c.over || (w !== null && (w.state === 'done' || w.state === 'ended'))) return t('conv_closed_over');
+  if (w !== null && w.at === 'E1') return t('conv_closed_end');
+  return null;
+}
+
+/// The name of each stage the engineer's graph has, as the owner reads it.
+const STAGES: Record<string, Key> = {
+  research: 'stage_research',
+  design: 'stage_design',
+  implement: 'stage_implement',
+  test: 'stage_test',
+  merge: 'stage_merge',
+  watch_main: 'stage_watch_main',
+};
+
+export const stageName = (s: string): string => (STAGES[s] !== undefined ? t(STAGES[s]) : words(s));
+
+/// What the bubble of a stage a work entered is headed by: the stage's name, and when the work came back to it, which
+/// time this is ("Testing and fixing, 2nd time").
+export function stageTitle(s: StageCard): string {
+  const name = stageName(s.stage);
+  return s.again > 0 ? t('stage_pass', { stage: name, nth: ordinal(s.again + 1) }) : name;
+}
+
+/// How a stage ended, in its words, its state's tone and its mark at the head of its bubble: done, stands and the like,
+/// merged, main green and no findings as done, with a work's mark of done; sent back and does not stand as what waits on
+/// someone, with the mark of going back; ended as a work ended, with its mark. None while the work is at it.
+const OUTCOMES: Record<string, { key: Key; tone: Tone; mark: Icon }> = {
+  done: { key: 'stage_outcome_done', tone: 'success', mark: WORK_MARK.done },
+  stands: { key: 'stage_outcome_stands', tone: 'success', mark: WORK_MARK.done },
+  does_not_stand: { key: 'stage_outcome_does_not_stand', tone: 'attention', mark: BACK_MARK },
+  no_findings: { key: 'stage_outcome_no_findings', tone: 'success', mark: WORK_MARK.done },
+  sent_back: { key: 'stage_outcome_sent_back', tone: 'attention', mark: BACK_MARK },
+  merged: { key: 'stage_outcome_merged', tone: 'success', mark: WORK_MARK.done },
+  green: { key: 'stage_outcome_green', tone: 'success', mark: WORK_MARK.done },
+  ended: { key: 'stage_outcome_ended', tone: 'neutral', mark: WORK_MARK.ended },
+};
+
+export function stageOutcome(s: StageCard): { words: string; tone: Tone; mark: Icon } | null {
+  if (s.outcome === null) return null;
+  const o = OUTCOMES[s.outcome];
+  return o !== undefined
+    ? { words: t(o.key), tone: o.tone, mark: o.mark }
+    : { words: words(s.outcome), tone: 'success', mark: WORK_MARK.done };
+}
+
+/// Why a stage ended as it did, in a few words: what its reviews found, or the flow's or the engine's words.
+export function stageWhy(s: StageCard): string | null {
+  if (s.findings.length > 0) {
+    return s.findings.map((f) => tn('stage_findings', f.findings, { review: f.review })).join('; ');
+  }
+  return s.why;
+}
+
+/// What the page tells the owner of, by the browser's notifications: each thing that waits for the owner in a
+/// conversation and did not wait there when the list was read last, by the conversation; none the first time, when
+/// everything is old.
+export function newlyWaiting(before: ReadonlyMap<string, number> | null, now: Conversation[]): Conversation[] {
+  if (before === null) return [];
+  return now.filter((c) => c.waiting > (before.get(c.key) ?? 0));
+}
+
+/// What waits in each conversation, by its key, for the next comparison.
+export const waitingByKey = (list: Conversation[]): Map<string, number> => new Map(list.map((c) => [c.key, c.waiting]));
+
+/// One line of the menu a fault's Forward to… opens: a project, its architect in words, and whether the fault went
+/// there already.
+export type ForwardChoice = { project: string; label: string; sent: boolean };
+
+/// The menu a fault's Forward to… opens: every project's architect, those the fault already went to marked, since it
+/// goes to each once.
+export function forwardMenu(projects: string[], forwards: Forwarded[]): ForwardChoice[] {
+  return projects.map((p) => ({
+    project: p,
+    label: t('fault_forward_to', { project: p }),
+    sent: forwards.some((f) => f.project === p),
+  }));
+}
+
+/// What a fault's entry says of one place it went: to whose architect, by hand or by the owner's setting, and how it
+/// stands there, in the queue or handled in a round, which the page links to.
+export function forwardParts(f: Forwarded): { lead: string; state: string; round: string | null } {
+  const lead = t(f.by === 'setting' ? 'fault_forwarded_auto' : 'fault_forwarded', { project: f.project });
+  if (f.state === 'handled' && f.handled_work !== null && f.handled_round !== null) {
+    return { lead, state: t('fault_handled_in'), round: `R${f.handled_work}-${f.handled_round}` };
+  }
+  return { lead, state: t(f.state === 'withdrawn' ? 'fault_withdrawn' : 'fault_in_queue'), round: null };
+}
+
+/// The same, as one line of words.
+export function forwardWords(f: Forwarded): string {
+  const p = forwardParts(f);
+  return joinedWords([p.lead, p.round !== null ? `${p.state} ${p.round}` : p.state]);
+}
+
+/// The choices of the setting that forwards each new fault as it comes, each a value and its words: nobody (`''`)
+/// first, as it is at first, then every project's architect, and the project it names now even when the
+/// configuration no longer has it.
+export function forwardNewChoices(f: Forwarding): Array<{ value: string; label: string }> {
+  const projects = f.auto !== null && !f.projects.includes(f.auto) ? [...f.projects, f.auto] : f.projects;
+  return [
+    { value: '', label: t('fault_forward_nobody') },
+    ...projects.map((p) => ({ value: p, label: t('fault_forward_to', { project: p }) })),
+  ];
+}

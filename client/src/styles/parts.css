@@ -1,0 +1,595 @@
+/* The parts the page shows like things with (parts.tsx, labelled.tsx, markdown.tsx, components.tsx), one look wherever
+   they are, as the UI spec draws them. */
+
+/* A sub-heading: the name of a part inside a section, in the default colour and semibold at the body's size. The
+   views not yet converted still call it decision-label. */
+.sub-heading,
+.decision-label {
+  margin: 0;
+  color: var(--fgColor-default);
+  font-size: var(--text-body-size-medium);
+  font-weight: var(--base-text-weight-semibold);
+  line-height: var(--text-body-lineHeight-medium);
+}
+
+/* A section: the line that folds it (the chevron, its heading, its count, who wrote it), what it holds under it. A
+   page's own section (a panel's too, which voices.tsx draws with these classes) has no rule under its heading: a line
+   over it the width of the page parts it from what comes before, with room on both sides, and none is drawn over the
+   first thing of a page; what a view sets apart as a section without this part (two sections side by side, a part
+   of the usage, of the settings) takes section-apart for the same line, the room before it the view's own. One
+   inside another is a sub-heading, its body set in by the chevron's width. */
+.section > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+  cursor: pointer;
+}
+
+.section > summary > svg {
+  flex: none;
+  color: var(--fgColor-muted);
+}
+
+.section[open] > summary > .fold-closed,
+.section:not([open]) > summary > .fold-open {
+  display: none;
+}
+
+.section-title {
+  min-width: 0;
+}
+
+.section[data-level='2'] {
+  margin-top: var(--base-size-24);
+}
+
+.section[data-level='2']:not(:first-child),
+.section-apart:not(:first-child) {
+  padding-top: var(--base-size-24);
+  border-top: var(--borderWidth-thin) solid var(--borderColor-default);
+}
+
+.section-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-12);
+  min-width: 0;
+  padding-top: var(--base-size-12);
+  overflow-x: auto;
+}
+
+/* A paragraph of the page's own in a section is spaced by the section's rhythm, not by its own margins. */
+.section-body > p {
+  margin: 0;
+}
+
+.section:not([data-level='2']) > .section-body {
+  padding-top: var(--base-size-8);
+  padding-left: var(--base-size-24);
+}
+
+/* A small fold inside a section: its chevron and what it is on one line, what it holds set in by the chevron's
+   width. */
+.fold > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  list-style: none;
+  cursor: pointer;
+}
+
+.fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.fold > summary > svg {
+  flex: none;
+  color: var(--fgColor-muted);
+}
+
+.fold[open] > summary > .fold-closed,
+.fold:not([open]) > summary > .fold-open {
+  display: none;
+}
+
+.fold-summary {
+  min-width: 0;
+}
+
+.fold-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-8);
+  min-width: 0;
+  padding: var(--base-size-8) 0 0 var(--base-size-24);
+}
+
+/* An action inside a line of text, drawn as a link: it sits in the line as its words do, and is copied with them, as a
+   link is, where Primer's link drawn as a button cannot be selected. */
+.link-button,
+.round-link {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.link-button {
+  text-align: left;
+}
+
+/* A chip, which is Primer's Label wherever the page shows one, in one look on every view: a rounded rectangle rather
+   than Primer's pill, its words the size of the text of the line it stands in, so that a line has one size, and a
+   coloured and an uncoloured chip of one shape, height and corner. A state's chip is filled in its state's colour,
+   vivid, its words white (Primer's coloured variants, and the primary variant, which the page gives a state of no
+   meaning of its own and fills grey); a tag's or a kind's (the default and secondary variants) is uncoloured,
+   outlined. */
+[data-component='Label'] {
+  height: auto;
+  padding: var(--base-size-2) var(--base-size-6);
+  border-radius: var(--borderRadius-medium);
+  font-size: inherit;
+}
+
+[data-component='Label'][data-variant='primary'] {
+  --chip: var(--bgColor-neutral-emphasis);
+}
+
+[data-component='Label'][data-variant='accent'] {
+  --chip: var(--bgColor-accent-emphasis);
+}
+
+[data-component='Label'][data-variant='success'] {
+  --chip: var(--bgColor-success-emphasis);
+}
+
+[data-component='Label'][data-variant='attention'] {
+  --chip: var(--bgColor-attention-emphasis);
+}
+
+[data-component='Label'][data-variant='severe'] {
+  --chip: var(--bgColor-severe-emphasis);
+}
+
+[data-component='Label'][data-variant='danger'] {
+  --chip: var(--bgColor-danger-emphasis);
+}
+
+[data-component='Label'][data-variant='done'] {
+  --chip: var(--bgColor-done-emphasis);
+}
+
+[data-component='Label'][data-variant='sponsors'] {
+  --chip: var(--bgColor-sponsors-emphasis);
+}
+
+[data-component='Label']:not([data-variant='default'], [data-variant='secondary']) {
+  border-color: var(--chip);
+  background: var(--chip);
+  color: var(--fgColor-onEmphasis);
+}
+
+/* A state as a mark, where a row has room for an icon and not for a chip (StateMark): an icon's room, the state's
+   Octicon in the colour its chip is filled in, or the mark of a round running. */
+.state-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--base-size-16);
+  height: var(--base-size-16);
+}
+
+.state-mark-accent {
+  color: var(--bgColor-accent-emphasis);
+}
+
+.state-mark-success {
+  color: var(--bgColor-success-emphasis);
+}
+
+.state-mark-attention {
+  color: var(--bgColor-attention-emphasis);
+}
+
+.state-mark-danger {
+  color: var(--bgColor-danger-emphasis);
+}
+
+.state-mark-done {
+  color: var(--bgColor-done-emphasis);
+}
+
+.state-mark-neutral {
+  color: var(--bgColor-neutral-emphasis);
+}
+
+/* The mark of a round running (RunningMark): the chart's halo at an icon's size, in line with the text, its arcs
+   wider than the chart's small halo's, so that it reads beside an Octicon. */
+.running-mark {
+  flex: none;
+  vertical-align: middle;
+}
+
+.running-mark .fc-halo-small .fc-halo-arc {
+  stroke-width: var(--chart-halo-width-mark);
+}
+
+/* A Label that leads where the owner acts on it: its words underlined under the pointer, as a link's are. */
+.label-link,
+.label-link:hover {
+  text-decoration: none;
+}
+
+.label-link:hover > * {
+  text-decoration: underline;
+}
+
+.label-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/* What an agent wrote, as a block: a line above it, its head (chips, a title, who wrote it), its text under it. */
+.block {
+  padding: var(--base-size-8) 0;
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
+  overflow-wrap: anywhere;
+}
+
+.block-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+.block-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-4);
+  min-width: 0;
+  margin-top: var(--base-size-4);
+}
+
+/* Who wrote something: who to whom, or the cell; when; the round. Small, muted but for who. */
+.by {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--base-size-8);
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+  font-weight: var(--base-text-weight-normal);
+}
+
+.by-who {
+  color: var(--fgColor-default);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.round-link {
+  white-space: nowrap;
+}
+
+/* An item, by its number and title: its number muted, its title in the colour of the text it is in. */
+.item-ref {
+  color: inherit;
+}
+
+.item-ref-n {
+  color: var(--fgColor-muted);
+}
+
+/* The form that answers or says something: what goes above, the words, the button that sends them on the right. */
+.send-form {
+  display: grid;
+  gap: var(--base-size-8);
+  padding-top: var(--base-size-12);
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+
+.send-form-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--base-size-8);
+}
+
+/* The box the owner writes in, beside the button that sends: the images waiting to go with the words over them, what
+   the box refused, then the button that adds images and the words, on the button's bottom line. */
+.say-box {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: var(--base-size-8);
+}
+
+.say-box-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--base-size-8);
+}
+
+/* The words the owner writes beside the button that sends them: one line at rest, as tall as the button beside it,
+   its line the control's between the control's padding less the box's border; growing with what is written, the page
+   setting its height, to twelve lines, past which they scroll. */
+.say-box-words {
+  flex: 1;
+  min-width: 0;
+}
+
+.say-box-words > textarea[data-component='Textarea'] {
+  padding-block: calc(var(--control-medium-paddingBlock) - var(--borderWidth-thin));
+  line-height: inherit;
+  max-height: calc(12 * var(--base-size-20) + 2 * var(--control-medium-paddingBlock));
+  overflow-y: auto;
+}
+
+.say-box-words.say-box-words-small {
+  min-height: var(--control-small-size);
+}
+
+.say-box-words-small > textarea[data-component='Textarea'] {
+  padding-block: calc(var(--control-small-paddingBlock) - var(--borderWidth-thin));
+}
+
+/* The images waiting to go with the words: a thumbnail each, its corner holding the button that takes it out, then how
+   many against the 10 a message carries. */
+.say-images {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-12);
+}
+
+.say-image {
+  position: relative;
+  display: inline-flex;
+}
+
+.say-image > img {
+  width: var(--base-size-48);
+  height: var(--base-size-48);
+  object-fit: cover;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-muted);
+}
+
+/* The button that takes an image out floats over its thumbnail's corner, on the surface of what floats. */
+.say-image > .say-image-remove {
+  position: absolute;
+  top: calc(-1 * var(--base-size-8));
+  right: calc(-1 * var(--base-size-8));
+  background: var(--overlay-bgColor);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-full);
+  box-shadow: var(--shadow-floating-small);
+}
+
+.say-images-count {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+/* What the box refused, said under the images. */
+.say-refused {
+  margin: 0;
+  color: var(--fgColor-danger);
+  font-size: var(--text-body-size-small);
+}
+
+/* The images the owner sent, as thumbnails in a row that wraps: each as tall as the room for it and no wider than four
+   times that, a click opening it at full size. */
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-8);
+  margin-top: var(--base-size-8);
+}
+
+.thumbs:first-child {
+  margin-top: 0;
+}
+
+.thumb {
+  display: inline-flex;
+}
+
+.thumb > img {
+  height: var(--base-size-96);
+  max-width: calc(4 * var(--base-size-96));
+  object-fit: contain;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-default);
+}
+
+/* Label and value pairs: the name muted and never bold, the value in the text's colour. */
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--base-size-4) var(--base-size-16);
+  margin: 0;
+}
+
+.fact {
+  display: contents;
+}
+
+.facts dt {
+  color: var(--fgColor-muted);
+}
+
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Text an agent or the owner wrote, as one document in the page's font: paragraphs and list items apart by the
+   rhythm, the agent's headings as sub-headings, code as Primer's markdown draws it. */
+.prose {
+  margin: 0;
+  line-height: var(--text-body-lineHeight-medium);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.md {
+  display: grid;
+  gap: var(--base-size-8);
+  min-width: 0;
+}
+
+.md-list {
+  margin: 0;
+  padding-left: var(--base-size-24);
+}
+
+.md-list li + li {
+  margin-top: var(--base-size-4);
+}
+
+.md-h {
+  margin: var(--base-size-4) 0 0;
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.prose code,
+.md-list code,
+.md-h code {
+  padding: var(--base-size-2) var(--base-size-4);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-neutral-muted);
+}
+
+.code-block {
+  margin: 0;
+  padding: var(--base-size-8) var(--base-size-12);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-muted);
+  font: var(--text-codeBlock-shorthand);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* A diagram in a text, on the text's background at its own size: wider than the text, it scrolls inside its box and
+   never widens the page. The button that shows its source sits in its top right corner, seen under the pointer or the
+   keyboard's focus, and always where there is no pointer to hover with. */
+.diagram {
+  position: relative;
+  min-width: 0;
+}
+
+.diagram-drawing {
+  overflow-x: auto;
+}
+
+.diagram-drawing > svg {
+  display: block;
+  max-width: none;
+}
+
+.diagram-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  opacity: 0;
+}
+
+.diagram:hover .diagram-toggle,
+.diagram:focus-within .diagram-toggle,
+.diagram-toggle[aria-pressed='true'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .diagram-toggle {
+    opacity: 1;
+  }
+}
+
+.diagram-note {
+  margin: var(--base-size-4) 0 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+/* A value whose shape the page does not know: its fields each under its name, a list as a list. */
+.labelled {
+  display: grid;
+  gap: var(--base-size-12);
+}
+
+.labelled-field,
+.field {
+  display: grid;
+  gap: var(--base-size-4);
+}
+
+.labelled-list {
+  margin: 0;
+  padding-left: var(--base-size-24);
+}
+
+/* The period a view counts over: its name, then each period a link, the one counted over in the text's colour and
+   semibold. */
+.period-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--base-size-4) var(--base-size-16);
+}
+
+.period-switch .period-on {
+  color: var(--fgColor-default);
+  font-weight: var(--base-text-weight-semibold);
+}
+
+/* A list and what is open from it (ListSplit): Primer's PageLayout under the bar, the list in its pane on the left and
+   what is open in its content on the right, each scrolling on its own. While nothing is open the pane fills the view
+   and its divider, with the handle that drags it, is gone: the pane's own width (Primer's, from the width the owner
+   dragged it to) and its divider are reached through the names Primer gives them, since Primer has no pane that fills
+   its layout and keeps its width for later. */
+.list-split {
+  flex: 1;
+}
+
+.list-split-open {
+  min-width: 0;
+}
+
+.list-split-whole .list-split-list {
+  flex: 1;
+}
+
+.list-split-whole [data-component='PageLayout.Pane'] {
+  width: 100%;
+}
+
+.list-split-whole [data-component='PageLayout.VerticalDivider'] {
+  display: none;
+}
+
+/* The way back to a list over what is open from it (BackLink), as the way back over a panel is drawn: a small link
+   with its arrow, at the left of the room what is open is drawn in. Only below the narrow breakpoint, where a split
+   shows one side at a time; from it up, the list is beside what is open. */
+.back-link {
+  padding: var(--base-size-12) var(--base-size-16) 0;
+  font-size: var(--text-body-size-small);
+}
+
+.back-link a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+@media (min-width: 48rem) {
+  .back-link {
+    display: none;
+  }
+}

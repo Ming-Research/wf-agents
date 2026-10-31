@@ -1,0 +1,41 @@
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+# Shared by every crate, so the version the command reports and the rules the code is held to are set once.
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+# Where wf-agents is developed: the engine knows by it which project of a configuration is wf-agents itself.
+repository = "https://github.com/Ming-Research/wf-agents"
+
+# Taken by more than one crate, so that each is at one version, set here.
+[workspace.dependencies]
+# Unicode's own properties in a pattern, so that text in any language is handled alike: a final sentence terminal
+# (`\p{Sentence_Terminal}`) trimmed from an architect's why, and a letter (`\p{L}`) that is not ASCII found by the check
+# that the repository is in English.
+regex = "1.13.1"
+# Unicode's rules of where a sentence ends (UAX #29), so that the sentences of text in any language are found alike.
+unicode-segmentation = "1.13.3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# The profile CI builds the tests with (`cargo nextest run --cargo-profile ci`); no local build uses it. The
+# dependencies are optimized fully, because unoptimized they run the tests many times slower (SQLite, built from
+# source, above all), and CI's cache keeps them built. The workspace's own crates, rebuilt on every push, are optimized
+# lightly: compiling the flow, which most tests do, takes some 16 s unoptimized and 3.5 s at level 1, while level 2
+# builds them some 45 s longer to save some 10 s of each test job. Line tables are enough for a failing test's
+# backtrace.
+[profile.ci]
+inherits = "test"
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.ci.package."*"]
+opt-level = 3

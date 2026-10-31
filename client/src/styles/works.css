@@ -1,0 +1,295 @@
+/* The works: the two lists over the window's width, each under its heading with its count, the ended folded; and a
+   work picked from them, in the list's place: its line over its chart, and its panel on top of the window floating over
+   the chart's right side, its tabs an UnderlineNav over how it goes on and its rounds, its design cards, its
+   conversation and its usage. */
+
+.works-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.works-lists {
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--base-size-16) var(--base-size-16);
+  overflow: auto;
+}
+
+/* The heading of the works running and waiting, as a section's line, with no rule under it; the ended works' section
+   after it has the line over it that parts a page's sections. */
+.works-active {
+  display: grid;
+  gap: var(--base-size-12);
+  margin-top: var(--base-size-16);
+}
+
+.works-head {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+
+.works-wide {
+  overflow-x: auto;
+  border-radius: var(--borderRadius-medium);
+}
+
+/* Both lists of works have the same columns at the same widths, which the owner drags at the right edge of each
+   header and the page keeps; the item takes what the others leave, at least 240px, and a narrower window scrolls the
+   lists sideways. Every cell stays on one line, cut where its column ends and whole on hovering. */
+.works-table {
+  table-layout: fixed;
+}
+
+.works-table th,
+.works-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+table.list.works-table td {
+  vertical-align: middle;
+}
+
+.works-table th {
+  position: relative;
+}
+
+.works-table td.control-cell {
+  cursor: default;
+}
+
+/* The right edge of a column's header, which drags the column's width: a line in the accent under the pointer, as a
+   divider is. */
+.col-grip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--base-size-8);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.col-grip:hover {
+  box-shadow: inset calc(-1 * var(--borderWidth-thick)) 0 0 var(--borderColor-accent-emphasis);
+}
+
+/* How a work goes on, on one line: its chips and what it waits for, then, as muted words in the line's size, how long
+   its round has run and why the engine stopped it or why it ended. */
+.course {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  max-width: 100%;
+}
+
+.course .why {
+  max-width: none;
+  color: var(--fgColor-muted);
+  font-size: inherit;
+  white-space: nowrap;
+}
+
+/* The rounds sent back and failed beside a work's rounds, each its mark and how many, in the colour of its state. */
+.rounds-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-2);
+}
+
+.rounds-mark-back {
+  color: var(--fgColor-attention);
+}
+
+.rounds-mark-failed {
+  color: var(--fgColor-danger);
+}
+
+/* The owner's Start or Pause, Step and the choice of a new session for them, of a work: small IconButtons, the choice
+   marked as the option picked while it is pressed. */
+.controls {
+  display: inline-flex;
+  gap: var(--base-size-4);
+  vertical-align: middle;
+}
+
+.session-choice[aria-pressed='true'] {
+  border-color: var(--borderColor-accent-muted);
+  background: var(--bgColor-accent-muted);
+  color: var(--fgColor-accent);
+}
+
+/* The line over the chart of a work's page, on one line: back to the list, which work it is, how it goes on and where,
+   its facts and its conversation. An architect's page has none. */
+.work-line {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-12);
+  min-width: 0;
+  padding: var(--base-size-8) var(--base-size-16);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
+  background: var(--bgColor-default);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.work-line > * {
+  flex: none;
+}
+
+.work-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+/* What the work waits for gives way last, then where it is, then its name. */
+.work-name,
+.work-state,
+.work-where {
+  min-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.work-name {
+  flex: 0 4 auto;
+}
+
+.work-state {
+  flex: 0 1 auto;
+}
+
+.work-where {
+  flex: 0 2 auto;
+}
+
+/* A page's panel on top of the window floating over the chart, a work's or an architect's: its tabs, and what the tab
+   shown holds under them. */
+.drawer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.drawer-count {
+  margin-left: var(--base-size-4);
+}
+
+/* What a tab holds follows one another and keeps its height. */
+.drawer-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-16);
+  min-height: 0;
+  padding: var(--base-size-16);
+  overflow: auto;
+}
+
+.drawer-body > * {
+  flex: none;
+}
+
+.drawer-body > p {
+  margin: 0;
+}
+
+/* The list of rounds, a work's or the architect's, scrolls by itself under what the tab says over it, so that rounds
+   join it at either end as it scrolls; the page puts back the rows in sight itself, so the browser does not too. Each
+   cell keeps to one line, at any width: what a round came to takes the room left and is cut, whole on hovering; where
+   the list is narrow, the usage bar gives way first, then how long the round took. */
+.drawer-body > .rounds-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  container-type: inline-size;
+}
+
+.rounds-list td {
+  white-space: nowrap;
+}
+
+.rounds-list td.rounds-what {
+  width: 100%;
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rounds-more {
+  margin: var(--base-size-8) 0;
+}
+
+@container (max-width: 480px) {
+  .rounds-list .spent {
+    display: none;
+  }
+}
+
+@container (max-width: 380px) {
+  .rounds-list .rounds-time {
+    display: none;
+  }
+
+  /* At a phone's width the cells keep less room round them, and who ran a round is cut, whole on hovering, so that
+     what the round came to keeps room for its first words. */
+  table.list.rounds-list td {
+    padding-right: var(--base-size-4);
+    padding-left: var(--base-size-4);
+  }
+
+  .rounds-list [data-component='Label'].who-chip {
+    display: inline-block;
+    max-width: 96px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+  }
+}
+
+/* Who ran a round: a chip of a chip's shape filled in the tint of its cell's colour on the chart and edged in the same,
+   its words in that colour's foreground: an agent's role's colour (roles.css), the engine's step grey, a tool yellow
+   and the owner orange (chart.css). */
+[data-component='Label'][data-variant='secondary'].who-chip {
+  border-color: var(--role-fill);
+  background: var(--role-fill);
+  color: var(--role-text);
+}
+
+/* The mark of a round that started a new session of its line, after its name: the new session's speech bubble in the
+   muted colour of the name, why on hovering. */
+.session-mark {
+  display: inline-flex;
+  vertical-align: text-bottom;
+  color: var(--fgColor-muted);
+}
+
+/* Where one of the architect's works began, between two works' rounds: a thin muted rule across the list, when that
+   work began on it in small muted text. */
+.rounds-list tr.rounds-began > td {
+  padding: var(--base-size-2) var(--base-size-12);
+  border-bottom: 0;
+}
+
+.rounds-began-at {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.rounds-began-at::before,
+.rounds-began-at::after {
+  content: '';
+  flex: 1;
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
+}

@@ -1,0 +1,57 @@
+Decision item-dag: Items own no other item: the only relation between items is dependency, and the items form a directed acyclic graph, checked for cycles on every write, instead of parent and child items, because an item that depends on others simply cannot be finished before them, and ownership adds nothing that dependency does not already say.
+
+Rests on: C:problem-first
+
+Rejected:
+- Parent items owning the child items split from them: rejected because a split is fully described by the parent depending on its children, and ownership would forbid an item serving two dependents.
+
+Decision item-and-work: An item and a work are kept apart: the item (what to do) belongs to the architect and the owner, the work (one run of the flow on it) belongs to the engine, and an item can be stopped and started again as a new work, because what is wanted outlives any one attempt at it.
+
+Rests on: C:design-on-merit
+
+Decision one-ending: Every way a work ends goes through one ending (`ending::end`), the only place a work's end is written: at its end (cell `E1`), cancelled, merged into another item, or stopped for a new work on a new flow version. The matters that wait on it (its questions, failures and design cards) leave the architect's queue, withdrawn, saying why; a stopped work's open round is cut off, and a round running when it ended hands in nothing; its design cards are replaced and its asks of the owner need no answer; its sessions end; and, unless a new work takes them over, its worktree is removed and its pull request, if it did not merge, is closed with a comment that its work ended without merging, its branch staying; a new work that takes it over is told what it had asked and had withdrawn. A work of the architect, which holds no worktree or pull request and whose line's session goes on from one of the architect's works to the next, only records that it stopped. Instead of each way of ending doing part of it, because a cancelled item's work kept its sessions, its worktree and an open pull request, and a work that ended left its question in the architect's queue, which the architect answered to no one.
+
+Rests on: C:design-on-merit, F:split-endings-leaked
+
+Decision cancel-frees-dependents: A cancelled item depends on nothing and holds nothing back: cancelling it removes its dependencies both ways, and each item that depended on it is told, by where it stands: a work running on it by an interjection from whoever cancelled the item, which a work standing at an engine step, such as waiting for what its item depends on (`A6`) or to enter the merge queue (`M1`), takes at once to choose the way on (`A4`), and an item with no work running by a matter for its project's architect to set straight, instead of the dependencies staying, because a cancelled item never merges, and whatever waited on it waited for good.
+
+Rests on: C:efficient, D:holder-failure-rows
+
+Decision dependency-kinds: A dependency is of one of two kinds, which the architect gives each it makes, by a dependency of its own or a split: a blocking one keeps the item from starting, the owner's queue included, until the item it depends on is merged, as when it needs a module or a library the other makes; with a parallel one the item starts while the other is unfinished and waits for it where it needs it, before it merges or where the architect's reply has it stop; a blocking dependency made later does not stop a work already running, which the architect can still have wait or hold, instead of one kind that lets every item start, because work that cannot begin without what another delivers would take a slot only to wait, while work that needs the other only at its end should not wait to begin.
+
+Rests on: C:efficient
+
+Decision start-order: Works start first from the dispatch queue the owner orders by hand, then in the architect's order: each item by its rank among its project's items, lower first, an item placed nowhere yet, as one just made is, after those placed, in the order made; an item not cancelled, held, done or kept from starting by a blocking dependency is in that order, instead of only the owner's queue, because the architect, who sees the whole, decides what starts next, and holds what should not start yet; provisional: the owner's queue stays until the architect's order alone decides what starts.
+
+Rests on: D:dispatch-rank
+
+Open: the premise for the owner's queue starting first and staying until the architect's order alone decides what starts; to ask the owner.
+
+Decision rank-integer: The architect's order is a rank on each item, an integer within its project, which the item changes of its project's architect, once the review of their batch lets them be made, set by moving an item first, last, or just before or after another item of its project, every item of the project ranked afresh, instead of the plan, segments the root items hung on with gates on what each might touch and budgets it might spend, because a change to a specification, a public interface or a data format is a design decision the owner confirms on the work's design card, and whether a work drifts from its direction is the architect's judgment, not a limit the engine measures.
+
+Rests on: D:card-ask-apart, D:engine-mechanical
+
+Rejected:
+- The plan (segments under the policy's stages that the root items hung on, gates on which segments might touch a specification, a public interface or a data format, and budgets shared out among them, checked before each merge): rejected because the design card already puts each such change to the owner, and a mechanical limit cannot tell drift in direction from a change the work needs.
+
+Decision matters-table: The architects' matters are a table of their own, each for a project, which records which side reports, questions and design cards an architect took and how it replied, instead of views over the rounds, because a matter has a state the rounds do not hold: whether an ask of the owner holds it and which cell asked, replied to or handled.
+
+Rests on: C:information, D:computed-as-views
+
+Decision item-changes-table: The item changes an architect hands in are a table of their own (`architect_item_changes`), each collected in the batch of the architect's work and then made, revised or dropped by the review, instead of being written as they are decided, because a batch is reviewed as a whole before any of it is made.
+
+Rests on: D:reviewed-batch
+
+Decision observations-table: Observations are a table of their own beside the items, each for a project, with its tags, where it came from, how many times it was reported, what it refers to and the item that took it in, closed once that item's work merged or with why, instead of notes, because what is seen and not yet worth an item must be found again, counted and folded in.
+
+Rests on: C:problem-first
+
+Decision known-red-table: Known red checks are a table, instead of static configuration, because the architect adds and removes them while works run.
+
+Rests on: D:architect-does-not-fix
+
+Open: the premise that the architect removes known red checks while works run: D:architect-does-not-fix has a check added meanwhile, without saying by whom, and no record says one is removed; to ask the owner.
+
+Decision side-reports-view: Side reports are a view over the returns, and each is queued once as a matter of the architect's, which records that it was taken, instead of a table of side reports, because the report itself never changes, and what the architect does with it is the matter's.
+
+Rests on: D:returns-as-json, D:state-and-history, D:matters-table

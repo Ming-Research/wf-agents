@@ -1,0 +1,246 @@
+/* The marks the page shows numbers with (charts.tsx), one look wherever they are: a tile, bars one under another, a
+   stacked bar with its legend, columns over time, and the tip that says what a mark is. Their colours come from
+   Primer's data visualisation scales, named here once by what they are for. */
+
+:root {
+  /* The series of a chart, in a fixed order of hues, and the time or tokens of no series. */
+  --chart-1: var(--data-blue-color-emphasis);
+  --chart-2: var(--data-orange-color-emphasis);
+  --chart-3: var(--data-green-color-emphasis);
+  --chart-4: var(--data-purple-color-emphasis);
+  --chart-idle: var(--data-gray-color-muted);
+  /* The shares of a round's cost wherever the page shows them: read again from the cache, newly cached, output. */
+  --share-read: var(--data-blue-color-emphasis);
+  --share-new: var(--data-orange-color-emphasis);
+  --share-output: var(--data-green-color-emphasis);
+}
+
+/* Tiles: what each counts in small muted text, its number in the title step, a line under it; on the muted
+   background, which sets a tile apart without the box that means an agent's words. */
+.us-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: var(--base-size-8);
+}
+
+.us-tile {
+  display: block;
+  padding: var(--base-size-8) var(--base-size-12);
+  border: 0;
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-muted);
+  color: var(--fgColor-default);
+  font: inherit;
+  text-align: left;
+}
+
+.us-k,
+.us-v,
+.us-s {
+  display: block;
+}
+
+.us-k,
+.us-s {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.us-v {
+  font: var(--text-title-shorthand-medium);
+  white-space: nowrap;
+}
+
+/* A tile whose number leads to the list it counts, and one of nothing, which leads nowhere. */
+.us-tile-link {
+  cursor: pointer;
+}
+
+.us-tile-link:hover {
+  background: var(--bgColor-neutral-muted);
+  text-decoration: none;
+}
+
+.us-tile-none .us-v {
+  color: var(--fgColor-muted);
+  font-weight: var(--base-text-weight-normal);
+}
+
+/* A stacked bar across the width, its parts a little apart, and its legend under it. */
+.us-stack {
+  display: flex;
+  gap: var(--base-size-2);
+  height: var(--base-size-20);
+}
+
+.us-stack > span {
+  border-radius: var(--borderRadius-small);
+}
+
+.us-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-4) var(--base-size-16);
+  margin-top: var(--base-size-8);
+  font-size: var(--text-body-size-small);
+}
+
+.us-legend i,
+.us-swatch {
+  display: inline-block;
+  width: var(--base-size-12);
+  height: var(--base-size-12);
+  margin-right: var(--base-size-4);
+  border-radius: var(--borderRadius-full);
+  vertical-align: middle;
+}
+
+/* Bars one under another: each its label, its bar and its value. */
+.us-bars {
+  display: grid;
+  gap: var(--base-size-4);
+}
+
+.us-bar {
+  display: grid;
+  grid-template-columns: minmax(120px, 34%) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--base-size-8);
+  font-size: var(--text-body-size-small);
+}
+
+.us-bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.us-bar-track {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  min-width: 0;
+}
+
+.us-bar-fill {
+  display: block;
+  height: var(--base-size-16);
+  border-top-right-radius: var(--borderRadius-small);
+  border-bottom-right-radius: var(--borderRadius-small);
+}
+
+.us-bar-value {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Columns over time, one to a period, stacked from their parts and drawn to one scale: nothing at the base line, the
+   highest column at the top, which the label at the top left names. */
+.cols {
+  margin: var(--base-size-12) 0 var(--base-size-4);
+}
+
+.cols-plot {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--base-size-4);
+  height: 136px;
+  padding-top: var(--base-size-16);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
+}
+
+.cols-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.cols-col {
+  display: flex;
+  flex: 1 1 0;
+  align-items: flex-end;
+  height: 100%;
+  min-width: 0;
+}
+
+.cols-bar {
+  display: flex;
+  flex-direction: column-reverse;
+  width: 100%;
+  overflow: hidden;
+  border-top-left-radius: var(--borderRadius-small);
+  border-top-right-radius: var(--borderRadius-small);
+}
+
+.cols-bar > span {
+  display: block;
+  width: 100%;
+}
+
+.cols-x {
+  display: flex;
+  gap: var(--base-size-4);
+  margin-top: var(--base-size-4);
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.cols-x > span {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* What the mark under the pointer is, as Primer's tooltip draws it. */
+.us-tip {
+  position: fixed;
+  z-index: var(--zIndex-popover);
+  max-width: 420px;
+  padding: var(--base-size-4) var(--base-size-8);
+  border-radius: var(--borderRadius-medium);
+  background: var(--tooltip-bgColor);
+  color: var(--tooltip-fgColor);
+  font-size: var(--text-body-size-small);
+  pointer-events: none;
+}
+
+/* Where an agent's round spent its cost, beside its cost in the rounds list: the shares as a small bar, and its steps;
+   the same three colours wherever the page shows these shares, so that their key in the chart's "?" holds
+   everywhere. */
+.spent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  margin-right: var(--base-size-8);
+  vertical-align: middle;
+}
+
+.spent-bar {
+  display: inline-flex;
+  width: 40px;
+  height: var(--base-size-8);
+  overflow: hidden;
+  border-radius: var(--borderRadius-small);
+  background: var(--bgColor-neutral-muted);
+}
+
+.spent-read {
+  background: var(--share-read);
+}
+
+.spent-new {
+  background: var(--share-new);
+}
+
+.spent-output {
+  background: var(--share-output);
+}
+
+.spent-steps {
+  font-size: var(--text-body-size-small);
+}

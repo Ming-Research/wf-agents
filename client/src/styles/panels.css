@@ -1,0 +1,510 @@
+/* The panels about one thing beside a chart (a cell, a round, a rule, a store) and the three voices their texts are in
+   (voices.tsx), as the UI spec draws them: the page's words plain; what is sent to an agent a sheet, filled, with a
+   thick edge at its left; what an agent handed back a box with a thin border; a round's head of label and value
+   pairs, the four sections In, Out, From and To, what comes out as JSON and the two tables of rows, the parts inside
+   the sections and the rows that open. */
+
+/* ---- The two voices that are not the page's. */
+
+/* Sent to an agent: a sheet. */
+.sheet {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-8);
+  min-width: 0;
+  padding: var(--base-size-8) var(--base-size-12);
+  border-left: var(--borderWidth-thicker) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-muted);
+  overflow-wrap: anywhere;
+}
+
+.sheet p {
+  margin: 0;
+}
+
+/* A message as sent, a format, data as given and what a tool printed keep the fixed width they were written in. */
+.sheet-mono,
+.said-mono {
+  gap: 0;
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeBlock-size);
+  line-height: var(--text-codeBlock-lineHeight);
+  white-space: pre-wrap;
+}
+
+/* Handed back by an agent: a box. */
+.said {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-8);
+  min-width: 0;
+  padding: var(--base-size-8) var(--base-size-12);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-default);
+  overflow-wrap: anywhere;
+}
+
+/* The rows of a list in one box, parted by lines. */
+.said-list {
+  gap: 0;
+  padding: 0;
+}
+
+.said-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--base-size-4) var(--base-size-8);
+  padding: var(--base-size-8) var(--base-size-12);
+}
+
+.said-row + .said-row,
+.said-list > .said-more {
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+
+.said-row-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-4);
+  min-width: 0;
+}
+
+.said-row-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+.said-more {
+  padding: var(--base-size-4) var(--base-size-12);
+}
+
+/* What a field holds inside a row: its name over its text. */
+.said-sub {
+  display: grid;
+  min-width: 0;
+}
+
+/* Inside a sheet or a box the page adds only names, numbers and controls. */
+.inner-name {
+  color: var(--fgColor-muted);
+  font-family: var(--fontStack-system);
+  font-size: var(--text-body-size-small);
+  white-space: normal;
+}
+
+/* What each round fills in, named where it goes. */
+.hole {
+  padding: 0 var(--base-size-4);
+  border: var(--borderWidth-thin) dashed var(--borderColor-default);
+  border-radius: var(--borderRadius-small);
+  background: var(--bgColor-default);
+  color: var(--fgColor-muted);
+  font-family: var(--fontStack-system);
+  font-size: var(--text-body-size-small);
+  font-weight: var(--base-text-weight-normal);
+  white-space: normal;
+}
+
+/* A text over 1,000 characters folded to its first three lines; the control under it is the page's. */
+.long {
+  min-width: 0;
+}
+
+.long-folded {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.long-more {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: var(--base-size-4);
+  font-family: var(--fontStack-system);
+  font-size: var(--text-body-size-small);
+  white-space: normal;
+}
+
+/* A message as sent: its headings as they are, in the message's own type, semibold to be found. */
+.msg-h {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.msg-part + .msg-h {
+  margin-top: var(--base-size-8);
+}
+
+/* ---- The page's own words in a panel. */
+
+/* A code the flow names a thing by, after its name in words: small and muted. */
+.pp-code {
+  color: var(--fgColor-muted);
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-body-size-small);
+  overflow-wrap: anywhere;
+}
+
+/* Types, flags and where a thing comes from: small muted words. */
+.pp-facts,
+.pp-over {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.pp-over {
+  display: block;
+}
+
+.pp-note {
+  margin: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.pp-arrow {
+  color: var(--fgColor-muted);
+}
+
+/* The overview: label and value pairs. */
+.overview {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--base-size-8) var(--base-size-16);
+  margin: 0;
+}
+
+.overview-row {
+  display: contents;
+}
+
+.overview dt {
+  color: var(--fgColor-muted);
+}
+
+.overview dd {
+  display: grid;
+  gap: var(--base-size-2);
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.overview-sub {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+/* A panel's page: its overview and its sections, drawn as a page's own sections are (parts.css), the room before
+   each the page's gap. */
+.pp-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-24);
+  min-width: 0;
+}
+
+.pp-page > .section {
+  margin-top: 0;
+}
+
+.pp-section > summary,
+.pp-fold > summary,
+.pp-row > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.pp-section > summary::-webkit-details-marker,
+.pp-fold > summary::-webkit-details-marker,
+.pp-row > summary::-webkit-details-marker {
+  display: none;
+}
+
+.pp-fold > summary > svg,
+.pp-row > summary > svg {
+  flex: none;
+  color: var(--fgColor-muted);
+}
+
+.pp-fold[open] > summary > .fold-closed,
+.pp-fold:not([open]) > summary > .fold-open,
+.pp-row[open] > summary > .fold-closed,
+.pp-row:not([open]) > summary > .fold-open {
+  display: none;
+}
+
+/* A part inside a section: its name a sub-heading, its code and facts after it. */
+.pp-part {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-8);
+  min-width: 0;
+}
+
+.pp-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--base-size-4) var(--base-size-8);
+  min-width: 0;
+}
+
+.pp-sub {
+  margin: 0;
+  color: var(--fgColor-default);
+  font-size: var(--text-body-size-medium);
+  font-weight: var(--base-text-weight-semibold);
+  line-height: var(--text-body-lineHeight-medium);
+}
+
+.pp-fold > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+.pp-fold-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-8);
+  min-width: 0;
+  padding: var(--base-size-8) 0 0 var(--base-size-24);
+}
+
+/* Rows that open: each its chevron, its number, its name, its code and its facts, wrapping under the name. */
+.pp-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-2);
+  min-width: 0;
+}
+
+.pp-row > summary,
+.pp-row-line {
+  display: grid;
+  grid-template-columns: var(--base-size-16) minmax(0, 1fr);
+  gap: var(--base-size-8);
+  align-items: start;
+  padding: var(--base-size-2) 0;
+}
+
+.pp-row > summary > svg {
+  margin-top: var(--base-size-2);
+}
+
+.pp-row-text > .pp-code,
+.pp-row-text > .pp-facts {
+  margin-left: var(--base-size-4);
+}
+
+.pp-no {
+  display: inline-block;
+  min-width: var(--base-size-12);
+  margin-right: var(--base-size-4);
+  color: var(--fgColor-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pp-row-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-4);
+  min-width: 0;
+  padding: var(--base-size-4) 0 var(--base-size-12) var(--base-size-24);
+}
+
+/* Label and value pairs in two columns: where a row leads, a check and what it checks. */
+.pp-pairs {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--base-size-4) var(--base-size-12);
+  align-items: baseline;
+  min-width: 0;
+}
+
+.pp-pair {
+  display: contents;
+}
+
+.pp-pair > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A tool's question and answer together, one tool under another. */
+.pp-tool {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-8);
+  min-width: 0;
+}
+
+.pp-tool + .pp-tool {
+  padding-top: var(--base-size-12);
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+
+.pp-tool-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-4);
+  min-width: 0;
+  padding-left: var(--base-size-24);
+}
+
+/* A cell's rounds on a work's chart, newest first. */
+.pp-rounds {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: var(--base-size-4) var(--base-size-12);
+  align-items: baseline;
+}
+
+.pp-round {
+  display: contents;
+  cursor: pointer;
+}
+
+.pp-round > span {
+  min-width: 0;
+}
+
+.pp-round:hover > span {
+  background: var(--bgColor-neutral-muted);
+}
+
+/* Where an agent's round spent its cost: the shares' dots as the rounds list draws them. */
+.pp-spent-dot {
+  display: inline-block;
+  width: var(--base-size-8);
+  height: var(--base-size-8);
+  margin-right: var(--base-size-4);
+  border-radius: var(--borderRadius-full);
+}
+
+/* A paragraph of the page's own, plain. */
+.pp-plain {
+  margin: 0;
+}
+
+.pp-plain-text {
+  white-space: pre-wrap;
+}
+
+/* The fields of what was handed back, each under its title, one heading step in. */
+.pp-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--base-size-12);
+  min-width: 0;
+}
+
+/* ---- In, Out, From and To (flow/Sides.tsx), on a cell's panel and a round's. */
+
+/* What comes out, as JSON: pretty-printed in the code's type, keys, texts and other values in GitHub's syntax colours,
+   a text's line breaks kept and long lines wrapped, each object and list one level in, the control that folds it in
+   the gutter at its left. */
+.json {
+  min-width: 0;
+  padding-left: var(--base-size-16);
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeBlock-size);
+  line-height: var(--text-codeBlock-lineHeight);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.json-line {
+  position: relative;
+  min-width: 0;
+}
+
+.json-in {
+  padding-left: var(--base-size-16);
+}
+
+.json-fold {
+  position: absolute;
+  top: 0;
+  left: calc(-1 * var(--base-size-16));
+  display: inline-flex;
+  align-items: center;
+  height: var(--text-codeBlock-lineHeight);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fgColor-muted);
+  cursor: pointer;
+}
+
+.json-key {
+  color: var(--prettylights-syntax-entity-tag);
+}
+
+/* A key the flow says something of: what it says on hovering, the key underlined with dots to show there is a tip. */
+.json-tip {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--borderColor-default);
+  cursor: help;
+}
+
+.json-string {
+  color: var(--prettylights-syntax-string);
+}
+
+.json-constant {
+  color: var(--prettylights-syntax-constant);
+}
+
+.json-or {
+  color: var(--fgColor-muted);
+}
+
+/* From and To: the transition tables, their words wrapping between words, a row's name after an underscore; on a round,
+   the row taken marked as the row picked, every other row greyed, its links too. */
+.side-table td {
+  overflow-wrap: break-word;
+}
+
+.side-taken > td {
+  background: var(--bgColor-accent-muted);
+}
+
+.side-other > td,
+.side-other .link-button,
+.side-other .round-link {
+  color: var(--fgColor-muted);
+}
+
+/* A line picked to keep its rows lit on the chart beside it: marked as the row picked, under the pointer too, so that
+   the click that picks it shows at once. */
+.side-table tr.clickable.selected {
+  background: var(--bgColor-accent-muted);
+}
+
+/* What a row does besides leading on, under where it leads. */
+.side-does {
+  display: block;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.side-fold > td {
+  padding-top: var(--base-size-4);
+  padding-bottom: var(--base-size-4);
+}
+
+.side-fold .link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  font-size: var(--text-body-size-small);
+}

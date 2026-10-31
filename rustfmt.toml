@@ -1,0 +1,5 @@
+# The same width as the repository's other text.
+max_width = 120
+# rustfmt run alone on a file reads the edition here, not from Cargo.toml, and would otherwise parse 2024 syntax such
+# as let chains as 2015 and fail.
+edition = "2024"

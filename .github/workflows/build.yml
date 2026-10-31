@@ -1,0 +1,37 @@
+name: build
+
+# Builds the wf-agents command for the machine the engine runs on, an Apple silicon Mac, so that nothing is compiled
+# there; the binary, with the owner's page built into it, is kept as the run's artifact. It builds each push of the
+# branch the engine is installed from.
+on:
+  push:
+    branches: [first-version]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      # The page is built first: the binary carries it.
+      - name: Build the page
+        working-directory: client
+        run: |
+          npm ci
+          npm run build
+      - run: cargo build --release --locked -p wf-agents
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wf-agents-macos-arm64
+          path: target/release/wf-agents
+          if-no-files-found: error
