@@ -2,10 +2,11 @@
 //! the owner once, and the work goes on; the total time is measured, not counted, and its limit is the budget of one
 //! stretch, the time since the agents last handed in pause: once a stretch's budget is used up, the engine asks the
 //! agent to pause, after its next tool use or at the top of its next round, and the pause waits at cell `X3` for the
-//! owner's Start, which begins the next stretch.
+//! owner's Start, which begins the next stretch; the project's architect is then asked to find where the work is stuck.
 
 use db::Actor;
-use db::rusqlite::{Connection, OptionalExtension, params};
+use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
+use serde_json::json;
 
 use crate::work::Work;
 use crate::{Engine, actions};
@@ -104,6 +105,49 @@ pub fn ended_used_up(config: &config::Config, conn: &Connection, work: i64) -> R
     Ok((stretch_ms(conn, work, after, last, None)? >= ms(minutes)).then_some(minutes))
 }
 
+/// Queues for the project's architect a look at a work on an item whose stretch used up its budget, in minutes, as it
+/// waits for the owner's Start: where it is stuck and the root cause, which the architect finds and sets straight
+/// (`H1`); once for each pause, by the round the agents paused in. A work on no item, the architect's, has none.
+pub fn queue_stuck(tx: &Transaction<'_>, work: i64, minutes: u64) -> Result<(), String> {
+    let Some((item, project, title)): Option<(i64, String, String)> = tx
+        .query_row(
+            "SELECT i.id, i.project, i.title FROM works w JOIN items i ON i.id = w.item WHERE w.id = ?1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(sql)?
+    else {
+        return Ok(());
+    };
+    let paused = pause_before(tx, work, i64::MAX)?;
+    let queued: i64 = tx
+        .query_row(
+            "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight' AND item = ?1
+             AND json_extract(body, '$.work') = ?2 AND json_extract(body, '$.paused_round') = ?3",
+            params![item, work, paused],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    if queued > 0 {
+        return Ok(());
+    }
+    let m = db::Matter {
+        project,
+        kind: "set_straight".into(),
+        detail: None,
+        what: format!(
+            "Work {work} on item {item} ({title}) used up its time budget for a stretch ({minutes} minutes) and waits \
+             for the owner's Start: where it is stuck, and why"
+        ),
+        body: json!({ "work": work, "paused_round": paused, "minutes": minutes }),
+        item: Some(item),
+        raised: None,
+    };
+    db::queue_matter(tx, &m).map_err(sql)?;
+    Ok(())
+}
+
 /// What asks the agent to pause, once the budget of its stretch, in minutes, is used up.
 pub fn ask_to_pause(minutes: u64) -> String {
     format!(
@@ -141,4 +185,72 @@ pub fn tell_past(e: &mut Engine, w: &Work, counter: &str) -> Result<(), String> 
         actions::notify(tx, Some(w.id), &text).map_err(db::Error::Abort)
     })
     .map_err(sql)
+}
+
+#[cfg(test)]
+mod tests {
+    use db::Db;
+
+    use super::*;
+
+    /// A round of work 1 its agents handed in pause by.
+    fn paused(db: &mut Db, n: i64) {
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (1, ?1, 'R1', '{}', '{}', 'pause', 'c', ?1, ?1)",
+                [n],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    // A work on an item that used up its budget queues one look for its project's architect at where it is stuck, by
+    // the round its agents paused in, however often the engine comes to the pause; a work on no item queues none.
+    #[test]
+    fn a_work_that_used_up_its_budget_is_looked_at_once_for_each_pause() {
+        let mut db = Db::in_memory().unwrap();
+        let looks = |db: &mut Db, work: i64| -> Vec<(String, Option<i64>, String)> {
+            db.write(Actor::Engine, |tx| queue_stuck(tx, work, 60).map_err(db::Error::Abort))
+                .unwrap();
+            let mut st = db
+                .conn()
+                .prepare("SELECT project, item, body FROM architect_matters WHERE kind = 'set_straight' ORDER BY id")
+                .unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 't', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'X3')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, 1, 'architect', 'X3', 'p')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        paused(&mut db, 1);
+        let once = looks(&mut db, 1);
+        assert_eq!(once.len(), 1);
+        assert_eq!((once[0].0.as_str(), once[0].1), ("p", Some(1)));
+        let body: serde_json::Value = serde_json::from_str(&once[0].2).unwrap();
+        assert_eq!(body, json!({ "work": 1, "paused_round": 1, "minutes": 60 }));
+        assert_eq!(looks(&mut db, 1).len(), 1);
+        assert_eq!(looks(&mut db, 2).len(), 1);
+        // The next stretch's pause is looked at again.
+        paused(&mut db, 2);
+        assert_eq!(looks(&mut db, 1).len(), 2);
+    }
 }

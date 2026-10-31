@@ -1142,6 +1142,13 @@ pub fn engine(
                 ),
                 None => format!("cell {caller} paused; start the work for it to carry on"),
             };
+            // A work on an item that used up its budget has its project's architect look at where it is stuck.
+            if let Some(minutes) = budget {
+                e.db.write(Actor::Engine, |tx| {
+                    crate::limits::queue_stuck(tx, w.id, minutes).map_err(db::Error::Abort)
+                })
+                .map_err(sql)?;
+            }
             e.pause(w.id, &why)?;
             return Ok(Advance::Stopped);
         }

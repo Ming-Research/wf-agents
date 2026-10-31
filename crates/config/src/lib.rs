@@ -1007,6 +1007,15 @@ impl Config {
         }
     }
 
+    /// The levels an item may be at, lowest first, each by its name: every level up to the highest for items.
+    pub fn item_levels(&self) -> Vec<(&String, &Level)> {
+        self.levels_in_order()
+            .into_iter()
+            .filter(|n| self.item_level(n).is_ok())
+            .filter_map(|n| Some((n, self.install.agents.levels.get(n)?)))
+            .collect()
+    }
+
     /// The levels' names in their order: by number when they are numbers, by name otherwise.
     fn levels_in_order(&self) -> Vec<&String> {
         let mut names: Vec<&String> = self.install.agents.levels.keys().collect();
@@ -1424,6 +1433,9 @@ asks = 9
             Err("level 10 is above 2, the highest an item may be at (items.highest_level)".into())
         );
         assert_eq!(c.level_of_line("2", "advisor"), "10");
+        // The levels an item may be at are those up to the highest, lowest first.
+        let names: Vec<&String> = c.item_levels().into_iter().map(|l| l.0).collect();
+        assert_eq!(names, ["1", "2"]);
     }
 
     // A setting is set where it is, keeping the spaces and the comment round it; added at the end of its table, or in

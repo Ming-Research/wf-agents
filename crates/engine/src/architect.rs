@@ -37,7 +37,7 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives.
-pub const INPUTS: [&str; 29] = [
+pub const INPUTS: [&str; 30] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -46,6 +46,7 @@ pub const INPUTS: [&str; 29] = [
     "numbers",
     "observations_overview",
     "observation_tags",
+    "levels",
     "policy",
     "policy_signals",
     "slots",
@@ -3065,6 +3066,7 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "numbers" => numbers(e, w, project).map(Some),
         "observations_overview" => observations_overview(e, project).map(Some),
         "observation_tags" => Ok(observation_tags(e, project)),
+        "levels" => Ok(Some(levels(e))),
         "policy" => policy(e, project),
         "policy_signals" => policy_signals(e, w, project),
         "slots" => slots(e).map(Some),
@@ -3762,6 +3764,19 @@ fn observation_tags(e: &Engine, project: &str) -> Option<Value> {
         .map(|t| (t.name.clone(), Value::String(t.desc.clone())))
         .collect();
     (!tags.is_empty()).then_some(Value::Object(tags))
+}
+
+/// The levels an item may be at, lowest first, each with the model its agents run on and the work it is for, so that
+/// the cells that make items or set their levels name one that is there.
+fn levels(e: &Engine) -> Value {
+    Value::Array(
+        e.config
+            .config
+            .item_levels()
+            .into_iter()
+            .map(|(name, l)| json!({ "level": name, "model": l.model, "for": l.desc }))
+            .collect(),
+    )
 }
 
 /// The policy in force for a project; none before the first takes effect.
@@ -4656,8 +4671,9 @@ fn words_behind_changes(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     Ok((!out.is_empty()).then_some(Value::Object(out)))
 }
 
-/// The items the batch's changes touch, each with its rank, who waits for it and what it waits for, each by the kind of
-/// its dependency.
+/// The items the batch's changes touch, each in full, as a matter's items are given: the review reads the facts a
+/// change rests on (a cancel's or a hold's reason against the item, its parts, its work and its pull request), not
+/// only where the item stands.
 fn changes_touch(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let rows = collected(conn, w.id)?;
@@ -4676,23 +4692,9 @@ fn changes_touch(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
         }
     }
     let mut out = Map::new();
-    for id in &item_ids {
-        if let Some(r) = query_json(
-            conn,
-            "SELECT i.project, i.title, i.rank, i.cancelled, i.held,
-                    (SELECT json_group_object('#' || l.item, l.kind) FROM item_links l WHERE l.depends_on = i.id)
-                      AS waited_by,
-                    (SELECT json_group_object('#' || l.depends_on, l.kind) FROM item_links l WHERE l.item = i.id)
-                      AS waits_for,
-                    (SELECT w.at FROM works w WHERE w.item = i.id ORDER BY w.id DESC LIMIT 1) AS at
-             FROM items i WHERE i.id = ?1",
-            &[id],
-            1,
-        )?
-        .into_iter()
-        .next()
-        {
-            out.insert(format!("#{id}"), r);
+    for id in item_ids {
+        if let Some(x) = item_in_full(e, id)? {
+            out.insert(format!("#{id}"), x);
         }
     }
     Ok(Some(Value::Object(out)))

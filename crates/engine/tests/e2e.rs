@@ -3888,6 +3888,12 @@ fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
         .cloned()
         .expect(&looked);
     assert_eq!(first["words"], "Make the parser's item clearer.", "{words}");
+    // It is given each item a change touches in full, as its creator wrote it, so that it checks a change against the
+    // facts it rests on, and the levels an item may be at, each with its model and the work it is for.
+    let touched = given_value(&looked, "·engine·changes_touch").expect(&looked);
+    assert_eq!(touched["#1"]["item"]["problem"], "No parser.", "{touched}");
+    let levels = given_value(&looked, "·engine·levels").expect(&looked);
+    assert_eq!(levels, json!([{ "level": "l", "model": "m", "for": "all work" }]));
     // Every round of the architect's line gives the CLI the same schema, the rethink's included, which keeps the
     // session's prompt cache.
     let schemas: Vec<(String, Value)> = engine::query_json(
@@ -4168,7 +4174,7 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
         Box::new(|_: &Request, n: usize| {
             let row = if n == 1 {
                 json!({ "change": 1, "verdict": "fix", "about": "constitution_and_policy",
-                        "what": "The title is no action.", "how": "Write it as one." })
+                        "what": "The title is no action.", "how": "Write it as one.", "cause": "rule_missing" })
             } else {
                 json!({ "change": 1, "verdict": "ok", "why": "Now it is an action." })
             };

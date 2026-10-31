@@ -422,14 +422,17 @@ fn write_one(
     let json_of = |k: &str| c.get(k).cloned().unwrap_or(Value::Null).to_string();
     match text(c, "kind") {
         "create_item" => {
+            // How to do it, when the creator knows; none when it gave none.
+            let approach = Some(text(c, "approach").trim()).filter(|a| !a.is_empty());
             tx.execute(
-                "INSERT INTO items (project, title, problem, why, deliver, level, wanted)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO items (project, title, problem, why, approach, deliver, level, wanted)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     text(c, "project"),
                     text(c, "title"),
                     text(c, "problem"),
                     text(c, "why"),
+                    approach,
                     text(c, "deliver"),
                     text(c, "level"),
                     json_of("acceptance")
@@ -831,5 +834,28 @@ mod tests {
             )
             .unwrap();
         assert_eq!(folded.0, Some(folded.1));
+    }
+
+    // An item made keeps how to do it when its creator knew, as the item's approach, and has none when it gave none.
+    #[test]
+    fn a_made_item_keeps_the_approach_its_creator_knew() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Architect, |tx| {
+            let made = |key: &str, approach: Value| {
+                json!({ "kind": "create_item", "key": key, "project": "p", "title": key, "problem": "Slow.",
+                        "why": "Time.", "approach": approach, "acceptance": ["Fast."], "level": "l",
+                        "deliver": "change", "reason": "r" })
+            };
+            let changes = [made("known", json!("Cache the parse.")), made("unknown", Value::Null)];
+            write_all(tx, &changes, &BTreeMap::new()).map_err(db::Error::Abort)?;
+            Ok(())
+        })
+        .unwrap();
+        let approaches: Vec<Value> = query_json(db.conn(), "SELECT approach FROM items ORDER BY id", &[], 10)
+            .unwrap()
+            .iter()
+            .map(|r| r["approach"].clone())
+            .collect();
+        assert_eq!(approaches, [json!("Cache the parse."), Value::Null]);
     }
 }
