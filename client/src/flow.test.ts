@@ -172,7 +172,7 @@ describe('the flow as the engine stores it', () => {
     }
   });
 
-  it("keeps every line of a cell's text inside its box, a rounded cell's curved ends included", () => {
+  it("draws only an agent's cell as a box, and keeps every line of a cell's text inside it, a rounded cell's curved ends included", () => {
     // A point of the box drawn `width` by `height` with corners of `r`: inside the straight part, or within `r` of the
     // middle of the corner it is in.
     const inside = (x: number, y: number, width: number, height: number, r: number) => {
@@ -188,6 +188,8 @@ describe('the flow as the engine stores it', () => {
         const s = size.get(at);
         if (s === undefined) continue;
         const r = cellRadius(c, s.height);
+        // Only an agent's cell is a box; the engine's, a tool included, and the owner's are rounded (Article 8).
+        expect(r > 3, `${g.name} ${c.id}`).toBe(c.kind !== 'agent');
         if (c.kind !== 'agent' && s.height > 40) tall += 1;
         for (const b of textBoxes(c, s, lines.get(at) ?? [], notes.get(at))) {
           const corners = [
