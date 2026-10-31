@@ -44,7 +44,7 @@ function Who({ r, g }: { r: RoundSummary; g: CompiledGraph }) {
   const who = whoRan(r, g);
   const look = who.kind === 'line' ? roleClass(colours, r.line) : `kind-${who.kind}`;
   return (
-    <Label variant="secondary" className={`who-chip ${look}`}>
+    <Label variant="secondary" className={`who-chip ${look}`} title={who.words}>
       {who.words}
     </Label>
   );
@@ -175,9 +175,12 @@ export function RoundsList(props: {
     if (el === null || onMore === undefined || loading !== null) return;
     for (const end of endsNear(el, { older, newer })) onMore(end);
   };
-  useLayoutEffect(() => {
+  // Puts the list where it belongs once it is drawn: the rows in sight where they were, the round chosen in sight, and
+  // more read at an end it is near. Not while the list is not drawn (no height), as in a minimised window, but as soon
+  // as it is, since its size changing says so.
+  const settle = () => {
     const el = scroller.current;
-    if (el === null) return;
+    if (el === null || el.clientHeight <= 0) return;
     const listTop = el.getBoundingClientRect().top;
     const place = (row: HTMLElement) => {
       const b = row.getBoundingClientRect();
@@ -203,8 +206,19 @@ export function RoundsList(props: {
     }
     keep();
     ends();
-  });
-  if (rounds.length === 0) return <p className="muted">{t('no_rounds')}</p>;
+  };
+  const settled = useRef(settle);
+  settled.current = settle;
+  useLayoutEffect(() => settled.current());
+  const drawn = rounds.length > 0;
+  useEffect(() => {
+    const el = scroller.current;
+    if (el === null || typeof ResizeObserver === 'undefined') return;
+    const sized = new ResizeObserver(() => settled.current());
+    sized.observe(el);
+    return () => sized.disconnect();
+  }, [drawn]);
+  if (!drawn) return <p className="muted">{t('no_rounds')}</p>;
   const rows: ReactNode[] = [];
   newest.forEach((r, i) => {
     const stale = r.outcome === 'running' && status !== null && status.running !== r.work;
@@ -248,7 +262,7 @@ export function RoundsList(props: {
     // Where one of the architect's works began, below its first round, when a work's rounds come before it.
     if (r.n === 1 && (i + 1 < newest.length || older)) {
       rows.push(
-        <tr key={`${name}-began`} className="rounds-began" aria-hidden="true">
+        <tr key={`${name}-began`} className="rounds-began">
           <td colSpan={5}>
             <span className="rounds-began-at">{time(r.started_at)}</span>
           </td>

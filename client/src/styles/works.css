@@ -238,6 +238,21 @@ table.list.works-table td {
   .rounds-list .rounds-time {
     display: none;
   }
+
+  /* At a phone's width the cells keep less room round them, and who ran a round is cut, whole on hovering, so that
+     what the round came to keeps room for its first words. */
+  table.list.rounds-list td {
+    padding-right: var(--base-size-4);
+    padding-left: var(--base-size-4);
+  }
+
+  .rounds-list [data-component='Label'].who-chip {
+    display: inline-block;
+    max-width: 96px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+  }
 }
 
 /* Who ran a round: a chip of a chip's shape filled in the tint of its cell's colour on the chart and edged in the same,
@@ -261,6 +276,7 @@ table.list.works-table td {
    work began on it in small muted text. */
 .rounds-list tr.rounds-began > td {
   padding: var(--base-size-2) var(--base-size-12);
+  border-bottom: 0;
 }
 
 .rounds-began-at {
