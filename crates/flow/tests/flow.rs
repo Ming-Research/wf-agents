@@ -419,11 +419,11 @@ fn what_was_said_in_the_groups_is_a_matter_of_its_own() {
 }
 
 // A capability report, an agent saying the system lacks what its work needs, is a defect of the system: the ways read
-// it from what a question says, with no kind, and unblock the work first, by a way around within the rules, by the
-// owner for what only the owner can give, or by an item that fixes it, which the work waits for, and then take the gap
-// in as a report is taken in. The work that handed in a side report or a question is told what became of it
-// (`answer_reporter`), after the round's effects are made; and an observation a merge makes reported three times is
-// work, which the taking in says and the check of the effects holds.
+// it from what a question says, with no kind, and unblock the work first, by a way around within the rules, by
+// pausing the work until the owner gives what only the owner can, or by an item that fixes it, which the work waits
+// for, and then take the gap in as a report is taken in. The work that handed in a side report or a question is told
+// what became of it (`answer_reporter`), after the round's effects are made; and an observation a merge makes reported
+// three times is work, which the taking in says and the check of the effects holds.
 #[test]
 fn a_capability_report_unblocks_first_is_answered_and_is_work_once_it_recurs() {
     let c = compiled();
@@ -432,7 +432,7 @@ fn a_capability_report_unblocks_first_is_answered_and_is_work_once_it_recurs() {
     for way in [
         "A capability gap, the system lacking what the work needs",
         "a way around within the rules",
-        "handed to the owner with hand_over",
+        "by pausing the work until the owner has given it",
         "which the work's item depends on, blocking, and the reply's waits name",
         "then take the gap in as a report is",
     ] {
