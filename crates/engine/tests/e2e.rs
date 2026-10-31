@@ -11007,3 +11007,61 @@ fn a_step_reports_the_rounds_its_own_connection_wrote() {
     assert!(over.rounds.iter().any(|r| r.work == new), "{over:?}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// What lasts from one step to the next is the engine's, whichever thread's context takes the step: a work taken over on
+// a forked context's thread is among those the engine's own context reads as replaced, which is how the owner's Start
+// of the old work goes on in the new one; a configuration one context reads is the one every context goes on with,
+// told once; and a halt one context sets stops a step on another.
+#[test]
+fn a_forked_context_shares_what_lasts_between_steps() {
+    let s = setup("fork_shared");
+    let (mut e, said, item) = start(&s, scripts());
+    let first = e.step(None).unwrap();
+    let work = first.work.unwrap();
+    e.step(first.work).unwrap();
+    let at = state(&e, item).unwrap().1;
+    older(&mut e, &[work], |g| renamed(g, &at));
+    let mut t = e.fork().unwrap();
+    let (mut t, over) = std::thread::spawn(move || {
+        let over = t.step(Some(work));
+        (t, over)
+    })
+    .join()
+    .unwrap();
+    let over = over.unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}\n{over:?}\n{log}");
+    let new = works[1].0;
+    assert_eq!(e.replaced(), [(work, new)], "{log}");
+    assert_eq!(t.replaced(), Vec::<(i64, i64)>::new(), "{log}");
+    // A new configuration, read on the engine's own context, is the forked context's at its next read.
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(&s.data, "install.toml", &format!("{install}\n# read once\n"));
+    git(&s.data, &["commit", "-q", "-am", "a configuration read once"]);
+    e.reload_config();
+    let commit = e.config.commit.clone();
+    t.reload_config();
+    assert_eq!(t.config.commit, commit);
+    let log = said.lock().unwrap().join("\n");
+    let in_use = format!("configuration {commit} in use");
+    assert_eq!(log.matches(&in_use).count(), 1, "{log}");
+    // A halt set on the engine's own context stops the forked context's step.
+    e.set_halt(Some(engine::Halt {
+        kind: "usage_limit".into(),
+        until: db::now() + 3_600_000,
+        why: "a usage limit".into(),
+    }));
+    let rounds: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM rounds", [], |r| r.get(0))
+            .unwrap();
+    let halted = std::thread::spawn(move || t.step(Some(new))).join().unwrap().unwrap();
+    assert_eq!(halted, engine::Stepped::default(), "{log}");
+    let after: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM rounds", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(after, rounds);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
