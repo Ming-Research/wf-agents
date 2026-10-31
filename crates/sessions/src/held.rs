@@ -124,6 +124,33 @@ pub struct Held {
     pub got: HashMap<String, (RoundId, String)>,
     /// The latest version it holds of each input of the standard context, by which input it is.
     pub standard: HashMap<String, Version>,
+    /// The parts of its system prompt ([`crate::system`]), each as the round that started the session recorded it: it
+    /// holds them from its start to its end, compacted or not.
+    pub system: Vec<Version>,
+}
+
+/// The parts of a session's system prompt, as the round that started it recorded them (`system`); none for a session
+/// started without one.
+fn system_of(session_rounds: &[Round]) -> Vec<Version> {
+    session_rounds
+        .iter()
+        .find_map(|r| {
+            let parts = r.input.get("system")?.as_array()?;
+            Some(
+                parts
+                    .iter()
+                    .filter_map(|x| {
+                        Some(Version {
+                            address: x["address"].as_str()?.to_string(),
+                            hash: x["hash"].as_str()?.to_string(),
+                            round: r.id,
+                            text: x["text"].as_str().map(str::to_string),
+                        })
+                    })
+                    .collect(),
+            )
+        })
+        .unwrap_or_default()
 }
 
 impl Held {
@@ -133,10 +160,26 @@ impl Held {
         Held::with_pings(session_rounds, &[])
     }
 
-    /// What the session holds, its rounds oldest first and the times keep-warm pings compacted it: a ping's compaction,
-    /// like a round's, leaves it holding nothing from before.
-    pub fn with_pings(session_rounds: &[Round], compacted_at: &[i64]) -> Held {
+    /// What a session holds that holds only its system prompt, these parts: a session that starts with them, or one
+    /// just compacted, which keeps its system prompt.
+    pub fn with_system(parts: &[Version]) -> Held {
         let mut h = Held::default();
+        for v in parts {
+            h.got.entry(v.hash.clone()).or_insert((v.round, v.address.clone()));
+            h.conditional.insert((v.address.clone(), v.hash.clone()));
+            if let Some(input) = standard(&v.address) {
+                h.standard.insert(input.to_string(), v.clone());
+            }
+        }
+        h.system = parts.to_vec();
+        h
+    }
+
+    /// What the session holds, its rounds oldest first and the times keep-warm pings compacted it: a ping's compaction,
+    /// like a round's, leaves it holding nothing from before but its system prompt.
+    pub fn with_pings(session_rounds: &[Round], compacted_at: &[i64]) -> Held {
+        let system = system_of(session_rounds);
+        let mut h = Held::with_system(&system);
         let mut last: Option<&Round> = None;
         let waited = |after: Option<&Round>, before: Option<i64>| {
             after.is_some_and(|a| {
@@ -152,14 +195,14 @@ impl Held {
                 h = Held {
                     compacted: Some(a.id),
                     compacted_waiting: true,
-                    ..Held::default()
+                    ..Held::with_system(&system)
                 };
             }
             last = Some(r);
             if r.compactions > 0 {
                 h = Held {
                     compacted: Some(r.id),
-                    ..Held::default()
+                    ..Held::with_system(&system)
                 };
                 continue;
             }
@@ -199,7 +242,7 @@ impl Held {
             h = Held {
                 compacted: Some(a.id),
                 compacted_waiting: true,
-                ..Held::default()
+                ..Held::with_system(&system)
             };
         }
         h
@@ -319,6 +362,31 @@ mod tests {
         assert!(!h.holds("R1-3·D2·design", "any"));
         assert_eq!(h.compacted, Some(RoundId::new(1, 5)));
         assert!(!h.compacted_waiting);
+    }
+
+    // A session holds the parts of its system prompt, as the round that started it recorded them, from its start to
+    // its end: a compaction, in a round or in a keep-warm ping, leaves it holding them and nothing else from before.
+    #[test]
+    fn a_session_holds_its_system_prompt_through_a_compaction() {
+        let common = json!("The forms.");
+        let rule = json!("Facts first.");
+        let started = json!({
+            "system": [{ "address": "format:common", "hash": hash(&common), "text": "k1" }],
+            "conditional": [{ "address": "rule:ground", "hash": hash(&rule), "given": true }],
+        });
+        let rounds = [round(2, started, Some(json!({})), 0)];
+        let h = Held::of(&rounds);
+        assert!(h.holds("format:common", &hash(&common)) && h.holds("rule:ground", &hash(&rule)));
+        assert_eq!(h.standard["format:common"].round, RoundId::new(1, 2));
+        assert_eq!(h.standard["format:common"].text.as_deref(), Some("k1"));
+        let mut later = rounds.to_vec();
+        later.push(round(3, json!({}), Some(json!({})), 1));
+        let h = Held::of(&later);
+        assert!(h.holds("format:common", &hash(&common)) && !h.holds("rule:ground", &hash(&rule)));
+        assert_eq!(h.got[&hash(&common)].1, "format:common");
+        let h = Held::with_pings(&rounds, &[300]);
+        assert!(h.compacted_waiting && h.holds("format:common", &hash(&common)));
+        assert_eq!(h.system.len(), 1);
     }
 
     // A keep-warm ping that compacted the session while it waited leaves it holding nothing from before; a round after

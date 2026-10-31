@@ -25,9 +25,16 @@ const SETTINGS: &str = "--settings";
 
 /// The parts of a call that make what comes before the session's messages in its prompt: the model, whose cache is its
 /// own; the tools, among which the command line gives the envelope's schema (`--json-schema`) and which `--tools`
-/// names; and the command line's own version, whose system prompt and tools come first. When one of them differs from
-/// the session's round before, the command line writes the whole session to the cache again by design.
-const BEFORE_MESSAGES: [&str; 4] = ["--model", "--json-schema", "--tools", "the CLI's version"];
+/// names; the system prompt the engine appends to the command line's own (`--append-system-prompt`); and the command
+/// line's own version, whose system prompt and tools come first. When one of them differs from the session's round
+/// before, the command line writes the whole session to the cache again by design.
+const BEFORE_MESSAGES: [&str; 5] = [
+    "--model",
+    "--json-schema",
+    "--tools",
+    crate::system::FLAG,
+    "the CLI's version",
+];
 
 /// The flag whose bare tool names take those tools from the model, beside its rules on how a tool may be used, which
 /// leave the tools as they are.

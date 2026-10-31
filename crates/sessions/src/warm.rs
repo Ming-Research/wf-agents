@@ -246,6 +246,7 @@ pub fn ping(
     };
     let session = due.session;
     let id = db
+        system: None,
         .write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO pings (session, waited, started_at) VALUES (?1, ?2, ?3)",

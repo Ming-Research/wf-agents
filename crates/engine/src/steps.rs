@@ -211,6 +211,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         number,
         msg,
         whole,
+        system,
+        starts_with,
     } = compose(e, w, g, cell, item.as_ref())?;
     // A message that would give its session whole what the session already holds is the engine's fault: it is not
     // sent, and the work waits for the owner.
@@ -324,6 +326,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     }
     let req = Request {
         resume,
+        system,
         new_session: new_session.clone(),
         prompt: msg.text.clone(),
         images,
@@ -333,12 +336,18 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     };
     let cli_version = e.cli_version(&cli_name);
     // The record keeps each large text once, in `contents`: the conditional inputs given, the task, the
-    // structured-output schema.
+    // structured-output schema, the system prompt and each of its parts.
     let mut kept = msg.kept.clone();
     let mut call = kept_call(
         agent::call(&req, &agent::command_line(&req), &cli_version, crate::VERSION),
         &mut kept,
     );
+    let (system_parts, system_texts) = sessions::system::record(&starts_with);
+    for (k, t) in system_texts {
+        if !kept.iter().any(|(x, _)| *x == k) {
+            kept.push((k, t));
+        }
+    }
     // The level the round runs at, which the configuration maps to its model: the owner reads the round by it.
     call["level"] = Value::String(level_name.clone());
     let mut input = json!({
@@ -353,6 +362,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // Where the owner's images were given, by their attachments, and those only referred to.
     if !msg.images.is_empty() {
         input["images"] = msg.record_images();
+    }
+    // The round that starts a session with a system prompt records its parts, which the session holds to its end.
+    if !starts_with.is_empty() {
+        input["system"] = system_parts;
     }
     let round =
         e.db.write(Actor::Engine, |tx| {
@@ -648,18 +661,20 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     finish(e, w, g, cell, round, output, &row, ended, &ids, head_after, &given)
 }
 
-/// A round's call as its record keeps it: the structured-output schema the command line gives, the same for every
-/// round of a line, kept once in `contents` and referred to there.
+/// A round's call as its record keeps it: the structured-output schema the command line gives and the system prompt it
+/// appends, each the same for every round of a session, kept once in `contents` and referred to there.
 fn kept_call(mut call: Value, kept: &mut Vec<(String, String)>) -> Value {
-    if let Some(args) = call["command"].as_array_mut()
-        && let Some(i) = args.iter().position(|a| a == "--json-schema").map(|i| i + 1)
-        && let Some(schema) = args.get(i).and_then(Value::as_str).map(str::to_string)
-        && schema.len() >= db::STORED
-    {
-        let h = db::content_hash(&schema);
-        args[i] = json!({ "content": h });
-        if !kept.iter().any(|(k, _)| *k == h) {
-            kept.push((h, schema));
+    for flag in ["--json-schema", sessions::system::FLAG] {
+        if let Some(args) = call["command"].as_array_mut()
+            && let Some(i) = args.iter().position(|a| a == flag).map(|i| i + 1)
+            && let Some(text) = args.get(i).and_then(Value::as_str).map(str::to_string)
+            && text.len() >= db::STORED
+        {
+            let h = db::content_hash(&text);
+            args[i] = json!({ "content": h });
+            if !kept.iter().any(|(k, _)| *k == h) {
+                kept.push((h, text));
+            }
         }
     }
     call
@@ -701,6 +716,7 @@ pub fn cell_request(
         worktree,
         config_dir: e.cli_home(&level.cli),
         resume: None,
+        system: None,
         new_session: String::new(),
         prompt: String::new(),
         images: Vec::new(),
@@ -758,8 +774,14 @@ struct Composed {
     /// The round it will be.
     number: RoundId,
     msg: message::Message,
-    /// The message as a session that holds nothing is sent it: what a compaction within the round gives again.
+    /// The message as a session that holds nothing but its system prompt is sent it: what a compaction within the round
+    /// gives again.
     whole: String,
+    /// The system prompt the round's command line carries: the session's own, or, for the round that starts it, what
+    /// every session of the line is given alike ([`message::line_parts`]); none for a session that started without one.
+    system: Option<String>,
+    /// The parts of the system prompt, for the round that starts a session with them, which its record keeps.
+    starts_with: Vec<(String, Value)>,
 }
 
 /// Builds the message of an agent's round at a cell from the work as it stands, running and recording nothing. The
@@ -784,9 +806,27 @@ fn compose(
     let architect = w.project.as_deref().filter(|_| g.name == ARCHITECT);
     let mut plan = e.sessions.plan(e.db.conn(), w.id, architect, cell, limit, on)?;
     let work_rounds = work::rounds(e.db.conn(), w.id)?;
+    let number = work::next_round(e.db.conn(), w.id)?;
     let (line_rounds, held) = match &mut plan {
         Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),
         Plan::New(_) => (Vec::new(), Held::default()),
+    };
+    // A session that has run no round yet starts with the system prompt every session of its line is given alike; one
+    // going on carries the one it started with, or none.
+    let (system, starts_with, held) = if line_rounds.is_empty() {
+        let named = item
+            .map(|i| i.project.as_str())
+            .or(w.project.as_deref())
+            .unwrap_or_default();
+        let parts = message::line_parts(e, g, cell, named);
+        let held = Held::with_system(&sessions::system::versions(&parts, number));
+        (Some(sessions::system::text(&parts)), parts, held)
+    } else {
+        (
+            sessions::system::of_session(e.db.conn(), &line_rounds),
+            Vec::new(),
+            held,
+        )
     };
     let mut known: Vec<Round> = line_rounds.iter().filter(|r| r.id.work != w.id).cloned().collect();
     known.extend(work_rounds.iter().cloned());
@@ -805,7 +845,6 @@ fn compose(
     };
     let columns = message::columns(e, w, g, cell, item);
     let table = inputs::table(&gathered);
-    let number = work::next_round(e.db.conn(), w.id)?;
     let context = message::Context {
         e,
         w,
@@ -822,7 +861,7 @@ fn compose(
         registry: &registry,
     };
     let msg = context.build();
-    let nothing = Held::default();
+    let nothing = Held::with_system(&held.system);
     let whole = message::Context {
         held: &nothing,
         ..context
@@ -850,6 +889,8 @@ fn compose(
         number,
         msg,
         whole,
+        system,
+        starts_with,
     })
 }
 

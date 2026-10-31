@@ -1,7 +1,7 @@
 //! The session manager: everything about the agents' sessions, what each holds and costs, and the command line they
 //! run in. The engine decides when (which cell runs next, when a work waits); the session manager decides in which
 //! session a round runs ([`choose`]), what the round's message gives and what it only refers to ([`held`], [`give`],
-//! [`diff`]), whether a round starts the new session the owner asked for, how the command line starts and runs
+//! [`diff`]), what a session's system prompt gives every session of its line alike ([`system`]), whether a round starts the new session the owner asked for, how the command line starts and runs
 //! ([`cli`]), what each call cost ([`cost`]), keeps a waiting session's cache warm ([`warm`]) and tells a round that
 //! missed it ([`miss`]); it sets up a work's worktree on a machine with a free slot, says whether a head
 //! handed in is the clean worktree's, removes the worktree once the work ended, and brings a project's architect's
@@ -18,6 +18,7 @@ pub mod held;
 pub mod interject;
 pub mod miss;
 pub mod round;
+pub mod system;
 pub mod warm;
 pub mod worktree;
 

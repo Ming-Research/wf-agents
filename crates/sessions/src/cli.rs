@@ -28,6 +28,9 @@ pub struct Request {
     pub config_dir: Option<PathBuf>,
     /// The CLI's session to resume; none for the line's first round, which starts `new_session`.
     pub resume: Option<String>,
+    /// What the command line appends to its own system prompt: what every session of the round's line is given alike,
+    /// which the session started with ([`crate::system`]); none for a session started without one.
+    pub system: Option<String>,
     pub new_session: String,
     /// The message's text, given on the CLI's standard input ([`stdin`]).
     pub prompt: String,
@@ -180,6 +183,11 @@ pub fn command_line(r: &Request) -> Vec<String> {
         .iter()
         .map(|s| s.to_string()),
     );
+    // What every session of the line is given alike, at the end of the system prompt, where the prompt cache that
+    // sessions share reads it.
+    if let Some(s) = &r.system {
+        out.extend([crate::system::FLAG.to_string(), s.clone()]);
+    }
     // The CLI gives the model the schema with the session's tools, so a schema that changed from one round to the
     // next would leave nothing of the session's prompt cache: it is the line's envelope, the same for every cell of the
     // line. A bare call is given no schema and no tools.
@@ -2145,6 +2153,7 @@ mod tests {
             worktree: PathBuf::from("/w"),
             config_dir: Some(PathBuf::from("/data/agents/claude")),
             resume: Some("s1".into()),
+            system: None,
             new_session: "s2".into(),
             prompt: "p".into(),
             images: Vec::new(),
@@ -2274,6 +2283,7 @@ mod tests {
             worktree: PathBuf::from("/w"),
             config_dir: None,
             resume: None,
+            system: None,
             new_session: "s1".into(),
             prompt: "# R1-2 · cell I1\n\nFrom the owner: look.\n\nImages: image:12, image:13\n".into(),
             images: vec![

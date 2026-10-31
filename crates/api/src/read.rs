@@ -1220,8 +1220,10 @@ pub fn content(conn: &Connection, flows: &Flows, work: i64, hash: &str, address:
     let inputs: Vec<String> = st
         .query_map(rusqlite::params![work, hash], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?;
-    for text in inputs {
-        let Some(input) = json(Some(text)) else { continue };
+    for text in &inputs {
+        let Some(input) = json(Some(text.clone())) else {
+            continue;
+        };
         // A round recorded before the conditional inputs were called so keeps them under `materials`.
         let entries = input
             .get("conditional")
@@ -1244,6 +1246,25 @@ pub fn content(conn: &Connection, flows: &Flows, work: i64, hash: &str, address:
         let record = db::put_back(conn, &input);
         if let Some(text) = record["message"].as_str().and_then(|m| given_in(m, at, &given)) {
             return Ok(as_given(text, hash));
+        }
+    }
+    // A part of a session's system prompt, which the round that started the session records with the key its whole
+    // text is kept under.
+    for text in &inputs {
+        let Some(input) = json(Some(text.clone())) else {
+            continue;
+        };
+        let key = input["system"]
+            .as_array()
+            .and_then(|xs| xs.iter().find(|m| m["hash"] == hash))
+            .and_then(|m| m["text"].as_str().map(str::to_string));
+        if let Some(key) = key {
+            let kept: Option<String> = conn
+                .query_row("SELECT text FROM contents WHERE hash = ?1", [&key], |r| r.get(0))
+                .optional()?;
+            if let Some(text) = kept {
+                return Ok(as_given(&text, hash));
+            }
         }
     }
     // A value of the session's own return: at the cell and path its address names, in a return of the work.
@@ -2912,12 +2933,30 @@ mod tests {
             Ok(())
         })
         .unwrap();
+        let common = json!("The forms.");
+        let key = db::content_hash("The forms.");
+        let started = json!({ "message": "# R1-5 · cell R2 · Look\n", "conditional": [], "system": [
+            { "address": "format:common", "hash": flow::formats::hash(&common), "text": key },
+        ] });
+        s.db.write(Actor::Engine, |tx| {
+            db::keep(tx, &[(key.clone(), "The forms.".to_string())])?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
+                 VALUES (1, 5, 'R2', 1, ?1, 'c', 80)",
+                [started.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
         let cache = Flows::default();
         let found = |v: &Value, address: &str| content(s.db.conn(), &cache, 1, &flow::formats::hash(v), address);
         assert_eq!(found(&rule, "rule:ground"), Ok(rule.clone()));
         assert_eq!(found(&rows, "R1-1·engine·rows"), Ok(rows.clone()));
         assert_eq!(found(&design, "R353·R1·design"), Ok(design.clone()));
         assert!(matches!(found(&json!("never"), "rule:ground"), Err(Error::NotFound(_))));
+        // A part of a session's system prompt, which no message gives, is found by the key the round that started the
+        // session recorded its whole text under.
+        assert_eq!(found(&common, "format:common"), Ok(common.clone()));
     }
 
     #[test]

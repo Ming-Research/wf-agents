@@ -2298,6 +2298,20 @@ fn given(input: &Value, address: &str) -> Option<bool> {
         .and_then(|m| m["given"].as_bool())
 }
 
+/// The system prompt a round's command line carried, as its record keeps it; none for a round that carried none.
+fn system_text(input: &Value) -> Option<String> {
+    let command = input["call"]["command"].as_array()?;
+    let at = command.iter().position(|a| a == "--append-system-prompt")?;
+    command.get(at + 1)?.as_str().map(str::to_string)
+}
+
+/// Whether the round that started its session gave it a part of its system prompt, by the part's address.
+fn in_system(input: &Value, address: &str) -> bool {
+    input["system"]
+        .as_array()
+        .is_some_and(|xs| xs.iter().any(|x| x["address"] == address))
+}
+
 /// The hash of the conditional input at an address in a round's message.
 fn hash_of(input: &Value, address: &str) -> Option<String> {
     input["conditional"]
@@ -2337,20 +2351,28 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     let (first, second) = (&at("R1"), &at("R2"));
     let (work, _, _) = state(&e, item).unwrap();
     let workspace = format!("work:{work}");
-    for a in [
-        "format:common",
-        "format:R1",
-        "inputs:R1",
-        "rule:ground",
-        "rule:general",
-        "rule:engineering",
-        workspace.as_str(),
-    ] {
+    for a in ["format:R1", "inputs:R1", workspace.as_str()] {
         assert_eq!(given(first, a), Some(true), "{a}");
     }
+    // What every session of the line is given alike is in the session's system prompt, which its messages refer to.
+    let system = system_text(first).expect("the system prompt of the engineer's first session");
+    for a in ["format:common", "rule:ground", "rule:general", "rule:engineering"] {
+        assert_eq!(given(first, a), Some(false), "{a}");
+        assert!(in_system(first, a), "{a}: {}", first["system"]);
+        assert!(system.contains(&format!("\n### {a}\n\n")), "{a}: {system}");
+    }
+    assert!(!in_system(first, "format:R1") && !in_system(first, &workspace));
     for a in ["format:common", "rule:ground", workspace.as_str()] {
         assert_eq!(given(second, a), Some(false), "{a}");
     }
+    // A session going on carries the system prompt it started with, recorded once; every session of the line starts
+    // with the same, byte for byte, and another line's with its own.
+    assert_eq!(system_text(second), Some(system.clone()));
+    assert!(second.get("system").is_none(), "{second}");
+    assert_eq!(system_text(&at("I1")), Some(system.clone()));
+    let review = system_text(&at("T3")).unwrap();
+    assert_ne!(review, system);
+    assert!(review.contains("\n### format:common\n\n") && !review.contains("\n### rule:engineering\n\n"));
     // The inputs to work from are listed by their numbers, which `inputs:<cell>` explains once in a session.
     let m = first["message"].as_str().unwrap();
     assert!(m.contains("\n1. item:"), "{m}");
@@ -2369,7 +2391,7 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     assert!(sent, "{address}");
     let m = first["message"].as_str().unwrap();
     let at_guide = m.find(&format!("### {address}")).unwrap();
-    assert!(at_guide < m.find("### format:common").unwrap(), "{m}");
+    assert!(at_guide < m.find("### format:R1").unwrap(), "{m}");
     assert_eq!(guide(second).map(|g| g.1), Some(false));
     assert_eq!(guide(&at("T3")).map(|g| g.1), Some(true));
     let m = second["message"].as_str().unwrap();
@@ -2379,10 +2401,13 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     assert!(!m.contains("db:tables"), "{m}");
     assert!(given(first, "db:tables").is_none());
     // The formats name the owner's language; the engine writes the configured one beside it.
-    assert!(m.contains("`owner.language` (English)"), "{m}");
-    assert!(m.contains("SELECT sql FROM sqlite_master WHERE name = '<name>'"), "{m}");
-    assert!(m.contains("- items (id, project, title, "), "{m}");
-    assert!(!m.contains("CREATE TABLE"), "{m}");
+    assert!(system.contains("`owner.language` (English)"), "{system}");
+    assert!(
+        system.contains("SELECT sql FROM sqlite_master WHERE name = '<name>'"),
+        "{system}"
+    );
+    assert!(system.contains("- items (id, project, title, "), "{system}");
+    assert!(!system.contains("CREATE TABLE") && !m.contains("CREATE TABLE"), "{m}");
     let design = &rounds.iter().rev().find(|r| r.1 == "D2").unwrap().0;
     let acceptance = format!("{design}·D2·acceptance");
     assert_eq!(given(&at("D9"), &acceptance), Some(false), "{}", at("D9"));
@@ -2444,9 +2469,9 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A rule that changed since the session got it is given as what changed in it, under its address; after a compaction the
-// session holds nothing, and the next round is given what it needs again whole, the session's own earlier returns
-// included.
+// A rule that changed since the session got it in its system prompt is given as what changed in it, under its address;
+// after a compaction the session holds nothing but its system prompt, and the next round is given what it needs again
+// whole, the session's own earlier returns included, and what changed since its system prompt again as what changed.
 #[test]
 fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
     let s = setup("again");
@@ -2476,7 +2501,8 @@ fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
             .and_then(|xs| xs.iter().find(|m| m["address"] == "rule:ground"))
             .map(|m| m["changes"] == true)
     };
-    assert_eq!((changes(b), changes(c)), (Some(true), Some(false)));
+    assert_eq!((changes(b), changes(c)), (Some(true), Some(true)));
+    assert!(in_system(a, "rule:ground"), "{a}");
     assert_eq!(
         given_text(b, "rule:ground").unwrap().trim_end(),
         format!(
@@ -2486,9 +2512,11 @@ fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
         )
     );
     assert_eq!(given(b, "format:common"), Some(false));
-    assert_eq!(given(c, "format:common"), Some(true));
+    assert_eq!(given(c, "format:common"), Some(false));
     assert_eq!(given(c, "rule:ground"), Some(true));
+    assert_eq!(given_text(c, "rule:ground"), given_text(b, "rule:ground"));
     assert_eq!(hash_of(b, "rule:ground"), hash_of(c, "rule:ground"));
+    assert_eq!(given(c, "format:D1"), Some(true));
     let understanding = format!("{}·R1·understanding", rounds[0].0);
     assert_eq!(given(c, &understanding), Some(true), "{c}");
     let m = c["message"].as_str().unwrap();
@@ -5319,8 +5347,9 @@ fn the_search_of_observations_hands_back_candidates() {
     assert_eq!((line.as_str(), model.as_str()), ("observer", "m-cheap"));
     let back = message_at(&e, arch, "H5", true);
     assert!(back.contains("It records the same slowness."), "{back}");
-    // The observer writes what the owner reads in the owner's language, as every line does.
-    let search = message_at(&e, arch, "X2", false);
+    // The observer writes what the owner reads in the owner's language, as every line does: its forms, in the system
+    // prompt its session starts with, say which.
+    let search = system_text(&input_at(&e, arch, "X2", false)).unwrap_or_default();
     assert!(search.contains("`owner.language` (English)"), "{search}");
     let times: (i64, String) =
         e.db.conn()
@@ -5436,13 +5465,17 @@ fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
         for g in config::GIT_CHANGES {
             assert!(p1.r.refused.contains(&format!("Bash(git {g} *)")), "git {g}");
         }
-        // The session is told where it works at its first round, and the check of the policy, in the same session, is
-        // pointed to it.
+        // The session is told where it works in the system prompt it starts with, the same in every work of the
+        // project, and the check of the policy, in the same session, is pointed to it.
+        let system = u1.r.system.clone().unwrap_or_default();
         assert!(
-            u1.r.prompt.contains(&u1.r.worktree.display().to_string()),
-            "{}",
-            u1.r.prompt
+            system.contains(&format!(
+                "\n### work:architect\n\nYou are the architect of the project p. Your working directory is {},",
+                u1.r.worktree.display()
+            )),
+            "{system}"
         );
+        assert_eq!(p1.r.system.as_deref(), Some(system.as_str()));
         assert!(p1.r.prompt.contains("Worktree: work:architect"), "{}", p1.r.prompt);
     }
     assert!(!worktrees.join("policy").exists());
@@ -6412,13 +6445,23 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     assert_eq!(lines[1], ("cell".to_string(), false, "I1,I1".to_string()));
     let rounds = agent_rounds(&e, item);
     let implements: Vec<&Value> = rounds.iter().filter(|r| r.1 == "I1").map(|r| &r.2).collect();
-    assert_eq!(given(implements[0], "format:common"), Some(true));
+    // The new session starts with the line's system prompt, and is given its cell's format.
+    assert!(in_system(implements[0], "format:common"), "{}", implements[0]);
+    assert_eq!(given(implements[0], "format:I1"), Some(true));
     assert!(
         implements[0]["call"]["session"]["started"].is_string(),
         "{}",
         implements[0]["call"]
     );
-    assert_eq!(given(implements[1], "format:common"), Some(false));
+    assert_eq!(given(implements[1], "format:I1"), Some(false));
+    assert!(!in_system(implements[1], "format:common"));
+    // The cell's task is given once in a session, under its address, and referred to after.
+    assert_eq!(given(implements[0], "task:I1"), Some(true));
+    let m = implements[0]["message"].as_str().unwrap();
+    assert!(m.contains("## Task\n\n### task:I1\n\n"), "{m}");
+    assert_eq!(given(implements[1], "task:I1"), Some(false));
+    let m = implements[1]["message"].as_str().unwrap();
+    assert!(m.contains("## Task\n\ntask:I1, given to you before in R"), "{m}");
     assert!(
         implements[1]["call"]["session"]["resumed"].is_string(),
         "{}",
@@ -6519,8 +6562,9 @@ fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
     );
     let rounds = agent_rounds(&e, item);
     let two = &rounds[2].2;
-    for a in ["format:common", "format:D1", "rule:ground"] {
-        assert_eq!(given(two, a), Some(true), "{a}");
+    assert_eq!(given(two, "format:D1"), Some(true));
+    for a in ["format:common", "rule:ground"] {
+        assert!(in_system(two, a), "{a}: {two}");
     }
     assert!(two["call"]["session"]["started"].is_string(), "{}", two["call"]);
     let _ = std::fs::remove_dir_all(&s.root);
@@ -6748,12 +6792,16 @@ fn a_compaction_within_a_round_gives_the_cells_inputs_again() {
     let (id, cell, input) = &rounds[1];
     assert_eq!(cell, "R2", "{}", said.borrow().join("\n"));
     let (file, text) = read.borrow().clone().expect("the file the hook gives again");
-    // The session holds the shared formats, so the message only refers to them; the file gives them whole.
-    assert_eq!(given(input, "format:common"), Some(false));
+    // The session holds the project guide, so the message only refers to it; the file gives it whole, and none of
+    // what the session's system prompt holds, which a compaction leaves.
+    let guide = |i: &Value| guide_in(i).map(|g| g.0).unwrap();
+    assert_eq!(guide_in(input).map(|g| g.1), Some(false));
     assert!(
         text.starts_with(&format!("Your session was compacted in the middle of {id}"))
             && text.contains(&format!("# {id} · cell R2"))
-            && text.contains("### format:common"),
+            && text.contains(&format!("### {}", guide(input)))
+            && text.contains("### format:R2")
+            && !text.contains("### format:common"),
         "{text}"
     );
     let command: Vec<String> = input["call"]["command"]
@@ -9335,8 +9383,9 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     );
     let rounds = agent_rounds(&e, item);
     let two = &rounds[2].2;
-    for a in ["format:common", "format:D1", "rule:ground"] {
-        assert_eq!(given(two, a), Some(true), "{a}");
+    assert_eq!(given(two, "format:D1"), Some(true));
+    for a in ["format:common", "rule:ground"] {
+        assert!(in_system(two, a), "{a}: {two}");
     }
     assert!(two["call"]["session"]["started"].is_string(), "{}", two["call"]);
     // Started as it is, the work's next round goes on in that session; started in a new session, the next starts one.

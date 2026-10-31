@@ -42,8 +42,9 @@
 //! round recorded before rounds were named by their work wrote a round's address as `R<number>·...`; such an address
 //! names no round, and the engine never gives it again.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
+use flow::format::{Rule, Src};
 pub use flow::formats::{cell_format, cell_inputs, common_format, common_format_of, hash};
 use flow::{AskNeed, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value, json};
@@ -154,6 +155,91 @@ fn with_settings(e: &Engine, project: &str, text: String, in_json: bool) -> Stri
             value
         };
         out = out.replace(&format!("`{name}`"), &format!("`{name}` ({value})"));
+    }
+    out
+}
+
+/// `format:common` for a cell: the forms every return of its line shares, only those some cell of the line has, with
+/// the value of each setting they name beside it, and without the kinds of question the project cannot meet.
+fn common_part(e: &Engine, g: &CompiledGraph, cell: &CompiledCell, project: &str, gone: &[&AskNeed]) -> Value {
+    let common = common_format_of(g, &sessions::format_cells(g, cell), gone);
+    Value::String(with_settings(e, project, common, true))
+}
+
+/// A project's own rule, `rule:<name>`, with the value of each setting it names beside it; none for a rule the
+/// configuration does not hold.
+fn project_rule(e: &Engine, project: &str, name: &str) -> Option<Value> {
+    let text = e.config.config.rules.get(name)?;
+    Some(Value::String(with_settings(e, project, text.trim().to_string(), false)))
+}
+
+/// A rule of the flow, `rule:<name>`: what it is for and each of its lines, with the value of each setting it names
+/// beside it.
+fn flow_rule(e: &Engine, project: &str, rule: &Rule) -> Value {
+    let lines: Vec<String> = rule.text.iter().map(|t| format!("- {t}")).collect();
+    Value::String(with_settings(
+        e,
+        project,
+        format!("{}\n\n{}", rule.desc, lines.join("\n")),
+        false,
+    ))
+}
+
+/// What every session of a cell's line is given alike in a project, each part by its address, which a new session of
+/// the line is given in its system prompt ([`sessions::system`]): what is worked out from the flow, the line and the
+/// project alone, and so is the same, byte for byte, in every work of the project. That is the forms every return of
+/// the line shares (`format:common`), the project's own rules, the rules of the flow every agent's cell of the line has,
+/// the project's settings every agent's cell of the line reads as an input, and for the architect's lines where they
+/// work (`work:<graph>`). What differs from cell to cell of the line (a cell's own format, its list of inputs, its task,
+/// a rule only some cells have) or from work to work (the worktree, the project guide as the work's branch has merged
+/// main, every value of the work) is not; for a cell on no line, whose session is its own, the line is the cell.
+pub fn line_parts(e: &Engine, g: &CompiledGraph, cell: &CompiledCell, named: &str) -> Vec<(String, Value)> {
+    let project = e.config.config.projects.get(named);
+    let gone = kinds_left_out(g, project);
+    let cells = sessions::format_cells(g, cell);
+    let mut out: Vec<(String, Value)> = vec![("format:common".to_string(), common_part(e, g, cell, named, &gone))];
+    let mut add = |address: String, content: Value| {
+        if !empty(&content) && !out.iter().any(|(a, _)| *a == address) {
+            out.push((address, content));
+        }
+    };
+    for name in project.map(|p| p.rules.clone()).unwrap_or_default() {
+        if let Some(text) = project_rule(e, named, &name) {
+            add(format!("rule:{name}"), text);
+        }
+    }
+    for rule in &g.rules {
+        if cells.iter().all(|c| c.rules.iter().any(|r| r.name == rule.name)) {
+            add(format!("rule:{}", rule.name), flow_rule(e, named, rule));
+        }
+    }
+    // The settings every cell of the line reads, as the inputs read them.
+    let settings: BTreeSet<&String> = cells
+        .iter()
+        .flat_map(|c| c.inputs.iter().flat_map(|x| x.from.iter()))
+        .filter_map(|s| match s {
+            Src::Config(n) => Some(n),
+            _ => None,
+        })
+        .collect();
+    for n in settings {
+        let everywhere = cells.iter().all(|c| {
+            c.inputs
+                .iter()
+                .any(|x| x.from.iter().any(|s| matches!(s, Src::Config(m) if m == n)))
+        });
+        if let Some(v) = project
+            .and_then(|p| p.setting(n))
+            .filter(|v| everywhere && !v.is_null())
+        {
+            add(format!("config:{n}"), v);
+        }
+    }
+    if g.name == ARCHITECT && cell.line.is_some() {
+        add(
+            format!("work:{}", g.name),
+            Value::String(architect_workspace(e, &g.name, named)),
+        );
     }
     out
 }
@@ -298,6 +384,14 @@ impl Context<'_> {
                             (address, r["problem"].clone())
                         })
                         .collect(),
+                    // The CI on the work is the work's one row, given as an object, so that a session given it once is
+                    // given after that only the entries that changed, as a run of a CI comes or goes.
+                    "work_ci" => rows
+                        .into_iter()
+                        .next()
+                        .map(|r| (self.computed(m, rel, &r), r))
+                        .into_iter()
+                        .collect(),
                     _ => vec![(self.computed(m, rel, &p.value), p.value.clone())],
                 }
             }
@@ -384,14 +478,6 @@ impl Context<'_> {
                     (helper.filter(|h| h.step.as_deref() == Some("wait_for_start")), before)
                 {
                     out.push(format!(
-                    // The CI on the work is the work's one row, given as an object, so that a session given it once is
-                    // given after that only the entries that changed, as a run of a CI comes or goes.
-                    "work_ci" => rows
-                        .into_iter()
-                        .next()
-                        .map(|r| (self.computed(m, rel, &r), r))
-                        .into_iter()
-                        .collect(),
                         "You paused in {}, and the owner started the work again: carry on.",
                         p.id
                     ));
@@ -499,11 +585,7 @@ impl Context<'_> {
         let project = e.config.config.projects.get(named);
         let gone = kinds_left_out(g, project);
         // The forms every return of the session's line shares: only those some cell of the line has.
-        let common = common_format_of(g, &sessions::format_cells(g, c), &gone);
-        m.give(
-            "format:common".into(),
-            Value::String(with_settings(e, named, common, true)),
-        );
+        m.give("format:common".into(), common_part(e, g, c, named, &gone));
         m.give(
             format!("format:{}", c.id),
             Value::String(with_settings(e, named, cell_format(g, c, &gone), true)),
@@ -516,17 +598,13 @@ impl Context<'_> {
         let mut rules = Vec::new();
         let own: Vec<String> = project.map(|p| p.rules.clone()).unwrap_or_default();
         for name in own {
-            let Some(text) = e.config.config.rules.get(&name) else {
-                continue;
-            };
-            let text = with_settings(e, named, text.trim().to_string(), false);
-            rules.push(m.give(format!("rule:{name}"), Value::String(text)));
+            if let Some(text) = project_rule(e, named, &name) {
+                rules.push(m.give(format!("rule:{name}"), text));
+            }
         }
         for r in &c.rules {
             if let Some(rule) = g.rules.iter().find(|x| x.name == r.name) {
-                let lines: Vec<String> = rule.text.iter().map(|t| format!("- {t}")).collect();
-                let text = with_settings(e, named, format!("{}\n\n{}", rule.desc, lines.join("\n")), false);
-                rules.push(m.give(format!("rule:{}", rule.name), Value::String(text)));
+                rules.push(m.give(format!("rule:{}", rule.name), flow_rule(e, named, rule)));
             }
         }
         // A line the configuration keeps from changing anything only reads the worktree. An architect reads its
@@ -599,6 +677,14 @@ impl Context<'_> {
             work_from.push(format!("Worktree: {a}"));
         }
         let why = self.why(&mut m, &interjections);
+        let tasks = self.tasks(&mut m);
+        // The columns of the review's table, given once in a session and after that as what changed in them.
+        let columns = (!self.columns.is_empty()).then(|| {
+            let text: Vec<String> = self.columns.iter().map(|(id, col)| format!("{id}. {col}")).collect();
+            let content = Value::String(text.join("\n"));
+            let address = self.computed(&m, COLUMNS, &content);
+            m.give(address, content)
+        });
         let images = self.images(&mut m);
 
         let mut out = Writer::default();
@@ -670,14 +756,6 @@ impl Context<'_> {
         for (key, whole) in m.kept {
             if !kept.iter().any(|(k, _)| *k == key) {
                 kept.push((key, whole));
-        let tasks = self.tasks(&mut m);
-        // The columns of the review's table, given once in a session and after that as what changed in them.
-        let columns = (!self.columns.is_empty()).then(|| {
-            let text: Vec<String> = self.columns.iter().map(|(id, col)| format!("{id}. {col}")).collect();
-            let content = Value::String(text.join("\n"));
-            let address = self.computed(&m, COLUMNS, &content);
-            m.give(address, content)
-        });
             }
         }
         Message {
@@ -691,84 +769,6 @@ impl Context<'_> {
         }
     }
 
-    /// The images what the message gives names (`image:<id>`, as the owner's words name the images sent with them),
-    /// each added as a conditional input of its own, so that it is given once its session lacks it and referred to
-    /// after that: in the order the inputs are given and each names them, each with the first that names it. An address
-    /// that names no image the owner sent is passed over.
-    fn images(&self, m: &mut Giver<'_>) -> Vec<Image> {
-        let conn = self.e.db.conn();
-        let named: Vec<(String, Vec<i64>)> = m
-            .list
-            .iter()
-            .filter(|c| c.given && !c.address.starts_with(IMAGE))
-            .map(|c| (c.address.clone(), db::attachments::named_in(&render(&c.content))))
-            .collect();
-        let mut out: Vec<Image> = Vec::new();
-        for (with, ids) in named {
-            for id in ids {
-                if out.iter().any(|i| i.attachment == id) {
-                    continue;
-                }
-                let Ok(Some(k)) = db::attachments::kept(conn, id) else {
-                    continue;
-                };
-                let content = json!({ "image": k.id, "media_type": k.media_type, "size": k.size, "sha256": k.hash });
-                let address = m.add(db::attachments::address(id), content);
-                let given = m.list.iter().any(|c| c.address == address && c.given);
-                out.push(Image {
-                    attachment: id,
-                    media_type: k.media_type,
-                    size: k.size,
-                    with: with.clone(),
-                    given,
-                });
-            }
-        }
-        out
-    }
-}
-
-/// How the address of an image the owner sent begins.
-const IMAGE: &str = "image:";
-
-/// A message as it is written, line by line, with the large parts the round's record keeps once.
-#[derive(Default)]
-struct Writer {
-    text: String,
-    /// The parts the record keeps, and the text written since the last large one.
-    parts: Vec<Value>,
-    since: String,
-    kept: Vec<(String, String)>,
-}
-
-impl Writer {
-    fn line(&mut self, s: &str) {
-        self.text.push_str(s);
-        self.text.push('\n');
-        self.since.push_str(s);
-        self.since.push('\n');
-    }
-
-    /// A line that may be large: the record refers to a large one by its hash, and keeps it once.
-    fn keep(&mut self, s: &str) {
-        if s.len() < db::STORED {
-            return self.line(s);
-        }
-        self.text.push_str(s);
-        self.text.push('\n');
-        if !self.since.is_empty() {
-            self.parts.push(Value::String(std::mem::take(&mut self.since)));
-        }
-        let h = db::content_hash(s);
-        self.parts.push(json!({ "content": h }));
-        self.since.push('\n');
-        if !self.kept.iter().any(|(k, _)| *k == h) {
-            self.kept.push((h, s.to_string()));
-        }
-    }
-
-    /// The text, the text as the record keeps it, and what the record keeps once.
-    fn finish(mut self) -> (String, Value, Vec<(String, String)>) {
     /// The cell's task, as conditional inputs, which a session is given once and after that referred to, or given what
     /// changed in it: its own lines under `task:<cell>`, and the lines the value it is told by adds under
     /// `task:<cell>·<by>=<value>`, so that a session given the task of one value and then another holds both; gives
@@ -821,6 +821,90 @@ impl Writer {
         out.line("");
     }
 
+    /// The images what the message gives names (`image:<id>`, as the owner's words name the images sent with them),
+    /// each added as a conditional input of its own, so that it is given once its session lacks it and referred to
+    /// after that: in the order the inputs are given and each names them, each with the first that names it. An address
+    /// that names no image the owner sent is passed over.
+    fn images(&self, m: &mut Giver<'_>) -> Vec<Image> {
+        let conn = self.e.db.conn();
+        let named: Vec<(String, Vec<i64>)> = m
+            .list
+            .iter()
+            .filter(|c| c.given && !c.address.starts_with(IMAGE))
+            .map(|c| (c.address.clone(), db::attachments::named_in(&render(&c.content))))
+            .collect();
+        let mut out: Vec<Image> = Vec::new();
+        for (with, ids) in named {
+            for id in ids {
+                if out.iter().any(|i| i.attachment == id) {
+                    continue;
+                }
+                let Ok(Some(k)) = db::attachments::kept(conn, id) else {
+                    continue;
+                };
+                let content = json!({ "image": k.id, "media_type": k.media_type, "size": k.size, "sha256": k.hash });
+                let address = m.add(db::attachments::address(id), content);
+                let given = m.list.iter().any(|c| c.address == address && c.given);
+                out.push(Image {
+                    attachment: id,
+                    media_type: k.media_type,
+                    size: k.size,
+                    with: with.clone(),
+                    given,
+                });
+            }
+        }
+        out
+    }
+}
+
+/// How the address of an image the owner sent begins.
+const IMAGE: &str = "image:";
+
+/// How the address of a cell's task begins.
+const TASK: &str = "task:";
+
+/// The name the columns of a review's table are computed under: `<round>·engine·review_columns`.
+const COLUMNS: &str = "review_columns";
+
+/// A message as it is written, line by line, with the large parts the round's record keeps once.
+#[derive(Default)]
+struct Writer {
+    text: String,
+    /// The parts the record keeps, and the text written since the last large one.
+    parts: Vec<Value>,
+    since: String,
+    kept: Vec<(String, String)>,
+}
+
+impl Writer {
+    fn line(&mut self, s: &str) {
+        self.text.push_str(s);
+        self.text.push('\n');
+        self.since.push_str(s);
+        self.since.push('\n');
+    }
+
+    /// A line that may be large: the record refers to a large one by its hash, and keeps it once.
+    fn keep(&mut self, s: &str) {
+        if s.len() < db::STORED {
+            return self.line(s);
+        }
+        self.text.push_str(s);
+        self.text.push('\n');
+        if !self.since.is_empty() {
+            self.parts.push(Value::String(std::mem::take(&mut self.since)));
+        }
+        let h = db::content_hash(s);
+        self.parts.push(json!({ "content": h }));
+        self.since.push('\n');
+        if !self.kept.iter().any(|(k, _)| *k == h) {
+            self.kept.push((h, s.to_string()));
+        }
+    }
+
+    /// The text, the text as the record keeps it, and what the record keeps once.
+    fn finish(mut self) -> (String, Value, Vec<(String, String)>) {
         if self.parts.is_empty() {
             let text = self.text;
             return (text.clone(), Value::String(text), Vec::new());
@@ -861,12 +945,6 @@ fn architect_workspace(e: &Engine, graph: &str, project: &str) -> String {
         ));
     }
     out
-/// How the address of a cell's task begins.
-const TASK: &str = "task:";
-
-/// The name the columns of a review's table are computed under: `<round>·engine·review_columns`.
-const COLUMNS: &str = "review_columns";
-
 }
 
 /// Where the work's agents work: its worktree and branch, and the project's branch the flow calls main; what

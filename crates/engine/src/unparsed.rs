@@ -357,6 +357,7 @@ fn repair(
         worktree: req.worktree.clone(),
         config_dir: e.cli_home(&level.cli),
         resume: None,
+        system: None,
         new_session: agent::new_session_id(),
         prompt,
         images: Vec::new(),
