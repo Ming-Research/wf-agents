@@ -2,8 +2,8 @@
    its look in Primer's tokens. Text, boxes and fills take the functional tokens. Only the cells, every box a work can
    stand at, have colours, Primer's data colours, each named here once by what it marks: an agent's round its session's,
    that is its line's, the lines of one graph green, blue, red and pink in the order the flow lists them, a cell on no
-   line, a session of its own every round, pink; the engine's own step purple; the owner orange; a tool lemon; every
-   cell's edge solid. A circle that names a cell takes that cell's colours. Everything else (the actions on a line or
+   line, a session of its own every round, pink; the engine's own step, a tool it runs included, purple; the owner
+   orange; every cell's edge solid. A circle that names a cell takes that cell's colours. Everything else (the actions on a line or
    every time a cell returns, a rule, the interjection, a store) is light grey, edged grey; the stage boxes are the
    display scale's light grey, as the owner asked. A cell, where a work stands, is edged heavier than every shape
    beside it and titled semibold. The arrows are grey, the main path blue at the same width; the rows into the cell picked or pointed at
@@ -37,9 +37,6 @@
   --fc-fresh-fill: var(--data-pink-color-muted);
   --fc-engine: var(--data-purple-color-emphasis);
   --fc-engine-fill: var(--data-purple-color-muted);
-  /* A tool in a colour of its own, lemon rather than yellow, which in the dark theme reads as the owner's orange. */
-  --fc-tool: var(--data-lemon-color-emphasis);
-  --fc-tool-fill: var(--data-lemon-color-muted);
   --fc-owner: var(--data-orange-color-emphasis);
   --fc-owner-fill: var(--data-orange-color-muted);
   /* What is no cell, light grey with a grey edge; and in the legend, a cell of any kind. */
@@ -222,11 +219,6 @@ svg.fc {
 .kind-engine {
   --fc-hue: var(--fc-engine);
   --fc-hue-fill: var(--fc-engine-fill);
-}
-
-.kind-tool {
-  --fc-hue: var(--fc-tool);
-  --fc-hue-fill: var(--fc-tool-fill);
 }
 
 .kind-owner {

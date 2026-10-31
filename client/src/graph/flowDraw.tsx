@@ -1,8 +1,8 @@
 // How a flow's chart is drawn: each node's size and the lines of its text, measured in the font the page draws
 // them in, and the chart itself as SVG once laid out. Only a cell has colours, and who does its work decides them: an
-// agent's round takes its session's, its line's, a cell on no line pink, the engine's own step is purple and rounded, a
-// tool the engine runs lemon, the owner orange and rounded, a rounded cell's ends no rounder than a cell of one line's,
-// so that its text stays inside them; every cell's edge is solid. A circle that names a cell takes that cell's colours;
+// agent's round takes its session's, its line's, a cell on no line pink, and only an agent's cell is a box; the
+// engine's own step, a tool it runs included, is purple and rounded, the owner orange and rounded, a rounded cell's ends
+// no rounder than a cell of one line's, so that its text stays inside them; every cell's edge is solid. A circle that names a cell takes that cell's colours;
 // everything else is light grey. Under a step the engine decides, what its values read; on a
 // cell that lacks a move most cells that could make make, a small mark saying so. An agent's cell carries over its top
 // left corner the reasoning effort it runs at, as a badge in the level's colour, and after it, on a cell that starts a
@@ -40,13 +40,14 @@ export function startsAnew(c: CompiledCell): boolean {
   return c.kind === 'agent' && c.line == null;
 }
 
-/// The style a cell is drawn in: its line's for an agent's round, `fresh` for one on no line, else its kind's.
+/// The style a cell is drawn in: its line's for an agent's round, `fresh` for one on no line, the owner's for the
+/// owner's, else the engine's, a tool the engine runs being the engine's own step.
 export function styleOf(c: CompiledCell): string {
   if (c.kind === 'agent') {
     if (startsAnew(c)) return 'fresh';
     return c.line != null && LINES.includes(c.line) ? `line-${c.line}` : 'line-other';
   }
-  return ['engine', 'tool', 'owner'].includes(c.kind) ? `kind-${c.kind}` : 'kind-engine';
+  return c.kind === 'owner' ? 'kind-owner' : 'kind-engine';
 }
 
 /// A size the page's tokens give, in pixels: read from the page where it runs, else the size the token has, so that a
@@ -114,17 +115,16 @@ const PAD_X = 12;
 const PAD_Y = 9;
 /// The height of the row of marks of the moves a cell lacks.
 const MARKS = 22;
-/// The most an engine's or the owner's cell is rounded: its ends as round as a cell of one line, whose ends are
+/// The most a cell that is no agent's is rounded: its ends as round as a cell of one line, whose ends are
 /// half-circles, so that a taller cell's lines, which the layout sets as wide as a box's, keep clear of its curve.
 const ROUND = (LINE + 2 * PAD_Y) / 2;
 
-/// Whether a cell's box is rounded: the engine's own step and the owner's.
+/// Whether a cell's box is rounded: every cell but an agent's, whose cell alone is a box.
 function rounded(c: CompiledCell): boolean {
-  return c.kind === 'engine' || c.kind === 'owner';
+  return c.kind !== 'agent';
 }
 
-/// The radius of a cell's corners at `height`: an engine's step and the owner's rounded, at most `ROUND`; any other
-/// slightly.
+/// The radius of a cell's corners at `height`: one that is no agent's rounded, at most `ROUND`; an agent's slightly.
 export function cellRadius(c: CompiledCell, height: number): number {
   return rounded(c) ? Math.min(height / 2, ROUND) : 3;
 }

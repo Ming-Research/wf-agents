@@ -76,15 +76,18 @@ A page and each of its parts is designed from what it is for: what it must hold,
 out; leaving out is half the work, and putting on what the owner needs and does not yet have is the other half. Each
 thing has one place, named for what produced it, and is shown there once. Like things look alike: the same kind of
 content (a message, a text an agent wrote, a verdict, a list of items, a link to a round, a form to answer) is shown the
-same way wherever it appears, from one set of parts, so that the owner learns each look once. The page is built to its
-UI spec (`design/harness/owner-interface/ui-spec.md`), which a check in CI holds: a change that needs what the spec
-lacks changes the spec in the same change, saying why.
+same way wherever it appears, from one set of parts, so that the owner learns each look once. On a chart of a flow, a
+cell's shape and colour say who does its work: a box is an agent's cell, in its session's colour; a rounded purple cell
+is the engine's, a tool it runs included; a rounded orange cell is the owner's. The page is built to its UI spec
+(`design/harness/owner-interface/ui-spec.md`), which a check in CI holds: a change that needs what the spec lacks
+changes the spec in the same change, saying why.
 
 Violations: a column, a field or a log put on the page because the data exists (the engine's bookkeeping, raw values,
 internal names, JSON); the same thing shown in two places; text written for agents or the engine shown as if written for
 the owner; a table squeezed until it cannot be read; marks, motion or colour that tell the owner nothing; a page whose
-parts follow how the system stores things rather than what the owner does with them; the same kind of content in a
-style of its own in each place it appears; a change to the page that departs from the UI spec without changing it.
+parts follow how the system stores things rather than what the owner does with them; the same kind of content in a style
+of its own in each place it appears; a cell no agent works drawn as a box, or an agent's cell drawn otherwise; a change
+to the page that departs from the UI spec without changing it.
 
 ## When articles conflict
 

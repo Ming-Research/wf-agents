@@ -273,7 +273,7 @@ function Legend({ charts, stores, legend }: {
   const label = (s: string) => {
     if (s === 'fresh') return t('legend_fresh');
     if (s.startsWith('line-')) return t('legend_line', { line: s === 'line-other' ? t('legend_other_line') : (lines.get(s) ?? '') });
-    return s === 'kind-engine' ? t('legend_engine') : s === 'kind-tool' ? t('legend_tool') : t('legend_owner');
+    return s === 'kind-engine' ? t('legend_engine') : t('legend_owner');
   };
   const efforts = effortsOf(cells);
   const effortW = effortWidth();

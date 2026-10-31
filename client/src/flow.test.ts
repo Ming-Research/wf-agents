@@ -188,7 +188,7 @@ describe('the flow as the engine stores it', () => {
         const s = size.get(at);
         if (s === undefined) continue;
         const r = cellRadius(c, s.height);
-        if ((c.kind === 'engine' || c.kind === 'owner') && s.height > 40) tall += 1;
+        if (c.kind !== 'agent' && s.height > 40) tall += 1;
         for (const b of textBoxes(c, s, lines.get(at) ?? [], notes.get(at))) {
           const corners = [
             [b.x, b.y],
