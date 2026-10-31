@@ -5220,12 +5220,12 @@ fn the_reply_to_the_owner_s_words_in_a_work_s_group_is_in_that_group() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// What the owner said in a work's group, other than to the architect, is a matter of its own: the engine queues it as
-// the architect waits to start, and it starts no work of the architect; a work something else started picks it, as it
-// came before that work, and its cell is given what the owner said. What the engineer told the owner there is not the
-// architect's to read: it queues nothing, and the cell is not given it.
+// What was said in a work's group, other than to the architect, is a matter of its own: the engine queues it as the
+// architect waits to start, and it starts no work of the architect; a work something else started picks it, as it
+// came before that work, and its cell is given what was said. What the engineer told the owner there queues it as the
+// owner's words do, since every message to the owner reaches the architect too, and what is said after joins it.
 #[test]
-fn what_the_owner_said_in_the_groups_waits_for_a_work_and_its_cell_takes_it() {
+fn what_was_said_in_the_groups_waits_for_a_work_and_its_cell_takes_it() {
     let s = setup("group-talk");
     let mut agents = scripts();
     picks_first(&s, &mut agents);
@@ -5262,7 +5262,7 @@ fn what_the_owner_said_in_the_groups_waits_for_a_work_and_its_cell_takes_it() {
             )
             .unwrap()
     };
-    assert_eq!(talks(&e), 0);
+    assert_eq!(talks(&e), 1);
     e.db.write(Actor::Owner, |tx| {
         tx.execute(
             "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', 'Keep the parser small.')",
@@ -5306,7 +5306,7 @@ fn what_the_owner_said_in_the_groups_waits_for_a_work_and_its_cell_takes_it() {
     assert_eq!(rows_at(&e, arch, "H12"), ["done"], "{log}");
     let heard = message_at(&e, arch, "H12", false);
     assert!(heard.contains("Keep the parser small."), "{log}");
-    assert!(!heard.contains("The parser needs a token of its own."), "{log}");
+    assert!(heard.contains("The parser needs a token of its own."), "{log}");
     assert!(
         !message_at(&e, arch, "Q1", false).contains("Keep the parser small."),
         "{log}"

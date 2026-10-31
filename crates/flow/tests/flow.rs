@@ -420,9 +420,10 @@ fn what_was_said_in_the_groups_is_a_matter_of_its_own() {
 
 // A matter that comes again and again is not queued while the facts it would carry are those of the last one the
 // architect handled, since it would only come to the same end, as the flow says of each: slots free, while the free
-// slots and the items ready are the same; what was said in the groups, only for what the owner said there; and the
-// check of the policy asked for with no why of its own, which only a new session's understanding asks for, while the
-// policy in force and the constitution are the same. Every other cell that asks for the check gives its why.
+// slots and the items ready are the same; what was said in the groups, the owner's words and what the engineers told
+// the owner, which every message to the owner brings the architect too, while nothing was said since; and the check of
+// the policy asked for with no why of its own, which only a new session's understanding asks for, while the policy in
+// force and the constitution are the same. Every other cell that asks for the check gives its why.
 #[test]
 fn a_matter_that_comes_again_is_not_queued_on_the_same_facts() {
     let c = compiled();
@@ -445,7 +446,10 @@ fn a_matter_that_comes_again_is_not_queued_on_the_same_facts() {
     assert!(
         action("queue_slots_free").contains("or the free slots and the items ready are those the last handled held")
     );
-    assert!(action("queue_group_talk").contains("what the engineers told the owner is not the architect's to read"));
+    assert!(
+        action("queue_group_talk")
+            .contains("and what the engineers told the owner, which the architect is to know as well")
+    );
     assert!(action("queue_check_policy").contains(
         "One asked for with no why of its own, as a new session's understanding asks for it, is not queued while the \
          policy in force and the constitution are those the last check handled had."

@@ -153,8 +153,8 @@ pub const KINDS: [(&str, &str, &str); 11] = [
     (PLAN, "N1", "N1"),
 ];
 
-/// The kind of matter that holds what the owner said in the groups of a project's works since its architect last read
-/// it, other than to it: one accumulates for each project, its material worked out when it is handled, and, like flow
+/// The kind of matter that holds what was said in the groups of a project's works since its architect last read it,
+/// other than to it: one accumulates for each project, its material worked out when it is handled, and, like flow
 /// feedback, it starts no work of the architect and waits for one something else started, or one that runs queues it at
 /// the end of a batch.
 const GROUP_TALK: &str = "group_talk";
@@ -3472,16 +3472,17 @@ fn last_read(conn: &Connection, project: &str, upto: i64) -> Result<Option<i64>,
     .map_err(sql)
 }
 
-/// What the owner said in the groups of a project's works after `since`, other than to its architect, oldest first: the
-/// owner's words to the engineers, and the owner's answers, to the engineers' asks and, in a group, to a question the
-/// architect held; each with its work and item, what it answers, and the images the owner sent with it, by their
-/// addresses, everything said in a group reaching all three. Not what the engineers told the owner, which is for the
-/// owner: what the architect should know, an engineer hands in as a side report.
+/// What was said in the groups of a project's works after `since`, other than to its architect, oldest first: the
+/// owner's words to the engineers, what the engineers told the owner, and the owner's answers, to the engineers' asks
+/// and, in a group, to a question the architect held; each with its work and item, and the owner's words with the
+/// images the owner sent with them, by their addresses, everything said in a group reaching all three. What an engineer
+/// tells the owner is what only the owner can do, a risk that cannot be undone or a boundary crossed, each of which
+/// the architect is to know as well.
 fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Value>, String> {
     query_json(
         conn,
         "SELECT * FROM (
-           SELECT j.work, w.item, i.title, j.text, NULL AS asked,
+           SELECT j.work, w.item, i.title, 'owner' AS who, 'engineer' AS \"to\", j.text, NULL AS asked,
              (SELECT min(c.at) FROM changes c
               WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)) AS at,
              nullif((SELECT json_group_array('image:' || x.id ORDER BY x.position) FROM attachments x
@@ -3490,7 +3491,12 @@ fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Va
            WHERE i.project = ?1 AND w.graph = 'engineer' AND j.speaker = 'owner' AND j.matter IS NULL
              AND j.informs = 0 AND j.cancelled_item IS NULL AND j.text NOT LIKE 'Ruling on design card %'
            UNION ALL
-           SELECT a.work, w.item, i.title, json_extract(a.answer, '$.text'),
+           SELECT m.work, w.item, i.title, 'engineer', 'owner', m.text, NULL, coalesce(r.ended_at, r.started_at), NULL
+           FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
+           JOIN items i ON i.id = w.item LEFT JOIN sessions s ON s.id = r.session
+           WHERE i.project = ?1 AND w.graph = 'engineer' AND coalesce(s.line, 'engineer') = 'engineer'
+           UNION ALL
+           SELECT a.work, w.item, i.title, 'owner', 'engineer', json_extract(a.answer, '$.text'),
              (SELECT group_concat(json_extract(p.value, '$.what'), char(10))
               FROM json_each(a.body, '$.asked') q, json_each(q.value, '$.value.points') p),
              json_extract(a.answer, '$.at'),
@@ -3499,7 +3505,7 @@ fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Va
            FROM owner_asks a JOIN works w ON w.id = a.work JOIN items i ON i.id = w.item
            WHERE i.project = ?1 AND w.graph = 'engineer' AND json_extract(a.answer, '$.by') = 'owner'
            UNION ALL
-           SELECT m.work, w.item, i.title, json_extract(m.reply, '$.text'), m.what,
+           SELECT m.work, w.item, i.title, 'owner', 'engineer', json_extract(m.reply, '$.text'), m.what,
              json_extract(m.reply, '$.at'),
              nullif((SELECT json_group_array('image:' || x.id ORDER BY x.position) FROM attachments x
                      WHERE x.matter = m.id), '[]')
@@ -3511,8 +3517,8 @@ fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Va
     )
 }
 
-/// The action of the cell a project's architect waits at to start (`S0`), `queue_group_talk`: what the owner said in
-/// the groups of the project's works since its architect last read it, other than to it, as one matter of the kind
+/// The action of the cell a project's architect waits at to start (`S0`), `queue_group_talk`: what was said in the
+/// groups of the project's works since its architect last read it, other than to it, as one matter of the kind
 /// group_talk, when there is such talk and none is open ([`group_talk_due`]); new talk joins the one open, whose
 /// material is worked out when it is handled ([`group_talk`]). The first time, the week before now.
 fn queue_group_talk(e: &mut Engine, project: &str) -> Result<(), String> {
@@ -3523,9 +3529,8 @@ fn queue_group_talk(e: &mut Engine, project: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The matter of what the owner said in the groups of a project's works since its architect last read it, other than
-/// to it ([`said_in_groups`]), to queue: none when the owner said nothing there since, or one is open, which the new
-/// words join. Queued by a work of the
+/// The matter of what was said in the groups of a project's works since its architect last read it, other than to it,
+/// to queue: none when nothing was said since, or one is open, which the new talk joins. Queued by a work of the
 /// architect at the end of a batch, it names that work ([`QUEUED_IN`]), which takes it; queued as the architect waits
 /// to start, it waits for a work something else starts.
 fn group_talk_due(conn: &Connection, project: &str, by: Option<i64>) -> Result<Option<Matter>, String> {
@@ -3550,14 +3555,14 @@ fn group_talk_due(conn: &Connection, project: &str, by: Option<i64>) -> Result<O
         project: project.to_string(),
         kind: GROUP_TALK.into(),
         detail: None,
-        what: format!("What the owner said in the groups of {project}'s works since its architect last read it"),
+        what: format!("What was said in the groups of {project}'s works since its architect last read it"),
         body,
         ..Matter::default()
     }))
 }
 
-/// What the owner said in the groups of a project's works since its architect last read it ([`last_read`]), other than
-/// to the architect, oldest first ([`said_in_groups`]), the material of the matter that holds it (`H12`). The architect
+/// What was said in the groups of a project's works since its architect last read it ([`last_read`]), other than to
+/// the architect, oldest first ([`said_in_groups`]), the material of the matter that holds it (`H12`). The architect
 /// gets it as information, which needs no answer: everything said in a group reaches all three. The first time, the
 /// week before the work; none when nothing was said.
 fn group_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {

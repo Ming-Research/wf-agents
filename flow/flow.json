@@ -3037,7 +3037,7 @@
       "queue_check_policy": "Queues the check of whether the policy in force still holds, a matter of the kind check_policy at the head of the queue, with why: what the cell's place given says, or why the cell asks for it. One open already, queued or parked for the owner's reply, stands instead, and takes the why. One asked for with no why of its own, as a new session's understanding asks for it, is not queued while the policy in force and the constitution are those the last check handled had.",
       "queue_make_plan": "Queues the plan of what to do next, a matter of the kind make_plan at the head of the queue, after the check of the policy, with why: what the cell's place given says, or why the cell asks for it. One open already stands instead, and takes the why.",
       "ask_approval": "Pins the engine's short question to the owner, whether the draft the round wrote is approved (Approve this policy? Reply exactly: approved), in the owner's one-to-one with the architect, as a question of the architect's that parks the matter in hand at the cell, without the draft; the draft is the round's return, which waits for the approval.",
-      "queue_group_talk": "Queues what the owner said in the groups of the project's works since its architect last read it, other than to it, as one matter of the kind group_talk, when the owner said something there and no such matter is open: what the engineers told the owner is not the architect's to read. New words join the one open, whose material is worked out when it is handled. Like flow feedback, it starts no work of the architect: queued as the architect waits to start, a work picks it only when it came before that work started; queued at the end of a batch, the work that runs takes it.",
+      "queue_group_talk": "Queues what was said in the groups of the project's works since its architect last read it, other than to it, as one matter of the kind group_talk, when there is such talk and no such matter is open: the owner's words there, and what the engineers told the owner, which the architect is to know as well. New talk joins the one open, whose material is worked out when it is handled. Like flow feedback, it starts no work of the architect: queued as the architect waits to start, a work picks it only when it came before that work started; queued at the end of a batch, the work that runs takes it.",
       "edit_notebook": "Writes each section of the notebook the round rewrote, whole, as the project's architect's notebook's latest version of it; the versions before stay, for the owner to look at.",
       "change_observations": "Makes each change to the project's observations a round hands in beside its own answer, at once, as an answer's effects make theirs."
     },
@@ -3122,7 +3122,7 @@
       "cross_project": "The dependencies between the project's items and other projects' items, each blocking or parallel.",
       "batch_changes": "The item changes of the batch, numbered, each with its reason and the matter it came from.",
       "changes_touch": "The items the batch's changes touch, each in full: as its creator wrote it, its locked acceptance, its rank and level, its dependencies and who waits for it, each blocking or parallel, its design cards, and its latest work's cell, pull request and what it waits for.",
-      "group_talk": "What the owner said in the groups of the project's works since the architect last read it, at its last reading of it (`H12`), other than to it: the owner's words to the engineers and the owner's answers, each with its work and item and what it answers.",
+      "group_talk": "What was said in the groups of the project's works since the architect last read it, at its last reading of it (`H12`), other than to it: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item.",
       "told_owner": "What the project's architect told the owner lately: its latest messages to the owner, each with when and at which cell, oldest first.",
       "questions": "The questions the project's architect put to the owner that wait for the owner's reply, newest first: each question, the cell that asked and when, and the matter it parked.",
       "notebook_project_now": "The text of the section project now of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
@@ -16364,7 +16364,7 @@
           "inputs": [
             {
               "name": "Said in the works' groups",
-              "what": "What the owner said in the groups of your project's works since you last read it, other than to you: the owner's words to the engineers and the owner's answers, each with its work and item and what it answers",
+              "what": "What was said in the groups of your project's works since you last read it, other than to you: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item",
               "from": [
                 {
                   "engine": "group_talk"
@@ -16461,7 +16461,7 @@
             }
           ],
           "prompt": [
-            "This round reads what the owner said in your project's works' groups since you last read it, which you are a member of with the owner and each work's engineer, and which was not said to you: it needs no answer of yours. Hand in done when it calls for nothing, or for something you do now in effects, such as interjecting to a work's engineer, which shows in its group; re_plan when it changes what comes first, and what to do next is planned again under the policy in force; or new_policy when it touches the direction itself, and whether the policy still holds is checked. Each of these two is a matter at the head of the queue, with why."
+            "This round reads what was said in your project's works' groups since you last read it, which you are a member of with the owner and each work's engineer, and which was not said to you: it needs no answer of yours. Hand in done when it calls for nothing, or for something you do now in effects, such as interjecting to a work's engineer, which shows in its group; re_plan when it changes what comes first, and what to do next is planned again under the policy in force; or new_policy when it touches the direction itself, and whether the policy still holds is checked. Each of these two is a matter at the head of the queue, with why."
           ],
           "out": [
             {
