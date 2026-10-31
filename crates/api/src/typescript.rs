@@ -35,6 +35,7 @@ pub fn typescript() -> String {
         decl::<RoundOutcome>(&cfg),
         decl::<RoundSummary>(&cfg),
         decl::<RoundTokens>(&cfg),
+        decl::<TokenCosts>(&cfg),
         decl::<DesignCard>(&cfg),
         decl::<Replacement>(&cfg),
         decl::<OwnerAsk>(&cfg),

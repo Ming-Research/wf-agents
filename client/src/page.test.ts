@@ -1771,14 +1771,16 @@ describe('a round', () => {
       level: '2',
       effort: 'xhigh',
       others: [],
+      // At Sonnet 5.5's prices.
+      costs: { input: 0.000148, read: 1.2509639, written: 0.284384, output: 0.30127 },
     };
-    const s = spent(x, 'claude-sonnet-5-5');
+    const s = spent(x);
     expect(s.parts.map((p) => p.text).join(' · ')).toBe('50 steps · context 303K→374K · re-read 68% · new 15% · output 16%');
     expect(s.parts.map((p) => p.whole).join(' · ')).toBe(
       '50 steps · context 303K→374K · re-read 12.51M tokens, 68% · newly cached 71K (1h), 15% · output 30K, of it thinking 14K, 16%',
     );
     expect(s.shares !== null && Math.abs(s.shares.read + s.shares.written + s.shares.output - 1) < 0.001).toBe(true);
-    expect(spent({ ...x, context_before: null }, 'some-model').parts.map((p) => p.text).join(' · ')).toBe(
+    expect(spent({ ...x, context_before: null, costs: null }).parts.map((p) => p.text).join(' · ')).toBe(
       '50 steps · context 374K · re-read 12.51M · new 71K · output 30K',
     );
     expect(tokens(74)).toBe('74');
@@ -1802,6 +1804,7 @@ describe("a work's usage", () => {
       level: '2',
       effort: 'xhigh',
       others: [],
+      costs: { input: 0, read: 0.1, written: 0.04, output: 0.01 },
       ...extra,
     });
     const at = (r: RoundSummary, start: number, end: number, extra: Partial<RoundSummary> = {}): RoundSummary => ({
@@ -1831,7 +1834,7 @@ describe("a work's usage", () => {
     expect(u.subagents).toEqual([{ model: 'claude-haiku-5-5', rounds: [{ work: 1, n: 3 }] }]);
     expect(u.sessions.map((s) => [s.line, s.context, s.points.length])).toEqual([['engineer', 250_000, 2]]);
     expect(u.tools).toEqual([{ cell: 't', title: 'Run tools', ms: 60_000, runs: 1 }]);
-    expect(u.kinds !== null && Math.round(u.kinds.read)).toBe(200_000);
+    expect(u.kinds?.read).toBeCloseTo(0.2);
     // Each stretch no round ran is a block of its own, between the rounds around it, with what happened in it.
     expect(gapsOf(u.blocks, [{ at: 200_000, what: 'answered' }, { at: 400_000, what: 'later' }])).toEqual([
       { start: 120_000, end: 300_000, before: { work: 1, n: 2 }, after: { work: 1, n: 3 }, waited: ['answered'] },
@@ -1853,6 +1856,7 @@ describe("a work's usage", () => {
       level: null,
       effort: null,
       others: [],
+      costs: null,
     });
     const agent = (n: number, session: number, context: number, cost: number, new_session: string | null): RoundSummary => ({
       ...round(n, 'a', 'took', 'done'),

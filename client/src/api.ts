@@ -316,7 +316,21 @@ effort: string | null,
  * The models besides the round's own whose tokens grew during the round, by the command line's usage per model,
  * which counts the whole session: the subagents that ran on other models.
  */
-others: Array<string>, };
+others: Array<string>, 
+/**
+ * What each kind of these tokens cost, by the prices of the round's model as the session manager keeps them;
+ * none for a model with no prices there.
+ */
+costs: TokenCosts | null, };
+
+/**
+ * What each kind of a round's tokens cost, in US dollars, by its model's prices.
+ */
+export type TokenCosts = { 
+/**
+ * Input not read from the cache, reads from the cache, writes to it, and output.
+ */
+input: number, read: number, written: number, output: number, };
 
 /**
  * A design card, as the round that handed it in wrote it, with its rulings.

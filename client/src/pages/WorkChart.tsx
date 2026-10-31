@@ -71,7 +71,7 @@ export function RoundsMarks({ w, to }: { w: WorkSummary; to: (only: RoundsOnly) 
 /// cache, newly cached and output, and its steps; the whole of it on hovering. None for a round no agent ran.
 function SpentBar({ r }: { r: RoundSummary }) {
   if (r.tokens === null || r.line === null || r.not_asked !== null) return null;
-  const s = spent(r.tokens, r.model);
+  const s = spent(r.tokens);
   const sum = s.shares !== null ? s.shares.read + s.shares.written + s.shares.output : 0;
   const width = (x: number) => `${sum > 0 ? (100 * x) / sum : 0}%`;
   return (

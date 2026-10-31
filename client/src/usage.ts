@@ -6,8 +6,7 @@
 // counts the pings; and each stretch no round ran is a block of its own, with what the record shows was waited on.
 // Several works, such as an architect's over a span of time, count as one, their rounds in the order they started.
 
-import type { Ping, RoundSummary, WorkSession } from './api';
-import { costParts, type CostParts } from './round';
+import type { Ping, RoundSummary, TokenCosts, WorkSession } from './api';
 
 /// What a cell is, as the usage tab names and sorts it.
 export type CellInfo = { kind: string; title: string };
@@ -91,7 +90,7 @@ export type Usage = {
   /// The models subagents ran on, each with the rounds they ran in.
   subagents: Array<{ model: string; rounds: RoundOf[] }>;
   /// What the tokens cost by kind, by the models' prices; none when no model had prices.
-  kinds: CostParts | null;
+  kinds: TokenCosts | null;
   cells: Array<{ cell: string; title: string; cost: number; rounds: number }>;
   sessions: SessionRow[];
   pings: PingRow[];
@@ -139,7 +138,7 @@ export function usageOf(works: WorkPart[], cells: Map<string, CellInfo>, now: nu
   const tok = (f: (x: NonNullable<RoundSummary['tokens']>) => number) => sum(agent.map((r) => (r.tokens !== null ? f(r.tokens) : 0)));
   const models = new Map<string, ModelRow>();
   const subagents = new Map<string, RoundOf[]>();
-  const kinds: CostParts = { input: 0, read: 0, written: 0, output: 0 };
+  const kinds: TokenCosts = { input: 0, read: 0, written: 0, output: 0 };
   let priced = false;
   const byCell = new Map<string, { cell: string; title: string; cost: number; rounds: number }>();
   const sessions = new Map<string, SessionRow>();
@@ -181,7 +180,7 @@ export function usageOf(works: WorkPart[], cells: Map<string, CellInfo>, now: nu
     m.cost += cost;
     models.set(key, m);
     for (const o of x.others) subagents.set(o, [...(subagents.get(o) ?? []), of(r)]);
-    const parts = costParts(x, r.model);
+    const parts = x.costs;
     if (parts !== null) {
       priced = true;
       kinds.input += parts.input;

@@ -19,8 +19,8 @@ use crate::{
     InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
     LinkedItem, Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, OwnerAsk, OwnerMessage,
     PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, Queued, Replacement, RoundConditional, RoundDetail,
-    RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, ToolRun, Waits,
-    WorkDetail, WorkSession, WorkState, WorkSummary,
+    RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts,
+    ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -566,8 +566,9 @@ const ROUND: &str = "SELECT r.n, r.cell, s.line, r.transition, r.rejected, r.sta
 FROM rounds r JOIN works w ON w.id = r.work LEFT JOIN sessions s ON s.id = r.session";
 
 /// Where an agent's round spent its tokens, from its usage record as the command line reported it: the totals of the
-/// round's calls, and the context of its last call; the context at its start is the caller's to find.
-fn round_tokens(usage: Option<&Value>) -> Option<RoundTokens> {
+/// round's calls, and the context of its last call, with what each kind cost by the prices of `model`, the model it ran
+/// on; the context at its start is the caller's to find.
+fn round_tokens(usage: Option<&Value>, model: Option<&str>) -> Option<RoundTokens> {
     let u = usage?.get("usage")?;
     let n = |v: &Value| v.as_i64().unwrap_or(0);
     let written = n(&u["cache_creation_input_tokens"]);
@@ -594,6 +595,14 @@ fn round_tokens(usage: Option<&Value>) -> Option<RoundTokens> {
         level: None,
         effort: None,
         others: Vec::new(),
+        costs: model
+            .and_then(|m| sessions::cost::parts(m, usage?))
+            .map(|p| TokenCosts {
+                input: p.input,
+                read: p.read,
+                written: p.written,
+                output: p.output,
+            }),
     })
 }
 
@@ -631,6 +640,8 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
     });
     let rejected = json(r.get(4)?);
     let ended_at: Option<i64> = r.get(6)?;
+    let model: Option<String> = r.get(7)?;
+    let tokens = round_tokens(json(r.get(20)?).as_ref(), model.as_deref()).map(|t| RoundTokens { level, effort, ..t });
     Ok(RoundSummary {
         n: r.get(0)?,
         cell: r.get(1)?,
@@ -641,13 +652,13 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
         transition,
         started_at: r.get(5)?,
         ended_at,
-        model: r.get(7)?,
+        model,
         cost_usd: r.get(8)?,
         compactions: r.get(9)?,
         tool_runs: r.get(10)?,
         progress: text(r, 11)?,
         not_asked: r.get(21)?,
-        tokens: round_tokens(json(r.get(20)?).as_ref()).map(|t| RoundTokens { level, effort, ..t }),
+        tokens,
         session: r.get(22)?,
         new_session: r.get(25)?,
     })
@@ -1072,7 +1083,7 @@ pub fn round(conn: &Connection, flows: &Flows, data: &Path, work: i64, n: i64) -
             if before.is_none() {
                 before = Some(per_model(u.as_ref()));
             }
-            if let Some(end) = round_tokens(u.as_ref()).and_then(|x| x.context_end) {
+            if let Some(end) = round_tokens(u.as_ref(), None).and_then(|x| x.context_end) {
                 tokens.context_before = Some(end);
                 break;
             }

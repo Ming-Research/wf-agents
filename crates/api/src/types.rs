@@ -333,6 +333,19 @@ pub struct RoundTokens {
     /// The models besides the round's own whose tokens grew during the round, by the command line's usage per model,
     /// which counts the whole session: the subagents that ran on other models.
     pub others: Vec<String>,
+    /// What each kind of these tokens cost, by the prices of the round's model as the session manager keeps them;
+    /// none for a model with no prices there.
+    pub costs: Option<TokenCosts>,
+}
+
+/// What each kind of a round's tokens cost, in US dollars, by its model's prices.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, TS)]
+pub struct TokenCosts {
+    /// Input not read from the cache, reads from the cache, writes to it, and output.
+    pub input: f64,
+    pub read: f64,
+    pub written: f64,
+    pub output: f64,
 }
 
 /// A design card, as the round that handed it in wrote it, with its rulings.

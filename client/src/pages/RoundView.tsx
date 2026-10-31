@@ -389,7 +389,7 @@ function RoundHead({ d, cell }: { d: RoundDetail; cell: CompiledCell | undefined
     ) : r.outcome === 'failed' || r.outcome === 'interrupted' ? (
       <Flash variant="danger">{t('rp_no_return', { why: r.why ?? '' })}</Flash>
     ) : null;
-  const s = r.tokens !== null ? spent(r.tokens, r.model) : null;
+  const s = r.tokens !== null ? spent(r.tokens) : null;
   const shares = s?.parts.filter((p) => p.fact !== true) ?? [];
   const facts = s?.parts.filter((p) => p.fact === true) ?? [];
   return (

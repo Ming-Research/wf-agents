@@ -106,9 +106,9 @@ fn tools_taken(value: &Option<String>) -> BTreeSet<&str> {
 
 /// Whether a round that resumed a CLI session missed its prompt cache: it started within the cache's lifetime since the
 /// session's last call, and its first call read from the cache less than half of what the session held. `before` are
-/// the session's rounds before it, oldest first, `call` is its call as its record keeps it, and `usage` its usage
-/// record with its own cost. None when the record cannot tell: no round before recorded its calls or its command line,
-/// or the round's record does not say what its first call read.
+/// the session's rounds before it, oldest first, `call` is its call as its record keeps it, `usage` its usage record
+/// and `model` the model it ran on, whose prices the miss's cost is at. None when the record cannot tell: no round
+/// before recorded its calls or its command line, or the round's record does not say what its first call read.
 pub fn missed(
     conn: &Connection,
     cli_session: &str,
@@ -116,6 +116,7 @@ pub fn missed(
     round: RoundId,
     call: &Value,
     usage: &Value,
+    model: Option<&str>,
 ) -> Result<Option<Miss>, String> {
     let Some(prev) = before.iter().rev().find(|r| r.input["call"]["command"].is_array()) else {
         return Ok(None);
@@ -154,7 +155,7 @@ pub fn missed(
         read,
         written,
         held,
-        cost_usd: cost::rewritten(usage, written),
+        cost_usd: model.and_then(|m| cost::rewritten(m, usage, written)),
         differs: differs(&prev.input["call"], call),
     }))
 }
@@ -380,6 +381,8 @@ mod tests {
         }
     }
 
+    const SONNET: Option<&str> = Some("claude-sonnet-5-5");
+
     /// What the CLI reports a round used: what its first call read from the cache and wrote to it, and the run's whole,
     /// whose last call read what the first wrote and wrote a little more.
     fn used(read: i64, written: i64) -> Value {
@@ -443,6 +446,7 @@ mod tests {
             RoundId::new(1, 2),
             &now,
             &used(6_492, 410_000),
+            SONNET,
         )
         .unwrap()
         .unwrap();
@@ -451,16 +455,30 @@ mod tests {
             (RoundId::new(1, 1), 6_492, 394_018, 400_510, 600_000)
         );
         assert!(miss.differs.is_empty());
-        assert!(miss.cost_usd.is_some_and(|c| c > 0.0 && c < 1.0), "{:?}", miss.cost_usd);
+        // Written for five minutes on Sonnet 5.5, at $2.50 a million where reading them would have cost $0.10.
+        assert!(
+            miss.cost_usd.is_some_and(|c| (c - 394_018.0 * 2.4 / 1e6).abs() < 1e-9),
+            "{:?}",
+            miss.cost_usd
+        );
         for (read, written) in [(400_500, 2_000), (400_500, 300_000)] {
-            let hit = missed(db.conn(), "s1", &before, RoundId::new(1, 2), &now, &used(read, written)).unwrap();
+            let hit = missed(
+                db.conn(),
+                "s1",
+                &before,
+                RoundId::new(1, 2),
+                &now,
+                &used(read, written),
+                SONNET,
+            )
+            .unwrap();
             assert_eq!(hit, None, "{read} read, {written} written");
         }
         // A record that does not say what the first call read cannot tell.
         let mut untold = used(6_492, 410_000);
         untold.as_object_mut().unwrap().remove(FIRST_CALL);
         assert_eq!(
-            missed(db.conn(), "s1", &before, RoundId::new(1, 2), &now, &untold).unwrap(),
+            missed(db.conn(), "s1", &before, RoundId::new(1, 2), &now, &untold, SONNET).unwrap(),
             None
         );
         let mut late = Db::in_memory().unwrap();
@@ -472,6 +490,7 @@ mod tests {
             RoundId::new(1, 2),
             &now,
             &used(6_492, 410_000),
+            SONNET,
         )
         .unwrap();
         assert_eq!(expired, None);

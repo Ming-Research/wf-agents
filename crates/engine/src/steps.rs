@@ -442,8 +442,15 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // session's messages changed since its round before, which the miss is kept for, as its cost, with no notice.
     if req.resume.is_some()
         && let Some(usage) = &ended.usage
-        && let Some(miss) =
-            sessions::miss::missed(e.db.conn(), &new_session, &line_rounds, round, &input["call"], usage)?
+        && let Some(miss) = sessions::miss::missed(
+            e.db.conn(),
+            &new_session,
+            &line_rounds,
+            round,
+            &input["call"],
+            usage,
+            ended.model.as_deref(),
+        )?
     {
         crate::faults::cache_miss(e, w, round, &cell.id, &line, &miss)?;
     }

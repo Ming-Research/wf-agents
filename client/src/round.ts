@@ -249,24 +249,6 @@ function field(s: Obj, name: string): Obj | null {
   return null;
 }
 
-/// What a million tokens cost, in US dollars: input, output, a read from the cache, and a write to it kept five
-/// minutes or an hour.
-type Prices = { input: number; output: number; read: number; write5m: number; write1h: number };
-
-/// The prices of the models the agents run on, by model: input and output as Anthropic lists them (October 2026), a
-/// write to the cache at 1.25 times the input for five minutes and 2 times for an hour; the read from the cache as
-/// Claude Code charges it, which with the rest gives exactly the cost each round records (`cost_usd`), checked on
-/// every round of the owner's works: Sonnet 5.5's read is $0.10 where Anthropic's list says $0.20. Haiku 5.5 costs
-/// more for a call whose prompt is over 100K tokens.
-const PRICES: { [model in string]: { prices: Prices; above?: { tokens: number; prices: Prices } } } = {
-  'claude-opus-5-5': { prices: { input: 4, output: 20, read: 0.2, write5m: 5, write1h: 8 } },
-  'claude-sonnet-5-5': { prices: { input: 2, output: 10, read: 0.1, write5m: 2.5, write1h: 4 } },
-  'claude-haiku-5-5': {
-    prices: { input: 0.1, output: 0.5, read: 0.01, write5m: 0.125, write1h: 0.2 },
-    above: { tokens: 100_000, prices: { input: 0.5, output: 2.5, read: 0.05, write5m: 0.625, write1h: 1 } },
-  },
-};
-
 /// A number of tokens, short: 74, 71K, 12.51M.
 export function tokens(n: number): string {
   if (n < 1000) return String(n);
@@ -292,7 +274,7 @@ export type SpentPart = {
 /// Where an agent's round spent its tokens and its cost: its steps; its context at its start (where the round before
 /// it in its session ended) and at its end; and the share of the round's cost each kind of token took, read again from
 /// the cache, newly cached, the output with its thinking, and the input when it comes to a percent. The shares are by
-/// the model's prices, so they add up to the round's cost; for a model with no prices here, the tokens alone.
+/// the model's prices (`costs`), so they add up to the round's cost; for a model with no prices, the tokens alone.
 export type Spent = {
   steps: number;
   parts: SpentPart[];
@@ -302,26 +284,8 @@ export type Spent = {
 
 type SpentKey = 'spent_read' | 'spent_new' | 'spent_output' | 'spent_input';
 
-/// What each kind of token of a round cost, by the model's prices, in millionths of a dollar: the new input, the
-/// reads from the cache, the writes to it and the output; none for a model with no prices here.
-export type CostParts = { input: number; read: number; written: number; output: number };
-
-export function costParts(x: RoundTokens, model: string | null): CostParts | null {
-  const priced = model !== null ? PRICES[model] : undefined;
-  // A model priced higher above a size of prompt is priced by the last call's here: the record sums the calls.
-  const above = priced?.above !== undefined && x.context_end !== null && x.context_end > priced.above.tokens;
-  const p = above ? priced?.above?.prices : priced?.prices;
-  if (p === undefined) return null;
-  return {
-    input: x.input * p.input,
-    read: x.read * p.read,
-    written: x.written_5m * p.write5m + x.written_1h * p.write1h,
-    output: x.output * p.output,
-  };
-}
-
-export function spent(x: RoundTokens, model: string | null): Spent {
-  const costs = costParts(x, model);
+export function spent(x: RoundTokens): Spent {
+  const costs = x.costs;
   const total = costs !== null ? costs.input + costs.read + costs.written + costs.output : 0;
   const parts: SpentPart[] = [];
   const steps = tn('spent_steps', x.steps);
