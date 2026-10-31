@@ -19,3 +19,13 @@ Why: A step of one work is to run on any thread beside the steps of others, whic
 Re-examined: D:one-machine, D:work-controls, D:session-manager-crate: each still holds, since the engine's loop still takes one step at a time
 
 Ruling: the owner's confirmation of the design card of item 12, with the owner's facts on git's lock of a repository's configuration
+
+## 2026-10-31 Run the steps of different works side by side
+
+Changed: D:loop-schedules added, D:loop-grants-slots added, D:pings-dispatched added, D:round-ends-once added, D:work-controls changed, D:keep-warm changed, D:engine-threads changed, F:engine-one-step removed, F:step-waits-minutes added, F:steps-never-overlapped added, F:ping-is-a-call added, F:finish-round-unchecked added
+
+Why: The engine's loop is to hand the steps of different works to threads of their own, so that one work's wait on an agent or on CI no longer holds up the others; the derivations record that the loop alone schedules, grants slots, carries out the outbox and ends rounds from outside a step, that pings are dispatched as steps are, and that a round is ended only while it is open. F:engine-one-step no longer holds, so D:work-controls and D:keep-warm rest on D:loop-schedules for what it gave them, in words that keep what each decided, and D:engine-threads no longer says the loop takes one step at a time. They keep the words of the decisions of design/engine/parallel-steps.md.
+
+Re-examined: D:one-machine: still holds, the threads being in one process on one machine; D:wait-holds-no-slot: still holds, a grant being how a waiting work takes a slot; D:architect-per-project: still holds, its architects of several projects now running together as it says
+
+Ruling: pending the owner's confirmation of the design card of item 5

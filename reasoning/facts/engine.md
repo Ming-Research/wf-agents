@@ -8,9 +8,9 @@ Fact before-run-lint-main: A lint on the code before the change checks main's co
 
 Fact cargo-test-binary-time: `cargo test` gives only the time of the whole test binary that holds a test.
 
-Fact engine-one-step: The engine's loop takes one step of one work at a time and reads between two steps what the owner asked.
-
 Fact fast-ci-stops-first-red: The fast CI stops a job at its first red test.
+
+Fact finish-round-unchecked: Ending a round changed no row when the round was no longer open and still reported success, so the step that ended it went on to move its work as if it had ended the round.
 
 Fact first-message-varies: A session's first message begins with what differs from session to session: the git status, the working directory, the date.
 
@@ -30,6 +30,8 @@ Fact one-machine-enough: One machine is enough to run the flow first.
 
 Assumed: the work outgrowing one machine overturns it
 
+Fact ping-is-a-call: A ping that keeps a session warm is one call of the agent's command line, which runs until the command line returns.
+
 Fact pr-keeps-base: A pull request keeps the base it was opened with.
 
 Fact refusal-cost: A refusal within the run costs about what a round sent back costs the model: tried with Haiku, 4,763 tokens read, 212 written and 255 put out, against 4,737, 316 and 275 for the same return sent back in a resumed session.
@@ -39,6 +41,10 @@ Fact required-field-added: Haiku, told to hand in a given input that lacked a re
 Fact session-holds-cut-off-round: A session holds everything a round cut off in it was given.
 
 Fact startup-takeover-lost-rulings: Taking over every work on an older flow version as the engine started ended works whose design cards and asks the owner was about to rule on and answer.
+
+Fact step-waits-minutes: A step of a work waits on an agent's command line or on a CI run for minutes: in the owner's database an agent's round took up to about seventeen minutes and a CI run up to about thirteen.
+
+Fact steps-never-overlapped: In the owner's database no two works' agent rounds and no two works' CI runs ever overlapped in time, while several works were alive together, their slots taken.
 
 Fact texts-filled-db: The shared formats, the rules, a cell's task and the schema are the same in round after round and session after session, and stored again in each round they made most of the database.
 
