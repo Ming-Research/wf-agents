@@ -180,8 +180,8 @@ const APPROVED: &str = "approved";
 /// The engine's short question to the owner whether the draft of a new policy is approved.
 const APPROVAL: &str = "Approve this policy? Reply exactly: approved";
 
-/// The kinds of point an engineer's question is queued with as its detail; a question of any other kind is an
-/// other_question.
+/// The kinds of point an engineer's question is queued with as its detail; a question of any other kind is a capability
+/// gap ([`CAPABILITY_KINDS`]) or an other_question.
 const QUESTION_KINDS: [&str; 6] = [
     "split",
     "duplicate",
@@ -190,6 +190,21 @@ const QUESTION_KINDS: [&str; 6] = [
     "root_elsewhere",
     "too_costly",
 ];
+
+/// The kind an engineer's question is queued with when its first point is of one of the kinds of point that say the
+/// system lacks what the work needs (the ask kinds of the environment group): a capability gap, a defect of the system
+/// and not of the agent, which its path unblocks first and then takes in as a report.
+const CAPABILITY_GAP: &str = "capability_gap";
+const CAPABILITY_KINDS: [&str; 4] = [
+    "cannot_read",
+    "missing_tool",
+    "missing_credentials",
+    "blocked_by_permission",
+];
+
+/// How many times an observation no item took in yet may be reported before it is work: a merge that makes it
+/// reported this many times or more folds it into an item of the batch, which a change of the batch moves ahead.
+const RECURS: i64 = 3;
 
 /// The cells the engine knows by their names: the look at the queue, the pick, the understanding, the rethink after a
 /// batch, and the review of the batch.
@@ -1008,7 +1023,14 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "fixes_before" => if fixes_found(conn, w.id)? >= 2 { "two" } else { "fewer" }.into(),
         "question" => {
             let d = picked_detail(conn, w.id)?.unwrap_or_default();
-            if QUESTION_KINDS.contains(&d.as_str()) {
+            // A flow version before had no case of its own for a capability gap, which was another question there.
+            let gap = d == CAPABILITY_GAP
+                && g.cells.iter().any(|c| {
+                    c.inenums
+                        .get("question")
+                        .is_some_and(|vs| vs.iter().any(|v| v.0 == CAPABILITY_GAP))
+                });
+            if QUESTION_KINDS.contains(&d.as_str()) || gap {
                 d
             } else {
                 "other_question".into()
@@ -1272,11 +1294,15 @@ fn question_kind(gathered: &[Gathered]) -> (&'static str, String) {
     let parts: Vec<&inputs::Part> = gathered.iter().flat_map(|x| &x.parts).collect();
     if let Some(ask) = parts.iter().find(|p| path_of(p) == "ask" && !empty(&p.value)) {
         let kind = ask.value["points"][0]["kind"].as_str().unwrap_or_default();
-        let detail = QUESTION_KINDS
-            .iter()
-            .find(|k| **k == kind)
-            .copied()
-            .unwrap_or("other_question");
+        let detail = if CAPABILITY_KINDS.contains(&kind) {
+            CAPABILITY_GAP
+        } else {
+            QUESTION_KINDS
+                .iter()
+                .find(|k| **k == kind)
+                .copied()
+                .unwrap_or("other_question")
+        };
         return ("engineer_question", detail.into());
     }
     if parts
@@ -1876,6 +1902,238 @@ fn not_sent(
     Ok(())
 }
 
+// Telling the work that handed a matter in what became of it.
+
+/// What the line to a work about a question calls it.
+const QUESTION: &str = "question";
+
+/// The work told what became of a matter it handed in: the work, what the line calls the matter, the cell it came from
+/// and what it said.
+struct Reporter {
+    work: i64,
+    called: &'static str,
+    cell: String,
+    said: String,
+}
+
+/// The work a matter came from that is told what became of it: for a side report, and for an engineer's question about
+/// a capability gap; none for any other matter (what to do next after a report, an answer, flow feedback, a fault, the
+/// side reports a migration put in one matter, another question), nor when the work no longer runs, since nothing can be
+/// said to a work that ended or is at its end.
+fn reporter(tx: &Transaction<'_>, matter: i64) -> Result<Option<Reporter>, String> {
+    let (kind, detail, work, body): (String, Option<String>, Option<i64>, String) = tx
+        .query_row(
+            "SELECT kind, detail, work, body FROM architect_matters WHERE id = ?1",
+            [matter],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .map_err(sql)?;
+    let Some(work) = work else { return Ok(None) };
+    let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+    let (called, cell, said) = match (kind.as_str(), detail.as_deref()) {
+        ("report", Some("followup" | "answer" | FLOW_FEEDBACK | db::FAULT)) => return Ok(None),
+        ("report", _) if body["report"].is_object() => (
+            "side report",
+            text(&body["cell"]).to_string(),
+            text(&body["report"]["what"]).to_string(),
+        ),
+        ("engineer_question", Some(CAPABILITY_GAP)) => {
+            let cell = crate::blockers::of_matter(tx, matter)?
+                .map(|b| b.cell)
+                .unwrap_or_default();
+            let said = items(body.get("asked"))
+                .iter()
+                .find_map(|a| a["value"]["points"][0]["what"].as_str().map(str::to_string))
+                .unwrap_or_default();
+            (QUESTION, cell, said)
+        }
+        _ => return Ok(None),
+    };
+    let runs = count(
+        tx,
+        &format!(
+            "SELECT count(*) FROM works WHERE id = ?1 AND graph = '{ENGINEER}' AND ended IS NULL AND at NOT IN {}",
+            db::cells_sql(ENGINEER, &[ENGINEER_END])
+        ),
+        &[&work],
+    )? > 0;
+    Ok(runs.then_some(Reporter {
+        work,
+        called,
+        cell,
+        said,
+    }))
+}
+
+/// An item's number, given as a number or as a text of one.
+fn item_number(v: &Value) -> Option<i64> {
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().trim_start_matches('#').parse().ok()))
+}
+
+/// What became of a matter, each part of the line that says it: the observations recorded from it and those its round
+/// reported once more, each with its number, title and how many times it was reported now; the items the changes it
+/// made created, and those they changed, folded observations into or moved, each with its number and title. `outcome`
+/// is what its round handed in, its effects among it.
+fn became(tx: &Transaction<'_>, matter: i64, outcome: &Value) -> Result<Vec<String>, String> {
+    let mut parts = Vec::new();
+    let observation = |id: i64| -> Result<(String, i64), String> {
+        tx.query_row(
+            "SELECT coalesce(title, what), times_reported FROM observations WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|x| format!("observation {id}: {x}"))
+    };
+    let recorded = query_json(
+        tx,
+        "SELECT id FROM observations WHERE source LIKE ?1 ORDER BY id",
+        &[&format!("%(matter {matter})")],
+        ROWS,
+    )?;
+    for id in recorded.iter().filter_map(|r| r["id"].as_i64()) {
+        let (title, _) = observation(id)?;
+        parts.push(format!("recorded as observation #{id} \"{title}\""));
+    }
+    let merged: BTreeSet<i64> = items(outcome["effects"].get("observation_changes"))
+        .iter()
+        .filter(|o| o["kind"] == "merge")
+        .filter_map(|o| o["into"].as_i64())
+        .collect();
+    for id in merged {
+        let (title, times) = observation(id)?;
+        parts.push(format!(
+            "reported once more on observation #{id} \"{title}\", {times} times now"
+        ));
+    }
+    let made = query_json(
+        tx,
+        "SELECT change, outcome FROM architect_item_changes WHERE matter = ?1 AND state = 'made' ORDER BY id",
+        &[&matter],
+        ROWS,
+    )?;
+    let created: BTreeMap<String, i64> = made
+        .iter()
+        .filter(|r| r["change"]["kind"] == "create_item")
+        .filter_map(|r| {
+            Some((
+                text(&r["change"]["key"]).trim().to_string(),
+                r["outcome"]["created"].as_i64()?,
+            ))
+        })
+        .collect();
+    let mut told = BTreeSet::new();
+    for r in &made {
+        let c = &r["change"];
+        let (new, id) = match c["kind"].as_str() {
+            Some("create_item") => (true, r["outcome"]["created"].as_i64()),
+            Some("fold_observations" | "edit_item" | "edit_acceptance" | "move") => (
+                false,
+                item_number(&c["item"]).or_else(|| created.get(text(&c["item"]).trim()).copied()),
+            ),
+            _ => continue,
+        };
+        let Some(id) = id.filter(|id| told.insert(*id)) else {
+            continue;
+        };
+        let title: String = tx
+            .query_row("SELECT title FROM items WHERE id = ?1", [id], |x| x.get(0))
+            .map_err(|x| format!("item {id}: {x}"))?;
+        let new = if new { "new " } else { "" };
+        parts.push(format!("taken into {new}item #{id} \"{title}\""));
+    }
+    Ok(parts)
+}
+
+/// Why nothing was recorded of a side report, as the round that took it in says: the way it took it in and why.
+fn not_recorded(outcome: &Value) -> String {
+    let take = &outcome["take"];
+    let why = db::without_final_terminal(text(&take["why"]).trim());
+    let because = if why.is_empty() {
+        String::new()
+    } else {
+        format!(": {why}")
+    };
+    match text(&take["way"]) {
+        "forwarded" => {
+            let to: Vec<String> = items(outcome["effects"].get("messages"))
+                .iter()
+                .map(|m| text(&m["project"]).to_string())
+                .filter(|p| !p.is_empty())
+                .collect();
+            let to = if to.is_empty() {
+                "another project".to_string()
+            } else {
+                to.join(", ")
+            };
+            format!("forwarded to the architect of {to}{because}")
+        }
+        "need_will_hit" => format!("not recorded, as a need that will certainly come meets it anyway{because}"),
+        "nothing" => format!("nothing to take in{because}"),
+        _ => format!("nothing recorded{because}"),
+    }
+}
+
+/// Tells the work that handed a matter in what became of it, in one line to its engineer that needs no answer and
+/// turns nothing (`informs`), so that it does not report it again: what [`became`] of it; for a side report of which
+/// nothing was recorded, why ([`not_recorded`]); a question's line only when something was recorded, its reply saying
+/// the rest. `outcome` is what the round that handled it handed in.
+fn answer(tx: &Transaction<'_>, matter: i64, outcome: &Value) -> Result<(), String> {
+    let Some(r) = reporter(tx, matter)? else {
+        return Ok(());
+    };
+    let mut parts = became(tx, matter, outcome)?;
+    if parts.is_empty() {
+        if r.called == QUESTION {
+            return Ok(());
+        }
+        parts.push(not_recorded(outcome));
+    }
+    let at = if r.cell.is_empty() {
+        String::new()
+    } else {
+        format!(" at cell {}", r.cell)
+    };
+    let said = db::one_sentence(&r.said);
+    let line = format!(
+        "About your {}{at} (\"{}\"): {}. You need not report it again.",
+        r.called,
+        db::without_final_terminal(&said),
+        parts.join("; ")
+    );
+    tx.execute(
+        "INSERT INTO interjections (work, line, speaker, text, informs) VALUES (?1, 'engineer', 'architect', ?2, 1)",
+        params![r.work, line],
+    )
+    .map_err(sql)?;
+    Ok(())
+}
+
+/// Tells each work that handed in a matter whose line waited for the batch's item changes what became of it, once the
+/// batch is made: the matters handled in the batch that handed in item changes, but those to be answered again, which
+/// are no longer handled (an ask of the owner holds them, or a reply of theirs was not sent).
+fn answer_batch(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
+    let from = batch_start(tx, work)?;
+    let rows = query_json(
+        tx,
+        "SELECT DISTINCT c.matter, json_extract(r.output, '$.outcome') AS outcome
+         FROM architect_item_changes c JOIN architect_matters m ON m.id = c.matter
+         JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
+         WHERE c.work = ?1 AND c.round > ?2 AND m.handled_work = ?1 ORDER BY c.matter",
+        &[&work, &from],
+        10_000,
+    )?;
+    for r in rows {
+        let Some(m) = r["matter"].as_i64() else { continue };
+        let outcome = match &r["outcome"] {
+            Value::String(s) => serde_json::from_str(s).unwrap_or(Value::Null),
+            v => v.clone(),
+        };
+        answer(tx, m, &outcome)?;
+    }
+    Ok(())
+}
+
 /// The review of a batch made its changes or dropped them: its session ends, so that the next batch's review starts
 /// afresh, and the hold to set the project straight is let go once nothing of it is left.
 fn batch_over(tx: &Transaction<'_>, work: i64, project: &str) -> Result<(), String> {
@@ -2069,6 +2327,7 @@ fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
             ),
         )?;
     }
+    answer_batch(tx, w)?;
     batch_over(tx, w, &project)
 }
 
@@ -2417,6 +2676,13 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 }
             }
         }
+        "answer_reporter" => {
+            // The work that handed the matter in is told what became of it at once, or, when the round's item changes
+            // say it, once the batch is made.
+            if !changes_items(ctx) {
+                answer(tx, matter_of(tx, w)?, &ctx.unwrapped)?;
+            }
+        }
         "answer_architect" => {
             let Some(words) = at.and_then(Value::as_str).filter(|s| !s.trim().is_empty()) else {
                 return Ok(true);
@@ -2503,6 +2769,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             let keys = make(tx, &rows, &ctx.projects)?;
             drop_rows(tx, &dropped)?;
             release_held_replies(tx, w, &keys, &BTreeSet::new())?;
+            answer_batch(tx, w)?;
             batch_over(tx, w, &project)?;
         }
         "apply_reviewed" => give_up(ctx, tx)?,
@@ -2639,28 +2906,30 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
     let conn = c.e.db.conn();
     let mut problems = Vec::new();
     let new = items(effects.get("item_changes"));
-    if !new.is_empty() {
-        let mut all: Vec<Value> = collected(conn, c.w.id)?.into_iter().map(|r| r.3).collect();
-        let before = all.len();
-        all.extend(new);
-        if let Err(why) = crate::arch_changes::validate(c.e, project, &all) {
-            problems.extend(why.lines().map(|l| match l.strip_prefix("change ") {
-                Some(rest) => {
-                    let (n, rest) = rest.split_once(' ').unwrap_or((rest, ""));
-                    match n.parse::<usize>() {
-                        Ok(k) if k > before => format!("item change {} {rest}", k - before),
-                        Ok(k) => format!("change {k} the batch collected before, with these: {rest}"),
-                        Err(_) => l.to_string(),
-                    }
+    // The batch's item changes once these are collected.
+    let mut all: Vec<Value> = collected(conn, c.w.id)?.into_iter().map(|r| r.3).collect();
+    let before = all.len();
+    all.extend(new.iter().cloned());
+    if !new.is_empty()
+        && let Err(why) = crate::arch_changes::validate(c.e, project, &all)
+    {
+        problems.extend(why.lines().map(|l| match l.strip_prefix("change ") {
+            Some(rest) => {
+                let (n, rest) = rest.split_once(' ').unwrap_or((rest, ""));
+                match n.parse::<usize>() {
+                    Ok(k) if k > before => format!("item change {} {rest}", k - before),
+                    Ok(k) => format!("change {k} the batch collected before, with these: {rest}"),
+                    Err(_) => l.to_string(),
                 }
-                None => l.to_string(),
-            }));
-        }
+            }
+            None => l.to_string(),
+        }));
     }
     problems.extend(observation_problems(
         c,
         project,
         &items(effects.get("observation_changes")),
+        &all,
     )?);
     for (i, a) in items(effects.get("actions")).iter().enumerate() {
         let n = i + 1;
@@ -2727,11 +2996,20 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
 
 /// What is wrong with changes to a project's observations, as an answer's effects or the revision of a batch hands them
 /// in: a new one that says nothing, has no title or one longer than an item's may be, or carries no tag of the
-/// project's, or one not of them; a merge or a close of an observation the project has no open one of; a close of one
-/// an item takes in, which is folded into that item instead.
-fn observation_problems(c: &checks::Ctx<'_>, project: &str, changes: &[Value]) -> Result<Vec<String>, String> {
+/// project's, or one not of them; a merge or a close of an observation the project has no open one of; a merge that
+/// makes one no item took in yet reported [`RECURS`] times or more, which is work, when the batch's item changes
+/// (`batch`, as they would be with this round's) do not take it in ([`recurring_problem`]); a close of one an item takes
+/// in, which is folded into that item instead.
+fn observation_problems(
+    c: &checks::Ctx<'_>,
+    project: &str,
+    changes: &[Value],
+    batch: &[Value],
+) -> Result<Vec<String>, String> {
     let conn = c.e.db.conn();
     let mut problems = Vec::new();
+    // How many merges into each observation the changes so far make.
+    let mut merges: BTreeMap<i64, i64> = BTreeMap::new();
     let tags: BTreeSet<String> =
         c.e.config
             .config
@@ -2777,6 +3055,19 @@ fn observation_problems(c: &checks::Ctx<'_>, project: &str, changes: &[Value]) -
                     problems.push(format!(
                         "observation change {n}: {id} is no open observation of the project"
                     ));
+                    continue;
+                }
+                let merged = merges.entry(id).or_default();
+                *merged += 1;
+                let (times, folded): (i64, Option<i64>) = conn
+                    .query_row(
+                        "SELECT times_reported, folded_into FROM observations WHERE id = ?1",
+                        [id],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .map_err(sql)?;
+                if folded.is_none() && times + *merged >= RECURS {
+                    problems.extend(recurring_problem(conn, n, id, times + *merged, batch)?);
                 }
             }
             "close" => {
@@ -2798,6 +3089,48 @@ fn observation_problems(c: &checks::Ctx<'_>, project: &str, changes: &[Value]) -
         }
     }
     Ok(problems)
+}
+
+/// What is wrong with the merge of observation change `n`, which makes observation `id` reported `times` times, at
+/// least [`RECURS`], with no item having taken it in yet: a gap that recurs is work, so the batch's item changes fold it
+/// into an item, which one of them moves ahead (anywhere but last) unless a work runs on it already; none when they do.
+fn recurring_problem(
+    conn: &Connection,
+    n: usize,
+    id: i64,
+    times: i64,
+    batch: &[Value],
+) -> Result<Option<String>, String> {
+    let named = |v: &Value| -> String {
+        match v {
+            Value::String(s) => s.trim().trim_start_matches('#').to_string(),
+            other => other.to_string(),
+        }
+    };
+    let fold = batch.iter().find(|c| {
+        c["kind"] == "fold_observations" && items(c.get("observations")).iter().any(|o| item_number(o) == Some(id))
+    });
+    let Some(fold) = fold else {
+        return Ok(Some(format!(
+            "observation change {n}: it makes observation {id} reported {times} times, and an observation reported \
+             {RECURS} times is work: fold it into an item that covers it, or one this round creates, by the item \
+             change fold_observations, and move that item ahead"
+        )));
+    };
+    let item = named(&fold["item"]);
+    let moved = batch
+        .iter()
+        .any(|c| c["kind"] == "move" && named(&c["item"]) == item && c["to"]["place"] != "last");
+    let runs = match item.parse::<i64>() {
+        Ok(i) => running_work(conn, i)?.is_some(),
+        Err(_) => false,
+    };
+    Ok((!moved && !runs).then(|| {
+        format!(
+            "observation change {n}: it makes observation {id} reported {times} times, which is work, and item \
+             {item}, which takes it in, is not moved ahead: move it first, or before or after another item"
+        )
+    }))
 }
 
 /// Whether two places to set straight are the same place: of one kind, and at the same place in words, or about the
@@ -2905,7 +3238,12 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
         }
         "observation_changes_valid" => {
-            let problems = observation_problems(c, project_of(c.w)?, &items(v))?;
+            // The revision's item changes stand for the batch's.
+            let revised: Vec<Value> = items(c.unwrapped.get("changes"))
+                .iter()
+                .map(|x| x["change"].clone())
+                .collect();
+            let problems = observation_problems(c, project_of(c.w)?, &items(v), &revised)?;
             if problems.is_empty() {
                 Ok(())
             } else {

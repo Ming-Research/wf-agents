@@ -2989,9 +2989,10 @@
     },
     "actions": {
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
-      "apply_batch": "Makes every item change of the batch but those the review drops, as the architect, in one transaction, logs each with its reason, and those dropped with why, sends the replies that waited on them, and ends the review's session.",
+      "answer_reporter": "Tells the work that handed in the matter, a side report or a question about a capability gap, in one line to its engineer that needs no answer, what became of it, so that it does not report it again: the observation recorded or reported once more, or the items that took it in, by number and title; for a side report of which nothing was recorded, why. At once, or, when the round's item changes say it, once the batch is made; a question's line only when something was recorded, its reply saying the rest; a work that ended is told nothing.",
+      "apply_batch": "Makes every item change of the batch but those the review drops, as the architect, in one transaction, logs each with its reason, and those dropped with why, sends the replies and the lines to the works that handed matters in that waited on them, and ends the review's session.",
       "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review, a cancel of an item the batch creates cancelling that create out, so that the item is never made and the create, the changes that name its key and the cancel are dropped, saying so; changes to observations, actions and messages to other architects are made at once, and each is logged. A message sent on a matter of flow feedback is marked as flow feedback forwarded, which starts no work of an architect: the architect it goes to takes it in a work that started after it came.",
-      "apply_reviewed": "Makes the item changes the review found sound, leaves out those it drops, drops those it still finds to fix and logs them with what the review found, puts them to the owner in an ask that holds the matters they came from, and ends the review's session.",
+      "apply_reviewed": "Makes the item changes the review found sound, leaves out those it drops, drops those it still finds to fix and logs them with what the review found, puts them to the owner in an ask that holds the matters they came from, sends the replies and the lines to the works that handed in the other matters that waited on them, and ends the review's session.",
       "close_asks": "Answers the work's open asks of the owner: no answer is needed, since the work ended.",
       "close_matter": "Marks the matter picked as handled by this round.",
       "close_pr": "Closes the work's pull request, when it never merged, saying only that its work ended without merging: why is in the owner's language, and a pull request is in English. A work taken over leaves it to the new work.",
@@ -3078,7 +3079,7 @@
       "constitution_covered": "There is exactly one row for each article of the project's constitution, in the constitution's order.",
       "policy_text_clean": "The policy quotes none of the owner's words; it names no cell of the flow, no item and no date the owner said something.",
       "picked_pickable": "The matter picked is one of those that can be picked now.",
-      "effects_valid": "Every change and action holds: an item named is there, or made by an earlier change of the batch; a key is used once in the batch; an item created has its project (this one), title, problem, why, acceptance, level and deliverable; a split gives each acceptance condition to one new item at most; a dependency made is blocking or parallel; after the batch's dependencies and moves there is no cycle; an observation's tags are the project's; an observation merged into or closed is open; a work paused, resumed or interjected into is running; a message goes to another project's architect.",
+      "effects_valid": "Every change and action holds: an item named is there, or made by an earlier change of the batch; a key is used once in the batch; an item created has its project (this one), title, problem, why, acceptance, level and deliverable; a split gives each acceptance condition to one new item at most; a dependency made is blocking or parallel; after the batch's dependencies and moves there is no cycle; an observation's tags are the project's; an observation merged into or closed is open; a merge that makes an observation no item took in yet reported three times or more is folded into an item by a change of the batch, which a change moves ahead, not last, unless that item's work runs; a work paused, resumed or interjected into is running; a message goes to another project's architect.",
       "reply_fits_changes": "The reply names each sub-item and each item to wait for by its number or by the key a change of this round makes it under.",
       "review_covers_changes": "There is exactly one row for each change of the batch, by its number.",
       "changes_valid": "The revised changes hold, as effects_valid checks item changes, and each comes from a matter of this batch.",
@@ -3089,7 +3090,7 @@
       "understanding_written": "The understanding rewrites the notebook's sections on what the project is now and on what is unclear.",
       "plan_written": "The plan rewrites the notebook's plan.",
       "asked_before_writing": "The check of the policy hands in write_policy only once the owner said yes to a new policy: by the reply to the question whether to research one, or by the owner's own words, which asked for the check (queued by `H8`'s new_policy).",
-      "observation_changes_valid": "Each change to the observations holds, as effects_valid checks them: a new one has a title of at most 20 characters, spaces not counted, says what it is and carries the project's tags; one merged into or closed is open; one an item takes in is folded into it, not closed."
+      "observation_changes_valid": "Each change to the observations holds, as effects_valid checks them: a new one has a title of at most 20 characters, spaces not counted, says what it is and carries the project's tags; one merged into or closed is open; one a merge makes reported three times is folded into an item moved ahead, as the revised changes say; one an item takes in is folded into it, not closed."
     },
     "inputs": {
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",
@@ -3457,12 +3458,16 @@
       "answer_architect": [
         "architect_queue"
       ],
+      "answer_reporter": [
+        "interjections"
+      ],
       "apply_batch": [
         "items",
         "item_state",
         "dependencies",
         "batch",
         "architect_queue",
+        "interjections",
         "sessions"
       ],
       "apply_effects": [
@@ -3478,6 +3483,7 @@
         "dependencies",
         "batch",
         "owner_asks",
+        "interjections",
         "sessions"
       ],
       "ask_architect": [
@@ -14641,6 +14647,9 @@
               "too_costly": [
                 "What is asked is a change so large for this work that it is not worth it. The cost is no reason in itself: a design is judged only on itself, and the cost only decides the order. See where the burden lies: in a flaw of the design itself, or in doing it too early. Giving up a goal, or changing how goals are traded against each other, is the owner's: ask the owner."
               ],
+              "capability_gap": [
+                "What is asked is a capability gap: the system lacks what the work needs, a defect of the system and not of the agent. Unblock the work first, by the first way that works: a way around within the rules, said in the reply; what only the owner can give (a credential, a configuration in the data directory), handed to the owner with hand_over; else an item that fixes it, which the work's item depends on, blocking, and the reply's waits name, so that the work waits for it to merge. Then take the gap itself in as a report is: an item that covers it takes it, else an observation, merged into the same one when it is recorded already."
+              ],
               "other_question": [
                 "What is asked is of another kind. First think whether it really must touch other items or the structure; if not, say in the reply whom to ask, and change nothing."
               ]
@@ -14673,6 +14682,10 @@
                 "An engineer finds the change its work needs not worth it"
               ],
               [
+                "capability_gap",
+                "An engineer lacks what the system should give it: a tool, data it cannot read, credentials or a permission"
+              ],
+              [
                 "other_question",
                 "An engineer asks something of another kind"
               ]
@@ -14686,6 +14699,10 @@
             {
               "at": "reply",
               "do": "reply_to_engineer"
+            },
+            {
+              "at": "effects",
+              "do": "answer_reporter"
             },
             {
               "at": "notebook",
@@ -15044,7 +15061,7 @@
             }
           ],
           "prompt": [
-            "This round takes the report in, in this order. Can an existing item take it, because it covers it or needs it: fold it in, widening the item's scope or adding to its acceptance; if it is urgent and that item will not come soon enough, move the item up, or split the urgent part out. If no item takes it and it is urgent (it blocks a running work, harms main, touches security or data), make a new item now. Otherwise it is an observation: search for the same one first and merge into it, as reported once more; if some need that will certainly come will hit it anyway, record nothing and name that need; else record a new one with tags from the set.",
+            "This round takes the report in, in this order. Can an existing item take it, because it covers it or needs it: fold it in, widening the item's scope or adding to its acceptance; if it is urgent and that item will not come soon enough, move the item up, or split the urgent part out. If no item takes it and it is urgent (it blocks a running work, harms main, touches security or data), make a new item now. Otherwise it is an observation: search for the same one first and merge into it, as reported once more; if some need that will certainly come will hit it anyway, record nothing and name that need; else record a new one with tags from the set. A merge that makes an observation reported three times makes it work: fold it into an item that covers it, or a new one, and move that item ahead.",
             "Close the outdated observations you meet on the way, saying why. Do it all in effects."
           ],
           "out": [
@@ -15179,6 +15196,10 @@
             {
               "at": "effects",
               "do": "apply_effects"
+            },
+            {
+              "at": "take",
+              "do": "answer_reporter"
             },
             {
               "at": "notebook",

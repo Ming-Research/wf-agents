@@ -4231,6 +4231,484 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Capability reports: an agent says the system lacks what its work needs, a defect of the system and not of the agent.
+
+/// A first round of the item's work that asks the architect about a capability gap of the given kind, saying what.
+fn asks_about_a_gap(kind: &'static str, what: &'static str) -> Script {
+    Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), Vec::new());
+        }
+        (
+            vec![
+                ("outcome", "ask"),
+                ("outcome.ask", "architect"),
+                ("outcome.ask.points[].kind", kind),
+            ],
+            vec![
+                ("outcome.ask.points[].what", json!(what)),
+                ("outcome.ask.points[].tried", json!("Ran it: the shell found nothing.")),
+            ],
+        )
+    })
+}
+
+/// How the latest round of a work at its question to the architect (`A2`) ended, by the row it took; none while open.
+fn question_took(e: &Engine, work: i64) -> Option<String> {
+    e.db.conn()
+        .query_row(
+            "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'A2' ORDER BY n DESC LIMIT 1",
+            [work],
+            |r| r.get(0),
+        )
+        .ok()
+        .flatten()
+}
+
+/// The lines the architect told a work's engineer, which need no answer (`informs`), in order.
+fn lines_told(e: &Engine, work: i64) -> Vec<String> {
+    engine::query_json(
+        e.db.conn(),
+        "SELECT text FROM interjections WHERE work = ?1 AND speaker = 'architect' AND informs = 1 ORDER BY id",
+        &[&work],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["text"].as_str().unwrap().to_string())
+    .collect()
+}
+
+/// The engine of a test whose item's work asks the architect about a capability gap at its first round, with the
+/// architect's ways (`H3`) and any other cell scripted as given, run until the work of the architect it started ended
+/// and the work's question took its row: the engine, what it said, the item, its work and the architect's work.
+fn a_gap_asked(
+    s: &Setup,
+    ask: Script,
+    scripted: Vec<(&'static str, Script)>,
+) -> (Engine, Rc<RefCell<Vec<String>>>, i64, i64, i64) {
+    let mut agents = scripts();
+    agents.insert("R1", ask);
+    for (cell, script) in scripted {
+        agents.insert(cell, script);
+    }
+    let (mut e, said, item) = start(s, agents);
+    let asked = |e: &mut Engine| -> bool {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work WHERE w.item = ?1 AND r.cell = 'A2'",
+                [item],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap()
+            > 0
+    };
+    assert!(steps_until(&mut e, 10, asked), "{}", said.borrow().join("\n"));
+    let work = state(&e, item).unwrap().0;
+    let arch = e.step(None).unwrap().work.unwrap();
+    let done = steps_until(&mut e, 80, |e| {
+        architect_work_done(e, arch) && question_took(e, work).is_some()
+    });
+    assert!(done, "{}", said.borrow().join("\n"));
+    (e, said, item, work, arch)
+}
+
+// An engineer that finds the system lacks what its work needs, a tool that is not on the machine, asks its architect:
+// the question is a capability gap, which the ways weigh by their case of it, unblocking the work first; here by a way
+// around within the rules, said in the reply, which takes the work on at once, the gap itself recorded as an
+// observation in the same round. The work is told in one line to its engineer, which needs no answer, what became of
+// the gap, the observation by its number and title, so that it does not report it again.
+#[test]
+fn a_capability_gap_is_unblocked_by_a_way_around_and_its_work_told_what_became_of_it() {
+    let s = setup("gap-around");
+    let ways: Script = Box::new(|_: &Request, _: usize| {
+        let new = json!({ "kind": "new", "title": "No jq on the machine", "what": "The machine has no jq.",
+                          "tags": [], "source": "A work's question.", "refs": [], "reason": "Worth keeping." });
+        (
+            Vec::new(),
+            vec![
+                (
+                    "outcome.reply",
+                    json!({ "text": "Use `python3 -m json.tool` instead.", "why": "It is on the machine." }),
+                ),
+                ("outcome.effects", json!({ "observation_changes": [new] })),
+            ],
+        )
+    });
+    let ask = asks_about_a_gap("missing_tool", "The `jq` command is not on the machine.");
+    let (e, said, _, work, arch) = a_gap_asked(&s, ask, vec![("H3", ways)]);
+    let log = said.borrow().join("\n");
+    let detail: String =
+        e.db.conn()
+            .query_row(
+                "SELECT detail FROM architect_matters WHERE kind = 'engineer_question'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(detail, "capability_gap", "{log}");
+    let ways = message_at(&e, arch, "H3", false);
+    assert!(ways.contains("What is asked is a capability gap"), "{ways}");
+    assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
+    let id: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT id FROM observations WHERE title = 'No jq on the machine'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let told = lines_told(&e, work);
+    assert_eq!(told.len(), 1, "{told:?}\n{log}");
+    assert!(
+        told[0].starts_with("About your question at cell R1 (\"The `jq` command is not on the machine\"): ")
+            && told[0].ends_with(&format!(
+                ": recorded as observation #{id} \"No jq on the machine\". You need not report it again."
+            )),
+        "{told:?}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A capability gap only the owner can fill, a credential the data directory lacks, is handed to the owner with the
+// reply's hand_over, which pins it in the work's group for the owner's reply: the work waits there for the owner. The
+// ways recorded nothing, so the work is told nothing beside the hand-over.
+#[test]
+fn a_capability_gap_only_the_owner_can_fill_is_pinned_for_the_owner() {
+    let s = setup("gap-owner");
+    let ways: Script = Box::new(|_: &Request, _: usize| {
+        let reply = json!({
+            "text": "The registry's token is not in the data directory: only the owner can put it there.",
+            "why": "A credential is the owner's to give.",
+            "hand_over": { "to": "owner", "why": "Only the owner can give the credential." },
+        });
+        (Vec::new(), vec![("outcome.reply", reply)])
+    });
+    let ask = asks_about_a_gap("missing_credentials", "There is no token to read the registry with.");
+    let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H3", ways)]);
+    let log = said.borrow().join("\n");
+    assert_eq!(question_took(&e, work).as_deref(), Some("to_owner"), "{log}");
+    let pinned = |e: &Engine| -> Option<i64> {
+        e.db.conn()
+            .query_row(
+                "SELECT id FROM owner_asks WHERE work = ?1 AND answer IS NULL",
+                [work],
+                |r| r.get(0),
+            )
+            .ok()
+    };
+    assert!(steps_until(&mut e, 10, |e| pinned(e).is_some()), "{log}");
+    assert_eq!(state(&e, item).unwrap().1, "A3", "{log}");
+    let (holder, ask): (String, Option<i64>) =
+        e.db.conn()
+            .query_row(
+                "SELECT holder, ask FROM blockers WHERE work = ?1 AND ended IS NULL",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!((holder.as_str(), ask), ("owner", pinned(&e)), "{log}");
+    assert_eq!(lines_told(&e, work), Vec::<String>::new());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A capability gap with no way around that the owner need not fill is fixed by an item: the ways create it, have the
+// work's item depend on it, blocking, and name it in the reply's waits. Once the review of the batch lets it be made,
+// the reply goes with the item's number, the work stops to wait for it to merge, and the work is told the gap was taken
+// into that item.
+#[test]
+fn a_capability_gap_with_no_way_around_has_its_work_wait_for_the_item_that_fixes_it() {
+    let s = setup("gap-fix");
+    let ways: Script = Box::new(|_: &Request, _: usize| {
+        let changes = json!([
+            { "kind": "create_item", "key": "add-jq", "project": "p", "title": "Install jq",
+              "problem": "There is no jq on the machine.", "why": "Works need it.", "acceptance": ["jq runs."],
+              "level": "l", "deliver": "change", "reason": "The gap has no way around." },
+            { "kind": "add_dependency", "item": "1", "on": "add-jq", "dependency": "blocking",
+              "reason": "The work cannot go on without jq." },
+        ]);
+        let reply = json!({
+            "text": "Wait for the item that installs jq.", "why": "There is no way around it.",
+            "waits": [{ "key": "add-jq", "title": "Install jq", "delivers": "jq on the machine" }],
+        });
+        (
+            Vec::new(),
+            vec![
+                ("outcome.reply", reply),
+                ("outcome.effects", json!({ "item_changes": changes })),
+            ],
+        )
+    });
+    let review: Script = Box::new(|_: &Request, _: usize| {
+        let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
+        (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2)]))])
+    });
+    let way_on: Script = Box::new(|_: &Request, _: usize| (vec![("outcome.next", "wait_for_items")], Vec::new()));
+    let ask = asks_about_a_gap("missing_tool", "The `jq` command is not on the machine.");
+    let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H3", ways), ("B2", review), ("A4", way_on)]);
+    assert_eq!(item, 1);
+    let log = said.borrow().join("\n");
+    assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
+    let fix: i64 =
+        e.db.conn()
+            .query_row("SELECT id FROM items WHERE title = 'Install jq'", [], |r| r.get(0))
+            .unwrap();
+    let waits: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(output, '$.reply.waits[0].key') FROM rounds
+                 WHERE work = ?1 AND cell = 'A2' AND transition IS NOT NULL",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(waits, fix.to_string(), "{log}");
+    assert!(steps_until(&mut e, 20, |e| state(e, item).is_some_and(|w| w.1 == "A6")));
+    let kind: String =
+        e.db.conn()
+            .query_row(
+                "SELECT kind FROM item_links WHERE item = ?1 AND depends_on = ?2",
+                params![item, fix],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(kind, "blocking", "{log}");
+    let told = lines_told(&e, work);
+    assert_eq!(told.len(), 1, "{told:?}\n{log}");
+    assert!(
+        told[0].ends_with(&format!(
+            ": taken into new item #{fix} \"Install jq\". You need not report it again."
+        )),
+        "{told:?}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A side report that the system lacks something is taken in, and the work that handed it in is told what became of it
+// in one line to its engineer: in the work's group, as the architect's word to the engineer, and given to the
+// engineer's next round, which needs to answer nothing.
+#[test]
+fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
+    let s = setup("side-report-answered");
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            let reports = if n == 1 {
+                json!([{ "kind": "other", "what": "There is no `jq` on the machine.", "urgent": false }])
+            } else {
+                json!([])
+            };
+            (Vec::new(), vec![("side_reports", reports)])
+        }),
+    );
+    agents.insert(
+        "H5",
+        Box::new(|_: &Request, _: usize| {
+            let new = json!({ "kind": "new", "title": "No jq on the machine", "what": "The machine has no jq.",
+                              "tags": [], "source": "A side report.", "refs": [], "reason": "Worth keeping." });
+            (
+                Vec::new(),
+                vec![
+                    (
+                        "outcome.take",
+                        json!({ "way": "new_observation", "why": "No item does it." }),
+                    ),
+                    ("outcome.effects", json!({ "observation_changes": [new] })),
+                ],
+            )
+        }),
+    );
+    let (mut e, said, _) = start(&s, agents);
+    let work = e.step(None).unwrap().work;
+    e.step(work).unwrap();
+    let work = work.unwrap();
+    // The work stays where it is while the architect takes the report in.
+    pause_by_owner(&mut e, work, "Held while the architect looks.");
+    let arch = e.step(Some(work)).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let id: i64 =
+        e.db.conn()
+            .query_row("SELECT id FROM observations", [], |r| r.get(0))
+            .unwrap();
+    let line = format!(
+        "About your side report at cell R1 (\"There is no `jq` on the machine\"): recorded as observation #{id} \
+         \"No jq on the machine\". You need not report it again."
+    );
+    assert_eq!(lines_told(&e, work), std::slice::from_ref(&line), "{log}");
+    let group: Vec<(String, String, String)> = engine::query_json(
+        e.db.conn(),
+        "SELECT sender, recipient, text FROM conversation_entries WHERE conversation = 'work:' || ?1
+           AND source = 'interjection'",
+        &[&work],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| {
+        let t = |k: &str| r[k].as_str().unwrap().to_string();
+        (t("sender"), t("recipient"), t("text"))
+    })
+    .collect();
+    assert_eq!(group, [("architect".into(), "engineer".into(), line)], "{log}");
+    let_go_on(&mut e, work);
+    let delivered = |e: &Engine| -> Option<i64> {
+        e.db.conn()
+            .query_row(
+                "SELECT delivered_round FROM interjections WHERE work = ?1 AND speaker = 'architect'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert!(steps_until(&mut e, 20, |e| delivered(e).is_some()), "{log}");
+    let input: String =
+        e.db.conn()
+            .query_row(
+                "SELECT input FROM rounds WHERE work = ?1 AND n = ?2",
+                params![work, delivered(&e).unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let given = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap()).to_string();
+    assert!(
+        given.contains("From the architect: About your side report at cell R1"),
+        "{given}"
+    );
+    // A word that needs no answer turns nothing: the work is not taken to choose its way on.
+    assert!(!path_of(&e, work).contains(&"A4".to_string()), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A gap reported a third time is work: a merge that makes an observation no item took in yet reported three times is
+// sent back while no change of the batch folds it into an item, and again while that item is not moved ahead; handed in
+// folded into a new item moved first, it is taken, and once the batch is made the observation is the item's, the item
+// starts first, and the work that reported it is told it was reported again and taken into that item.
+#[test]
+fn a_gap_reported_a_third_time_is_taken_into_an_item_moved_ahead() {
+    let s = setup("gap-recurs");
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            let reports = if n == 1 {
+                json!([{ "kind": "other", "what": "There is no `jq` on the machine.", "urgent": false }])
+            } else {
+                json!([])
+            };
+            (Vec::new(), vec![("side_reports", reports)])
+        }),
+    );
+    agents.insert(
+        "H5",
+        Box::new(|_: &Request, n: usize| {
+            let merge = json!({ "kind": "merge", "into": 1, "seen": "", "refs": [], "reason": "The same gap." });
+            let mut changes = vec![
+                json!({ "kind": "create_item", "key": "jq", "project": "p", "title": "Install jq",
+                        "problem": "There is no jq on the machine.", "why": "Works keep meeting it.",
+                        "acceptance": ["jq runs."], "level": "l", "deliver": "change", "reason": "It recurs." }),
+                json!({ "kind": "fold_observations", "item": "jq", "observations": [1], "reason": "It is the gap." }),
+            ];
+            if n > 2 {
+                changes
+                    .push(json!({ "kind": "move", "item": "jq", "to": { "place": "first" }, "reason": "It recurs." }));
+            }
+            let effects = if n == 1 {
+                json!({ "observation_changes": [merge] })
+            } else {
+                json!({ "observation_changes": [merge], "item_changes": changes })
+            };
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.take", json!({ "way": "merged", "why": "Reported before." })),
+                    ("outcome.effects", effects),
+                ],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
+            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2), ok(3)]))])
+        }),
+    );
+    let (mut e, said, _) = start(&s, agents);
+    e.db.write(Actor::Architect, |tx| {
+        tx.execute(
+            "INSERT INTO observations (project, title, what, source, times_reported)
+             VALUES ('p', 'No jq', 'The machine has no jq.', 'Two works.', 2)",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let work = e.step(None).unwrap().work;
+    e.step(work).unwrap();
+    let work = work.unwrap();
+    pause_by_owner(&mut e, work, "Held while the architect looks.");
+    let arch = e.step(Some(work)).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.borrow().join("\n")
+    );
+    let log = said.borrow().join("\n");
+    let rejected: Vec<String> = engine::query_json(
+        e.db.conn(),
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H5' AND rejected IS NOT NULL ORDER BY n",
+        &[&arch],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["rejected"].to_string())
+    .collect();
+    assert_eq!(rejected.len(), 2, "{rejected:?}\n{log}");
+    assert!(
+        rejected[0].contains("it makes observation 1 reported 3 times, and an observation reported 3 times is work"),
+        "{rejected:?}"
+    );
+    assert!(
+        rejected[1].contains("item jq, which takes it in, is not moved ahead"),
+        "{rejected:?}"
+    );
+    let fix: i64 =
+        e.db.conn()
+            .query_row("SELECT id FROM items WHERE title = 'Install jq'", [], |r| r.get(0))
+            .unwrap();
+    let (times, folded): (i64, Option<i64>) =
+        e.db.conn()
+            .query_row(
+                "SELECT times_reported, folded_into FROM observations WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!((times, folded), (3, Some(fix)), "{log}");
+    let rank: Option<i64> =
+        e.db.conn()
+            .query_row("SELECT rank FROM items WHERE id = ?1", [fix], |r| r.get(0))
+            .unwrap();
+    assert_eq!(rank, Some(1), "{log}");
+    assert_eq!(
+        lines_told(&e, work),
+        [format!(
+            "About your side report at cell R1 (\"There is no `jq` on the machine\"): reported once more on \
+             observation #1 \"No jq\", 3 times now; taken into new item #{fix} \"Install jq\". You need not report \
+             it again."
+        )],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The review of a batch finds an item change to fix: the revision hands in the whole set again, the review looks at it
 // again, and the revised change is made; what was handed in first is kept as revised, not made. The revision closes an
 // observation the review found done already, at once, as an answer's effects would: in the sixth trial it could hand in

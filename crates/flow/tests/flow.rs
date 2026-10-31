@@ -418,6 +418,56 @@ fn what_was_said_in_the_groups_is_a_matter_of_its_own() {
     }
 }
 
+// A capability report, an agent saying the system lacks what its work needs, is a defect of the system: an engineer's
+// question about such a gap has a case of its own in the ways (`capability_gap`), which unblocks the work first, by a
+// way around within the rules, by the owner for what only the owner can give, or by an item that fixes it, which the
+// work waits for, and then takes the gap in as a report is taken in. The work that handed in a side report or such a
+// question is told what became of it (`answer_reporter`), after the round's effects are made; and an observation a merge
+// makes reported three times is work, which the taking in says and the check of the effects holds.
+#[test]
+fn a_capability_report_unblocks_first_is_answered_and_is_work_once_it_recurs() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    let ways = g.cell("H3").unwrap();
+    assert!(ways.inenums["question"].iter().any(|v| v.0 == "capability_gap"));
+    let gap = &ways.prompt_by.as_ref().unwrap().cases["capability_gap"];
+    for way in [
+        "a way around within the rules",
+        "handed to the owner with hand_over",
+        "which the work's item depends on, blocking, and the reply's waits name",
+        "Then take the gap itself in as a report is",
+    ] {
+        assert!(gap.iter().any(|t| t.contains(way)), "{way}");
+    }
+    for (cell, at) in [("H3", "effects"), ("H5", "take")] {
+        let always: Vec<(String, String)> = g
+            .cell(cell)
+            .unwrap()
+            .always
+            .iter()
+            .filter_map(|a| Some((a.action.clone()?, a.at.clone())))
+            .collect();
+        let answer = always.iter().position(|a| a.0 == "answer_reporter").expect(cell);
+        let effects = always.iter().position(|a| a.0 == "apply_effects").expect(cell);
+        assert!(effects < answer, "{cell}");
+        assert_eq!(always[answer].1, at, "{cell}");
+    }
+    let take = g.cell("H5").unwrap();
+    assert!(
+        take.prompt
+            .iter()
+            .any(|t| t.contains("A merge that makes an observation reported three times makes it work"))
+    );
+    assert!(take.checks.iter().any(|k| k.check == "effects_valid"));
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    assert!(
+        v["engine"]["checks"]["effects_valid"]
+            .as_str()
+            .unwrap()
+            .contains("reported three times or more is folded into an item by a change of the batch")
+    );
+}
+
 // A matter that comes again and again is not queued while the facts it would carry are those of the last one the
 // architect handled, since it would only come to the same end, as the flow says of each: slots free, while the free
 // slots and the items ready are the same; what was said in the groups, the owner's words and what the engineers told
