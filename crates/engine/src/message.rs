@@ -995,7 +995,6 @@ mod tests {
             "\"query\"",
             "\"advisor\"",
             "\"architect\"",
-            "\"owner\"",
         ] {
             assert!(common.contains(t), "{t}");
         }
@@ -1020,12 +1019,9 @@ mod tests {
             implement.contains("`tools` (of ci, ci_before, measure, gh, query)"),
             "{implement}"
         );
-        assert!(
-            implement.contains("`ask` (to advisor, architect, owner)"),
-            "{implement}"
-        );
+        assert!(implement.contains("`ask` (to advisor, architect)"), "{implement}");
         let advisor = cell_format(&g, g.cell("A1").unwrap(), &[]);
-        assert!(advisor.contains("`ask` (to architect, owner)"), "{advisor}");
+        assert!(advisor.contains("`ask` (to architect)"), "{advisor}");
         assert!(!advisor.contains("`redirect`"), "{advisor}");
     }
 

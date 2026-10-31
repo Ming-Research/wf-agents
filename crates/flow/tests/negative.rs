@@ -240,7 +240,7 @@ case!(
     a_cell_that_is_asked_and_does_not_answer,
     "a cell that is asked does not answer",
     |v| {
-        for r in rows(v, "A3") {
+        for r in rows(v, "A1") {
             r["to"] = json!("A4");
         }
     }
