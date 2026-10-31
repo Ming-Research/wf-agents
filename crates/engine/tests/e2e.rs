@@ -8159,7 +8159,7 @@ fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done
         json!({ "by": "owner", "why": "later" }),
         "{board}"
     );
-    assert_eq!(row(asking).get("waits"), None, "{board}");
+    assert_eq!(row(asking)["waits"], "the architect's reply to its question", "{board}");
     assert_eq!(row(tools)["stage"], "implement", "{board}");
     assert_eq!(board["owner_start_queue"], json!([format!("#{stopped}")]), "{board}");
     assert_eq!(row(stopped)["in_owner_queue"], 1, "{board}");
@@ -10031,31 +10031,28 @@ fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
     })
     .unwrap();
     let mut after = None;
-    // Meanwhile the engine names it, for the owner's page, as waiting for a free slot.
+    // While the second holds the one slot the first stays where it waited, and the engine names it, for the owner's
+    // page, as waiting for a free slot; the second's question is taken off the queue as it comes.
     let mut named = false;
     for _ in 0..20 {
-        if held(&mut e, second).is_some() && state(&e, second).is_some_and(|x| x.1 == "A2") {
+        if state(&e, first).is_some_and(|x| x.1 != "A2") {
             break;
         }
-        after = e.step(after).unwrap().work;
         let log = said.borrow().join("\n");
         assert!(e.free_slots().unwrap() >= 0, "{log}");
-        assert_eq!(state(&e, first).map(|x| x.1).as_deref(), Some("A2"), "{log}");
         let waiting = e.waiting_for_slot().unwrap();
         assert!(waiting.iter().all(|&w| w == a), "{waiting:?}\n{log}");
         named |= waiting == [a];
+        after = e.step(after).unwrap().work;
+        held(&mut e, second);
     }
     let log = said.borrow().join("\n");
     assert!(named, "{log}");
-    assert_eq!(state(&e, second).map(|x| x.1).as_deref(), Some("A2"), "{log}");
-    // The slot the second left is free: the first waits for none, and is named so no more.
-    assert_eq!(e.waiting_for_slot().unwrap(), Vec::<i64>::new(), "{log}");
-    // The second work goes to ask the architect in turn, holding no slot: the first goes on in the slot it left, to
-    // choose the way on with the reply, before a work starts on the third item.
-    let next = e.step(after).unwrap();
-    let log = said.borrow().join("\n");
-    assert_eq!(next.work, Some(a), "{log}");
+    // The first went on only once the second asked the architect in turn, holding no slot, and went on in the slot the
+    // second left, to choose the way on with the reply, before a work started on the third item.
     assert_eq!(state(&e, first).map(|x| x.1).as_deref(), Some("A4"), "{log}");
+    assert_eq!(state(&e, second).map(|x| x.1).as_deref(), Some("A2"), "{log}");
+    assert_eq!(e.waiting_for_slot().unwrap(), Vec::<i64>::new(), "{log}");
     assert_eq!(state(&e, third), None, "{log}");
     assert_eq!(e.free_slots().unwrap(), 0, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);

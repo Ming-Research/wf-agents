@@ -820,19 +820,31 @@ function PausedByArchitect({ w }: { w: WorkSummary }) {
   const a = useActions(w, status, true);
   if (a.c.held !== 'architect') return null;
   return (
+    <PauseBand why={w.paused ?? ''} onStart={a.start} disabled={a.busy || !a.can.start} error={a.error} />
+  );
+}
+
+/// The band of the architect's pause as it is drawn: why, and Start, with what failed when Start did.
+export function PauseBand({ why, onStart, disabled, error }: {
+  why: string;
+  onStart: () => void;
+  disabled: boolean;
+  error: string | null;
+}) {
+  return (
     <Pins at="top">
-      <p className="talk-pinned-pause">{t('work_paused_for_you', { why: w.paused ?? '' })}</p>
+      <p className="talk-pinned-pause">{t('work_paused_for_you', { why })}</p>
       <div className="talk-answer-buttons">
         <Button
           size="small"
           variant="primary"
           title={t('work_start_architect_hint')}
-          disabled={a.busy || !a.can.start}
-          onClick={a.start}
+          disabled={disabled}
+          onClick={onStart}
         >
           {t('work_start')}
         </Button>
-        {a.error !== null ? <span className="bad">{t('request_failed', { error: a.error })}</span> : null}
+        {error !== null ? <span className="bad">{t('request_failed', { error })}</span> : null}
       </div>
     </Pins>
   );

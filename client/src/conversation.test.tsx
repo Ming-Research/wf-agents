@@ -47,7 +47,16 @@ import { ordinal, time } from './format';
 import { admit, IMAGE_MOST_BYTES, imagesSent, pastedFiles, type PendingImage, saysSomething } from './images';
 import { Bubble } from './pages/Bubble';
 import { AskView, DesignCardView } from './pages/Decide';
-import { ArchitectPause, Composer, Pinned, Questions, type Reply, Stream, workMark } from './pages/Messages';
+import {
+  ArchitectPause,
+  Composer,
+  PauseBand,
+  Pinned,
+  Questions,
+  type Reply,
+  Stream,
+  workMark,
+} from './pages/Messages';
 import { SayBox } from './parts';
 import messagesCss from './styles/messages.css?raw';
 import { t } from './text';
@@ -1300,7 +1309,9 @@ describe("the architect's pause of a work in its group", () => {
     open_design_cards: 0,
   });
   it('is pinned with why and Start while it holds the work', () => {
-    const html = renderToStaticMarkup(<ArchitectPause w={paused('architect')} />);
+    const html = renderToStaticMarkup(
+      <PauseBand why="Put the registry token in the data directory" onStart={() => {}} disabled={false} error={null} />,
+    );
     expect(html).toContain('talk-pins talk-pins-top');
     expect(html).toContain('Put the registry token in the data directory');
     expect(html).toContain(`>${t('work_start')}<`);
