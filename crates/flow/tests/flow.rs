@@ -497,6 +497,76 @@ fn an_ask_carries_no_kind() {
     assert!(ways.prompt_by.is_none() && ways.inenums.is_empty());
 }
 
+// What only the owner can settle reaches the owner through the architect, never as an engineer's ask of the owner: the
+// engineer's graph has no owner's cell (`A3`), no row leads there, no cell holds a blocker for the owner but `M1`'s
+// ruling, and the architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on only to a
+// related project's architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the architect
+// at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's on the work's design card, and an
+// action only the owner can do to the owner by pausing the work.
+#[test]
+fn what_only_the_owner_can_settle_goes_through_the_architect() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    assert!(g.cell("A3").is_none());
+    assert!(g.cells.iter().all(|c| c.rows.iter().all(|r| r.to != "A3")));
+    let held: Vec<&str> = g
+        .blockers
+        .as_ref()
+        .unwrap()
+        .cells
+        .iter()
+        .filter(|b| b.holders.iter().any(|h| h == "owner"))
+        .map(|b| b.cell.as_str())
+        .collect();
+    assert_eq!(held, ["M1"]);
+    let asking = g.cell("A2").unwrap();
+    assert!(asking.rows.iter().all(|r| r.name != "to_owner"));
+    assert!(asking.inputs.iter().any(|x| x.name.as_deref() == Some("Flow anomaly")));
+    let way_on = g.cell("A4").unwrap();
+    for name in [
+        "redesign_in_research",
+        "carry_on_unfit",
+        "should_wait",
+        "nothing_to_wait_for",
+        "all_split_but_changed",
+    ] {
+        let r = way_on.rows.iter().find(|r| r.name == name).unwrap();
+        assert_eq!(r.to, "A2", "{name}");
+        assert!(r.actions.iter().any(|d| d.name() == "raise_blocker"), "{name}");
+    }
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let hand_over = v["shapes"]["architect_reply"]["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "hand_over")
+        .unwrap();
+    let to = hand_over["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "to")
+        .unwrap();
+    let whom: Vec<&str> = to["values"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|x| x[0].as_str())
+        .collect();
+    assert_eq!(whom, ["architect"]);
+    let ways = c.graph("architect").unwrap().cell("H3").unwrap();
+    assert!(
+        ways.prompt
+            .iter()
+            .any(|t| t.contains("put on its design card as a decision"))
+    );
+    assert!(
+        ways.prompt
+            .iter()
+            .any(|t| t.contains("pause the work in effects, saying what the owner must do"))
+    );
+}
+
 // A matter that comes again and again is not queued while the facts it would carry are those of the last one the
 // architect handled, since it would only come to the same end, as the flow says of each: slots free, while the free
 // slots and the items ready are the same; what was said in the groups, the owner's words and what the engineers told
@@ -916,7 +986,7 @@ fn every_sample_takes_its_row() {
             n += 1;
         }
     }
-    assert_eq!(n, 33);
+    assert_eq!(n, 32);
 }
 
 // A return with its form outside the field it sits in fits no schema; a recorded value changes the row taken.

@@ -337,6 +337,23 @@ case!(
     }
 );
 case!(
+    a_way_on_that_still_hands_a_flow_anomaly_to_the_owner,
+    "no such cell: A4 should_wait A3",
+    |v| {
+        row(v, "A4", "should_wait")["to"] = json!("A3");
+    }
+);
+case!(
+    a_blocker_the_owner_holds_at_a_cell_the_graph_lost,
+    "a blocker is held at no such cell: A3",
+    |v| {
+        graph(v)["blockers"]["cells"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "cell": "A3", "holders": ["owner"] }));
+    }
+);
+case!(
     a_gate_that_names_a_kind,
     "an ask carries no kind, and gate D8 names one",
     |v| {

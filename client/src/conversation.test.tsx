@@ -47,7 +47,7 @@ import { ordinal, time } from './format';
 import { admit, IMAGE_MOST_BYTES, imagesSent, pastedFiles, type PendingImage, saysSomething } from './images';
 import { Bubble } from './pages/Bubble';
 import { AskView, DesignCardView } from './pages/Decide';
-import { Composer, Pinned, Questions, type Reply, Stream, workMark } from './pages/Messages';
+import { ArchitectPause, Composer, Pinned, Questions, type Reply, Stream, workMark } from './pages/Messages';
 import { SayBox } from './parts';
 import messagesCss from './styles/messages.css?raw';
 import { t } from './text';
@@ -1265,6 +1265,47 @@ describe('a design card and an ask, where they stand said by the chip and the fa
     expect(closedHead).toContain('answered by the engine');
     expect(closedBody).toContain('<p>No answer is needed: the work ended (cancelled).</p>');
     expect(closedBody).not.toContain('class="sheet"');
+  });
+});
+
+// What only the owner can do, the architect puts to the owner by pausing the work, saying why: the work's group pins
+// the pause in the band at its top while it holds the work, with why and Start; a work paused otherwise pins nothing.
+describe("the architect's pause of a work in its group", () => {
+  const paused = (paused_by: WorkSummary['paused_by']): WorkSummary => ({
+    id: 5,
+    item: 3,
+    title: 'Read the registry',
+    project: 'p',
+    graph: 'engineer',
+    flow_version: 2,
+    moved_from: null,
+    at: 'A2',
+    at_title: 'To the architect',
+    stage: null,
+    state: 'paused',
+    paused: 'Put the registry token in the data directory',
+    paused_by,
+    ended: null,
+    waits: null,
+    branch: null,
+    pr: null,
+    started_at: 0,
+    last_at: 50,
+    rounds: 3,
+    sent_back: 0,
+    failed: 0,
+    running: null,
+    cost_usd: 0,
+    open_asks: 0,
+    open_design_cards: 0,
+  });
+  it('is pinned with why and Start while it holds the work', () => {
+    const html = renderToStaticMarkup(<ArchitectPause w={paused('architect')} />);
+    expect(html).toContain('talk-pins talk-pins-top');
+    expect(html).toContain('Put the registry token in the data directory');
+    expect(html).toContain(`>${t('work_start')}<`);
+    expect(renderToStaticMarkup(<ArchitectPause w={paused('owner')} />)).toBe('');
+    expect(renderToStaticMarkup(<ArchitectPause w={null} />)).toBe('');
   });
 });
 

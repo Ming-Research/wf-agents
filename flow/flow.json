@@ -1113,7 +1113,7 @@
       "title": "Ask",
       "type": "union",
       "by": "to",
-      "desc": "Something to ask someone else, waiting for their reply. Ask, and never decide it yourself or work around it, when the architecture has a flaw this work cannot get around; the work is above your level; a specified behaviour, a safety guarantee, an interface between projects, the work's direction, approach, acceptance or split must be decided, or no approach can be chosen; a fact that would change the direction is unchecked; the work does not stand, duplicates another or is not worth its cost; another item or project must deliver first, or a defect or a root outside the work blocks it; a merge conflict cannot be resolved; the system lacks what the work needs (a tool, data, credentials, a permission); or a field you are asked to return cannot sensibly be filled, never forcing a value into it. What only the owner can do (a step that cannot be undone, publishing or sending outside, live data, another machine, a permission, accepting a slowdown) you ask the architect too, who hands it on. Hand it in too when you cannot answer this round's question, or meet something someone else must decide first. When the reply comes, you carry on. When several must be asked, ask one, and the next when the reply comes",
+      "desc": "Something to ask someone else, waiting for their reply. Ask, and never decide it yourself or work around it, when the architecture has a flaw this work cannot get around; the work is above your level; a specified behaviour, a safety guarantee, an interface between projects, the work's direction, approach, acceptance or split must be decided, or no approach can be chosen; a fact that would change the direction is unchecked; the work does not stand, duplicates another or is not worth its cost; another item or project must deliver first, or a defect or a root outside the work blocks it; a merge conflict cannot be resolved; the system lacks what the work needs (a tool, data, credentials, a permission); or a field you are asked to return cannot sensibly be filled, never forcing a value into it. What only the owner can do (a step that cannot be undone, publishing or sending outside, live data, another machine, a permission, accepting a slowdown) you ask the architect too, who puts it to the owner: a choice on your design card, with the work going on by the option you recommend, or an action, with the work paused until the owner has done it. Hand it in too when you cannot answer this round's question, or meet something someone else must decide first. When the reply comes, you carry on. When several must be asked, ask one, and the next when the reply comes",
       "common": [
         {
           "name": "points",
@@ -1282,7 +1282,7 @@
           "title": "Handed on",
           "type": "obj",
           "optional": true,
-          "desc": "Only to hand the question on instead of answering it, when it needs the owner's decision or belongs to a related project's architect: the text then says what you found and did, and the work's blocker goes to whom this names, who answers the side that asked. Leave it out to answer",
+          "desc": "Only to hand the question on instead of answering it, when it belongs to a related project's architect: the text then says what you found and did, and the work's blocker goes to that architect, who answers the side that asked. Leave it out to answer",
           "fields": [
             {
               "name": "to",
@@ -1290,10 +1290,6 @@
               "type": "enum",
               "desc": "To whom",
               "values": [
-                [
-                  "owner",
-                  "The owner: a decision only the owner can make"
-                ],
                 [
                   "architect",
                   "The architect of a related project, which the project's configuration names among its other projects"
@@ -1311,7 +1307,7 @@
               "name": "why",
               "title": "Why",
               "type": "text",
-              "desc": "Why it is handed on: what only they can decide or do"
+              "desc": "Why it is handed on: what only that architect can decide or do"
             }
           ]
         }
@@ -2070,7 +2066,7 @@
       "branches": [
         {
           "value": "pause_work",
-          "desc": "Pause an item's running work as yours: only when going on would waste or harm before an interjection could take effect",
+          "desc": "Pause an item's running work as yours: when going on would waste or harm before an interjection could take effect, or while it waits for what only the owner can do, its reason saying what and where; the owner's Start lets it go on",
           "fields": [
             {
               "name": "item",
@@ -2971,7 +2967,7 @@
       "merge": "Puts the PR in this repository's merge queue; at its turn, catches it up with main, runs the full CI and merges it. On a conflict or a red check, the PR leaves the queue; after its fix it joins the queue again at the end.",
       "watch_main": "Watches main and the deployment after the merge. When main turns red it stops this repository's merge queue until the cause is clear, then checks three things mechanically: running again on the same commit, the table of known red checks, and the same check on main's commit before the merge.",
       "ask_architect": "Queues what is asked for the architect, starting a work of the architect when none runs; the engineer's work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
-      "ask_owner": "Puts what is asked before the owner, as an ask of the owner in the owner's interface, and notifies the owner. An engineer's work stops and waits without holding a slot. In the architect's graph, an ask holds only the matter of the path that asked, and the architect's work goes on. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again, to the cell that asked.",
+      "ask_owner": "Puts what the architect asks before the owner, as an ask of the owner in the owner's interface, and notifies the owner; the ask holds only the matter of the path that asked, and the architect's work goes on. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again, to the cell that asked.",
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wait_for_matter": "No work of the project's architect runs: the engine takes this cell's rows for each project whose architect runs none, without a round, and one that takes `due` gets a work of the architect's graph, on no item, which starts at the cell that row leads to. The work holds no slot, and one runs at a time for each project; once it ends, the project waits here again. What was said in the works' groups since the architect last read it is queued first (`queue_group_talk`).",
       "end_architect_work": "Ends the architect's work.",
@@ -2991,7 +2987,7 @@
       "close_pr": "Closes the work's pull request, when it never merged, saying only that its work ended without merging: why is in the owner's language, and a pull request is in English. A work taken over leaves it to the new work.",
       "deliver_answers": "Sends each answer back to the side that interjected: to the owner's conversation, as the agent's message, or to the architect's queue as a report of the kind answer; and records it on the work: those of the answers form, those a redirect carries, and a cell's own answer to the owner's words.",
       "end_sessions": "Ends the work's sessions.",
-      "hand_over": "Hands the task's blocker on to the holder of the cell the row passes the work on to, recording the move with why and what the holder that hands it on found: to the owner, who is put an ask; to an architect, whose queue gets a matter saying which project and work it is for; the holder handing it on holds nothing then.",
+      "hand_over": "Hands the task's blocker on to the holder of the cell the row passes the work on to, recording the move with why and what the holder that hands it on found: to a related project's architect, whose queue gets a matter saying which project and work it is for; the holder handing it on holds nothing then.",
       "hand_over_to_sub_items": "Closes the work's draft PR, if any, saying which sub-items took over the work. The work does not merge; it waits for its sub-items.",
       "hold_to_set_straight": "Starts no new work of the project while its architect sets it straight; the works running go on.",
       "interject_card": "Says to the engineer of the work whose design card is unsound what is wrong with it.",
@@ -3136,7 +3132,7 @@
       "entry": "How the work came to the understanding question: the architect's first work on the project, or another new session.",
       "fixes_before": "How many earlier reviews of the batch found something to fix.",
       "gates": "Whether the items depended on are merged and every decision of the design card is gone through.",
-      "held": "Where the question the work put to an architect stands: replied, handed to the owner or to a related project's architect, waited past its limit of the architect's time, its architect gone, an item the work depended on cancelled, or something said to the work",
+      "held": "Where the question the work put to an architect stands: replied, handed to a related project's architect, waited past its limit of the architect's time, its architect gone, an item the work depended on cancelled, or something said to the work",
       "interjection": "Whether an interjection for the engineer is waiting to be delivered.",
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
       "next_in_batch": "Whether the batch goes on, goes to review, is done, or is done with nothing to rethink: no matter handled and no item changed since the last rethink.",
@@ -3843,7 +3839,7 @@
         "Judging: when the constitution and the policy allow more than one way and choose none, take the way that frees the most work waiting, and say that this decided it. When one kind of matter keeps ending this way, the policy does not cover it: say so where you judge whether the policy is right.",
         "Judging: read what a judgment needs, on every side, until you can say it, and no further. Your session goes on from one of your works to the next, and what you read without need crowds out what later rounds need. What you remember from an earlier work of yours is how things stood then: before you act on it, check it against what has changed since.",
         "Yours and the owner's: decide what is yours without asking: changes to the items (creating, splitting, merging and cancelling them, their dependencies, levels and order), which a review of the whole batch looks at before they are made; and what you do at once (pausing and resuming works, holding new starts, interjecting, replying to engineers, messages to other projects' architects, observations). The owner reads your rounds afterwards and corrects you; an ask costs the owner's time and holds the matter it is about. The owner's, even when the owner is away: the constitution and the policy; the decisions on design cards; loosening a line the policy writes; accepting a slowdown; what only the owner can do, such as a step that cannot be undone, publishing or a permission.",
-        "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what only the owner decides, such as what an engineer asks that only the owner can do: hand it on to the owner; and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
+        "Yours and the owner's: a ruling or an answer of the owner stands until the owner changes it; do not work around it. Do not answer for the owner what only the owner decides, such as what an engineer asks that only the owner can do: put a choice on the work's design card, or pause the work until the owner has done it; and do not tell an engineer what the owner will decide. To propose something else, say what has changed since the ruling, and ask.",
         "Other projects: you judge only your project. What another project's architect must know or do, tell it with a message; what it asks of you comes to your queue. An item of yours may depend on an item of another project; that item's changes and place in the order are its architect's.",
         "The engineers' work: you do not do it. You write no code, design or study, and you do not review, test or redo a work: its engineer, its review, its adversarial testing and its advisor do that. What needs the project's code changed, or an engineer's time (fixing an environment, finding a root cause, a study), becomes an item. What only the owner can do (the system's configuration, credentials, a permission, another of the owner's machines) goes to the owner.",
         "The engineers' work: look at a work where it meets the whole: whether it still serves the policy's direction; whether it duplicates another work, collides with one or waits on one; whether its problem changed under it. Two works that would change the same code in ways that conflict run one after the other, by a dependency: blocking when the later must not start before the earlier is merged, parallel when it may start and wait before it merges. When a work others wait on changes its approach or its result, or stops, look at those waiting: whether the dependency still holds, and whether their approach or acceptance must change.",
@@ -4187,7 +4183,6 @@
         "nodes": [
           "A1",
           "A2",
-          "A3",
           "A4",
           "A5",
           "A6",
@@ -4210,7 +4205,7 @@
           },
           {
             "name": "architect",
-            "desc": "This project's architect: what touches other items or the overall structure, such as splitting off sub-items, adding dependencies, duplicating another item, or a root cause in another item or project; and what only the owner can do or decide, such as a step that cannot be undone, missing credentials or a permission block, which the architect hands on to the owner",
+            "desc": "This project's architect: what touches other items or the overall structure, such as splitting off sub-items, adding dependencies, duplicating another item, or a root cause in another item or project; and what only the owner can do or decide, such as a step that cannot be undone, missing credentials or a permission block, which the architect puts to the owner: a choice as a decision of your design card, an action by pausing the work until the owner has done it",
             "node": "A2",
             "row": "ask_architect",
             "fields": [],
@@ -4275,7 +4270,7 @@
           },
           {
             "name": "flow_anomalies",
-            "desc": "The times the engineer, choosing the way on, chose a way that did not fit the situation, and the engine stopped and reported it to the owner"
+            "desc": "The times the engineer, choosing the way on, chose a way that did not fit the situation, and the engine stopped and reported it to the architect"
           },
           {
             "name": "interjections",
@@ -4287,7 +4282,7 @@
           },
           {
             "name": "hand_overs",
-            "desc": "The times the work's blocker was handed from one holder to another: by the advisor, the architect or the owner"
+            "desc": "The times the work's blocker was handed from one holder to another: by the advisor or the architect"
           },
           {
             "name": "waits_longer",
@@ -7618,7 +7613,7 @@
             },
             {
               "name": "Every reply on this work",
-              "what": "Every reply of the advisor, the architect and the owner on this work (as they wrote it), and each way on the engineer chose at the cell that chooses the way on (accumulated by the engine); none if no one was asked",
+              "what": "Every reply of the advisor and the architect on this work (as they wrote it), and each way on the engineer chose at the cell that chooses the way on (accumulated by the engine); none if no one was asked",
               "from": [
                 [
                   "A1",
@@ -7626,10 +7621,6 @@
                 ],
                 [
                   "A2",
-                  "reply"
-                ],
-                [
-                  "A3",
                   "reply"
                 ],
                 [
@@ -9830,7 +9821,7 @@
             }
           ],
           "prompt": [
-            "This round thinks about one thing only: where this work goes next. Your choice here decides all the work after it; choose wrong, and all of that may be wasted, so take care, think it through before you decide, and do not hurry back to what you had in hand. First read again, from the start, the reply or interjection that brought you here (how it came is said below), and work out what it changes: which premise it overturns or changes, such as a fact the design rests on, the chosen approach, the acceptance, or the problem this work solves; of what you have done, what still stands and what rests on an overturned premise; and whether going on the old way would still deliver what this work needs. Then decide: carry on, change the design, or, if what this work must deliver has changed, go back and research again. If the reply or interjection plainly says to change the design, or that what this work must deliver has changed, choose accordingly; a disagreement with the design card cannot carry on. If the reply has this work stop and wait for other items to deliver, choose wait_for_items: the engine stops this work to wait for them and keeps the session; do not carry on first or change the design first, but decide when they have delivered. While still researching, there is no design to change. If the architect split off sub-items, this work's design and estimate still cover the whole, and it must redesign for the part that remains. If everything went to sub-items and this work keeps nothing, there is no way on to choose here: hand in carry_on as next, as anything else is a flow anomaly, and write in progress what the sub-items need to know when they take over, such as how far it got and what is on the branch; the engine ends this work. If you choose a way that cannot be chosen in the situation, the engine does not go on but marks a flow anomaly and hands it to the owner. If you lack one fact to decide, ask again; do not question the reply you brought back. In progress, write what you decided and why."
+            "This round thinks about one thing only: where this work goes next. Your choice here decides all the work after it; choose wrong, and all of that may be wasted, so take care, think it through before you decide, and do not hurry back to what you had in hand. First read again, from the start, the reply or interjection that brought you here (how it came is said below), and work out what it changes: which premise it overturns or changes, such as a fact the design rests on, the chosen approach, the acceptance, or the problem this work solves; of what you have done, what still stands and what rests on an overturned premise; and whether going on the old way would still deliver what this work needs. Then decide: carry on, change the design, or, if what this work must deliver has changed, go back and research again. If the reply or interjection plainly says to change the design, or that what this work must deliver has changed, choose accordingly; a disagreement with the design card cannot carry on. If the reply has this work stop and wait for other items to deliver, choose wait_for_items: the engine stops this work to wait for them and keeps the session; do not carry on first or change the design first, but decide when they have delivered. While still researching, there is no design to change. If the architect split off sub-items, this work's design and estimate still cover the whole, and it must redesign for the part that remains. If everything went to sub-items and this work keeps nothing, there is no way on to choose here: hand in carry_on as next, as anything else is a flow anomaly, and write in progress what the sub-items need to know when they take over, such as how far it got and what is on the branch; the engine ends this work. If you choose a way that cannot be chosen in the situation, the engine does not go on but marks a flow anomaly and hands it to the architect. If you lack one fact to decide, ask again; do not question the reply you brought back. In progress, write what you decided and why."
           ],
           "promptBy": {
             "by": "came_by",
@@ -9972,9 +9963,9 @@
                   ]
                 ]
               ],
-              "to": "A3",
+              "to": "A2",
               "counts": "flow_anomalies",
-              "note": "A flow anomaly: still researching, there is no design to change. The owner gets the reply or interjection brought back, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again.",
+              "note": "A flow anomaly: still researching, there is no design to change. The architect gets it as a gap of the flow, with the reply or interjection brought back, the way the engineer chose and its progress; its reply brings the work back here to choose again.",
               "do": [
                 "raise_blocker"
               ]
@@ -10058,9 +10049,9 @@
                   ]
                 ]
               ],
-              "to": "A3",
+              "to": "A2",
               "counts": "flow_anomalies",
-              "note": "A flow anomaly: carrying on makes no sense after sub-items were split off (the design and estimate still cover the whole) or with a disagreement with the design card. The owner gets the reply or interjection brought back, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again.",
+              "note": "A flow anomaly: carrying on makes no sense after sub-items were split off (the design and estimate still cover the whole) or with a disagreement with the design card. The architect gets it as a gap of the flow, with the reply or interjection brought back, the way the engineer chose and its progress; its reply brings the work back here to choose again.",
               "do": [
                 "raise_blocker"
               ]
@@ -10126,9 +10117,9 @@
                   ]
                 ]
               ],
-              "to": "A3",
+              "to": "A2",
               "counts": "flow_anomalies",
-              "note": "A flow anomaly: the architect's reply has the work wait for other items, and the engineer did not choose to wait. The owner gets the reply, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again.",
+              "note": "A flow anomaly: the architect's reply has the work wait for other items, and the engineer did not choose to wait. The architect gets it as a gap of the flow, with the reply or interjection brought back, the way the engineer chose and its progress; its reply brings the work back here to choose again.",
               "do": [
                 "raise_blocker"
               ]
@@ -10159,9 +10150,9 @@
                   ]
                 ]
               ],
-              "to": "A3",
+              "to": "A2",
               "counts": "flow_anomalies",
-              "note": "A flow anomaly: the engineer chose to wait with no item to wait for. The owner gets the reply, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again.",
+              "note": "A flow anomaly: the engineer chose to wait with no item to wait for. The architect gets it as a gap of the flow, with the reply or interjection brought back, the way the engineer chose and its progress; its reply brings the work back here to choose again.",
               "do": [
                 "raise_blocker"
               ]
@@ -10209,9 +10200,9 @@
                   ]
                 ]
               ],
-              "to": "A3",
+              "to": "A2",
               "counts": "flow_anomalies",
-              "note": "A flow anomaly: the architect gave all of the work to sub-items, so there is no design to change and nothing to research again. The owner gets the reply, the way the engineer chose and its progress; when the owner answers, the work comes back here to choose again.",
+              "note": "A flow anomaly: the architect gave all of the work to sub-items, so there is no design to change and nothing to research again. The architect gets it as a gap of the flow, with the reply or interjection brought back, the way the engineer chose and its progress; its reply brings the work back here to choose again.",
               "do": [
                 "raise_blocker"
               ]
@@ -10561,7 +10552,7 @@
             }
           ],
           "prompt": [
-            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, change an interface beyond this item, or when the root lies in another item, hand the question to the architect. The behaviour something the project specifies must have, a safety guarantee, the work's direction and what is under test rejecting a natural way of writing something are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge that what is under test rejects something there, have the engineer write it into the report and what to do next, which reaches the architect when the work ends, and the architect tells the owner of it. What only the owner can do or decide is the owner's alone: hand such a question to the architect, who hands it on to the owner. You never ask and wait: what you cannot decide, you hand on to the architect with ask, saying in it why and what you found, and the architect answers the cell that asked in your place or hands it on. The code is read-only for you: change no file and commit nothing."
+            "You are the advisor of this work, one level above its engineer, and for this work alone. What you are asked is yours to decide: research it through before deciding, find the root, and judge a design only on itself, not on how much it changes. This work's own item is yours to rule on: if the design must change, or the problem itself must, say so plainly in the reply; the engineer goes back to change the design or research again by it. You may also change the locked acceptance: write the new acceptance conditions in the reply, and the engine puts them on the item and locks them. Items in other trees or other projects are not yours, nor is splitting off sub-items: to create items, split off sub-items, add dependencies, merge duplicates, change an interface beyond this item, or when the root lies in another item, hand the question to the architect. The behaviour something the project specifies must have, a safety guarantee, the work's direction and what is under test rejecting a natural way of writing something are yours to decide, without asking the owner again: they always change the design tree, and the owner confirms the design card before merging; a report changes no design tree and has no design card, so when you judge that what is under test rejects something there, have the engineer write it into the report and what to do next, which reaches the architect when the work ends, and the architect tells the owner of it. What only the owner can do or decide is the owner's alone: hand such a question to the architect, who puts it to the owner. You never ask and wait: what you cannot decide, you hand on to the architect with ask, saying in it why and what you found, and the architect answers the cell that asked in your place. The code is read-only for you: change no file and commit nothing."
           ],
           "out": [
             {
@@ -10651,6 +10642,17 @@
               "maybe": true
             },
             {
+              "name": "Flow anomaly",
+              "what": "A flow anomaly the engine reports: the way the engineer chose when choosing the way on, in a situation where it did not fit, the reply brought back, and its progress in that round; none unless it is a flow anomaly",
+              "from": [
+                [
+                  "@caller",
+                  "next"
+                ]
+              ],
+              "maybe": true
+            },
+            {
               "name": "Engine tool that failed",
               "what": "When asking because an engine tool failed: which tool, which kind of failure, what happened, how many retries; the architect has it fixed, by an item or by the owner, and answers once it is, saying what was done, and the engine runs that step again. None unless a tool failed",
               "from": [
@@ -10716,28 +10718,6 @@
               "do": [
                 "resolve_blocker"
               ]
-            },
-            {
-              "name": "to_owner",
-              "if": [
-                [
-                  "inp",
-                  "held",
-                  [
-                    "to_owner"
-                  ]
-                ]
-              ],
-              "to": "A3",
-              "passes": true,
-              "do": [
-                {
-                  "at": "reply",
-                  "do": "hand_over"
-                }
-              ],
-              "counts": "hand_overs",
-              "note": "The architect does not ask and wait: it hands the question to the owner, who answers the cell that asked, or hands it back with a decision for the architect to carry out."
             },
             {
               "name": "to_architect",
@@ -10837,10 +10817,6 @@
                 "The architect replied"
               ],
               [
-                "to_owner",
-                "The architect handed it to the owner, saying why and what it found"
-              ],
-              [
                 "to_architect",
                 "The architect handed it to the architect of a related project, saying why and what it found"
               ],
@@ -10861,151 +10837,6 @@
                 "The owner or the architect said something to the work, which it has not taken up yet"
               ]
             ]
-          }
-        },
-        {
-          "id": "A3",
-          "kind": "owner",
-          "title": "Owner answers",
-          "step": "ask_owner",
-          "inputs": [
-            {
-              "name": "What is asked",
-              "what": "What is asked, from which cell (recorded by the engine), as the engineer asked the architect, who handed it on: something only the owner can do (a permission, configuration, credentials), a decision only the owner can make, or an agent's report that a field of what it must return does not fit the situation; none when the engine reports a flow anomaly",
-              "from": [
-                [
-                  "@caller",
-                  "ask"
-                ]
-              ],
-              "maybe": true
-            },
-            {
-              "name": "Flow anomaly",
-              "what": "A flow anomaly the engine reports: the way the engineer chose when choosing the way on, in a situation where it did not fit, the reply brought back, and its progress in that round; none unless it is a flow anomaly",
-              "from": [
-                [
-                  "@caller",
-                  "next"
-                ]
-              ],
-              "maybe": true
-            },
-            {
-              "name": "How the question moved",
-              "what": "The question as it moved: who held it before, every hand-over with why and what the holder found",
-              "from": [
-                {
-                  "db": "blockers",
-                  "by": "work"
-                }
-              ]
-            }
-          ],
-          "out": [
-            {
-              "name": "reply",
-              "title": "Owner's answer",
-              "type": "obj",
-              "desc": "The answer or ruling; the engine records which work and which step it belongs to",
-              "fields": [
-                {
-                  "name": "text",
-                  "title": "Answer",
-                  "type": "text",
-                  "desc": "The answer"
-                },
-                {
-                  "name": "to",
-                  "title": "Handed to the architect",
-                  "type": "enum",
-                  "optional": true,
-                  "desc": "Left out when the answer resolves it; to hand it to the project's architect with a decision for it to carry out instead, which the text says",
-                  "values": [
-                    [
-                      "architect",
-                      "The project's architect carries out what the owner decided, and answers the cell that asked"
-                    ]
-                  ]
-                }
-              ]
-            }
-          ],
-          "cases": [
-            {
-              "name": "answered",
-              "if": [
-                [
-                  "none",
-                  "reply.to",
-                  [
-                    "architect"
-                  ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
-                ]
-              ],
-              "to": "@asker",
-              "do": [
-                "resolve_blocker"
-              ]
-            },
-            {
-              "name": "to_architect",
-              "if": [
-                [
-                  "is",
-                  "reply.to",
-                  [
-                    "architect"
-                  ]
-                ],
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "no"
-                  ]
-                ]
-              ],
-              "to": "A2",
-              "passes": true,
-              "do": [
-                {
-                  "at": "reply",
-                  "do": "hand_over"
-                }
-              ],
-              "counts": "hand_overs",
-              "note": "The owner hands it back to the architect with a decision for it to carry out, which the architect's queue gets with the owner's words."
-            },
-            {
-              "name": "interjection",
-              "if": [
-                [
-                  "inp",
-                  "interjection",
-                  [
-                    "yes"
-                  ]
-                ]
-              ],
-              "to": "@asker",
-              "do": [
-                "withdraw_blocker"
-              ],
-              "counts": "interjections",
-              "interject": true,
-              "note": "What was said to the work before the owner answered takes it on to choose the way on: the ask needs no answer."
-            }
-          ],
-          "inenums": {
-            "interjection": "interjection_state"
           }
         },
         {
@@ -11316,7 +11147,7 @@
         ]
       },
       "blockers": {
-        "desc": "A task stops only at the cell where its problem arose, on a blocker raised there, and stands at the cell of its blocker's holder until it is resolved or withdrawn: the advisor at cell `A1`, an architect at `A2` (and at `A7` while the engineer weighs whether to wait longer for it), the owner at `A3`, the items it waits for at `A6`, and at `M1` the items it depends on, then the owner's ruling on its design card. Every move of a blocker is a row: the rows into a holder's cell raise it, the rows that pass the work on between holders' cells hand it on (`A1` to `A2`, `A2` to `A3` or to a related project's architect, `A3` back to `A2`), and the rows out resolve or withdraw it. A holder never stops while it holds a blocker. Each cell where the work waits has a row for each way its holder can fail it and for the owner's interjection. A work's end withdraws its open blocker, with the end's reason.",
+        "desc": "A task stops only at the cell where its problem arose, on a blocker raised there, and stands at the cell of its blocker's holder until it is resolved or withdrawn: the advisor at cell `A1`, an architect at `A2` (and at `A7` while the engineer weighs whether to wait longer for it), the items it waits for at `A6`, and at `M1` the items it depends on, then the owner's ruling on its design card. Every move of a blocker is a row: the rows into a holder's cell raise it, the rows that pass the work on between holders' cells hand it on (`A1` to `A2`, `A2` to a related project's architect), and the rows out resolve or withdraw it. A holder never stops while it holds a blocker. Each cell where the work waits has a row for each way its holder can fail it and for the owner's interjection. A work's end withdraws its open blocker, with the end's reason.",
         "cells": [
           {
             "cell": "A1",
@@ -11337,12 +11168,6 @@
             "cell": "A7",
             "holders": [
               "architect"
-            ]
-          },
-          {
-            "cell": "A3",
-            "holders": [
-              "owner"
             ]
           },
           {
@@ -14418,10 +14243,10 @@
           ],
           "prompt": [
             "This round weighs the ways for this question. The crux is answered: think by it, and do not go back to the question on the surface. See which articles of the constitution it touches and what each implies; then which items it touches and how (a duplicate, a dependency, blocking others, a root in another item or project), and who waits. Think of at least three ways, with what follows from each, choose one, and say why it and why not the others. A conclusion deduced from reading code is said to be deduced; an inference that decides the direction and is not checked is checked first by an item, and the structure is not changed on it.",
-            "What the question needs, judge from what it says. A defect or a root outside the work is fixed where it lies, by an item, made when there is none, or by a message to its project's architect, and not worked around in the work. A duplicate is the same thing, not the same code; when the asking work's item is merged away, what is useful on its branch and the owner's rulings on its design cards go to the item kept by an interjection. A capability gap, the system lacking what the work needs (a tool, an input, a permission, a rule that says enough, data it cannot reach), is a defect of the system and not of the agent: unblock the work first, by the first way that works, a way around within the rules said in the reply, what only the owner can give (a credential, a configuration in the data directory) handed to the owner with hand_over, else an item that fixes it, which the work's item depends on, blocking, and the reply's waits name; then take the gap in as a report is: an item that covers it takes it, else an observation, merged into the same one when it is recorded already. A question that need not touch other items or the structure changes nothing: the reply says whom to ask.",
+            "What the question needs, judge from what it says. A defect or a root outside the work is fixed where it lies, by an item, made when there is none, or by a message to its project's architect, and not worked around in the work. A duplicate is the same thing, not the same code; when the asking work's item is merged away, what is useful on its branch and the owner's rulings on its design cards go to the item kept by an interjection. A capability gap, the system lacking what the work needs (a tool, an input, a permission, a rule that says enough, data it cannot reach), is a defect of the system and not of the agent: unblock the work first, by the first way that works, a way around within the rules said in the reply, what only the owner can give (a credential, a configuration in the data directory) by pausing the work until the owner has given it, else an item that fixes it, which the work's item depends on, blocking, and the reply's waits name; then take the gap in as a report is: an item that covers it takes it, else an observation, merged into the same one when it is recorded already. A flow anomaly the engine reports, the way the engineer chose not fitting, is such a gap of the flow: the reply says which way fits. A question that need not touch other items or the structure changes nothing: the reply says whom to ask.",
             "Reply to the engineer concretely enough to carry on from: if sub-items were split off, say plainly that the work must redesign for the part that remains; if it must stop now and wait for other items to deliver, list them in the reply's waits, while a parallel dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this batch creates by its key: the engine puts its number there once it is made. The reply goes at once, or, when your item changes are what it says, once the review lets them be made; if an item it names is not made after all, it does not go out, and the question comes back to you with why.",
             "Works start in the order you give: first the items the owner queued, then each project's items by their rank. A new item goes last among its project's items, and moving one puts it first, last, or just before or after another item of its project. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them.",
-            "What the constitution, the policy or what goes outside decides, and what only the owner can do or decide, hand to the owner with the reply's hand_over, saying why and, in its text, what you found; what belongs to a related project's architect, hand to it the same way. You never ask and wait: whoever you hand it to answers the engineer."
+            "What only the owner can decide about the work (a measured slowdown to accept, a safety guarantee, the work's direction), the reply has the engineer put on its design card as a decision, with the options and the one it recommends, and go on with that option: the owner rules on it before the merge. What only the owner can do (a credential, a permission, a configuration in the data directory, another machine), pause the work in effects, saying what the owner must do and where, and reply that it goes on once the owner has done it and started it. What belongs to a related project's architect, hand to it with the reply's hand_over, saying why and, in its text, what you found. You never ask and wait."
           ],
           "out": [
             {
@@ -15338,7 +15163,7 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: how this failure gets fixed. You do not fix it yourself: what needs the project's code changed or an engineer's time becomes an item; a check main fails for a reason outside the work is added to the known red checks, with the item that fixes it; what only the owner can do (the configuration, credentials, a permission, another machine) you hand to the owner with the reply's hand_over, saying why and, in its text, what you found; you never ask and wait. One that passed and will not come back needs nothing: say why you judge so.",
+            "This round answers one thing only: how this failure gets fixed. You do not fix it yourself: what needs the project's code changed or an engineer's time becomes an item; a check main fails for a reason outside the work is added to the known red checks, with the item that fixes it; what only the owner can do (the configuration, credentials, a permission, another machine) you have the owner do by pausing the work in effects, saying what the owner must do and where, and replying that it goes on once the owner has done it and started it; you never ask and wait. One that passed and will not come back needs nothing: say why you judge so.",
             "Reply to the work that waits: what was done, and whether it goes on now (the engine runs the failed step again) or waits for an item, which you list in the reply's waits."
           ],
           "out": [

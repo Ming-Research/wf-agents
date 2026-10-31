@@ -4304,8 +4304,9 @@ fn a_gap_asked(
     assert!(steps_until(&mut e, 10, asked), "{}", said.borrow().join("\n"));
     let work = state(&e, item).unwrap().0;
     let arch = e.step(None).unwrap().work.unwrap();
+    // The work takes the reply, or the architect's pause holds it at its question until the owner starts it.
     let done = steps_until(&mut e, 80, |e| {
-        architect_work_done(e, arch) && question_took(e, work).is_some()
+        architect_work_done(e, arch) && (question_took(e, work).is_some() || paused_by(e, work).is_some())
     });
     assert!(done, "{}", said.borrow().join("\n"));
     (e, said, item, work, arch)
@@ -4362,45 +4363,54 @@ fn a_capability_gap_is_unblocked_by_a_way_around_and_its_work_told_what_became_o
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A capability gap only the owner can fill, a credential the data directory lacks, is handed to the owner with the
-// reply's hand_over, which pins it in the work's group for the owner's reply: the work waits there for the owner. The
-// ask carries no kind on its way: the engineer's question is queued with none, and the owner's ask holds what it asks
-// and what was checked. The ways recorded nothing, so the work is told nothing beside the hand-over.
+// An action only the owner can do, a credential the data directory lacks, the architect puts to the owner by pausing
+// the work, saying what the owner must do and where, and replying that it goes on once the owner has done it: the work
+// holds at its question with the reply waiting, paused by the architect, and nothing is asked of the owner; the ask
+// carries no kind on its way. Once the owner starts it, which tells the architect, the work takes the reply and goes on
+// to choose its way on.
 #[test]
-fn a_capability_gap_only_the_owner_can_fill_is_pinned_for_the_owner() {
+fn an_action_only_the_owner_can_do_pauses_the_work_until_the_owner_starts_it() {
     let s = setup("gap-owner");
     let ways: Script = Box::new(|_: &Request, _: usize| {
+        let pause = json!({ "kind": "pause_work", "item": 1,
+                            "reason": "Put the registry token in the data directory, then start the work." });
         let reply = json!({
-            "text": "The registry's token is not in the data directory: only the owner can put it there.",
+            "text": "The work goes on once the owner has put the registry token in the data directory and started it.",
             "why": "A credential is the owner's to give.",
-            "hand_over": { "to": "owner", "why": "Only the owner can give the credential." },
         });
-        (Vec::new(), vec![("outcome.reply", reply)])
+        (
+            Vec::new(),
+            vec![
+                ("outcome.reply", reply),
+                ("outcome.effects", json!({ "actions": [pause] })),
+            ],
+        )
     });
     let ask = asks_about_a_gap("There is no token to read the registry with.");
     let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H3", ways)]);
+    assert_eq!(item, 1);
     let log = said.borrow().join("\n");
-    assert_eq!(question_took(&e, work).as_deref(), Some("to_owner"), "{log}");
-    let pinned = |e: &Engine| -> Option<i64> {
+    let paused: (Option<String>, Option<String>) =
         e.db.conn()
-            .query_row(
-                "SELECT id FROM owner_asks WHERE work = ?1 AND answer IS NULL",
-                [work],
-                |r| r.get(0),
-            )
-            .ok()
-    };
-    assert!(steps_until(&mut e, 10, |e| pinned(e).is_some()), "{log}");
-    assert_eq!(state(&e, item).unwrap().1, "A3", "{log}");
-    let (holder, ask): (String, Option<i64>) =
-        e.db.conn()
-            .query_row(
-                "SELECT holder, ask FROM blockers WHERE work = ?1 AND ended IS NULL",
-                [work],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
+            .query_row("SELECT paused, paused_by FROM works WHERE id = ?1", [work], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .unwrap();
-    assert_eq!((holder.as_str(), ask), ("owner", pinned(&e)), "{log}");
+    assert_eq!(paused.1.as_deref(), Some("engine"), "{log}");
+    assert!(
+        paused
+            .0
+            .as_deref()
+            .is_some_and(|p| p.starts_with(db::STOPPED_BY_ARCHITECT)
+                && p.ends_with("Put the registry token in the data directory, then start the work.")),
+        "{paused:?}"
+    );
+    assert_eq!(question_took(&e, work), None, "{log}");
+    let asks: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM owner_asks WHERE work = ?1", [work], |r| r.get(0))
+            .unwrap();
+    assert_eq!(asks, 0, "{log}");
     let detail: Option<String> =
         e.db.conn()
             .query_row(
@@ -4410,15 +4420,198 @@ fn a_capability_gap_only_the_owner_can_fill_is_pinned_for_the_owner() {
             )
             .unwrap();
     assert_eq!(detail, None, "{log}");
-    let body: String =
+    // The owner has done it, and starts the work.
+    let c = api::Control::default();
+    c.set_paused(true);
+    c.start(api::Fresh::Work(work), false);
+    for _ in 0..10 {
+        if question_took(&e, work).is_some() {
+            break;
+        }
+        turn(&mut e, &c, None);
+    }
+    let log = said.borrow().join("\n");
+    assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
+    assert_eq!(paused_by(&e, work), None, "{log}");
+    let told: String =
         e.db.conn()
-            .query_row("SELECT body FROM owner_asks WHERE id = ?1", [ask.unwrap()], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT body ->> 'text' FROM architect_matters WHERE kind = 'owner_words'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
-    assert!(body.contains("There is no token to read the registry with."), "{body}");
-    assert!(!body.contains("\"kind\":\"missing"), "{body}");
-    assert_eq!(lines_told(&e, work), Vec::<String>::new());
+    assert!(
+        told.starts_with(&format!("I started work {work}, which you had stopped")),
+        "{told}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A choice only the owner can make about a work, accepting a measured slowdown, the architect puts on the work's
+// design card: its reply has the engineer record it there as a decision, with the options and the one it recommends,
+// and go on with that option, the owner ruling on it before the merge. Nothing is asked of the owner, and the work is
+// not paused: it takes the reply at once.
+#[test]
+fn a_choice_only_the_owner_can_make_goes_on_the_design_card_and_the_work_goes_on() {
+    let s = setup("owner-choice");
+    let ways: Script = Box::new(|_: &Request, _: usize| {
+        let reply = json!({
+            "text": "Only the owner can accept the slowdown: record it on your design card as a decision, with the \
+                     options and the one you recommend, and go on with that option; the owner rules on it before the \
+                     merge.",
+            "why": "Accepting a slowdown is the owner's choice.",
+        });
+        (Vec::new(), vec![("outcome.reply", reply)])
+    });
+    let ask = asks_about_a_gap("The change makes parsing 3% slower, measured over 30 pairs.");
+    let (e, said, _, work, arch) = a_gap_asked(&s, ask, vec![("H3", ways)]);
+    let log = said.borrow().join("\n");
+    assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
+    assert_eq!(paused_by(&e, work), None, "{log}");
+    let asks: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM owner_asks WHERE work = ?1", [work], |r| r.get(0))
+            .unwrap();
+    assert_eq!(asks, 0, "{log}");
+    let ways = message_at(&e, arch, "H3", false);
+    assert!(ways.contains("put on its design card as a decision"), "{ways}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A way on chosen that does not fit the situation is a flow anomaly, which goes to the architect as a gap of the flow:
+// the task's blocker, raised where the way was chosen, is held by the architect at the question's cell, which queues the
+// anomaly for it, saying what the engine found; its reply brings the work back to choose again, and nothing is asked of
+// the owner.
+#[test]
+fn a_flow_anomaly_at_choosing_the_way_on_reaches_the_architect() {
+    let s = setup("anomaly");
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                an_ask("architect")
+            } else {
+                (Vec::new(), Vec::new())
+            }
+        }),
+    );
+    agents.insert(
+        "H3",
+        Box::new(|_: &Request, n: usize| {
+            let text = if n == 1 {
+                "Go on as you planned."
+            } else {
+                "There is no design yet: carry on researching."
+            };
+            (
+                Vec::new(),
+                vec![("outcome.reply", json!({ "text": text, "why": "It holds." }))],
+            )
+        }),
+    );
+    // Still researching, the first way on chosen is to change a design there is not yet.
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, n: usize| {
+            let next = if n == 1 { "redesign" } else { "carry_on" };
+            (vec![("outcome.next", next)], Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let questions = |e: &Engine| -> Vec<String> {
+        engine::query_json(
+            e.db.conn(),
+            "SELECT what FROM architect_matters WHERE kind = 'engineer_question' AND item = ?1 ORDER BY id",
+            &[&item],
+            10,
+        )
+        .unwrap()
+        .iter()
+        .map(|r| r["what"].as_str().unwrap().to_string())
+        .collect()
+    };
+    let chose_again = |e: &mut Engine| -> bool {
+        state(e, item)
+            .is_some_and(|(w, _, _)| cells_of(e, w).iter().filter(|c| c.0 == "A4" && c.1.is_some()).count() >= 2)
+    };
+    assert!(steps_until(&mut e, 150, chose_again), "{}", said.borrow().join("\n"));
+    let log = said.borrow().join("\n");
+    let work = state(&e, item).unwrap().0;
+    let cells = cells_of(&e, work);
+    let at = cells
+        .iter()
+        .position(|c| c == &("A4".to_string(), Some("redesign_in_research".to_string())))
+        .expect(&log);
+    assert_eq!(cells[at + 1].0, "A2", "{cells:?}");
+    let asked = questions(&e);
+    assert_eq!(asked.len(), 2, "{asked:?}\n{log}");
+    assert!(asked[1].contains("met a flow anomaly at cell A4"), "{asked:?}");
+    let (cell, holder): (String, String) =
+        e.db.conn()
+            .query_row(
+                "SELECT cell, holder FROM blockers WHERE work = ?1 ORDER BY id DESC LIMIT 1",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!((cell.as_str(), holder.as_str()), ("A4", "architect"), "{log}");
+    let asks: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM owner_asks WHERE work = ?1", [work], |r| r.get(0))
+            .unwrap();
+    assert_eq!(asks, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work standing at the owner's cell of an older flow version, waiting for its ask of the owner, cannot move to the
+// version the engine runs, which has no such cell: a new work takes its item over when it next goes on, and the old
+// work's ending closes its open ask, saying no answer is needed.
+#[test]
+fn a_work_at_the_owner_s_cell_of_an_older_version_is_taken_over_and_its_ask_closed() {
+    let s = setup("owner-cell-gone");
+    let (mut e, said, item, work) = at_r2_on_an_older_version(&s, |g| {
+        // The older version still had the owner's cell.
+        let mut owner = g.cell("A2").unwrap().clone();
+        owner.id = "A3".into();
+        owner.kind = "owner".into();
+        owner.title = "Owner answers".into();
+        owner.step = Some("ask_owner".into());
+        g.cells.push(owner);
+    });
+    let ask =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE works SET at = 'A3', resume_at = 'R2' WHERE id = ?1", [work])?;
+            let round = next_round(tx, work)?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, 'A3', '{}', 'c', 1)",
+                [work, round],
+            )?;
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\":\"owner\"}')",
+                [work, round],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    e.step(None).unwrap();
+    let log = said.borrow().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}\n{log}");
+    assert!(
+        works[0].5.as_deref().is_some_and(|w| w.contains("cell A3 is gone")),
+        "{works:?}"
+    );
+    let by: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(answer, '$.by') FROM owner_asks WHERE id = ?1",
+                [ask],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(by.as_deref(), Some("engine"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -7414,11 +7607,11 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A work waiting for the owner's answer has the session of the line that asked kept warm, and the ping says the work
-// waited at the owner's cell for the owner's answer to that ask.
+// A work waiting for the architect's reply has the session of the line that asked kept warm, and the ping says the work
+// waited at the architect's cell for the architect's reply.
 #[test]
 fn a_ping_says_where_the_work_waited_and_for_what() {
-    let s = setup_priced("warm-owner");
+    let s = setup_priced("warm-architect");
     let mut scripts = scripts();
     scripts.insert(
         "R2",
@@ -7428,24 +7621,19 @@ fn a_ping_says_where_the_work_waited_and_for_what() {
     agent_rounds_to(&mut e, item, 2);
     let (work, at, _) = state(&e, item).unwrap();
     assert_eq!(at, "D1", "{}", said.borrow().join("\n"));
-    let ask =
-        e.db.write(Actor::Engine, |tx| {
-            tx.execute(
-                "UPDATE works SET at = 'A3', resume_at = 'D1', waiting = '[\"D1\"]' WHERE id = ?1",
-                [work],
-            )?;
-            let round = next_round(tx, work)?;
-            tx.execute(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, 'A3', '{}', 'c', 1)",
-                [work, round],
-            )?;
-            tx.execute(
-                "INSERT INTO owner_asks (work, round, body) VALUES (?1, ?2, '{\"to\":\"owner\"}')",
-                [work, round],
-            )?;
-            Ok(tx.last_insert_rowid())
-        })
-        .unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE works SET at = 'A2', resume_at = 'D1', waiting = '[\"D1\"]' WHERE id = ?1",
+            [work],
+        )?;
+        let round = next_round(tx, work)?;
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, 'A2', '{}', 'c', 1)",
+            [work, round],
+        )?;
+        Ok(())
+    })
+    .unwrap();
     let from = last_call(&e, work);
     assert_eq!(
         e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(),
@@ -7456,7 +7644,7 @@ fn a_ping_says_where_the_work_waited_and_for_what() {
     let pings = pings_of(&e, work);
     assert_eq!(
         pings[0].0,
-        json!({ "cell": "A3", "on": "owner", "what": format!("the owner's answer to ask {ask}") })
+        json!({ "cell": "A2", "on": "architect", "what": "the architect's reply" })
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -7926,7 +8114,7 @@ fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done
             )?;
             tx.execute(
                 "INSERT INTO works (item, flow_version, graph, at, resume_at, paused, paused_by)
-                 VALUES (?1, ?2, 'engineer', 'A3', 'I1', 'later', 'owner')",
+                 VALUES (?1, ?2, 'engineer', 'A2', 'I1', 'later', 'owner')",
                 params![asking, v],
             )?;
             tx.execute(
@@ -9764,33 +9952,30 @@ fn two_works(name: &str) -> (Setup, Engine, Rc<RefCell<Vec<String>>>) {
     (s, e, said)
 }
 
-// A work that waits for the owner's answer holds no slot, and another work starts in the slot it left; once the answer
-// came, the first goes on only when a slot is free again, so that the machine never runs more works than its slots, and
-// then before any new work starts on a ready item; meanwhile the engine names it as waiting for a free slot, which the
-// owner's page shows in place of ready. In the sixth trial a work answered went on at once, and the slots read three
-// used of two.
+// A work that waits for the architect's reply holds no slot, and another work starts in the slot it left; once the
+// reply came, the first goes on only when a slot is free again, so that the machine never runs more works than its
+// slots, and then before any new work starts on a ready item; meanwhile the engine names it as waiting for a free slot,
+// which the owner's page shows in place of ready. In the sixth trial a work answered went on at once, and the slots
+// read three used of two. The architect's replies are written here by hand, each matter taken off the queue as it comes,
+// so that no work of the architect starts and the test says when each reply comes.
 #[test]
 fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
     let s = setup("back-to-a-slot");
     let mut agents = scripts();
-    // The first work to research asks the advisor; the first to weigh whether the problem stands, the second work, too.
-    // With the advisor's reply each chooses to redesign while still researching, which the engine hands to the owner.
+    // The first work to research asks the architect; the first to weigh whether the problem stands, the second work,
+    // too.
     for cell in ["R1", "R2"] {
         agents.insert(
             cell,
             Box::new(|_: &Request, n: usize| {
                 if n == 1 {
-                    an_ask("advisor")
+                    an_ask("architect")
                 } else {
                     (Vec::new(), Vec::new())
                 }
             }),
         );
     }
-    agents.insert(
-        "A4",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "redesign")], Vec::new())),
-    );
     let (mut e, said, first) = start(&s, agents);
     let queue = |e: &mut Engine, title: &str, position: f64| -> i64 {
         e.db.write(Actor::Owner, |tx| {
@@ -9806,53 +9991,67 @@ fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
     };
     let second = queue(&mut e, "Add another", 2.0);
     let third = queue(&mut e, "Add a third", 3.0);
-    let ask_of = |e: &Engine, item: i64| -> Option<i64> {
-        e.db.conn()
-            .query_row(
-                "SELECT a.id FROM owner_asks a JOIN works w ON w.id = a.work WHERE w.item = ?1",
-                [item],
-                |r| r.get(0),
-            )
-            .ok()
+    // The question a work's item put to the architect, taken off the queue as if a work of the architect had it in hand.
+    let held = |e: &mut Engine, item: i64| -> Option<i64> {
+        let m: Option<i64> =
+            e.db.conn()
+                .query_row(
+                    "SELECT id FROM architect_matters WHERE kind = 'engineer_question' AND item = ?1",
+                    [item],
+                    |r| r.get(0),
+                )
+                .ok();
+        if let Some(m) = m {
+            e.db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE architect_matters SET handled_work = (SELECT min(id) FROM works WHERE graph = 'architect'),
+                       handled_round = 1 WHERE id = ?1 AND handled_round IS NULL",
+                    [m],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        }
+        m
     };
     assert!(
-        steps_until(&mut e, 20, |e| ask_of(e, first).is_some() && state(e, second).is_some()),
+        steps_until(&mut e, 20, |e| held(e, first).is_some() && state(e, second).is_some()),
         "{}",
         said.borrow().join("\n")
     );
-    let ask = ask_of(&e, first).unwrap();
+    let asked = held(&mut e, first).unwrap();
     let (a, _, _) = state(&e, first).unwrap();
-    // The owner answers while the second work holds the one slot: the first stays where it waited.
-    let answer = api::Answer {
-        text: "Go ahead.".into(),
-        why: None,
-        reply: None,
-        to: None,
-        images: Vec::new(),
-    };
-    api::answer(&mut e.db, ask, &answer).unwrap();
+    // The architect replies while the second work holds the one slot: the first stays where it waited.
+    e.db.write(Actor::Architect, |tx| {
+        tx.execute(
+            "UPDATE architect_matters SET reply = ?2 WHERE id = ?1",
+            params![asked, json!({ "text": "Go ahead.", "why": "It holds." }).to_string()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
     let mut after = None;
     // Meanwhile the engine names it, for the owner's page, as waiting for a free slot.
     let mut named = false;
     for _ in 0..20 {
-        if state(&e, second).is_some_and(|x| x.1 == "A3") {
+        if held(&mut e, second).is_some() && state(&e, second).is_some_and(|x| x.1 == "A2") {
             break;
         }
         after = e.step(after).unwrap().work;
         let log = said.borrow().join("\n");
         assert!(e.free_slots().unwrap() >= 0, "{log}");
-        assert_eq!(state(&e, first).map(|x| x.1).as_deref(), Some("A3"), "{log}");
+        assert_eq!(state(&e, first).map(|x| x.1).as_deref(), Some("A2"), "{log}");
         let waiting = e.waiting_for_slot().unwrap();
         assert!(waiting.iter().all(|&w| w == a), "{waiting:?}\n{log}");
         named |= waiting == [a];
     }
     let log = said.borrow().join("\n");
     assert!(named, "{log}");
-    assert_eq!(state(&e, second).map(|x| x.1).as_deref(), Some("A3"), "{log}");
+    assert_eq!(state(&e, second).map(|x| x.1).as_deref(), Some("A2"), "{log}");
     // The slot the second left is free: the first waits for none, and is named so no more.
     assert_eq!(e.waiting_for_slot().unwrap(), Vec::<i64>::new(), "{log}");
-    // The second work goes to ask the owner in turn, holding no slot: the first goes on in the slot it left, to choose
-    // the way on with the answer, before a work starts on the third item.
+    // The second work goes to ask the architect in turn, holding no slot: the first goes on in the slot it left, to
+    // choose the way on with the reply, before a work starts on the third item.
     let next = e.step(after).unwrap();
     let log = said.borrow().join("\n");
     assert_eq!(next.work, Some(a), "{log}");
@@ -10270,25 +10469,10 @@ fn a_work(e: &Engine, dice: &Dice) -> Option<i64> {
     (!ids.is_empty()).then(|| ids[dice.roll(ids.len() as u64) as usize])
 }
 
-/// The asks of the owner that engineers' works put and the owner has not answered.
-fn open_asks(e: &Engine) -> Vec<i64> {
-    engine::query_json(
-        e.db.conn(),
-        "SELECT a.id FROM owner_asks a JOIN works w ON w.id = a.work
-         WHERE a.answer IS NULL AND w.graph = 'engineer' ORDER BY a.id",
-        &[],
-        100,
-    )
-    .unwrap()
-    .iter()
-    .filter_map(|r| r["id"].as_i64())
-    .collect()
-}
-
 /// One random sequence of events over three items of project p, beside project q, related to it: steps of the engine,
 /// whose rounds ask the advisor and the architect, hand questions on (the advisor to the architect, an architect to the
-/// owner or to the other project's architect), and reply, sometimes with an item to wait for, of either project; the owner's answers, which now and then
-/// hand the question back to the architect; the architects' hours, past their limit; interjections; cancels; and
+/// other project's architect), and reply, sometimes with an item to wait for, of either project, a way on chosen wrong
+/// going to the architect as a flow anomaly; the architects' hours, past their limit; interjections; cancels; and
 /// takeovers by a new flow version. After each, every chain of blockers closes.
 fn random_events(seed: u64, events: usize) {
     let s = setup(&format!("blockers-{seed}"));
@@ -10373,8 +10557,7 @@ fn random_events(seed: u64, events: usize) {
             let other = if project == "p" { "q" } else { "p" };
             let mut reply = json!({ "text": "Go on as you planned.", "why": "It holds." });
             match d.roll(6) {
-                0 => reply["hand_over"] = json!({ "to": "owner", "why": "Only the owner decides this." }),
-                1 => reply["hand_over"] = json!({ "to": "architect", "project": other, "why": "It is theirs." }),
+                0 | 1 => reply["hand_over"] = json!({ "to": "architect", "project": other, "why": "It is theirs." }),
                 2 => {
                     if let Some(i) = later {
                         reply["waits"] =
@@ -10387,7 +10570,7 @@ fn random_events(seed: u64, events: usize) {
         }),
     );
     // Choosing the way on waits when the reply says to and carries on otherwise, but now and then chooses wrong,
-    // which asks the owner.
+    // which goes to the architect as a flow anomaly.
     let (d, p) = (dice.clone(), path.clone());
     agents.insert(
         "A4",
@@ -10477,26 +10660,7 @@ fn random_events(seed: u64, events: usize) {
     let mut log = Vec::new();
     for n in 0..events {
         let event = match dice.roll(100) {
-            0..=11 => match open_asks(&e).first() {
-                Some(ask) => {
-                    let back = dice.roll(3) == 0;
-                    let answer = api::Answer {
-                        text: "Go on.".into(),
-                        why: None,
-                        reply: None,
-                        to: back.then(|| "architect".to_string()),
-                        images: Vec::new(),
-                    };
-                    match api::answer(&mut e.db, *ask, &answer) {
-                        Ok(_) if back => format!("the owner hands ask {ask} back to the architect"),
-                        Ok(_) => format!("the owner answers ask {ask}"),
-                        // An ask an architect asked, which holds no task, is not handed back.
-                        Err(why) => format!("the owner cannot answer ask {ask} so: {why}"),
-                    }
-                }
-                None => "no ask to answer".into(),
-            },
-            12..=19 => match a_work(&e, &dice) {
+            0..=19 => match a_work(&e, &dice) {
                 Some(w) => {
                     e.db.write(Actor::Owner, |tx| {
                         tx.execute(
@@ -10604,9 +10768,9 @@ macro_rules! random_events {
     )*};
 }
 
-// Random sequences of events (asks of the advisor, the architect and the owner, hand-overs between them and between
-// two related projects' architects, the architects' replies, the owner's answers, interjections, cancels, ends and
-// takeovers by a new flow version) leave every chain of blockers closed after each event: every stopped task has
+// Random sequences of events (asks of the advisor and the architect, hand-overs between them and between two related
+// projects' architects, the architects' replies, flow anomalies, interjections, cancels, ends and takeovers by a new
+// flow version) leave every chain of blockers closed after each event: every stopped task has
 // exactly one open blocker, raised at the cell it stopped at and held by the holder of the cell it stands at; every
 // open blocker's holder exists, in whichever project; no ended task has an open blocker; the items waited for form no
 // cycle, across projects; and a chain of hand-overs between architects always has a current holder.

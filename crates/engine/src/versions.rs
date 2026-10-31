@@ -196,7 +196,7 @@ mod tests {
         );
         // Nor does it move while it waits to go back to a cell that is gone.
         let asking = Position {
-            at: "A3".into(),
+            at: "A2".into(),
             stopped: Some("R2".into()),
             callers: vec!["R2".into()],
             ..Position::default()
@@ -257,10 +257,10 @@ mod tests {
     fn a_row_the_engine_took_itself_is_no_return() {
         let old = engineer();
         let mut new = old.clone();
-        new.cells.retain(|c| c.id != "A3");
+        new.cells.retain(|c| c.id != "A2");
         let withdrawn = Handed {
             round: RoundId::new(4, 9),
-            cell: "A3".into(),
+            cell: "A2".into(),
             output: json!({}),
         };
         assert_eq!(why_not(&old, &new, &at("R2"), &[withdrawn]), None);

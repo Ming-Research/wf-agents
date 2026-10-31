@@ -1501,10 +1501,12 @@ fn report_followup(e: &Engine, w: &Work, project: &config::Project) -> Result<Op
     }))
 }
 
-/// Cell `A3`: the question becomes an ask of the owner, and the work waits for the answer, holding no slot; once the
-/// answer came, it goes on when its machine has a slot free, in a step held to the slots (`slotted`, [`no_slot`]). An
-/// ask of cell `A2` that an earlier engine put to the owner, who answered for the architect in the architect's form, is
-/// completed by the owner's answer the same way.
+/// Cell `A3` of a flow version from before the engineer's graph lost its hand-over to the owner: the question becomes an
+/// ask of the owner, and the work waits for the answer, holding no slot; once the answer came, it goes on when its
+/// machine has a slot free, in a step held to the slots (`slotted`, [`no_slot`]). An ask of cell `A2` that an earlier
+/// engine put to the owner, who answered for the architect in the architect's form, is completed by the owner's answer
+/// the same way. A work standing at `A3` is taken over by the version the engine runs when it next goes on, which has
+/// no such cell, so that this runs only for a work the engine has not brought up yet.
 fn ask(
     e: &mut Engine,
     w: &Work,

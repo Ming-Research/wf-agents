@@ -1,5 +1,7 @@
 //! The faults of wf-agents the engine tells the owner of: a round that missed its session's prompt cache, and a flow
-//! anomaly, where the way on an engineer chose did not fit the situation and the work asks the owner. wf-agents runs
+//! anomaly, where the way on an engineer chose did not fit the situation and the work asked the owner, in a flow version
+//! from before the engineer's graph lost its hand-over to the owner; a flow anomaly now goes to the project's
+//! architect as a gap of the flow, and the owner is told of it no longer. wf-agents runs
 //! other projects too, and such a fault is its own whichever project it came up in, to be fixed in wf-agents: so it
 //! goes to the owner, in a notice that names the fault, and not into what a project's architect reads unless the owner
 //! forwards it to that architect, by hand or by the setting that forwards each new one as it comes. A further cache

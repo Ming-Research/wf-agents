@@ -555,6 +555,11 @@
   text-overflow: ellipsis;
 }
 
+/* The architect's pause of a work, pinned: what the owner must do, in body text. */
+.talk-pinned-pause {
+  margin: 0;
+}
+
 /* The architect's own trouble, pinned: in the colour of what is wrong. */
 .talk-pinned-trouble {
   margin: 0;

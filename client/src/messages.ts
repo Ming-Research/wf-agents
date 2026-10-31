@@ -515,6 +515,7 @@ const messages = {
   course_halted_why: 'halted: {why}',
   course_paused_architect: 'paused by the architect',
   course_paused_architect_why: 'paused by the architect: {why}',
+  work_paused_for_you: 'The architect paused this work for what only you can do: {why}. Do it, then start the work.',
   course_all: 'paused by Pause all',
   course_all_why: 'Every work is paused, by Pause all in the bar.',
   course_releasing: 'started, waiting for a free slot',

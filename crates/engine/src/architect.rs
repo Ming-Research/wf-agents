@@ -1256,9 +1256,10 @@ pub fn ask_owner(
 
 // An engineer's question.
 
-/// The kind of matter a question to the architect is, with its detail: when a cell asked, an engineer's question, with
-/// none, since an ask carries no kind and the architect reads what it is about from what it says; for an engine tool
-/// that failed, or main's environment that changed, a failure, with which.
+/// The kind of matter a question to the architect is, with its detail: when a cell asked, or the engine reports a flow
+/// anomaly (the way on the engineer chose did not fit), an engineer's question, with none, since an ask carries no kind
+/// and the architect reads what it is about from what it says; for an engine tool that failed, or main's environment
+/// that changed, a failure, with which.
 fn question_kind(gathered: &[Gathered]) -> (&'static str, Option<String>) {
     fn path_of(p: &inputs::Part) -> String {
         match &p.origin {
@@ -1267,7 +1268,10 @@ fn question_kind(gathered: &[Gathered]) -> (&'static str, Option<String>) {
         }
     }
     let parts: Vec<&inputs::Part> = gathered.iter().flat_map(|x| &x.parts).collect();
-    if parts.iter().any(|p| path_of(p) == "ask" && !empty(&p.value)) {
+    if parts
+        .iter()
+        .any(|p| matches!(path_of(p).as_str(), "ask" | "next") && !empty(&p.value))
+    {
         return ("engineer_question", None);
     }
     if parts
@@ -1413,6 +1417,8 @@ pub fn ask_architect(
             "Work {} on item {} ({}){of}: the owner decided its question, for you to carry out{about}",
             w.id, item.id, item.title
         ),
+        // A flow anomaly asks nothing in words: the blocker says what the engine found.
+        None if about.is_empty() => b.what.clone(),
         None => format!("Work {} on item {} ({}){of} asks{about}", w.id, item.id, item.title),
     };
     let body = json!({
@@ -1906,10 +1912,16 @@ fn reporter(tx: &Transaction<'_>, matter: i64) -> Result<Option<Reporter>, Strin
             let cell = crate::blockers::of_matter(tx, matter)?
                 .map(|b| b.cell)
                 .unwrap_or_default();
+            let what: String = tx
+                .query_row("SELECT what FROM architect_matters WHERE id = ?1", [matter], |r| {
+                    r.get(0)
+                })
+                .map_err(sql)?;
+            // A flow anomaly asks nothing in words, and is said as the matter says it.
             let said = items(body.get("asked"))
                 .iter()
                 .find_map(|a| a["value"]["points"][0]["what"].as_str().map(str::to_string))
-                .unwrap_or_default();
+                .unwrap_or(what);
             (QUESTION, cell, said)
         }
         _ => return Ok(None),

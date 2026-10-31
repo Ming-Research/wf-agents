@@ -863,19 +863,6 @@
    }
   }
  ],
- "A3": [
-  {
-   "row": "answered",
-   "json": {
-    "reply": {
-     "text": "reply.text"
-    }
-   },
-   "given": {
-    "interjection": "no"
-   }
-  }
- ],
  "X1": [
   {
    "row": "ran",

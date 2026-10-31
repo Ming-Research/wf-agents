@@ -944,12 +944,12 @@ mod tests {
         assert_eq!(cycle(&w), Some(vec![1, 2, 3]));
     }
 
-    // A blocker that a row of the flow raises for the owner with no ask handed in says what happened, for every such
-    // row: a row of a flow anomaly, such as the engineer's way on that does not fit, the cell whose way on did not fit
-    // and why, as the row's note says; a row that is none, the cell where the owner is waited for and what is done
-    // there, after which cell; never that a way on did not fit where none was chosen.
+    // A blocker that a row of the flow raises for the architect or the owner with no ask handed in says what happened,
+    // for every such row: a row of a flow anomaly, such as the engineer's way on that does not fit, the cell whose way
+    // on did not fit and why, as the row's note says; a row that is none, the cell where the holder is waited for and
+    // what is done there, after which cell; never that a way on did not fit where none was chosen.
     #[test]
-    fn a_blocker_raised_with_no_ask_says_what_the_owner_is_waited_for() {
+    fn a_blocker_raised_with_no_ask_says_what_its_holder_is_waited_for() {
         let relations = db::relations(db::SCHEMA).unwrap();
         let tables = db::index_of(db::SCHEMA).unwrap();
         let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
@@ -961,16 +961,19 @@ mod tests {
                     .iter()
                     .filter(|r| !r.common && r.actions.iter().any(|a| a.name() == "raise_blocker"));
                 for r in raising {
-                    if !g.holder_cell(&r.to).is_some_and(|h| h.holders == ["owner"]) {
+                    let Some(holder) = g.holder_cell(&r.to).and_then(|h| match h.holders.as_slice() {
+                        [one] if one == "architect" || one == "owner" => Some(one.clone()),
+                        _ => None,
+                    }) else {
                         continue;
-                    }
+                    };
                     let to = g.cell(&r.to).unwrap();
                     let left = format!("cell {} ({})", c.id, c.title);
                     if crate::faults::counts_anomaly(r) {
                         anomalies += 1;
-                        let said = unasked("Work 5", "owner", c, r, &to.id, &to.title);
+                        let said = unasked("Work 5", &holder, c, r, &to.id, &to.title);
                         let start = format!(
-                            "Work 5 met a flow anomaly at {left}, a fault of wf-agents, and asks the owner how to go on: "
+                            "Work 5 met a flow anomaly at {left}, a fault of wf-agents, and asks the {holder} how to go on: "
                         );
                         let why = said.strip_prefix(&start).unwrap_or_else(|| panic!("{said}"));
                         assert!(!why.is_empty() && !why.contains("flow anomaly"), "{said}");
@@ -978,9 +981,9 @@ mod tests {
                     let mut none = r.clone();
                     none.counts = None;
                     assert_eq!(
-                        unasked("Work 5", "owner", c, &none, &to.id, &to.title),
+                        unasked("Work 5", &holder, c, &none, &to.id, &to.title),
                         format!(
-                            "Work 5 waits for the owner at cell {} ({}), after {left}",
+                            "Work 5 waits for the {holder} at cell {} ({}), after {left}",
                             to.id, to.title
                         )
                     );

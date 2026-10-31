@@ -108,6 +108,7 @@ import {
   voiceOf,
   wordsStateText,
 } from '../conversation';
+import { useActions } from '../course';
 import { cost, time } from '../format';
 import { postJson } from '../http';
 import { imagesSent, type PendingImage, saysSomething } from '../images';
@@ -806,6 +807,37 @@ export function Pinned({ d, c }: { d: ConversationDetail; c: Conversation }) {
   );
 }
 
+/// A work the architect paused, pinned at the top of its group while the pause holds it: what only the owner can do, as
+/// the architect wrote why it paused the work, and Start, which lets the work go on once the owner has done it and
+/// tells the architect, as the Start in the head does.
+export function ArchitectPause({ w }: { w: WorkSummary | null }) {
+  if (w === null || w.paused_by !== 'architect') return null;
+  return <PausedByArchitect w={w} />;
+}
+
+function PausedByArchitect({ w }: { w: WorkSummary }) {
+  const status = useStatus();
+  const a = useActions(w, status, true);
+  if (a.c.held !== 'architect') return null;
+  return (
+    <Pins at="top">
+      <p className="talk-pinned-pause">{t('work_paused_for_you', { why: w.paused ?? '' })}</p>
+      <div className="talk-answer-buttons">
+        <Button
+          size="small"
+          variant="primary"
+          title={t('work_start_architect_hint')}
+          disabled={a.busy || !a.can.start}
+          onClick={a.start}
+        >
+          {t('work_start')}
+        </Button>
+        {a.error !== null ? <span className="bad">{t('request_failed', { error: a.error })}</span> : null}
+      </div>
+    </Pins>
+  );
+}
+
 /// The architect's own trouble, pinned at the top of its one-to-one while the owner must act on it: the engine halted
 /// the work it goes on in, and why; the head's Start lets it go on once that is fixed.
 function Trouble({ a }: { a: Architect | null }) {
@@ -1095,7 +1127,7 @@ export function Stream({ d, c, w, draft = null, architect = null }: {
 }
 
 /// One conversation: its head with the owner's controls, what waits for the owner pinned under it (the design card a
-/// work waits on and its asks that wait), the stream,
+/// work waits on, its asks that wait and the architect's pause of it), the stream,
 /// the questions an architect pinned over the box, and the one box at the bottom, with the tick that replies to the
 /// question open; the one-to-one with an architect has the panel of its notebook, policy and queue beside it, while it
 /// is open, on the tab the address names (`side`), else on the notebook. Reading it marks it read up to its latest
@@ -1164,6 +1196,7 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
         ) : (
           <>
             <Pinned d={d} c={c} />
+            <ArchitectPause w={c.kind === 'work' ? w : null} />
             <Trouble a={a} />
             <Stream d={d} c={c} w={w} draft={a?.draft ?? null} architect={a} />
             <Questions
