@@ -43,9 +43,9 @@ import {
   toArchitect,
 } from './conversation';
 import { holdsWords, nowWords } from './course';
-import { ordinal } from './format';
+import { ordinal, time } from './format';
 import { admit, IMAGE_MOST_BYTES, imagesSent, pastedFiles, type PendingImage, saysSomething } from './images';
-import { DesignCardView } from './pages/Decide';
+import { AskView, DesignCardView } from './pages/Decide';
 import { Composer, Questions, type Reply, Stream, workMark } from './pages/Messages';
 import { SayBox } from './parts';
 import { t } from './text';
@@ -1049,6 +1049,106 @@ describe("a work's group as a chat", () => {
     expect(html).toContain('changed since your ruling on design card 12: confirm it again');
     const ruled = renderToStaticMarkup(<DesignCardView c={{ ...card, status: 'ruled' }} round="R5-63" folded />);
     expect(ruled).not.toContain('changed since your ruling');
+  });
+});
+
+describe('a design card and an ask, where they stand said by the chip and the facts of the head alone', () => {
+  const card = (extra: Partial<DesignCard>): DesignCard => ({
+    id: 15,
+    round: 63,
+    work: 5,
+    item: 3,
+    status: 'open',
+    body: [
+      {
+        after: 'Keep one table.',
+        chosen: 'One table',
+        options: [{ name: 'One table' }, { name: 'Two tables' }],
+      },
+      { after: 'Name it runs.' },
+    ],
+    rulings: [],
+    replaced_by: null,
+    replaced: null,
+    cell: null,
+    title: null,
+    at: null,
+    replaces: null,
+    changed: null,
+    ruled_before: null,
+    ...extra,
+  });
+  /// The card's head and its body, apart.
+  const parts = (html: string): [string, string] => {
+    const [head = '', body = ''] = html.split('class="dc-body"');
+    return [head, body];
+  };
+  const at = new Date(2026, 9, 30, 10, 40).getTime();
+
+  it('says in the head of a design card that waits that it blocks nothing until the work merges, with no band', () => {
+    const [head, body] = parts(renderToStaticMarkup(<DesignCardView c={card({})} round="R5-63" />));
+    expect(head).toContain('waits for you');
+    expect(head).toContain('blocks nothing until the work merges');
+    expect(body).not.toContain('Waits for your ruling');
+  });
+
+  it("marks each decision of a ruled card with its verdict and the owner's words, who ruled when in the head", () => {
+    const c = card({
+      status: 'ruled',
+      rulings: [
+        { by: 'owner', at: at - 60_000, decisions: [{ decision: 1, verdict: 'confirm' }, { decision: 2, verdict: 'confirm' }] },
+        {
+          by: 'owner',
+          at,
+          decisions: [
+            { decision: 1, verdict: 'disagree', option: 'Two tables', text: 'The reads differ.' },
+            { decision: 2, verdict: 'confirm' },
+          ],
+        },
+      ],
+    });
+    const [head, body] = parts(renderToStaticMarkup(<DesignCardView c={c} round="R5-63" />));
+    expect(head).toContain('>disagreed<');
+    expect(head).toContain(`ruled by you at ${time(at)}`);
+    expect(head).not.toContain('blocks nothing');
+    const [first = '', second = ''] = body.split('class="dc-dec"').slice(1);
+    // The verdict beside each decision, and the owner's words on the one disagreed with as what is sent to an agent,
+    // the approach chosen marked among those compared.
+    expect(first).toContain('>disagreed<');
+    expect(first).toContain('Your ruling');
+    expect(first).toMatch(/class="sheet"><p><strong>.*Two tables.*<\/strong><\/p>.*The reads differ\./);
+    expect(first).toContain('your choice');
+    expect(second).toContain('>confirmed<');
+    expect(second).not.toContain('Your ruling');
+    // The earlier ruling, folded under the decisions.
+    expect(second).toMatch(/<details class="fold">.*1 earlier ruling.*Decision 1: confirm/);
+    expect(second).toContain(`ruled by you at ${time(at - 60_000)}`);
+  });
+
+  it("puts a ruling made for the whole card once over the decisions, each decision marked with its verdict", () => {
+    const c = card({ status: 'ruled', rulings: [{ by: 'owner', at, verdict: 'disagree', text: 'Start again.' }] });
+    const [, body] = parts(renderToStaticMarkup(<DesignCardView c={c} round="R5-63" />));
+    expect(body.match(/Your ruling/g)?.length).toBe(1);
+    expect(body.match(/>disagreed</g)?.length).toBe(2);
+    expect(body).not.toContain('earlier ruling');
+  });
+
+  it("says in the head of an ask who answered and when, and shows the answer as the owner's words", () => {
+    const [waitsHead, waitsBody] = parts(renderToStaticMarkup(<AskView a={ask(4, choice)} round="R5-2" />));
+    expect(waitsHead).toContain('waits for you');
+    expect(waitsBody).not.toContain('Waits for your answer');
+    const answered = ask(4, choice, { by: 'owner', at, choice: 'Two tables', text: 'Split them.' });
+    const [head, body] = parts(renderToStaticMarkup(<AskView a={answered} round="R5-2" />));
+    expect(head).toContain('>answered<');
+    expect(head).toContain(`answered by you at ${time(at)}`);
+    expect(body).toMatch(/Your answer.*class="sheet"><p><strong>.*Two tables.*<\/strong><\/p>.*Split them\./);
+    expect(body).toContain('your choice');
+    // Closed by the engine: why, in the page's own words.
+    const closed = ask(4, choice, { by: 'engine', at, text: 'No answer is needed: the work ended (cancelled).' });
+    const [closedHead, closedBody] = parts(renderToStaticMarkup(<AskView a={closed} round="R5-2" />));
+    expect(closedHead).toContain('answered by the engine');
+    expect(closedBody).toContain('<p>No answer is needed: the work ended (cancelled).</p>');
+    expect(closedBody).not.toContain('class="sheet"');
   });
 });
 

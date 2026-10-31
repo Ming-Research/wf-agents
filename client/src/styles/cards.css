@@ -1,7 +1,8 @@
 /* The card every card the page shows the owner shares, a design card and an ask of the owner alike, wherever it is
-   shown, drawn as GitHub draws a comment: a box, its head on the muted background (its name, its status as a Label,
-   the round it came from, its facts); where it stands with the owner as a Flash; and boxes that hold what the agent
-   wrote, word for word, each under the page's label for it. A folded card is its head on one line. */
+   shown, drawn as GitHub draws a comment: a box, its head on the muted background (its name, where it stands with the
+   owner as its status's Label, the round it came from, its facts, who ruled or answered and when among them); and
+   boxes that hold what the agent wrote, word for word, each under the page's label for it. A folded card is its head
+   on one line. */
 
 .dc-lead {
   margin: 0;
@@ -86,11 +87,6 @@ details.dc:not([open]) > summary > .fold-open,
 .dc-note {
   color: var(--fgColor-muted);
   font-size: var(--text-body-size-small);
-}
-
-/* Where the card stands with the owner, and who ruled when. */
-.dc-band {
-  font-size: var(--text-body-size-medium);
 }
 
 /* A box of what the agent wrote, word for word, under the page's label for it and its note. */
