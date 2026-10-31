@@ -618,14 +618,14 @@ CREATE TABLE architect_matters (
   -- flow version before ran as a stage of its own, and policy for a setting that ended, when the setting was a work of
   -- its own.
   kind TEXT NOT NULL,
-  -- What more its kind says: nothing for an engineer's question, which carries no kind (one queued before asks lost
-  -- their kinds has its own: split, duplicate, ...); a report's (a side report's kind, followup for a report's what to
-  -- do next, answer for an engineer's answer to what the architect said to its work, flow_feedback for what agents said
-  -- was wrong with their cells, or fault for a fault of wf-agents forwarded to it, by the owner or by the owner's
-  -- setting, which starts a work of it as a report does); a failure's (tool_failed, environment_changed); the owner's
-  -- words' (said, answer, release, approved_changes); a message's (message, reply, or flow_feedback for flow feedback
-  -- another project's architect forwarded); the kind of a place to set straight. NULL when there is nothing more. Read
-  -- by: the engine, for the matter's material and whether it starts a work of the architect; the owner's interface.
+  -- What more its kind says: an engineer's question's own kind (split, duplicate, ...); a report's (a side report's
+  -- kind, followup for a report's what to do next, answer for an engineer's answer to what the architect said to its
+  -- work, flow_feedback for what agents said was wrong with their cells, or fault for a fault of wf-agents forwarded
+  -- to it, by the owner or by the owner's setting, which starts a work of it as a report does); a failure's
+  -- (tool_failed, environment_changed); the owner's words' (said, answer, release, approved_changes); a message's
+  -- (message, reply, or flow_feedback for flow feedback another project's architect forwarded); the kind of a place to
+  -- set straight. NULL when there is nothing more. Read by: the engine, for the matter's material and whether it starts a work of
+  -- the architect; the owner's interface.
   detail TEXT,
   -- What it is, in one sentence, as the engine wrote it.
   what TEXT NOT NULL,
