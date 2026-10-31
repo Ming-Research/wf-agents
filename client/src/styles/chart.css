@@ -528,10 +528,12 @@ svg.fc {
   animation: fc-flow var(--chart-flow-time) linear infinite;
 }
 
-/* What lights a row colours it and leaves it as thin as any arrow: the row the pointer is on, from its source to its
-   target, orange; the rows into the cell picked, or the cell under the pointer, green, and out of it red. */
+/* What lights a row colours it: the row the pointer is on, from its source to its target, or one a line of the panel's
+   From or To lights, orange and heavy, as the owner asked, so that it stands out from the rows lit beside it; the rows
+   into the cell picked, or the cell under the pointer, green, and out of it red, as thin as any arrow. */
 .fc-edge-hot {
   stroke: var(--fc-hot);
+  stroke-width: var(--chart-line-marked);
 }
 
 .fc-edge-in {

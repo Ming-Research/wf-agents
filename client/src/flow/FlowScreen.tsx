@@ -5,8 +5,9 @@
 // the top by a divider that drags, at the share the owner last set on either page. On the flow page, which has no
 // panel of its own, what is open is alone in the window, which shows from the first thing opened. What is open has no
 // close: it stays until something else is opened or the way back is taken. The window starts minimised; a click on
-// the chart that opens something expands it. Every page that shows a flow shows it here, in this one way, so that
-// what is opened on one shows as on the others.
+// the chart that opens something expands it. The lines of an open panel's From and To light their rows on the chart
+// (lights.ts). Every page that shows a flow shows it here, in this one way, so that what is opened on one shows as on
+// the others.
 
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
@@ -22,6 +23,7 @@ import { DiffPanel } from './Changes';
 import { ActionPanel, StorePanel, storeWho } from './EnginePanels';
 import { type Flow, flowOf, FlowContext, type Subject, subjectKey } from './context';
 import { coverOf, Dock, DockContext, type Fold, FoldButton, foldIn, foldOnClick, useMinimised } from './Dock';
+import { LightsContext, useLights } from './lights';
 import { Grip, Panel, savedSize, useTrail } from './Panel';
 import { OPEN_FIRST, type Side, toggled } from './Sides';
 import { CellLinks, inline, sheetText } from './words';
@@ -453,6 +455,8 @@ export function FlowScreen(props: FlowScreenProps) {
     }
   }, [now, rounds, first]);
   const shown = panel !== null && now !== null;
+  // The rows the lines of the panel's From and To light on the chart, let go when it shows something else.
+  const { lights, lit } = useLights(now !== null ? subjectKey(now) : null);
   const docked = side !== undefined || shown;
   // The window's top row, which it folds to, holds the button that minimises and expands it, and a click on the row
   // does the same.
@@ -489,7 +493,9 @@ export function FlowScreen(props: FlowScreenProps) {
         minimised={minimised}
         fold={head === 'open' ? fold : null}
       >
-        <FlowContext.Provider value={panel.flow}>{panel.body}</FlowContext.Provider>
+        <FlowContext.Provider value={panel.flow}>
+          <LightsContext.Provider value={lights}>{panel.body}</LightsContext.Provider>
+        </FlowContext.Provider>
       </Panel>
     ) : null;
   const chartMarks = useMemo(
@@ -497,8 +503,9 @@ export function FlowScreen(props: FlowScreenProps) {
       graphs.map((x, i) => ({
         ...(marks[i] ?? { overlays: null, taken: null, added: new Set<string>(), changed: new Set<string>() }),
         selected: now !== null && picked !== null && 'graph' in picked && picked.graph === x.g.name ? picked.node : null,
+        rows: lit.filter((l) => l.graph === x.g.name).flatMap((l) => l.rows),
       })),
-    [graphs, marks, now, picked],
+    [graphs, marks, now, picked, lit],
   );
   const openStore = now !== null && picked !== null && 'store' in picked ? picked.store : null;
   return (

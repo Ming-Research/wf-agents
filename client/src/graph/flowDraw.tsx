@@ -11,7 +11,7 @@
 // hexagon. A cell, which a work stands at, is edged heavier than every shape beside it and titled semibold. The
 // cell picked, or the cell under the pointer while the pointer is on one, has its rows into it lit green and its rows
 // out of it red. Hovering an arrow or its label lights up the whole row, every arrow that draws it from its source to
-// its target.
+// its target, heavier than any arrow; so does hovering or picking its line in the panel's From or To.
 
 import { type ReactNode, useRef, useState } from 'react';
 
@@ -22,8 +22,10 @@ import {
   type Chart,
   type ChartEdge,
   type ChartNode,
+  lineArrows,
   type Overlay,
   related,
+  type RowAt,
   type Wait,
   scopeOf,
   ways,
@@ -372,6 +374,8 @@ export type Marks = {
   lit?: Ways;
   /// On a work's page: the cell the halo goes round, where a round runs or has just run (`haloAt`).
   halo?: string | null;
+  /// The rows a line of the panel's From or To lights: the line under the pointer and the lines picked.
+  rows?: RowAt[];
 };
 
 function CellShape({ n, cell, box, lines, note, marks }: {
@@ -618,11 +622,11 @@ export function litCell(c: Chart, picked: string | null, pointed: string | null)
   return cell(pointed) ?? cell(picked);
 }
 
-/// How an arrow is drawn, the first that holds: the row the pointer is on or that was clicked (`hot`); the way the
-/// round chosen came in by or left by (`lit-in`, `lit-out`); a row into or out of the cell lit (`in`, `out`, out first
-/// for a row from the cell back into it); a rule's, the interjection's or the line to what a cell does every time
-/// (`rule`); on a work's chart a row the work took (`taken`) or did not (`quiet`); a row on the main path (`main`); any
-/// other (`plain`).
+/// How an arrow is drawn, the first that holds: the row the pointer is on, that was clicked or that a line of the
+/// panel's From or To lights (`hot`); the way the round chosen came in by or left by (`lit-in`, `lit-out`); a row into
+/// or out of the cell lit (`in`, `out`, out first for a row from the cell back into it); a rule's, the interjection's or
+/// the line to what a cell does every time (`rule`); on a work's chart a row the work took (`taken`) or did not
+/// (`quiet`); a row on the main path (`main`); any other (`plain`).
 export type LineKind = 'hot' | 'lit-in' | 'lit-out' | 'in' | 'out' | 'rule' | 'taken' | 'quiet' | 'main' | 'plain';
 
 /// Every kind, each with an arrowhead of its own.
@@ -680,7 +684,11 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
     const c = id !== null ? cells.get(id) : undefined;
     return c !== undefined ? ` ${styleOf(c)}` : '';
   };
-  const hot = new Set([...related(chart.edges, hover), ...related(chart.edges, pinned)]);
+  const hot = new Set([
+    ...related(chart.edges, hover),
+    ...related(chart.edges, pinned),
+    ...lineArrows(g, chart.edges, marks.rows ?? []),
+  ]);
   const lighted = ways(chart.edges, litCell(chart, marks.selected, pointedNode));
   const ringed = [...(marks.overlays ?? [])].find(([, o]) => o.current)?.[0];
   const ring = ringed !== undefined ? `c:${ringed}` : null;

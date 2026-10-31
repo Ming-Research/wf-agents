@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { Compiled, CompiledCell, CompiledGraph, CompiledRow, FlowView, GraphView, JsonValue, RoundDetail, RoundSummary } from './api';
 import { flowOf, FlowContext } from './flow/context';
+import { type Lights, LightsContext } from './flow/lights';
 import { Json, ReturnPattern } from './flow/Returns';
 import { FromTable, ToTable } from './flow/Rows';
 import { RoundView } from './pages/RoundView';
@@ -251,6 +252,20 @@ describe("a cell's panel", () => {
       '|later|outcome.take.way is later|B1 Where the batch stood|',
       '|search|the return has outcome.search|X2 Search observations|',
     ]);
+  });
+
+  it('beside a chart, makes each line one a click picks, and marks a line picked as the row picked', () => {
+    const lights: Lights = { picked: new Set(['from:X2:found', 'to:later']), point: () => {}, toggle: () => {} };
+    const html = renderToStaticMarkup(
+      <FlowContext.Provider value={f}>
+        <LightsContext.Provider value={lights}>
+          <FromTable c={h8} />
+          <ToTable c={h8} />
+        </LightsContext.Provider>
+      </FlowContext.Provider>,
+    );
+    const marked = [...html.matchAll(/<tr(?: class="([^"]*)")?>/g)].map((m) => m[1] ?? '');
+    expect(marked).toEqual(['', 'clickable', 'clickable selected', '', 'clickable', 'clickable selected', 'clickable']);
   });
 
   it("shows a round's return as JSON, a key's tip what the flow says of its place", () => {

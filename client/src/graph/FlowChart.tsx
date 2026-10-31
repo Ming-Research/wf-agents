@@ -251,9 +251,9 @@ function Opened({ id, button, onClose, children }: {
 }
 
 /// What every mark on the chart means, opened above the "?" in its corner: the kinds of cell, the efforts agents'
-/// cells run at, low to high, the rules and the interjection, the circles, the main path and the rows into and out of
-/// the cell lit, and the marks of a work, with the bar beside an agent round's cost in its rounds list, or of a
-/// comparison; then how the chart moves.
+/// cells run at, low to high, the rules and the interjection, the circles, the main path, the rows into and out of the
+/// cell lit and the row pointed at, and the marks of a work, with the bar beside an agent round's cost in its rounds
+/// list, or of a comparison; then how the chart moves.
 function Legend({ charts, stores, legend }: {
   charts: Array<{ g: CompiledGraph; chart: Chart }>;
   stores: boolean;
@@ -564,6 +564,12 @@ function Legend({ charts, stores, legend }: {
             <path className="fc-edge fc-edge-out" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-out)" />
           </Swatch>
           {t('legend_way_out')}
+        </li>
+        <li>
+          <Swatch>
+            <path className="fc-edge fc-edge-hot" d="M 2 9 L 25 9" markerEnd="url(#fc-arrow-hot)" />
+          </Swatch>
+          {t('legend_hot')}
         </li>
         {legend === 'compare' ? (
           <>

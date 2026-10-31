@@ -5,11 +5,13 @@
 // them, then its moves, and the engine's fallback, the same for every agent cell, folded at the end. A condition names
 // what of the return it is worked out from as the return holds it ("`outcome.take.way` is `do_now`"), or the engine's
 // value it reads. On a round, the row it came in by and the row it left by are marked as the row picked, with the
-// round on the other side beside each, and every other row is greyed.
+// round on the other side beside each, and every other row is greyed. Beside a chart, hovering a line lights its rows
+// on the chart as hovering their arrows does, and a click picks the line, which keeps them lit, or lets it go
+// (lights.ts).
 
 import { ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
 import { Label } from '@primer/react';
-import { Fragment, type ReactNode, useState } from 'react';
+import { Fragment, type MouseEvent, type PointerEvent, type ReactNode, useContext, useRef, useState } from 'react';
 
 import type { CompiledCell, CompiledGraph, CompiledRow, RoundSummary, RowRef } from '../api';
 import { actionWords, fallback, mainPath, type Move, moves, rowActions } from '../graph/flowModel';
@@ -17,6 +19,7 @@ import { LinkButton } from '../parts';
 import { t, tn } from '../text';
 import { joined, Name } from '../voices';
 import { type Flow, useFlow } from './context';
+import { type Line, LightsContext } from './lights';
 import { CellCode, CellLink, conditionsWords, inline, placeIn, Target } from './words';
 
 /// Where a cell is entered from, by kind: other cells' own answers that lead here, and the cell's own back to itself;
@@ -181,6 +184,39 @@ function RowName({ name }: { name: string }) {
 /// The class of a line of a table on a round: the one taken, or another, greyed; none on a cell's panel.
 const lineClass = (taken: Taken | undefined, hit: boolean) => (taken === undefined ? undefined : hit ? 'side-taken' : 'side-other');
 
+/// How a line of a table lights its rows on the chart beside it: under the pointer, and picked by a click, marked as
+/// the row picked, until a click lets it go. A click on a link in it does what the link does, and a drag that moves or
+/// selects its text picks nothing. Nothing where no chart is beside the table.
+function useLines(): (line: Line, className: string | undefined) => {
+  className: string | undefined;
+  onPointerEnter?: () => void;
+  onPointerLeave?: () => void;
+  onPointerDown?: (e: PointerEvent) => void;
+  onClick?: (e: MouseEvent) => void;
+} {
+  const lights = useContext(LightsContext);
+  const pressed = useRef<{ x: number; y: number } | null>(null);
+  return (line, className) => {
+    if (lights === null) return { className };
+    const picked = lights.picked.has(line.key);
+    return {
+      className: [className, 'clickable', picked ? 'selected' : ''].filter((x) => x !== undefined && x !== '').join(' '),
+      onPointerEnter: () => lights.point(line),
+      onPointerLeave: () => lights.point(null),
+      onPointerDown: (e) => {
+        pressed.current = { x: e.clientX, y: e.clientY };
+      },
+      onClick: (e) => {
+        if ((e.target as Element).closest('a, button') !== null) return;
+        const p = pressed.current;
+        if (p !== null && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 4) return;
+        if (!(window.getSelection()?.isCollapsed ?? true)) return;
+        lights.toggle(line);
+      },
+    };
+  };
+}
+
 /// The cells a line of From comes from: the cell by its code and title, itself, or many by their codes.
 function Sources({ cells, here }: { cells: string[]; here: string }) {
   if (cells.length === 1) return cells[0] === here ? <>{t('entered_itself')}</> : <CellLink id={cells[0]} />;
@@ -199,6 +235,7 @@ function Sources({ cells, here }: { cells: string[]; here: string }) {
 /// The table of the rows that lead into a cell; on a round, the one it came in by marked, the round it came from beside.
 export function FromTable({ c, taken }: { c: CompiledCell; taken?: Taken }) {
   const f = useFlow();
+  const lines = useLines();
   const rows = intoRows(f, c);
   const from = taken?.from ?? null;
   const hit = from !== null ? rows.findIndex((x) => x.cells.includes(from.cell) && x.rows.includes(from.row)) : -1;
@@ -219,7 +256,17 @@ export function FromTable({ c, taken }: { c: CompiledCell; taken?: Taken }) {
           </thead>
           <tbody>
             {rows.map((x, i) => (
-              <tr key={`${x.cells.join(',')}:${x.row}`} className={lineClass(taken, i === hit)}>
+              <tr
+                key={`${x.cells.join(',')}:${x.row}`}
+                {...lines(
+                  {
+                    key: `from:${x.cells.join(',')}:${x.row}`,
+                    graph: f.g.name,
+                    rows: x.cells.flatMap((cell) => x.rows.map((row) => ({ cell, row, into: c.id }))),
+                  },
+                  lineClass(taken, i === hit),
+                )}
+              >
                 <td>
                   <Sources cells={x.cells} here={c.id} />
                 </td>
@@ -263,6 +310,7 @@ function Does({ r }: { r: CompiledRow }) {
 /// The table of a cell's own rows; on a round, the one it left by marked, the round it led to beside.
 export function ToTable({ c, taken }: { c: CompiledCell; taken?: Taken }) {
   const f = useFlow();
+  const lines = useLines();
   const [shown, setShown] = useState(false);
   const out = leavesTo(c);
   const hit = taken?.to != null ? c.rows.findIndex((r) => r.name === taken.to) : -1;
@@ -272,7 +320,10 @@ export function ToTable({ c, taken }: { c: CompiledCell; taken?: Taken }) {
   const line = (i: number) => {
     const r = c.rows[i];
     return (
-      <tr key={i} className={lineClass(taken, i === hit)}>
+      <tr
+        key={i}
+        {...lines({ key: `to:${r.name}`, graph: f.g.name, rows: [{ cell: c.id, row: r.name }] }, lineClass(taken, i === hit))}
+      >
         <td title={r.note ?? fallbackWords(f.g, r) ?? undefined}>
           <RowName name={r.name} />
           {mainPath(r) ? (

@@ -675,6 +675,31 @@ export function ways(edges: ChartEdge[], node: string | null): Ways {
   return { in: into, out };
 }
 
+/// A row of a cell's transition table, as a line of a panel's From or To names it: its cell and its name, which a
+/// round's panel reads in the flow version its work ran on; with `into`, a row of From, only where it leads into that
+/// cell.
+export type RowAt = { cell: string; row: string; into?: string };
+
+/// The arrows that draw rows, each whole as `related` lights it from an arrow of it: every arrow that draws a row, or
+/// for a row with `into` those that lead into that cell, so that a row drawn into several cells lights in the From of
+/// each only on its way there. None for a row the chart does not draw.
+export function lineArrows(g: CompiledGraph, edges: ChartEdge[], rows: RowAt[]): Set<string> {
+  const lit = new Set<string>();
+  if (rows.length === 0) return lit;
+  const byId = new Map(edges.map((e) => [e.id, e]));
+  for (const r of rows) {
+    const at = g.cells.find((c) => c.id === r.cell)?.rows.findIndex((x) => x.name === r.row) ?? -1;
+    if (at < 0) continue;
+    for (const e of edges) {
+      if (e.kind !== 'row' || e.cell !== r.cell || !e.rows.includes(at)) continue;
+      const whole = related(edges, e.id);
+      if (r.into !== undefined && ![...whole].some((id) => byId.get(id)?.target === cellNode(r.into ?? ''))) continue;
+      for (const id of whole) lit.add(id);
+    }
+  }
+  return lit;
+}
+
 /// Why a work waits at the cell it is at while no round of it runs there: in a few words for the tag beside the cell,
 /// and in full on hovering.
 export type Wait = { tag: string; why: string };

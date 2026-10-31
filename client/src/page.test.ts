@@ -59,6 +59,7 @@ import {
   HALO_STEP,
   haloAt,
   letterOf,
+  lineArrows,
   MAIN,
   mainPath,
   moves,
@@ -869,6 +870,21 @@ describe('the chart of a flow', () => {
     expect(related(c.edges, null).size).toBe(0);
   });
 
+  it("lights a line of a panel's From or To as pointing at its arrow does, every arrow of its row, From's on its way in", () => {
+    // To: an answer back to whichever cell asked, into each; a row through the actions on to the cell, not the other
+    // rows into them.
+    expect(lineArrows(graph, c.edges, [{ cell: 'q', row: 'answered' }])).toEqual(
+      new Set(['c:q->o:b:q', 'i:q:b->c:b', 'c:q->o:c:q', 'i:q:c->c:c']),
+    );
+    expect(lineArrows(graph, c.edges, [{ cell: 'a', row: 'done' }])).toEqual(new Set(['c:a->a:b:lock+post', 'a:b:lock+post->c:b']));
+    // From: the same row, only on its way into the cell whose From it is.
+    expect(lineArrows(graph, c.edges, [{ cell: 'q', row: 'answered', into: 'b' }])).toEqual(new Set(['c:q->o:b:q', 'i:q:b->c:b']));
+    // Lines picked light together; a row the chart does not draw, or one the cell lacks, lights nothing.
+    expect(lineArrows(graph, c.edges, [{ cell: 'a', row: 'again' }, { cell: 'b', row: 'done' }])).toEqual(new Set(['c:a->c:b', 'c:b->c:z']));
+    expect(lineArrows(graph, c.edges, [{ cell: 'a', row: 'sent_back' }, { cell: 'a', row: 'nothing' }]).size).toBe(0);
+    expect(lineArrows(graph, c.edges, []).size).toBe(0);
+  });
+
   it('draws a row to another part as a circle beside the cell, and one beside the cell it comes back into', () => {
     expect(node('o:r:t')).toMatchObject({ kind: 'out', cell: 't', part: 't' });
     expect(node('o:b:q')).toMatchObject({ kind: 'out', cell: 'q', part: ASKING });
@@ -1070,8 +1086,8 @@ describe('the chart of a flow', () => {
       bounds: { x: 0, y: 0, width: 300, height: c.nodes.length * 60 },
     };
     const measured = sizes(graph, c, engine);
-    const draw = (selected: string | null) => {
-      const marks: Marks = { selected, overlays: null, taken: null, added: new Set(), changed: new Set() };
+    const draw = (selected: string | null, rows?: Marks['rows']) => {
+      const marks: Marks = { selected, overlays: null, taken: null, added: new Set(), changed: new Set(), rows };
       const props = { g: graph, chart: c, laid, lines: measured.lines, notes: measured.notes, engine, marks };
       return renderToStaticMarkup(createElement(FlowSvg, props));
     };
@@ -1092,6 +1108,11 @@ describe('the chart of a flow', () => {
     expect(looks(free, 'c:b->c:a')).toContain('fc-edge-plain');
     // A rule picked lights no row.
     expect(draw('r:tree:a').includes('fc-edge-in')).toBe(false);
+    // A line of the panel's From or To lights its row as pointing at it does, over the rows of the cell picked.
+    const lined = draw('c:b', [{ cell: 'a', row: 'done', into: 'b' }]);
+    expect(looks(lined, 'c:a->a:b:lock+post')).toContain('fc-edge-hot');
+    expect(looks(lined, 'a:b:lock+post->c:b')).toContain('fc-edge-hot');
+    expect(looks(lined, 'c:c->a:b:lock+post')).toContain('fc-edge-in');
     // Every cell's title, its code with it, is drawn and measured semibold.
     expect((free.match(/class="fc-title"/g) ?? []).length).toBe(graph.cells.length);
     expect(chartFonts().title.startsWith('600 ')).toBe(true);
