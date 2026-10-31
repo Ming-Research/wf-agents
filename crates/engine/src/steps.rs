@@ -152,7 +152,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                     work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
                 })
                 .map_err(sql)?;
-            (e.say)(&format!("work {} cell {}: {why}", w.id, cell.id));
+            e.say(&format!("work {} cell {}: {why}", w.id, cell.id));
             return finish(
                 e,
                 w,
@@ -275,7 +275,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 })
                 .map_err(sql)?;
             if why == sessions::Start::Owner {
-                e.sessions.met(w.id, w.project.as_deref());
+                e.sessions().met(w.id, w.project.as_deref());
             }
             (id, None, fresh)
         }
@@ -374,10 +374,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 .map_err(db::Error::Abort)
         })
         .map_err(sql)?;
-    (e.say)(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
+    e.say(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
     let reply = e
-        .sessions
-        .run(&req, &|what: &str| (e.activity)(round.work, round.n, what));
+        .sessions()
+        .run(&req, &|what: &str| e.activity(round.work, round.n, what));
     let _ = std::fs::remove_file(&given_again);
     if reply.session != new_session && !reply.session.is_empty() {
         let s = reply.session.clone();
@@ -444,7 +444,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         })
         .map_err(sql)?;
         let what = if over { "was started over" } else { "ended" };
-        (e.say)(&format!(
+        e.say(&format!(
             "work {} {what} while {round} ran: what it handed in is not taken",
             w.id
         ));
@@ -561,7 +561,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .map_err(sql)?;
         match r.output {
             Some(v) => {
-                (e.say)(&format!("{round}: its return was repaired or handed in again"));
+                e.say(&format!("{round}: its return was repaired or handed in again"));
                 reply.output = Some(v);
             }
             // The agent's hand-in again failed for another cause, which is handled as that kind of failed run.
@@ -604,7 +604,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // that how often models still write it shows.
     let (output, from_text) = crate::unparsed::as_taken(g, cell, output);
     if from_text {
-        (e.say)(&format!(
+        e.say(&format!(
             "{round}: its {} was handed in as the JSON text of it, and is taken as the object",
             g.within
         ));
@@ -804,7 +804,7 @@ fn compose(
     };
     let limit = e.config.config.install.agents.context_limit;
     let architect = w.project.as_deref().filter(|_| g.name == ARCHITECT);
-    let mut plan = e.sessions.plan(e.db.conn(), w.id, architect, cell, limit, on)?;
+    let mut plan = e.sessions().plan(e.db.conn(), w.id, architect, cell, limit, on)?;
     let work_rounds = work::rounds(e.db.conn(), w.id)?;
     let number = work::next_round(e.db.conn(), w.id)?;
     let (line_rounds, held) = match &mut plan {
@@ -909,7 +909,7 @@ pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, Strin
 }
 
 fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Advance, String> {
-    (e.say)(&format!("{round} sent back: {why}"));
+    e.say(&format!("{round} sent back: {why}"));
     let ended = Ended {
         rejected: Some(why),
         transition: None,
@@ -1096,7 +1096,7 @@ pub fn finish(
     } else {
         format!(" ({})", done.join(", "))
     };
-    (e.say)(&format!(
+    e.say(&format!(
         "work {} cell {} took \"{}\"{did}: now at {}",
         w.id, cell.id, row.name, moved.pos.at
     ));
@@ -1121,7 +1121,7 @@ fn finish_end(e: &mut Engine, w: &Work, round: RoundId, output: Value, also: AtE
         also(tx).map_err(db::Error::Abort)
     })
     .map_err(sql)?;
-    (e.say)(&format!("work {} done", w.id));
+    e.say(&format!("work {} done", w.id));
     Ok(Advance::Moved)
 }
 
@@ -1290,7 +1290,7 @@ pub fn engine(
             work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
         })
         .map_err(sql)?;
-    (e.say)(&format!(
+    e.say(&format!(
         "work {} cell {}: {}",
         w.id,
         cell.id,
@@ -1335,7 +1335,7 @@ pub fn no_slot(e: &mut Engine, w: &Work, g: &CompiledGraph, row: &CompiledRow, s
 /// A work that waits on where it waited, what it waited for come, until it may take a slot; the engine keeps that it
 /// does until its next step, for the owner's page.
 pub fn waits_for_slot(e: &mut Engine, w: &Work) -> Advance {
-    e.held_for_slot.insert(w.id);
+    e.hold_for_slot(w.id);
     Advance::Waits(format!(
         "work {} waits for a free slot to go on from cell {}",
         w.id, w.pos.at

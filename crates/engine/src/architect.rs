@@ -17,12 +17,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use db::attachments::{self, Words};
 use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
 use db::{Actor, Matter, queue_matter};
 use flow::format::Src;
-use flow::{CompiledCell, CompiledGraph};
+use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value, json};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -484,7 +485,8 @@ pub fn start(e: &mut Engine, project: &str, paused: bool) -> Result<Option<i64>,
         queue_group_talk(e, project)?;
     }
     let due = waits_to_start(e, project)?;
-    let g = e.flow(v)?.graph(ARCHITECT).ok_or("the flow has no architect's graph")?;
+    let flow = e.flow(v)?;
+    let g = flow.graph(ARCHITECT).ok_or("the flow has no architect's graph")?;
     let at = match g.cell(&g.start) {
         Some(c) if c.inenums.contains_key(DUE) => {
             let mut given = Map::new();
@@ -948,7 +950,7 @@ fn plan_at_understanding(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<sess
         home: home.as_deref(),
     };
     let limit = e.config.config.install.agents.context_limit;
-    e.sessions
+    e.sessions()
         .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, on)
 }
 
@@ -1055,7 +1057,7 @@ pub fn understand_first(
     };
     let limit = e.config.config.install.agents.context_limit;
     let plan = e
-        .sessions
+        .sessions()
         .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, on)?;
     Ok(match plan {
         sessions::Plan::New(why) => Some(crate::steps::new_session_why(why, cell, limit, &level.model)),
@@ -1080,7 +1082,7 @@ pub fn back_to_understanding(
     };
     e.db.write(Actor::Engine, |tx| back.save_position(tx).map_err(db::Error::Abort))
         .map_err(sql)?;
-    (e.say)(&format!(
+    e.say(&format!(
         "work {}: a new session would start at cell {}: the work understands the project first",
         w.id, cell.id
     ));
@@ -1454,7 +1456,7 @@ pub fn ask_architect(
             Ok(matter)
         })
         .map_err(sql)?;
-    (e.say)(&format!(
+    e.say(&format!(
         "work {} asks the architect of {project}: matter {matter}",
         w.id
     ));
@@ -2859,7 +2861,7 @@ fn names_item(policy: &Value) -> Option<String> {
 /// The cells of the flow a text names: as the flow's own texts name one ([`flow::cells_named`]), or by its name after
 /// the word cell, as `cell Q1`; a name alone is a word.
 fn names_cell(e: &Engine, text: &str) -> Option<String> {
-    let f = e.flows.get(&e.flow_now)?;
+    let f = e.shared.flow(e.flow_now)?;
     let named = flow::cells_named(text);
     let words: Vec<&str> = text
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
@@ -3504,9 +3506,14 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
     }
 }
 
-/// The engineer's graph of the flow new works start on.
-fn engineer_graph(e: &Engine) -> Option<&CompiledGraph> {
-    e.flows.get(&e.flow_now).and_then(|f| f.graph(ENGINEER))
+/// The flow new works start on, whose engineer's graph callers borrow (`engineer_graph`).
+fn flow_now(e: &Engine) -> Option<Arc<Compiled>> {
+    e.shared.flow(e.flow_now)
+}
+
+/// The engineer's graph of a flow; none when there is no flow or it has no such graph.
+fn engineer_graph(f: Option<&Compiled>) -> Option<&CompiledGraph> {
+    f?.graph(ENGINEER)
 }
 
 /// A project's constitution, as its configuration names it; none when it names none.
@@ -3571,7 +3578,8 @@ fn cited_nodes(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, Str
 }
 
 /// What an engineer's work waits for, in words, besides a pause, which its row says; none when it waits for nothing.
-fn work_waits(e: &Engine, work: i64, at: &str) -> Result<Option<String>, String> {
+/// `g` is the engineer's graph of the flow new works start on.
+fn work_waits(e: &Engine, g: Option<&CompiledGraph>, work: i64, at: &str) -> Result<Option<String>, String> {
     let ask: Option<i64> =
         e.db.conn()
             .query_row(
@@ -3583,7 +3591,7 @@ fn work_waits(e: &Engine, work: i64, at: &str) -> Result<Option<String>, String>
     if let Some(a) = ask {
         return Ok(Some(format!("the owner's answer to ask {a}")));
     }
-    let asks_architect = engineer_graph(e)
+    let asks_architect = g
         .and_then(|g| g.cell(at))
         .is_some_and(|c| c.step.as_deref() == Some("ask_architect"));
     if asks_architect {
@@ -3614,7 +3622,8 @@ fn spent(e: &Engine, work: i64) -> Result<f64, String> {
 /// runs tools for another, is at the stage of the cell it stopped at, or else of the innermost cell that waits for it
 /// with one.
 fn board(e: &Engine, project: &str) -> Result<Value, String> {
-    let g = engineer_graph(e);
+    let f = flow_now(e);
+    let g = engineer_graph(f.as_deref());
     let end = g.map(|g| g.end.clone()).unwrap_or_default();
     let rows = query_json(
         e.db.conn(),
@@ -3655,7 +3664,7 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
                 .or_else(|| r["resume_at"].as_str().and_then(stage_of))
                 .or_else(|| callers.iter().rev().find_map(|c| c.as_str().and_then(stage_of)));
             r["stage"] = json!(stage);
-            r["waits"] = json!(work_waits(e, work, &at)?);
+            r["waits"] = json!(work_waits(e, g, work, &at)?);
             r["since"] = json!(r["since"].as_i64().map(utc_minute));
             r["spent_usd"] = json!((spent(e, work)? * 100.0).round() / 100.0);
             if let Some(why) = r["paused"].as_str().map(str::to_string) {
@@ -4273,7 +4282,10 @@ fn total_slots(e: &Engine) -> i64 {
 
 /// How many works hold a slot: the engineer's works going on by themselves that wait for nothing.
 fn holding(e: &Engine) -> Result<i64, String> {
-    let Some(g) = engineer_graph(e) else { return Ok(0) };
+    let f = flow_now(e);
+    let Some(g) = engineer_graph(f.as_deref()) else {
+        return Ok(0);
+    };
     let works = query_json(
         e.db.conn(),
         "SELECT w.id, w.at, (SELECT r.transition FROM rounds r WHERE r.work = w.id ORDER BY r.n DESC LIMIT 1) AS last,
@@ -4303,14 +4315,14 @@ fn holding(e: &Engine) -> Result<i64, String> {
 /// Whether the engine runs works now: every work going on that is not paused by itself; every work paused by the owner,
 /// but those the owner started; or every work stopped by a failed run's cause until when it says.
 fn engine_state(e: &Engine) -> Value {
-    if let Some(h) = e.halt.as_ref().filter(|h| db::now() < h.until) {
+    if let Some(h) = e.halt().filter(|h| db::now() < h.until) {
         return json!({
             "runs": "halted",
             "why": format!("Every work stops: {} ({})", h.kind, h.why.trim()),
             "until": utc_minute(h.until),
         });
     }
-    match &e.global_pause {
+    match e.global_pause() {
         Some(p) => json!({
             "runs": "paused",
             "why": "The owner paused every work: none takes a step and no new work starts until the owner starts them \
@@ -4641,7 +4653,9 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
 /// JSON text of a list holds that list; one that holds no text holds nothing and is left out.
 fn side_reports_once(e: &Engine, reports: &[Value]) -> Result<Value, String> {
     let conn = e.db.conn();
-    let end = engineer_graph(e).map(|g| g.end.clone()).unwrap_or_default();
+    let end = engineer_graph(flow_now(e).as_deref())
+        .map(|g| g.end.clone())
+        .unwrap_or_default();
     let mut groups: Vec<Value> = Vec::new();
     for r in reports {
         let said: Vec<Value> = match &r["report"] {
@@ -4764,7 +4778,8 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
     }
     if let Some(work) = out["state"][0]["work"].as_i64() {
         let at = text(&out["state"][0]["at"]).to_string();
-        out["state"][0]["waits"] = json!(work_waits(e, work, &at)?);
+        let f = flow_now(e);
+        out["state"][0]["waits"] = json!(work_waits(e, engineer_graph(f.as_deref()), work, &at)?);
     }
     Ok(Some(out))
 }

@@ -48,7 +48,8 @@ impl Failure {
     }
 }
 
-pub trait GitHub {
+/// GitHub as the engine's threads share it.
+pub trait GitHub: Send + Sync {
     /// Opens a draft pull request from `branch` into `base`, or, given its number, updates its title and body when
     /// new ones are given; gives its number. A pull request that was open already keeps its base: the engine sets it
     /// with [`ensure_base`].
@@ -803,9 +804,9 @@ mod tests {
 
     /// GitHub with one pull request: its base, what setting it does, and which branch it merged into.
     struct OnePr {
-        base: std::cell::RefCell<String>,
+        base: std::sync::Mutex<String>,
         setting: Setting,
-        merged_into: std::cell::RefCell<Option<String>>,
+        merged_into: std::sync::Mutex<Option<String>>,
     }
 
     impl GitHub for OnePr {
@@ -829,13 +830,13 @@ mod tests {
         }
 
         fn base(&self, _repo: &str, _pr: i64) -> Result<String, Failure> {
-            Ok(self.base.borrow().clone())
+            Ok(self.base.lock().unwrap().clone())
         }
 
         fn set_base(&self, _repo: &str, _pr: i64, base: &str) -> Result<(), Failure> {
             match self.setting {
                 Setting::Takes => {
-                    *self.base.borrow_mut() = base.to_string();
+                    *self.base.lock().unwrap() = base.to_string();
                     Ok(())
                 }
                 Setting::Fails => Err(Failure::network("HTTP 422: the base cannot be changed")),
@@ -844,7 +845,7 @@ mod tests {
         }
 
         fn merge(&self, _repo: &str, _pr: i64) -> Result<String, Failure> {
-            *self.merged_into.borrow_mut() = Some(self.base.borrow().clone());
+            *self.merged_into.lock().unwrap() = Some(self.base.lock().unwrap().clone());
             Ok("merged".to_string())
         }
 
@@ -863,17 +864,23 @@ mod tests {
     #[test]
     fn a_pull_request_merges_into_the_project_s_main_and_nowhere_else() {
         let hub = |base: &str, setting| OnePr {
-            base: std::cell::RefCell::new(base.to_string()),
+            base: std::sync::Mutex::new(base.to_string()),
             setting,
-            merged_into: std::cell::RefCell::new(None),
+            merged_into: std::sync::Mutex::new(None),
         };
         // Setting the base would fail, and is not asked.
         let on_main = hub("trial-main", Setting::Fails);
         assert_eq!(merge_into(&on_main, "o/r", 4, "trial-main"), Ok("merged".to_string()));
-        assert_eq!(on_main.merged_into.take().as_deref(), Some("trial-main"));
+        assert_eq!(
+            on_main.merged_into.lock().unwrap().take().as_deref(),
+            Some("trial-main")
+        );
         let elsewhere = hub("first-version", Setting::Takes);
         assert_eq!(merge_into(&elsewhere, "o/r", 4, "trial-main"), Ok("merged".to_string()));
-        assert_eq!(elsewhere.merged_into.take().as_deref(), Some("trial-main"));
+        assert_eq!(
+            elsewhere.merged_into.lock().unwrap().take().as_deref(),
+            Some("trial-main")
+        );
         for setting in [Setting::Fails, Setting::Ignored] {
             let stuck = hub("first-version", setting);
             let f = merge_into(&stuck, "o/r", 4, "trial-main").unwrap_err();
@@ -883,7 +890,7 @@ mod tests {
                 "{}",
                 f.what
             );
-            assert_eq!(stuck.merged_into.take(), None);
+            assert_eq!(stuck.merged_into.lock().unwrap().take(), None);
         }
     }
 }

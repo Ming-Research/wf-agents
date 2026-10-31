@@ -753,7 +753,7 @@ fn carry_out(e: &mut Engine, only: Option<&str>) -> Result<bool, String> {
                 git::remove_worktree(&checkout, Path::new(args["dir"].as_str().unwrap_or_default()))
             }
             "close_pr" => e
-                .github
+                .github()
                 .close(
                     args["repo"].as_str().unwrap_or_default(),
                     args["pr"].as_i64().unwrap_or_default(),
@@ -773,7 +773,7 @@ fn carry_out(e: &mut Engine, only: Option<&str>) -> Result<bool, String> {
             Err(why) => {
                 let n = row["attempts"].as_i64().unwrap_or_default() + 1;
                 let wait = (60_000_i64 << n.min(6)).min(3_600_000);
-                (e.say)(&format!("outbox {id} ({}) failed, attempt {n}: {why}", row["kind"]));
+                e.say(&format!("outbox {id} ({}) failed, attempt {n}: {why}", row["kind"]));
                 e.db.conn()
                     .execute(
                         "UPDATE outbox SET attempts = ?2, last_error = ?3, run_after = ?4 WHERE id = ?1",
@@ -795,7 +795,7 @@ fn notify_owner(e: &Engine, text: &str) -> Result<(), String> {
         .open(&path)
         .map_err(|x| format!("{}: {x}", path.display()))?;
     writeln!(f, "{} {}", db::now(), text.replace('\n', " ")).map_err(|x| format!("{}: {x}", path.display()))?;
-    (e.say)(&format!("to the owner: {text}"));
+    e.say(&format!("to the owner: {text}"));
     Ok(())
 }
 
@@ -835,9 +835,9 @@ fn revert_in(e: &Engine, dir: &Path, repo: &str, main: &str, sha: &str, branch: 
     let title = format!("Revert {short}: it broke main");
     let body = format!("The merge {sha} broke main. This reverts it so that main recovers; the fix comes in a new PR.");
     let pr = e
-        .github
+        .github()
         .pull_request(repo, branch, main, Some((&title, &body)), None)
         .map_err(|f| f.what)?;
-    crate::hub::merge_into(e.github.as_ref(), repo, pr, main).map_err(|f| f.what)?;
+    crate::hub::merge_into(e.github(), repo, pr, main).map_err(|f| f.what)?;
     Ok(())
 }

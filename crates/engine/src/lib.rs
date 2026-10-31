@@ -11,7 +11,11 @@
 //! one ([`architect`]).
 //!
 //! In this version the engine and the session manager are one process on one machine, and the engine takes one work
-//! one step at a time: a long round of one work holds up the others.
+//! one step at a time: a long round of one work holds up the others. Its state is split so that a step can be taken on
+//! any thread: what lasts across steps and is the same for every step is one [`Shared`] part behind an `Arc`, safe to
+//! share between threads, and each thread that takes a step holds an [`Engine`] of its own ([`Engine::fork`]), with
+//! its own connection to the database and the configuration as its step began. Its git commands that change what every
+//! worktree of a project's repository shares take turns ([`sessions::worktree::git`]).
 
 pub mod blockers;
 pub mod database;
@@ -39,6 +43,7 @@ mod work;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::Duration;
 
 use db::rusqlite::{OptionalExtension, params};
@@ -88,55 +93,142 @@ pub enum Advance {
 
 /// Where the engine tells what the agent of a running round is doing: the round's work, its number in the work, and
 /// what it does.
-pub type Activity = dyn Fn(i64, i64, &str);
+pub type Activity = dyn Fn(i64, i64, &str) + Send + Sync;
 
-pub struct Engine {
-    pub db: Db,
-    /// The data directory: the configuration, the database and the worktrees.
-    pub data: PathBuf,
-    pub config: config::Committed,
-    /// The session manager: the agents' sessions and the command line they run in.
-    pub sessions: sessions::Manager,
-    pub github: Box<dyn GitHub>,
-    flows: BTreeMap<i64, Compiled>,
-    /// The flow version new works start on: the one built into this engine.
-    pub flow_now: i64,
+/// Where the engine tells what runs, given when it is made and shared by every thread's steps.
+#[derive(Clone)]
+pub struct Hooks {
+    /// Where the engine says what it does and what went wrong.
+    pub say: Arc<dyn Fn(&str) + Send + Sync>,
     /// What the agent of a running round is doing, by its work and round, as its command line reports it.
-    pub activity: Box<Activity>,
+    pub activity: Arc<Activity>,
     /// Where the engine says which work it is taking a step of, and none once that step has ended: the owner's page
     /// shows that work's round as running, and what stops once it ends.
-    pub busy: Box<dyn Fn(Option<i64>)>,
-    /// Where the engine says what it does and what went wrong.
-    pub say: Box<dyn Fn(&str)>,
+    pub busy: Arc<dyn Fn(Option<i64>) + Send + Sync>,
+    /// What is told the rows each committed write touched, registered on every connection of the engine: how the
+    /// owner's page hears of each change.
+    pub commit: Option<db::Listener>,
+}
+
+impl Default for Hooks {
+    /// Says what the engine does on the standard error, and tells nothing else.
+    fn default() -> Hooks {
+        Hooks {
+            say: Arc::new(|s: &str| eprintln!("{s}")),
+            activity: Arc::new(|_: i64, _: i64, _: &str| {}),
+            busy: Arc::new(|_: Option<i64>| {}),
+            commit: None,
+        }
+    }
+}
+
+/// What every thread's steps share and what lasts from one step to the next: one for the engine's process. Each lock
+/// is held only while what it guards is read or changed, never across a round, a command or a write.
+struct Shared {
+    /// The compiled flows read so far, by version.
+    flows: RwLock<BTreeMap<i64, Arc<Compiled>>>,
+    /// The configuration in use: the last good one read ([`Engine::reload_config`]).
+    config: RwLock<Arc<config::Committed>>,
     /// While a failed run's cause stops every work alike (a usage limit, no network), why and until when: no new
     /// round starts until then.
-    pub halt: Option<Halt>,
+    halt: Mutex<Option<Halt>>,
+    /// The kind of failed run the owner was last told stops every work, until a round runs to a return again: the
+    /// owner is told once.
+    told: Mutex<Option<String>>,
     /// The owner's global pause while it holds, as the loop that runs the engine hands it each turn: no work takes a
     /// step but those the owner started, and no new work starts; none while works go on. The architects that judge
     /// what runs and what starts are told it with the slots.
-    pub global_pause: Option<GlobalPause>,
-    /// The kind of failed run the owner was last told stops every work, until a round runs to a return again: the
-    /// owner is told once.
-    told: Option<String>,
+    global_pause: Mutex<Option<GlobalPause>>,
+    /// The works taken over, each with the new work that took its item over, until the engine's loop has read them
+    /// ([`Engine::replaced`]): the owner's Start of a work goes on in the work that replaced it.
+    replaced: Mutex<Vec<(i64, i64)>>,
+    /// The works whose last step found what they waited for come and waited on, holding no slot, since their machine
+    /// had no slot free ([`steps::waits_for_slot`]); a work leaves it when its next step is taken.
+    held_for_slot: Mutex<BTreeSet<i64>>,
+    /// The session manager: the agents' sessions and the command line they run in.
+    sessions: sessions::Manager,
+    github: Box<dyn GitHub>,
+    hooks: Hooks,
+}
+
+impl Shared {
+    fn new(
+        config: config::Committed,
+        flows: BTreeMap<i64, Arc<Compiled>>,
+        agents: Box<dyn Agents>,
+        github: Box<dyn GitHub>,
+        hooks: Hooks,
+    ) -> Shared {
+        Shared {
+            flows: RwLock::new(flows),
+            config: RwLock::new(Arc::new(config)),
+            halt: Mutex::default(),
+            told: Mutex::default(),
+            global_pause: Mutex::default(),
+            replaced: Mutex::default(),
+            held_for_slot: Mutex::default(),
+            sessions: sessions::Manager::new(agents),
+            github,
+            hooks,
+        }
+    }
+
+    /// The configuration in use.
+    fn config(&self) -> Arc<config::Committed> {
+        self.config.read().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// A compiled flow read before, by its version.
+    fn flow(&self, version: i64) -> Option<Arc<Compiled>> {
+        self.flows
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&version)
+            .cloned()
+    }
+}
+
+/// One thread's context for taking steps: the part every thread shares, a connection to the database of its own, with
+/// the shared commit listener registered on it, and the configuration as its step began. A step writes only through
+/// its context's connection, so what one step wrote ([`Stepped`]) is what that connection wrote.
+pub struct Engine {
+    shared: Arc<Shared>,
+    pub db: Db,
+    /// The data directory: the configuration, the database and the worktrees.
+    pub data: PathBuf,
+    /// The configuration as this context's step began, from the shared part; it stays the same throughout the step.
+    pub config: Arc<config::Committed>,
+    /// The flow version new works start on: the one built into this engine.
+    pub flow_now: i64,
     /// How long a run that failed in passing waits before it runs again the first time; twice as long each time
     /// after, up to five minutes.
     pub retry_wait: Duration,
-    /// The works taken over, each with the new work that took its item over, until the engine's loop has read them
-    /// ([`Engine::replaced`]): the owner's Start of a work goes on in the work that replaced it.
-    replaced: Vec<(i64, i64)>,
-    /// The works whose last step found what they waited for come and waited on, holding no slot, since their machine
-    /// had no slot free ([`steps::waits_for_slot`]); a work leaves it when its next step is taken.
-    held_for_slot: BTreeSet<i64>,
+}
+
+// A thread that takes a step owns its context, and every thread shares one `Shared`: a field added to either that may
+// not cross threads fails here, when the engine is compiled.
+const _: () = {
+    const fn sendable<T: Send>() {}
+    const fn shareable<T: Send + Sync>() {}
+    sendable::<Engine>();
+    shareable::<Shared>();
+};
+
+/// What a lock guards, also after a thread panicked while it held it: each value the shared part guards is whole after
+/// every change, so it is still good.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Engine {
-    /// An engine on a data directory, with its committed configuration; the flow built into it is stored as a flow
-    /// version if it is new.
+    /// An engine on a data directory, with its committed configuration, telling `hooks` what runs; the flow built into
+    /// it is stored as a flow version if it is new.
     pub fn new(
         data: &Path,
         config: config::Committed,
         agents: Box<dyn Agents>,
         github: Box<dyn GitHub>,
+        hooks: Hooks,
     ) -> Result<Engine, String> {
         let mut db = database::open(data)?;
         let compiled = compile_for(&config.config)?;
@@ -155,31 +247,48 @@ impl Engine {
                 )
             })
             .map_err(|e| e.to_string())?;
-        let mut flows = BTreeMap::new();
-        flows.insert(flow_now, compiled);
-        let mut e = Engine {
-            db,
-            data: data.to_path_buf(),
-            config,
-            sessions: sessions::Manager::new(agents),
-            github,
-            flows,
-            flow_now,
-            say: Box::new(|s| eprintln!("{s}")),
-            activity: Box::new(|_, _, _| {}),
-            busy: Box::new(|_| {}),
-            halt: None,
-            global_pause: None,
-            told: None,
-            retry_wait: Duration::from_secs(10),
-            replaced: Vec::new(),
-            held_for_slot: BTreeSet::new(),
-        };
+        // What is written from here on is told.
+        if let Some(f) = &hooks.commit {
+            db.on_commit(Arc::clone(f)).map_err(|e| e.to_string())?;
+        }
+        let flows = BTreeMap::from([(flow_now, Arc::new(compiled))]);
+        let e = Engine::on(Shared::new(config, flows, agents, github, hooks), db, data, flow_now);
         let names: Vec<String> = e.config.config.install.agents.clis.keys().cloned().collect();
         for name in names {
             e.cli_version(&name);
         }
         Ok(e)
+    }
+
+    /// The first context on a shared part, on the connection given.
+    fn on(shared: Shared, db: Db, data: &Path, flow_now: i64) -> Engine {
+        let config = shared.config();
+        Engine {
+            shared: Arc::new(shared),
+            db,
+            data: data.to_path_buf(),
+            config,
+            flow_now,
+            retry_wait: Duration::from_secs(10),
+        }
+    }
+
+    /// Another context on the same engine, for another thread to take steps on: a connection of its own to the data
+    /// directory's database, with the shared commit listener registered on it, the same shared part, and the
+    /// configuration in use.
+    pub fn fork(&self) -> Result<Engine, String> {
+        let mut db = database::open(&self.data)?;
+        if let Some(f) = &self.shared.hooks.commit {
+            db.on_commit(Arc::clone(f)).map_err(|e| e.to_string())?;
+        }
+        Ok(Engine {
+            shared: Arc::clone(&self.shared),
+            db,
+            data: self.data.clone(),
+            config: self.shared.config(),
+            flow_now: self.flow_now,
+            retry_wait: self.retry_wait,
+        })
     }
 
     /// The engine made only to read, for a dry run such as building a work's next message beside an engine that may be
@@ -204,26 +313,68 @@ impl Engine {
             .unwrap_or(0);
         let mut flows = BTreeMap::new();
         if flow_now != 0 {
-            flows.insert(flow_now, compiled);
+            flows.insert(flow_now, Arc::new(compiled));
         }
-        Ok(Engine {
-            db,
-            data: data.to_path_buf(),
-            config,
-            sessions: sessions::Manager::new(agents),
-            github,
-            flows,
-            flow_now,
-            say: Box::new(|s| eprintln!("{s}")),
-            activity: Box::new(|_, _, _| {}),
-            busy: Box::new(|_| {}),
-            halt: None,
-            global_pause: None,
-            told: None,
-            retry_wait: Duration::from_secs(10),
-            replaced: Vec::new(),
-            held_for_slot: BTreeSet::new(),
-        })
+        let shared = Shared::new(config, flows, agents, github, Hooks::default());
+        Ok(Engine::on(shared, db, data, flow_now))
+    }
+
+    /// Says what the engine does or what went wrong, where its hooks say.
+    pub fn say(&self, text: &str) {
+        (self.shared.hooks.say)(text);
+    }
+
+    /// Tells what the agent of a running round is doing: the round's work, its number in the work, and what it does.
+    pub fn activity(&self, work: i64, round: i64, what: &str) {
+        (self.shared.hooks.activity)(work, round, what);
+    }
+
+    /// Tells which work's step runs, none once it has ended.
+    fn busy(&self, work: Option<i64>) {
+        (self.shared.hooks.busy)(work);
+    }
+
+    /// The session manager: the agents' sessions and the command line they run in.
+    pub fn sessions(&self) -> &sessions::Manager {
+        &self.shared.sessions
+    }
+
+    pub fn github(&self) -> &dyn GitHub {
+        self.shared.github.as_ref()
+    }
+
+    /// While a failed run's cause stops every work alike (a usage limit, no network), why and until when: no new round
+    /// starts until then.
+    pub fn halt(&self) -> Option<Halt> {
+        lock(&self.shared.halt).clone()
+    }
+
+    /// Sets, or lifts with none, what stops every work.
+    pub fn set_halt(&self, halt: Option<Halt>) {
+        *lock(&self.shared.halt) = halt;
+    }
+
+    /// Stops every work as `halt` says; gives whether the owner is to be told, which is the first time since a round
+    /// last ran to a return that this kind stops them.
+    fn halt_every_work(&self, halt: Halt) -> bool {
+        let kind = halt.kind.clone();
+        self.set_halt(Some(halt));
+        let mut told = lock(&self.shared.told);
+        let first = told.as_deref() != Some(kind.as_str());
+        *told = Some(kind);
+        first
+    }
+
+    /// The owner's global pause while it holds, as the loop that runs the engine last handed it: no work takes a step
+    /// but those the owner started, and no new work starts; none while works go on. The architects that judge what
+    /// runs and what starts are told it with the slots.
+    pub fn global_pause(&self) -> Option<GlobalPause> {
+        lock(&self.shared.global_pause).clone()
+    }
+
+    /// Hands the engine the owner's global pause, none while works go on.
+    pub fn set_global_pause(&self, pause: Option<GlobalPause>) {
+        *lock(&self.shared.global_pause) = pause;
     }
 
     /// Brings works on an older flow version to the version the engine runs, which the engine does when each next goes
@@ -283,7 +434,7 @@ impl Engine {
                 Ok(())
             })
             .map_err(|e| e.to_string())?;
-        (self.say)(&format!(
+        self.say(&format!(
             "work {id} moved from flow version {from} to {now}, at cell {}",
             w.pos.at
         ));
@@ -324,7 +475,7 @@ impl Engine {
                     Ok(())
                 })
                 .map_err(|e| e.to_string())?;
-            (self.say)(&format!("work {id} stopped: {why}"));
+            self.say(&format!("work {id} stopped: {why}"));
             // An architect work stopped leaves no hold of its own behind: setting its project straight is the work's,
             // as a policy being set was the setting's, a work of its own in a flow version before; the architect's
             // next work asks its questions afresh.
@@ -346,7 +497,7 @@ impl Engine {
             {
                 let dir = architect::worktree(&self.data, POLICY, w.project.as_deref().unwrap_or_default());
                 if let Err(x) = sessions::worktree::remove_worktree(&p.checkout, &dir) {
-                    (self.say)(&format!("work {id}: its worktree {} stays: {x}", dir.display()));
+                    self.say(&format!("work {id}: its worktree {} stays: {x}", dir.display()));
                 }
             }
             if let Some(item) = w.item.filter(|_| w.graph == ENGINEER) {
@@ -360,8 +511,8 @@ impl Engine {
         for (id, item, held) in takeovers {
             if waiting.is_empty() && self.free_slots()? > 0 {
                 let new = self.start_work(item, held.as_deref())?;
-                (self.say)(&format!("work {new} started on item {item}, after work {id}"));
-                self.replaced.push((id, new));
+                self.say(&format!("work {new} started on item {item}, after work {id}"));
+                lock(&self.shared.replaced).push((id, new));
                 started.push(new);
             } else {
                 waiting.push((id, item));
@@ -387,7 +538,7 @@ impl Engine {
             })
             .map_err(|e| e.to_string())?;
         for (id, item) in waiting {
-            (self.say)(&format!(
+            self.say(&format!(
                 "item {item} waits for a free slot at the head of the queue, to take over from work {id}"
             ));
         }
@@ -400,7 +551,7 @@ impl Engine {
     fn start_over(&mut self, id: i64, by: &str, why: Option<&str>) -> Result<(), String> {
         let w = self.work(id)?;
         if w.ended.is_some() || w.graph != ENGINEER || self.done(&w)? {
-            (self.say)(&format!("work {id} is not started over: it is over"));
+            self.say(&format!("work {id} is not started over: it is over"));
             return Ok(());
         }
         let who = if by == db::Actor::Architect.name() {
@@ -424,8 +575,8 @@ impl Engine {
     }
 
     /// The works taken over since the engine's loop last read them, each with the new work that took its item over.
-    pub fn replaced(&mut self) -> Vec<(i64, i64)> {
-        std::mem::take(&mut self.replaced)
+    pub fn replaced(&self) -> Vec<(i64, i64)> {
+        std::mem::take(&mut *lock(&self.shared.replaced))
     }
 
     /// The works that go on by themselves on an older flow version, in the order of their ids: each moves or is taken
@@ -478,14 +629,14 @@ impl Engine {
         let cli = self.config.config.install.agents.clis.get(name)?;
         let (dir, failed) = agent::home(&self.data, cli, name);
         if let Some(x) = failed {
-            (self.say)(&x);
+            self.say(&x);
         }
         Some(dir)
     }
 
     /// A CLI's version as it reports it, read the first time it is asked for: when the engine starts.
-    pub fn cli_version(&mut self, name: &str) -> String {
-        self.sessions.version(&self.data, &self.config.config, name)
+    pub fn cli_version(&self, name: &str) -> String {
+        self.sessions().version(&self.data, &self.config.config, name)
     }
 
     /// Keeps warm the sessions of the works that wait: the session manager sends a ping to each session whose work's
@@ -515,37 +666,51 @@ impl Engine {
     }
 
     /// Whether no new round may start now, because a failed run's cause stops every work; a wait that is over ends.
-    pub fn halted(&mut self) -> bool {
-        match &self.halt {
-            Some(h) if db::now() < h.until => true,
-            Some(h) => {
-                (self.say)(&format!("the wait for {} is over: works go on", h.kind));
-                self.halt = None;
-                false
+    pub fn halted(&self) -> bool {
+        let over = {
+            let mut halt = lock(&self.shared.halt);
+            let over = match halt.as_ref() {
+                Some(h) if db::now() < h.until => return true,
+                Some(h) => Some(h.kind.clone()),
+                None => None,
+            };
+            if over.is_some() {
+                *halt = None;
             }
-            None => false,
+            over
+        };
+        if let Some(kind) = over {
+            self.say(&format!("the wait for {kind} is over: works go on"));
         }
+        false
     }
 
     /// A round ran to a return: whatever stopped every work has passed.
-    fn returned(&mut self) {
-        self.told = None;
+    fn returned(&self) {
+        *lock(&self.shared.told) = None;
     }
 
-    /// The compiled flow a work runs on, read from the database the first time.
-    pub fn flow(&mut self, version: i64) -> Result<&Compiled, String> {
-        if !self.flows.contains_key(&version) {
-            let text: String = self
-                .db
-                .conn()
-                .query_row("SELECT compiled FROM flow_versions WHERE id = ?1", [version], |r| {
-                    r.get(0)
-                })
-                .map_err(|e| format!("flow version {version}: {e}"))?;
-            let c: Compiled = serde_json::from_str(&text).map_err(|e| format!("flow version {version}: {e}"))?;
-            self.flows.insert(version, c);
+    /// The works whose wait is over and that wait on, holding no slot, since their machine has no slot free: kept until
+    /// each one's next step, for the owner's page ([`Engine::waiting_for_slot`]).
+    fn hold_for_slot(&self, id: i64) {
+        lock(&self.shared.held_for_slot).insert(id);
+    }
+
+    /// The compiled flow a work runs on, read from the database the first time any thread asks for it.
+    pub fn flow(&self, version: i64) -> Result<Arc<Compiled>, String> {
+        if let Some(f) = self.shared.flow(version) {
+            return Ok(f);
         }
-        Ok(&self.flows[&version])
+        let text: String = self
+            .db
+            .conn()
+            .query_row("SELECT compiled FROM flow_versions WHERE id = ?1", [version], |r| {
+                r.get(0)
+            })
+            .map_err(|e| format!("flow version {version}: {e}"))?;
+        let c: Compiled = serde_json::from_str(&text).map_err(|e| format!("flow version {version}: {e}"))?;
+        let mut flows = self.shared.flows.write().unwrap_or_else(PoisonError::into_inner);
+        Ok(Arc::clone(flows.entry(version).or_insert_with(|| Arc::new(c))))
     }
 
     /// The graph a work runs on, as its project's agents are asked it: without the fields of every return whose need
@@ -616,22 +781,26 @@ impl Engine {
             .ok_or_else(|| format!("item {}: no project {} in the configuration", item.id, item.project))
     }
 
-    /// Reads the committed configuration again; a broken one is not used, and the last good one stays.
+    /// Reads the committed configuration again, for every thread; a broken one is not used, and the last good one
+    /// stays. This context's step goes on with the configuration in use from here, which another thread may have read.
     pub fn reload_config(&mut self) {
+        let mut now = self.shared.config();
         match config::committed(&self.data) {
-            Ok(c) if c.commit != self.config.commit => {
-                let flow = self.flows.get(&self.flow_now).cloned();
+            Ok(c) if c.commit != now.commit => {
+                let flow = self.shared.flow(self.flow_now);
                 let problems = flow.map(|f| c.config.check(&f)).unwrap_or_default();
                 if problems.is_empty() {
-                    (self.say)(&format!("configuration {} in use", c.commit));
-                    self.config = c;
+                    self.say(&format!("configuration {} in use", c.commit));
+                    now = Arc::new(c);
+                    *self.shared.config.write().unwrap_or_else(PoisonError::into_inner) = Arc::clone(&now);
                 } else {
-                    (self.say)(&format!("configuration {} not used: {}", c.commit, problems.join("; ")));
+                    self.say(&format!("configuration {} not used: {}", c.commit, problems.join("; ")));
                 }
             }
             Ok(_) => {}
-            Err(e) => (self.say)(&format!("configuration not read, the last good one stays: {e}")),
+            Err(e) => self.say(&format!("configuration not read, the last good one stays: {e}")),
         }
+        self.config = now;
     }
 
     /// Whether the work is at its graph's end and the end has run.
@@ -674,7 +843,7 @@ impl Engine {
 
     /// Takes a work one step further: a paused work only when the owner asked for its round.
     fn take_step(&mut self, id: i64, asked: bool) -> Result<Advance, String> {
-        self.held_for_slot.remove(&id);
+        lock(&self.shared.held_for_slot).remove(&id);
         let mut w = self.work(id)?;
         if w.ended.is_some() || (w.paused.is_some() && !asked) || self.done(&w)? {
             return Ok(Advance::Stopped);
@@ -705,20 +874,20 @@ impl Engine {
         // A work on an item that waits holds no slot: it goes on from its wait, once what it waits for came, only
         // while its machine has a slot free, unless the owner asked for its round.
         let slotted = !asked && w.graph == ENGINEER;
-        (self.busy)(Some(id));
+        self.busy(Some(id));
         let result = if cell.kind == "agent" {
             steps::agent(self, &w, &g, &cell)
         } else {
             steps::engine(self, &w, &g, &cell, slotted)
         };
-        (self.busy)(None);
+        self.busy(None);
         match result {
             Ok(a) => Ok(a),
             Err(e) => {
                 // A step that cannot be taken is the engine's or the configuration's fault, not the work's: the work
                 // is paused with the reason, for the owner to see.
                 let why = format!("cell {}: {e}", cell.id);
-                (self.say)(&format!("work {id} paused: {why}"));
+                self.say(&format!("work {id} paused: {why}"));
                 self.pause(id, &why)?;
                 Ok(Advance::Stopped)
             }
@@ -771,7 +940,8 @@ impl Engine {
     /// exists while the item waits there.
     fn start_work(&mut self, item: i64, paused: Option<&str>) -> Result<i64, String> {
         let v = self.flow_now;
-        let g = self.flow(v)?.graph(ENGINEER).ok_or("the flow has no engineer graph")?;
+        let flow = self.flow(v)?;
+        let g = flow.graph(ENGINEER).ok_or("the flow has no engineer graph")?;
         let mut ready = serde_json::Map::new();
         ready.insert("start".into(), Value::String("ready".into()));
         let start = match g.cell(&g.start) {
@@ -823,12 +993,13 @@ impl Engine {
     /// and that does not move would otherwise look ready.
     pub fn waiting_for_slot(&mut self) -> Result<Vec<i64>, String> {
         let mut out = Vec::new();
-        for id in self.held_for_slot.clone() {
+        let held = lock(&self.shared.held_for_slot).clone();
+        for id in held {
             let w = self.work(id)?;
             if w.ended.is_none() && w.paused.is_none() && self.waiting(&w)? && !self.room_for(&w)? {
                 out.push(id);
             } else {
-                self.held_for_slot.remove(&id);
+                lock(&self.shared.held_for_slot).remove(&id);
             }
         }
         Ok(out)
@@ -849,8 +1020,8 @@ impl Engine {
     /// work for the slots.
     pub fn waiting(&mut self, w: &Work) -> Result<bool, String> {
         let waits_by: Vec<String> = {
-            let g = self
-                .flow(w.flow_version)?
+            let flow = self.flow(w.flow_version)?;
+            let g = flow
                 .graph(&w.graph)
                 .ok_or_else(|| format!("work {}: its flow has no graph {}", w.id, w.graph))?;
             let Some(cell) = g.cell(&w.pos.at) else {
@@ -948,7 +1119,8 @@ impl Engine {
             why.push(self.waits_to_start(*item, project, &changing, free).ok()?);
         }
         // Each item takes the row of the cell it waits at; one whose row leads on may start.
-        let g = self.flow(self.flow_now).ok()?.graph(ENGINEER)?;
+        let flow = self.flow(self.flow_now).ok()?;
+        let g = flow.graph(ENGINEER)?;
         let leads_on = |reason: &str| {
             let mut given = serde_json::Map::new();
             given.insert("start".into(), Value::String(reason.to_string()));
@@ -1001,7 +1173,7 @@ impl Engine {
                 continue;
             }
             if let Some(id) = architect::start(self, &project, false)? {
-                (self.say)(&format!("work {id}: a work of the architect of {project} starts"));
+                self.say(&format!("work {id}: a work of the architect of {project} starts"));
                 return Ok(Some(id));
             }
         }
@@ -1021,11 +1193,11 @@ impl Engine {
             return self.step_work(id);
         }
         architect::queue_due(self)?;
-        let mark = self.rounds_mark()?;
+        let mark = self.db.rounds_mark();
         let Some(id) = architect::start(self, project, true)? else {
             return Ok(Stepped::default());
         };
-        (self.say)(&format!(
+        self.say(&format!(
             "work {id}: a work of the architect of {project} starts, as the owner steps it"
         ));
         self.take_step(id, true)?;
@@ -1071,7 +1243,7 @@ impl Engine {
         while self.free_slots()? > 0 {
             let Some(item) = self.next_ready() else { break };
             let id = self.create_work(item)?;
-            (self.say)(&format!("work {id} started on item {item}"));
+            self.say(&format!("work {id} started on item {item}"));
             moved = true;
             if self.advance(id)? != Advance::Moved {
                 break;
@@ -1119,7 +1291,7 @@ impl Engine {
         if self.halted() {
             return Ok(Stepped::default());
         }
-        let mark = self.rounds_mark()?;
+        let mark = self.db.rounds_mark();
         let old = self.outdated()?;
         let brought = self.bring_up(&old)?;
         if let Some(first) = brought.over.first().copied() {
@@ -1169,7 +1341,7 @@ impl Engine {
             && let Some(item) = self.next_ready()
         {
             let id = self.create_work(item)?;
-            (self.say)(&format!("work {id} started on item {item}"));
+            self.say(&format!("work {id} started on item {item}"));
             self.advance(id)?;
             actions::run_outbox(self)?;
             let (rounds, cell) = self.rounds_since(&mark)?;
@@ -1211,7 +1383,7 @@ impl Engine {
         if self.halted() {
             return Ok(Stepped::default());
         }
-        let mark = self.rounds_mark()?;
+        let mark = self.db.rounds_mark();
         self.take_in_hand(work)?;
         let w = self.work(work)?;
         let mut stepped = work;
@@ -1274,7 +1446,7 @@ impl Engine {
         if self.halted() {
             return Ok(Stepped::default());
         }
-        let mark = self.rounds_mark()?;
+        let mark = self.db.rounds_mark();
         architect::queue_due(self)?;
         for project in architects {
             if architect::running(self, project)?.is_some() {
@@ -1283,7 +1455,7 @@ impl Engine {
             let Some(id) = architect::start(self, project, false)? else {
                 continue;
             };
-            (self.say)(&format!(
+            self.say(&format!(
                 "work {id}: a work of the architect of {project} starts, as the owner started it"
             ));
             self.advance(id)?;
@@ -1361,7 +1533,7 @@ impl Engine {
             .db
             .write(Actor::Owner, |tx| db::lift_pause(tx, id))
             .map_err(|e| e.to_string())?;
-        (self.say)(&format!(
+        self.say(&format!(
             "work {id} goes on, as the owner started it{}",
             if told {
                 "; the architect, which had stopped it, is told"
@@ -1372,50 +1544,13 @@ impl Engine {
         Ok(())
     }
 
-    /// Each work's newest round, and the rounds not ended, as JSON lists of `[work, n]`.
-    fn rounds_mark(&self) -> Result<(String, String), String> {
-        let conn = self.db.conn();
-        let newest: String = conn
-            .query_row(
-                "SELECT coalesce(json_group_array(json_array(work, last)), '[]')
-                 FROM (SELECT work, max(n) AS last FROM rounds GROUP BY work)",
-                [],
-                |r| r.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        let open: String = conn
-            .query_row(
-                "SELECT coalesce(json_group_array(json_array(work, n)), '[]') FROM rounds WHERE ended_at IS NULL",
-                [],
-                |r| r.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        Ok((newest, open))
-    }
-
-    /// The rounds started since `mark`, and those open then that have ended since, in the order they started, with the
-    /// cell of the last.
-    fn rounds_since(&self, mark: &(String, String)) -> Result<(Vec<RoundId>, Option<String>), String> {
-        let mut st = self
-            .db
-            .conn()
-            .prepare(
-                "SELECT r.work, r.n, r.cell FROM rounds r
-                 WHERE r.n > coalesce((SELECT value ->> 1 FROM json_each(?1) WHERE value ->> 0 = r.work), 0)
-                    OR (r.ended_at IS NOT NULL
-                        AND EXISTS (SELECT 1 FROM json_each(?2) WHERE value ->> 0 = r.work AND value ->> 1 = r.n))
-                 ORDER BY r.started_at, r.work, r.n",
-            )
-            .map_err(|e| e.to_string())?;
-        let rows = st
-            .query_map(params![mark.0, mark.1], |r| {
-                Ok((RoundId::new(r.get(0)?, r.get(1)?), r.get::<_, Option<String>>(2)?))
-            })
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-        let cell = rows.last().and_then(|(_, c)| c.clone());
-        Ok((rows.into_iter().map(|(id, _)| id).collect(), cell))
+    /// The rounds this context's connection started or changed since `mark`, in the order they started, with the cell
+    /// of the last: those of this step, its rounds and those it cut off or ended of other works, and none another
+    /// thread or the owner's page wrote meanwhile ([`Db::rounds_since`]).
+    fn rounds_since(&self, mark: &db::RoundsMark) -> Result<(Vec<RoundId>, Option<String>), String> {
+        let rows = self.db.rounds_since(*mark).map_err(|e| e.to_string())?;
+        let cell = rows.last().and_then(|(_, _, c)| c.clone());
+        Ok((rows.into_iter().map(|(w, n, _)| RoundId::new(w, n)).collect(), cell))
     }
 }
 

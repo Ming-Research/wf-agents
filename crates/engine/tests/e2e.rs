@@ -3,17 +3,17 @@
 //! return the agent hands in is built from the cell's own schema, so a change to the flow that the engine does not
 //! follow fails here.
 
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use db::Actor;
 use db::rusqlite::params;
 use engine::agent::{Agents, Reply, Request};
 use engine::hub::{CheckRun, Failure, GitHub};
-use engine::{Advance, Engine};
+use engine::{Advance, Engine, Hooks};
 use serde_json::{Value, json};
 
 /// How many returns of a cell in a row the flow the engine runs sends back before it pauses the work.
@@ -138,11 +138,12 @@ fn example(s: &Value, path: &str, pick: &BTreeMap<String, String>, set: &BTreeMa
 /// as a run that failed with that report; under `@compactions`, the session was compacted that many times; under
 /// `@usage`, what the CLI reports the round used. The script `@ping` answers a keep-warm ping, its `@usage` what the
 /// ping used.
-type Script = Box<dyn Fn(&Request, usize) -> (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>)>;
+type Script =
+    Box<dyn Fn(&Request, usize) -> (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>) + Send + Sync>;
 
 struct Scripted {
     scripts: BTreeMap<&'static str, Script>,
-    rounds: RefCell<BTreeMap<String, usize>>,
+    rounds: Mutex<BTreeMap<String, usize>>,
 }
 
 impl Agents for Scripted {
@@ -154,7 +155,7 @@ impl Agents for Scripted {
             return self.repair(r);
         }
         let n = {
-            let mut rounds = self.rounds.borrow_mut();
+            let mut rounds = self.rounds.lock().unwrap();
             let n = rounds.entry(r.cell.clone()).or_default();
             *n += 1;
             *n
@@ -302,7 +303,7 @@ impl Scripted {
     /// its text and `@usage` what it cost; with no script, the text given back as it was.
     fn repair(&self, r: &Request) -> Reply {
         let n = {
-            let mut rounds = self.rounds.borrow_mut();
+            let mut rounds = self.rounds.lock().unwrap();
             let n = rounds.entry("@repair".to_string()).or_default();
             *n += 1;
             *n
@@ -331,7 +332,7 @@ impl Scripted {
     /// A keep-warm ping: what the script `@ping` says it used, or a read of the session's cache.
     fn ping(&self, r: &Request) -> Reply {
         let n = {
-            let mut rounds = self.rounds.borrow_mut();
+            let mut rounds = self.rounds.lock().unwrap();
             let n = rounds.entry("@ping".to_string()).or_default();
             *n += 1;
             *n
@@ -368,7 +369,7 @@ struct Pr {
 }
 
 /// The pull requests of the fake GitHub, by number, which a test can read and change as GitHub keeps them.
-type Prs = Rc<RefCell<BTreeMap<i64, Pr>>>;
+type Prs = Arc<Mutex<BTreeMap<i64, Pr>>>;
 
 /// GitHub as the engine sees it, over a bare repository: CI is always green, a pull request keeps the base it was
 /// opened with until it is set, and a merge squashes the branch onto the pull request's base.
@@ -390,7 +391,7 @@ impl GitHub for FakeHub {
         if let Some(n) = existing {
             return Ok(n);
         }
-        let mut prs = self.prs.borrow_mut();
+        let mut prs = self.prs.lock().unwrap();
         if let Some((n, _)) = prs.iter().find(|(_, p)| p.branch == branch) {
             return Ok(*n);
         }
@@ -407,14 +408,15 @@ impl GitHub for FakeHub {
 
     fn base(&self, _repo: &str, pr: i64) -> Result<String, Failure> {
         self.prs
-            .borrow()
+            .lock()
+            .unwrap()
             .get(&pr)
             .map(|p| p.base.clone())
             .ok_or_else(|| Failure::other("no such PR"))
     }
 
     fn set_base(&self, _repo: &str, pr: i64, base: &str) -> Result<(), Failure> {
-        let mut prs = self.prs.borrow_mut();
+        let mut prs = self.prs.lock().unwrap();
         let p = prs.get_mut(&pr).ok_or_else(|| Failure::other("no such PR"))?;
         p.base = base.to_string();
         Ok(())
@@ -437,7 +439,8 @@ impl GitHub for FakeHub {
     fn merge(&self, _repo: &str, pr: i64) -> Result<String, Failure> {
         let Pr { branch, base } = self
             .prs
-            .borrow()
+            .lock()
+            .unwrap()
             .get(&pr)
             .cloned()
             .ok_or_else(|| Failure::other("no such PR"))?;
@@ -651,12 +654,12 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         }),
     );
     // The table review answers every column of its table, which its session holds from its earlier prompts.
-    let known: RefCell<BTreeMap<String, Vec<String>>> = RefCell::default();
+    let known: Mutex<BTreeMap<String, Vec<String>>> = Mutex::default();
     s.insert(
         "T4",
         Box::new(move |r: &Request, _: usize| {
             let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
-            let ids = columns_known(&r.prompt, known.borrow_mut().entry(session).or_default());
+            let ids = columns_known(&r.prompt, known.lock().unwrap().entry(session).or_default());
             let cols: Vec<Value> = ids
                 .into_iter()
                 .map(|id| json!({ "id": id, "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } }))
@@ -698,8 +701,17 @@ fn quiet(e: &mut Engine) {
 }
 
 /// The engine over a setup, with what it says kept, and one item in the queue; no advance starts an architect work.
-fn start(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Rc<RefCell<Vec<String>>>, i64) {
-    let (mut e, said) = engine(s, scripts);
+fn start(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Arc<Mutex<Vec<String>>>, i64) {
+    start_with(s, scripts, Hooks::default())
+}
+
+/// The engine over a setup as [`start`] makes it, telling `hooks` what runs.
+fn start_with(
+    s: &Setup,
+    scripts: BTreeMap<&'static str, Script>,
+    hooks: Hooks,
+) -> (Engine, Arc<Mutex<Vec<String>>>, i64) {
+    let (mut e, said) = engine_with(s, scripts, hooks);
     quiet(&mut e);
     let item = e
         .db
@@ -717,10 +729,15 @@ fn start(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Rc<RefC
 }
 
 /// The engine over a setup as it starts, with what it says kept.
-fn engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Rc<RefCell<Vec<String>>>) {
+fn engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Arc<Mutex<Vec<String>>>) {
+    engine_with(s, scripts, Hooks::default())
+}
+
+/// The engine over a setup as it starts, telling `hooks` what runs, with what it says kept.
+fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks) -> (Engine, Arc<Mutex<Vec<String>>>) {
     let agents = Scripted {
         scripts,
-        rounds: RefCell::new(BTreeMap::new()),
+        rounds: Mutex::new(BTreeMap::new()),
     };
     let hub = FakeHub {
         origin: s.origin.clone(),
@@ -728,11 +745,14 @@ fn engine(s: &Setup, scripts: BTreeMap<&'static str, Script>) -> (Engine, Rc<Ref
         prs: s.prs.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
-    let mut e = Engine::new(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
-    e.retry_wait = std::time::Duration::ZERO;
-    let said = Rc::new(RefCell::new(Vec::<String>::new()));
+    let said = Arc::new(Mutex::new(Vec::<String>::new()));
     let log = said.clone();
-    e.say = Box::new(move |x| log.borrow_mut().push(x.to_string()));
+    let hooks = Hooks {
+        say: Arc::new(move |x: &str| log.lock().unwrap().push(x.to_string())),
+        ..hooks
+    };
+    let mut e = Engine::new(&s.data, committed, Box::new(agents), Box::new(hub), hooks).unwrap();
+    e.retry_wait = std::time::Duration::ZERO;
     (e, said)
 }
 
@@ -755,7 +775,7 @@ fn an_item_goes_from_the_queue_to_main() {
             assert!(
                 paused.is_none(),
                 "the work paused: {paused:?}\n{}",
-                said.borrow().join("\n")
+                said.lock().unwrap().join("\n")
             );
             if e.advance(*id).unwrap() == Advance::Stopped {
                 done = true;
@@ -763,7 +783,7 @@ fn an_item_goes_from_the_queue_to_main() {
             }
         }
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert!(done, "the work did not end:\n{log}");
     let (at, pr): (String, Option<i64>) =
         e.db.conn()
@@ -889,7 +909,7 @@ fn building_a_message_writes_nothing() {
     for _ in 0..2 {
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, _) = state(&e, item).unwrap();
     assert_eq!(at, "R2", "{log}");
     // The work runs on a flow version the engine no longer has built in.
@@ -921,7 +941,7 @@ fn building_a_message_writes_nothing() {
     let before = state_of();
     let agents = Scripted {
         scripts: scripts(),
-        rounds: RefCell::new(BTreeMap::new()),
+        rounds: Mutex::new(BTreeMap::new()),
     };
     let hub = FakeHub {
         origin: s.origin.clone(),
@@ -979,7 +999,7 @@ fn an_earlier_attempts_design_change_is_named_and_reverted() {
         }
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let rounds = rethinks(&e);
     assert_eq!(rounds.len(), 3, "{rounds:?}\n{log}");
     let first = rounds[0].1.clone().unwrap_or_default();
@@ -1145,7 +1165,7 @@ fn a_merge_of_main_is_not_the_works_own_design_change() {
     let (mut e, said, item) = start(&s, agents);
     step_to(&mut e, item, "I1");
     let rethinks = ended_at(&e, item, "D3");
-    assert_eq!(rethinks.len(), 1, "{rethinks:?}\n{}", said.borrow().join("\n"));
+    assert_eq!(rethinks.len(), 1, "{rethinks:?}\n{}", said.lock().unwrap().join("\n"));
     assert!(rethinks[0].0.is_some(), "{rethinks:?}");
     let (work, _, _) = state(&e, item).unwrap();
     let wt = worktree_of(&e, work);
@@ -1159,7 +1179,7 @@ fn a_merge_of_main_is_not_the_works_own_design_change() {
         }
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let implemented = ended_at(&e, item, "I1");
     assert!(
         implemented.iter().all(|(_, why)| why.is_none()),
@@ -1204,7 +1224,7 @@ fn a_cells_own_design_change_counts_beside_a_merge_of_main() {
         }
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let rounds = ended_at(&e, item, "D3");
     assert_eq!(rounds.len(), 3, "{rounds:?}\n{log}");
     let first = rounds[0].1.clone().unwrap_or_default();
@@ -1259,7 +1279,7 @@ fn a_design_path_the_work_and_main_both_changed_needs_a_new_design_card() {
         }
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let why = ended_at(&e, item, "I1")
         .into_iter()
         .find_map(|(_, why)| why)
@@ -1312,7 +1332,7 @@ fn the_advisor_runs_one_level_above_the_item() {
         }
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(advised(&e), Some(("m-up".to_string(), "advisor".to_string())), "{log}");
     let engineer: String =
         e.db.conn()
@@ -1436,7 +1456,7 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
     ] }));
     add(&mut e, "T4", &first, "done", "M1");
     e.step_work(work).unwrap();
-    assert_eq!(took(&e), "fix", "{}", said.borrow().join("\n"));
+    assert_eq!(took(&e), "fix", "{}", said.lock().unwrap().join("\n"));
     let disputes = json!({ "plan": { "review": "disputes", "adversarial": "skipped" } });
     add(&mut e, "T7", &disputes, "review_first", "T4");
     let m = engine::next_message(&mut e, work).unwrap().text;
@@ -1444,7 +1464,7 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
     let again = returned(json!({ "previous": [{ "fid": "F1", "verdict": "withdraw" }] }));
     add(&mut e, "T4", &again, "done", "M1");
     e.step_work(work).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert!(!took(&e).starts_with("fix"), "{}\n{log}", took(&e));
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -1466,7 +1486,7 @@ fn a_single_step_runs_exactly_one_round() {
             .unwrap()
     };
     let first = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, _) = state(&e, item).unwrap_or_else(|| panic!("no work started:\n{log}"));
     assert_eq!(first.work, Some(work), "{log}");
     assert_eq!(first.started_item, Some(item));
@@ -1476,7 +1496,7 @@ fn a_single_step_runs_exactly_one_round() {
     let mut last = first.work;
     for n in 2..=4 {
         let next = e.step(last).unwrap();
-        let log = said.borrow().join("\n");
+        let log = said.lock().unwrap().join("\n");
         assert_eq!(next.work, Some(work), "{log}");
         assert_eq!(next.started_item, None);
         assert_eq!(next.rounds.len(), 1, "{next:?}\n{log}");
@@ -1504,7 +1524,7 @@ fn an_agent_tells_the_owner_and_the_work_goes_on() {
     for _ in 0..4 {
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
     assert!(at != "S1" && at != "R1", "{log}");
@@ -1545,7 +1565,7 @@ fn works_of(e: &Engine, item: i64) -> Vec<WorkRow> {
 /// `change` says. Gives the version.
 fn older(e: &mut Engine, works: &[i64], change: impl FnOnce(&mut flow::CompiledGraph)) -> i64 {
     let now = e.flow_now;
-    let mut f = e.flow(now).unwrap().clone();
+    let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
     change(f.graphs.iter_mut().find(|g| g.name == engine::ENGINEER).unwrap());
     let text = f.json();
     e.db.write(Actor::Engine, |tx| {
@@ -1573,12 +1593,12 @@ fn renamed(g: &mut flow::CompiledGraph, cell: &str) {
 fn at_r2_on_an_older_version(
     s: &Setup,
     change: impl FnOnce(&mut flow::CompiledGraph),
-) -> (Engine, Rc<RefCell<Vec<String>>>, i64, i64) {
+) -> (Engine, Arc<Mutex<Vec<String>>>, i64, i64) {
     let (mut e, said, item) = start(s, scripts());
     for _ in 0..2 {
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, _) = state(&e, item).unwrap();
     assert_eq!(at, "R2", "{log}");
     older(&mut e, &[work], change);
@@ -1610,7 +1630,7 @@ fn a_work_at_an_unchanged_cell_moves_and_keeps_its_session() {
             .query_row("SELECT flow_version FROM works WHERE id = ?1", [work], |r| r.get(0))
             .unwrap();
     let stepped = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(stepped.work, Some(work), "{log}");
     assert_eq!(stepped.cell.as_deref(), Some("R2"), "{log}");
     let works = works_of(&e, item);
@@ -1649,7 +1669,7 @@ fn a_work_whose_earlier_returns_still_fit_moves() {
     let s = setup("refit");
     let (mut e, said, item, work) = at_r2_on_an_older_version(&s, with_before);
     let stepped = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(stepped.work, Some(work), "{log}");
     assert_eq!(stepped.cell.as_deref(), Some("R2"), "{log}");
     assert_eq!(works_of(&e, item).len(), 1, "{log}");
@@ -1678,7 +1698,7 @@ fn a_work_whose_earlier_return_no_longer_fits_is_taken_over() {
         })
         .unwrap();
     let stepped = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
     assert_eq!(works.len(), 2, "{works:?}\n{log}");
     assert_eq!(works[0].0, work);
@@ -1712,7 +1732,7 @@ fn a_round_cut_off_by_the_engine_goes_on_in_the_same_session() {
     for _ in 0..2 {
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, _) = state(&e, item).unwrap();
     assert_eq!(at, "R2", "{log}");
     let session: i64 =
@@ -1765,7 +1785,7 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
             break;
         }
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (old, at, worktree, branch, pr, _) = works_of(&e, item)[0].clone();
     assert!(pr.is_some() && worktree.is_some() && branch.is_some(), "{log}");
     // The work ran on a flow version the engine no longer has built in, where the cell it stands at was another.
@@ -1811,7 +1831,7 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();
     let first = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
     assert_eq!(works.len(), 2, "{works:?}\n{log}");
     assert!(
@@ -1856,7 +1876,7 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
         "{withdrawn}"
     );
     e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
     assert_eq!(
         (&works[1].2, &works[1].3, works[1].4),
@@ -1949,7 +1969,7 @@ fn a_paused_work_closes_its_open_round_and_tells_the_owner() {
     let earlier = open_round(&mut e);
     api::resume(&mut e.db, work).unwrap();
     e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (ended, why) = rejected(&e, earlier);
     assert!(ended.is_some(), "{log}");
     assert_eq!(
@@ -1995,7 +2015,7 @@ fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
         }
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, _, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
     let output: Value = serde_json::from_str(&ran(&e).expect(&log)).unwrap();
@@ -2022,7 +2042,7 @@ fn a_gate_the_project_cannot_meet_is_the_engines_answer() {
         }
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, _) = state(&e, item).unwrap();
     assert_eq!(at, "D4", "{log}");
     e.step(None).unwrap();
@@ -2082,7 +2102,7 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
     // Nothing is taken over as the engine starts; both are as soon as works go on, before the item queued before.
     assert_eq!(works_of(&e, items[0]).len(), 1);
     let stepped = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(stepped.started_item, Some(items[0]), "{log}");
     // The first takes the slot; the second waits ahead of the item queued before.
     assert_eq!(works_of(&e, items[0]).len(), 2, "{log}");
@@ -2097,7 +2117,7 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
     })
     .unwrap();
     let stepped = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(stepped.started_item, Some(items[1]), "{log}");
     // The first, whose work was stopped, waits again in the architect's order, after the item the owner queued.
     assert_eq!(ready(&e), vec![queued, items[0]], "{log}");
@@ -2129,7 +2149,7 @@ fn an_imported_item_takes_over_its_branch_and_pull_request() {
     .unwrap();
     e.step(None).unwrap();
     e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
     assert_eq!(
         (works[0].3.as_deref(), works[0].4),
@@ -2169,7 +2189,7 @@ fn a_pull_request_opened_against_another_branch_merges_into_main_only() {
         branch: "outside/feature".into(),
         base: "first-version".into(),
     };
-    s.prs.borrow_mut().insert(9, elsewhere.clone());
+    s.prs.lock().unwrap().insert(9, elsewhere.clone());
     let (mut e, said, item) = start(&s, scripts());
     e.db.write(Actor::Owner, |tx| {
         tx.execute(
@@ -2180,7 +2200,7 @@ fn a_pull_request_opened_against_another_branch_merges_into_main_only() {
         Ok(())
     })
     .unwrap();
-    let base_of = |n: i64| s.prs.borrow()[&n].base.clone();
+    let base_of = |n: i64| s.prs.lock().unwrap()[&n].base.clone();
     let mut pushed = false;
     for _ in 0..100 {
         if state(&e, item).is_some_and(|(_, at, _)| at == "M2") {
@@ -2192,19 +2212,19 @@ fn a_pull_request_opened_against_another_branch_merges_into_main_only() {
             assert_eq!(base_of(9), "first-version");
         }
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(state(&e, item).map(|(_, at, _)| at).as_deref(), Some("M2"), "{log}");
     assert!(pushed, "{log}");
     assert_eq!(base_of(9), "main", "{log}");
     // Its base is set again before it merges, whatever changed it since.
-    s.prs.borrow_mut().insert(9, elsewhere);
+    s.prs.lock().unwrap().insert(9, elsewhere);
     for _ in 0..20 {
         if !ended_at(&e, item, "M2").is_empty() {
             break;
         }
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(ended_at(&e, item, "M2"), [(Some("merged".to_string()), None)], "{log}");
     assert_eq!(base_of(9), "main", "{log}");
     assert_eq!(
@@ -2224,17 +2244,24 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     let s = setup("resume");
     let mut scripts = scripts();
     // As many returns as the flow sends back before it pauses, read once the engine has the flow.
-    let max = Rc::new(std::cell::Cell::new(0));
+    let max = Arc::new(AtomicUsize::new(0));
     let bad_until = max.clone();
     scripts.insert(
         "R1",
         Box::new(move |_: &Request, n: usize| {
             let bad = vec![("outcome", json!("the JSON text of an object"))];
-            (Vec::new(), if n <= bad_until.get() { bad } else { Vec::new() })
+            (
+                Vec::new(),
+                if n <= bad_until.load(Ordering::Relaxed) {
+                    bad
+                } else {
+                    Vec::new()
+                },
+            )
         }),
     );
     let (mut e, said, item) = start(&s, scripts);
-    max.set(pause_after(&mut e));
+    max.store(pause_after(&mut e), Ordering::Relaxed);
     let mut paused = None;
     for _ in 0..20 {
         e.tick().unwrap();
@@ -2243,7 +2270,7 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
             break;
         }
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (id, why) = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
     assert!(why.starts_with("3 returns of cell R1 in a row were sent back"), "{why}");
     assert!(why.contains("outcome must be an object, and is a string"), "{why}");
@@ -2251,7 +2278,7 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     for _ in 0..3 {
         e.tick().unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
     assert_ne!(at, "R1", "{log}");
@@ -2334,7 +2361,7 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
             break;
         }
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let rounds = agent_rounds(&e, item);
     let at = |cell: &str| -> Value {
         rounds
@@ -2489,7 +2516,7 @@ fn a_changed_rule_gives_what_changed_and_a_compaction_gives_everything_again() {
     git(&s.data, &["commit", "-q", "-m", "a changed rule"]);
     e.step(None).unwrap();
     e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let rounds = agent_rounds(&e, item);
     let cells: Vec<&str> = rounds.iter().map(|r| r.1.as_str()).collect();
     assert_eq!(&cells[..3], ["R1", "R2", "D1"], "{log}");
@@ -2563,7 +2590,7 @@ fn a_works_own_edits_to_its_design_tree_do_not_give_the_guide_again() {
     write(&wt, "AGENTS.md", "Edited, not committed.\n");
     e.step(None).unwrap();
     e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let rounds = agent_rounds(&e, item);
     let cells: Vec<&str> = rounds.iter().map(|r| r.1.as_str()).collect();
     assert_eq!(&cells[..3], ["R1", "R2", "D1"], "{log}");
@@ -2597,7 +2624,7 @@ fn a_changed_main_gives_only_what_changed_in_the_guide() {
     merge_main(&worktree_of(&e, work));
     e.step(None).unwrap();
     e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let rounds = agent_rounds(&e, item);
     let cells: Vec<&str> = rounds.iter().map(|r| r.1.as_str()).collect();
     assert_eq!(&cells[..3], ["R1", "R2", "D1"], "{log}");
@@ -2648,7 +2675,7 @@ fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     .unwrap();
     let before = rounds_count(&e);
     e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(at, "R2", "{log}");
     let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
@@ -2688,7 +2715,7 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     let (work, _, _) = state(&e, item).unwrap();
     // The flow the engine compiled, sending back two returns instead of its own number.
     let now = e.flow_now;
-    let mut f = e.flow(now).unwrap().clone();
+    let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
     f.graphs[0].rounds.as_mut().unwrap().sent_back.pause_after = 2;
     let (digest, text) = (f.digest(), f.json());
     // The engine runs that flow, so that the work on it is not taken over.
@@ -2709,7 +2736,7 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
             break;
         }
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(at, "R1", "{log}");
     assert!(
@@ -2733,7 +2760,7 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
 
 /// The engine over a setup whose cell `R1` ends its first `times` runs without a return, the CLI
 /// reporting `report`.
-fn failing(name: &str, report: String, times: usize) -> (Setup, Engine, Rc<RefCell<Vec<String>>>, i64) {
+fn failing(name: &str, report: String, times: usize) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64) {
     let s = setup(name);
     let mut scripts = scripts();
     scripts.insert(
@@ -2796,17 +2823,17 @@ fn a_usage_limit_stops_every_work_until_it_resets() {
     let reset = db::now() / 1000 + 3600;
     let (s, mut e, said, item) = failing("limit", format!("Claude AI usage limit reached|{reset}"), 1);
     e.tick().unwrap();
-    let log = said.borrow().join("\n");
-    let h = e.halt.clone().unwrap_or_else(|| panic!("no wait:\n{log}"));
+    let log = said.lock().unwrap().join("\n");
+    let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
     assert_eq!((h.kind.as_str(), h.until), ("usage_limit", reset * 1000));
     let before = rounds_count(&e);
     e.tick().unwrap();
     e.tick().unwrap();
     assert_eq!(rounds_count(&e), before);
     assert_eq!(told(&s, "usage_limit"), 1);
-    e.halt.as_mut().unwrap().until = 0;
+    e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
     e.tick().unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
     assert_ne!(at, "R1", "{log}");
@@ -2822,14 +2849,14 @@ fn no_network_stops_every_work_until_it_is_back() {
     let report = "API Error: Connection error. (getaddrinfo ENOTFOUND api.anthropic.com)".to_string();
     let (s, mut e, said, item) = failing("offline", report, 1);
     e.tick().unwrap();
-    let log = said.borrow().join("\n");
-    let h = e.halt.clone().unwrap_or_else(|| panic!("no wait:\n{log}"));
+    let log = said.lock().unwrap().join("\n");
+    let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
     assert_eq!(h.kind, "offline");
     assert!(h.until > db::now());
     let before = rounds_count(&e);
     e.tick().unwrap();
     assert_eq!(rounds_count(&e), before);
-    e.halt.as_mut().unwrap().until = 0;
+    e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
     e.tick().unwrap();
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None);
@@ -2851,7 +2878,7 @@ fn a_passing_failure_runs_again_until_it_passes() {
             break;
         }
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_ne!(at, "R1", "{log}");
     assert_eq!(paused, None, "{log}");
@@ -2875,7 +2902,7 @@ fn unparsed_at_r1(
     fault: &'static str,
     repair: Option<Script>,
     later: Option<&'static str>,
-) -> (Setup, Engine, Rc<RefCell<Vec<String>>>, i64) {
+) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64) {
     let s = setup(name);
     let mut agents = scripts();
     agents.insert(
@@ -2925,7 +2952,7 @@ fn past_r1(e: &mut Engine, item: i64) {
 fn a_return_that_lacks_only_its_last_brace_is_closed_within_its_round() {
     let (s, mut e, said, item) = unparsed_at_r1("unparsed-close", "drop_last_brace", None, None);
     past_r1(&mut e, item);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
     assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
@@ -2972,7 +2999,7 @@ fn an_outcome_handed_in_as_its_json_text_is_taken_as_the_object() {
     );
     let (mut e, said, item) = start(&s, agents);
     past_r1(&mut e, item);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
     assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
@@ -2988,7 +3015,7 @@ fn an_outcome_handed_in_as_its_json_text_is_taken_as_the_object() {
 fn an_attempt_refused_for_its_outcome_as_json_text_is_taken_within_its_round() {
     let (s, mut e, said, item) = unparsed_at_r1("unparsed-outcome-text", "outcome_text", None, None);
     past_r1(&mut e, item);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
     assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
@@ -3012,7 +3039,7 @@ fn an_attempt_refused_for_its_outcome_as_json_text_is_taken_within_its_round() {
 fn an_attempt_refused_for_its_outcome_as_json_text_with_a_brace_too_many_is_taken_within_its_round() {
     let (s, mut e, said, item) = unparsed_at_r1("unparsed-outcome-brace", "outcome_text_brace", None, None);
     past_r1(&mut e, item);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
     assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
@@ -3040,7 +3067,7 @@ fn a_repair_whose_outcome_is_its_json_text_is_taken_as_any_return() {
         None,
     );
     past_r1(&mut e, item);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
     assert_eq!(sent_back(&e), 0, "{log}");
@@ -3068,7 +3095,7 @@ fn the_attempts_the_command_line_refused_before_it_took_a_return_are_recorded() 
     );
     let (mut e, said, item) = start(&s, agents);
     past_r1(&mut e, item);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
     assert_eq!(sent_back(&e), 0, "{log}");
@@ -3086,7 +3113,7 @@ fn the_attempts_the_command_line_refused_before_it_took_a_return_are_recorded() 
 fn an_attempt_refused_for_its_shape_is_taken_as_it_is_within_its_round() {
     let (s, mut e, said, item) = unparsed_at_r1("unparsed-inside", "inside", None, None);
     past_r1(&mut e, item);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!((at.as_str(), paused), ("R2", None), "{log}");
     assert_eq!(rows_at(&e, work, "R1"), ["done"], "{log}");
@@ -3118,7 +3145,7 @@ fn a_repair_that_keeps_the_content_is_taken_within_the_round() {
     });
     let (s, mut e, said, item) = unparsed_at_r1("unparsed-repair", "unescaped_quote", Some(escapes), None);
     past_r1(&mut e, item);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, _) = state(&e, item).unwrap();
     assert_eq!(at, "R2", "{log}");
     let (record, usage) = repair_record(&e, work);
@@ -3144,7 +3171,7 @@ fn a_repair_that_changes_the_content_is_refused_and_the_return_handed_in_again()
     });
     let (s, mut e, said, item) = unparsed_at_r1("unparsed-again", "unescaped_quote", Some(rewords), None);
     past_r1(&mut e, item);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, _) = state(&e, item).unwrap();
     assert_eq!(at, "R2", "{log}");
     let (record, _) = repair_record(&e, work);
@@ -3171,7 +3198,7 @@ fn a_repair_that_changes_the_content_is_refused_and_the_return_handed_in_again()
 fn a_return_neither_repaired_nor_handed_in_again_pauses_the_work() {
     let (s, mut e, said, item) = unparsed_at_r1("unparsed-pause", "cut_off", None, Some("cut_off"));
     past_r1(&mut e, item);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!(at, "R1", "{log}");
     assert!(
@@ -3194,17 +3221,17 @@ fn a_return_neither_repaired_nor_handed_in_again_pauses_the_work() {
 fn an_expired_login_stops_every_work_until_a_round_runs_again() {
     let (s, mut e, said, item) = failing("login", "Not logged in · Please run /login".to_string(), 1);
     e.tick().unwrap();
-    let log = said.borrow().join("\n");
-    let h = e.halt.clone().unwrap_or_else(|| panic!("no wait:\n{log}"));
+    let log = said.lock().unwrap().join("\n");
+    let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
     assert_eq!(h.kind, "cannot_run");
     assert!(h.until > db::now());
     let before = rounds_count(&e);
     e.tick().unwrap();
     assert_eq!(rounds_count(&e), before);
     assert_eq!(told(&s, "cannot_run"), 1);
-    e.halt.as_mut().unwrap().until = 0;
+    e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
     e.tick().unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
     assert_ne!(at, "R1", "{log}");
@@ -3229,7 +3256,7 @@ fn a_prompt_too_long_pauses_the_work_until_the_owner_lets_it_go_on() {
             break;
         }
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!(at, "R1", "{log}");
     let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
@@ -3246,7 +3273,7 @@ fn a_prompt_too_long_pauses_the_work_until_the_owner_lets_it_go_on() {
             break;
         }
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (_, at, paused) = state(&e, item).unwrap();
     assert_eq!(paused, None, "{log}");
     assert_ne!(at, "R1", "{log}");
@@ -3281,13 +3308,16 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
             (Vec::new(), Vec::new())
         }),
     );
-    let (mut e, said, item) = start(&s, scripts);
-    let busy = Rc::new(RefCell::new(Vec::new()));
+    let busy = Arc::new(Mutex::new(Vec::new()));
     let seen = busy.clone();
-    e.busy = Box::new(move |w| seen.borrow_mut().push(w));
+    let hooks = Hooks {
+        busy: Arc::new(move |w: Option<i64>| seen.lock().unwrap().push(w)),
+        ..Hooks::default()
+    };
+    let (mut e, said, item) = start_with(&s, scripts, hooks);
     let first = e.step(None).unwrap();
     e.step(first.work).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (work, at, paused) = state(&e, item).unwrap();
     assert_eq!(at, "R2", "{log}");
     assert_eq!(paused.as_deref(), Some(db::PAUSED_BY_OWNER), "{log}");
@@ -3301,7 +3331,7 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
             )
             .unwrap();
     assert!(took.is_some(), "{log}");
-    assert_eq!(*busy.borrow(), [Some(work), None, Some(work), None]);
+    assert_eq!(*busy.lock().unwrap(), [Some(work), None, Some(work), None]);
     // Paused, it takes no step by itself.
     let n = rounds_count(&e);
     assert_eq!(e.step(Some(work)).unwrap().work, None);
@@ -3332,7 +3362,7 @@ fn start_all_lifts_no_work_s_own_pause() {
     assert_eq!(rounds_count(&e), n + 1);
     e.pause(work, "cell R2: the return does not fit").unwrap();
     assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new(), "{log}");
     assert_eq!(
         state(&e, item).unwrap().2.as_deref(),
@@ -3354,7 +3384,7 @@ fn a_step_runs_one_round_of_a_paused_work_which_stays_paused() {
     api::pause(&mut e.db, work, None).unwrap();
     let (_, before, _) = state(&e, item).unwrap();
     let stepped = e.step_work(work).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(
         (stepped.work, stepped.rounds.len()),
         (Some(work), 1),
@@ -3366,7 +3396,7 @@ fn a_step_runs_one_round_of_a_paused_work_which_stays_paused() {
     assert_eq!(e.step(Some(work)).unwrap().work, None);
     e.pause(work, "cell R2: the return does not fit").unwrap();
     let stepped = e.step_work(work).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(stepped.rounds.len(), 1, "{stepped:?}\n{log}");
     assert_eq!(state(&e, item).unwrap().2.as_deref(), Some(db::PAUSED_BY_OWNER));
     assert_eq!(paused_by(&e, work).as_deref(), Some("owner"));
@@ -3422,7 +3452,7 @@ fn a_step_takes_a_work_on_an_older_flow_version_over_and_keeps_it_paused() {
     assert_eq!(e.step(None).unwrap().work, None);
     assert_eq!(works_of(&e, item).len(), 1);
     let stepped = e.step_work(old).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
     assert_eq!(works.len(), 2, "{works:?}\n{log}");
     assert!(
@@ -3493,7 +3523,7 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
             break;
         }
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let (old, _, worktree, branch, pr, _) = works_of(&e, item)[0].clone();
     assert!(pr.is_some() && worktree.is_some() && branch.is_some(), "{log}");
     // It put two asks to the owner, a design card and a question to the architect; the owner answers one ask and rules
@@ -3548,7 +3578,7 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
     api::rule(&mut e.db, card, &ruling).unwrap();
     // The owner's step of the work runs its round, in which the owner starts it over.
     let stepped = e.step_work(old).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
     assert_eq!(works.len(), 2, "{works:?}\n{log}");
     let why = "stopped: the owner started it over, and a new work on it takes the item over";
@@ -3612,7 +3642,7 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
     // exists.
     e.step_work(new).unwrap();
     e.step_work(new).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
     assert_eq!(
         (&works[1].2, &works[1].3, works[1].4),
@@ -3670,10 +3700,15 @@ fn the_owner_s_start_goes_on_in_the_work_that_starts_a_work_over() {
     let c = api::Control::default();
     let work = e.create_work(item).unwrap();
     c.start(api::Fresh::Work(work), false);
-    assert_eq!(turns(&mut e, &c, 2), [work, work], "{}", said.borrow().join("\n"));
+    assert_eq!(
+        turns(&mut e, &c, 2),
+        [work, work],
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
     api::start_over(&mut e.db, work).unwrap();
     let moved = turns(&mut e, &c, 1);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
     assert_eq!(works.len(), 2, "{works:?}\n{log}");
     let new = works[1].0;
@@ -3878,7 +3913,7 @@ fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
     an_item(&mut e);
     db::say_to_architect(&mut e.db, "p", None, None, "Make the parser's item clearer.", &[]).unwrap();
     let started = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     let project: Option<String> =
@@ -3889,9 +3924,9 @@ fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, arch),
         [
@@ -4077,16 +4112,16 @@ fn a_batch_that_changed_nothing_ends_with_no_rethink() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, first)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     say(&mut e, "Ask me which parser goes first.");
     let second = e.step(None).unwrap().work.unwrap();
     assert!(
         steps_until(&mut e, 30, |e| architect_work_done(e, second)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, second),
         ["S1", "Q0", "Q2", "H8", "A3", "B1", "Q0", "E2"],
@@ -4109,16 +4144,16 @@ fn a_resumed_session_goes_from_starting_to_the_queue() {
     assert!(
         steps_until(&mut e, 30, |e| architect_work_done(e, first)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     say(&mut e, "Look again.");
     let second = e.step(None).unwrap().work.unwrap();
     assert!(
         steps_until(&mut e, 30, |e| architect_work_done(e, second)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, second),
         ["S1", "Q0", "Q2", "H8", "B1", "B4", "Q0", "E2"],
@@ -4183,7 +4218,7 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
             .ok()
     };
     assert!(steps_until(&mut e, 10, |e| question(e).is_some()));
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(matters(&e), [("engineer_question".to_string(), true, false)], "{log}");
     let (detail, project, what): (Option<String>, String, String) =
         e.db.conn()
@@ -4202,7 +4237,7 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     let replied = steps_until(&mut e, 60, |e| {
         question(e).is_some_and(|q| q.1.is_some()) && architect_work_done(e, arch)
     });
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert!(replied, "{log}");
     let path = path_of(&e, arch);
     let at = path.iter().position(|c| c == "H2").expect(&log);
@@ -4284,7 +4319,7 @@ fn a_gap_asked(
     s: &Setup,
     ask: Script,
     scripted: Vec<(&'static str, Script)>,
-) -> (Engine, Rc<RefCell<Vec<String>>>, i64, i64, i64) {
+) -> (Engine, Arc<Mutex<Vec<String>>>, i64, i64, i64) {
     let mut agents = scripts();
     agents.insert("R1", ask);
     for (cell, script) in scripted {
@@ -4301,14 +4336,14 @@ fn a_gap_asked(
             .unwrap()
             > 0
     };
-    assert!(steps_until(&mut e, 10, asked), "{}", said.borrow().join("\n"));
+    assert!(steps_until(&mut e, 10, asked), "{}", said.lock().unwrap().join("\n"));
     let work = state(&e, item).unwrap().0;
     let arch = e.step(None).unwrap().work.unwrap();
     // The work takes the reply, or the architect's pause holds it at its question until the owner starts it.
     let done = steps_until(&mut e, 80, |e| {
         architect_work_done(e, arch) && (question_took(e, work).is_some() || paused_by(e, work).is_some())
     });
-    assert!(done, "{}", said.borrow().join("\n"));
+    assert!(done, "{}", said.lock().unwrap().join("\n"));
     (e, said, item, work, arch)
 }
 
@@ -4336,7 +4371,7 @@ fn a_capability_gap_is_unblocked_by_a_way_around_and_its_work_told_what_became_o
     });
     let ask = asks_about_a_gap("The `jq` command is not on the machine.");
     let (e, said, _, work, arch) = a_gap_asked(&s, ask, vec![("H3", ways)]);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let ways = message_at(&e, arch, "H3", false);
     assert!(
         ways.contains("A capability gap, the system lacking what the work needs"),
@@ -4389,7 +4424,7 @@ fn an_action_only_the_owner_can_do_pauses_the_work_until_the_owner_starts_it() {
     let ask = asks_about_a_gap("There is no token to read the registry with.");
     let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H3", ways)]);
     assert_eq!(item, 1);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let paused: (Option<String>, Option<String>) =
         e.db.conn()
             .query_row("SELECT paused, paused_by FROM works WHERE id = ?1", [work], |r| {
@@ -4430,7 +4465,7 @@ fn an_action_only_the_owner_can_do_pauses_the_work_until_the_owner_starts_it() {
         }
         turn(&mut e, &c, None);
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
     assert_eq!(paused_by(&e, work), None, "{log}");
     let told: String =
@@ -4466,7 +4501,7 @@ fn a_choice_only_the_owner_can_make_goes_on_the_design_card_and_the_work_goes_on
     });
     let ask = asks_about_a_gap("The change makes parsing 3% slower, measured over 30 pairs.");
     let (e, said, _, work, arch) = a_gap_asked(&s, ask, vec![("H3", ways)]);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
     assert_eq!(paused_by(&e, work), None, "{log}");
     let asks: i64 =
@@ -4536,8 +4571,12 @@ fn a_flow_anomaly_at_choosing_the_way_on_reaches_the_architect() {
         state(e, item)
             .is_some_and(|(w, _, _)| cells_of(e, w).iter().filter(|c| c.0 == "A4" && c.1.is_some()).count() >= 2)
     };
-    assert!(steps_until(&mut e, 150, chose_again), "{}", said.borrow().join("\n"));
-    let log = said.borrow().join("\n");
+    assert!(
+        steps_until(&mut e, 150, chose_again),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
     let work = state(&e, item).unwrap().0;
     let cells = cells_of(&e, work);
     let at = cells
@@ -4596,7 +4635,7 @@ fn a_work_at_the_owner_s_cell_of_an_older_version_is_taken_over_and_its_ask_clos
         })
         .unwrap();
     e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let works = works_of(&e, item);
     assert_eq!(works.len(), 2, "{works:?}\n{log}");
     assert!(
@@ -4650,7 +4689,7 @@ fn a_capability_gap_with_no_way_around_has_its_work_wait_for_the_item_that_fixes
     let ask = asks_about_a_gap("The `jq` command is not on the machine.");
     let (mut e, said, item, work, _) = a_gap_asked(&s, ask, vec![("H3", ways), ("B2", review), ("A4", way_on)]);
     assert_eq!(item, 1);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
     let fix: i64 =
         e.db.conn()
@@ -4725,9 +4764,9 @@ fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let id: i64 =
         e.db.conn()
             .query_row("SELECT id FROM observations", [], |r| r.get(0))
@@ -4853,9 +4892,9 @@ fn a_gap_reported_a_third_time_is_taken_into_an_item_moved_ahead() {
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let rejected: Vec<String> = engine::query_json(
         e.db.conn(),
         "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H5' AND rejected IS NOT NULL ORDER BY n",
@@ -4976,9 +5015,9 @@ fn an_item_change_the_review_rejects_is_revised_and_then_made() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
     let at = path.iter().position(|c| c == "B2").expect(&log);
     assert_eq!(&path[at..at + 4], ["B2", "B3", "B2", "B4"], "{log}");
@@ -5069,9 +5108,9 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
     let asked = path.iter().position(|c| c == "A3").expect(&log);
     assert_eq!(
@@ -5124,9 +5163,9 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, again)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, again);
     let at = path.iter().position(|c| c == "Q2").expect(&log);
     assert_eq!(&path[at..at + 3], ["Q2", "H9", "B1"], "{log}");
@@ -5182,9 +5221,9 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let ask: i64 =
         e.db.conn()
             .query_row("SELECT asked FROM architect_matters WHERE id = ?1", [held], |r| {
@@ -5206,9 +5245,9 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, again)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let cells = cells_of(&e, again);
     let at = cells.iter().position(|c| c.0 == "Q0").expect(&log);
     assert_eq!(cells[at].1.as_deref(), Some("answered"), "{cells:?}\n{log}");
@@ -5276,7 +5315,7 @@ fn a_question_just_put_waits_at_the_queue_for_the_owner_s_reply() {
             .last()
             .is_some_and(|c| c == &("Q0".into(), Some("waits".into())))
     };
-    assert!(steps_until(&mut e, 40, waits), "{}", said.borrow().join("\n"));
+    assert!(steps_until(&mut e, 40, waits), "{}", said.lock().unwrap().join("\n"));
     let rounds = cells_of(&e, arch).len();
     assert!(e.step(None).unwrap().rounds.is_empty());
     assert_eq!(cells_of(&e, arch).len(), rounds);
@@ -5293,9 +5332,9 @@ fn a_question_just_put_waits_at_the_queue_for_the_owner_s_reply() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let cells = cells_of(&e, arch);
     let waited = cells.iter().position(|c| c.1.as_deref() == Some("waits")).expect(&log);
     assert_eq!(
@@ -5345,14 +5384,14 @@ fn the_owner_s_words_end_the_wait_and_a_reply_to_a_closed_question_is_the_owner_
             .last()
             .is_some_and(|c| c == &("Q0".into(), Some("waits".into())))
     };
-    assert!(steps_until(&mut e, 40, waits), "{}", said.borrow().join("\n"));
+    assert!(steps_until(&mut e, 40, waits), "{}", said.lock().unwrap().join("\n"));
     say(&mut e, "What about the parser?");
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let cells = cells_of(&e, arch);
     let waited = cells.iter().position(|c| c.1.as_deref() == Some("waits")).expect(&log);
     assert_eq!(
@@ -5512,7 +5551,7 @@ fn a_new_session_queues_the_check_and_the_plan_and_takes_them_after_the_wait() {
     assert!(
         steps_until(&mut e, 20, |e| waits_at_queue(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let understood = "A new session understood the project".to_string();
     assert_eq!(
@@ -5530,9 +5569,9 @@ fn a_new_session_queues_the_check_and_the_plan_and_takes_them_after_the_wait() {
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let cells = cells_of(&e, arch);
     let taken: Vec<(&str, Option<&str>)> = cells[..cells.len() - 1]
         .iter()
@@ -5628,7 +5667,7 @@ fn head_after_a_new_session(name: &str, kept: &str, now: &str, newer: bool) -> V
             .iter()
             .any(|c| c.0 == "U1" && c.1.is_some())),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let head = at_head(&e);
     let _ = std::fs::remove_dir_all(&s.root);
@@ -5707,14 +5746,14 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
     assert!(
         steps_until(&mut e, 30, |e| waits_at_queue(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let (research, _) = question_now(&e);
     api::reply_to_question(&mut e.db, "p", research, "Yes, research it.", &[]).unwrap();
     assert!(
         steps_until(&mut e, 30, |e| waited(e) == 2 && waits_at_queue(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let (approval, text) = question_now(&e);
     assert_eq!(text, "Approve this policy? Reply exactly: approved");
@@ -5731,12 +5770,12 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
     assert!(
         steps_until(&mut e, 30, |e| waited(e) == 3 && waits_at_queue(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let (again, _) = question_now(&e);
     assert_ne!(again, approval);
     // No draft queued its new measures: a draft the owner has not approved queues nothing.
-    assert!(measures_queued(&e).is_empty(), "{}", said.borrow().join("\n"));
+    assert!(measures_queued(&e).is_empty(), "{}", said.lock().unwrap().join("\n"));
     e.db.write(Actor::Engine, |tx| {
         let fix = json!({ "where": "The numbers the engine measures", "items": [], "works": [], "kind": "missing",
                           "wrong": "w", "steps": ["Make an item that has the engine measure it"] });
@@ -5758,9 +5797,9 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
     assert!(
         steps_until(&mut e, 90, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     // The draft that took effect queued its new measures, each once, but the one the queue held already.
     assert_eq!(
         measures_queued(&e),
@@ -5872,9 +5911,9 @@ fn the_reply_to_the_owner_s_words_in_a_work_s_group_is_in_that_group() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(rows_at(&e, arch, "H8"), ["done"], "{log}");
     let reply_in = |conversation: &str| -> i64 {
         e.db.conn()
@@ -5974,9 +6013,9 @@ fn what_was_said_in_the_groups_waits_for_a_work_and_its_cell_takes_it() {
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(rows_at(&e, arch, "H12"), ["done"], "{log}");
     let heard = message_at(&e, arch, "H12", false);
     assert!(heard.contains("Keep the parser small."), "{log}");
@@ -6023,9 +6062,9 @@ fn a_matter_at_the_head_asked_for_twice_is_queued_once_with_both_whys() {
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, arch),
         [
@@ -6120,9 +6159,9 @@ fn searched(name: &str, candidates: Value) -> (Engine, i64, String, Setup) {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     (e, arch, log, s)
 }
 
@@ -6199,8 +6238,8 @@ struct Saw {
 }
 
 /// Scripts that keep what the rounds of the cells named saw; the study of a policy asks gh at its first round.
-fn keep_what_they_saw(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'static str]) -> Rc<RefCell<Vec<Saw>>> {
-    let seen = Rc::new(RefCell::new(Vec::<Saw>::new()));
+fn keep_what_they_saw(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'static str]) -> Arc<Mutex<Vec<Saw>>> {
+    let seen = Arc::new(Mutex::new(Vec::<Saw>::new()));
     for &cell in cells {
         let kept = seen.clone();
         let then = agents.remove(cell);
@@ -6208,7 +6247,7 @@ fn keep_what_they_saw(agents: &mut BTreeMap<&'static str, Script>, cells: &[&'st
             cell,
             Box::new(move |r: &Request, n: usize| {
                 let wt = &r.worktree;
-                kept.borrow_mut().push(Saw {
+                kept.lock().unwrap().push(Saw {
                     r: r.clone(),
                     lib: std::fs::read_to_string(wt.join("src/lib.txt")).unwrap_or_default(),
                     head: if wt.join(".git").exists() {
@@ -6245,15 +6284,15 @@ fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
     let architect = worktrees.join("architect").join("p");
     main_moves_on(&s.root, &[("src/lib.txt", "one\n")], "One");
     for _ in 0..5 {
-        if seen.borrow().len() >= 2 {
+        if seen.lock().unwrap().len() >= 2 {
             break;
         }
         e.advance(arch).unwrap();
     }
     let main = git(&s.origin, &["rev-parse", "main"]);
     {
-        let seen = seen.borrow();
-        let log = said.borrow().join("\n");
+        let seen = seen.lock().unwrap();
+        let log = said.lock().unwrap().join("\n");
         assert_eq!(seen.len(), 2, "{log}");
         let (u1, p1) = (&seen[0], &seen[1]);
         assert_eq!((u1.r.cell.as_str(), p1.r.cell.as_str()), ("U1", "P1"), "{log}");
@@ -6303,13 +6342,13 @@ fn an_architect_s_lines_read_the_latest_main_in_a_worktree_of_its_own() {
     write(&architect, "left.txt", "left\n");
     main_moves_on(&s.root, &[("src/lib.txt", "two\n")], "Two");
     for _ in 0..5 {
-        if seen.borrow().len() > 2 {
+        if seen.lock().unwrap().len() > 2 {
             break;
         }
         e.advance(arch).unwrap();
     }
-    let seen = seen.borrow();
-    let log = said.borrow().join("\n");
+    let seen = seen.lock().unwrap();
+    let log = said.lock().unwrap().join("\n");
     let next = seen.get(2).expect(&log);
     assert_eq!(next.r.worktree, architect, "{log}");
     assert_eq!(
@@ -6384,8 +6423,12 @@ fn two_projects_architects_send_each_other_messages() {
         let ws = projects(e);
         ws.len() >= 3 && ws.iter().all(|(w, _)| architect_work_done(e, *w))
     };
-    assert!(steps_until(&mut e, 120, done_all), "{}", said.borrow().join("\n"));
-    let log = said.borrow().join("\n");
+    assert!(
+        steps_until(&mut e, 120, done_all),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
     let ws = projects(&e);
     let names: Vec<&str> = ws.iter().map(|w| w.1.as_str()).collect();
     assert_eq!(names, ["p", "q", "p"], "{log}");
@@ -6433,7 +6476,7 @@ fn side_reports_come_to_the_architect_as_reports() {
     let (mut e, said, _) = start(&s, agents);
     let work = e.step(None).unwrap().work;
     e.step(work).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(matters(&e), [("report".to_string(), true, false)], "{log}");
     let (detail, urgent): (String, i64) =
         e.db.conn()
@@ -6443,15 +6486,15 @@ fn side_reports_come_to_the_architect_as_reports() {
             .unwrap();
     assert_eq!((detail.as_str(), urgent), ("duplicate", 1));
     let started = e.step(work).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert!(path_of(&e, arch).contains(&"H4".to_string()), "{log}");
     assert_eq!(matters(&e), [("report".to_string(), false, true)], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
@@ -6475,7 +6518,7 @@ fn flow_feedback_waits_for_the_architect_by_cell_and_starts_no_work_of_it() {
     for _ in 0..4 {
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(ended_at(&e, item, "R2").len(), 1, "{log}");
     assert!(architect_works(&e).is_empty(), "{log}");
     assert_eq!(matters(&e), [("report".to_string(), true, false)], "{log}");
@@ -6557,11 +6600,11 @@ fn flow_feedback_forwarded_to_another_architect_starts_no_work_of_it() {
         Some(w) => architect_work_done(e, w),
         None => false,
     };
-    assert!(steps_until(&mut e, 80, p_done), "{}", said.borrow().join("\n"));
+    assert!(steps_until(&mut e, 80, p_done), "{}", said.lock().unwrap().join("\n"));
     for _ in 0..5 {
         e.step(None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let started: Vec<String> = {
         let mut st =
             e.db.conn()
@@ -6624,7 +6667,7 @@ fn a_project_with_flow_feedback_off_is_not_asked_for_it() {
         req.envelope
     );
     e.step(Some(work)).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(ended_at(&e, item, "R1"), [(Some("done".to_string()), None)], "{log}");
     assert!(matters(&e).is_empty(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
@@ -6682,8 +6725,8 @@ fn a_design_card_the_architect_finds_unsound_is_told_to_the_engineer() {
             .unwrap()
             > 0
     };
-    assert!(steps_until(&mut e, 150, told), "{}", said.borrow().join("\n"));
-    let log = said.borrow().join("\n");
+    assert!(steps_until(&mut e, 150, told), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(matters(&e)[0].0, "design_card", "{log}");
     let (work, _, _) = state(&e, item).unwrap();
     let said_to: String =
@@ -6726,21 +6769,21 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let work = e.step(None).unwrap().work.unwrap();
     say(&mut e, "Stop the feature until the parser is in.");
     let started = e.step(Some(work)).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     let stopped = |e: &mut Engine| state(e, item).is_some_and(|x| x.2.is_some());
-    assert!(steps_until(&mut e, 40, stopped), "{}", said.borrow().join("\n"));
+    assert!(steps_until(&mut e, 40, stopped), "{}", said.lock().unwrap().join("\n"));
     let why = format!("{}: It waits for the parser.", db::STOPPED_BY_ARCHITECT);
     assert_eq!(state(&e, item).unwrap().2, Some(why.clone()));
     assert_eq!(paused_by(&e, work).as_deref(), Some("engine"));
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let n = rounds_count(&e);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(e.step(Some(work)).unwrap().work, None, "{log}");
     assert_eq!((rounds_count(&e), state(&e, item).unwrap().2), (n, Some(why)), "{log}");
     assert_eq!(
@@ -6793,11 +6836,11 @@ fn the_architect_starts_a_work_over() {
     let work = e.step(None).unwrap().work.unwrap();
     say(&mut e, "Begin the feature again, and keep what it built.");
     let started = e.step(Some(work)).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     let over = |e: &mut Engine| works_of(e, item).len() == 2;
-    assert!(steps_until(&mut e, 40, over), "{}", said.borrow().join("\n"));
+    assert!(steps_until(&mut e, 40, over), "{}", said.lock().unwrap().join("\n"));
     let why = "stopped: the architect started it over, and a new work on it takes the item over: Its design went the \
                wrong way";
     let works = works_of(&e, item);
@@ -6883,7 +6926,7 @@ fn the_architect_runs_at_the_level_the_installation_names() {
     assert!(
         steps_until(&mut e, 10, |e| ran(e, arch, "U1").is_some()),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let (model, call) = ran(&e, arch, "U1").unwrap();
     let want = (
@@ -6896,7 +6939,7 @@ fn the_architect_runs_at_the_level_the_installation_names() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -6910,7 +6953,7 @@ fn slots_free_start_a_work_of_the_architect_once_an_hour_at_most_and_only_on_new
     let s = setup("slots-free");
     let (mut e, said) = engine(&s, scripts());
     let started = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     let body: String =
@@ -6925,7 +6968,7 @@ fn slots_free_start_a_work_of_the_architect_once_an_hour_at_most_and_only_on_new
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     assert!(path_of(&e, arch).contains(&"H10".to_string()));
     assert_eq!(e.step(None).unwrap().work, None);
@@ -6961,7 +7004,7 @@ fn slots_free_start_a_work_of_the_architect_once_an_hour_at_most_and_only_on_new
     })
     .unwrap();
     let again = e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(again.cell.as_deref(), Some("S1"), "{log}");
     assert_eq!(count(&e), 2);
     let _ = std::fs::remove_dir_all(&s.root);
@@ -6995,7 +7038,7 @@ fn a_dispatch_hold_stops_new_works_and_the_running_ones_go_on() {
     assert!(state(&e, first).is_none());
     hold(&mut e, false);
     let started = e.step(None).unwrap();
-    assert_eq!(started.started_item, Some(first), "{}", said.borrow().join("\n"));
+    assert_eq!(started.started_item, Some(first), "{}", said.lock().unwrap().join("\n"));
     let work = started.work;
     let second =
         e.db.write(Actor::Owner, |tx| {
@@ -7011,7 +7054,7 @@ fn a_dispatch_hold_stops_new_works_and_the_running_ones_go_on() {
         .unwrap();
     hold(&mut e, true);
     let went_on = e.step(work).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!((went_on.work, went_on.started_item), (work, None), "{log}");
     assert!(state(&e, second).is_none(), "{log}");
     hold(&mut e, false);
@@ -7030,16 +7073,16 @@ fn the_owner_steps_the_architect_one_round_at_a_time_with_every_work_paused() {
     assert_eq!(e.step_architect("p").unwrap().work, None);
     say(&mut e, "Look at the queue.");
     let first = e.step_architect("p").unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!((first.cell.as_deref(), first.rounds.len()), (Some("S1"), 1), "{log}");
     let arch = first.work.unwrap();
     assert_eq!(paused_by(&e, arch).as_deref(), Some("owner"));
     assert_eq!(e.step(None).unwrap().work, None);
     let second = e.step_work(arch).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!((second.cell.as_deref(), second.rounds.len()), (Some("U1"), 1), "{log}");
     let third = e.step_architect("p").unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(
         (third.work, third.cell.as_deref(), third.rounds.len()),
         (Some(arch), Some("Q0"), 1),
@@ -7117,7 +7160,7 @@ fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
     };
     let with = at_end(&mut e, Some("Open an item to measure the parser."));
     e.step_work(with).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let item: i64 =
         e.db.conn()
             .query_row("SELECT item FROM works WHERE id = ?1", [with], |r| r.get(0))
@@ -7139,7 +7182,7 @@ fn a_report_s_what_to_do_next_reaches_the_architect_once_its_work_ends() {
     );
     let without = at_end(&mut e, None);
     e.step_work(without).unwrap();
-    assert_eq!(followups(&e).len(), 1, "{}", said.borrow().join("\n"));
+    assert_eq!(followups(&e).len(), 1, "{}", said.lock().unwrap().join("\n"));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -7268,7 +7311,7 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     step_to(&mut e, item, "T7");
     let (work, _, _) = state(&e, item).unwrap();
     let lines = line_sessions(&e, work, "engineer");
-    assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.borrow().join("\n"));
+    assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.lock().unwrap().join("\n"));
     assert_eq!((lines[0].0.as_str(), lines[0].1), ("line", true), "{lines:?}");
     assert!(lines[0].2.starts_with("R1,") && !lines[0].2.contains("I1"), "{lines:?}");
     assert_eq!(lines[1], ("cell".to_string(), false, "I1,I1".to_string()));
@@ -7326,7 +7369,7 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     .unwrap();
     move_to(&mut e, work, "T6");
     e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let lines = line_sessions(&e, work, "engineer");
     assert_eq!(lines.len(), 3, "{lines:?}\n{log}");
     assert!(lines[1].1, "{lines:?}");
@@ -7338,7 +7381,7 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     move_to(&mut e, work, "T6");
     e.step(None).unwrap();
     let lines = line_sessions(&e, work, "engineer");
-    assert_eq!(lines.len(), 3, "{lines:?}\n{}", said.borrow().join("\n"));
+    assert_eq!(lines.len(), 3, "{lines:?}\n{}", said.lock().unwrap().join("\n"));
     assert_eq!(lines[2].2, "T6,T6");
     let rounds = agent_rounds(&e, item);
     let fixes: Vec<&Value> = rounds.iter().filter(|r| r.1 == "T6").map(|r| &r.2).collect();
@@ -7373,13 +7416,13 @@ fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
     let (mut e, said, item) = start(&s, scripts);
     agent_rounds_to(&mut e, item, 2);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "D1", "{}", said.borrow().join("\n"));
+    assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
     assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     let_go_on(&mut e, work);
     e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let lines = line_sessions(&e, work, "engineer");
     assert_eq!(
         lines,
@@ -7419,13 +7462,13 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
         "D1",
         Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@usage", used(3.0, 10_000))])),
     );
-    let seen: Rc<RefCell<Vec<Replayed>>> = Rc::default();
+    let seen: Arc<Mutex<Vec<Replayed>>> = Arc::default();
     let pinged = seen.clone();
     scripts.insert(
         "@ping",
         Box::new(move |r: &Request, n: usize| {
             pinged
-                .borrow_mut()
+                .lock().unwrap()
                 .push((r.replay.clone().unwrap_or_default(), r.prompt.clone()));
             let total = 1.5 + 0.02 * n as f64;
             let usage = json!({ "session_cost_usd": total, "usage": {
@@ -7437,7 +7480,7 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     let (mut e, said, item) = start(&s, scripts);
     agent_rounds_to(&mut e, item, 2);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "D1", "{}", said.borrow().join("\n"));
+    assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
     // Not before 55 minutes, and not once the cache has let the session go.
@@ -7450,7 +7493,7 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
         now += 55 * 60_000 + 1_000;
         e.keep_warm(now, None).unwrap();
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let pings = pings_of(&e, work);
     assert_eq!(pings.len(), 39, "{log}");
     for (waited, _) in &pings {
@@ -7470,7 +7513,7 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
         .iter()
         .map(|a| a.as_str().unwrap().to_string())
         .collect();
-    let (replayed, prompt) = seen.borrow()[0].clone();
+    let (replayed, prompt) = seen.lock().unwrap()[0].clone();
     assert_eq!(replayed, recorded);
     assert_eq!(replayed[replayed.len() - 2], "--resume");
     let schema = replayed.iter().position(|a| a == "--json-schema").unwrap();
@@ -7533,7 +7576,7 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
     };
     let now = from + 55 * 60_000 + 1_000;
     move_to(&mut e, work, "T6");
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(e.keep_warm(now, None).unwrap(), 1, "{log}");
     assert_eq!(
         pinged(&e),
@@ -7602,7 +7645,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
         e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(),
         1,
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -7620,7 +7663,7 @@ fn a_ping_says_where_the_work_waited_and_for_what() {
     let (mut e, said, item) = start(&s, scripts);
     agent_rounds_to(&mut e, item, 2);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "D1", "{}", said.borrow().join("\n"));
+    assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE works SET at = 'A2', resume_at = 'D1', waiting = '[\"D1\"]' WHERE id = ?1",
@@ -7639,7 +7682,7 @@ fn a_ping_says_where_the_work_waited_and_for_what() {
         e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(),
         1,
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let pings = pings_of(&e, work);
     assert_eq!(
@@ -7658,14 +7701,14 @@ type GivenAgain = (PathBuf, String);
 fn a_compaction_within_a_round_gives_the_cells_inputs_again() {
     let s = setup("regive");
     let mut scripts = scripts();
-    let read: Rc<RefCell<Option<GivenAgain>>> = Rc::default();
+    let read: Arc<Mutex<Option<GivenAgain>>> = Arc::default();
     let seen = read.clone();
     scripts.insert(
         "R2",
         Box::new(move |r: &Request, _: usize| {
             let file = r.regive.clone().unwrap();
             let text = std::fs::read_to_string(&file).unwrap_or_default();
-            *seen.borrow_mut() = Some((file, text));
+            *seen.lock().unwrap() = Some((file, text));
             (Vec::new(), Vec::new())
         }),
     );
@@ -7673,8 +7716,8 @@ fn a_compaction_within_a_round_gives_the_cells_inputs_again() {
     agent_rounds_to(&mut e, item, 2);
     let rounds = agent_rounds(&e, item);
     let (id, cell, input) = &rounds[1];
-    assert_eq!(cell, "R2", "{}", said.borrow().join("\n"));
-    let (file, text) = read.borrow().clone().expect("the file the hook gives again");
+    assert_eq!(cell, "R2", "{}", said.lock().unwrap().join("\n"));
+    let (file, text) = read.lock().unwrap().clone().expect("the file the hook gives again");
     // The session holds the project guide, so the message only refers to it; the file gives it whole, and none of
     // what the session's system prompt holds, which a compaction leaves.
     let guide = |i: &Value| guide_in(i).map(|g| g.0).unwrap();
@@ -7739,7 +7782,7 @@ fn an_interjection_during_a_round_is_handed_in_and_answered_in_it() {
     );
     let (mut e, said, item) = start(&s, scripts);
     agent_rounds_to(&mut e, item, 2);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let rounds = agent_rounds(&e, item);
     let (id, cell, input) = &rounds[1];
     assert_eq!(cell, "R2", "{log}");
@@ -7773,7 +7816,7 @@ fn two_images() -> Vec<api::ImageSent> {
 
 /// What scripted rounds were sent, in order: each one's cell, its message's text, and each image given after the text,
 /// by its address, its media type and its bytes.
-type Sent = Rc<RefCell<Vec<(String, String, Vec<(String, String, Vec<u8>)>)>>>;
+type Sent = Arc<Mutex<Vec<(String, String, Vec<(String, String, Vec<u8>)>)>>>;
 
 /// Keeps what a scripted round was sent.
 fn keep_sent(sent: &Sent, r: &Request) {
@@ -7782,7 +7825,7 @@ fn keep_sent(sent: &Sent, r: &Request) {
         .iter()
         .map(|i| (i.address.clone(), i.media_type.clone(), i.bytes.clone()))
         .collect();
-    sent.borrow_mut().push((r.cell.clone(), r.prompt.clone(), images));
+    sent.lock().unwrap().push((r.cell.clone(), r.prompt.clone(), images));
 }
 
 /// The addresses of images, as agents are given them.
@@ -7821,7 +7864,7 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
             (Vec::new(), Vec::new())
         }),
     );
-    let sent: Sent = Rc::default();
+    let sent: Sent = Arc::default();
     let seen = sent.clone();
     scripts.insert(
         "R2",
@@ -7835,7 +7878,7 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
     );
     let (mut e, said, item) = start(&s, scripts);
     agent_rounds_to(&mut e, item, 2);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let j: i64 =
         e.db.conn()
             .query_row(
@@ -7847,7 +7890,7 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
     let ids = db::attachments::of(e.db.conn(), db::attachments::Words::Interjection(j)).unwrap();
     let a = image_addresses(&ids);
     assert_eq!(a.len(), 2);
-    let sent = sent.borrow();
+    let sent = sent.lock().unwrap();
     let (cell, prompt, images) = sent.first().unwrap_or_else(|| panic!("no round at R2:\n{log}"));
     assert_eq!(cell, "R2");
     assert!(
@@ -7900,7 +7943,7 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
     no_reply_wait(&s);
     let mut agents = scripts();
     picks_first(&s, &mut agents);
-    let sent: Sent = Rc::default();
+    let sent: Sent = Arc::default();
     let seen = sent.clone();
     agents.insert(
         "H8",
@@ -7924,7 +7967,7 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let (matter, ask): (i64, i64) =
         e.db.conn()
@@ -7936,7 +7979,7 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
             .unwrap();
     let words = image_addresses(&db::attachments::of(e.db.conn(), db::attachments::Words::Matter(matter)).unwrap());
     {
-        let sent = sent.borrow();
+        let sent = sent.lock().unwrap();
         let (_, prompt, images) = &sent[0];
         assert!(
             prompt.contains(&format!("\"images\":[\"{}\",\"{}\"]", words[0], words[1])),
@@ -7954,11 +7997,11 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, again)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let answered = image_addresses(&db::attachments::of(e.db.conn(), db::attachments::Words::Ask(ask)).unwrap());
-    let sent = sent.borrow();
+    let sent = sent.lock().unwrap();
     assert_eq!(sent.len(), 2, "{log}");
     let (_, prompt, images) = &sent[1];
     assert!(
@@ -8000,7 +8043,7 @@ fn a_new_model_starts_a_new_session_at_the_lines_next_round() {
             .unwrap();
     assert_eq!(by, "owner");
     e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(
         line_sessions(&e, work, "engineer"),
         [
@@ -8039,7 +8082,7 @@ fn a_new_login_account_starts_a_new_session_at_the_lines_next_round() {
     write(&s.data, "install.toml", &switched);
     git(&s.data, &["commit", "-q", "-am", "another login account"]);
     e.step(None).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(
         line_sessions(&e, work, "engineer"),
         [
@@ -8141,7 +8184,7 @@ fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done
     assert!(
         steps_until(&mut e, 10, |e| path_of(e, arch).iter().any(|c| c == "U1")),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let m = message_at(&e, arch, "U1", false);
     let since = given_value(&m, "·engine·since_last_work").expect(&m);
@@ -8196,7 +8239,7 @@ fn the_numbers_hold_through_an_architect_work_and_split_what_was_spent() {
     assert!(
         steps_until(&mut e, 20, |e| path_of(e, arch).iter().any(|c| c == "N1")),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let understanding = message_at(&e, arch, "U1", false);
     let numbers = given_value(&understanding, "·engine·numbers").expect(&understanding);
@@ -8243,12 +8286,16 @@ fn a_round_of_the_understanding_that_asks_for_tools_changes_neither_the_notebook
             .query_row("SELECT count(*) FROM notebook WHERE project = 'p'", [], |r| r.get(0))
             .unwrap()
     };
-    assert!(steps_until(&mut e, 10, took("tools")), "{}", said.borrow().join("\n"));
-    assert_eq!(states(&e), 0, "{}", said.borrow().join("\n"));
+    assert!(
+        steps_until(&mut e, 10, took("tools")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    assert_eq!(states(&e), 0, "{}", said.lock().unwrap().join("\n"));
     assert!(
         steps_until(&mut e, 10, took("understood")),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     assert_eq!(states(&e), 2);
     let (first, second) = (message_at(&e, arch, "U1", false), message_at(&e, arch, "U1", true));
@@ -8343,9 +8390,9 @@ fn a_return_of_the_understanding_or_the_plan_without_its_sections_is_sent_back()
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let understanding = why_sent_back(&e, arch, "U1");
     assert_eq!(understanding.len(), 1, "{understanding:?}\n{log}");
     assert!(
@@ -8402,9 +8449,9 @@ fn a_notebook_past_its_size_is_sent_back_saying_which_section() {
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let back = why_sent_back(&e, arch, "H8");
     assert_eq!(back.len(), 2, "{back:?}\n{log}");
     assert!(
@@ -8474,9 +8521,9 @@ fn the_notebook_is_written_where_it_is_learned_and_given_whole_once_changed() {
     assert!(
         steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
     assert_eq!(path.iter().filter(|c| *c == "N1").count(), 2, "{path:?}\n{log}");
     assert_eq!(
@@ -8561,15 +8608,15 @@ fn a_new_session_s_understanding_is_given_what_is_unclear_and_not_what_the_proje
     assert!(
         steps_until(&mut e, 20, |e| e.work(arch).unwrap().pos.at == "H8"),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    e.sessions.ask_new(api::Fresh::Architect("p".into()));
+    e.sessions().ask_new(api::Fresh::Architect("p".into()));
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(path_of(&e, arch).iter().filter(|c| *c == "U1").count(), 2, "{log}");
     let again = input_at(&e, arch, "U1", true);
     assert_eq!(given_ending(&again, "·engine·notebook_project_now"), None, "{again}");
@@ -8607,9 +8654,9 @@ fn a_check_of_the_policy_writes_a_new_one_only_once_the_owner_said_yes() {
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let back = why_sent_back(&e, arch, "P1");
     assert_eq!(back.len(), 1, "{back:?}\n{log}");
     assert!(
@@ -8652,9 +8699,9 @@ fn a_check_the_owner_s_words_asked_for_writes_a_new_policy_without_asking() {
     assert!(
         steps_until(&mut e, 60, |e| path_of(e, arch).contains(&"P2".to_string())),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(rows_at(&e, arch, "P1"), ["write_policy"], "{log}");
     assert!(why_sent_back(&e, arch, "P1").is_empty(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
@@ -8686,9 +8733,9 @@ fn what_was_said_in_the_groups_while_a_work_runs_is_taken_after_its_batch() {
     assert!(
         steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(rows_at(&e, arch, "H12"), ["done"], "{log}");
     let path = path_of(&e, arch);
     let first_end = path.iter().position(|c| c == "B4").expect(&log);
@@ -8745,9 +8792,9 @@ fn the_owner_s_words_come_first_while_new_starts_are_held_to_set_things_straight
     assert!(
         steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
     let at = |cell: &str| {
         path.iter()
@@ -8988,14 +9035,14 @@ fn an_item_a_batch_changes_does_not_start_until_the_batch_ends() {
     })
     .unwrap();
     let held = e.step(None).unwrap();
-    assert_eq!(held.started_item, None, "{}", said.borrow().join("\n"));
+    assert_eq!(held.started_item, None, "{}", said.lock().unwrap().join("\n"));
     e.db.write(Actor::Engine, |tx| {
         tx.execute("UPDATE architect_item_changes SET state = 'made'", [])?;
         Ok(())
     })
     .unwrap();
     let started = e.step(None).unwrap();
-    assert_eq!(started.started_item, Some(item), "{}", said.borrow().join("\n"));
+    assert_eq!(started.started_item, Some(item), "{}", said.lock().unwrap().join("\n"));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -9015,7 +9062,12 @@ fn an_item_waits_to_start_for_what_it_depends_on_by_a_blocking_dependency() {
     })
     .unwrap();
     let started = e.step(None).unwrap();
-    assert_eq!(started.started_item, Some(library), "{}", said.borrow().join("\n"));
+    assert_eq!(
+        started.started_item,
+        Some(library),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -9046,14 +9098,14 @@ fn a_work_waiting_for_a_cancelled_item_goes_on_to_choose_the_way_on() {
             .unwrap()
     };
     e.step_work(work).unwrap();
-    assert_eq!(at(&e), "A6", "{}", said.borrow().join("\n"));
+    assert_eq!(at(&e), "A6", "{}", said.lock().unwrap().join("\n"));
     let projects = e.config.config.projects.clone();
     e.db.write(Actor::Owner, |tx| {
         engine::ending::cancel_item(tx, lexer, "no longer needed", "owner", &projects).map_err(db::Error::Abort)
     })
     .unwrap();
     e.step_work(work).unwrap();
-    assert_eq!(at(&e), "A4", "{}", said.borrow().join("\n"));
+    assert_eq!(at(&e), "A4", "{}", said.lock().unwrap().join("\n"));
     let told: String =
         e.db.conn()
             .query_row("SELECT text FROM interjections WHERE work = ?1", [work], |r| r.get(0))
@@ -9118,7 +9170,7 @@ fn a_place_to_set_straight_is_one_matter_with_its_steps() {
           for parse"
         ],
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -9158,7 +9210,7 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let order: Vec<(i64, String)> = engine::query_json(
         e.db.conn(),
@@ -9170,7 +9222,7 @@ fn a_change_names_an_item_the_batch_creates_by_its_key() {
     .iter()
     .map(|r| (r["id"].as_i64().unwrap(), r["title"].as_str().unwrap().to_string()))
     .collect();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(order.len(), 2, "{log}");
     assert_eq!(order[0].1, "Measure the spend", "{log}");
     assert_eq!(order[1].0, first, "{log}");
@@ -9221,7 +9273,7 @@ fn an_item_title_over_twenty_characters_is_sent_back() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let rejected = why_sent_back(&e, arch, "H8");
     assert_eq!(rejected.len(), 1, "{rejected:?}");
@@ -9235,7 +9287,7 @@ fn an_item_title_over_twenty_characters_is_sent_back() {
         .iter()
         .map(|r| r["title"].as_str().unwrap_or_default().to_string())
         .collect();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(titles, ["Parse the input first", "Let match take integers"], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -9271,9 +9323,9 @@ fn a_batch_that_cancels_an_item_it_creates_never_makes_it() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert!(!path_of(&e, arch).contains(&"B2".to_string()), "{log}");
     let rows = engine::query_json(
         e.db.conn(),
@@ -9339,9 +9391,9 @@ fn the_review_drops_a_change_and_the_rest_is_made_without_a_revision() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
     let at = path.iter().position(|c| c == "B2").expect(&log);
     assert_eq!(&path[at..at + 2], ["B2", "B4"], "{log}");
@@ -9516,9 +9568,9 @@ fn a_design_card_s_look_leaves_the_queue_once_the_owner_ruled_or_it_was_replaced
     assert!(
         steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert!(!path_of(&e, arch).contains(&"H6".to_string()), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -9566,11 +9618,11 @@ fn the_slots_say_whether_works_run_and_the_batch_its_changes_with_their_keys() {
         Ok(())
     })
     .unwrap();
-    e.global_pause = Some(engine::GlobalPause {
+    e.set_global_pause(Some(engine::GlobalPause {
         warm: true,
         runs: [7].into(),
         architects: ["p".to_string()].into(),
-    });
+    }));
     let m = engine::next_message(&mut e, arch).unwrap().text;
     let slots = given_value(&m, "·engine·slots").expect(&m);
     assert_eq!(slots["engine"]["runs"], "paused", "{slots}");
@@ -9582,7 +9634,7 @@ fn the_slots_say_whether_works_run_and_the_batch_its_changes_with_their_keys() {
         (&json!("collected"), &json!("cover")),
         "{batch}"
     );
-    e.global_pause = None;
+    e.set_global_pause(None);
     let m = engine::next_message(&mut e, arch).unwrap().text;
     let slots = given_value(&m, "·engine·slots").expect(&m);
     assert_eq!(slots["engine"], json!({ "runs": "running" }), "{slots}");
@@ -9681,7 +9733,7 @@ fn a_side_report_handed_in_again_is_queued_once() {
     let (mut e, said, _) = start(&s, agents);
     let work = e.step(None).unwrap().work;
     e.step(work).unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(
         matters(&e),
         [("report".to_string(), true, false), ("report".to_string(), true, false)],
@@ -9707,15 +9759,15 @@ fn a_new_session_in_the_middle_of_an_architect_work_understands_the_project_firs
     assert!(
         steps_until(&mut e, 20, |e| e.work(arch).unwrap().pos.at == "H8"),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    e.sessions.ask_new(api::Fresh::Architect("p".into()));
+    e.sessions().ask_new(api::Fresh::Architect("p".into()));
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
     // The work was at `H8`, the matter picked, when the new session was asked for: it took the row for that there.
     let back = path.iter().rposition(|c| c == "S1").expect(&log);
@@ -9771,7 +9823,7 @@ fn an_observation_closed_as_folded_is_sent_back_to_be_folded() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let rejected: Vec<String> = engine::query_json(
         e.db.conn(),
@@ -9837,7 +9889,7 @@ fn an_observation_with_no_tag_or_a_long_title_is_sent_back() {
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let rejected: Vec<String> = engine::query_json(
         e.db.conn(),
@@ -9887,7 +9939,7 @@ fn turn(e: &mut Engine, c: &api::Control, after: Option<i64>) -> engine::Stepped
     }
     let asked = c.asked();
     for w in c.take_new_sessions() {
-        e.sessions.ask_new(w);
+        e.sessions().ask_new(w);
     }
     let (done, architects) = e
         .release_started(&asked.releasing, &asked.architects_releasing)
@@ -9933,7 +9985,7 @@ fn owner_pauses(e: &mut Engine, c: &api::Control, work: i64) {
 }
 
 /// A setup whose one machine has two slots, and an engine over it with two items in the queue.
-fn two_works(name: &str) -> (Setup, Engine, Rc<RefCell<Vec<String>>>) {
+fn two_works(name: &str) -> (Setup, Engine, Arc<Mutex<Vec<String>>>) {
     let s = setup(name);
     let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
     write(&s.data, "install.toml", &install.replace("slots = 1", "slots = 2"));
@@ -10017,7 +10069,7 @@ fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
     assert!(
         steps_until(&mut e, 20, |e| held(e, first).is_some() && state(e, second).is_some()),
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let asked = held(&mut e, first).unwrap();
     let (a, _, _) = state(&e, first).unwrap();
@@ -10038,7 +10090,7 @@ fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
         if state(&e, first).is_some_and(|x| x.1 != "A2") {
             break;
         }
-        let log = said.borrow().join("\n");
+        let log = said.lock().unwrap().join("\n");
         assert!(e.free_slots().unwrap() >= 0, "{log}");
         let waiting = e.waiting_for_slot().unwrap();
         assert!(waiting.iter().all(|&w| w == a), "{waiting:?}\n{log}");
@@ -10046,7 +10098,7 @@ fn a_work_back_from_waiting_goes_on_in_a_free_slot_before_any_new_start() {
         after = e.step(after).unwrap().work;
         held(&mut e, second);
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert!(named, "{log}");
     // The first went on only once the second asked the architect in turn, holding no slot, and went on in the slot the
     // second left, to choose the way on with the reply, before a work started on the third item.
@@ -10069,14 +10121,14 @@ fn a_fix_with_nothing_to_answer_goes_on_without_a_round() {
         e.step(None).unwrap();
     }
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "R2", "{}", said.borrow().join("\n"));
+    assert_eq!(at, "R2", "{}", said.lock().unwrap().join("\n"));
     e.db.write(Actor::Engine, |tx| {
         tx.execute("UPDATE works SET at = 'T6' WHERE id = ?1", [work])?;
         Ok(())
     })
     .unwrap();
     assert_eq!(e.advance(work).unwrap(), Advance::Moved);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(state(&e, item).map(|x| x.1).as_deref(), Some("T7"), "{log}");
     let (transition, session, why): (Option<String>, Option<i64>, Option<String>) =
         e.db.conn()
@@ -10105,7 +10157,7 @@ fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
     c.set_paused(false);
     let moved = turns(&mut e, &c, 2);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(moved.len(), 2, "{log}");
     let (one, two) = (moved[0], moved[1]);
     assert_ne!(one, two, "{log}");
@@ -10113,7 +10165,7 @@ fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
     c.set_paused(true);
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
     c.start(api::Fresh::Work(one), false);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(turns(&mut e, &c, 3), [one, one, one], "{log}");
     // A later global pause makes it follow the global state again.
     c.set_paused(true);
@@ -10127,7 +10179,7 @@ fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
     // Its Start lifts its pause, as the owner, and it goes on.
     c.start(api::Fresh::Work(two), false);
     let moved = turns(&mut e, &c, 4);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert!(moved.contains(&two), "{moved:?}\n{log}");
     assert_eq!(paused_by(&e, two), None);
     assert!(c.asked().releasing.is_empty());
@@ -10176,7 +10228,7 @@ fn a_work_the_owner_starts_still_needs_a_free_slot() {
     })
     .unwrap();
     let second = turn(&mut e, &c, Some(first)).work.unwrap();
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_ne!(second, first, "{log}");
     c.set_paused(true);
     c.start(api::Fresh::Work(first), false);
@@ -10186,7 +10238,7 @@ fn a_work_the_owner_starts_still_needs_a_free_slot() {
     // The other work paused frees its slot: the first goes on.
     owner_pauses(&mut e, &c, second);
     let moved = turns(&mut e, &c, 2);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(moved.first(), Some(&first), "{log}");
     assert_eq!(paused_by(&e, first), None);
     let _ = std::fs::remove_dir_all(&s.root);
@@ -10212,7 +10264,7 @@ fn the_owner_s_start_of_a_work_the_architect_stopped_tells_the_architect() {
     c.set_paused(true);
     c.start(api::Fresh::Work(work), false);
     let moved = turns(&mut e, &c, 1);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(moved, [work], "{log}");
     assert_eq!(paused_by(&e, work), None);
     let told: (String, Option<i64>) =
@@ -10246,7 +10298,7 @@ fn the_architect_the_owner_starts_works_and_goes_on_while_every_work_is_paused()
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
     c.start(api::Fresh::Architect("p".into()), false);
     let moved = turns(&mut e, &c, 3);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(moved.len(), 3, "{log}");
     let arch = moved[0];
     assert!(moved.iter().all(|w| *w == arch), "{moved:?}");
@@ -10278,11 +10330,11 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     let (mut e, said, item) = start(&s, scripts());
     agent_rounds_to(&mut e, item, 2);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "D1", "{}", said.borrow().join("\n"));
+    assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
     let c = api::Control::default();
     c.ask_step(work, true).unwrap();
     turn(&mut e, &c, None);
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let lines = line_sessions(&e, work, "engineer");
     assert_eq!(
         lines,
@@ -10309,7 +10361,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
         turn(&mut e, &c, None);
     }
     let lines = line_sessions(&e, work, "engineer");
-    assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.borrow().join("\n"));
+    assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.lock().unwrap().join("\n"));
     owner_pauses(&mut e, &c, work);
     c.start(api::Fresh::Work(work), true);
     let n = agent_rounds(&e, item).len();
@@ -10320,7 +10372,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
         turn(&mut e, &c, None);
     }
     let lines = line_sessions(&e, work, "engineer");
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     assert_eq!(lines.len(), 3, "{lines:?}\n{log}");
     assert!(lines[1].1, "{lines:?}");
     assert_eq!((lines[2].0.as_str(), lines[2].1), ("owner", false), "{lines:?}");
@@ -10341,7 +10393,7 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
     // Starting takes the engine's own step, which finds the session has not understood the project; then the first
     // round.
     let arch = turns(&mut e, &c, 2)[0];
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let lines = line_sessions(&e, arch, "architect");
     assert_eq!(lines.len(), 1, "{lines:?}\n{log}");
     c.pause(&api::Fresh::Architect("p".into()));
@@ -10351,7 +10403,7 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
         c.ask_step_architect("p", false).unwrap();
         turn(&mut e, &c, None);
     }
-    let log = said.borrow().join("\n");
+    let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
     assert_eq!(path[..7], ["S1", "U1", "Q0", "Q2", "H8", "S1", "U1"], "{log}");
     let lines = line_sessions(&e, arch, "architect");
@@ -10376,7 +10428,7 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
     let (mut e, said, item) = start(&s, scripts);
     agent_rounds_to(&mut e, item, 2);
     let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "D1", "{}", said.borrow().join("\n"));
+    assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
     let from = last_call(&e, work);
     let due = from + 55 * 60_000 + 1_000;
     let paused = |warm: bool, runs: &[i64]| engine::GlobalPause {
@@ -10389,7 +10441,7 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
         e.keep_warm(due, Some(&paused(true, &[]))).unwrap(),
         1,
         "{}",
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     assert_eq!(
         pings_of(&e, work)[0].0,
@@ -10413,20 +10465,20 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
 }
 
 /// The same sequence of numbers for the same seed: the random tests' dice.
-struct Dice(std::cell::Cell<u64>);
+struct Dice(AtomicU64);
 
 impl Dice {
     fn new(seed: u64) -> Dice {
-        Dice(std::cell::Cell::new(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1))
+        Dice(AtomicU64::new(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1))
     }
 
     /// A number below `n`.
     fn roll(&self, n: u64) -> u64 {
-        let mut x = self.0.get();
+        let mut x = self.0.load(Ordering::Relaxed);
         x ^= x << 13;
         x ^= x >> 7;
         x ^= x << 17;
-        self.0.set(x);
+        self.0.store(x, Ordering::Relaxed);
         x % n.max(1)
     }
 }
@@ -10507,7 +10559,7 @@ fn random_events(seed: u64, events: usize) {
         &s.data,
         &["commit", "-q", "-m", "a level above, two slots, and a related project"],
     );
-    let dice = Rc::new(Dice::new(seed));
+    let dice = Arc::new(Dice::new(seed));
     let mut agents = scripts();
     for cell in ["R1", "D1", "T3"] {
         let d = dice.clone();
@@ -10736,7 +10788,7 @@ fn random_events(seed: u64, events: usize) {
             broken.is_empty(),
             "seed {seed}, event {n}: {broken:?}\nevents:\n{}\nengine:\n{}",
             log.join("\n"),
-            said.borrow().join("\n")
+            said.lock().unwrap().join("\n")
         );
     }
     // Nothing the engine could not do paused a work.
@@ -10751,7 +10803,7 @@ fn random_events(seed: u64, events: usize) {
         paused.is_empty(),
         "seed {seed}: {paused:?}\nevents:\n{}\nengine:\n{}",
         log.join("\n"),
-        said.borrow().join("\n")
+        said.lock().unwrap().join("\n")
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -10778,3 +10830,238 @@ random_events!(
     every_chain_of_blockers_closes_under_random_events_4: 4,
     every_chain_of_blockers_closes_under_random_events_5: 5
 );
+
+/// A text with what differs between two runs of the same step masked: the ids drawn at random, which have the form of
+/// a UUID, and the times in milliseconds since the epoch, which have thirteen digits.
+fn masked(text: &str) -> String {
+    let uuid = |b: &[u8]| {
+        b.len() >= 36
+            && b[..36].iter().enumerate().all(|(i, c)| match i {
+                8 | 13 | 18 | 23 => *c == b'-',
+                _ => c.is_ascii_hexdigit(),
+            })
+    };
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < b.len() {
+        if uuid(&b[i..]) {
+            out.push_str("<id>");
+            i += 36;
+        } else if b[i].is_ascii_digit() {
+            let n = b[i..].iter().take_while(|c| c.is_ascii_digit()).count();
+            out.push_str(if n == 13 { "<ms>" } else { &text[i..i + n] });
+            i += n;
+        } else {
+            let c = text[i..].chars().next().unwrap_or_default();
+            out.push(c);
+            i += c.len_utf8();
+        }
+    }
+    out
+}
+
+/// Every round and every change in the database, one to a line, without the number and time of each change's
+/// transaction or when each round started and ended, and masked as [`masked`] masks them.
+fn written(e: &Engine) -> Vec<String> {
+    let rows = |sql: &str| engine::query_json(e.db.conn(), sql, &[], usize::MAX).unwrap();
+    let mut out = rows(
+        "SELECT work, n, cell, session, input, output, transition, rejected, config_commit, model, usage, compactions
+         FROM rounds ORDER BY work, n",
+    );
+    out.extend(rows(
+        "SELECT id, actor, table_name, row_key, old_row, new_row FROM changes ORDER BY id",
+    ));
+    out.iter().map(|r| masked(&r.to_string())).collect()
+}
+
+// A step taken on another thread, on a context forked from the engine with a connection of its own, writes the same
+// rounds and changes as the same step taken on the engine's own thread from the same database, the numbers and times
+// of the transactions and the ids drawn at random aside; and the one commit listener the engine was given hears of
+// what that connection wrote, as the owner's page hears of every change.
+#[test]
+fn a_step_on_another_thread_writes_what_it_writes_on_the_engines_own() {
+    let s = setup("fork_step");
+    let (mut e, said, item) = start(&s, scripts());
+    // The first step starts the work and sets up its worktree; the next is the round of its first agent's cell.
+    e.step(None).unwrap();
+    let at = state(&e, item).unwrap().1;
+    let before = s.root.join("before.db");
+    e.db.conn()
+        .execute("VACUUM INTO ?1", [before.to_string_lossy().into_owned()])
+        .unwrap();
+    let base = written(&e);
+    let on_main = e.step(None).unwrap();
+    let main = written(&e);
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(on_main.cell.as_deref(), Some(at.as_str()), "{on_main:?}\n{log}");
+    assert!(main.len() > base.len(), "{log}");
+    drop(e);
+    // The database as it was before that step, and the same step taken on another thread.
+    let path = config::database(&s.data);
+    for end in ["-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{end}", path.display()));
+    }
+    std::fs::copy(&before, &path).unwrap();
+    let heard = Arc::new(Mutex::new(Vec::<db::Changed>::new()));
+    let h = heard.clone();
+    let hooks = Hooks {
+        commit: Some(Arc::new(move |_: &db::rusqlite::Connection, rows: &[db::Changed]| {
+            h.lock().unwrap().extend(rows.iter().cloned());
+        })),
+        ..Hooks::default()
+    };
+    let (e, said) = engine_with(&s, scripts(), hooks);
+    let mut t = e.fork().unwrap();
+    let on_thread = std::thread::spawn(move || t.step(None)).join().unwrap().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(on_thread, on_main, "{log}");
+    assert_eq!(written(&e), main, "{log}");
+    let round = on_thread.rounds.first().unwrap_or_else(|| panic!("no round:\n{log}"));
+    let rowid: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT rowid FROM rounds WHERE work = ?1 AND n = ?2",
+                [round.work, round.n],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let heard = heard.lock().unwrap().clone();
+    let told = db::Changed {
+        table: "rounds".into(),
+        rowid,
+    };
+    assert!(heard.contains(&told), "{heard:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A step reports the rounds its own connection wrote: the round of the work it took, and a round of another work it
+// cut off, as taking over a work on an older flow version cuts off the round the work was in; never a round another
+// connection wrote meanwhile, as another thread's step would.
+#[test]
+fn a_step_reports_the_rounds_its_own_connection_wrote() {
+    let s = setup("own_rounds");
+    let path = config::database(&s.data);
+    let mut scripts = scripts();
+    // While the round of cell `R1` runs, another connection writes a round of the architect's work over before.
+    scripts.insert(
+        "R1",
+        Box::new(move |_: &Request, _: usize| {
+            let mut db = db::Db::open(&path).unwrap();
+            db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                     SELECT w.id, (SELECT max(r.n) FROM rounds r WHERE r.work = w.id) + 1, 'H10', '{}', '{}', 'done',
+                            'c', ?1, ?1
+                     FROM works w WHERE w.graph = 'architect'",
+                    [db::now()],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    let first = e.step(None).unwrap();
+    let work = first.work.unwrap();
+    let r1 = e.step(first.work).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let n: i64 =
+        e.db.conn()
+            .query_row("SELECT max(n) FROM rounds WHERE work = ?1", [work], |r| r.get(0))
+            .unwrap();
+    let architects: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work WHERE w.graph = 'architect'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(r1.cell.as_deref(), Some("R1"), "{r1:?}\n{log}");
+    assert_eq!(architects, 2, "{log}");
+    assert_eq!(r1.rounds, [engine::RoundId::new(work, n)], "{log}");
+    // A round of the work under way as the next step takes the work over, on an older flow version where the cell it
+    // stands at is another: the step cuts it off, and reports it with the round of the new work it starts.
+    let at = state(&e, item).unwrap().1;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, ?3, '{}', 'c', ?4)",
+            params![work, n + 1, at, db::now()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    older(&mut e, &[work], |g| renamed(g, &at));
+    let over = e.step(Some(work)).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}\n{log}");
+    let new = works[1].0;
+    assert_eq!(over.work, Some(new), "{over:?}\n{log}");
+    assert!(
+        over.rounds.contains(&engine::RoundId::new(work, n + 1)),
+        "{over:?}\n{log}"
+    );
+    assert!(over.rounds.iter().any(|r| r.work == new), "{over:?}\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// What lasts from one step to the next is the engine's, whichever thread's context takes the step: a work taken over on
+// a forked context's thread is among those the engine's own context reads as replaced, which is how the owner's Start
+// of the old work goes on in the new one; a configuration one context reads is the one every context goes on with,
+// told once; and a halt one context sets stops a step on another.
+#[test]
+fn a_forked_context_shares_what_lasts_between_steps() {
+    let s = setup("fork_shared");
+    let (mut e, said, item) = start(&s, scripts());
+    let first = e.step(None).unwrap();
+    let work = first.work.unwrap();
+    e.step(first.work).unwrap();
+    let at = state(&e, item).unwrap().1;
+    older(&mut e, &[work], |g| renamed(g, &at));
+    let mut t = e.fork().unwrap();
+    let (mut t, over) = std::thread::spawn(move || {
+        let over = t.step(Some(work));
+        (t, over)
+    })
+    .join()
+    .unwrap();
+    let over = over.unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}\n{over:?}\n{log}");
+    let new = works[1].0;
+    assert_eq!(e.replaced(), [(work, new)], "{log}");
+    assert_eq!(t.replaced(), Vec::<(i64, i64)>::new(), "{log}");
+    // A new configuration, read on the engine's own context, is the forked context's at its next read.
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(&s.data, "install.toml", &format!("{install}\n# read once\n"));
+    git(&s.data, &["commit", "-q", "-am", "a configuration read once"]);
+    e.reload_config();
+    let commit = e.config.commit.clone();
+    t.reload_config();
+    assert_eq!(t.config.commit, commit);
+    let log = said.lock().unwrap().join("\n");
+    let in_use = format!("configuration {commit} in use");
+    assert_eq!(log.matches(&in_use).count(), 1, "{log}");
+    // A halt set on the engine's own context stops the forked context's step.
+    e.set_halt(Some(engine::Halt {
+        kind: "usage_limit".into(),
+        until: db::now() + 3_600_000,
+        why: "a usage limit".into(),
+    }));
+    let rounds: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM rounds", [], |r| r.get(0))
+            .unwrap();
+    let halted = std::thread::spawn(move || t.step(Some(new))).join().unwrap().unwrap();
+    assert_eq!(halted, engine::Stepped::default(), "{log}");
+    let after: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM rounds", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(after, rounds);
+    let _ = std::fs::remove_dir_all(&s.root);
+}

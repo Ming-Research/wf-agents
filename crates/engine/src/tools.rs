@@ -233,7 +233,7 @@ fn full_checks(e: &Engine, project: &config::Project, sha: &str) -> Result<Vec<C
     }
     let mut out = Vec::new();
     for wf in own {
-        out.extend(e.github.checks(&repo(project), sha, &wf)?);
+        out.extend(e.github().checks(&repo(project), sha, &wf)?);
     }
     Ok(out)
 }
@@ -266,7 +266,7 @@ fn rerun_full(e: &Engine, project: &config::Project, sha: &str, first: &[CheckRu
     let (own, _) = own_full(project);
     let mut out = Vec::new();
     for wf in own {
-        out.extend(e.github.rerun(&repo(project), sha, &wf)?);
+        out.extend(e.github().rerun(&repo(project), sha, &wf)?);
     }
     // A check the rerun did not give again keeps its first result.
     for c in first {
@@ -562,7 +562,7 @@ fn ci(
         let tb = title_body
             .clone()
             .or_else(|| pr.get().is_none().then(|| fallback.clone()));
-        let n = e.github.pull_request(
+        let n = e.github().pull_request(
             &repo(project),
             &branch,
             &project.main,
@@ -571,12 +571,12 @@ fn ci(
         )?;
         pr.set(Some(n));
         // A pull request that was open already, one a work took over among them, keeps the base it was opened with.
-        hub::ensure_base(e.github.as_ref(), &repo(project), n, &project.main)?;
-        let checks = e.github.checks(&repo(project), &sha, &project.ci.fast)?;
+        hub::ensure_base(e.github(), &repo(project), n, &project.main)?;
+        let checks = e.github().checks(&repo(project), &sha, &project.ci.fast)?;
         let logs: Vec<Result<String, String>> = checks
             .iter()
             .map(|c| {
-                e.github
+                e.github()
                     .job_log(&repo(project), c)
                     .map_err(|f| format!("{}: {}", c.name, f.what))
             })
@@ -648,16 +648,16 @@ fn ci_before(
         hub::push(&wt, &commit, &refname, true)?;
         let dispatched = match named {
             Some(input) => e
-                .github
+                .github()
                 .dispatch(&repo(project), &project.ci.fast, &branch, &[(input, listed.as_str())]),
             None => Ok(()),
         };
-        let ran = dispatched.and_then(|()| e.github.checks(&repo(project), &commit, &project.ci.fast));
+        let ran = dispatched.and_then(|()| e.github().checks(&repo(project), &commit, &project.ci.fast));
         let logs: Vec<Result<String, String>> = ran
             .iter()
             .flatten()
             .map(|c| {
-                e.github
+                e.github()
                     .job_log(&repo(project), c)
                     .map_err(|f| format!("{}: {}", c.name, f.what))
             })
@@ -712,7 +712,7 @@ fn gh(
         }
     };
     let (code, out) = attempts(e, round, "gh", req, || {
-        let (code, out) = e.github.gh(&dir, &args)?;
+        let (code, out) = e.github().gh(&dir, &args)?;
         Ok(json!([code, out]))
     })
     .map(|v| {
@@ -819,7 +819,7 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<
         }
         if pr.get().is_none() {
             let (title, body) = pr_fallback(item);
-            let n = e.github.pull_request(
+            let n = e.github().pull_request(
                 &repo(&project),
                 &branch,
                 &project.main,
@@ -828,7 +828,7 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<
             )?;
             pr.set(Some(n));
             // The pull request found open from the branch, when a run that stopped had opened it, keeps its base.
-            hub::ensure_base(e.github.as_ref(), &repo(&project), n, &project.main)?;
+            hub::ensure_base(e.github(), &repo(&project), n, &project.main)?;
         }
         let first = full_checks(e, &project, &head)?;
         Ok(json!({ "first": checks_json(&first) }))
@@ -899,7 +899,7 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
     }
     // The pull request merges into the project's main, whatever base it was opened with, or does not merge.
     match attempts(e, round, "merge", &args, || {
-        hub::merge_into(e.github.as_ref(), &repo(&project), pr, &project.main).map(Value::String)
+        hub::merge_into(e.github(), &repo(&project), pr, &project.main).map(Value::String)
     }) {
         Ok(Value::String(sha)) => Ok(json!({ "result": { "kind": "merged", "merge_commit": sha } })),
         Ok(other) => Err(format!("the merge gave {other}")),

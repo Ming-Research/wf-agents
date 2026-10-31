@@ -590,10 +590,10 @@ fn status(e: &mut engine::Engine, last: Option<&api::StepTaken>, started_at: i64
             .collect(),
         started_at,
         version: format!("{} ({})", env!("CARGO_PKG_VERSION"), engine::VERSION),
-        halt: e.halt.as_ref().map(|h| api::Halt {
-            kind: h.kind.clone(),
+        halt: e.halt().map(|h| api::Halt {
+            kind: h.kind,
             until: h.until,
-            why: h.why.clone(),
+            why: h.why,
         }),
     })
 }
@@ -627,45 +627,55 @@ fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
 /// started. So a pause takes effect as soon as the round under way has ended.
 fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
-    let github = engine::hub::Gh::new(d.join("logs"));
-    let mut e = engine::Engine::new(d, committed, Box::new(engine::agent::Claude), Box::new(github))?;
-    e.say = Box::new(|s| eprintln!("{} {s}", db::now() / 1000));
+    let github = Box::new(engine::hub::Gh::new(d.join("logs")));
+    let agents = Box::new(engine::agent::Claude);
+    let said = engine::Hooks {
+        say: Arc::new(|s: &str| eprintln!("{} {s}", db::now() / 1000)),
+        ..engine::Hooks::default()
+    };
     if once {
+        let mut e = engine::Engine::new(d, committed, agents, github, said)?;
         e.tick()?;
         return Ok(());
     }
     let started_at = db::now();
     let bus = Arc::new(api::Bus::new(started_at));
-    let events = Arc::clone(&bus);
-    e.db.on_commit(Box::new(move |conn, rows| {
-        for ev in api::events(conn, rows) {
-            events.publish(ev);
-        }
-    }))
-    .map_err(|x| x.to_string())?;
     let control = Arc::new(api::Control::default());
-    // The owner's switch that keeps waiting sessions warm while every work is paused holds across restarts.
-    control.set_keep_warm(api::keep_warm_paused(e.db.conn())?);
+    let events = Arc::clone(&bus);
     // What a running agent is doing goes to the page as it happens.
     let told = Arc::clone(&bus);
-    e.activity = Box::new(move |work, round, what| {
-        told.publish(api::Event::Activity {
-            work,
-            round,
-            what: what.to_string(),
-            at: db::now(),
-        });
-    });
     // So does which work's round runs: the page shows it running, and what stops once it ends.
-    let (told, running) = (Arc::clone(&bus), Arc::clone(&control));
-    e.busy = Box::new(move |work| {
-        running.set_running(work);
-        if let Some(s) = told.status() {
-            told.publish(api::Event::Status {
-                status: Box::new(running.status(s)),
+    let (shown, running) = (Arc::clone(&bus), Arc::clone(&control));
+    let hooks = engine::Hooks {
+        activity: Arc::new(move |work: i64, round: i64, what: &str| {
+            told.publish(api::Event::Activity {
+                work,
+                round,
+                what: what.to_string(),
+                at: db::now(),
             });
-        }
-    });
+        }),
+        busy: Arc::new(move |work: Option<i64>| {
+            running.set_running(work);
+            if let Some(s) = shown.status() {
+                shown.publish(api::Event::Status {
+                    status: Box::new(running.status(s)),
+                });
+            }
+        }),
+        // So does every change written, on whichever connection of the engine it is written.
+        commit: Some(Arc::new(
+            move |conn: &db::rusqlite::Connection, rows: &[db::Changed]| {
+                for ev in api::events(conn, rows) {
+                    events.publish(ev);
+                }
+            },
+        )),
+        ..said
+    };
+    let mut e = engine::Engine::new(d, committed, agents, github, hooks)?;
+    // The owner's switch that keeps waiting sessions warm while every work is paused holds across restarts.
+    control.set_keep_warm(api::keep_warm_paused(e.db.conn())?);
     let first = status(&mut e, None, started_at)?;
     bus.publish(api::Event::Status {
         status: Box::new(control.status(first)),
@@ -677,7 +687,7 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
         bus: Arc::clone(&bus),
         control: Arc::clone(&control),
     })?;
-    (e.say)(&format!(
+    e.say(&format!(
         "the page is at http://127.0.0.1:{port}/; every work is paused until the owner starts them there"
     ));
     // The owner, or whoever installs a new command, stops the engine between steps by creating this file.
@@ -689,19 +699,19 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     let mut after: Option<i64> = None;
     while !stop.exists() {
         if let Err(x) = e.start_overs() {
-            (e.say)(&format!("starting works over: {x}"));
+            e.say(&format!("starting works over: {x}"));
         }
         for (old, new) in e.replaced() {
             control.replaced(old, new);
         }
         let asked = control.asked();
         for work in control.take_new_sessions() {
-            e.sessions.ask_new(work);
+            e.sessions().ask_new(work);
         }
         e.reload_config();
         match e.release_started(&asked.releasing, &asked.architects_releasing) {
             Ok((done, architects)) => control.released(&done, &architects),
-            Err(x) => (e.say)(&format!("lifting the pause of the works the owner started: {x}")),
+            Err(x) => e.say(&format!("lifting the pause of the works the owner started: {x}")),
         }
         // The sessions of works that wait are kept warm between steps, never beside a round.
         let pause = asked.paused.then(|| engine::GlobalPause {
@@ -710,13 +720,13 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
             architects: asked.architects_started.clone(),
         });
         if let Err(x) = e.keep_warm(db::now(), pause.as_ref()) {
-            (e.say)(&format!("keeping waiting sessions warm: {x}"));
+            e.say(&format!("keeping waiting sessions warm: {x}"));
         }
         // The architects that judge what runs and what starts are told whether every work is paused.
-        e.global_pause = pause;
+        e.set_global_pause(pause);
         // The asks waiting for the owner's answer are reminded of once an interval, whatever the works do.
         if let Err(x) = e.remind(db::now()) {
-            (e.say)(&format!("reminding the owner of the asks waiting: {x}"));
+            e.say(&format!("reminding the owner of the asks waiting: {x}"));
         }
         let now = status(&mut e, last.as_ref(), started_at)?;
         bus.publish(api::Event::Status {
@@ -727,7 +737,7 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
                 let s = e.step_work(work)?;
                 let names: Vec<String> = s.rounds.iter().map(ToString::to_string).collect();
                 let stepped = s.work.unwrap_or(work);
-                (e.say)(&format!(
+                e.say(&format!(
                     "the round of work {work}, as the owner asked: work {stepped}, rounds {}",
                     names.join(", ")
                 ));
@@ -743,7 +753,7 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
             api::Next::Architect(project) => {
                 let s = e.step_architect(&project)?;
                 let names: Vec<String> = s.rounds.iter().map(ToString::to_string).collect();
-                (e.say)(&format!(
+                e.say(&format!(
                     "the round of the architect of {project}, as the owner asked: work {}, rounds {}",
                     s.work.map_or_else(|| "none".to_string(), |w| w.to_string()),
                     names.join(", ")

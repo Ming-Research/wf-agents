@@ -141,7 +141,7 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
         actions::notify(tx, Some(w.id), &text).map_err(db::Error::Abort)
     })
     .map_err(sql)?;
-    (e.say)(&format!("work {} paused: {why}", w.id));
+    e.say(&format!("work {} paused: {why}", w.id));
     Ok(Advance::Stopped)
 }
 
@@ -177,7 +177,7 @@ impl Failed<'_> {
         if let Some(t) = until {
             failed["until"] = json!(t);
         }
-        (e.say)(&format!(
+        e.say(&format!(
             "{} ended without a return ({}): {what}",
             self.round, kind.name
         ));
@@ -194,14 +194,12 @@ impl Failed<'_> {
         match kind.handle {
             Handle::Wait => {
                 let until = until.unwrap_or(now);
-                let first = e.told.as_deref() != Some(kind.name.as_str());
-                e.halt = Some(Halt {
+                let first = e.halt_every_work(Halt {
                     kind: kind.name.clone(),
                     until,
                     why: what.clone(),
                 });
                 if first {
-                    e.told = Some(kind.name.clone());
                     let text = if kind.name == "usage_limit" {
                         format!(
                             "No agent round starts for any work until {}: the command line reports {} ({what}). Each work goes on from its cell then.",
