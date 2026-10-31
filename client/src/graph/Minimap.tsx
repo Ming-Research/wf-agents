@@ -10,6 +10,7 @@
 import { memo, type RefObject, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
 import type { CompiledCell } from '../api';
+import type { Colours } from '../roles';
 import { t } from '../text';
 import { styleOf } from './flowDraw';
 import type { Box, Laid, Size } from './flowLayout';
@@ -72,14 +73,15 @@ export type MapSheet = {
 export type MapOf = { geom: MapGeom; shapes: MapShape[] };
 
 /// The map of a chart of `size`: each graph's drawing on its sheet, starting `pad` before its layout's bounds, the
-/// sheets' tops at `top`, and the stores' sheet, if any, at its left edge. The cell the work is at comes last, over
-/// the rest.
+/// sheets' tops at `top`, and the stores' sheet, if any, at its left edge, each cell in its role's colour as `colours`
+/// gives its line's. The cell the work is at comes last, over the rest.
 export function mapOf(
   size: Size,
   sheets: MapSheet[],
   top: number,
   pad: number,
   stores: { laid: LaidStores; left: number } | null,
+  colours: Colours,
 ): MapOf {
   const geom = mapGeom(size);
   const { k } = geom;
@@ -110,7 +112,7 @@ export function mapOf(
       if (s.overlays !== null && o === undefined) mark = 'unvisited';
       else if (o?.current) mark = o.running ? 'running' : 'current';
       const c = compiled.get(n.cell);
-      const style = c !== undefined ? styleOf(c) : null;
+      const style = c !== undefined ? styleOf(c, colours) : null;
       cells.push({ ...scaled(b, dx, dy, LEAST), kind: 'cell', graph: s.graph, cell: n.cell, style, mark });
     }
   }

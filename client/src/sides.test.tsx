@@ -89,7 +89,6 @@ function flowOfCells(cells: CompiledCell[]): { compiled: Compiled; view: FlowVie
   const g = graphOf(cells);
   const v: GraphView = {
     name: g.name,
-    lines: [],
     common_format: '',
     cells: cells.map((c) => ({
       id: c.id,

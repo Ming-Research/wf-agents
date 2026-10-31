@@ -20,8 +20,8 @@ fn the_page_types_are_what_the_rust_types_generate() {
 }
 
 // The page's tests run the flow page's parts on `flow/flow.json` as the engine stores it compiled, which leaves out
-// what a field does not hold, and on the view the interface serves of that, so that they read the flow the page
-// reads. It changes with every change to the flow, so it is not kept but written where the page's tests run, before
+// what a field does not hold, on the view the interface serves of that, and on the flow's lines with their colours as
+// the interface serves them, so that they read the flow the page reads. It changes with every change to the flow, so it is not kept but written where the page's tests run, before
 // them: `WF_AGENTS_GENERATE=1` writes it with `api.ts`, as CI does.
 #[test]
 fn the_page_tests_read_the_flow_as_the_engine_stores_it() {
@@ -34,6 +34,11 @@ fn the_page_tests_read_the_flow_as_the_engine_stores_it() {
     let stored = compiled.json();
     let read: flow::Compiled = serde_json::from_str(&stored).unwrap();
     let view = serde_json::to_string(&api::view(&read)).unwrap();
+    let lines = serde_json::to_string(&api::flow_lines()).unwrap();
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../client/src/stored-flow.json");
-    std::fs::write(&path, format!(r#"{{"compiled":{stored},"view":{view}}}"#)).unwrap();
+    std::fs::write(
+        &path,
+        format!(r#"{{"compiled":{stored},"view":{view},"lines":{lines}}}"#),
+    )
+    .unwrap();
 }

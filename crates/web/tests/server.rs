@@ -363,6 +363,33 @@ fn the_flow_page_reads_a_version_explained_and_compared() {
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
+// Every part of the page that shows a role reads the lines of the flow built into the program, each with the colour its
+// role is drawn in, from one place that needs no flow version stored.
+#[test]
+fn the_page_reads_the_lines_and_their_colours() {
+    let s = serve("lines");
+    let here = format!("127.0.0.1:{}", s.port);
+    let (status, out) = get(s.port, "/api/v1/flows/lines", &here, "");
+    assert_eq!(status, 200, "{out}");
+    let body = out.split_once("\r\n\r\n").map_or("", |x| x.1);
+    let graphs: serde_json::Value = serde_json::from_str(body).unwrap();
+    let text = |v: &serde_json::Value| v.as_str().unwrap_or_default().to_string();
+    let mut lines = Vec::new();
+    for g in graphs.as_array().unwrap() {
+        for l in g["lines"].as_array().unwrap() {
+            lines.push(format!(
+                "{}/{}: {}",
+                text(&g["graph"]),
+                text(&l["name"]),
+                text(&l["colour"])
+            ));
+        }
+    }
+    assert!(lines.iter().any(|l| l == "engineer/engineer: blue"), "{lines:?}");
+    assert!(lines.iter().any(|l| l == "architect/architect: purple"), "{lines:?}");
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
 // The page reads the owner's conversations in their fixed order, the architect's one-to-one and wf-agents' first, what
 // agents and the engine told the owner in a work's group, and marks how far the owner read it, which marks its messages
 // read; the owner says something in the group, to its engineer, to its architect and to both, and a line that is no

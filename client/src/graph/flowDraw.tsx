@@ -1,10 +1,10 @@
 // How a flow's chart is drawn: each node's size and the lines of its text, measured in the font the page draws
 // them in, and the chart itself as SVG once laid out. Only a cell has colours, and who does its work decides them: an
-// agent's round takes its session's, its line's, a cell on no line pink, and only an agent's cell is a box; the
-// engine's own step is purple and rounded, a tool the engine runs a quiet yellow and rounded, the owner orange and
-// rounded, a rounded cell's ends no rounder than a cell of one line's, so that its text stays inside them; every
-// cell's edge is solid. A circle that names a cell takes that cell's colours;
-// everything else is light grey. Under a step the engine decides, what its values read; on a
+// agent's round takes its role's, the colour the flow gives its line, a cell on no line or on a line with no colour the
+// page's neutral grey, and only an agent's cell is a box; the engine's own step is the same grey and rounded, a tool
+// the engine runs a quiet yellow and rounded, the owner orange and rounded, a rounded cell's ends no rounder than a
+// cell of one line's, so that its text stays inside them; every cell's edge is solid. A circle that names a cell takes
+// that cell's colours; everything else is light grey. Under a step the engine decides, what its values read; on a
 // cell that lacks a move most cells that could make make, a small mark saying so. An agent's cell carries over its top
 // left corner the reasoning effort it runs at, as a badge in the level's colour, and after it, on a cell that starts a
 // new session every round, an outlined badge saying so. What the engine does on a line or every time a cell returns is a
@@ -16,6 +16,7 @@
 import { type ReactNode, useRef, useState } from 'react';
 
 import type { CompiledCell, CompiledGraph, EngineNames } from '../api';
+import { type Colours, roleClass } from '../roles';
 import { t, tn } from '../text';
 import {
   actionWords,
@@ -33,9 +34,6 @@ import {
 } from './flowModel';
 import { type Box, type Laid, pathOf, type Size } from './flowLayout';
 
-/// The lines that have colours of their own; a line not here is drawn in the colour of other lines.
-const LINES = ['engineer', 'review', 'adversarial', 'advisor', 'architect', 'architect_review', 'observer'];
-
 /// Whether a cell starts a new session every time it runs: an agent's cell on no line, which the flow says starts a
 /// session of its own every round. A cell of a line that starts a new session only at its first round in a work
 /// (`new_session`) continues it after, and is not one.
@@ -43,12 +41,10 @@ export function startsAnew(c: CompiledCell): boolean {
   return c.kind === 'agent' && c.line == null;
 }
 
-/// The style a cell is drawn in: its line's for an agent's round, `fresh` for one on no line, else its kind's.
-export function styleOf(c: CompiledCell): string {
-  if (c.kind === 'agent') {
-    if (startsAnew(c)) return 'fresh';
-    return c.line != null && LINES.includes(c.line) ? `line-${c.line}` : 'line-other';
-  }
+/// The style a cell is drawn in: for an agent's round its role's colour, the one `colours` gives its line, or the
+/// neutral grey for one on no line or on a line with no colour (`roleClass`); else its kind's.
+export function styleOf(c: CompiledCell, colours: Colours): string {
+  if (c.kind === 'agent') return roleClass(colours, c.line);
   return ['engine', 'tool', 'owner'].includes(c.kind) ? `kind-${c.kind}` : 'kind-engine';
 }
 
@@ -378,9 +374,11 @@ export type Marks = {
   rows?: RowAt[];
 };
 
-function CellShape({ n, cell, box, lines, note, marks }: {
+function CellShape({ n, cell, style, box, lines, note, marks }: {
   n: ChartNode;
   cell: CompiledCell;
+  /// The class it is drawn in (`styleOf`).
+  style: string;
   box: Box;
   lines: string[];
   note: CellNote | undefined;
@@ -391,7 +389,7 @@ function CellShape({ n, cell, box, lines, note, marks }: {
   const radius = cellRadius(cell, box.height);
   const cls = [
     'fc-cell',
-    styleOf(cell),
+    style,
     marks.selected === n.id ? 'fc-selected' : '',
     o?.current ? 'fc-current' : '',
     marks.overlays && !o ? 'fc-unvisited' : '',
@@ -654,6 +652,8 @@ export type DrawProps = {
   notes: Map<string, CellNote>;
   /// The flow's engine part, which says what each action does.
   engine: EngineNames | null;
+  /// Each line's colour, which its cells are drawn in.
+  colours: Colours;
   marks: Marks;
   /// Whether this drawing defines the arrowheads every drawing on the page refers to: the first of the graphs drawn
   /// side by side does, so that an id is defined once.
@@ -663,7 +663,7 @@ export type DrawProps = {
 };
 
 /// The chart as SVG, at the size its layout takes.
-export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = true, onNode }: DrawProps) {
+export function FlowSvg({ g, chart, laid, lines, notes, engine, colours, marks, defs = true, onNode }: DrawProps) {
   const [hover, setHover] = useState<string | null>(null);
   // The row clicked stays lit until it is clicked again or the chart's background is clicked, for following an arrow
   // far across the chart; nothing keeps it past the page.
@@ -681,7 +681,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
   // A circle names a cell, and takes its colours.
   const named = (id: string | null) => {
     const c = id !== null ? cells.get(id) : undefined;
-    return c !== undefined ? ` ${styleOf(c)}` : '';
+    return c !== undefined ? ` ${styleOf(c, colours)}` : '';
   };
   const hot = new Set([
     ...related(chart.edges, hover),
@@ -726,6 +726,7 @@ export function FlowSvg({ g, chart, laid, lines, notes, engine, marks, defs = tr
             key={n.id}
             n={n}
             cell={cell}
+            style={styleOf(cell, colours)}
             box={box}
             lines={lines.get(n.id) ?? []}
             note={notes.get(n.id)}

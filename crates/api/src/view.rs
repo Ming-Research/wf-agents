@@ -6,15 +6,18 @@
 //! cell with a row into the cell, `@asker` the same, except that an answer to a cell on the line of the graph's
 //! receiving cell goes to that cell, and `@stopped` a cell outside the asking part with a row into the receiving
 //! cell (into the asking part, when the graph has no receiving cell).
+//!
+//! Besides, the lines of the flow built into this program, which every part of the page that shows a role reads.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use flow::format::{Atom, Do, Named, Src};
+use flow::format::{Atom, Do, Src};
 use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value};
 
 use crate::{
-    Branch, CellInput, CellInputOf, CellView, Field, FieldKind, FlowView, GraphView, ReturnForm, Returns, RowRef, Use,
+    Branch, CellInput, CellInputOf, CellView, Field, FieldKind, FlowView, GraphLines, GraphView, LineView, ReturnForm,
+    Returns, RowRef, Use,
 };
 
 /// The targets the engine keeps track of, as rows and inputs name them.
@@ -25,30 +28,39 @@ const STOPPED: &str = "@stopped";
 const FROM: &str = "@from";
 
 pub fn view(c: &Compiled) -> FlowView {
-    // How each line's session is kept is said only in the flow's source: the flow built into this program says it.
-    let source = serde_json::from_str::<flow::format::Source>(flow::FLOW).ok();
-    let lines = |name: &str| -> Vec<Named> {
-        source
-            .as_ref()
-            .and_then(|s| s.flows.iter().find(|f| f.name == name))
-            .map(|f| {
-                f.sessions
-                    .lines
-                    .iter()
-                    .map(|l| Named {
-                        name: l.name.clone(),
-                        desc: l.desc.clone(),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
     FlowView {
-        graphs: c.graphs.iter().map(|g| graph(g, lines(&g.name))).collect(),
+        graphs: c.graphs.iter().map(graph).collect(),
     }
 }
 
-fn graph(g: &CompiledGraph, lines: Vec<Named>) -> GraphView {
+/// The lines of each graph of the flow built into this program, with what each is and the colour its role is drawn in
+/// wherever the page shows it: a compiled flow version keeps the lines, not what they are, and a role has one colour
+/// on every page, whatever flow version a work runs on.
+pub fn flow_lines() -> Vec<GraphLines> {
+    // The flow built into this program compiles, as its tests hold; a source that does not read has no lines.
+    let Ok(source) = serde_json::from_str::<flow::format::Source>(flow::FLOW) else {
+        return Vec::new();
+    };
+    source
+        .flows
+        .iter()
+        .map(|f| GraphLines {
+            graph: f.name.clone(),
+            lines: f
+                .sessions
+                .lines
+                .iter()
+                .map(|l| LineView {
+                    name: l.name.clone(),
+                    desc: l.desc.clone(),
+                    colour: l.colour,
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+fn graph(g: &CompiledGraph) -> GraphView {
     let ways = Ways::new(g);
     let mut trees: BTreeMap<&str, Returns> = g.cells.iter().map(|c| (c.id.as_str(), returns(g, c))).collect();
     let mut uses: Vec<(String, String, Use)> = Vec::new();
@@ -90,7 +102,6 @@ fn graph(g: &CompiledGraph, lines: Vec<Named>) -> GraphView {
         .collect();
     GraphView {
         name: g.name.clone(),
-        lines,
         cells,
         common_format: flow::formats::common_format(g, &[]),
     }
@@ -920,7 +931,7 @@ mod tests {
 
     #[test]
     fn targets_the_engine_keeps_track_of_resolve_to_the_cells_they_can_be() {
-        let v = super::graph(&graph(), Vec::new());
+        let v = super::graph(&graph());
         // The tool cell goes back to the cell that called it.
         assert_eq!(cell(&v, "t").targets, vec![vec!["a".to_string()]]);
         // An answer to a cell on the receiving cell's line would go through it; `a` is not on its line.
@@ -942,7 +953,7 @@ mod tests {
 
     #[test]
     fn each_field_says_what_reads_it() {
-        let v = super::graph(&graph(), Vec::new());
+        let v = super::graph(&graph());
         let a = &cell(&v, "a").returns;
         let own = &a.forms[0];
         assert_eq!(
@@ -1010,7 +1021,7 @@ mod tests {
 
     #[test]
     fn an_input_has_its_address() {
-        let v = super::graph(&graph(), Vec::new());
+        let v = super::graph(&graph());
         let b = cell(&v, "b");
         let input = |i: usize, s: usize| {
             b.inputs
@@ -1136,5 +1147,32 @@ mod tests {
             split_values(Some("Just text"), &vs),
             (Some("Just text".into()), vec![None, None])
         );
+    }
+
+    // Every part of the page that shows a role reads its colour here: each line of the flow built into the program,
+    // graph by graph, with what it is and the colour the flow gives it.
+    #[test]
+    fn the_lines_are_the_flow_s_each_with_its_colour() {
+        use flow::format::Colour;
+        let graphs = flow_lines();
+        let names: Vec<&str> = graphs.iter().map(|g| g.graph.as_str()).collect();
+        assert_eq!(names, ["engineer", "architect"]);
+        let coloured: Vec<(&str, Colour)> = graphs
+            .iter()
+            .flat_map(|g| g.lines.iter().map(|l| (l.name.as_str(), l.colour)))
+            .collect();
+        assert_eq!(
+            coloured,
+            [
+                ("engineer", Colour::Blue),
+                ("review", Colour::Teal),
+                ("adversarial", Colour::Auburn),
+                ("advisor", Colour::Pink),
+                ("architect", Colour::Purple),
+                ("architect_review", Colour::Indigo),
+                ("observer", Colour::Lime),
+            ]
+        );
+        assert!(graphs.iter().flat_map(|g| &g.lines).all(|l| !l.desc.is_empty()));
     }
 }

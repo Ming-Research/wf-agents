@@ -84,6 +84,29 @@ case!(an_input_said_to_be_in_the_session, "fits none of the forms", |v| {
 case!(an_unknown_key, "unknown field", |v| {
     node(v, "D1")["colour"] = json!("red");
 });
+case!(a_line_with_no_colour, "missing field `colour`", |v| {
+    obj(&mut graph(v)["sessions"]["lines"][0]).remove("colour");
+});
+case!(a_colour_the_page_does_not_know, "unknown variant `green`", |v| {
+    graph(v)["sessions"]["lines"][0]["colour"] = json!("green");
+});
+case!(a_colour_the_page_keeps_for_the_owner, "unknown variant `orange`", |v| {
+    graph(v)["sessions"]["lines"][1]["colour"] = json!("orange");
+});
+case!(
+    two_lines_of_a_graph_with_one_colour,
+    "two lines share the colour blue: engineer and review",
+    |v| {
+        graph(v)["sessions"]["lines"][1]["colour"] = json!("blue");
+    }
+);
+case!(
+    two_lines_of_two_graphs_with_one_colour,
+    "two lines share the colour blue: engineer and architect",
+    |v| {
+        v["flows"][1]["sessions"]["lines"][0]["colour"] = json!("blue");
+    }
+);
 case!(an_engine_step_nothing_uses, "an engine step nothing uses: extra", |v| {
     v["engine"]["steps"]["extra"] = json!("x");
 });

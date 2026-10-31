@@ -4,8 +4,8 @@
    stream scrolls, a slim line over it while an ask that waits is out of view; the questions an architect pinned are
    over the one box at the bottom, in the same look as what is pinned under the head. In the stream, the page's three
    voices each have their look: the engine's cards and lines are the page's own words, with no frame; an agent's
-   message is the box of what an agent handed back, beside its avatar, in its colour, holding what answers it and the
-   owner's answer once given; the owner's is the sheet of what is sent to an agent, on the right. */
+   message is the box of what an agent handed back, beside its avatar, in its role's colour (roles.css), holding what
+   answers it and the owner's answer once given; the owner's is the sheet of what is sent to an agent, on the right. */
 
 .talks {
   flex: 1;
@@ -289,18 +289,7 @@
   height: var(--base-size-32);
   border-radius: var(--borderRadius-full);
   color: var(--fgColor-onEmphasis);
-}
-
-.talk-avatar-engineer {
-  background: var(--display-blue-bgColor-emphasis);
-}
-
-.talk-avatar-architect {
-  background: var(--display-purple-bgColor-emphasis);
-}
-
-.talk-avatar-helper {
-  background: var(--display-pine-bgColor-emphasis);
+  background: var(--role-mark);
 }
 
 .talk-bubble {
@@ -309,20 +298,10 @@
   border-radius: var(--borderRadius-medium);
 }
 
-/* What an agent handed back: the box, all round, in the agent's colour. */
-.talk-bubble-engineer {
-  border: var(--borderWidth-thin) solid var(--display-blue-borderColor-muted);
-  background: var(--display-blue-bgColor-muted);
-}
-
-.talk-bubble-architect {
-  border: var(--borderWidth-thin) solid var(--display-purple-borderColor-muted);
-  background: var(--display-purple-bgColor-muted);
-}
-
-.talk-bubble-helper {
-  border: var(--borderWidth-thin) solid var(--display-pine-borderColor-muted);
-  background: var(--display-pine-bgColor-muted);
+/* What an agent handed back: the box, all round, in its role's colour (roles.css). */
+.talk-bubble-agent {
+  border: var(--borderWidth-thin) solid var(--role-line);
+  background: var(--role-fill);
 }
 
 /* What the owner sends to an agent: the sheet, filled, its edge at its left. */

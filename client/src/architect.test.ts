@@ -295,7 +295,7 @@ function graph(name: string, cells: string[]): CompiledGraph {
   };
 }
 
-const view = (name: string): GraphView => ({ name, lines: [], cells: [], common_format: '' });
+const view = (name: string): GraphView => ({ name, cells: [], common_format: '' });
 
 describe('the flow page with both graphs', () => {
   const graphs = [

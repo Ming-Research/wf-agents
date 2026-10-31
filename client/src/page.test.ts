@@ -103,6 +103,7 @@ import { href, parse, type Route } from './route';
 import { chars, messageParts, placeSchema, shape, shareWords, spent, tokens } from './round';
 import { type Draft, draftOf, settingsChange, settingsProblems, shellWord, signInCommand, unchanged } from './pages/Settings';
 import { tiersAllowed } from './pages/TalkHead';
+import { coloursOf } from './roles';
 import { spendTable } from './spend';
 import { axisTicks, gapsOf, usageOf } from './usage';
 
@@ -504,6 +505,18 @@ function row(name: string, to: string, extra: Partial<CompiledRow> = {}): Compil
   };
 }
 
+/// The colours the flow gives its lines, as the interface serves them, of the lines these tests' cells are on.
+const COLOURS = coloursOf([
+  {
+    graph: 'engineer',
+    lines: [
+      { name: 'engineer', desc: 'The engineer', colour: 'blue' },
+      { name: 'review', desc: 'The review', colour: 'teal' },
+    ],
+  },
+  { graph: 'architect', lines: [{ name: 'observer', desc: 'The search of observations', colour: 'lime' }] },
+]);
+
 function cell(id: string, rows: CompiledRow[], extra: Partial<CompiledCell> = {}): CompiledCell {
   return {
     id,
@@ -648,7 +661,6 @@ const resolve = (c: CompiledCell, to: string): string[] => {
   return [to];
 };
 const view: GraphView = {
-  lines: [],
   name: 'engineer',
   common_format: '',
   cells: graph.cells.map((c) => ({
@@ -828,14 +840,19 @@ describe('the chart of a flow', () => {
   it('badges an agent cell on no line, and no other, as starting a new session every round, after its effort', () => {
     const anew = cell('p', [], { line: null, effort: 'xhigh' });
     expect(startsAnew(anew)).toBe(true);
-    expect(styleOf(anew)).toBe('fresh');
+    // In the neutral grey of an agent with no colour of its own, as one on a line with none is; one on a line with a
+    // colour takes its role's.
+    expect(styleOf(anew, COLOURS)).toBe('role-none');
+    expect(styleOf(cell('s', [], { line: 'scout' }), COLOURS)).toBe('role-none');
+    expect(styleOf(cell('e', []), COLOURS)).toBe('role-blue');
+    expect(styleOf(cell('v', [], { line: 'review' }), COLOURS)).toBe('role-teal');
     // A cell of a line that starts a new session at its first round in a work continues it after: no badge.
     expect(startsAnew(cell('r', [], { new_session: true }))).toBe(false);
     expect(startsAnew(cell('e', []))).toBe(false);
     for (const kind of ['engine', 'tool', 'owner']) {
       const c = cell('k', [], { kind, line: null });
       expect(startsAnew(c), kind).toBe(false);
-      expect(styleOf(c), kind).toBe(`kind-${kind}`);
+      expect(styleOf(c, COLOURS), kind).toBe(`kind-${kind}`);
     }
     // The badges over the top left corner, from 4 px left of the cell: the effort's, then 3 px on the new session's.
     expect(sessionWidth()).toBeGreaterThan(effortWidth());
@@ -1091,7 +1108,7 @@ describe('the chart of a flow', () => {
     const measured = sizes(graph, c, engine);
     const draw = (selected: string | null, rows?: Marks['rows']) => {
       const marks: Marks = { selected, overlays: null, taken: null, added: new Set(), changed: new Set(), rows };
-      const props = { g: graph, chart: c, laid, lines: measured.lines, notes: measured.notes, engine, marks };
+      const props = { g: graph, chart: c, laid, lines: measured.lines, notes: measured.notes, engine, colours: COLOURS, marks };
       return renderToStaticMarkup(createElement(FlowSvg, props));
     };
     // The classes of an arrow's line, as drawn.
@@ -1236,23 +1253,24 @@ describe('the map of a chart', () => {
     };
     const sheet = { graph: 'g', cells: graph.cells, chart: c, laid, left: 1000, overlays: null };
     // A chart of 2000 by 1000 px at a tenth; the graph's sheet at 1000 px, its drawing 20 px in, the sheets 40 px down.
-    const map = mapOf({ width: 2000, height: 1000 }, [sheet], 40, 20, { laid: stores, left: 0 });
+    const map = mapOf({ width: 2000, height: 1000 }, [sheet], 40, 20, { laid: stores, left: 0 }, COLOURS);
     const shapes = map.shapes.map((x) => ({ ...x, ...near(box(x.x, x.y, x.width, x.height)) }));
     expect(shapes).toEqual([
       { kind: 'box', graph: 'g', cell: null, style: null, mark: null, x: 110, y: 12, width: 40, height: 40 },
       { kind: 'box', graph: null, cell: null, style: null, mark: null, x: 2, y: 6, width: 10, height: 20 },
       // Each cell and store in the class the chart draws it in, which gives it the chart's colours.
-      { kind: 'cell', graph: 'g', cell: 'a', style: 'line-engineer', mark: null, x: 112, y: 16, width: 20, height: 6 },
+      { kind: 'cell', graph: 'g', cell: 'a', style: 'role-blue', mark: null, x: 112, y: 16, width: 20, height: 6 },
       // A cell thinner than the least a mark is drawn at keeps its middle.
-      { kind: 'cell', graph: 'g', cell: 'b', style: 'line-review', mark: null, x: 112, y: 35.5, width: 20, height: LEAST },
+      { kind: 'cell', graph: 'g', cell: 'b', style: 'role-teal', mark: null, x: 112, y: 35.5, width: 20, height: LEAST },
       { kind: 'cell', graph: null, cell: null, style: 'fc-store', mark: null, x: 3, y: 9.4, width: 8, height: 3 },
     ]);
     expect(map.shapes.filter((x) => x.cell !== null).map((x) => x.style)).toEqual(
-      ['a', 'b'].map((id) => styleOf(graph.cells.find((x) => x.id === id) ?? cell(id, []))),
+      ['a', 'b'].map((id) => styleOf(graph.cells.find((x) => x.id === id) ?? cell(id, []), COLOURS)),
     );
     // On a work's chart: the cell the work is at, over the rest, and the cells it never reached.
     const at = { rounds: 1, sentBack: 0, failed: 0, running: true, current: true, waits: null };
-    const worked = (o: typeof at) => mapOf({ width: 2000, height: 1000 }, [{ ...sheet, overlays: new Map([['b', o]]) }], 40, 20, null);
+    const worked = (o: typeof at) =>
+      mapOf({ width: 2000, height: 1000 }, [{ ...sheet, overlays: new Map([['b', o]]) }], 40, 20, null, COLOURS);
     expect(worked(at).shapes.map((x) => [x.kind, x.cell, x.mark])).toEqual([
       ['box', null, null],
       ['cell', 'a', 'unvisited'],
@@ -1325,12 +1343,12 @@ describe("a cell's panel", () => {
   });
 
   it('says after the title where the cell stands, and its line only when the chart has no colour for it', () => {
-    expect(cellWhere(graph, cellOf('a'))).toBe('Stage: build');
-    // The observer line has a colour of its own; a line the page does not know is named.
-    expect(cellWhere(graph, cellOf('c'))).toBe('Stage: build');
-    expect(cellWhere(graph, { ...cellOf('c'), line: 'scout' })).toBe('Stage: build; on the scout line');
-    expect(cellWhere(graph, cellOf('q'))).toBe('Asking part: ask');
-    expect(cellWhere(graph, cellOf('t'))).toBeNull();
+    expect(cellWhere(graph, cellOf('a'), COLOURS)).toBe('Stage: build');
+    // The observer line has a colour of its own; a line the flow gives no colour is named.
+    expect(cellWhere(graph, cellOf('c'), COLOURS)).toBe('Stage: build');
+    expect(cellWhere(graph, { ...cellOf('c'), line: 'scout' }, COLOURS)).toBe('Stage: build; on the scout line');
+    expect(cellWhere(graph, cellOf('q'), COLOURS)).toBe('Asking part: ask');
+    expect(cellWhere(graph, cellOf('t'), COLOURS)).toBeNull();
   });
 
   it('lists where a cell is entered from and where it leaves to by kind, the fallback apart', () => {

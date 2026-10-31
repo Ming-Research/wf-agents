@@ -43,4 +43,4 @@ pub use system::{SystemAsk, system};
 pub use talk::{Talks, conversation, conversations};
 pub use types::*;
 pub use typescript::typescript;
-pub use view::view;
+pub use view::{flow_lines, view};

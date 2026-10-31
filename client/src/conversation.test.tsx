@@ -8,7 +8,7 @@
 // architect stands.
 
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from './answer';
 import type {
@@ -17,6 +17,7 @@ import type {
   ConversationDetail,
   ConversationEntry,
   DesignCard,
+  GraphLines,
   Handled,
   JsonValue,
   Matter,
@@ -45,10 +46,29 @@ import {
 import { holdsWords, nowWords } from './course';
 import { ordinal, time } from './format';
 import { admit, IMAGE_MOST_BYTES, imagesSent, pastedFiles, type PendingImage, saysSomething } from './images';
+import { Bubble } from './pages/Bubble';
 import { AskView, DesignCardView } from './pages/Decide';
 import { Composer, Questions, type Reply, Stream, workMark } from './pages/Messages';
 import { SayBox } from './parts';
 import { t } from './text';
+
+/// The flow's lines with their colours, as the interface serves them, which every bubble and avatar is drawn in.
+const LINES: GraphLines[] = [
+  {
+    graph: 'engineer',
+    lines: [
+      { name: 'engineer', desc: 'The engineer', colour: 'blue' },
+      { name: 'review', desc: 'The review', colour: 'teal' },
+    ],
+  },
+  { graph: 'architect', lines: [{ name: 'architect', desc: 'The architect', colour: 'purple' }] },
+];
+
+// The lines are read for the whole page once; whatever else is read alike is not read yet.
+vi.mock('./live', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./live')>()),
+  useShared: (_key: string, path: string) => (path === '/api/v1/flows/lines' ? LINES : undefined),
+}));
 
 const ask = (id: number, body: JsonValue, answer: JsonValue | null = null): OwnerAsk => ({
   id,
@@ -201,7 +221,9 @@ describe('an ask in its conversation', () => {
     expect(html.indexOf('Before.')).toBeLessThan(html.indexOf('data-ask="4"'));
     expect(html.indexOf('data-ask="4"')).toBeLessThan(html.indexOf('After.'));
     const r = row(html, 'data-ask="4"');
-    expect(r).toContain('talk-bubble-engineer');
+    // In the engineer's colour, its bubble and its avatar alike.
+    expect(r).toContain('talk-bubble talk-bubble-agent role-blue');
+    expect(r).toContain('talk-avatar role-blue');
     expect(r).toContain('One table or two?');
     expect(html.match(/data-ask="4"/g)).toHaveLength(1);
   });
@@ -266,7 +288,7 @@ describe('a question the architect holds', () => {
     expect(inside).toContain('<span class="talk-who">Your answer</span>');
     expect(inside).toContain('Split it in two.');
     // The architect's reply is the architect's own message.
-    expect(row(html, 'Keep it.')).toContain('talk-bubble-architect');
+    expect(row(html, 'Keep it.')).toContain('talk-bubble talk-bubble-agent role-purple');
   });
 });
 
@@ -367,7 +389,7 @@ describe("a matter's bubble in the one-to-one with an architect", () => {
   it('says its kind and what it asks as the queue does, whole, the steps folded under it, and what became of it', () => {
     const html = shown(card());
     // The architect's bubble of one line, with no one named.
-    expect(html).toContain('talk-bubble-architect');
+    expect(html).toContain('talk-bubble talk-bubble-agent role-purple');
     expect(html).not.toContain('talk-mention');
     expect(html).toContain('Done:');
     expect(html).toContain('Plan fix: something missing');
@@ -531,7 +553,7 @@ describe('the questions an architect pinned in its one-to-one', () => {
     // In the order they were put, the newest last, over the box.
     expect(html.indexOf('Research a new policy?')).toBeLessThan(html.indexOf('data-ask="6"'));
     const open = bubble(row(html, 'data-ask="6"')).inside;
-    expect(open).toContain('talk-bubble-architect');
+    expect(open).toContain('talk-bubble talk-bubble-agent role-purple');
     expect(open).toContain('Approve this policy? Reply exactly: approved');
     expect(open).not.toContain('<textarea');
     expect(buttons(open)).toEqual([]);
@@ -958,7 +980,7 @@ describe("a work's group as a chat", () => {
         ],
       }),
     );
-    expect(html).toContain('talk-bubble-engineer');
+    expect(html).toContain('talk-bubble talk-bubble-agent role-blue');
     expect(html).toContain('<span class="talk-who">Testing and fixing, 2nd time</span>');
     expect(html).toContain('R5-30 to R5-41');
     // How long it took and what it cost, after its rounds.
@@ -1177,7 +1199,7 @@ describe("the one-to-one with an architect as a chat", () => {
       plan: { changed: 'Finish #10 before #11.', plan: '1. Finish #10.\n2. Then #11.', work: 9, round: 12 },
     });
     const html = drawnIn([plan]);
-    expect(html).toContain('talk-bubble-architect');
+    expect(html).toContain('talk-bubble talk-bubble-agent role-purple');
     expect(html).toContain('Changed the plan:');
     expect(html).toContain('Finish #10 before #11.');
     expect(html).toContain('The plan');
@@ -1200,6 +1222,35 @@ describe("the one-to-one with an architect as a chat", () => {
     expect(html).toContain('The new policy took effect');
     expect(html).toContain('href="/messages?c=architect%3Ap&amp;side=policy"');
     expect(html).not.toContain('Timeline');
+  });
+});
+
+describe("a role's colour in a talk", () => {
+  // A helper's thread with the engineer on a work's page is drawn by the same part: each helper in its own colour, on
+  // the right, its avatar after its bubble, instead of one colour for every helper.
+  it("draws each agent in its role's colour, a helper on the right with its avatar after its bubble", () => {
+    const html = renderToStaticMarkup(
+      <div className="talk-messages">
+        <Bubble who="engineer" head="Engineer">
+          Asked.
+        </Bubble>
+        <Bubble who="review" right head="Review">
+          Found.
+        </Bubble>
+        <Bubble who="scout" head="Scout">
+          Said.
+        </Bubble>
+      </div>,
+    );
+    const asked = row(html, 'Asked.');
+    expect(asked).toContain('talk-avatar role-blue');
+    expect(asked).toContain('talk-bubble talk-bubble-agent role-blue');
+    const found = row(html, 'Found.');
+    expect(found).toMatch(/^<div class="talk-row talk-row-right"/);
+    expect(found).toContain('talk-bubble talk-bubble-agent role-teal');
+    expect(found.indexOf('talk-avatar role-teal')).toBeGreaterThan(found.indexOf('Found.'));
+    // A line the flow gives no colour is drawn in the neutral grey of an agent with no colour of its own.
+    expect(row(html, 'Said.')).toContain('talk-bubble talk-bubble-agent role-none');
   });
 });
 

@@ -2078,11 +2078,6 @@ export type FlowView = { graphs: Array<GraphView>, };
 
 export type GraphView = { name: string, 
 /**
- * How each line's session is kept (when it starts and which cells continue it), as the flow built into this
- * program says: a compiled flow version keeps the lines, not what they are.
- */
-lines: Array<Named>, 
-/**
  * Each cell, in the order the graph has them.
  */
 cells: Array<CellView>, 
@@ -2356,6 +2351,33 @@ rev: string, commit: string, digest: string,
  * The stored flow version with the same digest, when there is one.
  */
 version: number | null, compiled: Compiled, view: FlowView, };
+
+/**
+ * The lines of a graph of the flow built into this program: a compiled flow version keeps the lines, not what they
+ * are.
+ */
+export type GraphLines = { graph: string, lines: Array<LineView>, };
+
+/**
+ * A line, the agent whose cells go on in one session.
+ */
+export type LineView = { name: string, 
+/**
+ * How its session is kept (when it starts and which cells continue it).
+ */
+desc: string, 
+/**
+ * The colour its role is drawn in wherever the page shows it: its cells on a chart, its avatar and its bubbles.
+ */
+colour: Colour, };
+
+/**
+ * A colour a line's role is drawn in on the owner's page (its cells on a chart, its avatar and its bubbles), by the
+ * name of Primer's display colour the page draws it with. Only the colours the page knows are here, and none of
+ * those it keeps for other things: orange for the owner's cells, yellow for the tools', red for danger and grey for
+ * the engine's own steps.
+ */
+export type Colour = "blue" | "teal" | "auburn" | "pink" | "purple" | "indigo" | "lime";
 
 export type Compiled = { format: string, engine: EngineNames, tools: Array<ToolUse>, graphs: Array<CompiledGraph>, 
 /**

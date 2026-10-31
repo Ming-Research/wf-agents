@@ -1,27 +1,41 @@
 // The flow page's parts run on the flow the page reads: `flow/flow.json` as the engine stores it compiled, which leaves
-// out what a field does not hold, and the view the interface serves of it. `WF_AGENTS_GENERATE=1 cargo test -p api
-// --test typescript` writes both to `stored-flow.json`, as CI does before the page's tests. The made-up flows of the
+// out what a field does not hold, the view the interface serves of it, and its lines with their colours as the
+// interface serves them. `WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes all three to
+// `stored-flow.json`, as CI does before the page's tests. The made-up flows of the
 // other tests say what each part does; these, that it does it on the real flow.
 
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import type { Compiled, FlowView } from './api';
+import type { Compiled, FlowView, GraphLines } from './api';
 import { cellWhere } from './flow/CellPanel';
 import { flowOf, FlowContext } from './flow/context';
 import { ReturnPattern } from './flow/Returns';
 import { enteredFrom, FromTable, lacksMoves, leavesTo, ToTable } from './flow/Rows';
 import { moveWords } from './graph/FlowChart';
-import { cellRadius, cornerWidth, EFFORTS, effortOf, effortsOf, labelSize, sizes, startsAnew, textBoxes } from './graph/flowDraw';
+import {
+  cellRadius,
+  cornerWidth,
+  EFFORTS,
+  effortOf,
+  effortsOf,
+  labelSize,
+  sizes,
+  startsAnew,
+  styleOf,
+  textBoxes,
+} from './graph/flowDraw';
 import { besides, type Box, type Laid, layoutChart, overlap, type Route } from './graph/flowLayout';
 import { cellActions, cellNode, type Chart, chart, moves } from './graph/flowModel';
 import { LEAST, MAP_HEIGHT, MAP_WIDTH, mapOf } from './graph/Minimap';
 import { layStores, storeLinks, storeSize, storeUses } from './graph/stores';
 import { stagesOf } from './item/checklist';
+import { coloursOf, roleClass } from './roles';
 import stored from './stored-flow.json?raw';
 
-const { compiled, view } = JSON.parse(stored) as { compiled: Compiled; view: FlowView };
+const { compiled, view, lines } = JSON.parse(stored) as { compiled: Compiled; view: FlowView; lines: GraphLines[] };
+const colours = coloursOf(lines);
 
 /// How a graph's layout reads, in the chart's pixels: the total length of the arrows of rows (`rows`); the longest
 /// level piece of any arrow (`run`); how many times the arrows bend (`bends`); how far each node drawn beside a cell
@@ -172,6 +186,22 @@ describe('the flow as the engine stores it', () => {
     }
   });
 
+  // A role has one colour wherever the page shows it: every agent's cell of the flow, a gate's among them, is drawn in
+  // its line's, and its line's bubbles and avatar take the same class; no two lines share one, and none is the grey of
+  // an agent with no colour of its own.
+  it("draws every agent's cell in its role's colour, one of its own to each line", () => {
+    const cells = compiled.graphs.flatMap((g) => g.cells);
+    const agents = cells.filter((c) => c.kind === 'agent');
+    expect(agents.length).toBeGreaterThan(0);
+    for (const c of agents) {
+      expect(styleOf(c, colours), c.id).not.toBe('role-none');
+      expect(styleOf(c, colours), c.id).toBe(roleClass(colours, c.line));
+    }
+    const named = lines.flatMap((g) => g.lines);
+    expect(new Set(named.map((l) => l.colour)).size).toBe(named.length);
+    expect(new Set(agents.map((c) => c.line)).size).toBe(named.length);
+  });
+
   it("draws only an agent's cell as a box, and keeps every line of a cell's text inside it, a rounded cell's curved ends included", () => {
     // A point of the box drawn `width` by `height` with corners of `r`: inside the straight part, or within `r` of the
     // middle of the corner it is in.
@@ -245,6 +275,7 @@ describe('the flow as the engine stores it', () => {
       placed.top,
       pad,
       stores !== null ? { laid: stores, left: placed.x[storesAt] } : null,
+      colours,
     );
     const { width, height } = map.geom;
     expect(width <= MAP_WIDTH + 1e-6 && height <= MAP_HEIGHT + 1e-6, `${width} by ${height}`).toBe(true);
@@ -548,7 +579,7 @@ describe('the flow as the engine stores it', () => {
         for (const c of g.cells) {
           const cv = v.cells.find((x) => x.id === c.id);
           expect(cv, c.id).toBeDefined();
-          expect(cellWhere(g, c) ?? '', c.id).not.toContain('undefined');
+          expect(cellWhere(g, c, colours) ?? '', c.id).not.toContain('undefined');
           const leaves = leavesTo(c);
           const all = [...leaves.answers, ...leaves.moves, ...leaves.fallback].sort((a, b) => a - b);
           expect(all, c.id).toEqual(c.rows.map((_, i) => i));

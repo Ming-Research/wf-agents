@@ -26,6 +26,7 @@ import {
 } from 'react';
 
 import type { CompiledGraph, EngineNames, GraphView } from '../api';
+import { type Colours, useColours } from '../roles';
 import { t } from '../text';
 import {
   EffortBadge,
@@ -38,6 +39,7 @@ import {
   SessionBadge,
   sessionWidth,
   sizes,
+  startsAnew,
   styleOf,
 } from './flowDraw';
 import { besides, type Laid, layoutChart } from './flowLayout';
@@ -254,26 +256,29 @@ function Opened({ id, button, onClose, children }: {
 /// cells run at, low to high, the rules and the interjection, the circles, the main path, the rows into and out of the
 /// cell lit and the row pointed at, and the marks of a work, with the bar beside an agent round's cost in its rounds
 /// list, or of a comparison; then how the chart moves.
-function Legend({ charts, stores, legend }: {
+function Legend({ charts, stores, legend, colours }: {
   charts: Array<{ g: CompiledGraph; chart: Chart }>;
   stores: boolean;
   legend: FlowChartProps['legend'];
+  colours: Colours;
 }) {
   const graphs = charts.map((x) => x.g);
   const cells = graphs.flatMap((g) => g.cells);
-  const styles: string[] = [];
+  // Each kind of box once, by who does its work: a line in its role's colour, then an agent's cell on no line and one
+  // on a line with no colour, both in the neutral grey, then each kind of cell that is no agent's.
+  const kinds = new Map<string, { cls: string; label: string }>();
   for (const c of cells) {
-    const s = styleOf(c);
-    if (!styles.includes(s)) styles.push(s);
+    const cls = styleOf(c, colours);
+    const key = c.kind !== 'agent' ? cls : startsAnew(c) ? 'fresh' : cls === 'role-none' ? 'line-other' : cls;
+    if (kinds.has(key)) continue;
+    let label: string;
+    if (key === 'fresh') label = t('legend_fresh');
+    else if (c.kind === 'agent') label = t('legend_line', { line: key === 'line-other' ? t('legend_other_line') : (c.line ?? '') });
+    else label = key === 'kind-engine' ? t('legend_engine') : key === 'kind-tool' ? t('legend_tool') : t('legend_owner');
+    kinds.set(key, { cls, label });
   }
-  const order = (s: string) => (s.startsWith('line-') ? 0 : s === 'fresh' ? 1 : 2);
-  styles.sort((a, b) => order(a) - order(b));
-  const lines = new Map(cells.filter((c) => c.kind === 'agent' && c.line).map((c) => [styleOf(c), c.line ?? '']));
-  const label = (s: string) => {
-    if (s === 'fresh') return t('legend_fresh');
-    if (s.startsWith('line-')) return t('legend_line', { line: s === 'line-other' ? t('legend_other_line') : (lines.get(s) ?? '') });
-    return s === 'kind-engine' ? t('legend_engine') : s === 'kind-tool' ? t('legend_tool') : t('legend_owner');
-  };
+  const order = (key: string) => (key === 'fresh' ? 1 : key.startsWith('kind-') ? 2 : 0);
+  const styles = [...kinds].sort((a, b) => order(a[0]) - order(b[0]));
   const efforts = effortsOf(cells);
   const effortW = effortWidth();
   const rules = cells.some((c) => (c.rules ?? []).length > 0);
@@ -387,19 +392,19 @@ function Legend({ charts, stores, legend }: {
             </li>
           </>
         ) : null}
-        {styles.map((s) => (
-          <li key={s}>
+        {styles.map(([key, { cls, label }]) => (
+          <li key={key}>
             <Swatch>
-              <g className={`fc-cell ${s}`}>
-                <rect x="4" y="2" width="26" height="14" rx={s === 'kind-engine' || s === 'kind-owner' ? 7 : 2} />
+              <g className={`fc-cell ${cls}`}>
+                <rect x="4" y="2" width="26" height="14" rx={key === 'kind-engine' || key === 'kind-owner' ? 7 : 2} />
               </g>
             </Swatch>
-            {s === 'fresh' ? (
+            {key === 'fresh' ? (
               <svg className="fc legend-swatch" width={sessionWidth()} height="18" viewBox={`0 0 ${sessionWidth()} 18`}>
                 <SessionBadge x={0} y={1} />
               </svg>
             ) : null}
-            {label(s)}
+            {label}
           </li>
         ))}
         {efforts.length > 0 ? (
@@ -600,6 +605,7 @@ function Legend({ charts, stores, legend }: {
 
 export function FlowChart(props: FlowChartProps) {
   const { graphs, marks, engine, store = null, start, startGraph, onPick, legend, cover, ref } = props;
+  const colours = useColours();
   const models = useMemo(() => graphs.map(({ g, view }) => build(g, view, engine)), [graphs, engine]);
   const measured = useMemo(() => graphs.map(({ g }, i) => sizes(g, models[i], engine)), [graphs, models, engine]);
   // The stores, between the first two graphs or beside the one, and which node of each graph reads or writes each.
@@ -664,8 +670,9 @@ export function FlowChart(props: FlowChartProps) {
       left: placed.x[stores !== null && i >= storesAt ? i + 1 : i],
       overlays: marks[i]?.overlays ?? null,
     }));
-    return mapOf(placed, sheets, placed.top, PAD, stores !== null ? { laid: stores.laid, left: placed.x[storesAt] } : null);
-  }, [current, placed, graphs, models, marks, stores, storesAt]);
+    const laidStores = stores !== null ? { laid: stores.laid, left: placed.x[storesAt] } : null;
+    return mapOf(placed, sheets, placed.top, PAD, laidStores, colours);
+  }, [current, placed, graphs, models, marks, stores, storesAt, colours]);
   // Chart pixels: each drawing starts PAD before its layout's bounds, at its place among the sheets. A node is found
   // in the graph named, or else in the first graph that has it.
   const rect = (id: string, graph?: string): Rect | null => {
@@ -813,6 +820,7 @@ export function FlowChart(props: FlowChartProps) {
                       lines={measured[i].lines}
                       notes={measured[i].notes}
                       engine={engine}
+                      colours={colours}
                       marks={marks[i] ?? NO_MARKS}
                       defs={i === 0}
                       onNode={(n) => setPointedNode(n === null ? null : { graph: i, node: n })}
@@ -840,7 +848,12 @@ export function FlowChart(props: FlowChartProps) {
           </div>
         </Viewer>
       ) : null}
-      <Legend charts={graphs.map((x, i) => ({ g: x.g, chart: models[i] }))} stores={stores !== null} legend={legend} />
+      <Legend
+        charts={graphs.map((x, i) => ({ g: x.g, chart: models[i] }))}
+        stores={stores !== null}
+        legend={legend}
+        colours={colours}
+      />
     </div>
   );
 }

@@ -404,9 +404,35 @@ pub struct Sessions {
 pub struct Line {
     pub name: String,
     pub desc: String,
+    /// The colour the line's role is drawn in wherever the owner's page shows it; no two lines of the flow share one.
+    pub colour: Colour,
     /// Where the work goes when a new session of the line would start at one of its cells: a row every agent's cell
     /// of the line has, but those it names, which the engine takes itself in place of the cell's round.
     pub anew: Option<Anew>,
+}
+
+/// A colour a line's role is drawn in on the owner's page (its cells on a chart, its avatar and its bubbles), by the
+/// name of Primer's display colour the page draws it with. Only the colours the page knows are here, and none of
+/// those it keeps for other things: orange for the owner's cells, yellow for the tools', red for danger and grey for
+/// the engine's own steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Colour {
+    Blue,
+    Teal,
+    Auburn,
+    Pink,
+    Purple,
+    Indigo,
+    Lime,
+}
+
+impl std::fmt::Display for Colour {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Its name as the flow writes it.
+        let name = serde_json::to_value(self).map_err(|_| std::fmt::Error)?;
+        write!(f, "{}", name.as_str().unwrap_or_default())
+    }
 }
 
 /// A row the cells of a line share, which the engine takes in place of a round when the line's session would start

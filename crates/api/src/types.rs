@@ -1913,9 +1913,6 @@ pub struct FlowView {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct GraphView {
     pub name: String,
-    /// How each line's session is kept (when it starts and which cells continue it), as the flow built into this
-    /// program says: a compiled flow version keeps the lines, not what they are.
-    pub lines: Vec<flow::format::Named>,
     /// Each cell, in the order the graph has them.
     pub cells: Vec<CellView>,
     /// The forms every agent's return shares, as `format:common` gives them, with no project's settings written beside
@@ -2226,4 +2223,22 @@ pub struct FlowAt {
     pub version: Option<i64>,
     pub compiled: flow::Compiled,
     pub view: FlowView,
+}
+
+/// The lines of a graph of the flow built into this program: a compiled flow version keeps the lines, not what they
+/// are.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct GraphLines {
+    pub graph: String,
+    pub lines: Vec<LineView>,
+}
+
+/// A line, the agent whose cells go on in one session.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct LineView {
+    pub name: String,
+    /// How its session is kept (when it starts and which cells continue it).
+    pub desc: String,
+    /// The colour its role is drawn in wherever the page shows it: its cells on a chart, its avatar and its bubbles.
+    pub colour: flow::format::Colour,
 }

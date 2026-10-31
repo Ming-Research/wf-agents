@@ -11,9 +11,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { CellDiff, CompiledCell, CompiledGraph, RoundSummary } from '../api';
 import { OutcomeBadge } from '../components';
 import { roundName, time } from '../format';
-import { styleOf } from '../graph/flowDraw';
 import { letterOf } from '../graph/flowModel';
 import { LinkButton } from '../parts';
+import type { Colours } from '../roles';
 import { type Key, t, tn } from '../text';
 import { Sheet } from '../voices';
 import { AgentGiven, numbered, StepGiven } from './CellGiven';
@@ -26,8 +26,9 @@ import { type Side, Sides } from './Sides';
 export { numbered, projectOwn } from './CellGiven';
 
 /// Where a cell stands, as its title's parenthesis says it: its stage, as the box around it on the chart names it, or
-/// the asking part; and its line, when the chart does not draw that line in a colour of its own. None for neither.
-export function cellWhere(g: CompiledGraph, c: CompiledCell): string | null {
+/// the asking part; and an agent's cell's line, when the line has no colour of its own in `colours`, which the chart
+/// draws its cells in. None for neither.
+export function cellWhere(g: CompiledGraph, c: CompiledCell, colours: Colours): string | null {
   const parts: string[] = [];
   if (g.asking.includes(c.id)) {
     const letters = new Set(g.asking.map(letterOf));
@@ -38,7 +39,7 @@ export function cellWhere(g: CompiledGraph, c: CompiledCell): string | null {
     const letter = letters.size === 1 ? [...letters][0] : '';
     parts.push(t(letter !== '' ? 'chart_stage_letter' : 'chart_stage', { stage: c.stage, letter }));
   }
-  if (styleOf(c) === 'line-other' && c.line != null) parts.push(t('panel_line', { line: c.line }));
+  if (c.kind === 'agent' && c.line != null && !colours.has(c.line)) parts.push(t('panel_line', { line: c.line }));
   return parts.length > 0 ? parts.join('; ') : null;
 }
 

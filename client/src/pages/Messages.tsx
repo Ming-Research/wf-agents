@@ -519,7 +519,8 @@ function Message({ e, to, reply, draft = null }: {
   draft?: string | null;
 }) {
   const own = e.sender === 'owner';
-  const from = e.source === 'between' ? `architect:${e.sender}` : member(e.sender);
+  // The architect of another project, in a group of projects, speaks as an architect, in the architect's colour.
+  const from = e.source === 'between' ? 'architect' : member(e.sender);
   const round = e.work !== null && e.round !== null && e.source !== 'between';
   const ask = e.source === 'ask' ? e.ask_detail : null;
   const question = e.answerable && e.work !== null && e.matter !== null ? { work: e.work, matter: e.matter } : null;

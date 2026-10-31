@@ -1,10 +1,11 @@
 /* A flow's chart, drawn as the UI spec says a chart is: its layout, shapes and lines as the page's decisions draw them,
    its look in Primer's tokens. Text, boxes and fills take the functional tokens. Only the cells, every place a work can
-   stand at (an agent's a box, every other rounded), have colours, Primer's data colours, each named here once by what
-   it marks: an agent's round its session's, that is its line's, the lines of one graph green, blue, red and pink in the
-   order the flow lists them, a cell on no line, a session of its own every round, pink; the engine's own step purple; a
-   tool the engine runs a quiet yellow; the owner orange; every cell's edge solid. A circle that names a cell takes that
-   cell's colours. Everything else (the actions on a line or every time a cell returns, a rule, the interjection, a
+   stand at (an agent's a box, every other rounded), have colours, each named once by what it marks: an agent's round
+   its role's, the colour the flow gives its line, through the one lookup every place that shows a role draws it by
+   (roles.css), and an agent's cell with no colour of its own (on no line, a session of its own every round, or on a
+   line the flow no longer has) the page's neutral grey; the engine's own step the same grey, rounded; a tool the
+   engine runs a quiet yellow; the owner orange; every cell's edge solid. A circle that names a cell takes that cell's
+   colours. Everything else (the actions on a line or every time a cell returns, a rule, the interjection, a
    store) is light grey, edged grey; the stage boxes are the display scale's light grey, as the owner asked. A cell,
    where a work stands, is edged heavier than every shape beside it and titled semibold. The arrows are grey, the main
    path blue at the same width; the rows into the cell picked or pointed at green and those out of it red. The values
@@ -14,30 +15,11 @@
   --fc-text: var(--fgColor-default);
   --fc-group: var(--display-gray-bgColor-muted);
   --fc-group-line: var(--display-gray-borderColor-muted);
-  /* One colour to a session: the lines of each graph, in the order the flow lists them, green, blue, red and pink,
-     which tell four apart in either theme beside the owner's orange and the engine's purple; a cell on no line pink, as
-     the architect's graph has three lines; a line the page does not know teal. */
-  --fc-engineer: var(--data-green-color-emphasis);
-  --fc-engineer-fill: var(--data-green-color-muted);
-  --fc-review: var(--data-blue-color-emphasis);
-  --fc-review-fill: var(--data-blue-color-muted);
-  --fc-adversarial: var(--data-red-color-emphasis);
-  --fc-adversarial-fill: var(--data-red-color-muted);
-  --fc-advisor: var(--data-pink-color-emphasis);
-  --fc-advisor-fill: var(--data-pink-color-muted);
-  --fc-architect: var(--data-green-color-emphasis);
-  --fc-architect-fill: var(--data-green-color-muted);
-  --fc-architect-review: var(--data-blue-color-emphasis);
-  --fc-architect-review-fill: var(--data-blue-color-muted);
-  --fc-observer: var(--data-red-color-emphasis);
-  --fc-observer-fill: var(--data-red-color-muted);
-  --fc-other: var(--data-teal-color-emphasis);
-  --fc-other-fill: var(--data-teal-color-muted);
-  /* A cell on no line, filled as any agent's cell is; its badge says it starts a new session every round. */
-  --fc-fresh: var(--data-pink-color-emphasis);
-  --fc-fresh-fill: var(--data-pink-color-muted);
-  --fc-engine: var(--data-purple-color-emphasis);
-  --fc-engine-fill: var(--data-purple-color-muted);
+  /* The engine's own steps in the page's neutral grey, a role's colour being the flow's to give (roles.css): its edge
+     the neutral colour and its fill the neutral tint, which over a stage's light grey box still reads, where the
+     display grey's tint is the box's own fill and would leave the step looking empty. */
+  --fc-engine: var(--borderColor-neutral-emphasis);
+  --fc-engine-fill: var(--bgColor-neutral-muted);
   /* A tool in a quiet yellow, the display yellow a little lightened into the page's background: told from the engine's
      own step, which handles no tool, yet standing back from the cells an agent or the owner works. */
   --fc-tool: color-mix(in srgb, var(--data-yellow-color-emphasis) 75%, var(--bgColor-default));
@@ -172,78 +154,35 @@ svg.fc {
   font-family: var(--fontStack-monospace);
 }
 
-/* Each kind of cell sets its two colours, its edge's and its fill's, which its box, a circle naming it and its mark on
-   the map take from it: one rule to a kind, so that the three never differ. */
-.line-engineer {
-  --fc-hue: var(--fc-engineer);
-  --fc-hue-fill: var(--fc-engineer-fill);
-}
-
-.line-review {
-  --fc-hue: var(--fc-review);
-  --fc-hue-fill: var(--fc-review-fill);
-}
-
-.line-adversarial {
-  --fc-hue: var(--fc-adversarial);
-  --fc-hue-fill: var(--fc-adversarial-fill);
-}
-
-.line-advisor {
-  --fc-hue: var(--fc-advisor);
-  --fc-hue-fill: var(--fc-advisor-fill);
-}
-
-.line-architect {
-  --fc-hue: var(--fc-architect);
-  --fc-hue-fill: var(--fc-architect-fill);
-}
-
-.line-architect_review {
-  --fc-hue: var(--fc-architect-review);
-  --fc-hue-fill: var(--fc-architect-review-fill);
-}
-
-.line-observer {
-  --fc-hue: var(--fc-observer);
-  --fc-hue-fill: var(--fc-observer-fill);
-}
-
-.line-other {
-  --fc-hue: var(--fc-other);
-  --fc-hue-fill: var(--fc-other-fill);
-}
-
-.fresh {
-  --fc-hue: var(--fc-fresh);
-  --fc-hue-fill: var(--fc-fresh-fill);
-}
-
+/* Who does a cell's work sets its two colours, its edge's and its fill's, which its box, a circle naming it and its mark
+   on the map take from it: an agent's cell its role's, through the one lookup from a colour to how it is drawn (a
+   role's class, roles.css), and each kind of cell that is no role's the same two from this file, one rule to a kind,
+   so that the three never differ. */
 .kind-engine {
-  --fc-hue: var(--fc-engine);
-  --fc-hue-fill: var(--fc-engine-fill);
+  --role-edge: var(--fc-engine);
+  --role-fill: var(--fc-engine-fill);
 }
 
 .kind-tool {
-  --fc-hue: var(--fc-tool);
-  --fc-hue-fill: var(--fc-tool-fill);
+  --role-edge: var(--fc-tool);
+  --role-fill: var(--fc-tool-fill);
 }
 
 .kind-owner {
-  --fc-hue: var(--fc-owner);
-  --fc-hue-fill: var(--fc-owner-fill);
+  --role-edge: var(--fc-owner);
+  --role-fill: var(--fc-owner-fill);
 }
 
 .fc-any {
-  --fc-hue: var(--fc-any);
-  --fc-hue-fill: var(--fc-any-fill);
+  --role-edge: var(--fc-any);
+  --role-fill: var(--fc-any-fill);
 }
 
 .fc-cell > rect:not(.fc-ring),
 .fc-circle ellipse,
 .fc-map-cell {
-  fill: var(--fc-hue-fill, var(--fc-plain-fill));
-  stroke: var(--fc-hue, var(--fc-plain));
+  fill: var(--role-fill, var(--fc-plain-fill));
+  stroke: var(--role-edge, var(--fc-plain));
 }
 
 .fc-circle ellipse {

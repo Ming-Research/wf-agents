@@ -74,7 +74,7 @@ const flow = (g: CompiledGraph): { compiled: Compiled; view: FlowView } => ({
     graphs: [g],
     settings: [],
   },
-  view: { graphs: [{ name: g.name, lines: [], cells: [], common_format: '' }] },
+  view: { graphs: [{ name: g.name, cells: [], common_format: '' }] },
 });
 
 const round = (n: number, cell: string): RoundSummary => ({

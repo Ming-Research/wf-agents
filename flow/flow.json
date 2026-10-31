@@ -3973,19 +3973,23 @@
         "lines": [
           {
             "name": "engineer",
-            "desc": "The engineer doing this work: cell `R1` and the first round of cells `I1` and `T6` start a new session, and every other round continues the latest"
+            "desc": "The engineer doing this work: cell `R1` and the first round of cells `I1` and `T6` start a new session, and every other round continues the latest",
+            "colour": "blue"
           },
           {
             "name": "review",
-            "desc": "The reviewer: the first review starts a new session, and the blind review, the table review, the design tree review and re-reviews all continue it"
+            "desc": "The reviewer: the first review starts a new session, and the blind review, the table review, the design tree review and re-reviews all continue it",
+            "colour": "teal"
           },
           {
             "name": "adversarial",
-            "desc": "The adversarial tester: the first time starts a new session, and re-checks continue it"
+            "desc": "The adversarial tester: the first time starts a new session, and re-checks continue it",
+            "colour": "auburn"
           },
           {
             "name": "advisor",
-            "desc": "The advisor for this work alone: the first question starts a new session, and every later question continues it"
+            "desc": "The advisor for this work alone: the first question starts a new session, and every later question continues it",
+            "colour": "pink"
           }
         ],
         "rules": [
@@ -11661,6 +11665,7 @@
           {
             "name": "architect",
             "desc": "The architect of the work's project: a work of the architect goes on in the session the project's previous architect work left, from understanding the project to its end, the setting of a new policy included",
+            "colour": "purple",
             "anew": {
               "row": "session_anew",
               "to": "S1",
@@ -11672,11 +11677,13 @@
           },
           {
             "name": "architect_review",
-            "desc": "The review of a batch's item changes: each batch's first review starts a new session, and the reviews after revisions continue it"
+            "desc": "The review of a batch's item changes: each batch's first review starts a new session, and the reviews after revisions continue it",
+            "colour": "indigo"
           },
           {
             "name": "observer",
-            "desc": "The search of the project's observations: the first search of a work of the architect starts a new session, and later searches of that work continue it"
+            "desc": "The search of the project's observations: the first search of a work of the architect starts a new session, and later searches of that work continue it",
+            "colour": "lime"
           }
         ],
         "rules": [

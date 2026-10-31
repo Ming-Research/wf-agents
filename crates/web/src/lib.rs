@@ -138,6 +138,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/works/{id}/contents/{hash}", get(content))
         .route("/api/v1/flows", get(flows))
         .route("/api/v1/flows/sources", get(flow_sources))
+        .route("/api/v1/flows/lines", get(flow_lines))
         .route("/api/v1/flows/at", get(flow_at))
         .route("/api/v1/flows/diff", get(flow_diff))
         .route("/api/v1/flows/{id}", get(flow))
@@ -377,6 +378,12 @@ async fn flow(State(app): State<App>, Path(id): Path<i64>) -> Result<Response, F
 
 async fn flow_view(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::FlowView>, Fail> {
     read(&app, move |c, a| api::flow_view(c, &a.flows, id)).await.map(Json)
+}
+
+/// The lines of the flow built into the program, with what each is and the colour its role is drawn in, which every
+/// part of the page that shows a role reads.
+async fn flow_lines() -> Json<Vec<api::GraphLines>> {
+    Json(api::flow_lines())
 }
 
 /// What the inputs from outside the flow hold now, by the committed configuration and the projects' checkouts.

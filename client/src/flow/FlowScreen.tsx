@@ -17,6 +17,7 @@ import { roundName } from '../format';
 import type { Marks } from '../graph/flowDraw';
 import { actionWords, chart } from '../graph/flowModel';
 import { RoundAt } from '../parts';
+import { useColours } from '../roles';
 import { t } from '../text';
 import { CellPanel, type CellTab, cellWhere } from './CellPanel';
 import { DiffPanel } from './Changes';
@@ -185,6 +186,7 @@ export function FlowScreen(props: FlowScreenProps) {
   const areaRef = useRef<HTMLDivElement>(null);
   const dockRef = useRef<HTMLElement>(null);
   const { minimised, minimise, expand } = useMinimised(dockRef);
+  const colours = useColours();
   // What the window covers of the chart, read as they are drawn each time the chart centres on something.
   const cover = useCallback(() => {
     const dock = dockRef.current;
@@ -348,7 +350,7 @@ export function FlowScreen(props: FlowScreenProps) {
         const x = graphFor(now.graph);
         const c = x?.g.cells.find((y) => y.id === now.cell);
         if (!x || !c) return null;
-        const where = cellWhere(x.g, c);
+        const where = cellWhere(x.g, c, colours);
         return {
           flow: flowFor(x.g.name),
           title: (

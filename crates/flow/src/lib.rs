@@ -147,6 +147,16 @@ pub fn compile(text: &str, cx: &Context) -> Result<Compiled, Error> {
             )));
         }
     }
+    // Each line's role has a colour of its own on the owner's page: no two lines of the flow share one.
+    let mut coloured: BTreeMap<format::Colour, &str> = BTreeMap::new();
+    for l in source.flows.iter().flat_map(|f| &f.sessions.lines) {
+        if let Some(other) = coloured.insert(l.colour, &l.name) {
+            return Err(fail(format!(
+                "two lines share the colour {}: {other} and {}",
+                l.colour, l.name
+            )));
+        }
+    }
     let mut problems = Vec::new();
     let mut graphs = Vec::new();
     let mut stats = Vec::new();
