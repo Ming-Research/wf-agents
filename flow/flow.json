@@ -7744,19 +7744,27 @@
             },
             {
               "name": "Your last review",
-              "what": "At a re-review, the table and the earlier findings your last table review handed in, and the design tree round's table, each with its numbers; none at the first review",
+              "what": "At a re-review, what your last review left open, with its numbers: the findings and the columns not verified of the table review, the findings of the design tree round, and the findings held not fixed or insisted on; none at the first review",
               "from": [
                 [
                   "T4",
-                  "columns"
+                  "columns[findings]"
                 ],
                 [
                   "T4",
-                  "previous"
+                  "columns[cannot_verify]"
+                ],
+                [
+                  "T4",
+                  "previous[not_fixed]"
+                ],
+                [
+                  "T4",
+                  "previous[insist]"
                 ],
                 [
                   "T5",
-                  "columns"
+                  "columns[findings]"
                 ]
               ],
               "maybe": true

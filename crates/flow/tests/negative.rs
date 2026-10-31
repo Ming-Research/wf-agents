@@ -563,8 +563,10 @@ case!(
         graph(v)["agentCommon"]["needs"] = json!({ "ask": "flow_feedback" });
     }
 );
+// The re-review reads its own last findings too, so both reads go.
 case!(a_cell_reads_part_of_an_input_and_drops_the_rest, "dropped", |v| {
     drop_source(v, "T6", json!(["T4", "columns[findings]"]));
+    drop_source(v, "T4", json!(["T4", "columns[findings]"]));
 });
 case!(the_design_tree_findings_read_by_nobody, "dropped", |v| {
     drop_source(v, "T6", json!(["T5", "columns[findings]"]));

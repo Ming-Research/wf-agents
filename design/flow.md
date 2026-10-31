@@ -42,7 +42,7 @@ Decision: Every agent's return holds flow feedback (`flow_feedback`): what was w
 
 Decision: The table review after a fix is given the table the fix answered, as the fix was given it (`fix_table`), beside the fix's answers, so that a red check comes with its run and the end of its log, and it judges whether the fix removed what turned the check red, instead of the fix's answers alone, by row numbers the review never saw, because a fix that only turns a check green passes a review that cannot see the check, as the earlier board's reviewer read the failed run's log.
 
-Decision: A re-review is given its own last table and earlier findings with their numbers, and the design tree round's table, instead of only what its session holds, because it answers each of them row by row, and a session started afresh holds none of them.
+Decision: A re-review is given what its last review left open, with its numbers (the table review's findings and columns not verified, the design tree round's findings, and the findings held not fixed or insisted on), instead of only what its session holds, because it answers each of them row by row, and a session started afresh holds none of them; the columns it passed are not given, since nothing about them is answered.
 
 Rejected:
 - Project names, branches or rules written into the flow: rejected because the flow would then work for one project only.
