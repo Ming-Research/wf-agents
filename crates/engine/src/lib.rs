@@ -51,7 +51,7 @@ pub use checks::DESIGN_CARD_RULING;
 pub use failed::{Halt, utc};
 pub use steps::{cell_request, next_message};
 pub use warm::GlobalPause;
-pub use work::{Item, Round, RoundId, Work, json_col, query_json};
+pub use work::{Counted, Item, Round, RoundId, Work, json_col, query_json, query_json_counted};
 
 use agent::Agents;
 use hub::GitHub;

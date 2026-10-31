@@ -445,7 +445,8 @@ fn cost_ends_with_a_total_row() {
 }
 
 // The total adds every work, not the rows the table has room for: with one more work than the table lists, it still
-// comes last and counts the work left out. Each work is one round of 2 s for 0.25, a cost every sum of is exact.
+// comes after them and counts the work left out, and the line that says one work is left out comes after the total,
+// the last line of the output. Each work is one round of 2 s for 0.25, a cost every sum of is exact.
 #[test]
 fn cost_total_adds_the_works_the_table_leaves_out() {
     let dir = empty_database("cost-total-all");
@@ -461,11 +462,12 @@ fn cost_total_adds_the_works_the_table_leaves_out() {
     );
     let text = printed(&dir, "cost");
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), 10_002, "a head, 10,000 works and the total");
+    assert_eq!(lines.len(), 10_003, "a head, 10,000 works, the total and the last line");
     assert_eq!(lines[0], "work\trounds\tsecs\tcost_usd");
     assert_eq!(lines[1], "1\t1\t2\t0.25");
     assert_eq!(lines[10_000], "10000\t1\t2\t0.25");
     assert_eq!(lines[10_001], "total\t10001\t20002\t2500.25");
+    assert_eq!(lines[10_002], "(1 row left out after the first 10000)");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -608,5 +610,248 @@ fn cost_of_one_work_prints_as_before_for_pings_without_rounds() {
     assert_eq!(printed(&dir, "cost 11"), "(none)\nkeep-warm pings\t1\t\t9.00\n");
     assert_eq!(printed(&dir, "cost 9"), "cell\trounds\tsecs\tcost_usd\n\t1\t\t0.0\n");
     assert_eq!(printed(&dir, "cost 99"), "(none)\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Items numbered `from` to `to`, each titled by its number, with no dependency, no work and no queue place.
+fn add_items(dir: &Path, from: u32, to: u32) {
+    fill(
+        dir,
+        &format!(
+            "WITH RECURSIVE n(i) AS (SELECT {from} UNION ALL SELECT i + 1 FROM n WHERE i < {to})
+             INSERT INTO items (id, project, title, problem, why, deliver, level)
+             SELECT i, 'p', 'item ' || i, 'x', 'y', 'change', 'l' FROM n;"
+        ),
+    );
+}
+
+/// How a table writes the row of the item numbered `i`.
+type ItemRow = fn(u32) -> String;
+
+// A table with more rows than the limit ends with a last line that says how many it leaves out, which is no row of
+// it; a table that fits, at the limit too, is exactly its rows as it was. The tables are worked out by hand from the
+// items' columns, and `item list` and `queue list` print through the one function. The items are added to the one
+// database in steps, so the tens of thousands of rows are written once.
+#[test]
+fn a_table_over_the_row_limit_says_how_many_rows_it_leaves_out() {
+    let dir = empty_database("row-limit");
+    let tables: [(&str, &str, ItemRow); 2] = [
+        (
+            "item list",
+            "id\tproject\ttitle\tdeliver\tlevel\tcancelled\tqueued\tdepends_on\twork\n",
+            |i| format!("{i}\tp\titem {i}\tchange\tl\t\t\t\t\n"),
+        ),
+        ("queue list", "item\tproject\ttitle\tlevel\tposition\n", |i| {
+            format!("{i}\tp\titem {i}\tl\t\n")
+        }),
+    ];
+    let mut have = 0;
+    for (items, left_out) in [
+        (10_000, ""),
+        (10_001, "(1 row left out after the first 10000)\n"),
+        (10_003, "(3 rows left out after the first 10000)\n"),
+        (25_003, "(15003 rows left out after the first 10000)\n"),
+    ] {
+        add_items(&dir, have + 1, items);
+        have = items;
+        for (line, head, row) in tables {
+            let expected = format!("{head}{}{left_out}", (1..=10_000).map(row).collect::<String>());
+            let text = printed(&dir, line);
+            // Compared as one text; a failure names the line, the items and the end of what was printed.
+            let end = text.get(text.len().saturating_sub(100)..).unwrap_or_default();
+            assert!(text == expected, "`{line}` with {items} items ends: {end:?}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The lines of the section of `anomalies` under a heading, up to the blank line before the next.
+fn section<'a>(text: &'a str, heading: &str) -> Vec<&'a str> {
+    text.lines()
+        .skip_while(|l| *l != heading)
+        .skip(1)
+        .take_while(|l| !l.is_empty())
+        .collect()
+}
+
+// The tables of `anomalies` are read each by a query of its own, not through the function the other commands print
+// through, and say what they leave out all the same, each at its own limit: ten thousand rows for the returns sent
+// back, the compactions and the keep-warm pings, one thousand for the works paused. Two rounds and two pings more
+// than the first limit, and one work paused more than the second.
+#[test]
+fn the_tables_of_anomalies_say_how_many_rows_each_leaves_out() {
+    let dir = data_directory("anomalies-row-limit");
+    engine::database::create(&dir).unwrap();
+    fill(
+        &dir,
+        "INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
+             INSERT INTO works (id, flow_version, graph, at, paused)
+             SELECT i, 1, 'engineer', 'I1', CASE WHEN i <= 1001 THEN 'x' END FROM n;
+         INSERT INTO rounds (work, n, cell, input, rejected, compactions, config_commit, started_at)
+             SELECT id, 1, 'I1', '{}', '{\"x\": 1}', 1, 'c', 0 FROM works;
+         INSERT INTO sessions (id, work, line, cli, cli_session) VALUES (1, 1, 'engineer', 'claude', 's1');
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
+             INSERT INTO pings (session, waited, started_at) SELECT 1, '{}', i FROM n;",
+    );
+    let text = printed(&dir, "anomalies");
+    let table = |heading: &str, limit: usize, left_out: &str| {
+        let lines = section(&text, heading);
+        assert_eq!(
+            lines.len(),
+            limit + 2,
+            "{heading} a head, {limit} rows and the last line"
+        );
+        assert_eq!(lines[limit + 1], left_out, "{heading}");
+        lines
+    };
+    let sent_back = table("Returns sent back:", 10_000, "(2 rows left out after the first 10000)");
+    assert_eq!(sent_back[0], "work\tround\tcell\trejected");
+    assert_eq!(sent_back[10_000], "10000\tR10000-1\tI1\t{\"x\":1}");
+    let compactions = table("Compactions:", 10_000, "(2 rows left out after the first 10000)");
+    assert_eq!(compactions[10_000], "10000\tR10000-1\tI1\t1");
+    let paused = table("Works paused:", 1_000, "(1 row left out after the first 1000)");
+    assert_eq!(paused[1_000], "1000\t\tI1\tx");
+    // The tables with no row have none to leave out.
+    assert_eq!(section(&text, "Counters past the project's limits:"), ["(none)"]);
+    let pings = table(
+        "Keep-warm pings, each a wait of over an hour:",
+        10_000,
+        "(2 rows left out after the first 10000)",
+    );
+    assert!(pings[1].starts_with("1\tengineer\t"), "{}", pings[1]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// Both tables of `cost` say what they leave out, and the line is the last of the output: of every work's, which has
+// three works more than the limit, and of one work's by cell, which has two cells more and, after its table, the row
+// of its keep-warm pings that comes before the line. Work 1 has a round at each of 10,002 cells, a ping, and a
+// round of 2 s for 0.25 at its first cell; every other work has that one round.
+#[test]
+fn the_tables_of_cost_say_how_many_rows_each_leaves_out() {
+    let dir = empty_database("cost-row-limit");
+    fill(
+        &dir,
+        "INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10003)
+             INSERT INTO works (id, flow_version, graph, at) SELECT i, 1, 'engineer', 'I1' FROM n;
+         INSERT INTO rounds (work, n, cell, input, config_commit, usage, started_at, ended_at)
+             SELECT id, 1, 'I1', '{}', 'c', '{\"cost_usd\": 0.25}', 0, 2000 FROM works;
+         WITH RECURSIVE n(i) AS (SELECT 2 UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
+             INSERT INTO rounds (work, n, cell, input, config_commit, started_at, ended_at)
+             SELECT 1, i, 'C' || i, '{}', 'c', 0, 1000 FROM n;
+         INSERT INTO sessions (id, work, line, cli, cli_session) VALUES (1, 1, 'engineer', 'claude', 's1');
+         INSERT INTO pings (session, waited, usage, started_at) VALUES (1, '{}', '{\"cost_usd\": 0.5}', 70000);",
+    );
+    let text = printed(&dir, "cost");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 10_003, "a head, 10,000 works, the total and the last line");
+    assert_eq!(lines[0], "work\trounds\tsecs\tcost_usd");
+    assert_eq!(lines[10_000], "10000\t1\t2\t0.25");
+    // The total adds the three works left out too: 10,002 rounds of work 1 and one of each of the 10,002 others.
+    assert_eq!(lines[10_001], "total\t20004\t20006\t2501.25");
+    assert_eq!(lines[10_002], "(3 rows left out after the first 10000)");
+    let text = printed(&dir, "cost 1");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 10_003, "a head, 10,000 cells, the pings and the last line");
+    assert_eq!(lines[0], "cell\trounds\tsecs\tcost_usd");
+    assert_eq!(lines[1], "I1\t1\t2\t0.25");
+    assert!(lines[10_000].starts_with("C10000\t"), "{}", lines[10_000]);
+    assert_eq!(lines[10_001], "keep-warm pings\t1\t\t0.50");
+    assert_eq!(lines[10_002], "(2 rows left out after the first 10000)");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// The commands that read through a join, a subquery or an argument (`status`, `history <work>`) leave rows out as the
+// others do: the rows shown are the first by their order, and the line is the last of the output. Work 1 has a round
+// at each of 10,002 cells; there are 10,003 works, each with one round.
+#[test]
+fn status_and_history_say_how_many_rows_they_leave_out() {
+    let dir = empty_database("status-row-limit");
+    fill(
+        &dir,
+        r#"INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10003)
+             INSERT INTO works (id, flow_version, graph, at) SELECT i, 1, 'engineer', 'I1' FROM n;
+         INSERT INTO rounds (work, n, cell, input, config_commit, started_at)
+             SELECT id, 1, 'I1', '{}', 'c', 0 FROM works;
+         WITH RECURSIVE n(i) AS (SELECT 2 UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
+             INSERT INTO rounds (work, n, cell, input, config_commit, started_at)
+             SELECT 1, i, 'C' || i, '{}', 'c', 0 FROM n;"#,
+    );
+    let text = printed(&dir, "status");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 10_002, "a head, 10,000 works and the last line");
+    assert!(lines[1].starts_with("1\t"), "{}", lines[1]);
+    assert!(lines[10_000].starts_with("10000\t"), "{}", lines[10_000]);
+    assert_eq!(lines[10_001], "(3 rows left out after the first 10000)");
+    let text = printed(&dir, "history 1");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 10_002, "a head, 10,000 rounds and the last line");
+    assert!(lines[1].starts_with("R1-1\tI1\t"), "{}", lines[1]);
+    assert!(lines[10_000].starts_with("R1-10000\tC10000\t"), "{}", lines[10_000]);
+    assert_eq!(lines[10_001], "(2 rows left out after the first 10000)");
+    // A work whose rows fit is unaffected by the others'.
+    let text = printed(&dir, "history 2");
+    assert_eq!(text.lines().count(), 2, "{text}");
+    assert!(!text.contains("left out"), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// The counters past their limits are weighed after the first ten thousand counters are read, so the table cannot say
+// of the rest whether they are past their limits; it says how many it did not look at, after the one counter it found
+// past its limit. The project's limit for `fixes` is 5 (`PROJECT`); work 1 took a row that counts it 6 times and every
+// other work once, and there are two works more than the limit.
+#[test]
+fn the_counters_past_their_limits_say_how_many_counters_were_not_checked() {
+    let dir = data_directory("counters-row-limit");
+    engine::database::create(&dir).unwrap();
+    add_items(&dir, 1, 1);
+    fill(
+        &dir,
+        r#"INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES
+             (1, 'd', '{"graphs": [{"name": "engineer", "cells": [{"id": "I1", "rows": [{"name": "t", "counts": "fixes"}]}]}]}');
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
+             INSERT INTO works (id, item, flow_version, graph, at) SELECT i, 1, 1, 'engineer', 'I1' FROM n;
+         INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at)
+             SELECT id, 1, 'I1', '{}', 't', 'c', 0 FROM works;
+         WITH RECURSIVE n(i) AS (SELECT 2 UNION ALL SELECT i + 1 FROM n WHERE i < 6)
+             INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at)
+             SELECT 1, i, 'I1', '{}', 't', 'c', 0 FROM n;"#,
+    );
+    let text = printed(&dir, "anomalies");
+    assert_eq!(
+        section(&text, "Counters past the project's limits:"),
+        [
+            "work\tproject\tcounter\ttimes",
+            "1\tp\tfixes\t6",
+            "(2 counters after the first 10000 were not checked against the limits)"
+        ]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// `history --full` is JSON, to which no line of text can be added, so it is not cut at the row limit: a work with two
+// rounds more than ten thousand gives all of them, in order, and nothing that says rows are left out. Worked out by
+// hand from the rows written: work 1 has a round at each of 10,002 cells, numbered 1 to 10,002.
+#[test]
+fn history_in_full_gives_every_round_of_a_work() {
+    let dir = empty_database("history-full-limit");
+    fill(
+        &dir,
+        r#"INSERT OR IGNORE INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}');
+         INSERT INTO works (id, flow_version, graph, at) VALUES (1, 1, 'engineer', 'I1');
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
+             INSERT INTO rounds (work, n, cell, input, config_commit, started_at)
+             SELECT 1, i, 'C' || i, '{}', 'c', 0 FROM n;"#,
+    );
+    let text = printed(&dir, "history 1 --full");
+    assert!(!text.contains("left out"));
+    let rounds: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let rounds = rounds.as_array().unwrap();
+    assert_eq!(rounds.len(), 10_002);
+    assert_eq!(rounds[0]["name"], "R1-1");
+    assert_eq!(rounds[10_001]["name"], "R1-10002");
+    assert_eq!(rounds[10_001]["cell"], "C10002");
     let _ = std::fs::remove_dir_all(&dir);
 }
