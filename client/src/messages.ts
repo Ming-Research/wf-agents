@@ -449,8 +449,6 @@ const messages = {
   engine_paused: 'Paused',
   engine_paused_hint:
     'Every work is paused, as when the engine starts: no work goes on by itself and no new work starts, but for those you started.',
-  engine_paused_runs: 'Paused | running: {which}',
-  engine_runs_architect: 'the architect of {project}',
   keep_warm: 'Keep warm',
   switch_on: 'On',
   switch_off: 'Off',
@@ -824,6 +822,11 @@ const messages = {
   dependency_blocking_title: 'The item that depends on it does not start until it is merged',
   dependency_parallel: 'parallel',
   dependency_parallel_title: 'The item that depends on it may start before it is merged, and waits for it later',
+  dependency_remove: 'Remove',
+  dependency_remove_hint: '#{item} no longer depends on #{on}; a work on #{item} that waits for #{on} goes on without it',
+  dependency_remove_title: 'Remove the dependency of #{item} on #{on}?',
+  dependency_remove_body:
+    'A work on #{item} that waits for #{on} goes on without it, and may merge before it. The page has no way to make the dependency again.',
   ask_head: 'Ask of the owner {id}',
 
   // The items view and an item's page.

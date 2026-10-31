@@ -34,7 +34,7 @@ export type Laid = {
 const BELOW = 110;
 const BESIDE = 90;
 /// Room at the top of a box for its title.
-const TITLE = 34;
+const TITLE = 40;
 /// The room between arrows side by side, and how hard the layout tries to order each layer for fewer crossings
 /// (elkjs's own is 7).
 const EDGE_EDGE = 10;

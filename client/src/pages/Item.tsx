@@ -2,12 +2,14 @@
 // then what waits for the owner, the design cards and asks of the owner its live work waits on, each saying where it
 // is ruled on or answered, its work's group in the messages view; where its live work stands as a checklist; the
 // problem, as the engineer understands it once research has run; the design, saying so while no approach is chosen;
-// the acceptance; what changed on the way; what it depends on; and, folded, its history: earlier and replaced design
-// cards, answered asks, and the works that ended. Each block names the cell and round it came from. What the works hand
-// back is drawn by its shape in the flow's formats; a field the page does not know is shown as labelled text.
+// the acceptance; what changed on the way; what it depends on and what depends on it, each dependency one the owner
+// can remove; and, folded, its history: earlier and replaced design cards, answered asks, and the works that ended.
+// Each block names the cell and round it came from. What the works hand back is drawn by its shape in the flow's
+// formats; a field the page does not know is shown as labelled text.
 
-import { Flash, PageHeader } from '@primer/react';
-import { Fragment, useEffect, type ReactNode } from 'react';
+import { XIcon } from '@primer/octicons-react';
+import { ConfirmationDialog, Flash, IconButton, PageHeader } from '@primer/react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 
 import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Shown, Waits } from '../api';
 import { DependencyKind, Facts, ItemBadge, liveState, Loaded, StateChip, WorkBadge } from '../components';
@@ -16,7 +18,8 @@ import { Acceptance, Approaches, Deviation, Design, Field, Measure, Understandin
 import { Progress } from '../item/Progress';
 import { empty, isObj, label, Labelled, str, words } from '../labelled';
 import { waitsWords } from '../course';
-import { useResource, useStatus } from '../live';
+import { postJson } from '../http';
+import { reread, useResource, useStatus } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
 import { By, HeadingLevel, ItemRef, PrLink, RoundLink, Section, SubHeading } from '../parts';
 import { href, Link } from '../route';
@@ -337,7 +340,7 @@ function Others({ shown }: { shown: Map<string, Shown[]> }) {
   );
 }
 
-function Linked({ list }: { list: LinkedItem[] }) {
+function Linked({ list, pair }: { list: LinkedItem[]; pair: (other: number) => [number, number] }) {
   return (
     <ul className="linked">
       {list.map((l) => (
@@ -346,11 +349,65 @@ function Linked({ list }: { list: LinkedItem[] }) {
             <ItemRef id={l.item.id} title={l.item.title} />
             <ItemBadge state={l.item.state} />
             <DependencyKind kind={l.kind} />
+            <Remove link={pair(l.item.id)} />
           </div>
           <div className="muted">{l.needs}</div>
         </li>
       ))}
     </ul>
+  );
+}
+
+/// The owner's removal of a dependency, a small IconButton at the end of its row saying on hovering what it does,
+/// which asks first in Primer's confirmation dialog, since a work that waits for the other item goes on without it,
+/// and the page has no way to make the dependency again; the request is sent only once the owner confirms.
+function Remove({ link }: { link: [number, number] }) {
+  const [item, on] = link;
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const remove = () => {
+    setBusy(true);
+    setError(null);
+    postJson(`/api/v1/items/${item}/depends-on/${on}/remove`, {}).then(
+      () => {
+        setBusy(false);
+        reread('items', 'item:*', 'works', 'work:*');
+      },
+      (x: unknown) => {
+        setBusy(false);
+        setError(x instanceof Error ? x.message : String(x));
+      },
+    );
+  };
+  const name = t('dependency_remove');
+  return (
+    <>
+      <IconButton
+        size="small"
+        variant="invisible"
+        icon={XIcon}
+        onClick={() => setAsking(true)}
+        disabled={busy}
+        title={`${name}\n${t('dependency_remove_hint', { item, on })}`}
+        aria-label={name}
+        unsafeDisableTooltip
+      />
+      {error !== null ? <span className="linked-error">{error}</span> : null}
+      {asking ? (
+        <ConfirmationDialog
+          title={t('dependency_remove_title', { item, on })}
+          confirmButtonContent={name}
+          confirmButtonType="danger"
+          onClose={(gesture) => {
+            setAsking(false);
+            if (gesture === 'confirm') remove();
+          }}
+        >
+          {t('dependency_remove_body', { item, on })}
+        </ConfirmationDialog>
+      ) : null}
+    </>
   );
 }
 
@@ -529,12 +586,12 @@ function Detail({ d }: { d: ItemDetail }) {
         <div className="two section-apart">
           {d.depends_on.length > 0 ? (
             <Section title={t('depends_on')} open>
-              <Linked list={d.depends_on} />
+              <Linked list={d.depends_on} pair={(o) => [i.id, o]} />
             </Section>
           ) : null}
           {d.depended_on_by.length > 0 ? (
             <Section title={t('depended_on_by')} open>
-              <Linked list={d.depended_on_by} />
+              <Linked list={d.depended_on_by} pair={(o) => [o, i.id]} />
             </Section>
           ) : null}
         </div>

@@ -1240,8 +1240,10 @@ describe('the map of a chart', () => {
     expect(mapShown(wide, v, { width: 0, height: 0 }, 212, 172)).toBe(false);
   });
 
-  it("draws the stage boxes, the cells and the stores where the chart has them, and a work's marks", () => {
-    const c = chart(graph, view, engine);
+  it("draws the stage boxes with their letters, the cells and the stores where the chart has them, and a work's marks", () => {
+    // The stage's cells share the letter B, as a stage's codes do.
+    const c0 = chart(graph, view, engine);
+    const c = { ...c0, groups: c0.groups.map((g) => ({ ...g, letter: 'B' })) };
     const box = (x: number, y: number, width: number, height: number): Box => ({ x, y, width, height });
     const laid: Laid = {
       nodes: new Map([
@@ -1265,13 +1267,24 @@ describe('the map of a chart', () => {
     const map = mapOf({ width: 2000, height: 1000 }, [sheet], 40, 20, { laid: stores, left: 0 }, COLOURS);
     const shapes = map.shapes.map((x) => ({ ...x, ...near(box(x.x, x.y, x.width, x.height)) }));
     expect(shapes).toEqual([
-      { kind: 'box', graph: 'g', cell: null, style: null, mark: null, x: 110, y: 12, width: 40, height: 40 },
-      { kind: 'box', graph: null, cell: null, style: null, mark: null, x: 2, y: 6, width: 10, height: 20 },
+      { kind: 'box', letter: 'B', graph: 'g', cell: null, style: null, mark: null, x: 110, y: 12, width: 40, height: 40 },
+      { kind: 'box', letter: null, graph: null, cell: null, style: null, mark: null, x: 2, y: 6, width: 10, height: 20 },
       // Each cell and store in the class the chart draws it in, which gives it the chart's colours.
-      { kind: 'cell', graph: 'g', cell: 'a', style: 'role-blue', mark: null, x: 112, y: 16, width: 20, height: 6 },
+      { kind: 'cell', letter: null, graph: 'g', cell: 'a', style: 'role-blue', mark: null, x: 112, y: 16, width: 20, height: 6 },
       // A cell thinner than the least a mark is drawn at keeps its middle.
-      { kind: 'cell', graph: 'g', cell: 'b', style: 'role-teal', mark: null, x: 112, y: 35.5, width: 20, height: LEAST },
-      { kind: 'cell', graph: null, cell: null, style: 'fc-store', mark: null, x: 3, y: 9.4, width: 8, height: 3 },
+      {
+        kind: 'cell',
+        letter: null,
+        graph: 'g',
+        cell: 'b',
+        style: 'role-teal',
+        mark: null,
+        x: 112,
+        y: 35.5,
+        width: 20,
+        height: LEAST,
+      },
+      { kind: 'cell', letter: null, graph: null, cell: null, style: 'fc-store', mark: null, x: 3, y: 9.4, width: 8, height: 3 },
     ]);
     expect(map.shapes.filter((x) => x.cell !== null).map((x) => x.style)).toEqual(
       ['a', 'b'].map((id) => styleOf(graph.cells.find((x) => x.id === id) ?? cell(id, []), COLOURS)),

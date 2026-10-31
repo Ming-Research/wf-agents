@@ -30,7 +30,7 @@ pub use events::events;
 pub use marks::{mark_read, read_to};
 pub use owner::{
     answer, can_start, close_observation, fault_forwarding, forward_fault, images, interject, keep_warm_paused, pause,
-    pause_architect, project_named, reply_to_question, resume, rule, say_to_projects, say_to_work,
+    pause_architect, project_named, remove_dependency, reply_to_question, resume, rule, say_to_projects, say_to_work,
     set_fault_forwarding, set_keep_warm_paused, start_over,
 };
 pub use read::{

@@ -1,11 +1,11 @@
 //! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
 //! design card, what the owner says to a work's line, pausing a work and lifting a work's pause, starting a work over,
 //! the switch that keeps waiting sessions warm while every work is paused, forwarding a fault of wf-agents to an
-//! architect, the setting that forwards each new one as it comes, and ending a talk with an architect. Each is written
-//! as the owner, so `changes` records it as theirs, and the engine reads it as it goes on; a start over is an action of
-//! the outbox, which the engine carries out and records as the owner's in the end it writes. What the owner says to the
-//! architect is `db::say_to_architect`. The owner's words and answers may carry images, kept with them in the same
-//! write, and may be images alone.
+//! architect, the setting that forwards each new one as it comes, removing a dependency between items, and ending a
+//! talk with an architect. Each is written as the owner, so `changes` records it as theirs, and the engine reads it as
+//! it goes on; a start over is an action of the outbox, which the engine carries out and records as the owner's in the
+//! end it writes. What the owner says to the architect is `db::say_to_architect`. The owner's words and answers may
+//! carry images, kept with them in the same write, and may be images alone.
 
 use db::attachments::{self, Image, Words};
 use db::rusqlite::{Connection, OptionalExtension, params};
@@ -735,6 +735,24 @@ pub fn close_observation(db: &mut Db, id: i64, why: &str) -> Result<String, Stri
     Ok(format!("observation {id} closed"))
 }
 
+/// Removes a dependency between two items, as the owner: `item` no longer depends on `on`, and a work on `item` that
+/// waits for `on` goes on without it, since its wait reads the dependencies as they are. Nobody is told, as nobody is
+/// when a dependency is made.
+pub fn remove_dependency(db: &mut Db, item: i64, on: i64) -> Result<String, String> {
+    let removed = db
+        .write(Actor::Owner, |tx| {
+            Ok(tx.execute(
+                "DELETE FROM item_links WHERE item = ?1 AND depends_on = ?2",
+                params![item, on],
+            )?)
+        })
+        .map_err(sql)?;
+    if removed == 0 {
+        return Err(format!("item {item} does not depend on item {on}"));
+    }
+    Ok(format!("item {item} no longer depends on item {on}"))
+}
+
 /// Lifts a paused work's pause, as the owner: its cell runs again. The engine closes a round the pause left open, with
 /// the reason. A work the architect stopped is the owner's release of it, which the architect is told.
 pub fn resume(db: &mut Db, work: i64) -> Result<String, String> {
@@ -1364,6 +1382,35 @@ mod tests {
             )
             .unwrap();
         assert_eq!(said, ("p".into(), "owner_words".into(), "Do it.".into()));
+    }
+
+    // The owner removes a dependency once; the row goes, recorded as the owner's change.
+    #[test]
+    fn the_owner_removes_a_dependency() {
+        let mut db = setup();
+        db.write(Actor::Architect, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'u', 'x', 'y', 'change', '1')",
+                [],
+            )?;
+            db::add_dependency(tx, 1, 2, "its parser", "parallel")
+        })
+        .unwrap();
+        assert_eq!(
+            remove_dependency(&mut db, 1, 2).unwrap(),
+            "item 1 no longer depends on item 2"
+        );
+        assert!(remove_dependency(&mut db, 1, 2).is_err());
+        let (links, actor): (i64, String) = db
+            .conn()
+            .query_row(
+                "SELECT (SELECT count(*) FROM item_links), (SELECT actor FROM changes WHERE table_name = 'item_links'
+                 AND new_row IS NULL)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((links, actor.as_str()), (0, "owner"));
     }
 
     // The owner closes an open observation once, saying why.

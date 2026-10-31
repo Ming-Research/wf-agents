@@ -32,6 +32,8 @@
   --chart-line-marked: 3.5;
   --chart-line-thin: 1;
   --chart-line-map: 0.75;
+  /* The ring round a stage's letter on the map, in the map's surface, wide enough that no cell's mark meets it. */
+  --chart-line-letter: 3;
 
   /* The dashes of the chart's lines, a cell's edge being solid: a move a cell lacks, the line to what the engine does
      every time a cell returns, a computed store, what is read, and the rows a work took, which flow the way it went. */

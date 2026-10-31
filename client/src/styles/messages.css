@@ -688,9 +688,9 @@
 }
 
 /* The tick over the box in the one-to-one: "Reply to:" and the question open at the bottom, on one line, cut where
-   the line ends. */
+   the line ends. Only the label gives way: the tick keeps its width, which a column let shrink drew the label over. */
 .talk-reply-tick,
-.talk-reply-tick > * {
+.talk-reply-tick > :last-child {
   min-width: 0;
 }
 
