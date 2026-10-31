@@ -210,6 +210,15 @@ export function pinnedQuestions(d: ConversationDetail): ConversationEntry[] {
   return d.questions.flatMap((q) => d.entries.filter((e) => e.source === 'ask' && e.id === q.id).slice(0, 1));
 }
 
+/// The asks of the owner that wait in a conversation, as its entries, each pinned in the band at its top with what
+/// answers it: every ask that waits there, but an architect's question, which the box at the bottom replies to.
+export function pinnedAsks(d: ConversationDetail): ConversationEntry[] {
+  const waiting = new Set(d.asks.map((a) => a.id));
+  return d.entries.filter(
+    (e) => e.source === 'ask' && e.ask_detail !== null && waiting.has(e.ask_detail.id) && !architectAsk(e.ask_detail),
+  );
+}
+
 /// The pinned question open at the bottom, the one the tick replies to: the one the owner opened, while it is still
 /// pinned, else the newest; the others are folded.
 export function openQuestion(pinned: ConversationEntry[], opened: number | null): ConversationEntry | null {
@@ -230,14 +239,6 @@ export function replyTicked(open: ConversationEntry | null, waitsOn: number | nu
 /// to when it is ticked.
 export const toArchitect = (text: string, replyTo: number | null): { text: string; reply_to?: number } =>
   replyTo === null ? { text } : { text, reply_to: replyTo };
-
-/// Where an ask that waits for the owner is from the part of the stream in view, by its bounds and the stream's: above
-/// it or below it, or none when any of it is in view.
-export function awayOf(ask: { top: number; bottom: number }, view: { top: number; bottom: number }): 'above' | 'below' | null {
-  if (ask.bottom <= view.top) return 'above';
-  if (ask.top >= view.bottom) return 'below';
-  return null;
-}
 
 /// The time of the latest entry of a conversation, up to which opening it reads it.
 export function latestAt(d: ConversationDetail): number | null {

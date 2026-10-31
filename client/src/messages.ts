@@ -278,7 +278,7 @@ const messages = {
   conv_undelivered: 'never received: the work ended first',
   conv_answer_ask: 'Answer ask {id}',
   conv_your_answer: 'Your answer to ask {id}',
-  conv_ask_waits: 'Ask {id} waits for your answer',
+  conv_ask_above: 'waiting for you above',
   conv_answer_words: 'Your answer',
   conv_answer_more: 'More to say, if anything',
   conv_your_reply: 'Your answer',

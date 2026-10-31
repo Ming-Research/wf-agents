@@ -1,11 +1,11 @@
-// How what the owner is asked is answered in a conversation: an ask of a work's shows once, where it was asked, as the
-// asking agent's bubble, never pinned; it is answered in that bubble, by the buttons of what it offers and a small box
-// of the owner's words beside Answer, and once answered the owner's answer is in that bubble and nowhere else; a
-// question the architect holds alike. The questions an architect pinned wait at the bottom of its one-to-one, the
-// newest open and the others folded, with no box, and the box at the bottom replies to the one open while the tick over
-// it is on; replied to, a question is back where it was asked, the reply in it. And what is sent, which asks that wait
-// are out of view, and how the list marks each work's group and each architect's one-to-one by how that work or that
-// architect stands.
+// How what the owner is asked is answered in a conversation: an ask of a work's waits pinned in the band at the top, as
+// the asking agent's bubble, where it is answered, by the buttons of what it offers and a small box of the owner's
+// words beside Answer, the stream keeping one line of it where it was asked; once answered it leaves the band, and the
+// owner's answer is in its bubble in the stream and nowhere else; a question the architect holds is answered in its
+// bubble. The questions an architect pinned wait at the bottom of its one-to-one, the newest open and the others
+// folded, with no box, and the box at the bottom replies to the one open while the tick over it is on; replied to, a
+// question is back where it was asked, the reply in it. And what is sent, and how the list marks each work's group and
+// each architect's one-to-one by how that work or that architect stands.
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -34,7 +34,6 @@ import { architectMark } from './architect';
 import { course, StateMark } from './components';
 import {
   asksApproval,
-  awayOf,
   DRAFT_APPROVED,
   openQuestion,
   pinnedQuestions,
@@ -48,7 +47,7 @@ import { ordinal, time } from './format';
 import { admit, IMAGE_MOST_BYTES, imagesSent, pastedFiles, type PendingImage, saysSomething } from './images';
 import { Bubble } from './pages/Bubble';
 import { AskView, DesignCardView } from './pages/Decide';
-import { Composer, Questions, type Reply, Stream, workMark } from './pages/Messages';
+import { Composer, Pinned, Questions, type Reply, Stream, workMark } from './pages/Messages';
 import { SayBox } from './parts';
 import messagesCss from './styles/messages.css?raw';
 import { t } from './text';
@@ -151,6 +150,14 @@ const drawn = (d: ConversationDetail): string =>
     </AnswersHere.Provider>,
   );
 
+/// The band at the top of a conversation, what waits for the owner pinned there, as the page draws it.
+const band = (d: ConversationDetail): string =>
+  renderToStaticMarkup(
+    <AnswersHere.Provider value={true}>
+      <Pinned d={d} c={group} />
+    </AnswersHere.Provider>,
+  );
+
 /// The row of a message drawn, from its mark (`data-ask="4"`, or its words) to the next row.
 function row(html: string, mark: string): string {
   const at = html.indexOf(mark);
@@ -213,25 +220,36 @@ const choice = {
 const words = { asked: [{ kind: 'ask', value: { points: [{ kind: 'environment', what: 'Run the probe?' }] } }] };
 
 describe('an ask in its conversation', () => {
-  it('shows once, where it was asked, as the asking agent’s bubble, and is never pinned', () => {
+  it('waits pinned in the band at the top, in full, and keeps one line where it was asked that leads there', () => {
     const a = ask(4, choice);
     const d = detail([entry('message', { id: 1, text: 'Before.', at: 1 }), asked(a), entry('message', { id: 5, text: 'After.', at: 3 })]);
     expect(streamOf(d).map((e) => `${e.source}-${e.id}`)).toEqual(['message-1', 'ask-4', 'message-5']);
-    const html = drawn(d);
-    expect(html).not.toContain('talk-pins');
-    expect(html.indexOf('Before.')).toBeLessThan(html.indexOf('data-ask="4"'));
-    expect(html.indexOf('data-ask="4"')).toBeLessThan(html.indexOf('After.'));
-    const r = row(html, 'data-ask="4"');
-    // In the engineer's colour, its bubble and its avatar alike.
+    // Pinned: the asking agent's bubble in full, in the engineer's colour, its bubble and its avatar alike.
+    const pins = band(d);
+    expect(pins).toContain('talk-pins talk-pins-top');
+    const r = row(pins, 'data-ask="4"');
     expect(r).toContain('talk-bubble talk-bubble-agent role-blue');
     expect(r).toContain('talk-avatar role-blue');
     expect(r).toContain('One table or two?');
-    expect(html.match(/data-ask="4"/g)).toHaveLength(1);
+    expect(pins.match(/data-ask="4"/g)).toHaveLength(1);
+    // Where it was asked: one line, who asked it to you, its question cut, and the way to the band; no card, no box.
+    const html = drawn(d);
+    expect(html).not.toContain('data-ask="4"');
+    expect(html).not.toContain('One table or two?');
+    expect(html).not.toContain('<textarea');
+    const line = row(html, 'waiting for you above');
+    expect(line).toMatch(/<span class="talk-who">engineer<\/span><span class="talk-mention">@you<\/span>/);
+    expect(line).toContain('<span class="live-line-now">');
+    expect(line).toContain('Which table?');
+    expect(line).toContain('<button class="link-button live-line-link');
+    expect(html.indexOf('Before.')).toBeLessThan(html.indexOf('waiting for you above'));
+    expect(html.indexOf('waiting for you above')).toBeLessThan(html.indexOf('After.'));
   });
 
-  it('is answered in its bubble: its options as buttons, none picked, then a small box and Answer', () => {
-    const { inside, after } = bubble(row(drawn(detail([asked(ask(4, choice))])), 'data-ask="4"'));
-    expect(after).toMatch(/^(<\/div>)+$/);
+  it('is answered where it is pinned: its options as buttons, none picked, then a small box and Answer', () => {
+    const { inside, after } = bubble(row(band(detail([asked(ask(4, choice))])), 'data-ask="4"'));
+    // Nothing after the bubble in its row but the row's end and the band's.
+    expect(after).toMatch(/^(<\/div>)+<\/section>$/);
     const answer = inside.slice(inside.indexOf('class="talk-answer"'));
     expect(buttons(answer)).toEqual(['One table', 'Two tables', ADD, 'Answer (disabled)']);
     expect(answer).toContain('<textarea');
@@ -242,7 +260,7 @@ describe('an ask in its conversation', () => {
   });
 
   it('has only the small box for an ask in words alone', () => {
-    const plain = bubble(row(drawn(detail([asked(ask(6, words))])), 'data-ask="6"')).inside;
+    const plain = bubble(row(band(detail([asked(ask(6, words))])), 'data-ask="6"')).inside;
     expect(plain).not.toContain('talk-answer-buttons');
     expect(buttons(plain.slice(plain.indexOf('class="talk-answer"')))).toEqual([ADD, 'Answer (disabled)']);
   });
@@ -262,6 +280,11 @@ describe('an ask in its conversation', () => {
     expect(inside).toContain('Good enough.');
     // Its words show, with the ask in full folded under them.
     expect(inside).toContain('Ask 7 in full');
+    // It has left the band.
+    expect(band(d)).toBe('');
+    // A long answer is folded to its first lines.
+    const long = ask(7, words, { by: 'owner', at: 9, text: 'Good enough. '.repeat(100) });
+    expect(drawn(detail([asked(long)]))).toContain('long long-folded');
   });
 
   it('closed by the engine, says in its bubble why no answer was needed', () => {
@@ -330,15 +353,6 @@ describe('answering an ask', () => {
     expect(key({ nativeEvent: { isComposing: true } })).toBe(false);
     expect(key({ keyCode: 229 })).toBe(false);
     expect(key({ key: 'a' })).toBe(false);
-  });
-
-  it('tells which way an ask that waits is out of view, and none while any of it shows', () => {
-    const view = { top: 100, bottom: 500 };
-    expect(awayOf({ top: 0, bottom: 90 }, view)).toBe('above');
-    expect(awayOf({ top: 520, bottom: 700 }, view)).toBe('below');
-    expect(awayOf({ top: 50, bottom: 120 }, view)).toBeNull();
-    expect(awayOf({ top: 480, bottom: 900 }, view)).toBeNull();
-    expect(awayOf({ top: 0, bottom: 900 }, view)).toBeNull();
   });
 });
 

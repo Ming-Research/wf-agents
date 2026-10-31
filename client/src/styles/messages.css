@@ -1,7 +1,7 @@
 /* The messages view, the one place the owner acts, as the UI spec draws it: Primer's PageLayout filling the window
    under the bar, the conversations a NavList in its pane, the one open on the right as a chat. Its head says what the
-   conversation is about and holds the owner's controls; the design card a work waits on is pinned under it; the
-   stream scrolls, a slim line over it while an ask that waits is out of view; the questions an architect pinned are
+   conversation is about and holds the owner's controls; what waits for the owner, the design card a work waits on and
+   each ask that waits, is pinned under it; the stream scrolls; the questions an architect pinned are
    over the one box at the bottom, in the same look as what is pinned under the head. In the stream, the page's three
    voices each have their look: the engine's cards and lines are the page's own words, with no frame; an agent's
    message is the box of what an agent handed back, beside its avatar, in its role's colour (roles.css), holding what
@@ -153,8 +153,11 @@
 
 /* What is pinned for the owner, in one look wherever it is, a line between it and the stream: under the head the
    design card a work waits on, with its verdicts to send; over the box the questions the architect pinned. */
+/* Each thing pinned is as tall as what it holds, the band scrolling past 45% of the conversation, rather than every
+   row squeezed into the band's height, which left a folded card two pixels tall under an ask in full. */
 .talk-pins {
   display: grid;
+  grid-auto-rows: max-content;
   gap: var(--base-size-12);
   max-height: 45%;
   overflow-y: auto;
@@ -217,17 +220,6 @@
   white-space: nowrap;
 }
 
-/* While an ask that waits for the owner is out of view, one slim line over the stream says so, each such ask a button
-   that brings it into view, in the colour of what waits for someone. */
-.talk-away {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0 var(--base-size-4);
-  padding: 0 var(--base-size-8);
-  background: var(--bgColor-attention-muted);
-}
-
 /* The stream: the newest at the bottom, scrolled to. */
 .talk-stream {
   flex: 1;
@@ -269,7 +261,7 @@
   gap: 0;
 }
 
-/* An ask brought into view from the line over the stream comes to rest clear of the stream's top. */
+/* An ask pinned in the band, brought into view from its line in the stream, comes to rest clear of the band's edge. */
 .talk-row[data-ask] {
   scroll-margin-top: var(--base-size-16);
 }
@@ -522,6 +514,11 @@
   overflow: hidden;
   color: var(--fgColor-muted);
   text-overflow: ellipsis;
+}
+
+/* A link that ends a line, the way to an ask pinned in the band: whole, while the words before it are cut. */
+.live-line-link {
+  flex: none;
 }
 
 .live-line-event {

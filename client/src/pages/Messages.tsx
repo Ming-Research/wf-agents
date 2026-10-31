@@ -13,18 +13,18 @@
 // questions the architect pinned for the owner's reply are at its bottom, over the box, the newest open and the others
 // folded, and the box replies to the one open while the tick over it is on. wf-agents' own holds its faults, each of
 // which the owner forwards to any project's architect, once to each, and says where it went and how it stands there;
-// its head sets where each new fault goes as it comes, nobody at first. An ask of the owner from a work shows once,
-// where it was asked, as the asking agent's bubble, in full while it waits, and is answered in that bubble: the buttons
-// of its options, the one picked marked, then a small box for the owner's words, free unless the ask is in words alone
-// or no option is picked, and Answer; a question the architect holds has the small box in its bubble too. What is written there answers that bubble; once answered, the buttons and the box give way to the
-// owner's answer, in the same bubble and named as the owner's answer to it, which shows nowhere else. An architect's
-// question has no box: replied to, it is back where it was asked, with the reply in its bubble.
-// While an ask that waits is out of view, a slim line over the stream says so and brings it into view. A design card a
-// work waits on to be ruled is pinned at the top. The one box at the bottom says something, in a work's group to the
+// its head sets where each new fault goes as it comes, nobody at first. What waits for the owner has one place, the
+// band at the top of the conversation: a design card a work waits on to be ruled, and each ask of the owner from a
+// work while it waits, as the asking agent's bubble in full, answered there: the buttons of its options, the one picked
+// marked, then a small box for the owner's words, free unless the ask is in words alone or no option is picked, and
+// Answer. Where it was asked the stream keeps one line of it that leads to the band. Once answered it leaves the band,
+// and its bubble in the stream holds the question with the owner's answer under it, which shows nowhere else. A
+// question the architect holds has the small box in its bubble too. An architect's question has no box: replied to, it
+// is back where it was asked, with the reply in its bubble. The one box at the bottom says something, in a work's group to the
 // engineer, the architect or both, and in the one-to-one to the architect, whose words it takes first and answers in
 // one round, or replies to the question ticked. Opening a conversation reads it up to its latest entry.
 
-import { ArrowDownIcon, ArrowUpIcon, BellIcon, CheckIcon, ChevronRightIcon, CpuIcon, StackIcon } from '@primer/octicons-react';
+import { BellIcon, CheckIcon, ChevronRightIcon, CpuIcon, StackIcon } from '@primer/octicons-react';
 import {
   ActionList,
   ActionMenu,
@@ -41,7 +41,6 @@ import {
   type Dispatch,
   type MouseEvent,
   type ReactNode,
-  type RefObject,
   type SetStateAction,
   useEffect,
   useMemo,
@@ -80,7 +79,6 @@ import {
 import {
   architectAsk,
   asksApproval,
-  awayOf,
   closedWhy,
   conversationTitle,
   DRAFT_APPROVED,
@@ -97,6 +95,7 @@ import {
   ownerReplies,
   party,
   pendingWords,
+  pinnedAsks,
   pinnedQuestions,
   replyTicked,
   rowsShown,
@@ -114,14 +113,14 @@ import { postJson } from '../http';
 import { imagesSent, type PendingImage, saysSomething } from '../images';
 import { isObj, label, str, words } from '../labelled';
 import { reread, useResource, useStatus } from '../live';
-import { Markdown } from '../markdown';
-import { SayBox, Thumbs } from '../parts';
+import { firstWords, Markdown, MarkdownLine } from '../markdown';
+import { LinkButton, SayBox, Thumbs } from '../parts';
 import { architectHref, forProject, href, Link, navigate, type SideTab, sideHref, workHref } from '../route';
 import { t, tn } from '../text';
-import { joinedWords, SEP } from '../voices';
+import { joinedWords, Long, SEP } from '../voices';
 import { ArchitectAskBlock } from './ArchitectAsk';
 import { ArchitectSide, useSideOpen } from './ArchitectSide';
-import { Bubble, BubbleHead } from './Bubble';
+import { Bubble, BubbleHead, LiveBubble } from './Bubble';
 import { AskView, DesignCardView } from './Decide';
 import { ArchitectHead, PlainHead, WfAgentsHead, WorkHead } from './TalkHead';
 import { MatterBubble, PlanBubble, PolicyBubble, StageBubble } from './TalkCards';
@@ -473,7 +472,7 @@ function AnswerIn({ head, at, choice = '', text, images }: {
               <strong>{label(choice)}</strong>
             </p>
           ) : null}
-          {text !== '' ? <Markdown text={text} /> : null}
+          {text !== '' ? <Long text={text}>{(x) => <Markdown text={x} />}</Long> : null}
           <Thumbs ids={images} />
         </div>
       </div>
@@ -695,11 +694,46 @@ function Fault({ e, forwarding }: { e: ConversationEntry; forwarding: Forwarding
   );
 }
 
+/// An ask of the owner that waits, where it was asked in the stream, while it is pinned in the band at the top with what
+/// answers it: the asking agent's bubble of one line, its head every bubble's (who asked, to you, when, its round), the
+/// question cut to one line and whole on hovering, and "waiting for you above", which brings the pinned ask into view.
+function AskAbove({ e, to }: { e: ConversationEntry; to: string | null }) {
+  const round = e.work !== null && e.round !== null;
+  const bring = () => {
+    const el = document.querySelector<HTMLElement>(`.talk-pins [data-ask="${e.id}"]`);
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    el?.querySelector<HTMLElement>('button, textarea')?.focus({ preventScroll: true });
+  };
+  return (
+    <LiveBubble
+      who={member(e.sender)}
+      head={
+        <BubbleHead who={party(e, e.sender)} to={to} at={e.at}>
+          {round ? <Link to={workHref(e.work ?? 0, { round: e.round ?? 0 })}>{`R${e.work}-${e.round}`}</Link> : null}
+        </BubbleHead>
+      }
+      live={false}
+      state={
+        <>
+          <span className="live-line-now">
+            <MarkdownLine text={e.text} />
+          </span>
+          <LinkButton className="live-line-link" onClick={bring}>
+            {t('conv_ask_above')}
+          </LinkButton>
+        </>
+      }
+      gist={null}
+      title={firstWords(e.text)}
+    />
+  );
+}
+
 /// One entry of the stream, in its voice; a question with the owner's answer to it (`replies`, by its matter); the
 /// question whether the draft of a new policy that waits (`draft`) is approved leading to the draft; the bubble of the
 /// matter the architect has in hand with how its work goes on (`architect`); the design cards pinned at the top
 /// (`pinned`), which a stage's bubble names instead of drawing them again.
-function Entry({ e, c, w, architect, replies, forwarding, draft, pinned }: {
+function Entry({ e, c, w, architect, replies, forwarding, draft, pinned, asks }: {
   e: ConversationEntry;
   c: Conversation;
   w: WorkSummary | null;
@@ -708,8 +742,12 @@ function Entry({ e, c, w, architect, replies, forwarding, draft, pinned }: {
   forwarding: Forwarding | null;
   draft: PolicyDraft | null;
   pinned: readonly number[];
+  asks: readonly number[];
 }) {
   const voice = voiceOf(e);
+  if (e.source === 'ask' && asks.includes(e.id)) {
+    return <AskAbove e={e} to={mentions(e, c.kind) ? mention(e, c.kind) : null} />;
+  }
   if (voice === 'live') {
     const project = c.project ?? '';
     if (e.stage !== null) return <StageBubble e={e} s={e.stage} w={w} project={c.project} pinned={pinned} />;
@@ -748,15 +786,20 @@ function Pins({ at, children }: { at: 'top' | 'bottom'; children: ReactNode }) {
   );
 }
 
-/// What waits for the owner pinned at the top of the conversation: the design card whose ruling a work waits for
-/// before its merge, with the verdicts to send, folded to its head line until the owner opens it, as the owner asked,
-/// since open it took most of the conversation. An ask of a work's is not pinned: it waits where it was asked.
-function Pinned({ d }: { d: ConversationDetail }) {
-  if (d.design_cards.length === 0) return null;
+/// What waits for the owner pinned at the top of the conversation, its one place: the design card whose ruling a work
+/// waits for before its merge, with the verdicts to send, folded to its head line until the owner opens it, as the
+/// owner asked, since open it took most of the conversation; and each ask of the owner that waits, as the asking
+/// agent's bubble in full, answered there, the stream keeping one line of it where it was asked (`AskAbove`).
+export function Pinned({ d, c }: { d: ConversationDetail; c: Conversation }) {
+  const asks = pinnedAsks(d);
+  if (d.design_cards.length === 0 && asks.length === 0) return null;
   return (
     <Pins at="top">
-      {d.design_cards.map((c) => (
-        <DesignCardView key={c.id} c={c} round={<Link to={workHref(c.work, { round: c.round })}>{`R${c.work}-${c.round}`}</Link>} folded />
+      {d.design_cards.map((x) => (
+        <DesignCardView key={x.id} c={x} round={<Link to={workHref(x.work, { round: x.round })}>{`R${x.work}-${x.round}`}</Link>} folded />
+      ))}
+      {asks.map((e) => (
+        <Message key={`ask-${e.id}`} e={e} to={mentions(e, c.kind) ? mention(e, c.kind) : null} reply={null} />
       ))}
     </Pins>
   );
@@ -976,34 +1019,13 @@ export function Composer({ c, w, reply = null }: { c: Conversation; w: WorkSumma
   );
 }
 
-/// The slim line over the stream while an ask that waits for the owner is out of view, so that none is missed however
-/// much is said after it: each such ask, with which way it is, and a click brings it into view.
-function AwayLine({ away, list }: { away: Array<[number, 'above' | 'below']>; list: RefObject<HTMLDivElement | null> }) {
-  if (away.length === 0) return null;
-  return (
-    <div className="talk-away">
-      {away.map(([id, where]) => (
-        <Button
-          key={id}
-          size="small"
-          variant="invisible"
-          leadingVisual={where === 'above' ? ArrowUpIcon : ArrowDownIcon}
-          onClick={() => list.current?.querySelector(`[data-ask="${id}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
-        >
-          {t('conv_ask_waits', { id })}
-        </Button>
-      ))}
-    </div>
-  );
-}
-
 /// The stream of a conversation, oldest first, scrolled to its newest: the bubbles of who said what, the members'
 /// messages and the live bubbles of what a work's stages and an architect's matters came to; in a conversation that is
-/// no work's group or one-to-one, the engine's lines in the page's own voice; an ask where it was asked; under it, while
-/// the owner's words added to the queue wait to be taken up in the one-to-one, that they do; over it, while an ask that
-/// waits is out of view, the line that says so. In the one-to-one with an architect (`architect`), the question
-/// whether its draft of a new policy that waits (`draft`) is approved leads to the draft, and the bubble of the matter
-/// it has in hand says what holds it.
+/// no work's group or one-to-one, the engine's lines in the page's own voice; an ask where it was asked, in one line
+/// while it waits pinned in the band at the top; under it, while the owner's words added to the queue wait to be taken
+/// up in the one-to-one, that they do. In the one-to-one with an architect (`architect`), the question whether its
+/// draft of a new policy that waits (`draft`) is approved leads to the draft, and the bubble of the matter it has in
+/// hand says what holds it.
 export function Stream({ d, c, w, draft = null, architect = null }: {
   d: ConversationDetail;
   c: Conversation;
@@ -1013,6 +1035,7 @@ export function Stream({ d, c, w, draft = null, architect = null }: {
 }) {
   const replies = useMemo(() => ownerReplies(d.entries), [d]);
   const pinned = d.design_cards.map((x) => x.id);
+  const asks = pinnedAsks(d).map((e) => e.id);
   const stream = streamOf(d);
   const going = architect !== null ? architectState(architect.works, architect.queue) : null;
   const aw = going !== null && going.kind === 'working' ? going.work : null;
@@ -1022,35 +1045,6 @@ export function Stream({ d, c, w, draft = null, architect = null }: {
     const el = list.current;
     if (el !== null) el.scrollTop = el.scrollHeight;
   }, [c.key, shown]);
-  // Which of the asks that wait for the owner are out of view, and which way: watched as the stream scrolls and grows.
-  const waiting = d.asks.map((a) => a.id).join(',');
-  const [away, setAway] = useState<Array<[number, 'above' | 'below']>>([]);
-  useEffect(() => {
-    const root = list.current;
-    const ids = waiting === '' ? [] : waiting.split(',').map(Number);
-    if (root === null || ids.length === 0 || typeof IntersectionObserver === 'undefined') {
-      setAway([]);
-      return;
-    }
-    const where = new Map<number, 'above' | 'below' | null>();
-    const seen = new IntersectionObserver(
-      (changes) => {
-        for (const x of changes) {
-          const view = x.rootBounds ?? root.getBoundingClientRect();
-          where.set(Number((x.target as HTMLElement).dataset.ask), awayOf(x.boundingClientRect, view));
-        }
-        setAway(ids.flatMap((id): Array<[number, 'above' | 'below']> => {
-          const w = where.get(id);
-          return w === undefined || w === null ? [] : [[id, w]];
-        }));
-      },
-      { root },
-    );
-    for (const el of root.querySelectorAll<HTMLElement>('[data-ask]')) {
-      if (ids.includes(Number(el.dataset.ask))) seen.observe(el);
-    }
-    return () => seen.disconnect();
-  }, [waiting, shown, c.key]);
   // Cards run in a Timeline of their own between the messages: each run of cards and lines is one Timeline.
   const runs: Array<{ cards: boolean; entries: ConversationEntry[] }> = [];
   for (const e of stream) {
@@ -1065,7 +1059,6 @@ export function Stream({ d, c, w, draft = null, architect = null }: {
   const pending = c.kind === 'architect' && pendingWords(d.entries).some((e) => e.source === 'words' || e.source === 'talk');
   return (
     <>
-      <AwayLine away={away} list={list} />
       <div className="talk-stream" ref={list}>
         {stream.length === 0 ? <p className="talk-none">{t('conv_none')}</p> : null}
         {runs.map((run) => {
@@ -1081,6 +1074,7 @@ export function Stream({ d, c, w, draft = null, architect = null }: {
               forwarding={d.forwarding}
               draft={draft}
               pinned={pinned}
+              asks={asks}
             />
           ));
           return run.cards ? (
@@ -1099,7 +1093,8 @@ export function Stream({ d, c, w, draft = null, architect = null }: {
   );
 }
 
-/// One conversation: its head with the owner's controls, the design card a work waits on pinned under it, the stream,
+/// One conversation: its head with the owner's controls, what waits for the owner pinned under it (the design card a
+/// work waits on and its asks that wait), the stream,
 /// the questions an architect pinned over the box, and the one box at the bottom, with the tick that replies to the
 /// question open; the one-to-one with an architect has the panel of its notebook, policy and queue beside it, while it
 /// is open, on the tab the address names (`side`), else on the notebook. Reading it marks it read up to its latest
@@ -1158,7 +1153,7 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
           <p className="talk-none">{r.error ?? t('loading')}</p>
         ) : (
           <>
-            <Pinned d={d} />
+            <Pinned d={d} c={c} />
             <Trouble a={a} />
             <Stream d={d} c={c} w={w} draft={a?.draft ?? null} architect={a} />
             <Questions
