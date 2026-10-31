@@ -272,9 +272,9 @@ mod tests {
             !anew.contains_key("review") && anew.contains_key("engineer"),
             "{anew:?}"
         );
-        // Asking the owner, the work comes back to the line that asked.
+        // Asking the owner, the work comes back to the line that asked, at the cell that takes its answers.
         let asked = coming_back(&g, &at("A3", &["I1"], Some("I1")), &none);
-        assert!(asked["engineer"].contains(&"I1".to_string()), "{asked:?}");
+        assert!(asked["engineer"].contains(&"A4".to_string()), "{asked:?}");
         assert!(coming_back(&g, &at("E1", &[], None), &none).is_empty());
     }
 }

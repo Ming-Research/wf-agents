@@ -2399,14 +2399,16 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     // The index of the database is in the query tool's description, which the return formats give.
     assert!(!m.contains("db:tables"), "{m}");
     assert!(given(first, "db:tables").is_none());
-    // The formats name the owner's language; the engine writes the configured one beside it.
-    assert!(system.contains("`owner.language` (English)"), "{system}");
+    // The formats, in the system prompt and the message, name the owner's language; the engine writes the configured
+    // one beside it.
+    let formats = format!("{system}\n{m}");
+    assert!(formats.contains("`owner.language` (English)"), "{formats}");
     assert!(
-        system.contains("SELECT sql FROM sqlite_master WHERE name = '<name>'"),
-        "{system}"
+        formats.contains("SELECT sql FROM sqlite_master WHERE name = '<name>'"),
+        "{formats}"
     );
-    assert!(system.contains("- items (id, project, title, "), "{system}");
-    assert!(!system.contains("CREATE TABLE") && !m.contains("CREATE TABLE"), "{m}");
+    assert!(formats.contains("- items (id, project, title, "), "{formats}");
+    assert!(!formats.contains("CREATE TABLE"), "{formats}");
     let design = &rounds.iter().rev().find(|r| r.1 == "D2").unwrap().0;
     let acceptance = format!("{design}·D2·acceptance");
     assert_eq!(given(&at("D9"), &acceptance), Some(false), "{}", at("D9"));
@@ -2537,7 +2539,11 @@ fn given_text(input: &Value, address: &str) -> Option<String> {
     let m = input["message"].as_str()?;
     let heading = format!("### {address}\n\n");
     let rest = &m[m.find(&heading)? + heading.len()..];
-    let end = rest.find("\n### ").or_else(|| rest.find("\n## ")).unwrap_or(rest.len());
+    let end = [rest.find("\n### "), rest.find("\n## ")]
+        .into_iter()
+        .flatten()
+        .min()
+        .unwrap_or(rest.len());
     Some(rest[..end].to_string())
 }
 
