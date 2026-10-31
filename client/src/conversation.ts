@@ -14,24 +14,49 @@ import type {
   PolicyDraft,
   StageCard,
   WordsState,
+  WorkState,
   WorkSummary,
 } from './api';
 import { isObj, words } from './labelled';
 import { type Key, t, tn } from './messages';
 import { joinedWords } from './voices';
 
-/// The parts of the list, in its order, which waiting and new entries never change: the one-to-ones with the
-/// architects and wf-agents' own; a group for each work, newest first; the groups of connected projects.
-export type ListPart = { part: 'top' | 'works' | 'projects'; conversations: Conversation[] };
+/// The parts of the list, in its order, which waiting and new entries never change: wf-agents' own, which belongs to no
+/// project; a group for each project (`project`), by name as the items' view orders its projects, holding the
+/// one-to-one with its architect and then a group for each of its works, newest first; the groups of connected
+/// projects, which belong to no project either.
+export type ListPart = { part: 'top' | 'project' | 'projects'; project: string | null; conversations: Conversation[] };
 
 export function listParts(list: Conversation[]): ListPart[] {
-  const part = (p: ListPart['part'], kinds: string[]): ListPart => ({
-    part: p,
-    conversations: list.filter((c) => kinds.includes(c.kind)),
+  const of = (kind: string, project?: string) =>
+    list.filter((c) => c.kind === kind && (project === undefined || (c.project ?? '') === project));
+  const projects = [
+    ...new Set(list.filter((c) => c.kind === 'architect' || c.kind === 'work').map((c) => c.project ?? '')),
+  ].sort();
+  const parts: ListPart[] = [
+    { part: 'top', project: null, conversations: of('wf_agents') },
+    ...projects.map(
+      (p): ListPart => ({ part: 'project', project: p, conversations: [...of('architect', p), ...of('work', p)] }),
+    ),
+    { part: 'projects', project: null, conversations: of('projects') },
+  ];
+  return parts.filter((p) => p.conversations.length > 0);
+}
+
+/// The rows of a project's group the list shows: the one-to-one with its architect, and the groups of those of its
+/// works in a state shown (`shown`), the state of each as its mark says it (`stateOf`); the one open (`open`) whatever
+/// its state, so that it never leaves the list. A work whose state is not read yet is left out until it is.
+export function rowsShown(
+  conversations: Conversation[],
+  stateOf: (c: Conversation) => WorkState | null,
+  shown: readonly WorkState[],
+  open: string | null,
+): Conversation[] {
+  return conversations.filter((c) => {
+    if (c.kind !== 'work' || c.key === open) return true;
+    const s = stateOf(c);
+    return s !== null && shown.includes(s);
   });
-  return [part('top', ['architect', 'wf_agents']), part('works', ['work']), part('projects', ['projects'])].filter(
-    (p) => p.conversations.length > 0,
-  );
 }
 
 /// How many things wait for the owner across the conversations, and how many entries are unread.

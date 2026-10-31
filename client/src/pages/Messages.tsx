@@ -1,8 +1,10 @@
 // The owner's conversations, the one place on the page the owner acts: their list on the left, the one open on the
-// right. The list's order never changes for what waits: the one-to-one with each project's architect and wf-agents'
-// own first, then a group for each work, newest first, which greys out in place once the work ends, then the groups of
-// projects the configuration connects; each architect's and each work's marked by how that architect or that work
-// stands, a round running in motion; what waits for the owner and what is unread are counts on each, red and grey.
+// right. The list's order never changes for what waits: wf-agents' own first; then each project's, by name, headed by
+// the buttons that show or hide its works in each state, the done and the ended hidden at first: the one-to-one with
+// its architect, then a group for each work, newest first, which greys out in place once the work ends; then the
+// groups of projects the configuration connects. Each architect's and each work's is marked by how that architect or
+// that work stands, a round running in motion; what waits for the owner and what is unread are counts on each, red and
+// grey.
 // A work's group holds the owner, its engineer and its project's architect: everything said in it reaches all three,
 // each agent's message beside its avatar in its colour and headed by whom it is for, the owner's on the right; the
 // engine's notices are grey lines, and its stage cards, one for each stretch of the work at a stage, updated in place,
@@ -64,7 +66,7 @@ import type {
 } from '../api';
 import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from '../answer';
 import { architectMark } from '../architect';
-import { liveState, StateMark } from '../components';
+import { liveState, StateFilter, StateMark, useShownStates, WORK_STATES, WORK_TONE } from '../components';
 import {
   architectAsk,
   asksApproval,
@@ -87,6 +89,7 @@ import {
   pendingWords,
   pinnedQuestions,
   replyTicked,
+  rowsShown,
   sayTo,
   sayToTicked,
   streamOf,
@@ -140,48 +143,78 @@ function RowMark({ c, works, status }: { c: Conversation; works: WorkSummary[] |
   return c.kind === 'projects' ? <StackIcon /> : <CpuIcon />;
 }
 
+/// The states of a work whose groups the list shows until the owner sets otherwise: all but those of a work over.
+export const SHOWN: WorkState[] = WORK_STATES.filter((s) => s !== 'done' && s !== 'ended');
+
 /// The list of conversations in its fixed order, each with its mark, what waits for the owner in it (red) and what is
-/// unread (grey); a work's group over greyed in place.
-function List({ list, open, works }: { list: Conversation[]; open: string | null; works: WorkSummary[] | undefined }) {
+/// unread (grey); a work's group over greyed in place. Each project's group is headed by its name and the buttons that
+/// show or hide its works in each state, as the items' tree's are (`StateFilter`), the owner's choice one for every
+/// project and kept in this browser; the conversation open stays whatever its state.
+export function List({ list, open, works }: { list: Conversation[]; open: string | null; works: WorkSummary[] | undefined }) {
   const status = useStatus();
+  const [shown, toggle] = useShownStates('talks-states', WORK_STATES, SHOWN);
+  const stateOf = (c: Conversation) => workMark(c.work, works, status);
   return (
     <NavList aria-label={t('nav_messages')} className="talks-list">
-      {listParts(list).map((p) => (
-        <NavList.Group key={p.part} title={p.part === 'works' ? t('talks_works') : p.part === 'projects' ? t('talks_projects') : undefined}>
-          {p.conversations.map((c) => (
-            <NavList.Item
-              key={c.key}
-              href={href({ page: 'messages', open: c.key })}
-              aria-current={c.key === open ? 'page' : undefined}
-              className={c.over ? 'talks-over' : undefined}
-              onClick={(e: MouseEvent) => {
-                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                e.preventDefault();
-                navigate(href({ page: 'messages', open: c.key }));
-              }}
-            >
-              <NavList.LeadingVisual>
-                <RowMark c={c} works={works} status={status} />
-              </NavList.LeadingVisual>
-              <span className="talks-title" title={conversationTitle(c)}>
-                {conversationTitle(c)}
-              </span>
-              {c.waiting > 0 || c.unread > 0 ? (
-                <NavList.TrailingVisual>
-                  <span className="talks-marks">
-                    {c.waiting > 0 ? (
-                      <CounterLabel variant="primary" title={tn('conv_waits_n', c.waiting)}>
-                        {c.waiting}
-                      </CounterLabel>
-                    ) : null}
-                    {c.unread > 0 ? <CounterLabel title={t('nav_unread', { n: c.unread })}>{c.unread}</CounterLabel> : null}
-                  </span>
-                </NavList.TrailingVisual>
-              ) : null}
-            </NavList.Item>
-          ))}
-        </NavList.Group>
-      ))}
+      {listParts(list).map((p) => {
+        // The states of the project's works, once read.
+        const states = p.conversations.flatMap((c) => {
+          const s = c.kind === 'work' ? stateOf(c) : null;
+          return s !== null ? [s] : [];
+        });
+        return (
+          <NavList.Group
+            key={p.project !== null ? `project:${p.project}` : p.part}
+            title={p.part === 'project' ? (p.project ?? undefined) : p.part === 'projects' ? t('talks_projects') : undefined}
+          >
+            {states.length > 0 ? (
+              <li className="talks-states">
+                <StateFilter
+                  order={WORK_STATES}
+                  states={states}
+                  shown={shown}
+                  tone={WORK_TONE}
+                  name={(s) => t(`state_${s}`)}
+                  title={(s, on) => t(on ? 'talks_hide' : 'talks_show', { state: t(`state_${s}`) })}
+                  onShown={toggle}
+                />
+              </li>
+            ) : null}
+            {(p.part === 'project' ? rowsShown(p.conversations, stateOf, shown, open) : p.conversations).map((c) => (
+              <NavList.Item
+                key={c.key}
+                href={href({ page: 'messages', open: c.key })}
+                aria-current={c.key === open ? 'page' : undefined}
+                className={c.over ? 'talks-over' : undefined}
+                onClick={(e: MouseEvent) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                  e.preventDefault();
+                  navigate(href({ page: 'messages', open: c.key }));
+                }}
+              >
+                <NavList.LeadingVisual>
+                  <RowMark c={c} works={works} status={status} />
+                </NavList.LeadingVisual>
+                <span className="talks-title" title={conversationTitle(c)}>
+                  {conversationTitle(c)}
+                </span>
+                {c.waiting > 0 || c.unread > 0 ? (
+                  <NavList.TrailingVisual>
+                    <span className="talks-marks">
+                      {c.waiting > 0 ? (
+                        <CounterLabel variant="primary" title={tn('conv_waits_n', c.waiting)}>
+                          {c.waiting}
+                        </CounterLabel>
+                      ) : null}
+                      {c.unread > 0 ? <CounterLabel title={t('nav_unread', { n: c.unread })}>{c.unread}</CounterLabel> : null}
+                    </span>
+                  </NavList.TrailingVisual>
+                ) : null}
+              </NavList.Item>
+            ))}
+          </NavList.Group>
+        );
+      })}
     </NavList>
   );
 }
@@ -1074,7 +1107,8 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
 }
 
 /// The owner's conversations: the list on the left, in its fixed order, its width dragged and kept in the browser; the
-/// conversation open on the right, the first in the list when the address names none. The works are read once for
+/// conversation open on the right, when the address names none the first the interface lists, the one-to-one with the
+/// architect of the configuration's first project. The works are read once for
 /// both: the list's marks and the work of the group open. The address may name the tab of the panel beside the one-to-one
 /// with an architect (`side`).
 export function Messages({ open, side }: { open: string | null; side: SideTab | null }) {

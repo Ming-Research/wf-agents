@@ -10,12 +10,12 @@
 // the stages on hovering. A click on a row opens its item; a double click on a row with rows under it folds or
 // unfolds them, as its toggle does.
 
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, LinkIcon } from '@primer/octicons-react';
-import { Button, Heading, PageLayout } from '@primer/react';
+import { ChevronDownIcon, ChevronRightIcon, LinkIcon } from '@primer/octicons-react';
+import { Heading, PageLayout } from '@primer/react';
 import { Fragment, type MouseEvent, type ReactNode, useState } from 'react';
 
 import type { ItemLink, Items as ItemsData, ItemState, ItemSummary } from '../api';
-import { DependencyKind, ITEM_TONE, Loaded, StateChip } from '../components';
+import { DependencyKind, ITEM_TONE, Loaded, StateChip, StateFilter, useShownStates } from '../components';
 import { depsDone, firstShown, stageAt, STATES, tree, type TreeRow } from '../item/tree';
 import { words } from '../labelled';
 import { useResource } from '../live';
@@ -26,29 +26,6 @@ import { Item } from './Item';
 
 /// The states shown until their button says otherwise: what is settled is hidden.
 const SHOWN: ItemState[] = ['working', 'queued', 'new', 'stopped'];
-
-/// A value the owner set on this view, kept in this browser where it lets the page keep it.
-function kept<T>(key: string, fallback: T, valid: (v: unknown) => v is T): T {
-  try {
-    const raw = window.localStorage.getItem(`wf-agents.${key}`);
-    if (raw === null) return fallback;
-    const v: unknown = JSON.parse(raw);
-    return valid(v) ? v : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function keep(key: string, value: unknown) {
-  try {
-    window.localStorage.setItem(`wf-agents.${key}`, JSON.stringify(value));
-  } catch {
-    // Kept only where the browser lets it be.
-  }
-}
-
-const isStates = (v: unknown): v is ItemState[] =>
-  Array.isArray(v) && v.every((s) => typeof s === 'string' && (STATES as string[]).includes(s));
 
 type RowProps = {
   row: TreeRow;
@@ -205,8 +182,8 @@ function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
   );
 }
 
-/// One project: its heading, the buttons that show or hide each state's items with their counts, each in its state's
-/// colour, filled as the state's chip while its items show, outlined in it while they hide; and its tree.
+/// One project: its heading, the buttons that show or hide each state's items with their counts (`StateFilter`, the one
+/// part the list of conversations shows or hides each state's works with too); and its tree.
 function Project(props: {
   name: string;
   items: ItemSummary[];
@@ -228,28 +205,15 @@ function Project(props: {
         <Heading as="h2" variant="small" id={heading}>
           {props.name}
         </Heading>
-        <span className="tree-states">
-          {STATES.map((s) => {
-            const n = props.items.filter((i) => i.state === s).length;
-            if (n === 0) return null;
-            const on = props.shown.includes(s);
-            return (
-              <Button
-                key={s}
-                size="small"
-                variant="invisible"
-                className={`tree-state tree-tone-${ITEM_TONE[s]}`}
-                leadingVisual={on ? CheckIcon : undefined}
-                count={n}
-                aria-pressed={on}
-                title={t(on ? 'items_hide' : 'items_show', { state: t(`item_${s}`) })}
-                onClick={() => props.onShown(s)}
-              >
-                {t(`item_${s}`)}
-              </Button>
-            );
-          })}
-        </span>
+        <StateFilter
+          order={STATES}
+          states={props.items.map((i) => i.state)}
+          shown={props.shown}
+          tone={ITEM_TONE}
+          name={(s) => t(`item_${s}`)}
+          title={(s, on) => t(on ? 'items_hide' : 'items_show', { state: t(`item_${s}`) })}
+          onShown={props.onShown}
+        />
       </div>
       {rows.length === 0 ? <p className="muted tree-none">{t('items_none_shown')}</p> : null}
       {rows.length > 0 ? (
@@ -322,12 +286,7 @@ function Tree({ data, selected, shown, onShown }: {
 
 export function Items({ selected }: { selected: number | null }) {
   const items = useResource<ItemsData>('items', '/api/v1/items');
-  const [shown, setShown] = useState<ItemState[]>(() => kept('items-states', SHOWN, isStates));
-  const toggle = (s: ItemState) => {
-    const next = shown.includes(s) ? shown.filter((x) => x !== s) : [...shown, s];
-    setShown(next);
-    keep('items-states', next);
-  };
+  const [shown, toggle] = useShownStates('items-states', STATES, SHOWN);
   // While no item is picked, the first the tree shows is open.
   const open = selected ?? (items.data !== undefined ? firstShown(items.data.items, items.data.links, shown) : null);
   return (

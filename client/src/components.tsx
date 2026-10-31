@@ -2,6 +2,7 @@
 
 import {
   CheckCircleIcon,
+  CheckIcon,
   CircleIcon,
   ClockIcon,
   HourglassIcon,
@@ -10,8 +11,8 @@ import {
   QuestionIcon,
   StopIcon,
 } from '@primer/octicons-react';
-import { Flash, Label, type LabelColorOptions } from '@primer/react';
-import type { ReactNode } from 'react';
+import { Button, Flash, Label, type LabelColorOptions } from '@primer/react';
+import { type ReactNode, useState } from 'react';
 
 import type { ItemState, RoundOutcome, Status, Waits, WorkState, WorkSummary } from './api';
 import { Halo } from './graph/flowDraw';
@@ -261,6 +262,90 @@ export const ITEM_TONE: Record<ItemState, Tone> = {
   stopped: 'danger',
   cancelled: 'danger',
 };
+
+/// The order a work's states are listed in, as the interface declares them, the states of a work over last.
+export const WORK_STATES: WorkState[] = ['running', 'ready', 'asking', 'waiting', 'waiting_for_slot', 'paused', 'done', 'ended'];
+
+/// A value the owner set on a view, kept in this browser where it lets the page keep it.
+function kept<T>(key: string, fallback: T, valid: (v: unknown) => v is T): T {
+  try {
+    const raw = window.localStorage.getItem(`wf-agents.${key}`);
+    if (raw === null) return fallback;
+    const v: unknown = JSON.parse(raw);
+    return valid(v) ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function keep(key: string, value: unknown) {
+  try {
+    window.localStorage.setItem(`wf-agents.${key}`, JSON.stringify(value));
+  } catch {
+    // Kept only where the browser lets it be.
+  }
+}
+
+/// The states whose rows a list shows, as the owner set them with its `StateFilter`, one choice for every project in
+/// the list, kept in this browser under `key`; `first` until the owner sets them. With the way to show or hide one
+/// state's rows.
+export function useShownStates<S extends string>(
+  key: string,
+  all: readonly S[],
+  first: readonly S[],
+): [S[], (s: S) => void] {
+  const [shown, setShown] = useState<S[]>(() =>
+    kept(key, [...first], (v: unknown): v is S[] =>
+      Array.isArray(v) && v.every((s) => typeof s === 'string' && (all as readonly string[]).includes(s)),
+    ),
+  );
+  const toggle = (s: S) => {
+    const next = shown.includes(s) ? shown.filter((x) => x !== s) : [...shown, s];
+    setShown(next);
+    keep(key, next);
+  };
+  return [shown, toggle];
+}
+
+/// The buttons over a project's rows in a list (the items' tree, the works in the list of conversations) that show or
+/// hide its rows in each state: one for each state among them, in the list's order of states (`order`), with how many
+/// are in it (`states`, the state of each row); each in its state's colour, filled as the state's chip while its rows
+/// show and outlined in it while they hide, from the one set of a state's colours that the items' cards take too
+/// (items.css); a click shows or hides that state's rows.
+export function StateFilter<S extends string>(props: {
+  order: readonly S[];
+  states: readonly S[];
+  shown: readonly S[];
+  tone: Record<S, Tone>;
+  name: (s: S) => string;
+  title: (s: S, shown: boolean) => string;
+  onShown: (s: S) => void;
+}) {
+  return (
+    <span className="tree-states">
+      {props.order.map((s) => {
+        const n = props.states.filter((x) => x === s).length;
+        if (n === 0) return null;
+        const on = props.shown.includes(s);
+        return (
+          <Button
+            key={s}
+            size="small"
+            variant="invisible"
+            className={`tree-state tree-tone-${props.tone[s]}`}
+            leadingVisual={on ? CheckIcon : undefined}
+            count={n}
+            aria-pressed={on}
+            title={props.title(s, on)}
+            onClick={() => props.onShown(s)}
+          >
+            {props.name(s)}
+          </Button>
+        );
+      })}
+    </span>
+  );
+}
 
 const OUTCOME_TONE: Record<RoundOutcome, Tone> = {
   running: 'accent',

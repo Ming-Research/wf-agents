@@ -21,10 +21,18 @@
   padding: var(--base-size-8) 0;
 }
 
+/* A row's name, cut with an ellipsis before its counts: a block, since an inline span is not cut and ran under them. */
 .talks-title {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The buttons under a project's heading that show or hide its works in each state, as over the items' tree. */
+.talks-states {
+  padding: 0 var(--base-size-8) var(--base-size-4);
+  list-style: none;
 }
 
 .talks-marks {

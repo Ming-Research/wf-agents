@@ -2139,18 +2139,26 @@ describe("the owner's conversations", () => {
     ...extra,
   });
 
-  it('lists in an order that waiting never changes: the one-to-ones and wf-agents, then the works, then the projects', () => {
+  it('lists in an order that waiting never changes: wf-agents, then each project by name, its architect then its works, then the connected projects', () => {
+    // The configuration lists q before p; the list orders the projects by name, as the items' view does.
     const parts = listParts([
+      talk('architect:q', { project: 'q' }),
       talk('architect:p', { waiting: 1 }),
       talk('wf-agents', { project: null }),
       talk('work:9', { work: 9, waiting: 2 }),
+      talk('work:8', { work: 8, project: 'q' }),
       talk('work:5', { work: 5, over: true }),
       talk('projects:p|q', { project: null, projects: ['p', 'q'] }),
     ]);
-    expect(parts.map((p) => [p.part, p.conversations.map((c) => c.key)])).toEqual([
-      ['top', ['architect:p', 'wf-agents']],
-      ['works', ['work:9', 'work:5']],
-      ['projects', ['projects:p|q']],
+    expect(parts.map((p) => [p.part, p.project, p.conversations.map((c) => c.key)])).toEqual([
+      ['top', null, ['wf-agents']],
+      ['project', 'p', ['architect:p', 'work:9', 'work:5']],
+      ['project', 'q', ['architect:q', 'work:8']],
+      ['projects', null, ['projects:p|q']],
+    ]);
+    // A project with works and no one-to-one with its architect still has its group.
+    expect(listParts([talk('work:3', { work: 3, project: 'r' })]).map((p) => [p.part, p.project])).toEqual([
+      ['project', 'r'],
     ]);
     expect(totals([talk('work:9', { waiting: 2, unread: 1 }), talk('architect:p', { unread: 3 })])).toEqual({
       waiting: 2,
