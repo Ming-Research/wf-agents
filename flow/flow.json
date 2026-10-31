@@ -1597,7 +1597,7 @@
               "name": "title",
               "title": "Title",
               "type": "text",
-              "desc": "What to do, as an action, in at most 20 characters, spaces not counted"
+              "desc": "What to do, as an action, in English, in at most 20 characters, spaces not counted"
             },
             {
               "name": "under",
@@ -1986,7 +1986,7 @@
           ]
         }
       ],
-      "desc": "One change to the items. Its reason: what it is for, what follows without it, and any change it cannot stand without. The owner reads the reason and an item's title, problem, why, approach and acceptance: write them in `owner.language`, technical terms in English, as `format:common` says a field the owner reads is written. An item is given by its number, or the key of an item an earlier change of the batch creates"
+      "desc": "One change to the items. Its reason: what it is for, what follows without it, and any change it cannot stand without. The owner reads the reason and an item's title, problem, why, approach and acceptance: write the title in English, and the rest in `owner.language`, technical terms in English, as `format:common` says a field the owner reads is written. An item is given by its number, or the key of an item an earlier change of the batch creates"
     },
     "observation_change": {
       "type": "union",
@@ -11727,7 +11727,7 @@
           "name": "item_writing",
           "desc": "How items and changes to them are written",
           "text": [
-            "The owner reads an item, its title first: write its title, problem, why and acceptance in the owner's language, the setting `owner.language`. The title says what to do as an action, not a state, in at most 20 characters, spaces not counted: no conditions, examples or numbers, unless the number is the goal; no internal names, and a name a programmer writes in code font.",
+            "The owner reads an item, its title first: write its title in English, and its problem, why and acceptance in the owner's language, the setting `owner.language`. The title says what to do as an action, not a state, in at most 20 characters, spaces not counted: no conditions, examples or numbers, unless the number is the goal; no internal names, and a name a programmer writes in code font.",
             "The problem says what cannot be done or is wrong in one sentence, then one smallest example, only one; a cause inferred is marked as inferred. If it cannot be written clearly, find out more first. Why says only why the work is worth doing, in one or two sentences written as a conclusion: the cost of not doing it, which goal, who waits; no account of how things stand now.",
             "The acceptance is checkable results, such as which test passes or which number is reached, usually one row: no method, no test plan, nothing CI checks anyway.",
             "An item is worth an engineer, a branch, a CI run and a merge: one too small joins another; one with parts that could each merge alone is split. Its level fits the judgment it needs: higher for work that must make new decisions or check facts that are unsure, whatever the size of the change.",
