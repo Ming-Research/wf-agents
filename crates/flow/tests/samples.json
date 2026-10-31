@@ -906,14 +906,22 @@
          "log_path": "results.push.checks.log_path"
         }
        ],
-       "times": [
+       "tests": [
         {
          "test": "match_int",
-         "time": "results.push.times.time"
+         "result": "passed",
+         "time": "results.push.tests.time"
         },
         {
          "test": "match_range",
-         "time": "results.push.times.time"
+         "result": "failed",
+         "time": "results.push.tests.time",
+         "ended": "FAIL"
+        },
+        {
+         "test": "match_none",
+         "result": "not_run",
+         "why": "results.push.tests.why"
         }
        ]
       }

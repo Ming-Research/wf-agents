@@ -659,3 +659,51 @@ fn a_work_moves_by_its_rows() {
     let wrong = g.cell("A5").unwrap().rows.iter().find(|r| r.name == "back").unwrap();
     assert!(g.step(&p, wrong).is_err());
 }
+
+// The tools ci and ci_before both say how a name in `tests` is matched, which is how the engine matches it and not as
+// a part of a name, and both give each test the same result: one shape, `test_results`.
+#[test]
+fn ci_and_ci_before_say_how_a_test_name_is_matched_and_give_the_same_results() {
+    let flow: Value = serde_json::from_str(FLOW).unwrap();
+    let tools = flow["tools"].as_array().unwrap();
+    let tool = |name: &str| {
+        tools
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("no tool {name}"))
+    };
+    for (name, result) in [("ci", "push"), ("ci_before", "ran")] {
+        let t = tool(name);
+        let tests = t["in"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == "tests")
+            .unwrap();
+        let desc = tests["desc"].as_str().unwrap();
+        for part in ["`a_row`", "`mod::a_row`", "`engine::e2e a_row`", "not a part of a name"] {
+            assert!(desc.contains(part), "{name}: {desc}");
+        }
+        assert!(!desc.contains("Which tests to run"), "{name}: {desc}");
+        // The results come with the checks, in the branch of the result that ran.
+        let out = t["out"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == result)
+            .unwrap();
+        let ran = out["branches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["value"] != "refused")
+            .unwrap();
+        let refs: Vec<&str> = ran["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|f| f["$ref"].as_str())
+            .collect();
+        assert_eq!(refs, ["checks", "test_results"], "{name}");
+    }
+}

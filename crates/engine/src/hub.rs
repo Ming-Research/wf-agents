@@ -8,6 +8,14 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// One step of a job, as GitHub reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Step {
+    pub name: String,
+    /// What GitHub concluded (success, failure, skipped, cancelled, and so on); empty until the step has ended.
+    pub conclusion: String,
+}
+
 /// The latest run of one check on a commit, as tools give it to agents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckRun {
@@ -20,6 +28,9 @@ pub struct CheckRun {
     pub log_tail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_path: Option<String>,
+    /// The job's steps: the engine reads from them why a test did not run, and no agent is given them.
+    #[serde(skip)]
+    pub steps: Vec<Step>,
 }
 
 /// A tool that did not run, in the kinds the flow names.
@@ -176,6 +187,17 @@ impl Gh {
                 run: j["url"].as_str().unwrap_or_default().to_string(),
                 log_tail: None,
                 log_path: None,
+                steps: j["steps"]
+                    .as_array()
+                    .map(|ss| {
+                        ss.iter()
+                            .map(|s| Step {
+                                name: s["name"].as_str().unwrap_or_default().to_string(),
+                                conclusion: s["conclusion"].as_str().unwrap_or_default().to_string(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             };
             if result == "red" {
                 let job = j["databaseId"].as_i64().unwrap_or_default().to_string();
