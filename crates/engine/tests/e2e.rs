@@ -2920,6 +2920,8 @@ fn told(s: &Setup, word: &str) -> usize {
 fn a_usage_limit_stops_every_work_until_it_resets() {
     let reset = db::now() / 1000 + 3600;
     let (s, mut e, said, item) = failing("limit", format!("Claude AI usage limit reached|{reset}"), 1);
+    // The first pass starts the work; the second runs its first agent's round, which fails.
+    e.tick().unwrap();
     e.tick().unwrap();
     let log = said.lock().unwrap().join("\n");
     let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
@@ -2946,6 +2948,8 @@ fn a_usage_limit_stops_every_work_until_it_resets() {
 fn no_network_stops_every_work_until_it_is_back() {
     let report = "API Error: Connection error. (getaddrinfo ENOTFOUND api.anthropic.com)".to_string();
     let (s, mut e, said, item) = failing("offline", report, 1);
+    // The first pass starts the work; the second runs its first agent's round, which fails.
+    e.tick().unwrap();
     e.tick().unwrap();
     let log = said.lock().unwrap().join("\n");
     let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
@@ -3318,6 +3322,8 @@ fn a_return_neither_repaired_nor_handed_in_again_pauses_the_work() {
 #[test]
 fn an_expired_login_stops_every_work_until_a_round_runs_again() {
     let (s, mut e, said, item) = failing("login", "Not logged in · Please run /login".to_string(), 1);
+    // The first pass starts the work; the second runs its first agent's round, which fails.
+    e.tick().unwrap();
     e.tick().unwrap();
     let log = said.lock().unwrap().join("\n");
     let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));

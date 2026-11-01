@@ -101,6 +101,9 @@ pub enum Advance {
 /// what it does.
 pub type Activity = dyn Fn(i64, i64, &str) + Send + Sync;
 
+/// Where the loop tells which works it is taking a step of, in the order of their ids.
+pub type Busy = dyn Fn(&[i64]) + Send + Sync;
+
 /// Where the engine tells what runs, given when it is made and shared by every thread's steps.
 #[derive(Clone)]
 pub struct Hooks {
@@ -110,7 +113,7 @@ pub struct Hooks {
     pub activity: Arc<Activity>,
     /// Where the loop says which works it is taking a step of, in the order of their ids, each time it dispatches a
     /// step or reaps one: the owner's page shows those works' rounds as running, and what stops once each ends.
-    pub busy: Arc<dyn Fn(&[i64]) + Send + Sync>,
+    pub busy: Arc<Busy>,
     /// Where a job's thread says that the job has ended, a step or a work's keep-warm pings: the loop waits on it, to
     /// reap the job and dispatch what its end lets go on.
     pub ended: Arc<dyn Fn() + Send + Sync>,

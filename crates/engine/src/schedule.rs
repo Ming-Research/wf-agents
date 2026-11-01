@@ -175,10 +175,10 @@ impl Engine {
     /// dispatches, each on a thread of its own: the owner's rounds asked, of the works with no job in flight; a step of
     /// every other work that goes on, has no job in flight and is not idle; while a slot is free and the global pause
     /// does not hold, a work started on a ready item; and the keep-warm pings due to the sessions of the works with no
-    /// job in flight. A work whose last step found what it waited for come but no slot granted is granted a free slot
-    /// of its machine for its next step, in the order of the works' ids and before any new work starts; the other works
-    /// that wait step without one, to find what they wait for come, and one that finds it waits on, holding no slot,
-    /// until a later step is granted one. Gives the owner's rounds asked that it took without a step, since none
+    /// job in flight. A work that waits, holding no slot, is granted a free slot of its machine for its step, in the
+    /// order of the works' ids and before any new work starts; the other works that wait step without one, to find what
+    /// they wait for come, and one that finds it waits on for a slot, which no new work takes meanwhile
+    /// ([`Engine::start_ready`]). Gives the owner's rounds asked that it took without a step, since none
     /// could run: a project's architect with nothing to start a work for, or a work taken over whose item waits for a
     /// free slot.
     pub fn dispatch(&mut self, go: &Go) -> Result<Vec<Stepped>, String> {
@@ -259,23 +259,45 @@ impl Engine {
             if !goes_on(pause, &w) || w.flow_version != self.flow_now {
                 continue;
             }
-            // Only a work whose last step found what it waited for come is granted a slot: a work that waits on, its
-            // step granted one, would keep a new work from starting in that slot while the step ran.
-            let held = lock(&self.shared.held_for_slot).contains(&id);
-            let granted = held && w.graph == ENGINEER && self.waiting(&w)? && self.room_for(&w)?;
+            let granted = w.graph == ENGINEER && self.waiting(&w)? && self.room_for(&w)?;
             let started_item = taking_over.get(&id).copied().flatten();
             self.dispatch_step(id, false, granted, None, started_item)?;
         }
         if pause.is_none() {
-            while self.free_slots()? > 0 {
-                let Some(item) = self.next_ready() else { break };
-                let id = self.create_work(item)?;
-                self.say(&format!("work {id} started on item {item}"));
-                self.dispatch_step(id, false, false, None, Some(item))?;
-            }
+            self.start_ready()?;
         }
         self.keep_warm(db::now(), pause)?;
         Ok(taken)
+    }
+
+    /// Starts works on ready items, each with its first step dispatched, while more slots are free than the works whose
+    /// wait was found over need, waiting for a slot ([`Engine::waits_for_a_slot`]): those go on first, as slots free.
+    fn start_ready(&mut self) -> Result<(), String> {
+        loop {
+            if self.free_slots()? <= self.waits_for_a_slot()? {
+                return Ok(());
+            }
+            let Some(item) = self.next_ready() else {
+                return Ok(());
+            };
+            let id = self.create_work(item)?;
+            self.say(&format!("work {id} started on item {item}"));
+            self.dispatch_step(id, false, false, None, Some(item))?;
+        }
+    }
+
+    /// How many works whose last step found what they waited for come wait on for a free slot: not since ended,
+    /// paused or gone on, and with no step in flight that the loop granted a slot.
+    fn waits_for_a_slot(&mut self) -> Result<i64, String> {
+        let held: Vec<i64> = lock(&self.shared.held_for_slot).iter().copied().collect();
+        let mut n = 0;
+        for id in held {
+            let w = self.work(id)?;
+            if w.ended.is_none() && w.paused.is_none() && !self.granted(id) && self.waiting(&w)? {
+                n += 1;
+            }
+        }
+        Ok(n)
     }
 
     /// Starts a work of each project's architect that goes on under the owner's global pause `pause` and runs none,
@@ -504,13 +526,19 @@ impl Engine {
     }
 
     /// One pass of the loop, as `wf-agents run --once` and the tests take it: every work looked at afresh, what `go`
-    /// lets go on dispatched ([`Engine::dispatch`]), every job waited for and reaped, and the outbox the steps filled
-    /// carried out.
+    /// lets go on dispatched ([`Engine::dispatch`]), every job waited for and reaped; then, unless the global pause
+    /// holds or a failed run's cause stops every work, works started on ready items in the slots that the steps of works
+    /// still waiting were granted and left, as the loop's next turn would start them, and waited for in turn; and the
+    /// outbox the steps filled carried out.
     pub fn pass(&mut self, go: &Go) -> Result<Passed, String> {
         self.rouse();
         let mark = self.db.rounds_mark();
         let mut jobs = self.dispatch(go)?;
         jobs.extend(self.drain()?);
+        if go.pause.is_none() && !self.halted() {
+            self.start_ready()?;
+            jobs.extend(self.drain()?);
+        }
         actions::run_outbox(self)?;
         let (dispatching, _) = self.rounds_since(&mark)?;
         Ok(Passed { dispatching, jobs })
