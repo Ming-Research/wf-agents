@@ -20,7 +20,7 @@ Fact browser-tab-shows-image: A browser tab shows an image whole and at its own 
 
 Fact characters-follow-font: A character used as a mark takes its size and weight from the font.
 
-Fact chart-laid-out-loosely: The chart is laid out loosely, so larger boxes still fit.
+Fact chart-layout-sizes-boxes: The chart's layout gives each box the size its text takes, measured in the font the page draws it in, and places the boxes by those sizes.
 
 Fact charts-need-width: A chart and a wide table need every column of the window.
 

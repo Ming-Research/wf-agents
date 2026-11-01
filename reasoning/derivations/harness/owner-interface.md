@@ -17,6 +17,6 @@ Decision card-ask-apart: There are two things the owner is put before, never cal
 
 Rests on: C:information, F:one-name-confusion
 
-Decision tell-owner-field: Any agent's return may tell the owner, in a few sentences each, what the owner should know and need not answer; the engine keeps each message with the round that told it and notifies the owner, the page shows each in the conversation about the work or the architect that told it, and the owner's opening that conversation marks it read, the one write the interface makes to the database itself, instead of only asks that stop the work, because an agent, the architect or a reviewer that only wants the owner to know something had no way to say it without stopping the work, and a field of the return costs no round, while asking for a tool would end one.
+Decision tell-owner-field: The engineer's and the architect's returns (D:who-tells-owner) may tell the owner, in a few sentences each, what the owner should know and need not answer; the engine keeps each message with the round that told it and notifies the owner, the page shows each in the conversation about the work or the architect that told it, and the owner's opening that conversation marks it read, instead of only asks that stop the work, because the engineer or the architect that only wants the owner to know something had no way to say it without stopping the work, and a field of the return costs no round, while asking for a tool would end one.
 
-Rests on: C:information, C:efficient, D:tools-through-cell
+Rests on: C:information, C:efficient, D:tools-through-cell, D:who-tells-owner

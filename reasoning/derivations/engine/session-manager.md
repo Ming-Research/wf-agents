@@ -59,9 +59,9 @@ Decision line-system-prompt: A session starts with a system prompt that holds wh
 
 Rests on: C:efficient, F:cache-shared, F:cache-prefix, F:append-system-prompt, F:first-message-varies, F:sixth-trial-new-sessions
 
-Decision cell-effort: The session manager starts a round at the reasoning effort its cell declares in the flow, whatever the model the item's level picks, instead of an effort for each level, because the owner set the effort by the kind of task each cell is, and a level is only a model; changing an effort is a change to the flow. A changed effort between rounds of a session keeps its cache.
+Decision cell-effort: The session manager starts a round at the reasoning effort its cell declares in the flow, whatever the model the item's level picks, instead of an effort for each level, because the owner set the effort by the kind of task each cell is, and a level is only a model; changing an effort is a change to the flow. A changed effort between rounds of a session keeps its cache while thinking stays on, which the flow's check holds within a line (D:effort-low-all-or-none).
 
-Rests on: F:effort-keeps-cache, D:item-level-model
+Rests on: F:effort-keeps-cache, D:item-level-model, D:effort-low-all-or-none
 
 Open: the premise behind the owner setting the effort by the kind of task each cell is; to ask the owner.
 

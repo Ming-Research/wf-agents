@@ -10,9 +10,9 @@ Decision review-columns-ci-conditional: The columns of a cell's review table are
 
 Rests on: C:efficient, F:table-ci-repeat-tokens, D:always-conditional-inputs
 
-Decision sent-back-message: After a return sent back, the message says only why it was sent back and that the return is to be rewritten, with its format's address, and gives and refers to nothing else, instead of the whole message again, because the agent did the work and holds everything it was given; only the return was wrong, and giving the task again tells it to do the work again.
+Decision sent-back-message: After a return sent back, the message to the session that wrote it says only why it was sent back and that the return is to be rewritten, with its format's address, and gives and refers to nothing else, instead of the whole message again, which only a new session is given (D:sent-back-new-session), because the agent did the work and its session holds everything it was given; only the return was wrong, and giving the task again tells it to do the work again.
 
-Rests on: C:efficient, F:task-again-redo
+Rests on: C:efficient, F:task-again-redo, D:sent-back-new-session
 
 Rejected:
 - Giving the whole message again after a return sent back, with the reason added: rejected because it repeats the task to an agent that did it, and spends a round's worth of tokens to say that one return was written wrongly.
