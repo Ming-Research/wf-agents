@@ -24,8 +24,6 @@ decisions come from.
 - `db/schema.sql`: the only definition of the database's tables and views.
 - `reasoning/`: the project's records, kept by the reasoning system's rules: its constitution, the facts its decisions
   take as given, the decisions derived from them, and the log of every revision.
-- `reasoning-system/`: the reasoning system, a submodule: the rules the records are kept by, and `check.py`, their
-  check.
 - `.github/workflows/ci.yml`: the checks every pushed commit runs; `.config/nextest.toml`: how they run the tests;
   `.config/english-exempt.txt`: the files the check that the repository is in English leaves out.
 
@@ -36,7 +34,8 @@ Every commit pushed to any branch runs `ci`: rustfmt, clippy with warnings as er
 build, which come before any cargo step that compiles `crates/web`; that `client/src/api.ts` is what the Rust types generate
 (`WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes it, and with it `client/src/stored-flow.json`, the
 flow as the engine stores it, which the page's tests read and git leaves out); and the project's records, by the
-reasoning system's check (`python3 -B reasoning-system/check.py --root reasoning --ascii`), which on a push also
+reasoning system's check (its `check.py`, taken at the commit `ci.yml` names, run as `python3 -B check.py --root
+reasoning --ascii`), which on a push also
 compares them with the branch's tip before it (`--base` and `--ready`), so that every change to them is named in a new
 entry at the top of their log. Its job `check` is red whenever another
 of its jobs is. One of the tests, `crates/wf-agents/tests/english.rs`, holds the repository to English: it fails on a

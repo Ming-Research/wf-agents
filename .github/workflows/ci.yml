@@ -35,11 +35,10 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
-      # With the submodule reasoning-system/, whose check the records take, and the whole history, so that the
-      # branch's tip before the push, which the records are compared with, is there.
+      # With the whole history, so that the branch's tip before the push, which the records are compared with, is
+      # there.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: true
           fetch-depth: 0
       # Installs the toolchain rust-toolchain.toml pins, with its components.
       - run: rustup toolchain install
@@ -52,17 +51,22 @@ jobs:
       # Formatting first: it needs no build, so a misformatted push fails in seconds.
       - name: Format
         run: cargo fmt --all --check
-      # The project's records (reasoning/), by the reasoning system's check. On a push it also holds every change to
-      # them since the branch's tip before the push to a new entry at the top of their log; the first push of a branch
-      # and a run by hand have no such tip, and check the records as they are.
+      # The project's records (reasoning/), by the reasoning system's check, check.py, taken from the reasoning system
+      # (github.com/Ming-Research/reasoning-system) at the commit named here: the project holds only its records. On a
+      # push it also holds every change to them since the branch's tip before the push to a new entry at the top of
+      # their log; the first push of a branch and a run by hand have no such tip, and check the records as they are.
       - name: Check the reasoning records
         env:
           BEFORE: ${{ github.event.before }}
+          REASONING_SYSTEM: 6d87fd0bbca321bacdd9fa7fe60d2b2cedf1c0bf
         run: |
+          check="$RUNNER_TEMP/check.py"
+          curl -fsSL --retry 3 -o "$check" \
+            "https://raw.githubusercontent.com/Ming-Research/reasoning-system/$REASONING_SYSTEM/check.py"
           if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            exec python3 -B reasoning-system/check.py --root reasoning --ascii --base "$BEFORE" --ready
+            exec python3 -B "$check" --root reasoning --ascii --base "$BEFORE" --ready
           fi
-          exec python3 -B reasoning-system/check.py --root reasoning --ascii
+          exec python3 -B "$check" --root reasoning --ascii
       # The page's TypeScript types are generated from the Rust types; the page is checked against what they generate
       # now, and the last step fails when that differs from the committed file. The same run writes the flow as the
       # engine stores it, which the page's tests read.
@@ -113,8 +117,6 @@ jobs:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: true
       - run: rustup toolchain install
       - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
