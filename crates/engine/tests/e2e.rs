@@ -11845,3 +11845,209 @@ fn a_start_over_asked_during_a_step_waits_until_the_step_ends() {
     assert!(works[0].5.is_some(), "{works:?}\n{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+/// How many rounds of a work are open.
+fn open_rounds(e: &Engine, work: i64) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT count(*) FROM rounds WHERE work = ?1 AND ended_at IS NULL",
+            [work],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// The transition each of a work's rounds at a cell took, in their order; none for a round that took none.
+fn transitions_at(e: &Engine, work: i64, cell: &str) -> Vec<Option<String>> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT transition FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n")
+            .unwrap();
+    st.query_map(params![work, cell], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+// A step whose thread panics, here in its agent's round, leaves neither a job in flight nor a round open: the loop
+// pauses its work with why, so that the slot it held is free, while the other work's round beside it ends as usual.
+// Once the owner lets it go on, the work is dispatched again: a job left in flight would keep it from any step for good.
+#[test]
+fn a_step_whose_thread_panics_pauses_its_work_and_lets_it_go_on_later() {
+    let panicking = Arc::new(AtomicI64::new(0));
+    let p = panicking.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |r: &Request, _: usize| {
+            if r.work == p.load(Ordering::SeqCst) {
+                panic!("a scripted fault in the agent's round");
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (s, mut e, said, first, second) = two_works_with("panic-in-a-step", agents, Hooks::default());
+    e.tick().unwrap();
+    let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    panicking.store(a, Ordering::SeqCst);
+    let paused = turns_until(&mut e, &Go::default(), |e| {
+        paused_by(e, a).is_some()
+            && !e.in_flight().contains(&a)
+            && transitions_at(e, b, "R1").iter().any(Option::is_some)
+    });
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(paused, "{log}");
+    let why: Option<String> =
+        e.db.conn()
+            .query_row("SELECT paused FROM works WHERE id = ?1", [a], |r| r.get(0))
+            .unwrap();
+    assert_eq!(paused_by(&e, a).as_deref(), Some("engine"), "{log}");
+    assert!(
+        why.as_deref()
+            .is_some_and(|w| w.contains("a scripted fault in the agent's round")),
+        "{why:?}\n{log}"
+    );
+    assert_eq!(open_rounds(&e, a), 0, "{log}");
+    assert!(e.in_flight().is_empty(), "{log}");
+    // The paused work holds no slot: the other holds one of the two at most.
+    assert!(e.free_slots().unwrap() >= 1, "{log}");
+    // The owner lets it go on: its next round of `R1` runs and ends.
+    panicking.store(0, Ordering::SeqCst);
+    api::resume(&mut e.db, a).unwrap();
+    let again = turns_until(&mut e, &Go::default(), |e| {
+        transitions_at(e, a, "R1").iter().any(Option::is_some)
+    });
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(again, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Step of a work whose step is under way waits until that step has ended: the loop's turn meanwhile
+// dispatches no second step of the work and leaves the Step asked, so that the step under way ends as a step of its
+// own and the work is not paused by it; the turn after takes the owner's round, after which the owner holds the work
+// paused.
+#[test]
+fn the_owner_s_step_of_a_work_whose_step_runs_waits_until_that_step_ends() {
+    let s = setup("step-beside-a-step");
+    let hold = Gate::default();
+    let h = hold.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            if n == 1 {
+                h.pass();
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    hold.shut();
+    let came = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(came, "{log}");
+    let work = state(&e, item).unwrap().0;
+    // The round of `R1` under way is among them.
+    let rounds = rounds_after(&e, work, 0).0;
+    let step = Go {
+        pause: held_but(&[], &[]),
+        steps: vec![work],
+        ..Go::default()
+    };
+    let taken = e.dispatch(&step).unwrap();
+    assert!(taken.is_empty(), "{taken:?}\n{log}");
+    assert!(e.in_flight().contains(&work), "{log}");
+    hold.open();
+    let reaped = e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let mine: Vec<&Stepped> = reaped.iter().filter(|s| s.work == Some(work)).collect();
+    assert_eq!(mine.len(), 1, "{reaped:?}\n{log}");
+    assert_eq!(mine[0].asked, None, "{reaped:?}\n{log}");
+    assert_eq!(transitions_at(&e, work, "R1").len(), 1, "{log}");
+    assert_eq!(rounds_after(&e, work, 0).0, rounds, "{log}");
+    assert_eq!(paused_by(&e, work), None, "{log}");
+    // The Step, still asked, is the next turn's: one round, and the work is the owner's, paused.
+    let p = e.pass(&step).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let asked = asked_in(&p, &Ask::Work(work));
+    assert_eq!(asked.work, Some(work), "{p:?}\n{log}");
+    assert_eq!(rounds_after(&e, work, 0).0, rounds + 1, "{p:?}\n{log}");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner cancels a work's item while its agent's round runs: the cancel ends the work and cuts the round off at
+// once. The step under way, as the round's call returns, takes nothing of what it handed in and keeps only what it
+// cost on the round; the work and its rounds otherwise stay as the cancel left them, and the loop neither pauses the
+// work nor dispatches it again.
+#[test]
+fn a_work_whose_item_is_cancelled_during_its_agent_s_round_takes_nothing_of_the_round() {
+    let s = setup("cancel-in-a-round");
+    let hold = Gate::default();
+    let h = hold.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            if n == 1 {
+                h.pass();
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    hold.shut();
+    let came = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(came, "{log}");
+    let work = state(&e, item).unwrap().0;
+    assert_eq!(open_rounds(&e, work), 1, "{log}");
+    let projects = e.config.config.projects.clone();
+    e.db.write(Actor::Owner, |tx| {
+        engine::ending::cancel_item(tx, item, "no longer needed", "owner", &projects).map_err(db::Error::Abort)
+    })
+    .unwrap();
+    let rows = |e: &Engine| -> Vec<Value> {
+        let mut out = engine::query_json(
+            e.db.conn(),
+            "SELECT at, ended, paused, paused_by FROM works WHERE id = ?1",
+            &[&work],
+            10,
+        )
+        .unwrap();
+        out.extend(
+            engine::query_json(
+                e.db.conn(),
+                "SELECT n, cell, ended_at, output, transition, rejected FROM rounds WHERE work = ?1 ORDER BY n",
+                &[&work],
+                1000,
+            )
+            .unwrap(),
+        );
+        out
+    };
+    let cancelled = rows(&e);
+    assert!(!cancelled[0]["ended"].is_null(), "{cancelled:?}");
+    assert_eq!(open_rounds(&e, work), 0, "{log}");
+    hold.open();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(rows(&e), cancelled, "{log}");
+    // What the round cost is kept on it.
+    let cost: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT usage FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(cost.is_some(), "{log}");
+    e.dispatch(&Go::default()).unwrap();
+    assert!(!e.in_flight().contains(&work), "{log}");
+    e.drain().unwrap();
+    assert_eq!(rows(&e), cancelled, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
