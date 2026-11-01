@@ -12402,14 +12402,14 @@ fn a_round_whose_step_was_dispatched_before_a_halt_does_not_start() {
     let (s, mut e, said, first, second) = two_works_with("halt-before-a-round", agents, hooks);
     // The first pass starts both works; the next dispatches the round of `R1` of each.
     e.tick().unwrap();
-    let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    let b = state(&e, second).unwrap().0;
     stop.shut();
     held.store(b, Ordering::SeqCst);
     // The second's round starts a new session, as the owner may ask, whose opening is its step's first write.
     e.sessions().ask_new(api::Fresh::Work(b));
     e.dispatch(&Go::default()).unwrap();
     let until = Instant::now() + Duration::from_secs(10);
-    while !(stop.came() > 0 && e.halt().is_some() && !e.in_flight().contains(&a)) && Instant::now() < until {
+    while !(stop.came() > 0 && e.halt().is_some()) && Instant::now() < until {
         std::thread::sleep(Duration::from_millis(5));
     }
     let log = said.lock().unwrap().join("\n");
