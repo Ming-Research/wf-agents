@@ -36,7 +36,7 @@ const WAITING_ON_IT: &str = "('engineer_question', 'failure', 'design_card')";
 /// Ends a work: the only place a work's end is written. Its matters that wait on it leave the architect's queue,
 /// withdrawn, saying why. A work stopped before its end records why; a round of it still open, a question that waits
 /// or a round the engine was cut off in, is cut off saying why, and a round that was running when the work ended hands
-/// in nothing (`steps::agent`); its design cards are replaced, since the owner can no longer rule on them, and its asks
+/// in nothing (`steps::agent`); its decision cards are replaced, since the owner can no longer rule on them, and its asks
 /// of the owner still open need no answer. A work of the engineer's graph then lets go of what it held: its sessions
 /// end; unless a new work takes them over, its worktree is removed and, when it has a pull request that did not merge,
 /// the pull request is closed with a comment that its work ended without merging, while a work done at its end had its
@@ -157,14 +157,13 @@ fn withdraw_matters(tx: &Transaction<'_>, work: i64, why: Option<&str>) -> Resul
     Ok(())
 }
 
-/// `replace_design_cards`: the owner can no longer rule on the work's design cards, nor the architect look at them.
+/// `replace_design_cards`: the owner can no longer rule on the work's decision cards.
 fn replace_design_cards(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
     tx.execute(
-        "UPDATE design_cards SET status = 'replaced' WHERE status <> 'replaced' AND work = ?1",
+        "UPDATE design_cards SET status = 'replaced' WHERE status IN ('open', 'ruled') AND work = ?1",
         [work],
     )
     .map_err(sql)?;
-    db::withdraw_card_looks(tx, work).map_err(sql)?;
     Ok(())
 }
 
@@ -337,7 +336,7 @@ mod tests {
     /// Project p as the configuration has it: where its checkout and repository are.
     fn projects() -> BTreeMap<String, config::Project> {
         let p: config::Project = serde_json::from_value(json!({
-            "repo": "o/p", "checkout": "/checkout", "design_goal": "simple", "design_paths": ["design/"],
+            "repo": "o/p", "checkout": "/checkout", "design_goal": "simple",
             "test_paths": ["tests/"], "ci": { "fast": "ci", "full": ["ci"], "merge_checks": ["check"] }
         }))
         .unwrap();
@@ -345,7 +344,7 @@ mod tests {
     }
 
     /// An item of project p and a work on it at a cell, with its worktree and pull request, a round at that cell still
-    /// open, a session going on, an ask of the owner, a design card, a question to the architect and a side report;
+    /// open, a session going on, an ask of the owner, a decision card, a question to the architect and a side report;
     /// gives the item and the work.
     fn a_work(tx: &Transaction<'_>, title: &str, at: &str, pr: i64) -> Result<(i64, i64), db::Error> {
         tx.execute(
@@ -376,7 +375,7 @@ mod tests {
             [work],
         )?;
         tx.execute(
-            "INSERT INTO design_cards (work, round, body, status) VALUES (?1, 1, '[]', 'open')",
+            "INSERT INTO design_cards (work, round, key, body, status) VALUES (?1, 1, 'k', '{}', 'open')",
             [work],
         )?;
         for kind in ["engineer_question", "report"] {
@@ -416,7 +415,7 @@ mod tests {
     }
 
     // A cancelled item's work lets go of all it held: its round open is cut off, its sessions end, its ask of the owner
-    // needs no answer, its design card is replaced, its question to the architect leaves the queue while its side
+    // needs no answer, its decision card is replaced, its question to the architect leaves the queue while its side
     // report stays, and its worktree's removal and its pull request's closing, saying why, are queued; its branch stays.
     #[test]
     fn a_cancelled_item_s_work_lets_go_of_all_it_held() {

@@ -147,7 +147,7 @@ Decision unmeasured-slowdown-column: The column of a measured slowdown, when not
 
 Rests on: C:efficient, D:unverified-column-decided
 
-Decision review-card-ci-inputs: The table review and the check of the code against the records are given the work's design card as it stands, its latest, and the earlier cards it replaced by number only, and the latest run of the fast CI, of the full CI on the draft and of the tests on the code before the change, each with the head it ran on, its result and the links to its runs, instead of every design card of the work in full and no CI, because a replaced card is history they need not judge, and their columns ask whether the evidence comes from the head to be merged, which each review spent a round of tools finding.
+Decision review-card-ci-inputs: The table review and the check of the code against the records are given the work's decision cards as they stand, each with the records it revises and the earlier versions of its key by number only, and the latest run of the fast CI, of the full CI on the draft and of the tests on the code before the change, each with the head it ran on, its result and the links to its runs, instead of every card of the work in full and no CI, because a replaced card is history they need not judge, and their columns ask whether the evidence comes from the head to be merged, which each review spent a round of tools finding.
 
 Rests on: C:efficient, C:information, F:review-finds-head
 

@@ -66,3 +66,4 @@ Fact wrong-change-reason-resent: An agent told it made a change it did not make 
 
 Fact db-only-copy: The database is one SQLite file in the data directory, whose `db/` directory git leaves out; nothing else holds the items, rounds, observations and conversations, and a migration changes the file in place.
 
+Fact branch-gone: A work's worktree is removed when the work ends, and its branch may be deleted once it merges.

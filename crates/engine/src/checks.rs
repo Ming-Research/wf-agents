@@ -10,7 +10,7 @@
 //! cited files are checked to exist, not to be in the diff; a table of findings is checked for one answer per id;
 //! a red check said not to be caused by the change is taken as written when main's checks cannot be read; a ruling
 //! said to be the advisor's, or the architect's or the owner's in its place, is taken as written once the advisor was
-//! asked; and a decision copied from a parent's design card is not compared with it.
+//! asked.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -112,7 +112,7 @@ fn items(v: Option<&Value>) -> Vec<Value> {
 }
 
 impl Ctx<'_> {
-    /// Whether the owner ruled on a design card of the item, disagreeing with a decision, since its acceptance was
+    /// Whether the owner ruled on a decision card of the item, disagreeing with a decision, since its acceptance was
     /// locked: the design that follows such a ruling writes the acceptance it needs, which the engine locks after
     /// design.
     fn ruled_since_locked(&self) -> Result<bool, String> {
@@ -176,8 +176,8 @@ impl Ctx<'_> {
     }
 
     fn design(&self, files: &[String]) -> Vec<String> {
-        let paths = self.project.map(|p| p.design_paths.as_slice()).unwrap_or_default();
-        files.iter().filter(|f| git::under(f, paths)).cloned().collect()
+        let paths = self.project.map(config::Project::design_paths).unwrap_or_default();
+        files.iter().filter(|f| git::under(f, &paths)).cloned().collect()
     }
 
     /// Where the attempts of this cell that came just before this round, each sent back, cut off or failed, began: the
@@ -339,55 +339,84 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 _ => Ok(()),
             }
         }
-        "design_card_matches_tree" => {
-            let Some(card) = v else { return Ok(()) };
-            let wt = c.wt()?;
-            let changed = c.branch_changes()?;
-            let tree = c.design(&changed);
-            if c.item()?.deliver == "report" {
-                return fail("a report can only answer unchanged");
-            }
-            if tree.is_empty() {
-                return fail("the design paths did not change on the branch");
-            }
-            let dirty = c.design(&git::changed_since(wt, "HEAD")?);
-            if !dirty.is_empty() {
-                return fail(format!(
-                    "changes to the design paths are not committed: {}",
-                    dirty.join(", ")
-                ));
-            }
-            let in_node = |node: &str, f: &str| {
-                let n = node.trim_end_matches('/');
-                f == n || f.starts_with(&format!("{n}/"))
+        // The records are the design's: after it, the work changes none of its own, in any round, a round that ran
+        // tools included; what main brought by a merge is main's.
+        "records_unchanged_since_design" => {
+            let designed = c
+                .accepted("D4")?
+                .first()
+                .and_then(|r| r.input["engine"]["head_after"].as_str().map(str::to_string));
+            let base = match designed {
+                Some(h) => h,
+                None => c.fork()?,
             };
-            let mut nodes = Vec::new();
-            for d in items(Some(card)) {
-                if d.get("carried_by").is_some() {
-                    continue;
+            let changed = c.design(&c.own(&base, "HEAD")?);
+            let loose = c.design(&git::changed_since(c.wt()?, "HEAD")?);
+            let all: BTreeSet<&String> = changed.iter().chain(&loose).collect();
+            if all.is_empty() {
+                Ok(())
+            } else {
+                fail(format!(
+                    "the records changed since the design ({}): a change to them goes back to derive again; undo it \
+                     and hand in records_must_change",
+                    all.into_iter().cloned().collect::<Vec<_>>().join(", ")
+                ))
+            }
+        }
+        "cards_match_records" => {
+            let Some(tree) = v else { return Ok(()) };
+            let verdict = tree["verdict"].as_str().unwrap_or_default();
+            let wt = c.wt()?;
+            let fork = c.fork()?;
+            let changed = git::changed(wt, &fork, "HEAD")?;
+            let in_records = c.design(&changed);
+            if verdict != "unchanged" {
+                if c.item()?.deliver == "report" {
+                    return fail("a report can only answer unchanged");
                 }
-                let node = d["node"].as_str().unwrap_or_default().to_string();
-                if !tree.iter().any(|f| in_node(&node, f)) {
+                if in_records.is_empty() {
+                    return fail("the records did not change on the branch");
+                }
+                let dirty = c.design(&git::changed_since(wt, "HEAD")?);
+                if !dirty.is_empty() {
                     return fail(format!(
-                        "the design card has a decision in {node}, which did not change on the branch"
+                        "changes to the records are not committed: {}",
+                        dirty.join(", ")
                     ));
                 }
-                nodes.push(node);
-            }
-            if let Some(f) = tree.iter().find(|f| !nodes.iter().any(|n| in_node(n, f))) {
+                if verdict == "design_paths_only" {
+                    let outside: Vec<&String> = changed.iter().filter(|f| !in_records.contains(f)).collect();
+                    if !outside.is_empty() {
+                        return fail(format!(
+                            "design_paths_only, but files outside the records changed: {outside:?}"
+                        ));
+                    }
+                }
+            } else if !in_records.is_empty() {
                 return fail(format!(
-                    "{f} changed on the branch, and no decision on the design card is in it"
+                    "unchanged, but the branch changed the records: {}",
+                    in_records.join(", ")
                 ));
             }
-            if at.is_some_and(|a| a.contains("design_paths_only")) {
-                let outside: Vec<&String> = changed.iter().filter(|f| !tree.contains(f)).collect();
-                if !outside.is_empty() {
-                    return fail(format!(
-                        "design_paths_only, but files outside the design paths changed: {outside:?}"
-                    ));
-                }
-            }
-            Ok(())
+            let revised = match &c.project()?.records {
+                Some(r) => crate::reasoning::revised(wt, &fork, "HEAD", &r.root)?,
+                None => Default::default(),
+            };
+            let cards = items(tree.get("cards"));
+            let edits = items(tree.get("edits"));
+            let withdrawn = items(at_path(&c.unwrapped, "withdrawn").as_ref());
+            let solution = at_path(&c.unwrapped, "design.solution")
+                .and_then(|s| s.as_str().map(str::to_string))
+                .unwrap_or_default();
+            let current = crate::cards::current(c.e.db.conn(), c.w.id)?;
+            let earlier = crate::cards::chosen_elsewhere(c.e.db.conn(), c.item()?.id, c.w.id)?;
+            let handed = crate::cards::Handed {
+                cards: &cards,
+                edits: &edits,
+                withdrawn: &withdrawn,
+                solution: &solution,
+            };
+            crate::cards::check(&handed, &revised, &current, &earlier).or_else(fail)
         }
         "acceptance_matches_locked" => {
             let given = items(v);
@@ -407,53 +436,6 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 ),
                 _ => Ok(()),
             }
-        }
-        "chosen_matches_ruling" => {
-            let chosen = v.and_then(Value::as_str).unwrap_or_default();
-            let cards = work::query_json(
-                c.e.db.conn(),
-                "SELECT c.body, c.rulings FROM design_cards c JOIN works w ON w.id = c.work WHERE w.item = ?1
-                 ORDER BY c.id DESC",
-                &[&c.item()?.id],
-                100,
-            )?;
-            // The owner's last ruling, on the latest design card the owner ruled on.
-            let Some((body, ruling)) = cards.iter().find_map(|x| {
-                items(Some(&x["rulings"]))
-                    .into_iter()
-                    .rev()
-                    .find(|r| r["by"] == "owner")
-                    .map(|r| (items(Some(&x["body"])), r))
-            }) else {
-                return Ok(());
-            };
-            let verdicts = db::ruling_verdicts(&ruling);
-            // A ruling on the card as a whole, made before rulings were per decision: its approach is the design's.
-            if let [(0, _, Some(o))] = verdicts.as_slice() {
-                return if o != chosen {
-                    fail(format!(
-                        "the owner chose \"{o}\" in a ruling on the design card; that is the approach chosen"
-                    ))
-                } else {
-                    Ok(())
-                };
-            }
-            // Each decision the owner chose another approach for chooses it on the new design card, in the same node.
-            let card = items(at_path(&c.unwrapped, "design_tree.design_card").as_ref());
-            for (k, _, o) in &verdicts {
-                let Some(o) = o else { continue };
-                let node = body
-                    .get((*k - 1).max(0) as usize)
-                    .and_then(|d| d["node"].as_str())
-                    .unwrap_or_default();
-                if !card.iter().any(|d| d["node"] == node && d["chosen"] == o.as_str()) {
-                    return fail(format!(
-                        "the owner chose \"{o}\" for decision {k} of the design card ({node}): the new design card's \
-                         decision in that node chooses it"
-                    ));
-                }
-            }
-            Ok(())
         }
         "head_pushed_and_green" => {
             let wt = c.wt()?;
@@ -500,8 +482,8 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                     }
                 }
                 "design_paths_only" => {
-                    let paths = &c.project()?.design_paths;
-                    let outside: Vec<&String> = changed.iter().filter(|f| !git::under(f, paths)).collect();
+                    let paths = c.project()?.design_paths();
+                    let outside: Vec<&String> = changed.iter().filter(|f| !git::under(f, &paths)).collect();
                     if outside.is_empty() {
                         Ok(())
                     } else {
@@ -649,46 +631,6 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 }
             }
             Ok(())
-        }
-        "design_card_when_tree_changed" => {
-            let card = values::design_card(c.e, c.w)?;
-            let base = match card.and_then(|k| k.head) {
-                Some(h) => h,
-                None => c.fork()?,
-            };
-            let tree = c.design(&c.own(&base, "HEAD")?);
-            match (tree.is_empty(), v.is_some()) {
-                (false, false) => fail(format!(
-                    "the design paths changed since the last design card ({}): hand in the new design card",
-                    tree.join(", ")
-                )),
-                (true, true) => fail("the design paths did not change since the last design card: hand in none"),
-                _ => Ok(()),
-            }
-        }
-        "design_card_changed_when_replacing" => {
-            // The design card it says what changed of sits beside it, under the card's own name.
-            let card_at = at.map(|a| a.trim_end_matches("_changed")).unwrap_or_default();
-            let card = at_path(&c.unwrapped, card_at);
-            let said = v.is_some_and(|x| x.as_str().is_none_or(|s| !s.trim().is_empty()));
-            let before: i64 =
-                c.e.db
-                    .conn()
-                    .query_row("SELECT count(*) FROM design_cards WHERE work = ?1", [c.w.id], |r| {
-                        r.get(0)
-                    })
-                    .map_err(|e| e.to_string())?;
-            match (card.is_some(), said, before > 0) {
-                (false, true, _) => fail("what changed is said only with a design card"),
-                (true, false, true) => fail(
-                    "this design card replaces this work's earlier design card: say in design_card_changed what \
-                     changed from it and why",
-                ),
-                (true, true, false) => {
-                    fail("this is the work's first design card and replaces none: leave design_card_changed out")
-                }
-                _ => Ok(()),
-            }
         }
         "tests_only" => {
             let Some(from) = c.w.pushed_head.clone() else {
@@ -1006,10 +948,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         "design_card_disagreement_redirects" | "card_disagreement_redirects" => {
             let disagreed = c.interjections.iter().any(|i| {
                 let t = i["text"].as_str().unwrap_or_default();
-                t.starts_with(DESIGN_CARD_RULING) && t.contains("disagree")
+                t.starts_with(db::CARD_RULING) || (t.starts_with(DESIGN_CARD_RULING) && t.contains("disagree"))
             });
             if disagreed && v.is_some() {
-                fail("this round's interjections disagree with the design card: hand in redirect, not answers")
+                fail(
+                    "this round's interjections choose another option on a decision card or disagree with one: hand in redirect, not answers",
+                )
             } else {
                 Ok(())
             }

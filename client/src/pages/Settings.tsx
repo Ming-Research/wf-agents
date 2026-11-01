@@ -443,7 +443,6 @@ function Project({
             { label: t('settings_repo'), value: <Name>{p.repo}</Name> },
             { label: t('settings_checkout'), value: <Name>{p.checkout}</Name> },
             { label: t('settings_main'), value: <Name>{p.main}</Name> },
-            { label: t('settings_design_paths'), value: <Codes list={p.design_paths} /> },
             { label: t('settings_test_paths'), value: <Codes list={p.test_paths} /> },
             {
               label: t('settings_records'),

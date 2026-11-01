@@ -106,7 +106,7 @@ function Timeline({ u, gaps }: { u: UsageData; gaps: Gap[] }) {
 }
 
 /// What the record shows the works waited on, with when it ended: each answer to an ask of the owner and each ruling
-/// on a design card.
+/// on a decision card.
 function waits(works: WorkDetail[]): Array<{ at: number; what: string }> {
   const out: Array<{ at: number; what: string }> = [];
   for (const d of works) out.push(...waitsOf(d));

@@ -274,7 +274,7 @@ pub fn system(conn: &Connection, flows: &Flows, ask: &SystemAsk<'_>) -> Result<S
                    r.started_at))
                  FROM owner_asks a JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.answer IS NULL",
             )?,
-            // A design card waits from the end of the round that handed it in.
+            // A decision card waits from the end of the round that handed it in.
             design_cards: waiting(
                 conn,
                 "SELECT count(*), min(coalesce(r.ended_at, r.started_at))

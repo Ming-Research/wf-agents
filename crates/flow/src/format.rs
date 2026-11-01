@@ -256,7 +256,7 @@ pub struct Flow {
     /// What every gate shares. A gate is an agent's cell that asks one question whose yes is a matter to ask about.
     pub gate: Option<Gate>,
     pub nodes: Vec<Node>,
-    /// The rules for the design card, as the owner reads them.
+    /// The rules for the decision card, as the owner reads them.
     #[serde(rename = "designCard", default)]
     pub design_card: Vec<String>,
     /// What the owner or the architect says to a running work, and who may.

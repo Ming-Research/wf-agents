@@ -518,6 +518,7 @@ function Spend({ s }: { s: SystemData }) {
                         cell: c.cell,
                         project: null,
                         ref: null,
+                        snapshot: null,
                         from: null,
                       })}
                     >

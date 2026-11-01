@@ -35,7 +35,6 @@ const PROJECT: &str = r#"
 repo = "o/p"
 checkout = "/tmp/p"
 design_goal = "simple"
-design_paths = ["design/"]
 test_paths = ["tests/"]
 rules = ["ground"]
 [ci]

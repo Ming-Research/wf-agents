@@ -73,7 +73,8 @@ import {
 import { layStores, storeLinks, storeUses } from './graph/stores';
 import { connect, named, REOPEN_MS } from './live';
 import { parse as parseMarkdown } from './markdown';
-import { currentCard, firstSentence, pickApproach, verdictLine, verdictReady, type Verdict } from './pages/Decide';
+import { anchored } from './item/Shapes';
+import { askedTo, cardOfKey, cardRuling, currentCard, firstSentence } from './pages/Decide';
 import {
   closedWhy,
   conversationTitle,
@@ -159,7 +160,7 @@ describe('the message catalog', () => {
 
 describe('the addresses', () => {
   it('read back what they write', () => {
-    const flow = { page: 'flow' as const, version: null, graph: null, cell: null, project: null, ref: null, from: null };
+    const flow = { page: 'flow' as const, version: null, graph: null, cell: null, project: null, ref: null, snapshot: null, from: null };
     const work = { page: 'work' as const, id: 3, round: null, cell: null, tab: 'rounds' as const, only: null };
     const routes: Route[] = [
       { page: 'works' },
@@ -181,6 +182,7 @@ describe('the addresses', () => {
       flow,
       { ...flow, version: 2, from: 1 },
       { ...flow, project: 'p', ref: 'wf-agents/12-x', from: 1, graph: 'engineer', cell: 'I1' },
+      { ...flow, snapshot: 3, from: 2 },
     ];
     for (const r of routes) {
       const at = href(r);
@@ -698,7 +700,7 @@ const engine: EngineNames = {
   values: { gates: 'Whether the gates are clear.' },
   needs: {},
   stores: {
-    cards: { title: 'Design cards', desc: 'The cards', layer: 'round', relations: ['design_cards'] },
+    cards: { title: 'Decision cards', desc: 'The cards', layer: 'round', relations: ['design_cards'] },
     queue: { title: "The architect's queue", desc: 'What waits', layer: 'project' },
     acceptance: { title: 'Locked acceptance', desc: 'What is locked', layer: 'item' },
     merged: { title: 'Merge record', desc: 'What merged', layer: 'item', computed: true },
@@ -987,7 +989,7 @@ describe('the chart of a flow', () => {
     expect(chart(graph, view).nodes.some((n) => n.kind === 'store')).toBe(false);
     // Each says the part of the flow its store is kept for.
     const cards = chip('s:cards:m');
-    expect(cards && chipText(cards, engine)).toEqual({ scope: 'work', title: 'Design cards' });
+    expect(cards && chipText(cards, engine)).toEqual({ scope: 'work', title: 'Decision cards' });
     // Laid out with the cell: on its left, under its rule; a read's line ends at the cell, a write's starts there.
     const owner = attachments(c.nodes, c.edges);
     expect(owner.get('s:cards:a')).toBe('c:a');
@@ -2043,7 +2045,6 @@ describe('the settings on the page', () => {
         repo: 'o/wf-agents',
         checkout: '/w',
         main: 'main',
-        design_paths: ['design/'],
         test_paths: ['tests/'],
         records: null,
         ci_fast: 'ci',
@@ -2149,38 +2150,39 @@ describe('the settings on the page', () => {
   });
 });
 
-describe('a ruling on a design card', () => {
-  const unset: Verdict = { verdict: null, text: '', option: '' };
-
-  it('is set decision by decision: the approach recommended confirms, another is chosen, and a second click clears', () => {
-    const chose = pickApproach(unset, 'B', 'A');
-    expect(chose).toEqual({ verdict: 'disagree', text: '', option: 'B' });
-    expect(verdictReady(chose)).toBe(true);
-    expect(pickApproach(chose, 'B', 'A')).toEqual(unset);
-    expect(pickApproach({ ...chose, text: 'Too slow.' }, 'B', 'A')).toEqual({ verdict: 'disagree', text: 'Too slow.', option: '' });
-    expect(pickApproach(chose, 'A', 'A')).toEqual({ verdict: 'confirm', text: '', option: '' });
-    expect(verdictReady({ verdict: 'disagree', text: ' ', option: '' })).toBe(false);
-    expect(verdictReady(unset)).toBe(false);
+describe('a ruling on a decision card', () => {
+  it('confirms the option recommended, chooses another picked on its boxes, or disagrees with words alone', () => {
+    expect(cardRuling('agree', '', 'A', '')).toEqual({ verdict: 'confirm' });
+    expect(cardRuling('agree', 'A', 'A', ' Fine. ')).toEqual({ verdict: 'confirm', text: 'Fine.' });
+    expect(cardRuling('agree', 'B', 'A', '')).toEqual({ verdict: 'choose', option: 'B' });
+    expect(cardRuling('agree', 'B', 'A', 'Cheaper.')).toEqual({ verdict: 'choose', option: 'B', text: 'Cheaper.' });
+    expect(cardRuling('disagree', '', 'A', 'None of these.')).toEqual({ verdict: 'disagree', text: 'None of these.' });
+    expect(cardRuling('disagree', '', 'A', ' ')).toBeNull();
+    expect(cardRuling('disagree', 'B', 'A', 'No.')).toBeNull();
   });
 
-  it('is summed up before sending, one line for each decision', () => {
-    expect(verdictLine(1, 'confirm', '', '')).toBe('Decision 1: confirm');
-    expect(verdictLine(2, 'disagree', 'B', 'One table is enough.')).toBe('Decision 2: disagree, choosing B: One table is enough.');
-    expect(verdictLine(3, 'disagree', '', 'No.')).toBe('Decision 3: disagree: No.');
-    expect(verdictLine(4, null, '', '')).toBe('Decision 4: not ruled yet');
+  it('asks about a card whoever is ticked: the architect, the engineer, both, or none while none is', () => {
+    expect(askedTo(['architect'])).toBe('architect');
+    expect(askedTo(['engineer'])).toBe('engineer');
+    expect(askedTo(['architect', 'engineer'])).toBe('both');
+    expect(askedTo([])).toBeNull();
   });
 
-  it('opens the current card, the one waiting for a ruling or else the newest not replaced, and folds the others', () => {
+  it('opens the current card, the one waiting for a ruling or else the newest ruled, and folds the others', () => {
     const card = (id: number, status: string): DesignCard => ({
       id,
       round: id,
       work: 9,
       item: 4,
+      key: `card-${id}`,
       status,
       body: [],
+      revision: [],
       rulings: [],
       replaced_by: null,
       replaced: null,
+      withdrawn: null,
+      flow: null,
       cell: null,
       title: null,
       at: null,
@@ -2190,10 +2192,43 @@ describe('a ruling on a design card', () => {
     });
     expect(currentCard([card(6, 'replaced'), card(7, 'ruled')])).toBe(7);
     expect(currentCard([card(6, 'ruled'), card(7, 'open')])).toBe(7);
-    expect(currentCard([card(6, 'replaced')])).toBeNull();
+    expect(currentCard([card(6, 'replaced'), card(8, 'withdrawn')])).toBeNull();
   });
 
-  it('titles each decision with its first sentence', () => {
+  it('stands in the design at its anchor: the current card of its key in the work that wrote the design', () => {
+    const card = (id: number, work: number, key: string, status: string): DesignCard => ({
+      id,
+      round: id,
+      work,
+      item: 4,
+      key,
+      status,
+      body: {},
+      revision: [],
+      rulings: [],
+      replaced_by: null,
+      replaced: null,
+      withdrawn: null,
+      flow: null,
+      cell: null,
+      title: null,
+      at: null,
+      replaces: null,
+      changed: null,
+      ruled_before: null,
+    });
+    const cards = [card(1, 9, 'red-run', 'replaced'), card(2, 9, 'red-run', 'open'), card(3, 8, 'red-run', 'ruled')];
+    expect(cardOfKey(cards, 9, 'red-run')?.id).toBe(2);
+    expect(cardOfKey([cards[0]!], 9, 'red-run')?.id).toBe(1);
+    expect(cardOfKey(cards, 9, 'other')).toBeNull();
+    expect(anchored('Why.\n\n[[card:red-run]]\n\nThen.\nSee [[card:x]] here.')).toEqual([
+      { text: 'Why.\n' },
+      { key: 'red-run' },
+      { text: '\nThen.\nSee [[card:x]] here.' },
+    ]);
+  });
+
+  it('titles each decision of a design card of before with its first sentence', () => {
     expect(firstSentence('Keep one table. It is simpler.')).toBe('Keep one table.');
     expect(firstSentence('v1.2 stays\nmore')).toBe('v1.2 stays');
     // Any sentence terminal Unicode names ends a sentence, as the interrobang does, with no space after it.
@@ -2301,7 +2336,7 @@ describe("the owner's conversations", () => {
     expect(party(entry('message', { sender: 'policy' }), 'policy')).toBe('architect');
   });
 
-  it("draws each entry in its voice, an ask where it was asked, the owner's reply in what it answers, and a design card in its stage's bubble", () => {
+  it("draws each entry in its voice, an ask where it was asked, the owner's reply in what it answers, and a decision card in its stage's bubble", () => {
     const d: ConversationDetail = {
       key: 'work:5',
       entries: [

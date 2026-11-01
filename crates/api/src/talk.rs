@@ -344,11 +344,11 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
         .collect();
     let mut design_cards = Vec::new();
     if let Some(work) = key.strip_prefix("work:").and_then(|w| w.parse::<i64>().ok()) {
-        // A design card is in the bubble of the stage that handed it in: its entry only counts what waits for the
+        // A decision card is in the bubble of the stage that handed it in: its entry only counts what waits for the
         // owner in the list.
         entries.retain(|e| e.source != "card");
         entries.extend(stage_cards(conn, flows, work)?);
-        // Every design card of the work that waits for the owner's ruling, whether or not the work waits on it yet, as
+        // Every decision card of the work that waits for the owner's ruling, whether or not the work waits on it yet, as
         // the list counts them: what the bar under the head pins.
         design_cards = read::design_cards(conn, flows, "WHERE c.status = 'open' AND c.work = ?1", &[work])?;
     }
@@ -749,7 +749,7 @@ fn as_it_stands(words: &str, text: &str) -> bool {
 /// that it is; once over, how it ended, with why it was sent back and what its reviews found, the pull request and the
 /// commit that merged the work, or why the work ended and the work that took it over; what its rounds said they did;
 /// what the engine told of the work meanwhile; what its rounds handed back that the flow shows on the item; and the
-/// design cards they handed in.
+/// decision cards they handed in.
 fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<ConversationEntry>> {
     type Found = (
         i64,

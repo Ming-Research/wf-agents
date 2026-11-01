@@ -16,7 +16,7 @@ import { Link } from '../route';
 import { t, tn } from '../text';
 import { byStage, progress, type Step } from './checklist';
 
-/// What the work waits for at the cell it is at, in words, with the design card or ask it waits on brought into view.
+/// What the work waits for at the cell it is at, in words, with the decision card or ask it waits on brought into view.
 function Waits({ d, w }: { d: ItemDetail; w: WorkSummary }) {
   const status = useStatus();
   const card = d.design_cards.find((c) => c.work === w.id && c.status === 'open');

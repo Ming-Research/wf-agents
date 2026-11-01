@@ -250,7 +250,7 @@ const go = (to: string) => (e: MouseEvent<HTMLAnchorElement> | KeyboardEvent<HTM
 };
 
 /// The bar: the views, the owner's conversations with how many things in them wait for the owner (the open blockers
-/// the owner holds, design cards not ruled, faults of wf-agents not read) in a red count and how many entries are
+/// the owner holds, decision cards not ruled, faults of wf-agents not read) in a red count and how many entries are
 /// unread in a grey one, the browser told of what newly waits, all in the conversations the list's buttons of a work's
 /// states show, so that no count is of something the list hides; and how the engine stands with the switch of every
 /// work.

@@ -15,12 +15,13 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Architect, ArchitectRounds, ArchitectWork, DesignCard, DispatchHold, FlowVersion, FlowView, Handled, HandledAction,
-    InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange,
-    LinkedItem, Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation, ObservationChange,
-    OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement,
-    RoundConditional, RoundDetail, RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound,
-    Session, Shown, Tag, TokenCosts, ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
+    Architect, ArchitectRounds, ArchitectWork, CardFlow, DesignCard, DispatchHold, FlowSnapshot, FlowVersion, FlowView,
+    Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items,
+    KeptFile, LevelChange, LinkedItem, Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation,
+    ObservationChange, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow,
+    ProjectObservations, Replacement, RoundConditional, RoundDetail, RoundImage, RoundInput, RoundOutcome,
+    RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts, ToolRun, Waits, WorkDetail, WorkSession,
+    WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -274,9 +275,9 @@ fn waiting_row<'r>(cell: Option<&CompiledCell>, rounds: &'r [Light]) -> Option<&
 /// What a work waits for, as the engine judges it, read from the database alone, never from the kind of cell it is
 /// at: first from its open blocker, by who holds it: the owner's answer to the ask that stands for it, the reply of
 /// the architect that holds it (of the work's project or a related one, which is named) to its matter, the items it
-/// waits for, or the owner's ruling on its design card. A work of a flow version before blockers is read as then: the
+/// waits for, or the owner's ruling on its decision card. A work of a flow version before blockers is read as then: the
 /// owner's answer to the ask it put, at a cell that asks, or else the architect's reply to the matter it queued; at a
-/// row that waits, the items its item depends on that are not merged, then the owner's ruling on its design card
+/// row that waits, the items its item depends on that are not merged, then the owner's ruling on its decision card
 /// waiting for one, else the row. A paused work is said to wait too, so that the owner sees both.
 fn waits(conn: &Connection, w: &WorkRow, rounds: &[Light], g: Option<&CompiledGraph>) -> Result<Option<Waits>> {
     if w.ended.is_some() {
@@ -699,7 +700,7 @@ fn round_summary(r: &Row<'_>) -> rusqlite::Result<RoundSummary> {
     })
 }
 
-/// A design card, with the one that replaced it: the round that handed that one in, and that round's work.
+/// A decision card, with the one that replaced it: the round that handed that one in, and that round's work.
 const DESIGN_CARD: &str = "SELECT c.id, c.round, c.work, w.item, c.status, c.body, c.rulings, c.replaced_by,
        n.round, n.work, nr.cell, coalesce(nr.ended_at, nr.started_at), nw.flow_version, nw.graph, n.changed,
        cr.cell, coalesce(cr.ended_at, cr.started_at), w.flow_version, w.graph,
@@ -708,7 +709,8 @@ const DESIGN_CARD: &str = "SELECT c.id, c.round, c.work, w.item, c.status, c.bod
           SELECT p.id FROM design_cards p WHERE p.replaced_by = c.id
           UNION SELECT p.id FROM design_cards p JOIN before b ON p.replaced_by = b.id)
         SELECT max(p.id) FROM design_cards p JOIN before b ON b.id = p.id
-        WHERE EXISTS (SELECT 1 FROM json_each(p.rulings) x WHERE json_extract(x.value, '$.by') = 'owner'))
+        WHERE EXISTS (SELECT 1 FROM json_each(p.rulings) x WHERE json_extract(x.value, '$.by') = 'owner')),
+       c.key, c.revision, c.withdrawn, c.flow_snapshot, c.flow_in_force
 FROM design_cards c JOIN works w ON w.id = c.work
 LEFT JOIN rounds cr ON cr.work = c.work AND cr.n = c.round
 LEFT JOIN design_cards n ON n.id = c.replaced_by LEFT JOIN rounds nr ON nr.work = n.work AND nr.n = n.round
@@ -740,11 +742,18 @@ pub(crate) fn design_cards(conn: &Connection, flows: &Flows, filter: &str, args:
             round: r.get(1)?,
             work: r.get(2)?,
             item: r.get(3)?,
+            key: r.get(22)?,
             status: r.get(4)?,
             body: json(r.get(5)?).unwrap_or(Value::Null),
+            revision: json(r.get(23)?).unwrap_or(Value::Null),
             rulings: json(r.get(6)?).unwrap_or(Value::Null),
             replaced_by: by,
             replaced,
+            withdrawn: r.get(24)?,
+            flow: match (r.get::<_, Option<i64>>(25)?, r.get::<_, Option<i64>>(26)?) {
+                (Some(snapshot), Some(in_force)) => Some(CardFlow { snapshot, in_force }),
+                _ => None,
+            },
             cell: r.get(15)?,
             title: None,
             at: r.get(16)?,
@@ -1413,6 +1422,29 @@ pub fn compiled_flow(conn: &Connection, version: i64) -> Result<String> {
     .ok_or_else(|| Error::NotFound(format!("no flow version {version}")))
 }
 
+/// A flow a decision card carries, kept as a snapshot, compiled, as the database keeps it.
+pub fn snapshot_compiled(conn: &Connection, id: i64) -> Result<Compiled> {
+    let text: String = conn
+        .query_row("SELECT compiled FROM flow_snapshots WHERE id = ?1", [id], |r| r.get(0))
+        .optional()?
+        .ok_or_else(|| Error::NotFound(format!("no flow snapshot {id}")))?;
+    serde_json::from_str(&text).map_err(|e| Error::Failed(format!("flow snapshot {id}: {e}")))
+}
+
+/// A flow a decision card carries, with what the flow page shows of it: drawn from the database alone, so that it is
+/// shown after the branch it was taken from is merged or gone.
+pub fn flow_snapshot(conn: &Connection, id: i64) -> Result<FlowSnapshot> {
+    let compiled = snapshot_compiled(conn, id)?;
+    let digest: String = conn.query_row("SELECT digest FROM flow_snapshots WHERE id = ?1", [id], |r| r.get(0))?;
+    Ok(FlowSnapshot {
+        id,
+        version: version_of(conn, &digest)?,
+        digest,
+        view: view::view(&compiled),
+        compiled,
+    })
+}
+
 /// What the flow page shows of a stored flow version besides the flow itself.
 pub fn flow_view(conn: &Connection, flows: &Flows, version: i64) -> Result<FlowView> {
     let c = flows.get(conn, version)?;
@@ -1431,7 +1463,7 @@ pub fn inputs_now(conn: &Connection, config: &config::Config) -> Result<InputsNo
         .projects
         .iter()
         .map(|(name, p)| {
-            let guide = config::project_guide(&p.checkout, &p.design_paths, "");
+            let guide = config::project_guide(&p.checkout, &p.design_paths(), "");
             ProjectNow {
                 project: name.clone(),
                 settings: config::SETTINGS
@@ -1444,7 +1476,7 @@ pub fn inputs_now(conn: &Connection, config: &config::Config) -> Result<InputsNo
                     })
                     .collect(),
                 agents_md: guide["agents_md"].as_str().unwrap_or_default().to_string(),
-                design_tree: guide["design_tree"]
+                records: guide["records"]
                     .as_object()
                     .into_iter()
                     .flatten()
@@ -2015,7 +2047,8 @@ pub(crate) fn handling(conn: &Connection, work: i64) -> Result<Option<i64>> {
     Ok((open > 0).then_some(m))
 }
 
-/// The cells on a matter's path, whose rounds do what becomes of a matter.
+/// The cells on a matter's path, whose rounds do what becomes of a matter; `H6` looked at decision cards, for the
+/// matters of before.
 const PATH: [&str; 11] = ["H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "A3"];
 
 /// The first `why` a return says, looking through it in order: why a cell closed a matter with nothing else done.
@@ -2153,7 +2186,7 @@ pub(crate) fn matters_handled(conn: &Connection, project: &str) -> Result<Vec<Ha
 }
 
 /// The matters a project's architect has not handled: those in its queue, in the order they came; then those an ask of
-/// the owner holds. A place to set straight comes with the place, and a design card to look at with how the card
+/// the owner holds. A place to set straight comes with the place, and a decision card to look at with how the card
 /// stands.
 fn queue(conn: &Connection, project: &str) -> Result<Vec<Matter>> {
     let mut st = conn.prepare(
@@ -2167,7 +2200,7 @@ fn queue(conn: &Connection, project: &str) -> Result<Vec<Matter>> {
            d.id, d.status, d.rulings, d.replaced_by
          FROM architect_matters m LEFT JOIN architect_queue q ON q.matter = m.id
          LEFT JOIN items i ON i.id = m.item LEFT JOIN works w ON w.id = m.work
-         LEFT JOIN design_cards d ON m.kind = 'design_card' AND d.id = json_extract(m.body, '$.design_card')
+         LEFT JOIN design_cards d ON d.id = json_extract(m.body, '$.design_card')
          WHERE m.project = ?1 AND m.handled_round IS NULL AND m.withdrawn IS NULL
          ORDER BY CASE WHEN q.matter IS NOT NULL THEN 0 ELSE 1 END, m.id",
     )?;
@@ -2978,18 +3011,18 @@ mod tests {
         assert_eq!(all.items[2].blocked_by, [2]);
     }
 
-    // A replaced design card names the one that replaced it, with the round that handed that one in, its cell and
+    // A replaced decision card names the one that replaced it, with the round that handed that one in, its cell and
     // when, and what that one's agent said changed and why.
     #[test]
     fn a_replaced_design_card_says_what_replaced_it() {
         let mut s = setup("replaced");
         s.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO design_cards (work, round, body, status) VALUES (1, 2, '[]', 'open')",
+                "INSERT INTO design_cards (work, round, key, body, status) VALUES (1, 2, 'card-1', '[]', 'open')",
                 [],
             )?;
             tx.execute(
-                "INSERT INTO design_cards (work, round, body, status, changed) VALUES (1, 3, '[]', 'open', 'Kept one table.')",
+                "INSERT INTO design_cards (work, round, key, body, status, changed) VALUES (1, 3, 'card-2', '[]', 'open', 'Kept one table.')",
                 [],
             )?;
             tx.execute(
@@ -3392,7 +3425,7 @@ mod tests {
     }
 
     // A work's group is a chat: what its members said, and the work's own bubble for each stage it entered, posted when
-    // it came in, in time order. It holds no notice of the engine's, no side report, no design card of its own and
+    // it came in, in time order. It holds no notice of the engine's, no side report, no decision card of its own and
     // nothing a helper told the owner. A stage the work came back to is a bubble of its own, counted; the merge's judge
     // sending the work straight back is no bubble but how the stage before it ended, with what its reviews found. The
     // stage the work is at now is a bubble with no outcome yet. A merge says its pull request and commit; a work taken
@@ -3472,7 +3505,7 @@ mod tests {
                 "INSERT INTO architect_matters (project, kind, what, body, item, work, round, at)
                  VALUES ('p', 'report', 'A side report', '{}', 2, 2, 10, 190)",
             )?;
-            run("INSERT INTO design_cards (work, round, body, status) VALUES (2, 6, '[]', 'open')")?;
+            run("INSERT INTO design_cards (work, round, key, body, status) VALUES (2, 6, 'card-1', '[]', 'open')")?;
             run(
                 "INSERT INTO engine_notices (work, text, at) VALUES
                  (2, 'Design card 1 of work 2 (item 2: Second) waits for your ruling; the architect looks at it too.', 160),
@@ -3537,10 +3570,10 @@ mod tests {
                 .map(|n| (n.round, n.line.as_deref(), n.text.as_deref())),
             Some((12, Some("review"), Some("The tree has a gap.")))
         );
-        // The design card is in the bubble of the stage that handed it in.
+        // The decision card is in the bubble of the stage that handed it in.
         assert_eq!(stage(1).design_cards.iter().map(|c| c.round).collect::<Vec<_>>(), [6]);
         // What the engine told of the work while it was at a stage is said on its bubble without naming the work; its
-        // pause is how it stands, and the design card waiting is pinned.
+        // pause is how it stands, and the decision card waiting is pinned.
         assert_eq!(
             stage(4).events,
             ["Passed the limit its project sets on fixes: 3 times, the limit 2. It goes on; look at it."]
@@ -3580,7 +3613,7 @@ mod tests {
             )
         );
         assert!(over.entries.iter().all(|e| e.source == "stage"));
-        // In the list, the design card waits; only the engineer's message to the owner is unread, not the side report,
+        // In the list, the decision card waits; only the engineer's message to the owner is unread, not the side report,
         // the notices or what the review told.
         let list = crate::conversations(s.db.conn(), &t).unwrap();
         let two = list.iter().find(|c| c.key == "work:2").unwrap();
@@ -4125,23 +4158,23 @@ mod tests {
         assert_eq!(read(&s, i64::MAX), (vec![], None));
     }
 
-    // A place to set straight comes into the queue with the place as the check of what runs found it, and a design card
-    // to look at with how the card stands; every other matter with neither.
+    // A place to set straight comes into the queue with the place as the check of what runs found it, and the owner's
+    // question about a decision card with how the card stands; every other matter with neither.
     #[test]
     fn the_queue_says_the_place_to_set_straight_and_how_a_card_stands() {
         let mut s = architect_setup("queue_words");
         s.db.write(Actor::Engine, |tx| {
             let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
             run(
-                "INSERT INTO design_cards (work, round, body, status, rulings)
-                 VALUES (1, 1, '{}', 'ruled', '[{\"by\":\"owner\",\"decisions\":[{\"decision\":1,\"verdict\":\"confirm\"}]}]')",
+                "INSERT INTO design_cards (work, round, key, body, status, rulings)
+                 VALUES (1, 1, 'card-1', '{}', 'ruled', '[{\"by\":\"owner\",\"decisions\":[{\"decision\":1,\"verdict\":\"confirm\"}]}]')",
                 &[],
             )?;
             run(
                 "INSERT INTO architect_matters (project, kind, detail, what, body, at) VALUES
                  ('p', 'set_straight', 'dependencies', 'Set #1 straight',
                   '{\"fix\":{\"where\":\"#1\",\"wrong\":\"It waits for #2.\",\"steps\":[\"Drop the link.\"]}}', 240),
-                 ('p', 'design_card', NULL, 'Look at card 1', '{\"design_card\":1}', 250)",
+                 ('p', 'owner_words', 'said', 'Why this way?', '{\"text\":\"Why this way?\",\"design_card\":1}', 250)",
                 &[],
             )?;
             Ok(())
@@ -4154,7 +4187,7 @@ mod tests {
             Some(json!({ "where": "#1", "wrong": "It waits for #2.", "steps": ["Drop the link."] }))
         );
         assert_eq!(fix.card, None);
-        let card = q.iter().find(|m| m.kind == "design_card").unwrap();
+        let card = q.iter().find(|m| m.what == "Why this way?").unwrap();
         assert_eq!(card.fix, None);
         assert_eq!(
             card.card,
@@ -4167,7 +4200,7 @@ mod tests {
         );
         assert!(
             q.iter()
-                .filter(|m| m.kind == "owner_words")
+                .filter(|m| m.kind == "owner_words" && m.what != "Why this way?")
                 .all(|m| m.fix.is_none() && m.card.is_none())
         );
     }

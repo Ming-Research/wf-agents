@@ -10,7 +10,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { AnswersHere, askAnswer, enterSends, handsBack, needsWords, pickAfter } from './answer';
+import { AnswersHere, askAnswer, CardTalk, enterSends, handsBack, needsWords, pickAfter } from './answer';
 import type {
   Architect,
   Conversation,
@@ -35,6 +35,7 @@ import { architectMark } from './architect';
 import { course, StateMark } from './components';
 import {
   asksApproval,
+  cardTalk,
   DRAFT_APPROVED,
   pinnedQuestions,
   pinsOf,
@@ -1113,7 +1114,7 @@ describe("a work's group as a chat", () => {
     const now = stage({ stage: 'merge', first: 72, last: 72, current: true, ended_at: null, outcome: null, notes: [] });
     const html = bubble(now, work());
     expect(html).toContain('<span class="talk-who">engineer</span><span class="talk-card-kind talk-about">Merge</span>');
-    expect(html).toContain('paused by you; then it waits for your ruling on design card 15 before it can merge');
+    expect(html).toContain('paused by you; then it waits for your ruling on decision card 15 before it can merge');
     // No cell's title or code: the rounds' link leads to the cell.
     expect(html).not.toContain('Judge whether it may enter the merge queue');
     expect(html).not.toMatch(/\bM1\b/);
@@ -1143,14 +1144,14 @@ describe("a work's group as a chat", () => {
   it('names every hold in the head in the order they act: the pause and why, then what it waits for once started', () => {
     const w = work();
     expect(holdsWords(course(w, null), w)).toBe(
-      'Kept as it is while the trial board moves to a new build. Once started, it is waiting for your ruling on design card 15.',
+      'Kept as it is while the trial board moves to a new build. Once started, it is waiting for your ruling on decision card 15.',
     );
     // The owner's pause with no reason of the owner's says only what follows.
     const bare = work({ paused: 'the owner paused it' });
-    expect(holdsWords(course(bare, null), bare)).toBe('Once started, it is waiting for your ruling on design card 15.');
+    expect(holdsWords(course(bare, null), bare)).toBe('Once started, it is waiting for your ruling on decision card 15.');
     // Nothing holds it: what it waits for alone.
     const waits = work({ state: 'waiting', paused: null, paused_by: null });
-    expect(holdsWords(course(waits, null), waits)).toBe('Waiting for your ruling on design card 15.');
+    expect(holdsWords(course(waits, null), waits)).toBe('Waiting for your ruling on decision card 15.');
     // The engine halted it: its own state, said as such.
     const halted = work({ state: 'halted', paused: 'cell T6: no return', paused_by: 'engine', waits: null });
     expect(nowWords(course(halted, null), halted)).toBe('halted: cell T6: no return');
@@ -1160,7 +1161,7 @@ describe("a work's group as a chat", () => {
     const line = (w: WorkSummary) => nowWords(course(w, null), w);
     const waiting = (waits: WorkSummary['waits'], stage = 'merge') =>
       line(work({ state: 'waiting', paused: null, paused_by: null, waits, stage }));
-    expect(waiting({ kind: 'ruling', design_card: 15 })).toBe('waiting for your ruling on design card 15 before it can merge');
+    expect(waiting({ kind: 'ruling', design_card: 15 })).toBe('waiting for your ruling on decision card 15 before it can merge');
     expect(waiting({ kind: 'items', items: [3, 4] })).toBe('waiting for items #3, #4 to be merged before it can merge');
     // Elsewhere the stage the bubble names is where it waits.
     expect(waiting({ kind: 'answer', ask: 7 }, 'design')).toBe('waiting for your answer to ask 7');
@@ -1178,7 +1179,7 @@ describe("a work's group as a chat", () => {
     expect(line(work({ state: 'ready', paused: null, paused_by: null, waits: null }))).toBe('its next round is due');
   });
 
-  it('draws every design card its rounds handed in folded in its stage, the one that waits for the owner too', () => {
+  it('draws every decision card its rounds handed in folded in its stage, the one that waits for the owner too', () => {
     const card = (id: number, status: string): DesignCard => ({
       id,
       round: 63,
@@ -1189,6 +1190,10 @@ describe("a work's group as a chat", () => {
       rulings: [],
       replaced_by: null,
       replaced: null,
+      key: `card-${id}`,
+      revision: [],
+      withdrawn: null,
+      flow: null,
       cell: null,
       title: null,
       at: null,
@@ -1213,7 +1218,7 @@ describe("a work's group as a chat", () => {
     expect(html).not.toContain('waiting for you above');
   });
 
-  it('says on a design card that waits that it changed since the card the owner ruled on, folded too', () => {
+  it('says on a decision card that waits that it changed since the card the owner ruled on, folded too', () => {
     const card: DesignCard = {
       id: 15,
       round: 63,
@@ -1224,6 +1229,10 @@ describe("a work's group as a chat", () => {
       rulings: [],
       replaced_by: null,
       replaced: null,
+      key: 'card-15',
+      revision: [],
+      withdrawn: null,
+      flow: null,
       cell: null,
       title: null,
       at: null,
@@ -1232,13 +1241,13 @@ describe("a work's group as a chat", () => {
       ruled_before: 12,
     };
     const html = renderToStaticMarkup(<DesignCardView c={card} round="R5-63" folded />);
-    expect(html).toContain('changed since your ruling on design card 12: confirm it again');
+    expect(html).toContain('changed since your ruling on decision card 12: rule on it again');
     const ruled = renderToStaticMarkup(<DesignCardView c={{ ...card, status: 'ruled' }} round="R5-63" folded />);
     expect(ruled).not.toContain('changed since your ruling');
   });
 });
 
-describe('a design card and an ask, where they stand said by the chip and the facts of the head alone', () => {
+describe('a decision card and an ask, where they stand said by the chip and the facts of the head alone', () => {
   const card = (extra: Partial<DesignCard>): DesignCard => ({
     id: 15,
     round: 63,
@@ -1256,6 +1265,10 @@ describe('a design card and an ask, where they stand said by the chip and the fa
     rulings: [],
     replaced_by: null,
     replaced: null,
+    key: 'card-15',
+    revision: [],
+    withdrawn: null,
+    flow: null,
     cell: null,
     title: null,
     at: null,
@@ -1271,7 +1284,7 @@ describe('a design card and an ask, where they stand said by the chip and the fa
   };
   const at = new Date(2026, 9, 30, 10, 40).getTime();
 
-  it('says in the head of a design card that waits that it blocks nothing until the work merges, with no band', () => {
+  it('says in the head of a decision card that waits that it blocks nothing until the work merges, with no band', () => {
     const [head, body] = parts(renderToStaticMarkup(<DesignCardView c={card({})} round="R5-63" />));
     expect(head).toContain('waits for you');
     expect(head).toContain('blocks nothing until the work merges');
@@ -1317,6 +1330,100 @@ describe('a design card and an ask, where they stand said by the chip and the fa
     expect(body.match(/Your ruling/g)?.length).toBe(1);
     expect(body.match(/>disagreed</g)?.length).toBe(2);
     expect(body).not.toContain('earlier ruling');
+  });
+
+  const decision = (extra: Partial<DesignCard>): DesignCard =>
+    card({
+      key: 'red-run',
+      body: {
+        key: 'red-run',
+        question: 'When a test fails, should the fast CI stop there or run every test to the end?',
+        options: [
+          { name: 'Run every test', does: 'Runs on.', cost: 'A red run is as long as a green one.', risks: 'None seen.' },
+          { name: 'Stop at the first', does: 'Stops.', cost: 'Nothing to build.', risks: 'A missing test is unseen.' },
+        ],
+        not_workable: [{ name: 'A workflow of its own', why: 'It repeats the setup.' }],
+        recommended: 'Run every test',
+        confidence: { level: '3', why: 'A green run showed it.', overturn: 'A red run split across jobs.' },
+        revises: ['D:red-run'],
+      },
+      revision: [{ reference: 'D:red-run', change: 'added', text: 'Decision red-run: Run every test, because ...' }],
+      ...extra,
+    });
+
+  it('draws a decision card as one question: its options as boxes, the recommended marked, the rest folded', () => {
+    const [head, body] = parts(renderToStaticMarkup(<DesignCardView c={decision({})} round="R5-63" />));
+    expect(head).toContain('Decision card 15');
+    expect(head).toContain('waits for you');
+    expect(body).toMatch(/<p class="dc-question">.*When a test fails/);
+    expect(body.match(/class="option-box[ "]/g)?.length).toBe(2);
+    expect(body).toMatch(/option-box recommended.*Run every test/);
+    expect(body).toContain('Considered, not workable (1)');
+    expect(body).toContain('3/5');
+    expect(body).toContain('Overturned if');
+    expect(body).toContain('Changes the records (1)');
+    expect(body).toContain('D:red-run');
+    // Read only outside where it is ruled; ruled in a conversation, with the owner's words and Confirm.
+    expect(body).not.toContain('card-rule');
+    expect(body).toContain('Rule on it in its conversation');
+    expect(head).toContain('class="dc decision-card waits"');
+    const here = renderToStaticMarkup(
+      <AnswersHere.Provider value={true}>
+        <DesignCardView c={decision({})} round="R5-63" />
+      </AnswersHere.Provider>,
+    );
+    expect(here).toContain('class="card-rule"');
+    expect(here).toContain('>Confirm<');
+    expect(here).toContain('>Disagree<');
+  });
+
+  it('shows on a ruled decision card the option the owner chose, and on a withdrawn one why', () => {
+    const chose = decision({
+      status: 'ruled',
+      rulings: [{ by: 'owner', at, verdict: 'choose', option: 'Stop at the first', text: 'Cheaper for now.' }],
+    });
+    const [head, body] = parts(renderToStaticMarkup(<DesignCardView c={chose} round="R5-63" />));
+    expect(head).toContain('>you chose another<');
+    expect(head).toContain('class="dc decision-card ruled"');
+    expect(body).toMatch(/Your ruling.*class="sheet"><p><strong>.*Stop at the first.*<\/strong><\/p>.*Cheaper for now\./);
+    const gone = decision({ status: 'withdrawn', withdrawn: 'The design no longer runs the tests twice.' });
+    const [goneHead, goneBody] = parts(renderToStaticMarkup(<DesignCardView c={gone} round="R5-63" />));
+    expect(goneHead).toContain('>withdrawn<');
+    expect(goneHead).toContain('class="dc decision-card old"');
+    expect(goneBody).toContain('The design no longer runs the tests twice.');
+  });
+
+  it('asks about a decision card that waits beside its ruling, and links it and the questions about it to each other', () => {
+    const here = renderToStaticMarkup(
+      <AnswersHere.Provider value={true}>
+        <DesignCardView c={decision({})} round="R5-63" />
+      </AnswersHere.Provider>,
+    );
+    expect(here).toContain('aria-label="Ask about decision card 15"');
+    expect(here).toMatch(/@architect.*@engineer.*>Ask</);
+    expect(here).not.toContain('class="dc-asked"');
+    // The owner's question and the architect's answer each name the card over their words.
+    const question = entry('interjection', { id: 7, sender: 'owner', recipient: 'architect', text: 'Why not stop?', at, design_card: 15 });
+    const answer = entry('message', { id: 8, sender: 'architect', text: 'Every test leaves a line.', at: at + 60_000, design_card: 15 });
+    const d = { ...detail([question, answer]), design_cards: [decision({})] };
+    const html = drawn(d);
+    expect(html.match(/class="talk-reply-strip talk-card-strip"/g)).toHaveLength(2);
+    expect(html).toContain('About decision card 15: When a test fails, should the fast CI stop there');
+    expect(html).toContain('data-entry="interjection-7"');
+    // The card, in the group, links to them.
+    const talk = { ...cardTalk(d), go: () => undefined };
+    const linked = renderToStaticMarkup(
+      <AnswersHere.Provider value={true}>
+        <CardTalk.Provider value={talk}>
+          <DesignCardView c={decision({})} round="R5-63" />
+        </CardTalk.Provider>
+      </AnswersHere.Provider>,
+    );
+    expect(linked).toMatch(/class="dc-asked".*Asked about it:.*your question, .*the answer, /);
+    expect(talk.asked.get(15)).toEqual([
+      { entry: 'interjection-7', at, answer: false },
+      { entry: 'message-8', at: at + 60_000, answer: true },
+    ]);
   });
 
   it("says in the head of an ask who answered and when, and shows the answer as the owner's words", () => {
@@ -1408,6 +1515,10 @@ describe('the bar of what waits for the owner', () => {
     rulings: [],
     replaced_by: null,
     replaced: null,
+    key: 'card-15',
+    revision: [],
+    withdrawn: null,
+    flow: null,
     cell: null,
     title: null,
     at: 1,
@@ -1421,7 +1532,7 @@ describe('the bar of what waits for the owner', () => {
     expect(pinsOf(d).map((p) => `${p.kind}-${p.id}`)).toEqual(['card-15', 'ask-4']);
     const html = bar(d);
     expect(html).toContain(
-      '<button type="button" class="talk-pinbar-line" title="Design card 15 waits for your ruling"><span class="talk-pinbar-count">1/2</span><span class="talk-pinbar-words">Design card 15 waits for your ruling</span></button>',
+      '<button type="button" class="talk-pinbar-line" title="Decision card 15 waits for your ruling"><span class="talk-pinbar-count">1/2</span><span class="talk-pinbar-words">Decision card 15 waits for your ruling</span></button>',
     );
     // The stream no longer has a band of its own.
     expect(drawn(d)).not.toContain('talk-pins');

@@ -127,7 +127,7 @@ fn kind_words(media_type: &str) -> String {
 }
 
 /// Whether a value is the project's own context, which a message gives before anything else: the project's guide (its
-/// AGENTS.md and design tree) and a setting of its configuration, such as its design goal.
+/// AGENTS.md and records) and a setting of its configuration, such as its design goal.
 fn project_own(o: &Origin) -> bool {
     matches!(o, Origin::Config(_)) || matches!(o, Origin::Engine(n) if n == GUIDE)
 }
@@ -295,7 +295,7 @@ impl Context<'_> {
                 let rows = p.value.as_array().cloned().unwrap_or_default();
                 match rel.as_str() {
                     "item_body" => rows.into_iter().map(|r| (format!("item:{}", r["item"]), r)).collect(),
-                    "item_design_cards" | "parent_design_cards" | "work_design_card" => rows
+                    "item_design_cards" | "parent_design_cards" | "work_design_cards" | "work_design_card" => rows
                         .into_iter()
                         .map(|r| (format!("design_card:{}", r["design_card"]), r))
                         .collect(),
@@ -318,10 +318,11 @@ impl Context<'_> {
                     "waiting_interjections" => rows
                         .into_iter()
                         .map(|r| {
-                            let text = format!(
-                                "From the {}: {}",
+                            let text = db::interjection_words(
                                 r["speaker"].as_str().unwrap_or("owner"),
-                                r["text"].as_str().unwrap_or_default()
+                                r["text"].as_str().unwrap_or_default(),
+                                r["design_card"].as_i64(),
+                                r["card_key"].as_str(),
                             );
                             let ids = r["interjection"]
                                 .as_i64()
@@ -669,7 +670,7 @@ impl Context<'_> {
         let why = self.why(&mut m, &interjections);
         let tasks = self.tasks(&mut m);
         // The columns of the cell's review table, given once in a session and after that as what changed in them: each
-        // review cell's its own, so that the table review's and the design tree review's, which one session goes
+        // review cell's its own, so that the table review's and the check against the records's, which one session goes
         // through in turn, are not each given as what changed in the other.
         let columns = (!self.columns.is_empty()).then(|| {
             let text: Vec<String> = self.columns.iter().map(|(id, col)| format!("{id}. {col}")).collect();

@@ -20,6 +20,7 @@ import type {
   WorkState,
   WorkSummary,
 } from './api';
+import type { CardAsked } from './answer';
 import { BACK_MARK, type Tone, WORK_MARK } from './components';
 import { ordinal } from './format';
 import { isObj, words } from './labelled';
@@ -102,7 +103,7 @@ export function conversationTitle(
 /// bubble of one line the engine writes from the flow in the voice of the agent whose doing it is (a stage a work
 /// entered, the engineer's; a matter of the architect's, a version of its plan or the policy as it took effect, the
 /// architect's); the page's own line for what the engine says in wf-agents' own conversation; a fault of wf-agents,
-/// which the owner marks read; or nothing, for a design card, which the bubble of the stage that handed it in holds.
+/// which the owner marks read; or nothing, for a decision card, which the bubble of the stage that handed it in holds.
 export type Voice = 'owner' | 'agent' | 'live' | 'system' | 'fault' | 'none';
 
 /// The lines that are members of a work's group besides the owner: its engineer and its project's architect.
@@ -185,7 +186,7 @@ export function ownerReplies(entries: ConversationEntry[]): Map<number, Conversa
 }
 
 /// What streams in a conversation, oldest first: everything but the owner's replies to what an engineer put to the
-/// architect, which show in the bubble they answer, and the design cards, which the bubble of the stage that handed them
+/// architect, which show in the bubble they answer, and the decision cards, which the bubble of the stage that handed them
 /// in holds. An ask and an architect's question stream where they were asked, waiting or answered, the owner's answer or
 /// reply in them; while one waits the bar over the stream leads to it.
 export function streamOf(d: ConversationDetail): ConversationEntry[] {
@@ -201,6 +202,32 @@ export const architectAsk = (a: OwnerAsk): boolean => isObj(a.body) && a.body.fr
 /// that wrote the draft put.
 export const asksApproval = (e: ConversationEntry, draft: PolicyDraft | null): boolean =>
   draft !== null && e.source === 'ask' && e.work === draft.work && e.round === draft.round;
+
+/// The decision cards of a conversation and the owner's questions about them: each card's question, by its number, as
+/// the stage bubbles and the cards that wait hold them; and, by card, the owner's questions about it and the answers,
+/// each by its entry, in the order they came.
+export function cardTalk(d: ConversationDetail): {
+  questions: Map<number, string>;
+  asked: Map<number, CardAsked[]>;
+} {
+  const questions = new Map<number, string>();
+  for (const c of [...d.design_cards, ...d.entries.flatMap((e) => e.stage?.design_cards ?? [])]) {
+    if (isObj(c.body) && typeof c.body.question === 'string') questions.set(c.id, c.body.question);
+  }
+  const asked = new Map<number, CardAsked[]>();
+  for (const e of d.entries) {
+    if (e.design_card === null || !aboutCard(e)) continue;
+    const list = asked.get(e.design_card) ?? [];
+    list.push({ entry: `${e.source}-${e.id}`, at: e.at, answer: e.sender !== 'owner' });
+    asked.set(e.design_card, list);
+  }
+  return { questions, asked };
+}
+
+/// Whether an entry is the owner's question about a decision card, or an answer to one: words said or an agent's
+/// message that name the card, not the card itself or a ruling on it.
+export const aboutCard = (e: ConversationEntry): boolean =>
+  e.design_card !== null && (e.source === 'interjection' || e.source === 'message');
 
 /// The questions an architect put to the owner that wait for the owner's reply, as entries of its one-to-one, in the
 /// order the interface gives them, newest first.
@@ -218,7 +245,7 @@ export function pinnedAsks(d: ConversationDetail): ConversationEntry[] {
 }
 
 /// What waits for the owner in a conversation and has its place in the stream, one pin each for the bar over the
-/// stream, oldest first: the design cards that wait for the owner's ruling, the asks that wait, and the questions an
+/// stream, oldest first: the decision cards that wait for the owner's ruling, the asks that wait, and the questions an
 /// architect put that wait for the owner's reply, as the list counts them; each by its number and its first words.
 export type Pin = { kind: 'card' | 'ask' | 'question'; id: number; at: number; words: string };
 

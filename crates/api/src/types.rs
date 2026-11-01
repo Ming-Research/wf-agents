@@ -1,5 +1,5 @@
 //! What the interface hands out. Times are UTC milliseconds since the Unix epoch, as in the database; JSON the
-//! database keeps whole (a round's input and return, a design card's body) is handed out as it is kept. A round is
+//! database keeps whole (a round's input and return, a decision card's body) is handed out as it is kept. A round is
 //! given by its work and its number in the work, as the database keeps it, and named `R<work>-<n>`.
 
 use std::collections::BTreeMap;
@@ -113,7 +113,7 @@ pub enum Event {
     Work { work: i64 },
     /// A round started or ended, or ran a tool: its work, and its number in the work.
     Round { work: i64, round: i64 },
-    /// A design card was handed in, ruled or replaced.
+    /// A decision card was handed in, ruled or replaced.
     DesignCard { design_card: i64, work: Option<i64> },
     /// An ask of the owner was put or answered.
     Ask { ask: i64, work: Option<i64> },
@@ -198,7 +198,7 @@ pub enum PausedBy {
 pub enum Waits {
     /// The owner's answer to an ask, which the owner also gives for the architect.
     Answer { ask: i64 },
-    /// The owner's ruling on a design card.
+    /// The owner's ruling on a decision card.
     Ruling { design_card: i64 },
     /// The reply of the architect that holds the work's question, to the matter that stands for it in that
     /// architect's queue: the project's own architect, or a related project's (`project`) that it was handed to.
@@ -257,7 +257,7 @@ pub struct WorkSummary {
     pub cost_usd: f64,
     /// Its asks of the owner still waiting for an answer.
     pub open_asks: i64,
-    /// Its design cards still waiting for a ruling.
+    /// Its decision cards still waiting for a ruling.
     pub open_design_cards: i64,
 }
 
@@ -370,7 +370,8 @@ pub struct TokenCosts {
     pub output: f64,
 }
 
-/// A design card, as the round that handed it in wrote it, with its rulings.
+/// A decision card, as the round that handed it in wrote it, with its rulings: one question put to the owner, in the
+/// flow's decision card shape; a card of a flow version before keys holds a design card's decisions, as it was.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct DesignCard {
     pub id: i64,
@@ -378,28 +379,57 @@ pub struct DesignCard {
     pub round: i64,
     pub work: i64,
     pub item: Option<i64>,
-    /// open, ruled or replaced.
+    /// Its key, the same for the same question in every version of it in the work; `card-<id>` for a card of before.
+    pub key: String,
+    /// open, ruled, replaced or withdrawn.
     pub status: String,
     pub body: Value,
+    /// The records it revises as the branch had them when it was posted: each its reference, whether it was added,
+    /// changed or removed, and its words.
+    pub revision: Value,
     pub rulings: Value,
     pub replaced_by: Option<i64>,
-    /// For a design card a newer one replaced: that one, as the engine knows it.
+    /// For a card a newer version of its key replaced: that one, as the engine knows it.
     pub replaced: Option<Replacement>,
+    /// For a card withdrawn: why the work no longer asks its question, in its agent's words.
+    pub withdrawn: Option<String>,
+    /// For a card of a work whose branch changes the flow: the flow drawn from the branch when it was posted, and the
+    /// flow version in force then.
+    pub flow: Option<CardFlow>,
     /// The cell of the round that handed it in, the cell's title in the work's flow version, and when that round
     /// ended.
     pub cell: Option<String>,
     pub title: Option<String>,
     pub at: Option<i64>,
-    /// The design card this one replaced, if any, and what this one changed from it and why, in a sentence or two of
-    /// its agent's.
+    /// The card this one replaced, if any, and what this one changed from it and why, in a sentence or two of its
+    /// agent's.
     pub replaces: Option<i64>,
     pub changed: Option<String>,
-    /// The newest design card of its work the owner ruled on that this one took the place of, directly or through cards
-    /// between: the owner confirms again what changed since.
+    /// The newest card of its key the owner ruled on that this one took the place of, directly or through cards
+    /// between: the owner rules again on what changed since.
     pub ruled_before: Option<i64>,
 }
 
-/// The design card that replaced another: the round that handed it in, at which cell and when.
+/// The flow a decision card carries: the flow its work's branch had when the card was posted, kept as a snapshot,
+/// and the flow version in force then, which the page compares it with.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct CardFlow {
+    pub snapshot: i64,
+    pub in_force: i64,
+}
+
+/// A flow kept as a snapshot, compiled, with what the flow page shows of it.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct FlowSnapshot {
+    pub id: i64,
+    pub digest: String,
+    /// The stored flow version with the same digest, when there is one.
+    pub version: Option<i64>,
+    pub compiled: flow::Compiled,
+    pub view: FlowView,
+}
+
+/// The decision card that replaced another: the round that handed it in, at which cell and when.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Replacement {
     pub design_card: i64,
@@ -411,7 +441,7 @@ pub struct Replacement {
     pub title: Option<String>,
     /// When that round ended.
     pub at: Option<i64>,
-    /// What the newer design card changed and why, in a sentence or two of its agent's; none for one handed in before
+    /// What the newer decision card changed and why, in a sentence or two of its agent's; none for one handed in before
     /// the flow asked for it.
     pub changed: Option<String>,
 }
@@ -551,29 +581,19 @@ pub struct ImageSent {
     pub data: String,
 }
 
-/// The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
-/// decisions, all sent at once.
+/// The owner's ruling on one decision card, as the page and the command line hand it in.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct Ruling {
-    /// One for each decision of the design card.
-    pub decisions: Vec<DecisionRuling>,
-}
-
-/// The ruling on one decision of a design card.
-#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
-pub struct DecisionRuling {
-    /// The decision's number on the design card, from 1.
-    pub decision: i64,
-    /// confirm or disagree.
+    /// confirm (the option recommended), choose (another of its options) or disagree (saying why).
     pub verdict: String,
-    /// Why, for a disagreement; it may be left out when another approach is chosen.
-    #[serde(default)]
-    #[ts(optional)]
-    pub text: Option<String>,
-    /// For a disagreement: another of the decision's approaches, chosen instead of the one recommended, by its name.
+    /// For choose: the option chosen, by its name.
     #[serde(default)]
     #[ts(optional)]
     pub option: Option<String>,
+    /// The owner's words: why, for a disagreement; optional otherwise.
+    #[serde(default)]
+    #[ts(optional)]
+    pub text: Option<String>,
 }
 
 /// What an answer or a ruling did, in words.
@@ -821,7 +841,7 @@ pub struct ItemSummary {
     /// none and empty before a work starts.
     pub stage: Option<String>,
     pub stages: Vec<String>,
-    /// Its latest work's asks of the owner still waiting for an answer, and its design cards still waiting for a
+    /// Its latest work's asks of the owner still waiting for an answer, and its decision cards still waiting for a
     /// ruling.
     pub open_asks: i64,
     pub open_design_cards: i64,
@@ -858,7 +878,7 @@ pub struct LinkedItem {
     pub kind: String,
 }
 
-/// An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works, design cards
+/// An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works, decision cards
 /// and asks of the owner.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ItemDetail {
@@ -977,10 +997,10 @@ pub struct ProjectSettings {
     pub checkout: String,
     /// The branch works merge into.
     pub main: String,
-    /// The paths whose change is a change of design, and those that hold tests.
-    pub design_paths: Vec<String>,
+    /// The paths that hold tests.
     pub test_paths: Vec<String>,
-    /// Where it keeps its records, which the reasoning system keeps; none when it keeps none.
+    /// Where it keeps its records, which the reasoning system keeps and whose change is a change of design; none when it
+    /// keeps none.
     pub records: Option<String>,
     /// The workflow each push of a work's branch runs, those that make up the full CI, and the checks a merge needs.
     pub ci_fast: String,
@@ -1143,7 +1163,7 @@ pub struct Conversation {
     pub title: Option<String>,
     pub level: Option<String>,
     pub over: bool,
-    /// How many things in it wait for the owner: the open blockers the owner holds, design cards not ruled, faults not
+    /// How many things in it wait for the owner: the open blockers the owner holds, decision cards not ruled, faults not
     /// read.
     pub waiting: i64,
     /// How many of its entries from anyone but the owner came after the latest the owner read, what waits aside.
@@ -1171,14 +1191,14 @@ pub struct ConversationEntry {
     /// The work and the round it came with, when it came with one.
     pub work: Option<i64>,
     pub round: Option<i64>,
-    /// For an ask, the ask; for a design card and a ruling on it, the card; for what is or holds an
+    /// For an ask, the ask; for a decision card and a ruling on it, the card; for what is or holds an
     /// architect's matter, or is an entry of the talk about it, the matter.
     pub ask: Option<i64>,
     pub design_card: Option<i64>,
     pub matter: Option<i64>,
     /// For a message or a notice: when the owner marked it read; none while it is unread.
     pub read_at: Option<i64>,
-    /// Whether it waits for the owner: an open blocker the owner holds, a design card not ruled, a fault not read.
+    /// Whether it waits for the owner: an open blocker the owner holds, a decision card not ruled, a fault not read.
     pub waiting: bool,
     /// Whether the owner's words in it are not taken up yet.
     pub pending: bool,
@@ -1267,7 +1287,7 @@ pub struct StageCard {
     /// What the agents' rounds in it handed back that the flow shows on the item, oldest first: for the design, the
     /// approaches compared, the one chosen, the design and the acceptance.
     pub shown: Vec<Shown>,
-    /// The design cards its rounds handed in, the one that waits for the owner's ruling among them.
+    /// The decision cards its rounds handed in, the one that waits for the owner's ruling among them.
     pub design_cards: Vec<DesignCard>,
 }
 
@@ -1359,7 +1379,7 @@ pub struct WordsState {
 }
 
 /// A conversation in full: its entries in time order; what waits for the owner in it, which the bar under its head
-/// pins (the asks, which show where they were asked, and the design cards that wait for the owner's ruling, in the
+/// pins (the asks, which show where they were asked, and the decision cards that wait for the owner's ruling, in the
 /// bubbles of their stages); in the one-to-one with an architect, the questions it put to the owner that wait for a
 /// reply, and the one it waits on now; and how far the owner has read it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -1368,7 +1388,7 @@ pub struct ConversationDetail {
     pub entries: Vec<ConversationEntry>,
     /// The asks that wait for the owner where they were asked; the questions pinned are not among them.
     pub asks: Vec<OwnerAsk>,
-    /// The design cards of its work that wait for the owner's ruling, whether or not the work waits on one yet.
+    /// The decision cards of its work that wait for the owner's ruling, whether or not the work waits on one yet.
     pub design_cards: Vec<DesignCard>,
     /// In the one-to-one with an architect: the questions it pinned for the owner's reply, newest first, each an ask of
     /// the architect's that waits and parks a matter still open, as the engine reads them; none in another
@@ -1387,11 +1407,12 @@ pub struct ConversationDetail {
 /// What the owner says in a work's group: to its engineer, to its project's architect, or to both. Saying it to the
 /// architect alone, the engineer is given it as a word that needs no answer; to the engineer alone, the architect is
 /// given it at its next pick. With `question`, it answers that question of the engineer's, which the architect holds:
-/// the answer is the reply, and the architect is told.
+/// the answer is the reply, and the architect is told. With `design_card`, it asks about that decision card of the
+/// work, one that waits for the owner's ruling: no ruling, the card waits on; whoever it goes to is given the card.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct WorkSaid {
     pub text: String,
-    /// engineer (the default), architect or both.
+    /// engineer (the default), architect (the default of a question about a decision card) or both.
     #[serde(default)]
     #[ts(optional)]
     pub to: Option<String>,
@@ -1399,6 +1420,10 @@ pub struct WorkSaid {
     #[serde(default)]
     #[ts(optional)]
     pub question: Option<i64>,
+    /// The decision card of the work the words ask about.
+    #[serde(default)]
+    #[ts(optional)]
+    pub design_card: Option<i64>,
     /// The images sent with the words, in the order the owner added them; words may be images alone.
     #[serde(default)]
     pub images: Vec<ImageSent>,
@@ -1489,11 +1514,11 @@ pub struct Matter {
     /// For a place to set straight: the place, as the check of what runs found it (where, what is wrong there, the
     /// steps to set it straight); none for a matter of another kind.
     pub fix: Option<Value>,
-    /// For a design card to look at: how the card stands.
+    /// For a decision card to look at: how the card stands.
     pub card: Option<MatterCard>,
 }
 
-/// How the design card a matter is about stands: its number; open, ruled or replaced; its rulings, the owner's and the
+/// How the decision card a matter is about stands: its number; open, ruled or replaced; its rulings, the owner's and the
 /// architect's alike; and the card that replaced it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct MatterCard {
@@ -1597,7 +1622,7 @@ pub struct Observation {
     /// Who found it, in what situation, and the matter it came from.
     pub source: String,
     pub times_reported: i64,
-    /// What it refers to: PRs, branches, design cards, the owner's words.
+    /// What it refers to: PRs, branches, decision cards, the owner's words.
     pub refs: Vec<String>,
     /// The item that took it in, which closes it once its work merges.
     pub folded_into: Option<i64>,
@@ -1696,7 +1721,7 @@ pub struct System {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct SystemNow {
     pub architects: Vec<ArchitectNow>,
-    /// The asks of the owner not answered, the design cards not ruled on and the faults of wf-agents not read.
+    /// The asks of the owner not answered, the decision cards not ruled on and the faults of wf-agents not read.
     pub asks: Waiting,
     pub design_cards: Waiting,
     pub faults: Waiting,
@@ -1983,9 +2008,9 @@ pub struct ProjectNow {
     pub settings: Vec<NamedText>,
     /// The project's AGENTS.md as its checkout has it now.
     pub agents_md: String,
-    /// The index of its design tree as its checkout has it now: each node's path with its first line. The full text
-    /// of the nodes an item cites is added for each item.
-    pub design_tree: Vec<NamedText>,
+    /// The index of its records as its checkout has it now: each file's path with its first line. The full text of
+    /// the files an item cites is added for each item.
+    pub records: Vec<NamedText>,
     /// The project's own rules, each by its name with its text.
     pub rules: Vec<NamedText>,
 }

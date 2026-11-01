@@ -2,7 +2,7 @@ Decision http-api: The interface is HTTP with JSON under `/api/v1`, GET for read
 
 Rests on: C:design-on-merit, D:page-over-interface
 
-Decision event-bus: Events come from a bus inside the process that the engine and the owner's operations publish to; an event names what changed (a round started or ended, a transition taken, a return sent back, a work paused, resumed or ended, a design card handed in, ruled or replaced, an ask of the owner put or answered, a message told to the owner or marked read, an item or the queue changed, the engine's state changed), and the client loads a snapshot and refetches only what an event names, because the page then stays current without reading everything again, and an event never has to carry the state it points to.
+Decision event-bus: Events come from a bus inside the process that the engine and the owner's operations publish to; an event names what changed (a round started or ended, a transition taken, a return sent back, a work paused, resumed or ended, a decision card handed in, ruled or replaced, an ask of the owner put or answered, a message told to the owner or marked read, an item or the queue changed, the engine's state changed), and the client loads a snapshot and refetches only what an event names, because the page then stays current without reading everything again, and an event never has to carry the state it points to.
 
 Rests on: C:efficient, C:design-on-merit, D:http-api
 

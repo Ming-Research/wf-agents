@@ -25,7 +25,7 @@ mod start_over;
 pub use cells::{cells_sql, code_of, is_cell};
 pub use matters::{
     FAULT, Forwarder, Matter, fault_forwarding, forward_fault, forward_new_fault, lift_pause, one_sentence,
-    project_of_item, queue_matter, say_to_architect, set_fault_forwarding, withdraw_card_looks, without_final_terminal,
+    project_of_item, queue_matter, say_to_architect, set_fault_forwarding, without_final_terminal,
 };
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use start_over::{START_OVER, cannot_start_over, start_over, start_over_asked};
@@ -99,6 +99,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0060.sql"),
     include_str!("../../../db/migrations/0061.sql"),
     include_str!("../../../db/migrations/0062.sql"),
+    include_str!("../../../db/migrations/0063.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -119,13 +120,29 @@ const UNTRACKED: [&str; 8] = [
 /// The line a table's description has when agents may not read it.
 const HIDDEN: &str = "Hidden from agents.";
 
-/// The text a ruling on a design card is interjected with; a disagreement says so after it. The owner's ruling writes
-/// it and the engine's checks read it.
+/// The text the owner's choice of another option on a decision card, or disagreement with it, is interjected with; the
+/// owner's ruling writes it and the engine's checks read it. A confirmation is a word that needs no answer, worded
+/// otherwise.
+pub const CARD_RULING: &str = "Ruling on decision card";
+
+/// What a line is given of an interjection: who said it and, for the owner's question about a decision card, which card
+/// by its number and key, then the words.
+pub fn interjection_words(speaker: &str, text: &str, card: Option<i64>, key: Option<&str>) -> String {
+    match (card, key) {
+        (Some(c), Some(k)) => format!("From the {speaker}, about decision card {c} ({k}): {text}"),
+        (Some(c), None) => format!("From the {speaker}, about decision card {c}: {text}"),
+        _ => format!("From the {speaker}: {text}"),
+    }
+}
+
+/// The text a ruling on a design card of a flow version before decision cards was interjected with; a disagreement
+/// said so after it.
 pub const DESIGN_CARD_RULING: &str = "Ruling on design card";
 
-/// The verdicts of a ruling on a design card as `design_cards.rulings` holds it, one for each decision in the order
-/// given, each with its verdict and any approach chosen instead; a ruling made before rulings were per decision is one
-/// verdict on the card as a whole, with decision 0.
+/// The verdicts of a ruling as `design_cards.rulings` holds it. A ruling on a decision card is one verdict on the card,
+/// with decision 0: confirm, choose (another option) or disagree, with the option chosen. A ruling on a design card of a
+/// flow version before decision cards held one for each decision in the order given, each with its verdict and any
+/// approach chosen instead, or, made before rulings were per decision, one verdict on the card as a whole.
 pub fn ruling_verdicts(ruling: &serde_json::Value) -> Vec<(i64, String, Option<String>)> {
     let text = |v: &serde_json::Value, k: &str| v.get(k).and_then(serde_json::Value::as_str).map(str::to_string);
     match ruling.get("decisions").and_then(serde_json::Value::as_array) {
@@ -143,8 +160,8 @@ pub fn ruling_verdicts(ruling: &serde_json::Value) -> Vec<(i64, String, Option<S
     }
 }
 
-/// Whether a ruling confirms a design card of so many decisions: every decision confirmed, or, for a ruling made
-/// before rulings were per decision, the card.
+/// Whether a ruling confirms its card: a decision card, which is one decision; a design card of before of so many
+/// decisions, every decision confirmed, or, for a ruling made before rulings were per decision, the card.
 pub fn ruling_confirms(ruling: &serde_json::Value, decisions: usize) -> bool {
     let verdicts = ruling_verdicts(ruling);
     let whole = verdicts.len() == 1 && verdicts[0].0 == 0;
@@ -152,9 +169,12 @@ pub fn ruling_confirms(ruling: &serde_json::Value, decisions: usize) -> bool {
     all && verdicts.iter().all(|(_, v, _)| v == "confirm")
 }
 
-/// Whether a ruling disagrees with any decision of its design card, or with the card.
+/// Whether a ruling chooses another option than the one its card recommends, or disagrees with it: with any decision of
+/// a design card of before, or with the card.
 pub fn ruling_disagrees(ruling: &serde_json::Value) -> bool {
-    ruling_verdicts(ruling).iter().any(|(_, v, _)| v == "disagree")
+    ruling_verdicts(ruling)
+        .iter()
+        .any(|(_, v, _)| v == "disagree" || v == "choose")
 }
 
 /// Why a work is paused when the owner paused it without saying why: its Pause on the page, and the round it asked
@@ -1471,8 +1491,82 @@ mod tests {
         );
     }
 
+    // Taken to version 63, a database keeps each design card of before as it was, readable, keyed by its number, with
+    // no records it revises and no flow; its rulings and what replaced it stay.
+    #[test]
+    fn a_design_card_of_before_keeps_its_body_keyed_by_its_number() {
+        let mut old = at_version(62);
+        old.write(Actor::Engine, |tx| {
+            item(tx, "t")?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'M1')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'D4', '{}', 'c', 1)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO design_cards (work, round, body, status, rulings) VALUES (1, 1, '[{\"node\":\"a\"}]', 'replaced',
+                   '[{\"by\":\"owner\",\"verdict\":\"confirm\"}]')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO design_cards (work, round, body, status, changed) VALUES (1, 1, '[]', 'open', 'Kept one.')",
+                [],
+            )?;
+            tx.execute("UPDATE design_cards SET replaced_by = 2 WHERE id = 1", [])?;
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let mut st = old
+            .conn()
+            .prepare("SELECT id, key, body, status, rulings, replaced_by, changed, revision, flow_snapshot FROM design_cards")
+            .unwrap();
+        type Row = (
+            i64,
+            String,
+            String,
+            String,
+            String,
+            Option<i64>,
+            Option<String>,
+            String,
+            Option<i64>,
+        );
+        let rows: Vec<Row> = st
+            .query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                ))
+            })
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        assert_eq!(rows[0].1, "card-1");
+        assert_eq!(rows[0].2, "[{\"node\":\"a\"}]");
+        assert_eq!((rows[0].3.as_str(), rows[0].5), ("replaced", Some(2)));
+        assert!(rows[0].4.contains("confirm"));
+        assert_eq!(
+            (rows[1].1.as_str(), rows[1].6.as_deref()),
+            ("card-2", Some("Kept one."))
+        );
+        assert_eq!((rows[1].7.as_str(), rows[1].8), ("[]", None));
+    }
+
     // Taken to version 56, a database withdraws each look of the architect's at a design card the owner ruled or another
-    // replaced that is still in its queue, saying why, as the owner's ruling and a card replacing another do since.
+    // replaced that is still in its queue, saying why; taken on to version 63, the look at a card that still waits too,
+    // the design's coherence review judging each card since.
     #[test]
     fn a_look_at_a_design_card_ruled_or_replaced_is_withdrawn() {
         let mut old = at_version(55);
@@ -1514,7 +1608,11 @@ mod tests {
             withdrawn,
             [
                 Some("the owner ruled design card 1".to_string()),
-                None,
+                Some(
+                    "the architect no longer looks at decision cards: the design's coherence review judges each before \
+                     it is posted"
+                        .to_string()
+                ),
                 Some("design card 3 was replaced by design card 2".to_string()),
                 Some("design card 4 was replaced".to_string()),
             ]
@@ -2054,6 +2152,11 @@ mod tests {
         assert!(ruling_disagrees(
             &serde_json::json!({ "verdict": "disagree", "text": "no" })
         ));
+        // A ruling on a decision card is one verdict: a confirmation confirms it, another option chosen disagrees.
+        let confirm = serde_json::json!({ "by": "owner", "verdict": "confirm" });
+        let choose = serde_json::json!({ "by": "owner", "verdict": "choose", "option": "B" });
+        assert!(ruling_confirms(&confirm, 1) && !ruling_disagrees(&confirm));
+        assert!(!ruling_confirms(&choose, 1) && ruling_disagrees(&choose));
     }
 
     // A work paused before its pause said who paused it is the owner's when the owner's change paused it, and the

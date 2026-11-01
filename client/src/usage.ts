@@ -283,7 +283,7 @@ export type Gap = { start: number; end: number; before: RoundOf; after: RoundOf;
 
 /// The stretches in which no round ran, each from the latest end of the rounds before it to the next round's start,
 /// those shorter than a second left out; each with the events given that fall in it, such as an ask answered or a
-/// design card ruled on, which say what the work waited for.
+/// decision card ruled on, which say what the work waited for.
 export function gapsOf(blocks: Block[], events: Array<{ at: number; what: string }> = []): Gap[] {
   const sorted = [...blocks].sort((a, b) => a.start - b.start);
   const gaps: Gap[] = [];

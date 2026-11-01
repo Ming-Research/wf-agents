@@ -253,7 +253,7 @@ export function rowActions(r: CompiledRow): string[] {
   return (r.do ?? []).map((d) => (typeof d === 'string' ? d : d.do));
 }
 
-/// An action's name as words: `post_design_card` reads "post design card".
+/// An action's name as words: `post_design_card` reads "post decision card".
 export function actionWords(name: string): string {
   return name.replaceAll('_', ' ');
 }

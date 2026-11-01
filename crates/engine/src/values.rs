@@ -107,7 +107,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
                 },
             )
         }
-        // What the merge gate waits for: the items it depends on while one is not merged, then the owner's ruling.
+        // What the merge gate waits for: the items it depends on while one is not merged; in wf-agents' own repository a
+        // card carrying the flow as the branch now has it; then the owner's ruling.
         "gates" => s(match gates_waiting_for(e, w, item)? {
             None => "clear",
             Some(_)
@@ -117,6 +118,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             {
                 "items"
             }
+            Some(_) if flow_redrawn(e, w)? => "flow_redrawn",
             Some(_) => "ruling",
         }),
         "held" => crate::blockers::held(e, w),
@@ -295,55 +297,29 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
     Ok(n > 0)
 }
 
-/// A design card of a work, with the head of the round that handed it in, when the design paths matched it.
-#[derive(Debug, Clone)]
-pub struct DesignCard {
-    pub id: i64,
-    pub status: String,
-    pub rulings: Value,
-    pub head: Option<String>,
-    /// How many decisions it holds; one for a card whose body holds none.
-    pub decisions: usize,
-}
-
-/// The work's latest design card that was not replaced, if any.
-pub fn design_card(e: &Engine, w: &Work) -> Result<Option<DesignCard>, String> {
-    let r = e.db.conn().query_row(
-        "SELECT c.status, c.rulings, json_extract(r.input, '$.engine.head_after'), c.id,
-                max(1, coalesce(json_array_length(c.body), 1))
-         FROM design_cards c JOIN rounds r ON r.work = c.work AND r.n = c.round
-         WHERE c.work = ?1 AND c.status <> 'replaced' ORDER BY c.id DESC LIMIT 1",
-        [w.id],
-        |r| {
-            Ok(DesignCard {
-                id: r.get(3)?,
-                status: r.get(0)?,
-                rulings: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or(Value::Null),
-                head: r.get(2)?,
-                decisions: r.get::<_, i64>(4)? as usize,
-            })
-        },
-    );
-    match r {
-        Ok(c) => Ok(Some(c)),
-        Err(db::rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-/// Whether the work's design card has a ruling that disagrees with any of its decisions.
+/// Whether the owner chose another option on a current decision card of the work, or disagreed with one: the work
+/// designs again, and a card of the same key comes back following the ruling.
 fn design_card_disputed(e: &Engine, w: &Work) -> Result<bool, String> {
-    Ok(design_card(e, w)?.is_some_and(|c| {
-        c.rulings
-            .as_array()
-            .is_some_and(|rs| rs.iter().any(db::ruling_disagrees))
-    }))
+    Ok(crate::cards::current(e.db.conn(), w.id)?
+        .iter()
+        .any(|c| c.owner_ruling().is_some_and(db::ruling_disagrees)))
 }
 
-/// Whether the work may enter the merge queue: every item it depends on is merged, and the design paths did not
-/// change on the branch, or the owner confirmed its design card and they have not changed since.
-/// What the merge gate waits for, in words; none when it is clear: every item depended on merged, and the design tree
-/// unchanged on the branch, or changed only as the design card the owner confirmed says.
+/// Whether, in wf-agents' own repository, the work's flow is to be redrawn on a new version of the card that carries
+/// it: the branch's flow changed since that card was posted, or no card carries it yet.
+fn flow_redrawn(e: &Engine, w: &Work) -> Result<bool, String> {
+    let project = e.project_of(w)?;
+    let Some(wt) = &w.worktree else { return Ok(false) };
+    if !crate::cards::own_repository(&project) {
+        return Ok(false);
+    }
+    let fork = git::fork_point(wt, &project.main)?;
+    Ok(crate::cards::flow_due(e.db.conn(), w.id, wt, &fork)?.is_some())
+}
+
+/// What the merge gate waits for, in words; none when it is clear: every item depended on merged, and the records
+/// unchanged on the branch, or changed only as the decision cards the owner confirmed say, every current card
+/// confirmed and the records to merge word for word what the cards put to the owner.
 pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<String>, String> {
     for d in dependencies(e, item.id)? {
         if !item_merged(e, d)? {
@@ -352,34 +328,7 @@ pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<Str
     }
     let project = e.project_of(w)?;
     let Some(wt) = &w.worktree else { return Ok(None) };
-    let fork = git::fork_point(wt, &project.main)?;
-    let changed = git::changed(wt, &fork, "HEAD")?;
-    if !changed.iter().any(|f| git::under(f, &project.design_paths)) {
-        return Ok(None);
-    }
-    let Some(card) = design_card(e, w)? else {
-        return Ok(Some("a design card for the change to the design tree".to_string()));
-    };
-    // The owner's last ruling confirms every decision of the card.
-    let confirmed = card.status == "ruled"
-        && card
-            .rulings
-            .as_array()
-            .and_then(|rs| rs.last())
-            .is_some_and(|r| r["by"] == "owner" && db::ruling_confirms(r, card.decisions));
-    if !confirmed {
-        return Ok(Some(format!("the owner's ruling on design card {}", card.id)));
-    }
-    let Some(head) = card.head else {
-        return Ok(Some(format!("the owner's ruling on design card {}", card.id)));
-    };
-    let since = git::own_changes(wt, &project.main, &head, "HEAD")?;
-    Ok(since.iter().any(|f| git::under(f, &project.design_paths)).then(|| {
-        format!(
-            "a new design card: the design tree changed after the owner confirmed design card {}",
-            card.id
-        )
-    }))
+    crate::cards::waiting_for(e.db.conn(), w.id, wt, &project)
 }
 
 /// The head the last review started from; none before the first review.

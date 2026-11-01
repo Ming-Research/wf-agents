@@ -96,7 +96,7 @@ export function matterSteps(m: MatterWords): string[] {
   return fix !== null && Array.isArray(fix.steps) ? fix.steps.map((x) => str(x)).filter((x) => x !== '') : [];
 }
 
-/// Where the design card a matter is about stands, in words: waiting for a ruling; replaced, by which card; or ruled,
+/// Where the decision card a matter is about stands, in words: waiting for a ruling; replaced, by which card; or ruled,
 /// confirmed, or disagreed with, by whom and on which decisions and why.
 export function cardWords(c: MatterCard): string {
   if (c.status === 'open') return t('matter_card_waits', { id: c.id });

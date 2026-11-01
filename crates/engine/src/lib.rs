@@ -29,6 +29,7 @@ pub mod limits;
 mod actions;
 mod arch_changes;
 mod architect;
+mod cards;
 mod checks;
 mod failed;
 mod faults;
@@ -481,7 +482,7 @@ impl Engine {
     /// Takes works over, each with why: a work on an older flow version that cannot move, which the engine does when
     /// it next goes on, instead of taking its step, and a work the owner or its project's architect started over
     /// ([`Engine::start_over`]). Each stops, saying why, as every work ends ([`ending::end`]: the round it was in is
-    /// cut off, its design cards are replaced, its asks of the owner need no answer, its questions to the architect are
+    /// cut off, its decision cards are replaced, its asks of the owner need no answer, its questions to the architect are
     /// withdrawn and its sessions end), and its item gets a new work on the version the engine runs, whose cell `S1`
     /// takes over the stopped work's branch, worktree (with what is not committed in it) and pull request and whose
     /// cell `R1` is told what exists, the questions withdrawn included. Until then the owner still rules on its design

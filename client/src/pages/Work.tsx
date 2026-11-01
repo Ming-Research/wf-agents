@@ -4,7 +4,7 @@
 // arrows it took standing out, the cell a round runs or has just run at in a moving halo, and beside the cell it waits
 // at why, in a few words. The page only reads the work: the owner acts on it in its group in the messages view, which
 // its line and what it waits for lead to. The floating window holds on top the work's panel in tabs: its rounds; its
-// design cards, the one waiting for the owner's ruling first; the talk of its helpers (the advisor, the review, the
+// decision cards, the one waiting for the owner's ruling first; the talk of its helpers (the advisor, the review, the
 // adversarial testing) with its engineer, one thread for each helper, which is in no group; and its usage. A round or a
 // cell opened shows in the window's lower part, its cell brought into view. The chart, the panel, the list of rounds,
 // the line and the usage are the architect's page's too (WorkChart.tsx, HeadLine.tsx, Usage.tsx). A work of an
@@ -24,7 +24,7 @@ import { RoundTold } from './RoundView';
 import { Usage } from './Usage';
 import { ChartPanel, RoundsTab, WorkChart } from './WorkChart';
 
-/// The work's design cards, in the card every card shares: the one waiting for the owner's ruling first, then the
+/// The work's decision cards, in the card every card shares: the one waiting for the owner's ruling first, then the
 /// others, newest first; the current one (the one waiting, else the newest not replaced) open, every other folded to
 /// its one line.
 function Cards({ cards, onRound }: { cards: DesignCard[]; onRound: (r: number) => void }) {
@@ -175,7 +175,7 @@ function Helpers({ d, g, onRound }: { d: WorkDetail; g: CompiledGraph; onRound: 
   );
 }
 
-/// The work's panel, on top of the window floating over the right of its chart: its rounds, its design cards, its
+/// The work's panel, on top of the window floating over the right of its chart: its rounds, its decision cards, its
 /// helpers' talk with its engineer, and its usage.
 function WorkPanel({ d, g, r, go }: { d: WorkDetail; g: CompiledGraph; r: WorkRoute; go: (to: Partial<WorkRoute>) => void }) {
   const onRound = (round: number) => go({ round, cell: null });

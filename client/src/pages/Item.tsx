@@ -1,9 +1,9 @@
 // An item, read only: its number and title with its facts on the title's line, and the work that goes on under them;
-// then what waits for the owner, the design cards and asks of the owner its live work waits on, each saying where it
+// then what waits for the owner, the decision cards and asks of the owner its live work waits on, each saying where it
 // is ruled on or answered, its work's group in the messages view; where its live work stands as a checklist; the
 // problem, as the engineer understands it once research has run; the design, saying so while no approach is chosen;
 // the acceptance; what changed on the way; what it depends on and what depends on it, each dependency one the owner
-// can remove; and, folded, its history: earlier and replaced design cards, answered asks, and the works that ended.
+// can remove; and, folded, its history: earlier and replaced decision cards, answered asks, and the works that ended.
 // Each block names the cell and round it came from. What the works hand back is drawn by its shape in the flow's
 // formats; a field the page does not know is shown as labelled text.
 
@@ -14,7 +14,18 @@ import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Shown, Waits } from '../api';
 import { DependencyKind, Facts, ItemBadge, liveState, Loaded, StateChip, WorkBadge } from '../components';
 import { cost, time } from '../format';
-import { Acceptance, Approaches, Deviation, Design, Field, Measure, Understanding, type Met } from '../item/Shapes';
+import {
+  Acceptance,
+  anchored,
+  Approaches,
+  CardsAtAnchors,
+  Deviation,
+  Design,
+  Field,
+  Measure,
+  Understanding,
+  type Met,
+} from '../item/Shapes';
 import { Progress } from '../item/Progress';
 import { empty, isObj, label, Labelled, str, words } from '../labelled';
 import { waitsWords } from '../course';
@@ -25,7 +36,7 @@ import { By, HeadingLevel, ItemRef, PrLink, RoundLink, Section, SubHeading } fro
 import { href, Link } from '../route';
 import { t, tn } from '../text';
 import { factsAfter, joined } from '../voices';
-import { AskView, bringIntoView, currentCard, DesignCardView } from './Decide';
+import { AskView, bringIntoView, cardOfKey, currentCard, DesignCardView } from './Decide';
 
 /// Where a value shown on the item came from: the cell and the round, opening the round.
 function From({ x }: { x: { work: number; round: number; cell?: string } }) {
@@ -36,7 +47,7 @@ function From({ x }: { x: { work: number; round: number; cell?: string } }) {
 const roundKey = (x: { work: number; round: number }) => `${x.work}-${x.round}`;
 
 /// The paths of a return the page draws in a place of its own; any other path the flow shows on the item is listed
-/// as labelled text. Messages to the owner are on the messages view; the design tree's change is the design card.
+/// as labelled text. Messages to the owner are on the messages view; the design tree's change is the decision card.
 const DRAWN = new Set([
   'progress',
   'tell_owner',
@@ -88,10 +99,32 @@ function Block(props: { title: ReactNode; from?: Shown; open?: boolean; children
   );
 }
 
-/// A design card, in the card every card shares, linked to the round that handed it in; folded to its one line unless
+/// A decision card, in the card every card shares, linked to the round that handed it in; folded to its one line unless
 /// it is the item's current card.
 function Card({ c, current }: { c: DesignCard; current: number | null }) {
   return <DesignCardView c={c} round={<RoundLink work={c.work} round={c.round} />} folded={c.id !== current} />;
+}
+
+/// The decision cards that wait for the owner in the item's design, in one line, each number bringing its card into
+/// view.
+function InDesign({ cards }: { cards: DesignCard[] }) {
+  const links = cards.map((c) => (
+    <a
+      key={c.id}
+      href={`#design-card-${c.id}`}
+      onClick={(e) => {
+        e.preventDefault();
+        bringIntoView(`design-card-${c.id}`);
+      }}
+    >
+      {t('card_name', { id: c.id })}
+    </a>
+  ));
+  return (
+    <p className="needs-in-design">
+      {t('needs_in_design')} {links.flatMap((l, i) => (i === 0 ? [l] : [', ', l]))}
+    </p>
+  );
 }
 
 function Ask({ a }: { a: OwnerAsk }) {
@@ -218,6 +251,7 @@ function DesignParts({ shown, leans, waits, acceptance = false }: {
         </Section>
       ) : null}
       {rounds.length > 1 ? (
+        <CardsAtAnchors.Provider value={null}>
         <Section title={t('shown_before')} n={rounds.length - 1}>
           {rounds
             .slice(0, -1)
@@ -235,22 +269,42 @@ function DesignParts({ shown, leans, waits, acceptance = false }: {
               );
             })}
         </Section>
+        </CardsAtAnchors.Provider>
       ) : null}
     </>
   );
 }
 
-/// The design on the item: under its heading, as the rounds that wrote it handed it back; while no approach is chosen,
-/// where the engineer of its latest work stands and what the choice waits for.
+/// The decision cards the item's design stands, by their anchors in its newest text: the card of each key among those
+/// of the work that wrote it.
+function cardsInDesign(d: ItemDetail, shown: Map<string, Shown[]>): DesignCard[] {
+  const design = newest(shown.get('design'));
+  if (design === undefined || !isObj(design.value) || typeof design.value.solution !== 'string') return [];
+  return anchored(design.value.solution).flatMap((p) => {
+    const c = 'key' in p ? cardOfKey(d.design_cards, design.work, p.key) : null;
+    return c !== null ? [c] : [];
+  });
+}
+
+/// The design on the item: under its heading, as the rounds that wrote it handed it back, each decision card in it at
+/// its anchor, read only, saying where it is ruled; while no approach is chosen, where the engineer of its latest work
+/// stands and what the choice waits for.
 function DesignBlock({ shown, d }: { shown: Map<string, Shown[]>; d: ItemDetail }) {
   const marks = ['chosen', 'why', 'design', 'measure', 'options'].flatMap((p) => shown.get(p) ?? []);
   if (marks.length === 0) return null;
   const from = marks.reduce((a, b) => (after(b, a) ? b : a));
   const live = d.works.find((w) => w.state !== 'done' && w.state !== 'ended') ?? null;
+  const work = newest(shown.get('design'))?.work ?? from.work;
+  const at = (key: string): ReactNode => {
+    const c = cardOfKey(d.design_cards, work, key);
+    return c !== null ? <Card c={c} current={c.id} /> : null;
+  };
   return (
     <Block title={t('design_title')} from={from}>
       <div className="document">
-        <DesignParts shown={shown} leans={null} waits={live?.waits ?? null} />
+        <CardsAtAnchors.Provider value={at}>
+          <DesignParts shown={shown} leans={null} waits={live?.waits ?? null} />
+        </CardsAtAnchors.Provider>
       </div>
     </Block>
   );
@@ -439,7 +493,7 @@ function Works({ works }: { works: ItemDetail['works'] }) {
   );
 }
 
-/// What the item went through, folded: earlier and replaced design cards, earlier asks, the works that ended, what an
+/// What the item went through, folded: earlier and replaced decision cards, earlier asks, the works that ended, what an
 /// import recorded; nothing when it has none of these. The work that goes on is at the top of the page, once.
 function History({ d, cards, asks }: { d: ItemDetail; cards: DesignCard[]; asks: OwnerAsk[] }) {
   const current = currentCard(d.design_cards);
@@ -545,13 +599,17 @@ function Head({ d }: { d: ItemDetail }) {
 function Detail({ d }: { d: ItemDetail }) {
   const i = d.item;
   const shown = byPath(d);
-  // What needs the owner: the design cards and asks a work that still goes on waits on.
+  // What needs the owner: the decision cards and asks a work that still goes on waits on. A card that stands in the
+  // design is drawn there, and named here in one line that leads to it; a design card of before is drawn here.
   const live = new Set(d.works.filter((w) => w.state !== 'done' && w.state !== 'ended').map((w) => w.id));
-  const cards = d.design_cards.filter((c) => c.status === 'open' && live.has(c.work));
+  const inDesign = cardsInDesign(d, shown);
+  const waiting = d.design_cards.filter((c) => c.status === 'open' && live.has(c.work));
+  const cards = waiting.filter((c) => !inDesign.includes(c));
+  const there = waiting.filter((c) => inDesign.includes(c));
   const asks = d.asks.filter((a) => a.answer === null && live.has(a.work));
-  const earlierCards = d.design_cards.filter((c) => !cards.includes(c)).reverse();
+  const earlierCards = d.design_cards.filter((c) => !cards.includes(c) && !inDesign.includes(c)).reverse();
   const earlierAsks = d.asks.filter((a) => !asks.includes(a)).reverse();
-  // A link to a design card or an ask on this page brings it into view once the page is there.
+  // A link to a decision card or an ask on this page brings it into view once the page is there.
   useEffect(() => {
     const at = window.location.hash.slice(1);
     if (at !== '') bringIntoView(at);
@@ -564,8 +622,9 @@ function Detail({ d }: { d: ItemDetail }) {
           {i.cancelled}
         </Flash>
       ) : null}
-      {cards.length > 0 || asks.length > 0 ? (
+      {cards.length > 0 || asks.length > 0 || there.length > 0 ? (
         <Section title={t('needs_you')} open>
+          {there.length > 0 ? <InDesign cards={there} /> : null}
           {asks.map((a) => (
             <Ask key={a.id} a={a} />
           ))}

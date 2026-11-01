@@ -96,7 +96,7 @@ fn written_under(message: &str, address: &str) -> Vec<String> {
 }
 
 /// Whether an address names a row of the database that is its own thing whatever it says: an interjection, an ask of
-/// the owner, a design card, the item or an image the owner sent. One that says what another said is new at its place,
+/// the owner, a decision card, the item or an image the owner sent. One that says what another said is new at its place,
 /// not a repeat.
 fn own_thing(address: &str) -> bool {
     ["ij:", "ask:", "design_card:", "item:", "image:"]

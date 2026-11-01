@@ -1,7 +1,7 @@
 //! The architects' side of the engine. Each project has its architect; a work of the architect is a work of its graph
 //! for a project, on no item: the engine starts one when none of the project runs and the project's queue has a matter,
 //! one at a time for each project, and such a work holds no slot. What puts a matter in a project's queue is here and
-//! in the actions: an engineer's question or failure, a side report, a report's what to do next, a design card, the
+//! in the actions: an engineer's question or failure, a side report, a report's what to do next, a decision card, the
 //! owner's words and answers, an engineer's answer to the architect, another project's architect's message, slots free
 //! with fewer items of the project ready, and a place the understanding found to set straight. Here too are the steps,
 //! inputs, values, checks and actions of the architect's graph, its asks of the owner, the batch of item changes a
@@ -140,11 +140,10 @@ fn notebook_problems(conn: &Connection, project: &str, edits: &[Value]) -> Resul
 
 /// Each kind of matter with the first cell of its path and the cell that decides it, where the matter goes back to when
 /// the owner is asked about item changes of it the review dropped.
-pub const KINDS: [(&str, &str, &str); 11] = [
+pub const KINDS: [(&str, &str, &str); 10] = [
     ("set_straight", "H1", "H1"),
     ("engineer_question", "H2", "H3"),
     ("report", "H4", "H5"),
-    ("design_card", "H6", "H6"),
     ("failure", "H7", "H7"),
     ("owner_words", "H8", "H8"),
     ("other_architect", "H9", "H9"),
@@ -213,7 +212,7 @@ const POLICY_CHECK: &str = "P1";
 /// The cell of the engineer's graph a work is done at, as the views read it.
 const ENGINEER_END: &str = "E1";
 
-/// The cell of the engineer's graph that writes the design, which the look at a design card reads it from.
+/// The cell of the engineer's graph that writes the design, which the look at a decision card reads it from.
 const DESIGN: &str = "D4";
 
 /// The most rows an input of the architect's gives of one list.
@@ -829,9 +828,7 @@ pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<bool, Str
 /// since, the architect waits for the reply ([`waits_on`]) before the matters at the head of the queue, which a flow
 /// version before did not. The owner's words, a matter back with the reply and the wait come from all the work can
 /// take ([`queued`]), never held back by the hold to set the project straight, which holds back only the matters from
-/// the head of the queue on ([`pickable`]). A design card matter whose card the owner ruled or another replaced left
-/// the queue as that happened ([`db::withdraw_card_looks`]); a flow version before closed it here, as the cell's
-/// `close_settled_cards`, which a database migrated since has none of left to close.
+/// the head of the queue on ([`pickable`]).
 pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
     let project = project_of(w)?;
     let conn = e.db.conn();
@@ -2621,13 +2618,24 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         }
         "reply_to_owner" => {
             // The reply to the owner's words is the architect's message in the conversation they were said in, which
-            // the conversations work out from the matter the round had in hand; the notifications log says it too.
+            // the conversations work out from the matter the round had in hand, naming the decision card the words
+            // asked about; the notifications log says it too.
             let Some(said) = at.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) else {
                 return Ok(true);
             };
+            let card: Option<i64> = match picked(tx, w)? {
+                Some(m) => tx
+                    .query_row(
+                        "SELECT json_extract(body, '$.design_card') FROM architect_matters WHERE id = ?1",
+                        [m],
+                        |r| r.get(0),
+                    )
+                    .map_err(sql)?,
+                None => None,
+            };
             tx.execute(
-                "INSERT INTO owner_messages (work, round, text) VALUES (?1, ?2, ?3)",
-                params![ctx.round.work, ctx.round.n, said],
+                "INSERT INTO owner_messages (work, round, text, design_card) VALUES (?1, ?2, ?3, ?4)",
+                params![ctx.round.work, ctx.round.n, said, card],
             )
             .map_err(sql)?;
             let (_, project) = architect_work_of(ctx)?;
@@ -2691,39 +2699,6 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             };
             let reply = json!({ "from": project, "text": words, "answers": m, "work": w });
             message(tx, &project, to, words, "reply", reply)?;
-        }
-        "interject_card" => {
-            let Some(wrong) = at
-                .map(|v| text(&v["wrong"]).trim().to_string())
-                .filter(|s| !s.is_empty())
-            else {
-                return Ok(true);
-            };
-            let m = matter_of(tx, w)?;
-            let card: Option<i64> = tx
-                .query_row(
-                    "SELECT json_extract(body, '$.design_card') FROM architect_matters WHERE id = ?1",
-                    [m],
-                    |r| r.get(0),
-                )
-                .map_err(sql)?;
-            let Some(card) = card else { return Ok(true) };
-            let work: Option<i64> = tx
-                .query_row(
-                    "SELECT c.work FROM design_cards c JOIN works w ON w.id = c.work
-                     WHERE c.id = ?1 AND w.ended IS NULL",
-                    [card],
-                    |r| r.get(0),
-                )
-                .optional()
-                .map_err(sql)?;
-            if let Some(work) = work {
-                tx.execute(
-                    "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
-                    params![work, format!("About design card {card}: {wrong}")],
-                )
-                .map_err(sql)?;
-            }
         }
         "change_observations" => {
             // The changes to the project's observations a round hands in beside its own answer, such as the revision of
@@ -3521,6 +3496,72 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
     }
 }
 
+/// What the architect knows of its project that a cell of an engineer's work is given, as the architect has it: the
+/// board of the project's items, the decision cards of the others, the policy in force, and two sections of its
+/// notebook, the plan (with the owner's lasting instructions) and what the project is now. The design's coherence
+/// review judges the work's decision cards by them.
+pub const KNOWLEDGE: [&str; 5] = [
+    "board",
+    "items_decided",
+    "policy",
+    "notebook_project_now",
+    "notebook_plan",
+];
+
+/// What a cell of an engineer's work on an item (`item`) of a project is given of the architect's knowledge
+/// ([`KNOWLEDGE`]); none when there is nothing.
+pub fn knowledge(e: &Engine, project: &str, item: i64, name: &str) -> Result<Option<Value>, String> {
+    match name {
+        "board" => board(e, project).map(Some),
+        "items_decided" => items_decided(e.db.conn(), project, item),
+        "policy" => policy(e, project),
+        "notebook_project_now" | "notebook_plan" => {
+            let section = NOTEBOOK.iter().find(|x| x.1 == name).map_or("", |x| x.0);
+            Ok(notebook_section(e.db.conn(), project, section)?.map(Value::String))
+        }
+        other => Err(format!("no such engine input: {other}")),
+    }
+}
+
+/// The current decision cards of a project's items other than `item` whose works run, by item: its title, and each
+/// card's number, key, question, the option it recommends, whether the owner ruled it and the owner's latest ruling;
+/// none when none has one.
+fn items_decided(conn: &Connection, project: &str, item: i64) -> Result<Option<Value>, String> {
+    let rows = query_json(
+        conn,
+        &format!(
+            "SELECT w.item, i.title, c.id AS design_card, c.key, json_extract(c.body, '$.question') AS question,
+                    json_extract(c.body, '$.recommended') AS recommended, c.status,
+                    (SELECT x.value FROM json_each(c.rulings) x WHERE json_extract(x.value, '$.by') = 'owner'
+                     ORDER BY x.key DESC LIMIT 1) AS ruling
+             FROM design_cards c JOIN works w ON w.id = c.work JOIN items i ON i.id = w.item
+             WHERE i.project = ?1 AND i.id <> ?2 AND i.cancelled IS NULL AND w.ended IS NULL
+               AND w.at NOT IN {} AND c.status IN ('open', 'ruled')
+             ORDER BY w.item, c.id",
+            db::cells_sql(ENGINEER, &[ENGINEER_END])
+        ),
+        &[&project, &item],
+        ROWS,
+    )?;
+    let mut out = Map::new();
+    for mut r in rows {
+        let id = r["item"].as_i64().unwrap_or_default();
+        let entry = out
+            .entry(format!("#{id}"))
+            .or_insert_with(|| json!({ "title": r["title"], "cards": [] }));
+        if let Some(o) = r.as_object_mut() {
+            for k in ["item", "title"] {
+                o.remove(k);
+            }
+            o.retain(|_, v| !v.is_null());
+        }
+        if let Some(cards) = entry["cards"].as_array_mut() {
+            cards.push(r);
+        }
+    }
+    Ok((!out.is_empty()).then_some(Value::Object(out)))
+}
+
 /// The flow new works start on, whose engineer's graph callers borrow (`engineer_graph`).
 fn flow_now(e: &Engine) -> Option<Arc<Compiled>> {
     e.shared.flow(e.flow_now)
@@ -3553,7 +3594,7 @@ fn main_ref(p: &config::Project) -> String {
     }
 }
 
-/// A project's guide as its main has it: its design goal, its AGENTS.md and the index of its design tree.
+/// A project's guide as its main has it: its design goal, its AGENTS.md and the index of its records.
 fn guide(e: &Engine, project: &str) -> Result<Value, String> {
     let p = e
         .config
@@ -3561,12 +3602,12 @@ fn guide(e: &Engine, project: &str) -> Result<Value, String> {
         .projects
         .get(project)
         .ok_or_else(|| format!("no project {project} in the configuration"))?;
-    let g = config::project_guide_at(&p.checkout, &main_ref(p), &p.design_paths, "")
-        .unwrap_or_else(|_| config::project_guide(&p.checkout, &p.design_paths, ""));
+    let g = config::project_guide_at(&p.checkout, &main_ref(p), &p.design_paths(), "")
+        .unwrap_or_else(|_| config::project_guide(&p.checkout, &p.design_paths(), ""));
     Ok(json!({
         "design_goal": p.design_goal,
         "agents_md": g["agents_md"],
-        "design_tree": g["design_tree"],
+        "records": g["records"],
     }))
 }
 
@@ -3580,15 +3621,15 @@ fn matter_text(e: &Engine, w: &Work) -> Result<String, String> {
     Ok(row.first().map(Value::to_string).unwrap_or_default())
 }
 
-/// The design tree nodes the matter picked names, in full, as the project's main has them; none when it names none.
+/// The records the matter picked names, in full, as the project's main has them; none when it names none.
 fn cited_nodes(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
     let Some(p) = e.config.config.projects.get(project) else {
         return Ok(None);
     };
     let cites = matter_text(e, w)?;
-    let g = config::project_guide_at(&p.checkout, &main_ref(p), &p.design_paths, &cites)
-        .unwrap_or_else(|_| config::project_guide(&p.checkout, &p.design_paths, &cites));
-    let nodes = g["cited_nodes"].clone();
+    let g = config::project_guide_at(&p.checkout, &main_ref(p), &p.design_paths(), &cites)
+        .unwrap_or_else(|_| config::project_guide(&p.checkout, &p.design_paths(), &cites));
+    let nodes = g["cited"].clone();
     Ok((!empty(&nodes)).then_some(nodes))
 }
 
@@ -3840,6 +3881,7 @@ fn said_in_groups(conn: &Connection, project: &str, since: i64) -> Result<Vec<Va
            FROM interjections j JOIN works w ON w.id = j.work JOIN items i ON i.id = w.item
            WHERE i.project = ?1 AND w.graph = 'engineer' AND j.speaker = 'owner' AND j.matter IS NULL
              AND j.informs = 0 AND j.cancelled_item IS NULL AND j.text NOT LIKE 'Ruling on design card %'
+             AND j.text NOT LIKE 'Ruling on decision card %'
            UNION ALL
            SELECT m.work, w.item, i.title, 'engineer', 'owner', m.text, NULL, coalesce(r.ended_at, r.started_at), NULL
            FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
@@ -4042,7 +4084,7 @@ fn since_last_work(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
         "works_ended": latest(works, ("work", "works"), &from),
         "main_after_merges": latest(main_ci, ("check of main", "checks of main"), &from),
         "owner_said": latest(owner, ("thing the owner said", "things the owner said"), &from),
-        "design_cards_ruled": latest(cards, ("design card", "design cards"), &from),
+        "decision_cards_ruled": latest(cards, ("decision card", "decision cards"), &from),
         "reports": latest(reports, ("report", "reports"), &from),
     });
     if first {
@@ -4119,7 +4161,8 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
                 }
                 Some((files, bytes))
             };
-            let design: Vec<&str> = p.design_paths.iter().map(String::as_str).collect();
+            let paths = p.design_paths();
+            let design: Vec<&str> = paths.iter().map(String::as_str).collect();
             match (lines(&design), lines(&[])) {
                 (Some((df, db)), Some((af, ab))) => json!({
                     "design_files": df, "design_bytes": db, "all_files": af, "all_bytes": ab
@@ -4590,12 +4633,13 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
             }
             material.insert("side_reports".into(), side_reports_once(e, &reports)?);
         }
-        "design_card" => {
+        // The owner's question about a decision card: the card, the design it stands in and the change to the records.
+        "owner_words" if matter["body"]["design_card"].is_i64() => {
             if let Some(card) = matter["body"]["design_card"].as_i64() {
                 let rows = query_json(
                     conn,
-                    "SELECT c.id AS design_card, c.work, c.round, c.body, c.status, c.rulings, c.changed, w.worktree,
-                            i.project
+                    "SELECT c.id AS design_card, c.work, c.round, c.key, c.body, c.revision, c.status, c.rulings,
+                            c.changed, w.worktree, i.project
                      FROM design_cards c JOIN works w ON w.id = c.work LEFT JOIN items i ON i.id = w.item
                      WHERE c.id = ?1",
                     &[&card],
@@ -4620,9 +4664,9 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
                     let project = c["project"].as_str().and_then(|p| e.config.config.projects.get(p));
                     if let (Some(wt), Some(p)) = (c["worktree"].as_str(), project) {
                         let wt = Path::new(wt);
-                        let diff =
-                            git::fork_point(wt, &p.main).and_then(|f| git::diff(wt, &f, "HEAD", &p.design_paths));
-                        material.insert("design_tree_diff".into(), json!(diff.unwrap_or_else(|x| x)));
+                        let paths = p.design_paths();
+                        let diff = git::fork_point(wt, &p.main).and_then(|f| git::diff(wt, &f, "HEAD", &paths));
+                        material.insert("records_diff".into(), json!(diff.unwrap_or_else(|x| x)));
                     }
                 }
             }
@@ -4755,7 +4799,7 @@ fn ids_of(v: &Value, ids: &mut BTreeSet<i64>) {
 }
 
 /// One item in full: as its creator wrote it, its locked acceptance, its dependencies and who waits for it, each with
-/// the dependency's kind, its design cards, and its latest work's cell, state and what it waits for.
+/// the dependency's kind, its decision cards, and its latest work's cell, state and what it waits for.
 fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let Some(body) = query_json(conn, "SELECT * FROM item_body WHERE item = ?1", &[&item], 1)?
@@ -4781,7 +4825,7 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
         ),
         (
             "design_cards",
-            "SELECT design_card, status, body, rulings FROM item_design_cards WHERE item = ?1 AND status <> 'replaced'",
+            "SELECT design_card, key, status, body, rulings FROM item_design_cards WHERE item = ?1 AND status IN ('open', 'ruled')",
         ),
         (
             "state",
@@ -5161,6 +5205,64 @@ fn changes_touch(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The coherence review is given the current decision cards of the project's other items whose works run, by item:
+    // the question, the option recommended, and the owner's latest ruling; not the item's own, nor those of a work that
+    // ended, of an item cancelled or of another project, nor a card replaced.
+    #[test]
+    fn the_other_items_decisions_are_their_current_cards() {
+        let mut db = db::Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for (project, title, cancelled) in [
+                ("p", "This one", None),
+                ("p", "Cache", None),
+                ("p", "Gone", Some("dropped")),
+                ("q", "Elsewhere", None),
+            ] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level, cancelled)
+                     VALUES (?1, ?2, 'x', 'y', 'change', '1', ?3)",
+                    params![project, title, cancelled],
+                )?;
+            }
+            for item in 1..=4 {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', 'T1')",
+                    [item],
+                )?;
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, 1, 'D4', '{}', 'c', 1)",
+                    [item],
+                )?;
+            }
+            let card = |work: i64, key: &str, status: &str, rulings: &str| {
+                tx.execute(
+                    "INSERT INTO design_cards (work, round, key, body, status, rulings)
+                     VALUES (?1, 1, ?2, json_object('question', 'Which size?', 'recommended', 'Small'), ?3, ?4)",
+                    params![work, key, status, rulings],
+                )
+            };
+            card(1, "own", "open", "[]")?;
+            card(2, "size", "ruled", r#"[{"by":"owner","verdict":"choose","option":"Large","at":5}]"#)?;
+            card(2, "old", "replaced", "[]")?;
+            card(2, "kept", "open", "[]")?;
+            card(3, "gone", "open", "[]")?;
+            card(4, "far", "open", "[]")?;
+            Ok(())
+        })
+        .unwrap();
+        let decided = items_decided(db.conn(), "p", 1).unwrap().unwrap();
+        assert_eq!(
+            decided,
+            json!({ "#2": { "title": "Cache", "cards": [
+                { "design_card": 2, "key": "size", "question": "Which size?", "recommended": "Small", "status": "ruled",
+                  "ruling": { "by": "owner", "verdict": "choose", "option": "Large", "at": 5 } },
+                { "design_card": 4, "key": "kept", "question": "Which size?", "recommended": "Small", "status": "open" },
+            ] } })
+        );
+        assert_eq!(items_decided(db.conn(), "q", 4).unwrap(), None);
+    }
 
     // A text's sentences end where Unicode's rules end them, never inside a version number, each without the spaces
     // and the punctuation it ends with.

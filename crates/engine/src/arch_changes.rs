@@ -746,7 +746,7 @@ mod tests {
     fn a_cancelled_or_merged_item_s_work_ends_as_every_work_ends() {
         let mut db = Db::in_memory().unwrap();
         let p: config::Project = serde_json::from_value(json!({
-            "repo": "o/p", "checkout": "/checkout", "design_goal": "simple", "design_paths": ["design/"],
+            "repo": "o/p", "checkout": "/checkout", "design_goal": "simple",
             "test_paths": ["tests/"], "ci": { "fast": "ci", "full": ["ci"], "merge_checks": ["check"] }
         }))
         .unwrap();

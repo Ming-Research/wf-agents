@@ -220,7 +220,7 @@ cost_usd: number,
  */
 open_asks: number, 
 /**
- * Its design cards still waiting for a ruling.
+ * Its decision cards still waiting for a ruling.
  */
 open_design_cards: number, };
 
@@ -345,7 +345,8 @@ export type TokenCosts = {
 input: number, read: number, written: number, output: number, };
 
 /**
- * A design card, as the round that handed it in wrote it, with its rulings.
+ * A decision card, as the round that handed it in wrote it, with its rulings: one question put to the owner, in the
+ * flow's decision card shape; a card of a flow version before keys holds a design card's decisions, as it was.
  */
 export type DesignCard = { id: number, 
 /**
@@ -353,31 +354,49 @@ export type DesignCard = { id: number,
  */
 round: number, work: number, item: number | null, 
 /**
- * open, ruled or replaced.
+ * Its key, the same for the same question in every version of it in the work; `card-<id>` for a card of before.
  */
-status: string, body: JsonValue, rulings: JsonValue, replaced_by: number | null, 
+key: string, 
 /**
- * For a design card a newer one replaced: that one, as the engine knows it.
+ * open, ruled, replaced or withdrawn.
+ */
+status: string, body: JsonValue, 
+/**
+ * The records it revises as the branch had them when it was posted: each its reference, whether it was added,
+ * changed or removed, and its words.
+ */
+revision: JsonValue, rulings: JsonValue, replaced_by: number | null, 
+/**
+ * For a card a newer version of its key replaced: that one, as the engine knows it.
  */
 replaced: Replacement | null, 
+/**
+ * For a card withdrawn: why the work no longer asks its question, in its agent's words.
+ */
+withdrawn: string | null, 
+/**
+ * For a card of a work whose branch changes the flow: the flow drawn from the branch when it was posted, and the
+ * flow version in force then.
+ */
+flow: CardFlow | null, 
 /**
  * The cell of the round that handed it in, the cell's title in the work's flow version, and when that round
  * ended.
  */
 cell: string | null, title: string | null, at: number | null, 
 /**
- * The design card this one replaced, if any, and what this one changed from it and why, in a sentence or two of
- * its agent's.
+ * The card this one replaced, if any, and what this one changed from it and why, in a sentence or two of its
+ * agent's.
  */
 replaces: number | null, changed: string | null, 
 /**
- * The newest design card of its work the owner ruled on that this one took the place of, directly or through cards
- * between: the owner confirms again what changed since.
+ * The newest card of its key the owner ruled on that this one took the place of, directly or through cards
+ * between: the owner rules again on what changed since.
  */
 ruled_before: number | null, };
 
 /**
- * The design card that replaced another: the round that handed it in, at which cell and when.
+ * The decision card that replaced another: the round that handed it in, at which cell and when.
  */
 export type Replacement = { design_card: number, 
 /**
@@ -393,10 +412,25 @@ cell: string | null, title: string | null,
  */
 at: number | null, 
 /**
- * What the newer design card changed and why, in a sentence or two of its agent's; none for one handed in before
+ * What the newer decision card changed and why, in a sentence or two of its agent's; none for one handed in before
  * the flow asked for it.
  */
 changed: string | null, };
+
+/**
+ * The flow a decision card carries: the flow its work's branch had when the card was posted, kept as a snapshot,
+ * and the flow version in force then, which the page compares it with.
+ */
+export type CardFlow = { snapshot: number, in_force: number, };
+
+/**
+ * A flow kept as a snapshot, compiled, with what the flow page shows of it.
+ */
+export type FlowSnapshot = { id: number, digest: string, 
+/**
+ * The stored flow version with the same digest, when there is one.
+ */
+version: number | null, compiled: Compiled, view: FlowView, };
 
 /**
  * An ask of the owner: what is asked, and the owner's answer.
@@ -507,7 +541,7 @@ projects: Array<string>,
  */
 work: number | null, item: number | null, title: string | null, level: string | null, over: boolean, 
 /**
- * How many things in it wait for the owner: the open blockers the owner holds, design cards not ruled, faults not
+ * How many things in it wait for the owner: the open blockers the owner holds, decision cards not ruled, faults not
  * read.
  */
 waiting: number, 
@@ -545,7 +579,7 @@ sender: string, recipient: string, text: string, at: number,
  */
 work: number | null, round: number | null, 
 /**
- * For an ask, the ask; for a design card and a ruling on it, the card; for what is or holds an
+ * For an ask, the ask; for a decision card and a ruling on it, the card; for what is or holds an
  * architect's matter, or is an entry of the talk about it, the matter.
  */
 ask: number | null, design_card: number | null, matter: number | null, 
@@ -554,7 +588,7 @@ ask: number | null, design_card: number | null, matter: number | null,
  */
 read_at: number | null, 
 /**
- * Whether it waits for the owner: an open blocker the owner holds, a design card not ruled, a fault not read.
+ * Whether it waits for the owner: an open blocker the owner holds, a decision card not ruled, a fault not read.
  */
 waiting: boolean, 
 /**
@@ -685,7 +719,7 @@ events: Array<string>,
  */
 shown: Array<Shown>, 
 /**
- * The design cards its rounds handed in, the one that waits for the owner's ruling among them.
+ * The decision cards its rounds handed in, the one that waits for the owner's ruling among them.
  */
 design_cards: Array<DesignCard>, };
 
@@ -785,7 +819,7 @@ project: string, architect_work: number | null, round: number | null, cell: stri
 
 /**
  * A conversation in full: its entries in time order; what waits for the owner in it, which the bar under its head
- * pins (the asks, which show where they were asked, and the design cards that wait for the owner's ruling, in the
+ * pins (the asks, which show where they were asked, and the decision cards that wait for the owner's ruling, in the
  * bubbles of their stages); in the one-to-one with an architect, the questions it put to the owner that wait for a
  * reply, and the one it waits on now; and how far the owner has read it.
  */
@@ -795,7 +829,7 @@ export type ConversationDetail = { key: string, entries: Array<ConversationEntry
  */
 asks: Array<OwnerAsk>, 
 /**
- * The design cards of its work that wait for the owner's ruling, whether or not the work waits on one yet.
+ * The decision cards of its work that wait for the owner's ruling, whether or not the work waits on one yet.
  */
 design_cards: Array<DesignCard>, 
 /**
@@ -823,17 +857,22 @@ forwarding: Forwarding | null, };
  * What the owner says in a work's group: to its engineer, to its project's architect, or to both. Saying it to the
  * architect alone, the engineer is given it as a word that needs no answer; to the engineer alone, the architect is
  * given it at its next pick. With `question`, it answers that question of the engineer's, which the architect holds:
- * the answer is the reply, and the architect is told.
+ * the answer is the reply, and the architect is told. With `design_card`, it asks about that decision card of the
+ * work, one that waits for the owner's ruling: no ruling, the card waits on; whoever it goes to is given the card.
  */
 export type WorkSaid = { text: string, 
 /**
- * engineer (the default), architect or both.
+ * engineer (the default), architect (the default of a question about a decision card) or both.
  */
 to?: string, 
 /**
  * The architect's matter that holds the question the words answer.
  */
 question?: number, 
+/**
+ * The decision card of the work the words ask about.
+ */
+design_card?: number, 
 /**
  * The images sent with the words, in the order the owner added them; words may be images alone.
  */
@@ -933,35 +972,21 @@ to?: string,
 images: Array<ImageSent>, };
 
 /**
- * The owner's ruling on a design card, as the page and the command line hand it in: a verdict on each of its
- * decisions, all sent at once.
+ * The owner's ruling on one decision card, as the page and the command line hand it in.
  */
 export type Ruling = { 
 /**
- * One for each decision of the design card.
- */
-decisions: Array<DecisionRuling>, };
-
-/**
- * The ruling on one decision of a design card.
- */
-export type DecisionRuling = { 
-/**
- * The decision's number on the design card, from 1.
- */
-decision: number, 
-/**
- * confirm or disagree.
+ * confirm (the option recommended), choose (another of its options) or disagree (saying why).
  */
 verdict: string, 
 /**
- * Why, for a disagreement; it may be left out when another approach is chosen.
+ * For choose: the option chosen, by its name.
  */
-text?: string, 
+option?: string, 
 /**
- * For a disagreement: another of the decision's approaches, chosen instead of the one recommended, by its name.
+ * The owner's words: why, for a disagreement; optional otherwise.
  */
-option?: string, };
+text?: string, };
 
 /**
  * What an answer or a ruling did, in words.
@@ -1221,7 +1246,7 @@ work: number | null, at: string | null,
  */
 stage: string | null, stages: Array<string>, 
 /**
- * Its latest work's asks of the owner still waiting for an answer, and its design cards still waiting for a
+ * Its latest work's asks of the owner still waiting for an answer, and its decision cards still waiting for a
  * ruling.
  */
 open_asks: number, open_design_cards: number, 
@@ -1259,7 +1284,7 @@ export type Items = { items: Array<ItemSummary>, links: Array<ItemLink>, };
 export type LinkedItem = { item: ItemSummary, needs: string, kind: string, };
 
 /**
- * An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works, design cards
+ * An item in full: as its creator wrote it, its locked acceptance, its dependencies both ways, its works, decision cards
  * and asks of the owner.
  */
 export type ItemDetail = { item: ItemSummary, problem: string, why: string, approach: string | null, 
@@ -1419,11 +1444,12 @@ checkout: string,
  */
 main: string, 
 /**
- * The paths whose change is a change of design, and those that hold tests.
+ * The paths that hold tests.
  */
-design_paths: Array<string>, test_paths: Array<string>, 
+test_paths: Array<string>, 
 /**
- * Where it keeps its records, which the reasoning system keeps; none when it keeps none.
+ * Where it keeps its records, which the reasoning system keeps and whose change is a change of design; none when it
+ * keeps none.
  */
 records: string | null, 
 /**
@@ -1665,12 +1691,12 @@ urgent: boolean,
  */
 fix: JsonValue | null, 
 /**
- * For a design card to look at: how the card stands.
+ * For a decision card to look at: how the card stands.
  */
 card: MatterCard | null, };
 
 /**
- * How the design card a matter is about stands: its number; open, ruled or replaced; its rulings, the owner's and the
+ * How the decision card a matter is about stands: its number; open, ruled or replaced; its rulings, the owner's and the
  * architect's alike; and the card that replaced it.
  */
 export type MatterCard = { id: number, status: string, rulings: JsonValue, replaced_by: number | null, };
@@ -1787,7 +1813,7 @@ tags: Array<string>,
  */
 source: string, times_reported: number, 
 /**
- * What it refers to: PRs, branches, design cards, the owner's words.
+ * What it refers to: PRs, branches, decision cards, the owner's words.
  */
 refs: Array<string>, 
 /**
@@ -1875,7 +1901,7 @@ anomalies: Array<Anomaly>, };
  */
 export type SystemNow = { architects: Array<ArchitectNow>, 
 /**
- * The asks of the owner not answered, the design cards not ruled on and the faults of wf-agents not read.
+ * The asks of the owner not answered, the decision cards not ruled on and the faults of wf-agents not read.
  */
 asks: Waiting, design_cards: Waiting, faults: Waiting, };
 
@@ -2167,10 +2193,10 @@ settings: Array<NamedText>,
  */
 agents_md: string, 
 /**
- * The index of its design tree as its checkout has it now: each node's path with its first line. The full text
- * of the nodes an item cites is added for each item.
+ * The index of its records as its checkout has it now: each file's path with its first line. The full text of
+ * the files an item cites is added for each item.
  */
-design_tree: Array<NamedText>, 
+records: Array<NamedText>, 
 /**
  * The project's own rules, each by its name with its text.
  */

@@ -5,7 +5,7 @@ import { createElement, useMemo, useSyncExternalStore, type MouseEvent, type Rea
 
 import { roundName } from './format';
 
-/// What the work's panel beside its chart shows: its rounds, its design cards, its helpers' talk with its engineer, or its
+/// What the work's panel beside its chart shows: its rounds, its decision cards, its helpers' talk with its engineer, or its
 /// usage.
 export type WorkTab = 'rounds' | 'cards' | 'helpers' | 'usage';
 
@@ -105,6 +105,8 @@ export type Route =
       /// Instead of a stored version, the flow at a git ref of a project's checkout.
       project: string | null;
       ref: string | null;
+      /// Instead of a stored version, the flow a decision card carries, as its work's branch had it.
+      snapshot: number | null;
       /// The stored version the shown flow is compared with.
       from: number | null;
     }
@@ -187,6 +189,7 @@ export function parse(pathname: string, search: string): Route {
         project: q.get('project'),
         ref: q.get('ref'),
         from: num(q.get('from')),
+        snapshot: num(q.get('snapshot')),
       };
     }
   }
@@ -237,6 +240,7 @@ export function href(r: Route): string {
       return `/flow${r.version === null ? '' : `/${r.version}`}${query([
         ['project', r.project],
         ['ref', r.ref],
+        ['snapshot', r.snapshot],
         ['from', r.from],
         ['graph', r.graph],
         ['cell', r.cell],

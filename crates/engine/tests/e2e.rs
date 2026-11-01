@@ -736,7 +736,6 @@ timeout_ms = 1000
 repo = "o/p"
 checkout = "{}"
 design_goal = "simple"
-design_paths = ["design/"]
 test_paths = ["tests/"]
 rules = ["ground"]
 [ci]
@@ -1124,7 +1123,7 @@ fn building_a_message_writes_nothing() {
 // branch, with a reason that names that commit and says to revert it; once reverted, the cell's return is taken.
 #[test]
 fn an_earlier_attempts_design_change_is_named_and_reverted() {
-    let s = setup("earlier-attempt");
+    let s = setup_records("earlier-attempt");
     let mut agents = scripts();
     agents.insert(
         "D1",
@@ -1256,28 +1255,6 @@ fn worktree_of(e: &Engine, work: i64) -> PathBuf {
     PathBuf::from(wt)
 }
 
-/// Gives the work a design card that matched the design paths at the head given: the card is put on the work's
-/// latest round that recorded the head it left, which is made to have left that head.
-fn card_at(e: &mut Engine, work: i64, head: &str) {
-    e.db.write(Actor::Engine, |tx| {
-        let round: i64 = tx.query_row(
-            "SELECT max(n) FROM rounds WHERE work = ?1 AND json_extract(input, '$.engine.head_after') IS NOT NULL",
-            [work],
-            |r| r.get(0),
-        )?;
-        tx.execute(
-            "UPDATE rounds SET input = json_set(input, '$.engine.head_after', ?3) WHERE work = ?1 AND n = ?2",
-            params![work, round, head],
-        )?;
-        tx.execute(
-            "INSERT INTO design_cards (work, round, body, status) VALUES (?1, ?2, '[]', 'open')",
-            [work, round],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-}
-
 /// Implementing as `scripts` has it, except that the first round, after committing the feature with the files in
 /// `own`, merges main moved on by the files in `main` before it asks for ci on the merge.
 fn implementing_over_a_merge(
@@ -1314,12 +1291,12 @@ fn implementing_over_a_merge(
     })
 }
 
-// What a merge of main brings in is not the work's own change: a cell that may not change the design paths takes a
-// return whose round merged main with changes to them, and a work with a design card hands in no new one for the
-// changes to the design paths that a merge of main brought in after the card.
+// What a merge of main brings in is not the work's own change: a cell that may not change the records takes a return
+// whose round merged main with changes to them, and implementing, which changes none after the design, takes one whose
+// round merged main's changes to them.
 #[test]
 fn a_merge_of_main_is_not_the_works_own_design_change() {
-    let s = setup("merge-main");
+    let s = setup_records("merge-main");
     let mut agents = scripts();
     let root = s.root.clone();
     agents.insert(
@@ -1345,9 +1322,6 @@ fn a_merge_of_main_is_not_the_works_own_design_change() {
     let derived = ended_at(&e, item, "D1");
     assert_eq!(derived.len(), 1, "{derived:?}\n{}", said.lock().unwrap().join("\n"));
     assert!(derived[0].0.is_some(), "{derived:?}");
-    let (work, _, _) = state(&e, item).unwrap();
-    let wt = worktree_of(&e, work);
-    card_at(&mut e, work, &git(&wt, &["rev-parse", "HEAD"]));
     for _ in 0..10 {
         if ended_at(&e, item, "I1")
             .iter()
@@ -1374,7 +1348,7 @@ fn a_merge_of_main_is_not_the_works_own_design_change() {
 // only its own: the files it changed, and the commits an earlier attempt of it left, never main's.
 #[test]
 fn a_cells_own_design_change_counts_beside_a_merge_of_main() {
-    let s = setup("own-beside-merge");
+    let s = setup_records("own-beside-merge");
     let mut agents = scripts();
     let root = s.root.clone();
     agents.insert(
@@ -1422,11 +1396,12 @@ fn a_cells_own_design_change_counts_beside_a_merge_of_main() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A work with a design card hands in a new one for the design paths it changed itself after the card, and for a
-// design path it had changed that main changed too and a merge brought in; not for one only main changed.
+// Implementing changes none of the records after the design, in any of its rounds, one that ran tools too: a change
+// to them goes back to derive again. A record it changed that main changed too and a merge brought in is its own; one
+// only main changed is not.
 #[test]
-fn a_design_path_the_work_and_main_both_changed_needs_a_new_design_card() {
-    let s = setup("both-changed");
+fn implementing_is_sent_back_for_its_own_change_to_the_records() {
+    let s = setup_records("both-changed");
     let mut agents = scripts();
     agents.insert(
         "I1",
@@ -1450,7 +1425,6 @@ fn a_design_path_the_work_and_main_both_changed_needs_a_new_design_card() {
     );
     git(&wt, &["add", "-A"]);
     git(&wt, &["commit", "-q", "-m", "The work's decision"]);
-    card_at(&mut e, work, &git(&wt, &["rev-parse", "HEAD"]));
     for _ in 0..10 {
         if ended_at(&e, item, "I1").iter().any(|(_, why)| why.is_some()) {
             break;
@@ -1463,7 +1437,7 @@ fn a_design_path_the_work_and_main_both_changed_needs_a_new_design_card() {
         .find_map(|(_, why)| why)
         .unwrap_or_default();
     assert!(
-        why.contains("the design paths changed since the last design card (design/overview.md, design/own.md)"),
+        why.contains("the records changed since the design (design/overview.md, design/own.md)"),
         "{why}\n{log}"
     );
     assert!(!why.contains("design/main.md"), "{why}");
@@ -2284,10 +2258,25 @@ fn a_project_that_keeps_records_checks_and_reviews_them() {
         Box::new(|r: &Request, n: usize| {
             let wt = &r.worktree;
             // The first design revises a record and writes no log; the second, back from the check, writes the log.
-            let file = if n == 1 { "design/decision.md" } else { "design/log.md" };
-            write(wt, file, "Decision: one.\n");
+            if n == 1 {
+                write(wt, "design/derivations/one.md", "Decision one: One, because two.\n");
+            } else {
+                write(wt, "design/log.md", "# Log\n");
+            }
             git(wt, &["add", "-A"]);
             git(wt, &["commit", "-q", "-m", "Revise the records"]);
+            let card = json!({
+                "key": "one",
+                "question": "Which one?",
+                "options": [
+                    { "name": "One", "does": "a", "cost": "c", "risks": "r" },
+                    { "name": "Two", "does": "b", "cost": "c", "risks": "r" }
+                ],
+                "not_workable": [],
+                "recommended": "One",
+                "confidence": { "level": "4", "why": "w", "overturn": "o" },
+                "revises": ["D:one"]
+            });
             (
                 vec![("outcome.design_tree", "change"), ("outcome.measure", "not_measured")],
                 vec![
@@ -2295,7 +2284,8 @@ fn a_project_that_keeps_records_checks_and_reviews_them() {
                         "outcome.acceptance",
                         json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
                     ),
-                    ("outcome.design_tree.design_card[].node", json!("design")),
+                    ("outcome.design.solution", json!("Why one.\n\n[[card:one]]\n")),
+                    ("outcome.design_tree.cards", json!([card])),
                 ],
             )
         }),
@@ -3002,11 +2992,11 @@ fn given_text(input: &Value, address: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-// The project guide is read from main as the work's branch merged it: the work's own edits to its design tree and to
+// The project guide is read from main as the work's branch merged it: the work's own edits to its records and to
 // AGENTS.md, committed or not, never make it a new one, so its session is not given it again.
 #[test]
-fn a_works_own_edits_to_its_design_tree_do_not_give_the_guide_again() {
-    let s = setup("own-guide");
+fn a_works_own_edits_to_its_records_do_not_give_the_guide_again() {
+    let s = setup_records("own-guide");
     let (mut e, said, item) = start(&s, scripts());
     e.step(None).unwrap();
     e.step(None).unwrap();
@@ -3039,7 +3029,7 @@ fn a_works_own_edits_to_its_design_tree_do_not_give_the_guide_again() {
 // given only the entries that differ, under the new version's address, and holds the new version after.
 #[test]
 fn a_changed_main_gives_only_what_changed_in_the_guide() {
-    let s = setup("main-guide");
+    let s = setup_records("main-guide");
     let (mut e, said, item) = start(&s, scripts());
     e.step(None).unwrap();
     e.step(None).unwrap();
@@ -3071,7 +3061,7 @@ fn a_changed_main_gives_only_what_changed_in_the_guide() {
     );
     assert!(
         text.trim_end()
-            .ends_with(r##"{"design_tree":{"design/later.md":"# Later"}}"##),
+            .ends_with(r##"{"records":{"design/later.md":"# Later"}}"##),
         "{text}"
     );
     assert!(
@@ -4078,10 +4068,10 @@ fn a_step_takes_a_work_on_an_older_flow_version_over_and_keeps_it_paused() {
 // The owner starts a work over while a round of it runs, after pausing it: what the round hands in is not taken, and the
 // takeover cuts the round off with the owner's reason, what it cost kept on it. The work ends as taken over, saying the
 // owner started it over, as the group's notice says too; its question to the architect leaves the queue, its ask the
-// owner answered keeps the owner's answer and the other needs none, and its design card is replaced with the owner's
+// owner answered keeps the owner's answer and the other needs none, and its decision card is replaced with the owner's
 // ruling kept. A new work on the item starts at the first cell, paused as the owner had paused the old one: it takes
 // over the branch, the worktree with what the cut-off round left uncommitted in it, and the pull request, and its cell
-// `R1` is told what exists, the old work's design cards and asks with their rulings and answers included. The work
+// `R1` is told what exists, the old work's decision cards and asks with their rulings and answers included. The work
 // over and a work of the architect cannot be started over.
 #[test]
 fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
@@ -4124,7 +4114,7 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
     let log = said.lock().unwrap().join("\n");
     let (old, _, worktree, branch, pr, _) = works_of(&e, item)[0].clone();
     assert!(pr.is_some() && worktree.is_some() && branch.is_some(), "{log}");
-    // It put two asks to the owner, a design card and a question to the architect; the owner answers one ask and rules
+    // It put two asks to the owner, a decision card and a question to the architect; the owner answers one ask and rules
     // on the card.
     let (asks, card) =
         e.db.write(Actor::Engine, |tx| {
@@ -4138,8 +4128,14 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
                 asks.push(tx.last_insert_rowid());
             }
             tx.execute(
-                "INSERT INTO design_cards (work, round, body, status) VALUES (?1, ?2, '[]', 'open')",
-                [old, round],
+                "INSERT INTO design_cards (work, round, key, body, status) VALUES (?1, ?2, 'name', ?3, 'open')",
+                params![
+                    old,
+                    round,
+                    json!({ "key": "name", "question": "Which name?", "options": [{ "name": "Old" }, { "name": "New" }],
+                            "recommended": "Old" })
+                    .to_string()
+                ],
             )?;
             let card = tx.last_insert_rowid();
             db::queue_matter(
@@ -4166,12 +4162,9 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
     };
     api::answer(&mut e.db, asks[0], &answer).unwrap();
     let ruling = api::Ruling {
-        decisions: vec![api::DecisionRuling {
-            decision: 1,
-            verdict: "disagree".into(),
-            text: Some("Name it after the feature.".into()),
-            option: None,
-        }],
+        verdict: "disagree".into(),
+        option: None,
+        text: Some("Name it after the feature.".into()),
     };
     api::rule(&mut e.db, card, &ruling).unwrap();
     // The owner's step of the work runs its round, in which the owner starts it over.
@@ -5082,7 +5075,7 @@ fn an_action_only_the_owner_can_do_pauses_the_work_until_the_owner_starts_it() {
 }
 
 // A choice only the owner can make about a work, accepting a measured slowdown, the architect puts on the work's
-// design card: its reply has the engineer record it there as a decision, with the options and the one it recommends,
+// decision card: its reply has the engineer record it there as a decision, with the options and the one it recommends,
 // and go on with that option, the owner ruling on it before the merge. Nothing is asked of the owner, and the work is
 // not paused: it takes the reply at once.
 #[test]
@@ -5090,7 +5083,7 @@ fn a_choice_only_the_owner_can_make_goes_on_the_design_card_and_the_work_goes_on
     let s = setup("owner-choice");
     let ways: Script = Box::new(|_: &Request, _: usize| {
         let reply = json!({
-            "text": "Only the owner can accept the slowdown: record it on your design card as a decision, with the \
+            "text": "Only the owner can accept the slowdown: put it to the owner as a decision card of your design, with the \
                      options and the one you recommend, and go on with that option; the owner rules on it before the \
                      merge.",
             "why": "Accepting a slowdown is the owner's choice.",
@@ -5108,7 +5101,10 @@ fn a_choice_only_the_owner_can_make_goes_on_the_design_card_and_the_work_goes_on
             .unwrap();
     assert_eq!(asks, 0, "{log}");
     let ways = message_at(&e, arch, "H3", false);
-    assert!(ways.contains("put on its design card as a decision"), "{ways}");
+    assert!(
+        ways.contains("put to the owner as a decision card of its design"),
+        "{ways}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -7276,81 +7272,176 @@ fn a_project_with_flow_feedback_off_is_not_asked_for_it() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A design card a work hands in comes to its project's architect's queue. The architect does not rule on it: it looks
-// at whether the card holds, and when it does not, the engine tells the work's engineer what is wrong. The card's
-// rulings are the owner's alone.
-#[test]
-fn a_design_card_the_architect_finds_unsound_is_told_to_the_engineer() {
-    let s = setup("architect-card");
-    let mut agents = scripts();
-    agents.insert(
-        "I1",
-        Box::new(|r: &Request, n: usize| {
-            let wt = &r.worktree;
-            if n == 1 {
-                write(wt, "src/lib.txt", "old\nfeature\n");
-                write(wt, "design/engine.md", "Decision: a new one.\n");
-                git(wt, &["add", "-A"]);
-                git(wt, &["commit", "-q", "-m", "Add the feature"]);
-                let head = git(wt, &["rev-parse", "HEAD"]);
-                let tools = json!([{ "tool": "ci", "head": head, "tests": ["feature"], "pr": { "title": "Add the feature", "body": "It adds it." } }]);
-                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
-            }
-            let head = git(wt, &["rev-parse", "HEAD"]);
-            (
-                vec![("outcome.design_card", "")],
-                vec![
-                    ("outcome.head", json!(head)),
-                    ("outcome.conditions", json!([{ "how": "tested", "id": "A1", "tests": ["feature"] }])),
-                    ("outcome.design_card[].node", json!("design/engine.md")),
+/// Two records and a log entry a design revises, and the design handing in a decision card for each, standing in its
+/// text at its anchor.
+fn designs_with_cards() -> Script {
+    Box::new(move |r: &Request, _: usize| {
+        let wt = &r.worktree;
+        write(
+            wt,
+            "design/derivations/runs.md",
+            "# Runs\n\nDecision red-run: Run every test to the end, because each leaves a line.\n",
+        );
+        write(
+            wt,
+            "design/facts/ci.md",
+            "# CI\n\nFact cancelled: A cancelled test leaves no line.\n",
+        );
+        write(wt, "design/log.md", "# Log\n");
+        git(wt, &["add", "-A"]);
+        git(wt, &["commit", "-q", "-m", "Revise the records"]);
+        let card = |key: &str, revises: &[&str]| {
+            json!({
+                "key": key,
+                "question": format!("Which way for {key}?"),
+                "options": [
+                    { "name": "A", "does": "a", "cost": "c", "risks": "r" },
+                    { "name": "B", "does": "b", "cost": "c", "risks": "r" }
                 ],
-            )
-        }),
-    );
-    let look = "Decision 1 chose an approach that does not hold in the whole: the parser already does this.";
-    agents.insert(
-        "H6",
-        Box::new(move |_: &Request, _: usize| {
-            (
-                vec![("outcome.card", "unsound")],
-                vec![("outcome.card.wrong", json!(look))],
-            )
-        }),
-    );
-    let (mut e, said, item) = start(&s, agents);
-    let told = |e: &mut Engine| -> bool {
+                "not_workable": [{ "name": "C", "why": "It breaks." }],
+                "recommended": "A",
+                "confidence": { "level": "3", "why": "w", "overturn": "o" },
+                "revises": revises
+            })
+        };
+        (
+            vec![("outcome.design_tree", "change"), ("outcome.measure", "not_measured")],
+            vec![
+                (
+                    "outcome.acceptance",
+                    json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
+                ),
+                (
+                    "outcome.design.solution",
+                    json!("Why the runs go on.\n\n[[card:red-run]]\n\nWhy the facts.\n\n[[card:cancelled]]\n"),
+                ),
+                (
+                    "outcome.design_tree.cards",
+                    json!([card("red-run", &["D:red-run"]), card("cancelled", &["F:cancelled"])]),
+                ),
+            ],
+        )
+    })
+}
+
+/// The work's decision cards: each its id, key, status and the records it revises.
+fn cards_of(e: &Engine, work: i64) -> Vec<(i64, String, String, Value)> {
+    let mut st =
         e.db.conn()
-            .query_row(
-                "SELECT count(*) FROM interjections WHERE speaker = 'architect'",
-                [],
-                |r| r.get::<_, i64>(0),
-            )
+            .prepare("SELECT id, key, status, revision FROM design_cards WHERE work = ?1 ORDER BY id")
+            .unwrap();
+    st.query_map([work], |r| {
+        Ok((
+            r.get(0)?,
+            r.get(1)?,
+            r.get(2)?,
+            serde_json::from_str(&r.get::<_, String>(3)?).unwrap(),
+        ))
+    })
+    .unwrap()
+    .map(|x| x.unwrap())
+    .collect()
+}
+
+// A design that revises the records puts a decision card to the owner for each question, standing in its text at its
+// anchor; once the checks after design pass the engine posts them, each with the records it revises as the branch has
+// them, the owner's to rule, with no look of the architect's queued: the design's coherence review judged them. A branch
+// that does not change the flow gives its cards none.
+#[test]
+fn a_designs_decision_cards_are_posted_with_the_records_they_revise() {
+    let s = setup_records("posted-cards");
+    let mut agents = scripts();
+    agents.insert("D4", designs_with_cards());
+    let (mut e, said, item) = start(&s, agents);
+    let posted = |e: &mut Engine| -> bool {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM design_cards", [], |r| r.get::<_, i64>(0))
             .unwrap()
             > 0
     };
-    assert!(steps_until(&mut e, 150, told), "{}", said.lock().unwrap().join("\n"));
+    assert!(steps_until(&mut e, 30, posted), "{}", said.lock().unwrap().join("\n"));
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(matters(&e)[0].0, "design_card", "{log}");
     let (work, _, _) = state(&e, item).unwrap();
-    let said_to: String =
+    let cards = cards_of(&e, work);
+    let keys: Vec<(&str, &str)> = cards.iter().map(|c| (c.1.as_str(), c.2.as_str())).collect();
+    assert_eq!(keys, [("red-run", "open"), ("cancelled", "open")], "{log}");
+    assert_eq!(cards[0].3[0]["reference"], "D:red-run");
+    assert_eq!(cards[0].3[0]["change"], "added");
+    assert_eq!(
+        cards[0].3[0]["text"],
+        "Decision red-run: Run every test to the end, because each leaves a line."
+    );
+    assert_eq!(cards[1].3[0]["reference"], "F:cancelled");
+    let looks = matters(&e);
+    assert!(looks.iter().all(|m| m.0 != "design_card"), "{looks:?}\n{log}");
+    // The coherence review was given what the architect knows of the project, its board among it.
+    let given: String =
         e.db.conn()
             .query_row(
-                "SELECT text FROM interjections WHERE work = ?1 AND speaker = 'architect' AND line = 'engineer'",
+                "SELECT input FROM rounds WHERE work = ?1 AND cell = 'D7' ORDER BY n DESC LIMIT 1",
                 [work],
                 |r| r.get(0),
             )
             .unwrap();
-    assert!(said_to.ends_with(look), "{said_to}");
-    let (status, rulings): (String, String) =
+    assert!(given.contains("·engine·board"), "{given}");
+    let flows: i64 =
         e.db.conn()
-            .query_row("SELECT status, rulings FROM design_cards", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+            .query_row(
+                "SELECT count(*) FROM design_cards WHERE flow_snapshot IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
-    assert_eq!((status.as_str(), rulings.as_str()), ("open", "[]"), "{log}");
+    assert_eq!(flows, 0);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The merge waits for the owner's ruling on every decision card of the work: it waits while one is open, and the owner
+// is told which hold it; once the owner confirmed each, it goes on.
+#[test]
+fn the_merge_waits_for_a_ruling_on_every_decision_card() {
+    let s = setup_records("cards-gate");
+    let mut agents = scripts();
+    agents.insert("D4", designs_with_cards());
+    let (mut e, said, item) = start(&s, agents);
+    let waits = |e: &mut Engine| -> bool { !ended_at(e, item, "M1").is_empty() };
+    assert!(steps_until(&mut e, 300, waits), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    let (work, _, _) = state(&e, item).unwrap();
+    assert_eq!(
+        ended_at(&e, item, "M1").first().map(|x| x.0.clone()),
+        Some(Some("wait_ruling".to_string())),
+        "{log}"
+    );
+    let cards = cards_of(&e, work);
+    assert_eq!(cards.len(), 2, "{log}");
+    let told: Vec<String> = engine::query_json(
+        e.db.conn(),
+        "SELECT json_extract(args, '$.text') AS text FROM outbox WHERE work = ?1 AND kind = 'notify' ORDER BY id",
+        &[&work],
+        100,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["text"].as_str().unwrap_or_default().to_string())
+    .collect();
+    let waiting = format!(
+        "is ready to merge, but decision cards {} and {} wait for your ruling.",
+        cards[0].0, cards[1].0
+    );
+    assert!(told.iter().any(|t| t.ends_with(&waiting)), "{told:?}");
+    let confirm = api::Ruling {
+        verdict: "confirm".into(),
+        option: None,
+        text: None,
+    };
+    for c in &cards {
+        api::rule(&mut e.db, c.0, &confirm).unwrap();
+    }
+    let cleared = |e: &mut Engine| -> bool { ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear")) };
+    assert!(steps_until(&mut e, 40, cleared), "{}", said.lock().unwrap().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
 // The architect pauses a work in its effects: the engine pauses it, with a reason that says the architect stopped it
 // and why. Every work let go on, it stays stopped; the owner's Start of that work lets it go on, which is the owner's
 // release of it: the architect is told in the owner's words.
@@ -8457,6 +8548,7 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
                 text: "Look at these two.".into(),
                 to: None,
                 question: None,
+                design_card: None,
                 images: two_images(),
             };
             api::say_to_work(&mut db, r.work, &said).unwrap();
@@ -10098,96 +10190,6 @@ fn the_side_reports_handed_in_before_are_given_once_by_work_and_cell() {
         "{given}"
     );
     assert_eq!(groups[1]["reports"][0]["rounds"], json!([5]), "{given}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// The architect's look at a design card leaves its queue as the owner rules the card, disagreeing with a decision as
-// much as confirming them all, or as another card replaces it, withdrawn saying why, and never reaches `H6`: in the
-// sixth trial a look queued two days before reached `H6` after the owner had ruled the card, disagreeing with a
-// decision, and `H6` had nothing to look at.
-#[test]
-fn a_design_card_s_look_leaves_the_queue_once_the_owner_ruled_or_it_was_replaced() {
-    let s = setup("settled-card");
-    let (mut e, said) = engine(&s, scripts());
-    quiet(&mut e);
-    let item = an_item(&mut e);
-    let v = e.flow_now;
-    let work = e
-        .db
-        .write(Actor::Engine, |tx| {
-            tx.execute(
-                "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', 'I1', 'stopped: by hand')",
-                params![item, v],
-            )?;
-            let work = tx.last_insert_rowid();
-            record_round(tx, work, 1, "I1", &json!({}), "done")?;
-            for _ in [1, 2, 3] {
-                tx.execute(
-                    "INSERT INTO design_cards (work, round, body, status) VALUES (?1, 1, '[{\"node\":\"a\"}]', 'open')",
-                    [work],
-                )?;
-            }
-            for card in [1, 2] {
-                db::queue_matter(
-                    tx,
-                    &db::Matter {
-                        project: "p".into(),
-                        kind: "design_card".into(),
-                        detail: None,
-                        what: format!("Design card {card} to look at"),
-                        body: json!({ "design_card": card }),
-                        item: Some(item),
-                        raised: None,
-                    },
-                )?;
-            }
-            Ok(work)
-        })
-        .unwrap();
-    let disagree = api::Ruling {
-        decisions: vec![api::DecisionRuling {
-            decision: 1,
-            verdict: "disagree".into(),
-            text: Some("Keep the old name.".into()),
-            option: None,
-        }],
-    };
-    api::rule(&mut e.db, 1, &disagree).unwrap();
-    // As a card that changes the design tree again replaces the work's card.
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "UPDATE design_cards SET status = 'replaced', replaced_by = 3 WHERE id = 2",
-            [],
-        )?;
-        db::withdraw_card_looks(tx, work)
-    })
-    .unwrap();
-    let withdrawn: Vec<String> = engine::query_json(
-        e.db.conn(),
-        "SELECT withdrawn FROM architect_matters WHERE kind = 'design_card' ORDER BY id",
-        &[],
-        10,
-    )
-    .unwrap()
-    .iter()
-    .map(|r| r["withdrawn"].as_str().unwrap_or_default().to_string())
-    .collect();
-    assert_eq!(
-        withdrawn,
-        [
-            "the owner ruled design card 1",
-            "design card 2 was replaced by design card 3"
-        ]
-    );
-    say(&mut e, "Look.");
-    let arch = e.step(None).unwrap().work.unwrap();
-    assert!(
-        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
-        "{}",
-        said.lock().unwrap().join("\n")
-    );
-    let log = said.lock().unwrap().join("\n");
-    assert!(!path_of(&e, arch).contains(&"H6".to_string()), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

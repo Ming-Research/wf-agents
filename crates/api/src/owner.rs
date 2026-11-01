@@ -1,5 +1,5 @@
 //! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
-//! design card, what the owner says to a work's line, pausing a work and lifting a work's pause, starting a work over,
+//! decision card, what the owner says to a work's line, pausing a work and lifting a work's pause, starting a work over,
 //! the switch that keeps waiting sessions warm while every work is paused, forwarding a fault of wf-agents to an
 //! architect, the setting that forwards each new one as it comes, removing a dependency between items, and ending a
 //! talk with an architect. Each is written as the owner, so `changes` records it as theirs, and the engine reads it as
@@ -45,6 +45,18 @@ fn says_nothing(text: &str, images: &[Image]) -> bool {
 /// told nothing more: its way on no longer changes. The images sent with the words are kept with them. Gives the
 /// interjection.
 pub fn interject(db: &mut Db, work: i64, line: &str, text: &str, images: &[Image]) -> Result<i64, String> {
+    interject_about(db, work, line, text, images, None)
+}
+
+/// [`interject`], the words asking about a decision card of the work (`card`) when they do.
+fn interject_about(
+    db: &mut Db,
+    work: i64,
+    line: &str,
+    text: &str,
+    images: &[Image],
+    card: Option<i64>,
+) -> Result<i64, String> {
     let text = text.trim();
     if says_nothing(text, images) {
         return Err("what is said to a work says something".into());
@@ -58,8 +70,8 @@ pub fn interject(db: &mut Db, work: i64, line: &str, text: &str, images: &[Image
     live(db, work)?;
     db.write(Actor::Owner, |tx| {
         tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, ?2, 'owner', ?3)",
-            params![work, line, text],
+            "INSERT INTO interjections (work, line, speaker, text, design_card) VALUES (?1, ?2, 'owner', ?3, ?4)",
+            params![work, line, text, card],
         )?;
         let id = tx.last_insert_rowid();
         attachments::attach(tx, Words::Interjection(id), images)?;
@@ -101,14 +113,27 @@ const TOLD_TO_ARCHITECT: &str = "Said to the architect, for you to know";
 /// the group shows the words once. What is said to the engineer alone the architect is given at its next pick. With a
 /// question named, the words answer that question of the engineer's, which the architect holds. The images sent with
 /// the words go with them: an interjection's own, or the matter's that holds them, which the engineer told is given too.
+/// With a decision card named, the words ask about that card, one of the work's that waits for the owner's ruling: to
+/// the architect unless said otherwise, which is given the card with them, and to the engineer as an interjection
+/// naming it; no ruling, the card waits on.
 pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, String> {
     let images = images(&said.images)?;
     if let Some(m) = said.question {
+        if said.design_card.is_some() {
+            return Err("words answer an engineer's question or ask about a decision card, not both".into());
+        }
         return answer_question(db, work, m, &said.text, &images);
     }
-    let to = said.to.as_deref().unwrap_or("engineer");
+    if let Some(card) = said.design_card {
+        card_waits(db, work, card)?;
+    }
+    let card = said.design_card;
+    let to = said
+        .to
+        .as_deref()
+        .unwrap_or(if card.is_some() { "architect" } else { "engineer" });
     if to == "engineer" {
-        let id = interject(db, work, to, &said.text, &images)?;
+        let id = interject_about(db, work, to, &said.text, &images, card)?;
         return Ok(format!("interjection {id} goes to the engineer of work {work}"));
     }
     if to != "architect" && to != "both" {
@@ -122,12 +147,23 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
     }
     live(db, work)?;
     let (item, project) = item_of(db, work)?;
+    let mut body = json!({ "text": text, "where": "work", "work": work });
+    let what = match card {
+        Some(c) => {
+            body["design_card"] = json!(c);
+            format!(
+                "About decision card {c}: {}",
+                attachments::owner_says(text, images.len())
+            )
+        }
+        None => attachments::owner_says(text, images.len()),
+    };
     let m = Matter {
         project: project.clone(),
         kind: "owner_words".into(),
         detail: Some("said".into()),
-        what: attachments::owner_says(text, images.len()),
-        body: json!({ "text": text, "where": "work", "work": work }),
+        what,
+        body,
         item,
         ..Matter::default()
     };
@@ -141,9 +177,9 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
             let matter = queue_matter(tx, &m)?;
             attachments::attach(tx, Words::Matter(matter), &images)?;
             tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text, informs, matter)
-                 VALUES (?1, 'engineer', 'owner', ?2, ?3, ?4)",
-                params![work, copy, informs, matter],
+                "INSERT INTO interjections (work, line, speaker, text, informs, matter, design_card)
+                 VALUES (?1, 'engineer', 'owner', ?2, ?3, ?4, ?5)",
+                params![work, copy, informs, matter, card],
             )?;
             Ok(matter)
         })
@@ -152,6 +188,25 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
         "both" => format!("the engineer of work {work} and the architect of {project}, as matter {id}, have it"),
         _ => format!("the architect of {project} has it as matter {id}, and the engineer of work {work} is told"),
     })
+}
+
+/// That a decision card is the work's and waits for the owner's ruling, as a question about it asks of one.
+fn card_waits(db: &Db, work: i64, card: i64) -> Result<(), String> {
+    let found: Option<(i64, String)> = db
+        .conn()
+        .query_row("SELECT work, status FROM design_cards WHERE id = ?1", [card], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .optional()
+        .map_err(sql)?;
+    match found {
+        None => Err(format!("no decision card {card}")),
+        Some((w, _)) if w != work => Err(format!("decision card {card} is not of work {work}")),
+        Some((_, status)) if status != "open" => Err(format!(
+            "decision card {card} is {status}: a question is asked about a card that waits for your ruling"
+        )),
+        Some(_) => Ok(()),
+    }
 }
 
 /// What the owner says in a group of the architects of projects the configuration connects (`projects`, the group's,
@@ -490,97 +545,83 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
     Ok(format!("ask {ask} answered"))
 }
 
-/// Rules on a design card that is not replaced: a verdict on each of its decisions, all at once, is added to its
-/// rulings, and it is ruled. The card counts as confirmed only when every decision is. The decisions disagreed with
-/// reach the work's engineer as one interjection, each with the approach chosen instead and why; a ruling that
-/// confirms every decision is a word to the engineer that needs no answer and turns nothing (`informs`). The owner
-/// alone rules on a design card; once the owner ruled, confirming every decision or not, the architect's look at it,
-/// which is for the owner to have before ruling, leaves its queue, withdrawn saying so ([`db::withdraw_card_looks`]).
+/// Rules on a decision card that is current: the owner confirms the option it recommends, chooses another of its
+/// options, or disagrees saying why, with words of the owner's if any; the ruling is added to its rulings, and it is
+/// ruled. A choice or a disagreement reaches the work's engineer as an interjection naming the card and its key; a
+/// confirmation is a word to the engineer that needs no answer and turns nothing (`informs`). A card a newer version of
+/// its key replaced, or one withdrawn, can no longer be ruled. The owner alone rules on a card.
 pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String> {
-    let found: Option<(String, i64, String)> = db
+    let found: Option<(String, i64, String, String, Option<i64>)> = db
         .conn()
         .query_row(
-            "SELECT status, work, body FROM design_cards WHERE id = ?1",
+            "SELECT status, work, key, body, replaced_by FROM design_cards WHERE id = ?1",
             [design_card],
-            |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?)),
+            |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?, x.get(4)?)),
         )
         .optional()
         .map_err(sql)?;
-    let Some((status, work, body)) = found else {
-        return Err(format!("no design card {design_card}"));
+    let Some((status, work, key, body, replaced_by)) = found else {
+        return Err(format!("no decision card {design_card}"));
     };
-    if status == "replaced" {
+    match (status.as_str(), replaced_by) {
+        ("replaced", Some(by)) => {
+            return Err(format!(
+                "decision card {design_card} was replaced by decision card {by}: rule on that one"
+            ));
+        }
+        ("replaced", None) => {
+            return Err(format!(
+                "decision card {design_card} is replaced: it can no longer be ruled"
+            ));
+        }
+        ("withdrawn", _) => {
+            return Err(format!(
+                "decision card {design_card} was withdrawn: it can no longer be ruled"
+            ));
+        }
+        _ => {}
+    }
+    let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+    if !body.is_object() {
         return Err(format!(
-            "design card {design_card} is replaced: it can no longer be ruled"
+            "design card {design_card} is of a flow version before decision cards: it can no longer be ruled"
         ));
     }
-    let body: Vec<Value> = match serde_json::from_str(&body).unwrap_or(Value::Null) {
-        Value::Array(xs) => xs,
-        Value::Null => Vec::new(),
-        other => vec![other],
+    let text = r.text.as_deref().map(str::trim).filter(|t| !t.is_empty());
+    let option = r.option.as_deref().map(str::trim).filter(|o| !o.is_empty());
+    let recommended = body["recommended"].as_str().unwrap_or_default();
+    let names: Vec<&str> = body["options"]
+        .as_array()
+        .map(|os| os.iter().filter_map(|o| o["name"].as_str()).collect())
+        .unwrap_or_default();
+    let said = match (r.verdict.as_str(), option) {
+        ("confirm", None) => None,
+        ("confirm", Some(_)) => return Err("a confirmation takes no option: choose another option instead".into()),
+        ("choose", None) => return Err("a choice names the option chosen".into()),
+        ("choose", Some(o)) if o == recommended => {
+            return Err(format!("{o:?} is the option the card recommends: confirm it"));
+        }
+        ("choose", Some(o)) if !names.contains(&o) => {
+            return Err(format!("decision card {design_card} has no option {o:?}"));
+        }
+        ("choose", Some(o)) => Some(format!(
+            "the owner chooses the option \"{o}\" instead of \"{recommended}\"{}",
+            text.map(|t| format!(": {t}")).unwrap_or_default()
+        )),
+        ("disagree", Some(_)) => return Err("to choose another option, choose it; a disagreement says why".into()),
+        ("disagree", None) => match text {
+            Some(t) => Some(format!("the owner disagrees: {t}")),
+            None => return Err("a disagreement says why".into()),
+        },
+        (v, _) => return Err(format!("the verdict is confirm, choose or disagree, not {v:?}")),
     };
-    // A card always has a decision; one whose body holds none is ruled as one decision.
-    let count = body.len().max(1) as i64;
-    let mut decisions: Vec<&crate::DecisionRuling> = r.decisions.iter().collect();
-    decisions.sort_by_key(|d| d.decision);
-    let numbers: Vec<i64> = decisions.iter().map(|d| d.decision).collect();
-    if numbers != (1..=count).collect::<Vec<_>>() {
-        return Err(format!(
-            "a ruling on design card {design_card} gives one verdict for each of its {count} decisions, by number"
-        ));
+    let mut ruling = json!({ "by": "owner", "at": db::now(), "verdict": r.verdict });
+    if let Some(o) = option {
+        ruling["option"] = json!(o);
     }
-    let mut verdicts = Vec::new();
-    let mut said = Vec::new();
-    for d in decisions {
-        let k = d.decision;
-        let text = d.text.as_deref().map(str::trim).filter(|t| !t.is_empty());
-        let option = d.option.as_deref().map(str::trim).filter(|o| !o.is_empty());
-        let decision = body.get(k as usize - 1);
-        match d.verdict.as_str() {
-            "confirm" if option.is_none() => {}
-            "confirm" => return Err(format!("decision {k}: another approach is chosen only by disagreeing")),
-            "disagree" if text.is_none() && option.is_none() => {
-                return Err(format!(
-                    "decision {k}: a disagreement says why, or chooses another approach"
-                ));
-            }
-            "disagree" => {}
-            _ => return Err(format!("decision {k}: the verdict is confirm or disagree")),
-        }
-        let names: Vec<&str> = decision
-            .and_then(|x| x["options"].as_array())
-            .map(|os| os.iter().filter_map(|o| o["name"].as_str()).collect())
-            .unwrap_or_default();
-        if let Some(o) = option
-            && !names.is_empty()
-            && !names.contains(&o)
-        {
-            return Err(format!("decision {k} has no approach {o:?}"));
-        }
-        let mut v = json!({ "decision": k, "verdict": d.verdict });
-        if let Some(o) = option {
-            v["option"] = json!(o);
-        }
-        if let Some(t) = text {
-            v["text"] = json!(t);
-        }
-        verdicts.push(v);
-        if d.verdict == "disagree" {
-            let node = decision
-                .and_then(|x| x["node"].as_str())
-                .map(|n| format!(" ({n})"))
-                .unwrap_or_default();
-            let chosen = option
-                .map(|o| format!(", choosing the approach \"{o}\""))
-                .unwrap_or_default();
-            let why = text.map(|t| format!(": {t}")).unwrap_or_default();
-            said.push(format!("decision {k}{node}: disagree{chosen}{why}"));
-        } else {
-            said.push(format!("decision {k} confirmed"));
-        }
+    if let Some(t) = text {
+        ruling["text"] = json!(t);
     }
-    let disagree = verdicts.iter().any(|v| v["verdict"] == "disagree");
-    let ruling = json!({ "by": "owner", "at": db::now(), "decisions": verdicts });
     db.write(Actor::Owner, |tx| {
         let rulings: String = tx.query_row("SELECT rulings FROM design_cards WHERE id = ?1", [design_card], |x| {
             x.get(0)
@@ -591,28 +632,30 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
             "UPDATE design_cards SET rulings = ?2, status = 'ruled' WHERE id = ?1",
             params![design_card, Value::Array(list).to_string()],
         )?;
-        db::withdraw_card_looks(tx, work)?;
-        if disagree {
-            let lines: Vec<String> = said.iter().map(|s| format!("- {s}")).collect();
-            let text = format!("{} {design_card}:\n{}", db::DESIGN_CARD_RULING, lines.join("\n"));
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
-                params![work, text],
-            )?;
-        } else {
-            // A ruling that confirms every decision is a word to the engineer, which needs no answer and turns nothing.
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text, informs) VALUES (?1, 'engineer', 'owner', ?2, 1)",
-                params![
-                    work,
-                    format!("The owner confirmed every decision of design card {design_card}: nothing changes.")
-                ],
-            )?;
+        match &said {
+            Some(s) => {
+                let text = format!("{} {design_card} ({key}): {s}", db::CARD_RULING);
+                tx.execute(
+                    "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
+                    params![work, text],
+                )?;
+            }
+            None => {
+                // A confirmation is a word to the engineer, which needs no answer and turns nothing.
+                let words = text.map(|t| format!(" The owner said: {t}")).unwrap_or_default();
+                tx.execute(
+                    "INSERT INTO interjections (work, line, speaker, text, informs) VALUES (?1, 'engineer', 'owner', ?2, 1)",
+                    params![
+                        work,
+                        format!("The owner confirmed decision card {design_card} ({key}): nothing changes.{words}")
+                    ],
+                )?;
+            }
         }
         Ok(())
     })
     .map_err(sql)?;
-    Ok(format!("design card {design_card} ruled"))
+    Ok(format!("decision card {design_card} ruled"))
 }
 
 /// Pauses a work that goes on: a round of it under way ends first, and then it takes no step by itself, whatever the
@@ -841,6 +884,10 @@ pub fn set_fault_forwarding(db: &mut Db, project: Option<&str>) -> Result<String
 mod tests {
     use super::*;
 
+    /// A decision card of two options, recommending the first.
+    const CARD: &str = r#"{"key": "red-run", "question": "Stop at the first failure or run every test?",
+        "options": [{"name": "A"}, {"name": "B"}], "recommended": "A"}"#;
+
     fn setup() -> Db {
         let mut db = Db::in_memory().unwrap();
         db.write(Actor::Engine, |tx| {
@@ -859,8 +906,8 @@ mod tests {
                 [],
             )?;
             tx.execute(
-                "INSERT INTO design_cards (work, round, body, status) VALUES (1, 1, '[]', 'open')",
-                [],
+                "INSERT INTO design_cards (work, round, key, body, status) VALUES (1, 1, 'red-run', ?1, 'open')",
+                [CARD],
             )?;
             Ok(())
         })
@@ -892,6 +939,7 @@ mod tests {
             text: text.into(),
             to: Some(to.into()),
             question: None,
+            design_card: None,
             images,
         };
         say_to_work(&mut db, 1, &said("engineer", "", vec![png(), png()])).unwrap();
@@ -963,6 +1011,7 @@ mod tests {
             text: text.into(),
             to: None,
             question: Some(question),
+            design_card: None,
             images: Vec::new(),
         };
         assert!(say_to_work(&mut db, 1, &said(2, "No.")).is_err());
@@ -1136,46 +1185,34 @@ mod tests {
         assert!(answer(&mut db, 2, &a).is_err());
     }
 
-    fn one(decision: i64, verdict: &str, text: Option<&str>, option: Option<&str>) -> crate::DecisionRuling {
-        crate::DecisionRuling {
-            decision,
+    fn ruling(verdict: &str, option: Option<&str>, text: Option<&str>) -> Ruling {
+        Ruling {
             verdict: verdict.into(),
-            text: text.map(str::to_string),
             option: option.map(str::to_string),
+            text: text.map(str::to_string),
         }
     }
 
-    fn ruling(decisions: Vec<crate::DecisionRuling>) -> Ruling {
-        Ruling { decisions }
-    }
-
-    // A disagreement needs a reason or another approach and reaches the engineer as an interjection; a ruling that
-    // confirms every decision reaches it as a word that needs no answer. Once the owner ruled, confirming every decision
-    // or not, the card waits no longer for the architect to look at it: its matter is withdrawn, saying so.
+    // A decision card is ruled on its own: a disagreement says why and a choice names another of its options, each
+    // reaching the engineer as an interjection naming the card and its key; a confirmation reaches it as a word that
+    // needs no answer.
     #[test]
-    fn the_owner_rules_on_a_design_card() {
+    fn the_owner_rules_on_a_decision_card() {
         let mut db = setup();
-        db.write(Actor::Engine, |tx| {
-            tx.execute(
-                "INSERT INTO architect_matters (project, kind, what, body, item, work, round, at)
-                 VALUES ('p', 'design_card', 'Design card 1 to look at', '{\"design_card\":1}', 1, 1, 1, 1)",
-                [],
-            )?;
-            Ok(())
-        })
-        .unwrap();
-        let looks = |db: &Db| -> i64 {
-            db.conn()
-                .query_row(
-                    "SELECT count(*) FROM architect_queue WHERE kind = 'design_card'",
-                    [],
-                    |r| r.get(0),
-                )
-                .unwrap()
-        };
-        assert!(rule(&mut db, 1, &ruling(vec![one(1, "disagree", Some(" "), None)])).is_err());
-        let disagree = ruling(vec![one(1, "disagree", Some("Keep the old name."), None)]);
-        assert_eq!(rule(&mut db, 1, &disagree).unwrap(), "design card 1 ruled");
+        assert!(rule(&mut db, 1, &ruling("disagree", None, Some(" "))).is_err());
+        assert!(
+            rule(&mut db, 1, &ruling("choose", Some("A"), None))
+                .unwrap_err()
+                .contains("confirm it")
+        );
+        assert!(
+            rule(&mut db, 1, &ruling("choose", Some("Z"), None))
+                .unwrap_err()
+                .contains("no option")
+        );
+        assert!(rule(&mut db, 1, &ruling("maybe", None, Some("x"))).is_err());
+        let disagree = ruling("disagree", None, Some("Keep the old name."));
+        assert_eq!(rule(&mut db, 1, &disagree).unwrap(), "decision card 1 ruled");
         let (status, rulings): (String, String) = db
             .conn()
             .query_row("SELECT status, rulings FROM design_cards WHERE id = 1", [], |r| {
@@ -1184,22 +1221,9 @@ mod tests {
             .unwrap();
         let rulings: Value = serde_json::from_str(&rulings).unwrap();
         assert_eq!(status, "ruled");
-        assert_eq!(rulings[0]["decisions"][0]["text"], "Keep the old name.");
-        assert_eq!(looks(&db), 0);
-        let withdrawn: String = db
-            .conn()
-            .query_row("SELECT withdrawn FROM architect_matters WHERE id = 1", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(withdrawn, "the owner ruled design card 1");
-        let said: String = db
-            .conn()
-            .query_row("SELECT text FROM interjections WHERE work = 1", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(
-            said,
-            "Ruling on design card 1:\n- decision 1: disagree: Keep the old name."
-        );
-        rule(&mut db, 1, &ruling(vec![one(1, "confirm", None, None)])).unwrap();
+        assert_eq!(rulings[0]["text"], "Keep the old name.");
+        rule(&mut db, 1, &ruling("choose", Some("B"), Some("One table is enough."))).unwrap();
+        rule(&mut db, 1, &ruling("confirm", None, None)).unwrap();
         let said: Vec<(String, i64)> = db
             .conn()
             .prepare("SELECT text, informs FROM interjections ORDER BY id")
@@ -1208,83 +1232,133 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert_eq!(said.len(), 2, "{said:?}");
         assert_eq!(
-            said[1],
-            (
-                "The owner confirmed every decision of design card 1: nothing changes.".to_string(),
-                1
-            )
+            said,
+            [
+                (
+                    "Ruling on decision card 1 (red-run): the owner disagrees: Keep the old name.".to_string(),
+                    0
+                ),
+                (
+                    "Ruling on decision card 1 (red-run): the owner chooses the option \"B\" instead of \"A\": One \
+                     table is enough."
+                        .to_string(),
+                    0
+                ),
+                (
+                    "The owner confirmed decision card 1 (red-run): nothing changes.".to_string(),
+                    1
+                ),
+            ]
         );
-        assert_eq!(looks(&db), 0);
-        assert!(rule(&mut db, 1, &ruling(vec![one(1, "maybe", Some("x"), None)])).is_err());
-        assert!(rule(&mut db, 1, &ruling(Vec::new())).is_err());
     }
 
-    // A card of three decisions is ruled on each at once: two confirmed and one disagreed with, choosing another of
-    // its approaches, records a verdict for each, and only the one disagreed with reaches the engineer with its node,
-    // the approach chosen and why; a ruling that leaves a decision out, or names an approach the decision does not
-    // have, is refused.
+    // The owner asks about a decision card that waits, on the card in the work's group: no ruling, the card waits on.
+    // To the architect by default, the question is the owner's words naming the card, which the engineer is told; to
+    // the engineer, an interjection naming it; either is the group's entry about the card. A card of another work, or
+    // one ruled, is not asked about.
     #[test]
-    fn the_owner_confirms_some_decisions_and_disagrees_with_one() {
+    fn the_owner_asks_about_a_decision_card() {
         let mut db = setup();
-        let decision =
-            |node: &str| json!({ "node": node, "options": [{ "name": "A" }, { "name": "B" }, { "name": "C" }] });
-        let body = json!([
-            decision("design/a.md"),
-            decision("design/b.md"),
-            decision("design/c.md")
-        ]);
+        let asks = |to: Option<&str>, text: &str, card: i64| WorkSaid {
+            text: text.into(),
+            to: to.map(str::to_string),
+            question: None,
+            design_card: Some(card),
+            images: Vec::new(),
+        };
+        assert!(say_to_work(&mut db, 1, &asks(None, "Why not one table?", 9)).is_err());
+        say_to_work(&mut db, 1, &asks(None, "Why not one table?", 1)).unwrap();
+        let (what, body): (String, String) = db
+            .conn()
+            .query_row("SELECT what, body FROM architect_matters", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(what, "About decision card 1: The owner says: Why not one table?");
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["design_card"], 1);
+        say_to_work(&mut db, 1, &asks(Some("engineer"), "Is the log kept?", 1)).unwrap();
+        let said: Vec<(String, i64, Option<i64>)> = db
+            .conn()
+            .prepare("SELECT text, informs, design_card FROM interjections ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            said,
+            [
+                (
+                    "Said to the architect, for you to know: Why not one table?".to_string(),
+                    1,
+                    Some(1)
+                ),
+                ("Is the log kept?".to_string(), 0, Some(1)),
+            ]
+        );
+        let cards: Vec<(String, Option<i64>)> = db
+            .conn()
+            .prepare("SELECT source, design_card FROM conversation_entries WHERE source = 'interjection' ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            cards,
+            [
+                ("interjection".to_string(), Some(1)),
+                ("interjection".to_string(), Some(1))
+            ]
+        );
+        let status: String = db
+            .conn()
+            .query_row("SELECT status FROM design_cards WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(status, "open");
+        rule(&mut db, 1, &ruling("confirm", None, None)).unwrap();
+        assert!(say_to_work(&mut db, 1, &asks(None, "And now?", 1)).is_err());
+    }
+
+    // A card a newer version of its key replaced, one withdrawn, and a design card of before decision cards are not
+    // ruled.
+    #[test]
+    fn a_card_replaced_or_withdrawn_is_not_ruled() {
+        let mut db = setup();
+        // Card 1 of setup is replaced by card 2, a newer version of its key.
         db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE design_cards SET status = 'replaced' WHERE id = 1", [])?;
             tx.execute(
-                "INSERT INTO design_cards (work, round, body, status) VALUES (1, 1, ?1, 'open')",
-                [body.to_string()],
+                "INSERT INTO design_cards (work, round, key, body, status) VALUES (1, 1, 'red-run', '{}', 'open')",
+                [],
+            )?;
+            tx.execute("UPDATE design_cards SET replaced_by = 2 WHERE id = 1", [])?;
+            tx.execute(
+                "INSERT INTO design_cards (work, round, key, body, status, withdrawn)
+                 VALUES (1, 1, 'gone', '{}', 'withdrawn', 'No longer asked.')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO design_cards (work, round, key, body, status) VALUES (1, 1, 'card-4', '[]', 'open')",
+                [],
             )?;
             Ok(())
         })
         .unwrap();
-        let partial = ruling(vec![one(1, "confirm", None, None), one(3, "confirm", None, None)]);
+        let confirm = ruling("confirm", None, None);
         assert!(
-            rule(&mut db, 2, &partial)
+            rule(&mut db, 1, &confirm)
                 .unwrap_err()
-                .contains("each of its 3 decisions")
+                .contains("replaced by decision card 2")
         );
-        let unknown = ruling(vec![
-            one(1, "confirm", None, None),
-            one(2, "disagree", None, Some("Z")),
-            one(3, "confirm", None, None),
-        ]);
-        assert!(rule(&mut db, 2, &unknown).unwrap_err().contains("no approach"));
-        let mixed = ruling(vec![
-            one(3, "confirm", None, None),
-            one(1, "confirm", None, None),
-            one(2, "disagree", Some("One table is enough."), Some("B")),
-        ]);
-        rule(&mut db, 2, &mixed).unwrap();
-        let rulings: String = db
-            .conn()
-            .query_row("SELECT rulings FROM design_cards WHERE id = 2", [], |r| r.get(0))
-            .unwrap();
-        let rulings: Value = serde_json::from_str(&rulings).unwrap();
-        let verdicts: Vec<(i64, &str)> = rulings[0]["decisions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|d| (d["decision"].as_i64().unwrap(), d["verdict"].as_str().unwrap()))
-            .collect();
-        assert_eq!(verdicts, [(1, "confirm"), (2, "disagree"), (3, "confirm")]);
-        assert!(!db::ruling_confirms(&rulings[0], 3) && db::ruling_disagrees(&rulings[0]));
-        let said: String = db
-            .conn()
-            .query_row("SELECT text FROM interjections WHERE work = 1", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(
-            said,
-            "Ruling on design card 2:\n- decision 1 confirmed\n- decision 2 (design/b.md): disagree, choosing the \
-             approach \"B\": One table is enough.\n- decision 3 confirmed"
+        assert!(rule(&mut db, 3, &confirm).unwrap_err().contains("withdrawn"));
+        assert!(
+            rule(&mut db, 4, &confirm)
+                .unwrap_err()
+                .contains("before decision cards")
         );
     }
-
     /// An ask the architect of project p put, on a work of the architect, with its body.
     fn architect_ask(db: &mut Db, body: Value) -> i64 {
         db.write(Actor::Engine, |tx| {

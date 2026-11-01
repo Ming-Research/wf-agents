@@ -17,6 +17,20 @@ export const AnswersHere = createContext<boolean>(false);
 
 export const useAnswersHere = (): boolean => useContext(AnswersHere);
 
+/// The owner's questions about a decision card and their answers, as the work's group holds them: each by the entry it
+/// is, when it was said, and whether it is an answer.
+export type CardAsked = { entry: string; at: number; answer: boolean };
+
+/// What a work's group tells the decision cards and the messages in it of each other: each card's question, by its
+/// number; the owner's questions about each card and their answers; and what brings a message into view (`go`, by its
+/// entry). None outside a conversation.
+export type CardTalkOf = {
+  questions: ReadonlyMap<number, string>;
+  asked: ReadonlyMap<number, CardAsked[]>;
+  go: (entry: string) => void;
+};
+export const CardTalk = createContext<CardTalkOf | null>(null);
+
 /// The option picked of an ask that waits, shared in its bubble between the boxes of its options in its card, which
 /// pick it, and what answers the ask under them, which sends it: the ask, what is picked, and what a click on a box
 /// does. None outside a bubble that answers an ask.

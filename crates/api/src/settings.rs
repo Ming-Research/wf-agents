@@ -106,7 +106,6 @@ fn view(c: &config::Config, commit: &str, compiled: &flow::Compiled) -> Settings
                 repo: p.repo.clone(),
                 checkout: p.checkout.display().to_string(),
                 main: p.main.clone(),
-                design_paths: p.design_paths.clone(),
                 test_paths: p.test_paths.clone(),
                 records: p.records.as_ref().map(|r| r.root.clone()),
                 ci_fast: p.ci.fast.clone(),
@@ -714,7 +713,7 @@ mod tests {
                        [agents.levels.2]\ndesc = \"large\"\ncli = \"claude\"\nmodel = \"claude-sonnet-5-5\"\n[gh]\n\
                        allow = [\"pr view\"]\n[query]\nmax_rows = 10\ntimeout_ms = 1000\n";
         std::fs::write(dir.join("install.toml"), install).unwrap();
-        let project = "repo = \"o/p\"\ncheckout = \"/tmp\"\ndesign_goal = \"simple\"\ndesign_paths = [\"design/\"]\n\
+        let project = "repo = \"o/p\"\ncheckout = \"/tmp\"\ndesign_goal = \"simple\"\n\
                        test_paths = [\"tests/\"]\nrules = [\"ground\"]\nconstitution = \"CONSTITUTION.md\"\n\
                        # The tags, for the owner to change.\nobservation_tags = [\n  \
                        { name = \"ui\", desc = \"What the owner sees\" },\n]\n\n[ci]\nfast = \"ci\"\nfull = [\"ci\"]\n\

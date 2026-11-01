@@ -643,13 +643,13 @@ pub fn db_rows(
     }
 }
 
-/// The paths of a project's design.
+/// The paths of a project's design: the directory of its records.
 fn design_paths(e: &Engine, item: &Item) -> Vec<String> {
     e.config
         .config
         .projects
         .get(&item.project)
-        .map(|p| p.design_paths.clone())
+        .map(config::Project::design_paths)
         .unwrap_or_default()
 }
 
@@ -662,6 +662,13 @@ pub fn engine_input(
     item: Option<&Item>,
     name: &str,
 ) -> Result<Option<Value>, String> {
+    // What the architect knows of the project, for a cell of an engineer's work on one of its items.
+    if w.project.is_none()
+        && let Some(item) = item
+        && crate::architect::KNOWLEDGE.contains(&name)
+    {
+        return crate::architect::knowledge(e, &item.project, item.id, name);
+    }
     if crate::architect::INPUTS.contains(&name) {
         return crate::architect::input(e, w, g, name);
     }
@@ -725,7 +732,8 @@ pub fn engine_input(
             }
             None => None,
         },
-        "design_tree_diff" => match wt {
+        // A flow version stored before the records named this input `design_tree_diff`.
+        "records_diff" | "design_tree_diff" => match wt {
             Some(wt) => {
                 let fork = git::fork_point(wt, &main)?;
                 let d = git::diff(wt, &fork, "HEAD", &design_paths(e, item))?;
@@ -762,7 +770,7 @@ fn existing_work(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, main: &st
             "- Work {id} (flow version {}, {} rounds) was at cell {} when it ended: {ended}. Its rounds, R{id}-1 on, \
              with the cell, the row taken and what each said it did: query `SELECT n, cell, transition, \
              json_extract(output, '$.progress') AS progress FROM rounds WHERE work = {id} ORDER BY n`; the whole \
-             return of its round R{id}-<n>: `SELECT output FROM rounds WHERE work = {id} AND n = <n>`; its design \
+             return of its round R{id}-<n>: `SELECT output FROM rounds WHERE work = {id} AND n = <n>`; its decision \
              cards and asks of the owner: the views `item_design_cards` and `item_asks` with `work = {id}`.",
             x["flow_version"],
             x["rounds"],
@@ -832,13 +840,13 @@ pub const GUIDE: &str = "project_guide";
 
 /// The commit the project guide of a work is read from: main as the work's branch has merged it, the merge base of
 /// its head and the fetched main. What the work itself changes on its branch is never in it, so its own edits to the
-/// design tree or to AGENTS.md never make the guide a new one to give again: the agent knows what it edited.
+/// records or to AGENTS.md never make the guide a new one to give again: the agent knows what it edited.
 fn guide_base(wt: &Path, main: &str) -> Result<String, String> {
     git::fork_point(wt, main)
 }
 
 /// The project guide for the item as a commit of the project has it, read with git from the work's worktree: what
-/// the project says of itself, with the full text of the nodes the item names.
+/// the project says of itself, with the full text of the records' files the item names.
 fn project_guide(e: &Engine, item: &Item, wt: &Path, commit: &str) -> Result<Value, String> {
     let text = format!(
         "{} {} {}",

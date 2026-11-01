@@ -217,3 +217,5 @@ Fact owner-reads-line-as-speakers: The owner reads the words on a bubble's line 
 Fact owner-judges-work-by-run-time: The owner judges whether a work ran too long by how long it ran; when it started tells the owner little.
 
 Fact owner-finds-kind-faint: The owner finds what a stage's or a matter's bubble is about, small, muted and of normal weight at its head, too faint for what matters most in it.
+
+Fact owner-loses-card-edge: The owner could not tell where a decision card drawn with a hairline frame ends in the design around it, and read a recommended option whose green edge went when it was picked as no longer recommended.

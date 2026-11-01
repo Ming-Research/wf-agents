@@ -195,68 +195,36 @@ pub fn answer(data: &Path, a: Answer) -> Result<String, String> {
     api::answer(&mut db, a.ask, &given)
 }
 
-/// How the owner rules on a design card: the decisions confirmed, by number or `all`; those disagreed with, each as
-/// `<number>=<why>`; and those another approach is chosen for, each as `<number>=<approach>`.
+/// How the owner rules on a decision card: a confirmation of the option it recommends, another of its options chosen,
+/// or a disagreement saying why, with the owner's words.
 pub struct Ruling {
     pub design_card: i64,
-    pub confirm: Vec<String>,
-    pub disagree: Vec<String>,
-    pub choose: Vec<String>,
+    pub confirm: bool,
+    pub choose: Option<String>,
+    pub disagree: Option<String>,
+    pub text: Option<String>,
 }
 
-/// Rules on a design card, as the page does: a verdict on each decision, all at once. A decision disagreed with, or
-/// another approach chosen for, is not confirmed by `all`.
+/// Rules on a decision card, as the page does: exactly one of confirm, choose and disagree.
 pub fn rule(data: &Path, r: Ruling) -> Result<String, String> {
     let mut db = open(data)?;
-    let count: i64 = db
-        .conn()
-        .query_row(
-            "SELECT max(1, coalesce(json_array_length(body), 1)) FROM design_cards WHERE id = ?1",
-            [r.design_card],
-            |x| x.get(0),
-        )
-        .optional()
-        .map_err(sql)?
-        .unwrap_or(1);
-    let number = |s: &str| {
-        s.trim()
-            .parse::<i64>()
-            .map_err(|_| format!("not the number of a decision: {s}"))
-    };
-    let verdict = |decision: i64, v: &str| api::DecisionRuling {
-        decision,
-        verdict: v.to_string(),
-        text: None,
-        option: None,
-    };
-    let mut by: std::collections::BTreeMap<i64, api::DecisionRuling> = std::collections::BTreeMap::new();
-    for c in &r.confirm {
-        let all: Vec<i64> = if c.trim() == "all" {
-            (1..=count).collect()
-        } else {
-            vec![number(c)?]
-        };
-        for n in all {
-            by.insert(n, verdict(n, "confirm"));
-        }
-    }
-    for (given, choosing) in [(&r.disagree, false), (&r.choose, true)] {
-        for x in given {
-            let (n, said) = x
-                .split_once('=')
-                .ok_or_else(|| format!("write it as <number>=<text>: {x}"))?;
-            let n = number(n)?;
-            let d = by.entry(n).or_insert_with(|| verdict(n, "disagree"));
-            d.verdict = "disagree".into();
-            if choosing {
-                d.option = Some(said.trim().to_string());
-            } else {
-                d.text = Some(said.trim().to_string());
-            }
-        }
-    }
-    let given = api::Ruling {
-        decisions: by.into_values().collect(),
+    let given = match (r.confirm, r.choose, r.disagree) {
+        (true, None, None) => api::Ruling {
+            verdict: "confirm".into(),
+            option: None,
+            text: r.text,
+        },
+        (false, Some(o), None) => api::Ruling {
+            verdict: "choose".into(),
+            option: Some(o),
+            text: r.text,
+        },
+        (false, None, Some(why)) => api::Ruling {
+            verdict: "disagree".into(),
+            option: None,
+            text: Some(why),
+        },
+        _ => return Err("rule with exactly one of --confirm, --choose <option> and --disagree <why>".into()),
     };
     api::rule(&mut db, r.design_card, &given)
 }
@@ -275,6 +243,7 @@ pub fn say(data: &Path, work: i64, to: &str, text: &str) -> Result<String, Strin
         text: text.to_string(),
         to: Some(to.to_string()),
         question: None,
+        design_card: None,
         images: Vec::new(),
     };
     api::say_to_work(&mut open(data)?, work, &said)
@@ -416,10 +385,11 @@ pub fn ask(data: &Path, id: i64) -> Result<String, String> {
 
 pub fn design_cards(data: &Path, all: bool) -> Result<String, String> {
     let q = format!(
-        "SELECT c.id AS design_card, c.status, c.work, 'R' || c.work || '-' || c.round AS round, w.item, r.cell, c.body
+        "SELECT c.id AS design_card, c.key, c.status, c.work, 'R' || c.work || '-' || c.round AS round, w.item, r.cell,
+                coalesce(json_extract(c.body, '$.question'), c.body) AS question
          FROM design_cards c JOIN rounds r ON r.work = c.work AND r.n = c.round JOIN works w ON w.id = c.work {}
          ORDER BY c.id",
-        if all { "" } else { "WHERE c.status <> 'replaced'" }
+        if all { "" } else { "WHERE c.status IN ('open', 'ruled')" }
     );
     show(data, &q, &[], 80)
 }
@@ -428,13 +398,13 @@ pub fn design_card(data: &Path, id: i64) -> Result<String, String> {
     let db = open(data)?;
     let rows = query_json(
         db.conn(),
-        "SELECT c.id AS design_card, c.status, c.work, 'R' || c.work || '-' || c.round AS round, r.cell, c.body,
-                c.rulings, c.replaced_by
+        "SELECT c.id AS design_card, c.key, c.status, c.work, 'R' || c.work || '-' || c.round AS round, r.cell, c.body,
+                c.revision, c.rulings, c.replaced_by, c.withdrawn
          FROM design_cards c JOIN rounds r ON r.work = c.work AND r.n = c.round WHERE c.id = ?1",
         &[&id],
         1,
     )?;
-    let row = rows.first().ok_or_else(|| format!("no design card {id}"))?;
+    let row = rows.first().ok_or_else(|| format!("no decision card {id}"))?;
     serde_json::to_string_pretty(row).map_err(sql)
 }
 

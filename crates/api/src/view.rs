@@ -426,7 +426,7 @@ impl<'a> Ways<'a> {
     /// be in; no address for what the agent reads itself. The addresses are those the engine's message gives
     /// (`conditional_of` in the engine's message builder): a value a round produced is addressed by the round, the
     /// cell and the path; what the engine reads or computes for a round by the round and its name; the item, its
-    /// design cards, its asks of the owner and the interjections by their ids; and the locked acceptance and the
+    /// decision cards, its asks of the owner and the interjections by their ids; and the locked acceptance and the
     /// researched problem by the round that wrote them.
     fn source(&self, c: &CompiledCell, s: &Src, trees: &BTreeMap<&str, Returns>) -> (Option<String>, Vec<String>) {
         let at = |address: String| (Some(address), Vec::new());
@@ -436,7 +436,9 @@ impl<'a> Ways<'a> {
             Src::Engine(n) | Src::Recorded(n) => at(format!("R‹work›-‹n›·engine·{n}")),
             Src::Db { relation, .. } => match relation.as_str() {
                 "item_body" => at("item:‹id›".into()),
-                "item_design_cards" | "parent_design_cards" | "work_design_card" => at("design_card:‹id›".into()),
+                "item_design_cards" | "parent_design_cards" | "work_design_cards" | "work_design_card" => {
+                    at("design_card:‹id›".into())
+                }
                 "item_asks" => at("ask:‹id›".into()),
                 "waiting_interjections" => at("ij:‹id›".into()),
                 "item_acceptance" => at("R‹work›-‹n›·‹cell›·acceptance".into()),

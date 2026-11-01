@@ -1,4 +1,5 @@
-// A flow's state machine: a stored version, or the flow as `flow/flow.json` is at a git ref of a project's checkout,
+// A flow's state machine: a stored version, the flow as `flow/flow.json` is at a git ref of a project's checkout, or
+// the flow a decision card carries, as its work's branch had it when the card was posted, kept in the database,
 // filling the window under the bar, its graphs (the engineer's and the architect's) side by side on one chart that
 // moves and zooms as one. Over its top left corner, which flow is shown and, to review a change, which one it is
 // compared with; a comparison marks the cells added and changed in every graph and lists what changed.
@@ -6,7 +7,7 @@
 import { ActionList, ActionMenu, Button, Flash, Heading, Label, Radio, Select, TextInput } from '@primer/react';
 import { useMemo, useState } from 'react';
 
-import type { Compiled, FlowAt, FlowDiff, FlowSource, FlowVersion, FlowView } from '../api';
+import type { Compiled, FlowAt, FlowDiff, FlowSnapshot, FlowSource, FlowVersion, FlowView } from '../api';
 import { Loaded } from '../components';
 import { FlowScreen } from '../flow/FlowScreen';
 import type { Graph } from '../graph/FlowChart';
@@ -41,9 +42,9 @@ function CompareBox({ r, versions, shown, current, onClose }: {
   const list = sources.data ?? [];
   const chosen = list.find((s) => s.project === project) ?? list[0];
   const show = () => {
-    if (against === 'version') go({ ...r, version: to, project: null, ref: null, from, graph: null, cell: null });
+    if (against === 'version') go({ ...r, version: to, project: null, ref: null, snapshot: null, from, graph: null, cell: null });
     else if (chosen && ref.trim() !== '') {
-      go({ ...r, version: null, project: chosen.project, ref: ref.trim(), from, graph: null, cell: null });
+      go({ ...r, version: null, project: chosen.project, ref: ref.trim(), snapshot: null, from, graph: null, cell: null });
     }
     onClose();
   };
@@ -137,7 +138,9 @@ function Bar({ r, versions, current, at }: {
   const shown = r.version ?? current;
   return (
     <div className="flow-tools">
-      {r.project !== null ? (
+      {r.snapshot !== null ? (
+        <span className="flow-at">{t('flow_snapshot', { id: r.snapshot })}</span>
+      ) : r.project !== null ? (
         <span className="flow-at" title={at?.data?.commit ?? ''}>
           {t('flow_at_ref', { project: r.project, ref: r.ref ?? '' })}
           {at?.data?.version != null ? ` = ${t('flow_version_short', { id: at.data.version })}` : ''}
@@ -223,7 +226,7 @@ function Shown({ r, compiled, view, diff }: { r: FlowRoute; compiled: Compiled; 
   if (graphs.length === 0) return <p className="muted page">{t('none')}</p>;
   return (
     <FlowScreen
-      key={`${r.version ?? ''}:${r.project ?? ''}:${r.ref ?? ''}`}
+      key={`${r.version ?? ''}:${r.project ?? ''}:${r.ref ?? ''}:${r.snapshot ?? ''}`}
       compiled={compiled}
       graphs={graphs}
       legend={diff ? 'compare' : 'flow'}
@@ -263,6 +266,18 @@ function AtRef({ r, at }: { r: FlowRoute; at: Resource<FlowAt> }) {
   );
 }
 
+/// The flow a decision card carries, from the database alone, compared with the version in force when the card was
+/// posted while the address names it.
+function Snapshot({ r, id }: { r: FlowRoute; id: number }) {
+  const snap = useResource<FlowSnapshot>(null, `/api/v1/flow-snapshots/${id}`);
+  const diff = useResource<FlowDiff>(null, r.from !== null ? `/api/v1/flows/diff?from=${r.from}&snapshot=${id}` : null);
+  return (
+    <Loaded r={snap}>
+      {(s) => <Shown r={r} compiled={s.compiled} view={s.view} diff={r.from !== null ? (diff.data ?? null) : null} />}
+    </Loaded>
+  );
+}
+
 export function Flow({ route }: { route: FlowRoute }) {
   const status = useStatus();
   const versions = useResource<FlowVersion[]>('flows', '/api/v1/flows');
@@ -278,7 +293,13 @@ export function Flow({ route }: { route: FlowRoute }) {
           return (
             <>
               <Bar r={route} versions={all} current={status?.flow_version ?? null} at={atRef ? at : null} />
-              {atRef ? <AtRef r={route} at={at} /> : chosen !== null ? <Stored r={route} version={chosen} /> : null}
+              {route.snapshot !== null ? (
+                <Snapshot r={route} id={route.snapshot} />
+              ) : atRef ? (
+                <AtRef r={route} at={at} />
+              ) : chosen !== null ? (
+                <Stored r={route} version={chosen} />
+              ) : null}
             </>
           );
         }}

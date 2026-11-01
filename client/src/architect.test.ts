@@ -91,7 +91,7 @@ describe('a matter in words', () => {
     expect(matterKind('set_straight', 'off_policy')).toBe('Plan fix: does not follow the policy');
     expect(matterKind('set_straight', 'dependencies')).toBe('Plan fix: dependencies');
     expect(holdWords('set_straight')).toBe('No new works start until the plan fixes are done');
-    expect(matterKind('design_card', null)).toBe('Look at a design card');
+    expect(matterKind('design_card', null)).toBe('Look at a decision card');
     expect(matterKind('check_policy', null)).toBe('Check whether the policy still holds');
     expect(matterKind('make_plan', null)).toBe('Plan what to do next');
     expect(matterKind('group_talk', null)).toBe('Read what was said in the groups');
@@ -112,17 +112,17 @@ describe('a matter in words', () => {
     expect(matterSteps(matter(2))).toEqual([]);
   });
 
-  it('says where the design card it is about stands', () => {
+  it('says where the decision card it is about stands', () => {
     const card = (status: string, rulings: unknown[] = [], replaced_by: number | null = null) => ({
       id: 7,
       status,
       rulings: rulings as never,
       replaced_by,
     });
-    expect(cardWords(card('open'))).toBe('Design card 7 waits for a ruling.');
-    expect(cardWords(card('replaced', [], 9))).toBe('Design card 7 was replaced by design card 9.');
+    expect(cardWords(card('open'))).toBe('Decision card 7 waits for a ruling.');
+    expect(cardWords(card('replaced', [], 9))).toBe('Decision card 7 was replaced by decision card 9.');
     const confirmed = { by: 'owner', decisions: [{ decision: 1, verdict: 'confirm' }] };
-    expect(cardWords(card('ruled', [confirmed]))).toBe('Design card 7: you confirmed it.');
+    expect(cardWords(card('ruled', [confirmed]))).toBe('Decision card 7: you confirmed it.');
     const against = {
       by: 'architect',
       decisions: [
@@ -130,7 +130,7 @@ describe('a matter in words', () => {
         { decision: 2, verdict: 'disagree', text: 'too wide' },
       ],
     };
-    expect(cardWords(card('ruled', [confirmed, against]))).toBe('Design card 7: architect disagreed with decision 2: too wide.');
+    expect(cardWords(card('ruled', [confirmed, against]))).toBe('Decision card 7: architect disagreed with decision 2: too wide.');
   });
 });
 

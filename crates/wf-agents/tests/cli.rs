@@ -30,7 +30,6 @@ const PROJECT: &str = r#"
 repo = "o/p"
 checkout = "/tmp/p"
 design_goal = "simple"
-design_paths = ["design/"]
 test_paths = ["tests/"]
 rules = ["ground"]
 [ci]
@@ -53,7 +52,7 @@ const UNCHECKED: [&str; 18] = [
     "answer 1 --text x",
     "design-cards",
     "design-card 1",
-    "rule 1 --confirm all",
+    "rule 1 --confirm",
     "say 1 hello",
     "pause 1 --why x",
     "resume 1",
@@ -180,7 +179,7 @@ fn flow_check_passes_the_repository_flow_and_fails_a_broken_one() {
         .unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8(out.stdout).unwrap();
-    assert!(stdout.starts_with("engineer: 42 cells, 220 rows"), "{stdout}");
+    assert!(stdout.starts_with("engineer: 42 cells, 221 rows"), "{stdout}");
     // It says where each line's sessions start anew and how large the forms its returns share are.
     assert!(
         stdout.contains("engineer: format:common ")

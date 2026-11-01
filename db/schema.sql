@@ -123,38 +123,62 @@ CREATE TABLE dispatch_queue (
 ) STRICT;
 
 CREATE TABLE design_cards (
-  -- A change to the design tree for the owner to confirm before it is merged: each decision the change adds, changes
-  -- or removes. It asks the owner nothing; what the owner is asked is an ask of the owner. A design card is handed in
-  -- by one round and belongs to that round; its item is found through the round's work. A ruled design card never
-  -- changes; a decision that has to change comes in a new design card that replaces the old one.
-  -- Read by: cell `R1` (design cards ruled on this item), `D1` and `D2` (rulings
-  -- that disagreed or chose another option), `D2` (the latest design card of the items that depend on this
-  -- one), `T4` and `T5` (the work's design card as it stands), `A2` (the design
-  -- card to look at), `M1` (whether the design card has been confirmed).
+  -- A decision card: one question put to the owner, in the shape of the reasoning system's card extension, a revision
+  -- of the project's records that the work's branch makes. A work has a card for each question; the owner rules each.
+  -- A card is handed in by one round and belongs to that round; its item is found through the round's work. A ruled
+  -- card never changes: the same question comes back as a new card under the same key that replaces it, and a question
+  -- no longer asked is withdrawn, saying why. A card of a flow version before keys held a design card's decisions; it
+  -- stays readable as it was. Read by: cells `R1`, `D1` and `D4` (the cards of this item, with their rulings), `D4`
+  -- (the parent's current cards), `T4` and `T5` (the work's cards as they stand), `M1` (whether every current card is
+  -- confirmed); the engine, which gives `H8` the card the owner asks about.
   id INTEGER PRIMARY KEY,
-  -- The round that handed the design card in: its work, and its number in the work.
+  -- The round that handed the card in: its work, and its number in the work.
   work INTEGER NOT NULL,
   round INTEGER NOT NULL,
-  -- The design card as the round handed it in, JSON, in the flow's design card shape. Copied from that round's
-  -- output, which never changes, so the copy cannot drift.
+  -- The card's key, which stays the same for the same question in every later version of it in the work, so that
+  -- rulings follow it; card-<id> for a card of a flow version before keys. Read by: the engine, which compares a card
+  -- handed in with the work's current card of its key.
+  key TEXT NOT NULL,
+  -- The card as the round handed it in, JSON, in the flow's decision card shape. Copied from that round's output,
+  -- which never changes, so the copy cannot drift.
   body TEXT NOT NULL CHECK (json_valid(body)),
-  -- open: waiting for a ruling. ruled: everyone it waits for has ruled. replaced: a newer design card took its place
-  -- and it can no longer be ruled. Read by: the engine; cell `M1`.
-  status TEXT NOT NULL CHECK (status IN ('open', 'ruled', 'replaced')),
-  -- The rulings in the order given, JSON list, the owner's and the architect's alike: who ruled and when, and a verdict
-  -- on each decision of the card by its number (confirm or disagree), with any approach chosen instead and why; a
-  -- ruling made before rulings were per decision holds one verdict on the whole card, its option and words. The card is
-  -- confirmed when a ruling confirms every decision. Read by: cells `R1`, `D1`,
-  -- `D2` and `M1`.
+  -- The records the card revises, JSON list, as the engine read them on the branch when it posted the card: each its
+  -- reference, whether the branch added, changed or removed it, and its text at the branch's head, or at the fork point
+  -- for one removed; [] for a card of a flow version before keys. Read by: cells `T4` and `T5`; the owner's interface,
+  -- which shows each with its words; `M1`, which holds the records to merge to the words the owner ruled on.
+  revision TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(revision)),
+  -- open: waiting for a ruling. ruled: the owner ruled it. replaced: a newer version of its key took its place, or its
+  -- work ended, and it can no longer be ruled. withdrawn: the work no longer asks its question. Read by: the engine;
+  -- cell `M1`.
+  status TEXT NOT NULL CHECK (status IN ('open', 'ruled', 'replaced', 'withdrawn')),
+  -- The rulings in the order given, JSON list: who ruled and when, the verdict (confirm, choose another option, or
+  -- disagree), the option chosen and the owner's words. A ruling on a card of a flow version before keys holds a
+  -- verdict on each decision of it by its number, or one verdict on the whole card. Read by: cells `R1`, `D1`, `D4` and
+  -- `M1`.
   rulings TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(rulings)),
-  -- The design card that replaced this one. Read by: people following a decision to its latest design card.
+  -- The card that replaced this one, the newer version of its key. Read by: people following a question to its latest
+  -- card.
   replaced_by INTEGER REFERENCES design_cards(id),
-  -- For a design card that replaces earlier ones of its work: what changed from them and why, in the owner's
-  -- language, as the round that handed it in wrote it; NULL for a work's first design card, and for one handed in
-  -- before the flow asked for it. Read by: the owner's interface, beside each card it replaced.
+  -- For a card that replaces an earlier version of its key: what changed from it and why, in the owner's language, as
+  -- the round that handed it in wrote it; NULL for a key's first card. Read by: the owner's interface, beside the card it
+  -- replaced.
   changed TEXT,
-  -- A replaced design card names its successor, unless its work ended without one.
+  -- Why the work no longer asks the card's question, in the owner's language, as the round that withdrew it wrote it;
+  -- set only on a withdrawn card. Read by: the owner's interface.
+  withdrawn TEXT,
+  -- For the card that carries the flow of a work of wf-agents' own repository whose branch changes the flow: the flow
+  -- as the branch had it when the card was posted, the flow version in force then, which the page compares it with,
+  -- and the git object of the flow file the branch had, which the merge compares with the branch's; the object alone,
+  -- with no flow, when it did not compile. Read by: the owner's interface, which draws it; cell `M1`, which has the card
+  -- posted again when the branch's flow changed since.
+  flow_snapshot INTEGER REFERENCES flow_snapshots(id),
+  flow_in_force INTEGER REFERENCES flow_versions(id),
+  flow_source TEXT,
+  -- A replaced card names its successor, unless its work ended without one.
   CHECK (replaced_by IS NULL OR status = 'replaced'),
+  CHECK ((withdrawn IS NOT NULL) = (status = 'withdrawn')),
+  CHECK ((flow_snapshot IS NULL) = (flow_in_force IS NULL)),
+  CHECK (flow_snapshot IS NULL OR flow_source IS NOT NULL),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
 
@@ -189,6 +213,9 @@ CREATE TABLE owner_messages (
   text TEXT NOT NULL,
   -- When the owner marked it read; NULL while it is unread. Read by: the owner's interface.
   read_at INTEGER,
+  -- For the answer to the owner's question about a decision card: that card, which the group shows the answer as a
+  -- reply to. NULL for anything else.
+  design_card INTEGER REFERENCES design_cards(id),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
 
@@ -248,6 +275,17 @@ CREATE TABLE flow_versions (
   -- Hash of compiled, so each version is stored once.
   digest TEXT NOT NULL UNIQUE,
   -- The compiler's expanded flow, JSON: every graph's cells, inputs, return schemas and transition rows.
+  compiled TEXT NOT NULL CHECK (json_valid(compiled))
+) STRICT;
+
+CREATE TABLE flow_snapshots (
+  -- The flow as a work's branch has it, compiled when the engine posted a decision card of a work whose branch changes
+  -- the flow, so that the owner rules a change to the flow having seen it drawn. Written once and never changed: the
+  -- card's flow is drawn from here after the branch is merged or gone. Read by: the owner's interface.
+  id INTEGER PRIMARY KEY,
+  -- Hash of compiled, so each flow is stored once.
+  digest TEXT NOT NULL UNIQUE,
+  -- The compiler's expanded flow, JSON, as a flow version holds it.
   compiled TEXT NOT NULL CHECK (json_valid(compiled))
 ) STRICT;
 
@@ -540,6 +578,9 @@ CREATE TABLE interjections (
   -- both, as said to it. NULL for anything said to the engineer alone. Read by: the owner's interface, which shows the
   -- words once, to whom they were said.
   matter INTEGER REFERENCES architect_matters(id),
+  -- For the owner's question about a decision card, asked on the card in the work's group: that card, which the
+  -- engineer is given with the words, and the group shows them as a reply to. NULL for anything else said.
+  design_card INTEGER REFERENCES design_cards(id),
   FOREIGN KEY (work, delivered_round) REFERENCES rounds (work, n)
 ) STRICT;
 
@@ -917,8 +958,10 @@ CREATE INDEX cache_misses_by_notice ON cache_misses (notice);
 -- primary key of rounds.
 -- The tools a round ran.
 CREATE INDEX tool_runs_by_round ON tool_runs (work, round);
--- The design cards a round handed in.
+-- The decision cards a round handed in.
 CREATE INDEX design_cards_by_round ON design_cards (work, round);
+-- A work's current card of each key, at most one.
+CREATE UNIQUE INDEX design_cards_current ON design_cards (work, key) WHERE status IN ('open', 'ruled');
 -- The ask of the owner a round put.
 CREATE INDEX owner_asks_by_round ON owner_asks (work, round);
 -- The messages to the owner still unread.
@@ -1011,9 +1054,9 @@ CREATE VIEW item_acceptance AS
   SELECT id AS item, acceptance IS NOT NULL AS locked, acceptance, acceptance_work, acceptance_round FROM items;
 
 CREATE VIEW item_design_cards AS
-  -- Every design card of the item's works, with its rulings. Read by: cells `R1`, `D1`,
-  -- `D2` and `M1`.
-  SELECT w.item, c.work, c.id AS design_card, c.round, c.body, c.status, c.rulings, c.replaced_by
+  -- Every decision card of the item's works, by key, with its rulings, and why one withdrawn was. Read by: cells `R1`,
+  -- `D1` and `D4`.
+  SELECT w.item, c.work, c.id AS design_card, c.round, c.key, c.body, c.status, c.rulings, c.replaced_by, c.withdrawn
   FROM design_cards c JOIN works w ON w.id = c.work;
 
 CREATE VIEW item_asks AS
@@ -1022,13 +1065,13 @@ CREATE VIEW item_asks AS
   FROM owner_asks a JOIN works w ON w.id = a.work;
 
 CREATE VIEW parent_design_cards AS
-  -- The design cards of the items that depend on this one, not yet replaced: what a split-off item's parent
-  -- decided. Read by: cell `D2`.
-  SELECT l.depends_on AS item, l.item AS parent, c.id AS design_card, c.body, c.status, c.rulings
+  -- The current decision cards of the items that depend on this one, open or ruled: what a split-off item's parent
+  -- puts to the owner. Read by: cell `D4`.
+  SELECT l.depends_on AS item, l.item AS parent, c.id AS design_card, c.key, c.body, c.status, c.rulings
   FROM item_links l
   JOIN works w ON w.item = l.item
   JOIN design_cards c ON c.work = w.id
-  WHERE c.status <> 'replaced';
+  WHERE c.status IN ('open', 'ruled');
 
 CREATE VIEW item_dependencies AS
   -- What the item depends on, with the kind of each dependency, what it needs of each and how far each is: the cell
@@ -1100,13 +1143,14 @@ CREATE VIEW work_asking AS
     coalesce((SELECT c.times FROM work_counters c WHERE c.work = w.id AND c.counter = 'asks'), 0) AS asks
   FROM works w;
 
-CREATE VIEW work_design_card AS
-  -- Each work's design card as it stands: its latest one, unless that was replaced, with its rulings and the numbers of
-  -- the earlier design cards of the work, which it replaced. Read by: cells `T4` and `T5`.
-  SELECT c.work, c.id AS design_card, c.round, c.body, c.status, c.rulings,
-    (SELECT json_group_array(o.id) FROM design_cards o WHERE o.work = c.work AND o.id < c.id) AS replaces
+CREATE VIEW work_design_cards AS
+  -- Each work's decision cards as they stand: its current card of each key, open or ruled, with its rulings, the
+  -- records it revises and the numbers of the earlier versions of its key it replaced. Read by: cells `T4` and `T5`.
+  SELECT c.work, c.id AS design_card, c.round, c.key, c.body, c.revision, c.status, c.rulings,
+    (SELECT json_group_array(o.id) FROM design_cards o WHERE o.work = c.work AND o.key = c.key AND o.id < c.id)
+      AS replaces
   FROM design_cards c
-  WHERE c.status <> 'replaced' AND c.id = (SELECT max(o.id) FROM design_cards o WHERE o.work = c.work);
+  WHERE c.status IN ('open', 'ruled');
 
 CREATE VIEW work_ci AS
   -- The CI on each work: the latest run of the fast CI (the tool ci), of the full CI on the draft and of the tests on
@@ -1151,9 +1195,11 @@ CREATE VIEW waited_items AS
   FROM works w JOIN item_links l ON l.item = w.item JOIN items d ON d.id = l.depends_on;
 
 CREATE VIEW waiting_interjections AS
-  -- Interjections not yet handed in, in the order they came. Read by: every agent cell; cells `T7`,
-  -- `M1` and `E1`.
-  SELECT work, id AS interjection, line, speaker, text FROM interjections WHERE delivered_round IS NULL;
+  -- Interjections not yet handed in, in the order they came, each with the decision card it asks about, by its number
+  -- and key, if it does. Read by: every agent cell; cells `T7`, `M1` and `E1`.
+  SELECT j.work, j.id AS interjection, j.line, j.speaker, j.text, j.design_card, c.key AS card_key
+  FROM interjections j LEFT JOIN design_cards c ON c.id = j.design_card
+  WHERE j.delivered_round IS NULL;
 
 CREATE VIEW merge_queue AS
   -- Each project's merge queue: the works at the merge cell, oldest first. Read by: cell `M2`.
@@ -1373,7 +1419,8 @@ CREATE VIEW conversation_entries AS
   -- an entry of its own beside it. sender and recipient are a line, the owner, the engine or wf-agents, the recipient of
   -- the owner's words in a work's group the engineer, the architect or both, and in the one-to-one the line of the
   -- architect's work they were said to (architect or policy); for between, the projects. matter: the architect's
-  -- matter the entry is, or holds the owner's words of, or whose talk it is an entry of. waiting: it waits for the
+  -- matter the entry is, or holds the owner's words of, or whose talk it is an entry of. design_card: the decision
+  -- card the entry is, or is a ruling on, or the owner's question asks about, or an answer answers about. waiting: it waits for the
   -- owner (an ask that stands for an open blocker the owner holds, or an architect's ask that holds a matter still
   -- open, neither handled nor withdrawn, not answered; a design card not ruled while its work goes on; a fault not
   -- read). pending: the owner's words not taken
@@ -1398,7 +1445,7 @@ CREATE VIEW conversation_entries AS
     coalesce(w.project, i.project) AS project, 'message' AS source, m.id AS id,
     coalesce(s.line, CASE WHEN w.graph IN ('architect', 'policy') THEN 'architect' ELSE 'engineer' END) AS sender,
     'owner' AS recipient, m.text AS text, coalesce(r.ended_at, r.started_at) AS at, m.work AS work, m.round AS round,
-    NULL AS ask, NULL AS design_card, NULL AS matter, m.read_at AS read_at, 0 AS waiting, 0 AS pending,
+    NULL AS ask, m.design_card AS design_card, NULL AS matter, m.read_at AS read_at, 0 AS waiting, 0 AS pending,
     0 AS undelivered, 0 AS answerable, NULL AS fault
   FROM owner_messages m JOIN rounds r ON r.work = m.work AND r.n = m.round JOIN works w ON w.id = m.work
   LEFT JOIN items i ON i.id = w.item LEFT JOIN sessions s ON s.id = r.session
@@ -1437,7 +1484,7 @@ CREATE VIEW conversation_entries AS
     coalesce((SELECT min(c.at) FROM changes c
               WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)),
              (SELECT min(x.started_at) FROM rounds x WHERE x.work = j.work), 0),
-    j.work, j.delivered_round, NULL, NULL, j.matter, NULL, 0,
+    j.work, j.delivered_round, NULL, j.design_card, j.matter, NULL, 0,
     j.speaker = 'owner' AND ((j.informs = 0 AND j.delivered_round IS NULL AND w.ended IS NULL
         AND w.at NOT IN (CASE WHEN w.graph = 'architect' THEN 'E2' ELSE 'E1' END, '20', 'end'))
       OR EXISTS (SELECT 1 FROM architect_matters x
@@ -1448,6 +1495,8 @@ CREATE VIEW conversation_entries AS
   FROM interjections j JOIN works w ON w.id = j.work LEFT JOIN items i ON i.id = w.item
   WHERE j.text NOT LIKE 'Ruling on design card %'
     AND j.text NOT LIKE 'The owner confirmed every decision of design card %'
+    AND j.text NOT LIKE 'Ruling on decision card %'
+    AND j.text NOT LIKE 'The owner confirmed decision card %'
   UNION ALL
   SELECT CASE WHEN json_extract(m.body, '$.where') = 'projects' THEN 'architects:' || m.project
               WHEN y.graph = 'engineer' THEN 'work:' || y.id ELSE 'architect:' || m.project END,
@@ -1494,14 +1543,14 @@ CREATE VIEW conversation_entries AS
     c.status = 'open' AND w.ended IS NULL, 0, 0, 0, NULL
   FROM design_cards c JOIN works w ON w.id = c.work JOIN items i ON i.id = w.item
   JOIN rounds cr ON cr.work = c.work AND cr.n = c.round LEFT JOIN sessions s ON s.id = cr.session
-  WHERE c.status <> 'replaced'
+  WHERE c.status IN ('open', 'ruled')
   UNION ALL
   SELECT 'work:' || c.work, i.project, 'ruling', c.id, 'owner', 'engineer', '',
     coalesce(json_extract(x.value, '$.at'), cr.ended_at, cr.started_at), c.work, c.round, NULL, c.id, NULL, NULL, 0,
     0, 0, 0, NULL
   FROM design_cards c JOIN works w ON w.id = c.work JOIN items i ON i.id = w.item
   JOIN rounds cr ON cr.work = c.work AND cr.n = c.round, json_each(c.rulings) x
-  WHERE c.status <> 'replaced' AND json_extract(x.value, '$.by') = 'owner'
+  WHERE c.status IN ('open', 'ruled') AND json_extract(x.value, '$.by') = 'owner'
   UNION ALL
   SELECT 'architects:' || min(json_extract(m.body, '$.from'), m.project) || '|'
       || max(json_extract(m.body, '$.from'), m.project),

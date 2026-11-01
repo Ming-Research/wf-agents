@@ -429,12 +429,10 @@ pub struct Project {
     pub main: String,
     /// What the project's designs aim for, such as performance and correctness with no regard for migration cost.
     pub design_goal: String,
-    /// The paths whose change is a change of design, and gives a design card. Every project should have a design tree;
-    /// one that has none yet names none, and its works raise no design card.
-    pub design_paths: Vec<String>,
     /// The project's records, kept by the reasoning system: its works derive their designs from them, check them with
-    /// the installation's copy of the reasoning system and give its rules to the cells that work on them. None, and
-    /// the project keeps no records: its works skip every step on them.
+    /// the installation's copy of the reasoning system and give its rules to the cells that work on them. Their
+    /// directory is the project's design paths: a change to it is a change of design, which the owner rules on decision
+    /// cards. None, and the project keeps no records: its works skip every step on them and raise no card.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub records: Option<Records>,
     /// The paths that hold tests: the only ones the adversarial tester changes.
@@ -542,6 +540,15 @@ pub const SETTINGS: [&str; 7] = [
 ];
 
 impl Project {
+    /// The project's design paths: the directory of its records, with its trailing slash; none for a project that keeps
+    /// no records.
+    pub fn design_paths(&self) -> Vec<String> {
+        self.records
+            .iter()
+            .map(|r| format!("{}/", r.root.trim_end_matches('/')))
+            .collect()
+    }
+
     /// The value an input that reads a setting is given, null where the project sets nothing; none for a setting the
     /// flow does not read.
     pub fn setting(&self, name: &str) -> Option<serde_json::Value> {
@@ -1197,8 +1204,8 @@ pub fn project_guide(root: &Path, design: &[String], cites: &str) -> serde_json:
 }
 
 /// What a project says of itself as one commit has it, which agents are given as the project guide: its AGENTS.md,
-/// the index of its design tree under the design paths (each node's path and first line), and the full text of the
-/// nodes `cites` names by their paths. It is read with git from the repository at `repo`, so nothing in a worktree's
+/// the index of its records under the design paths (each file's path and first line), and the full text of the files
+/// `cites` names by their paths. It is read with git from the repository at `repo`, so nothing in a worktree's
 /// files changes it: not what is uncommitted, not what the worktree's branch committed beyond that commit.
 pub fn project_guide_at(
     repo: &Path,
@@ -1235,8 +1242,8 @@ pub fn project_guide_at(
     Ok(guide(agents, nodes, cites))
 }
 
-/// The project guide of an AGENTS.md and the design tree's nodes, each by its path: the index in the order of the
-/// paths, each node's first line that is not empty, and the nodes `cites` names in full.
+/// The project guide of an AGENTS.md and the files of the records, each by its path: the index in the order of the
+/// paths, each file's first line that is not empty, and the files `cites` names in full.
 fn guide(agents: String, mut nodes: Vec<(String, String)>, cites: &str) -> serde_json::Value {
     use serde_json::{Map, Value, json};
     nodes.sort();
@@ -1253,7 +1260,25 @@ fn guide(agents: String, mut nodes: Vec<(String, String)>, cites: &str) -> serde
         }
         index.insert(rel, Value::String(first));
     }
-    json!({ "agents_md": agents, "design_tree": index, "cited_nodes": cited })
+    json!({ "agents_md": agents, "records": index, "cited": cited })
+}
+
+/// The Markdown files under a directory of a repository as one commit has them, each by its path, in the order of the
+/// paths: read with git, so that neither the worktree's files nor what it committed beyond that commit change them.
+pub fn files_at(repo: &Path, commit: &str, dir: &str) -> Result<Vec<(String, String)>, String> {
+    let dir = format!("{}/", dir.trim_end_matches('/'));
+    let listed = git(repo, &["ls-tree", "-r", "-z", commit, "--", &dir])?;
+    let blobs: Vec<(&str, &str)> = listed
+        .split('\0')
+        .filter_map(|entry| {
+            let (meta, path) = entry.split_once('\t')?;
+            let mut m = meta.split(' ').skip(1);
+            let (kind, object) = (m.next()?, m.next()?);
+            (kind == "blob" && path.ends_with(".md")).then_some((path, object))
+        })
+        .collect();
+    let texts = blob_texts(repo, &blobs.iter().map(|b| b.1).collect::<Vec<_>>())?;
+    Ok(blobs.iter().map(|b| b.0.to_string()).zip(texts).collect())
 }
 
 /// The texts of git objects of a repository, in the order of their names, read by one run of git.
@@ -1358,7 +1383,6 @@ timeout_ms = 2000
 
     const SHARED: &str = r#"
 design_goal = "correct, then fast"
-design_paths = ["design/"]
 test_paths = ["tests/"]
 review_list = ["one", "two"]
 [ci]
@@ -1751,13 +1775,10 @@ asks = 9
         let g = project_guide_at(&dir, &first, &design, "it cites design/a/b.md").unwrap();
         assert_eq!(g["agents_md"], "How to work.\n");
         assert_eq!(
-            g["design_tree"],
+            g["records"],
             serde_json::json!({ "design/a.md": "Decision: a.", "design/a/b.md": "Decision: b." })
         );
-        assert_eq!(
-            g["cited_nodes"],
-            serde_json::json!({ "design/a/b.md": "Decision: b.\n" })
-        );
+        assert_eq!(g["cited"], serde_json::json!({ "design/a/b.md": "Decision: b.\n" }));
         // The files on disk gave the same guide for the same files, in the same order.
         assert_eq!(on_disk.to_string(), g.to_string());
         run(&["rm", "-q", "design/a/b.md"]);
@@ -1767,10 +1788,10 @@ asks = 9
         let later = project_guide_at(&dir, &second, &design, "it cites design/a/b.md").unwrap();
         assert_eq!(later["agents_md"], "Changed, not committed.\n");
         assert_eq!(
-            later["design_tree"],
+            later["records"],
             serde_json::json!({ "design/a.md": "Decision: a.", "design/a/new.md": "Decision: new." })
         );
-        assert_eq!(later["cited_nodes"], serde_json::json!({}));
+        assert_eq!(later["cited"], serde_json::json!({}));
         assert!(project_guide_at(&dir, "0000000", &design, "").is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }

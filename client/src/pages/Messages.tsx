@@ -8,12 +8,12 @@
 // A work's group holds the owner, its engineer and its project's architect: everything said in it reaches all three,
 // each agent's message beside its avatar in its colour and headed by whom it is for, the owner's on the right; the
 // engine's notices are grey lines, and its stage cards, one for each stretch of the work at a stage, updated in place,
-// the design's with the design folded and the design card to rule on. The one-to-one holds the owner's words, what the
+// the design's with the design folded and the decision card to rule on. The one-to-one holds the owner's words, what the
 // architect tells and asks, a card for each of its matters and the policy as it took effect, under its queue.
 // wf-agents' own holds its faults, each of which the owner forwards to any project's architect, once to each, and says
 // where it went and how it stands there; its head sets where each new fault goes as it comes, nobody at first. What
 // waits for the owner stays where it came in the stream and is answered there, and a bar of one line under the head
-// pins it, as a chat app pins a message: the design card a work waits on to be ruled, in its stage's bubble; each ask
+// pins it, as a chat app pins a message: the decision card a work waits on to be ruled, in its stage's bubble; each ask
 // of the owner from a work, as the asking agent's bubble, its options picked on their boxes in its card, the one
 // picked marked, then a small box for the owner's words, free unless the ask is in words alone or no option is picked,
 // and Answer; each
@@ -53,6 +53,7 @@ import {
   type MouseEvent,
   type ReactNode,
   type SetStateAction,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -74,7 +75,17 @@ import type {
   WorkState,
   WorkSummary,
 } from '../api';
-import { AnswersHere, AskPicking, askAnswer, enterSends, handsBack, needsWords, pickAfter, useAskPick } from '../answer';
+import {
+  AnswersHere,
+  AskPicking,
+  askAnswer,
+  CardTalk,
+  enterSends,
+  handsBack,
+  needsWords,
+  pickAfter,
+  useAskPick,
+} from '../answer';
 import { architectMark, architectState } from '../architect';
 import {
   course,
@@ -88,8 +99,10 @@ import {
   workStateMark,
 } from '../components';
 import {
+  aboutCard,
   architectAsk,
   asksApproval,
+  cardTalk,
   closedWhy,
   conversationTitle,
   DRAFT_APPROVED,
@@ -508,7 +521,8 @@ function AskAnswered({ a }: { a: OwnerAsk }) {
 /// what answers it while it waits, then the owner's answer; an architect's question nothing while it waits, since the
 /// box at the bottom replies to it, then the owner's reply; a question the architect holds, the box that answers it,
 /// then the owner's answer (`reply`). The question whether the draft of a new policy is approved leads to the draft, in
-/// the panel beside the one-to-one (`draft`).
+/// the panel beside the one-to-one (`draft`). The owner's question about a decision card, and its answer, have the
+/// strip naming the card over their words.
 function Message({ e, to, reply, draft = null, onReply = null, approve = null }: {
   e: ConversationEntry;
   to: string | null;
@@ -537,6 +551,7 @@ function Message({ e, to, reply, draft = null, onReply = null, approve = null }:
         who={own ? 'owner' : from}
         wide={answers}
         ask={ask !== null ? ask.id : undefined}
+        entry={aboutCard(e) ? `${e.source}-${e.id}` : undefined}
         head={
           <BubbleHead who={own ? null : party(e, e.sender)} to={to} at={e.at}>
             {round ? (
@@ -573,6 +588,7 @@ function Message({ e, to, reply, draft = null, onReply = null, approve = null }:
         }
         under={own && e.words_state !== null ? <WordsLine w={e.words_state} /> : undefined}
       >
+        {aboutCard(e) && e.design_card !== null ? <CardStrip id={e.design_card} /> : null}
         <Words e={e} />
       </Bubble>
     </AskPicking.Provider>
@@ -941,6 +957,20 @@ function Approve({ project, question }: { project: string; question: number }) {
 /// off, the box's words then going to the architect as any words do.
 export type Reply = { question: number; words: string; clear: () => void };
 
+/// The decision card the owner's question asks about, or an answer answers about, over its words as the strip over the
+/// box quotes the question a reply answers: a `ReplyIcon` and the card by its number and question on one line, cut
+/// where it ends and whole on hovering; a click brings the card into view.
+function CardStrip({ id }: { id: number }) {
+  const talk = useContext(CardTalk);
+  const words = t('conv_about_card', { id, question: talk?.questions.get(id) ?? '' });
+  return (
+    <button type="button" className="talk-reply-strip talk-card-strip" title={words} onClick={() => bringToBubble(`#design-card-${id}`)}>
+      <ReplyIcon className="talk-reply-icon" />
+      <span className="talk-reply-words">{words}</span>
+    </button>
+  );
+}
+
 /// What the box replies to, over it while it replies to an architect's question, as a chat app quotes the message a
 /// reply answers: a `ReplyIcon`, "Reply to:" and the question on one line, cut where it ends and whole on hovering, and
 /// an invisible small `IconButton` with an `XIcon` that takes the reply off.
@@ -1069,8 +1099,9 @@ export function Composer({ c, w, reply = null, onSent }: {
 /// they were asked, answered there or, a question, by the box set to reply to it (`replyTo`); under it, while the
 /// owner's words added to the queue wait to be taken up in the one-to-one, that they do. In the one-to-one with an
 /// architect (`architect`), the question whether its draft of a new policy that waits (`draft`) is approved leads to
-/// the draft, and the bubble of the matter it has in hand says what holds it. Scrolled up away from the newest, a round
-/// button at its bottom right goes back to it, as a chat app's does.
+/// the draft, and the bubble of the matter it has in hand says what holds it. In a work's group, the owner's question
+/// about a decision card and its answer each name the card over their words, and the card links to them (`CardTalk`).
+/// Scrolled up away from the newest, a round button at its bottom right goes back to it, as a chat app's does.
 export function Stream({ d, c, w, draft = null, architect = null, replyTo = null }: {
   d: ConversationDetail;
   c: Conversation;
@@ -1081,6 +1112,10 @@ export function Stream({ d, c, w, draft = null, architect = null, replyTo = null
 }) {
   const replies = useMemo(() => ownerReplies(d.entries), [d]);
   const questions = useMemo(() => new Set(d.questions.map((q) => q.id)), [d]);
+  const talk = useMemo(
+    () => ({ ...cardTalk(d), go: (entry: string) => bringToBubble(`.talk-stream [data-entry="${entry}"]`) }),
+    [d],
+  );
   const stream = streamOf(d);
   const going = architect !== null ? architectState(architect.works, architect.queue) : null;
   const aw = going !== null && going.kind === 'working' ? going.work : null;
@@ -1113,46 +1148,48 @@ export function Stream({ d, c, w, draft = null, architect = null, replyTo = null
   // up yet.
   const pending = c.kind === 'architect' && pendingWords(d.entries).some((e) => e.source === 'words' || e.source === 'talk');
   return (
-    <div className="talk-stream-wrap">
-      <div className="talk-stream" ref={list}>
-        {stream.length === 0 ? <p className="talk-none">{t('conv_none')}</p> : null}
-        {runs.map((run) => {
-          const key = `${run.entries[0].source}-${run.entries[0].id}-${run.entries[0].at}`;
-          const items: ReactNode = run.entries.map((e) => (
-            <Entry
-              key={`${e.source}-${e.id}-${e.at}`}
-              e={e}
-              c={c}
-              w={w}
-              architect={aw}
-              replies={replies}
-              forwarding={d.forwarding}
-              draft={draft}
-              questions={questions}
-              replyTo={replyTo}
-            />
-          ));
-          return run.cards ? (
-            <Timeline key={key} clipSidebar className="talk-cards">
-              {items}
-            </Timeline>
-          ) : (
-            <div key={key} className="talk-messages">
-              {items}
-            </div>
-          );
-        })}
-        {pending ? <p className="talk-none">{t('conv_words_wait')}</p> : null}
+    <CardTalk.Provider value={talk}>
+      <div className="talk-stream-wrap">
+        <div className="talk-stream" ref={list}>
+          {stream.length === 0 ? <p className="talk-none">{t('conv_none')}</p> : null}
+          {runs.map((run) => {
+            const key = `${run.entries[0].source}-${run.entries[0].id}-${run.entries[0].at}`;
+            const items: ReactNode = run.entries.map((e) => (
+              <Entry
+                key={`${e.source}-${e.id}-${e.at}`}
+                e={e}
+                c={c}
+                w={w}
+                architect={aw}
+                replies={replies}
+                forwarding={d.forwarding}
+                draft={draft}
+                questions={questions}
+                replyTo={replyTo}
+              />
+            ));
+            return run.cards ? (
+              <Timeline key={key} clipSidebar className="talk-cards">
+                {items}
+              </Timeline>
+            ) : (
+              <div key={key} className="talk-messages">
+                {items}
+              </div>
+            );
+          })}
+          {pending ? <p className="talk-none">{t('conv_words_wait')}</p> : null}
+        </div>
+        {away ? (
+          <IconButton
+            className="talk-newest"
+            icon={ArrowDownIcon}
+            aria-label={t('conv_to_newest')}
+            onClick={() => list.current?.scrollTo({ top: list.current.scrollHeight, behavior: 'smooth' })}
+          />
+        ) : null}
       </div>
-      {away ? (
-        <IconButton
-          className="talk-newest"
-          icon={ArrowDownIcon}
-          aria-label={t('conv_to_newest')}
-          onClick={() => list.current?.scrollTo({ top: list.current.scrollHeight, behavior: 'smooth' })}
-        />
-      ) : null}
-    </div>
+    </CardTalk.Provider>
   );
 }
 

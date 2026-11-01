@@ -143,6 +143,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/flows/diff", get(flow_diff))
         .route("/api/v1/flows/{id}", get(flow))
         .route("/api/v1/flows/{id}/view", get(flow_view))
+        .route("/api/v1/flow-snapshots/{id}", get(flow_snapshot))
         .route("/api/v1/inputs-now", get(inputs_now))
         .route("/api/v1/items", get(items))
         .route("/api/v1/items/{id}", get(item))
@@ -382,6 +383,11 @@ async fn flow_view(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<a
     read(&app, move |c, a| api::flow_view(c, &a.flows, id)).await.map(Json)
 }
 
+/// The flow a decision card carries, as its work's branch had it when the card was posted, from the database alone.
+async fn flow_snapshot(State(app): State<App>, Path(id): Path<i64>) -> Result<Json<api::FlowSnapshot>, Fail> {
+    read(&app, move |c, _| api::flow_snapshot(c, id)).await.map(Json)
+}
+
 /// The lines of the flow built into the program, with what each is and the colour its role is drawn in, which every
 /// part of the page that shows a role reads.
 async fn flow_lines() -> Json<Vec<api::GraphLines>> {
@@ -462,23 +468,28 @@ async fn flow_at(State(app): State<App>, Query(q): Query<At>) -> Result<Json<api
 struct Between {
     /// The older flow: a stored version.
     from: i64,
-    /// The newer flow: a stored version, or the flow at a ref of a project's checkout.
+    /// The newer flow: a stored version, the flow at a ref of a project's checkout, or a flow a decision card carries.
     to: Option<i64>,
     project: Option<String>,
     #[serde(rename = "ref")]
     rev: Option<String>,
+    snapshot: Option<i64>,
 }
 
-/// What changed from a stored flow version to another, or to the flow at a git ref of a project's checkout.
+/// What changed from a stored flow version to another, to the flow at a git ref of a project's checkout, or to the flow
+/// a decision card carries.
 async fn flow_diff(State(app): State<App>, Query(q): Query<Between>) -> Result<Json<api::FlowDiff>, Fail> {
     read(&app, move |c, a| {
         let from = a.flows.get(c, q.from)?;
-        let to = match (q.to, q.project, q.rev) {
-            (Some(v), None, None) => a.flows.get(c, v)?,
-            (None, Some(p), Some(r)) => a.sources.at(&checkout_of(&a.data, &p)?, &r)?.1,
+        let to = match (q.to, q.project, q.rev, q.snapshot) {
+            (Some(v), None, None, None) => a.flows.get(c, v)?,
+            (None, Some(p), Some(r), None) => a.sources.at(&checkout_of(&a.data, &p)?, &r)?.1,
+            (None, None, None, Some(s)) => std::sync::Arc::new(api::snapshot_compiled(c, s)?),
             _ => {
                 return Err(api::Error::Invalid(
-                    "compare with another version (to) or with a project's ref (project and ref)".into(),
+                    "compare with another version (to), with a project's ref (project and ref) or with a card's flow \
+                     (snapshot)"
+                        .into(),
                 ));
             }
         };
@@ -716,7 +727,7 @@ async fn answer(
     decide(&app, move |db| api::answer(db, id, &a)).await
 }
 
-/// Rules on a design card, as the owner, as the command line does; the engine is woken to go on.
+/// Rules on a decision card, as the owner, as the command line does; the engine is woken to go on.
 async fn rule(
     State(app): State<App>,
     Path(id): Path<i64>,

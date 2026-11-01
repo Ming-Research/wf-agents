@@ -143,12 +143,12 @@ function SourceHolds({ src, now }: { src: Src; now: InputsNow | undefined }) {
     <>
       {now.projects.map((p) => (
         <div key={p.project} className="pp-part">
-          <Over>{tn('holds_guide_in', p.design_tree.length, { project: p.project })}</Over>
+          <Over>{tn('holds_guide_in', p.records.length, { project: p.project })}</Over>
           <Sheet>
             <Long text={p.agents_md}>{(x) => <Markdown text={x} />}</Long>
           </Sheet>
           <Sheet mono>
-            <Long text={p.design_tree.map((n) => `${n.name} ${n.text}`).join('\n')} />
+            <Long text={p.records.map((n) => `${n.name} ${n.text}`).join('\n')} />
           </Sheet>
         </div>
       ))}

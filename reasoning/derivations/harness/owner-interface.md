@@ -9,11 +9,11 @@ Decision page-over-interface: The page is written in TypeScript over an interfac
 
 Rests on: C:design-on-merit, D:owner-web-page
 
-Decision owner-operations: The owner's operations (adding items and dependencies, removing dependencies, cancelling items, ordering the queue, answering asks of the owner, ruling on design cards, interjecting, pausing and resuming works, and the views of where everything stands) have one implementation that the command line and the interface's handlers both call, and its reads return structured data that the command line only formats as text, instead of each client reading and writing the database itself, because two implementations of one action drift, and the page and the command line must show the same state.
+Decision owner-operations: The owner's operations (adding items and dependencies, removing dependencies, cancelling items, ordering the queue, answering asks of the owner, ruling on decision cards, interjecting, pausing and resuming works, and the views of where everything stands) have one implementation that the command line and the interface's handlers both call, and its reads return structured data that the command line only formats as text, instead of each client reading and writing the database itself, because two implementations of one action drift, and the page and the command line must show the same state.
 
 Rests on: C:information, F:copies-drift
 
-Decision card-ask-apart: There are two things the owner is put before, never called by one name: a design card, a change to the design tree to confirm before it is merged, which asks nothing, and an ask of the owner, which waits for an answer; they are kept, read and shown apart, and ruled on and answered by operations of their own, instead of one kind of card with two kinds, because the owner confirms the one and answers the other, and one name for both let agents put a question on a design card and a decision in an ask.
+Decision card-ask-apart: There are two things the owner is put before, never called by one name: a decision card, a question a revision of the records puts to the owner to rule before it is merged, and an ask of the owner, which waits for an answer before the work goes on; they are kept, read and shown apart, and ruled on and answered by operations of their own, instead of one kind of card with two kinds, because the owner rules the one and answers the other, and one name for both let agents put a question on a design card and a decision in an ask.
 
 Rests on: C:information, F:one-name-confusion
 

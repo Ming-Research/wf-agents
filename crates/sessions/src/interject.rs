@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 /// none waits. One that carries images, its own or those of the owner's words its matter holds, is left for the line's
 /// next message, which gives the words and the images together.
 pub fn deliver(db: &mut Db, work: i64, round: i64, line: &str) -> Result<Option<String>, String> {
-    let said: Vec<(i64, String, String)> = db
+    let said: Vec<(i64, String)> = db
         .write(Actor::Engine, |tx| {
             // A round that has ended, such as the one a keep-warm ping replays the command line of, takes none.
             let open: bool = tx.query_row(
@@ -25,15 +25,24 @@ pub fn deliver(db: &mut Db, work: i64, round: i64, line: &str) -> Result<Option<
                 return Ok(Vec::new());
             }
             let mut st = tx.prepare(
-                "SELECT id, speaker, text FROM interjections j
-                 WHERE work = ?1 AND line = ?2 AND delivered_round IS NULL
+                "SELECT j.id, j.speaker, j.text, j.design_card, c.key FROM interjections j
+                 LEFT JOIN design_cards c ON c.id = j.design_card
+                 WHERE j.work = ?1 AND j.line = ?2 AND j.delivered_round IS NULL
                    AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.interjection = j.id OR a.matter = j.matter)
-                 ORDER BY id",
+                 ORDER BY j.id",
             )?;
-            let rows: Vec<(i64, String, String)> = st
-                .query_map(params![work, line], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            let rows: Vec<(i64, String)> = st
+                .query_map(params![work, line], |r| {
+                    let words = db::interjection_words(
+                        &r.get::<_, String>(1)?,
+                        &r.get::<_, String>(2)?,
+                        r.get(3)?,
+                        r.get::<_, Option<String>>(4)?.as_deref(),
+                    );
+                    Ok((r.get(0)?, words))
+                })?
                 .collect::<Result<_, _>>()?;
-            for (id, _, _) in &rows {
+            for (id, _) in &rows {
                 tx.execute(
                     "UPDATE interjections SET delivered_round = ?2 WHERE id = ?1",
                     params![id, round],
@@ -47,7 +56,7 @@ pub fn deliver(db: &mut Db, work: i64, round: i64, line: &str) -> Result<Option<
     }
     let lines: Vec<String> = said
         .iter()
-        .map(|(id, speaker, text)| format!("### ij:{id}\n\nFrom the {speaker}: {text}"))
+        .map(|(id, words)| format!("### ij:{id}\n\n{words}"))
         .collect();
     let context = format!(
         "Said to you while this round runs; answer in this round's return, as format:common says.\n\n{}",
@@ -64,8 +73,9 @@ pub fn delivered_during(db: &Db, work: i64, round: i64, given: &[i64]) -> Result
     let mut st = db
         .conn()
         .prepare(
-            "SELECT work, id, line, speaker, text FROM interjections WHERE work = ?1 AND delivered_round = ?2
-             ORDER BY id",
+            "SELECT j.work, j.id, j.line, j.speaker, j.text, j.design_card, c.key FROM interjections j
+             LEFT JOIN design_cards c ON c.id = j.design_card WHERE j.work = ?1 AND j.delivered_round = ?2
+             ORDER BY j.id",
         )
         .map_err(|e| e.to_string())?;
     let rows = st
@@ -76,6 +86,8 @@ pub fn delivered_during(db: &Db, work: i64, round: i64, given: &[i64]) -> Result
                 "line": r.get::<_, String>(2)?,
                 "speaker": r.get::<_, String>(3)?,
                 "text": r.get::<_, String>(4)?,
+                "design_card": r.get::<_, Option<i64>>(5)?,
+                "card_key": r.get::<_, Option<String>>(6)?,
             }))
         })
         .map_err(|e| e.to_string())?
@@ -91,8 +103,8 @@ pub fn delivered_during(db: &Db, work: i64, round: i64, given: &[i64]) -> Result
 mod tests {
     use super::*;
 
-    // An interjection waiting for the line is handed in to the round that runs, once, and recorded as delivered in it;
-    // a round that has ended takes none.
+    // An interjection waiting for the line is handed in to the round that runs, once, and recorded as delivered in it,
+    // the owner's question about a decision card naming the card; a round that has ended takes none.
     #[test]
     fn an_interjection_is_handed_in_to_the_running_round_once() {
         let mut db = Db::in_memory().unwrap();
@@ -111,6 +123,15 @@ mod tests {
                  VALUES (1, 'engineer', 'owner', 'Look at the log.'), (1, 'review', 'owner', 'Not yours.')",
                 [],
             )?;
+            tx.execute(
+                "INSERT INTO design_cards (work, round, key, body, status) VALUES (1, 1, 'cache-size', '{}', 'open')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text, design_card)
+                 VALUES (1, 'engineer', 'owner', 'Why this size?', 1)",
+                [],
+            )?;
             Ok(())
         })
         .unwrap();
@@ -122,11 +143,19 @@ mod tests {
             said.contains("### ij:1\n\nFrom the owner: Look at the log.") && !said.contains("Not yours"),
             "{said}"
         );
+        assert!(
+            said.contains("### ij:3\n\nFrom the owner, about decision card 1 (cache-size): Why this size?"),
+            "{said}"
+        );
         assert_eq!(deliver(&mut db, 1, 1, "engineer").unwrap(), None);
         let during = delivered_during(&db, 1, 1, &[]).unwrap();
-        assert_eq!(during.len(), 1);
+        assert_eq!(during.len(), 2);
         assert_eq!(during[0]["speaker"], "owner");
-        assert!(delivered_during(&db, 1, 1, &[1]).unwrap().is_empty());
+        assert_eq!(
+            (&during[1]["design_card"], &during[1]["card_key"]),
+            (&json!(1), &json!("cache-size"))
+        );
+        assert!(delivered_during(&db, 1, 1, &[1, 3]).unwrap().is_empty());
         db.write(Actor::Engine, |tx| {
             tx.execute("UPDATE rounds SET ended_at = 2 WHERE work = 1 AND n = 1", [])?;
             Ok(())

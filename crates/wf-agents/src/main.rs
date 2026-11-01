@@ -70,28 +70,30 @@ enum Command {
         #[arg(long)]
         reply: Option<String>,
     },
-    /// The design cards waiting for a ruling, and those ruled but not yet confirmed for the merge.
+    /// The current decision cards, open or ruled, each with its key and question.
     DesignCards {
-        /// Every design card, replaced ones too.
+        /// Every decision card, replaced and withdrawn ones too.
         #[arg(long)]
         all: bool,
     },
-    /// One design card in full, with its rulings.
+    /// One decision card in full, with the records it revises and its rulings.
     DesignCard { id: i64 },
-    /// Rules on a design card: a verdict on each of its decisions, by number, all at once. The card is confirmed when
-    /// every decision is.
+    /// Rules on a decision card: confirms the option it recommends, chooses another of its options, or disagrees
+    /// saying why.
     Rule {
         design_card: i64,
-        /// A decision confirmed, by its number; `all` for every decision but those disagreed with.
+        /// Confirm the option the card recommends.
         #[arg(long)]
-        confirm: Vec<String>,
-        /// A decision disagreed with, and why: `<number>=<why>`.
+        confirm: bool,
+        /// Another of the card's options, chosen instead of the one recommended, by its name.
         #[arg(long)]
-        disagree: Vec<String>,
-        /// Another of a decision's approaches, chosen instead of the one recommended: `<number>=<approach>`; with
-        /// --disagree for the same decision to say why.
+        choose: Option<String>,
+        /// Disagree with the card, saying why.
         #[arg(long)]
-        choose: Vec<String>,
+        disagree: Option<String>,
+        /// The owner's words with a confirmation or a choice.
+        #[arg(long)]
+        text: Option<String>,
     },
     /// Says something in a running work's group, as the page does: to its engineer, which gets it in its next round;
     /// to its project's architect, which gets it as the owner's words, the engineer told of it; or to both.
@@ -488,13 +490,15 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             confirm,
             disagree,
             choose,
+            text,
         } => print(owner::rule(
             d,
             owner::Ruling {
                 design_card,
                 confirm,
-                disagree,
                 choose,
+                disagree,
+                text,
             },
         )),
         Command::Say { work, text, to } => print(owner::say(d, work, &to, &text)),

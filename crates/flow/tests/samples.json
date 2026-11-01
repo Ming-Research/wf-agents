@@ -223,42 +223,46 @@
       "effect": "outcome.measure.effect"
      },
      "design": {
-      "solution": "outcome.design.solution",
+      "solution": "outcome.design.solution\n\n[[card:match-kinds]]\n",
       "where": "outcome.design.where",
       "excluded": "outcome.design.excluded",
       "pitfalls": "outcome.design.pitfalls"
      },
      "design_tree": {
       "verdict": "change",
-      "design_card": [
+      "cards": [
        {
-        "node": "design/match.md",
-        "change": "change",
-        "before": "outcome.design_tree.design_card.before",
-        "after": "outcome.design_tree.design_card.after",
-        "why": "outcome.design_tree.design_card.why",
+        "key": "match-kinds",
+        "question": "outcome.design_tree.cards.question",
         "options": [
          {
-          "name": "outcome.design_tree.design_card.options.name",
-          "does": "outcome.design_tree.design_card.options.does",
-          "verdict": "outcome.design_tree.design_card.options.verdict"
+          "name": "outcome.design_tree.cards.options.name",
+          "does": "outcome.design_tree.cards.options.does",
+          "cost": "outcome.design_tree.cards.options.cost",
+          "risks": "outcome.design_tree.cards.options.risks"
          },
          {
-          "name": "outcome.design_tree.design_card.options.name",
-          "does": "outcome.design_tree.design_card.options.does",
-          "verdict": "outcome.design_tree.design_card.options.verdict"
-         },
-         {
-          "name": "outcome.design_tree.design_card.options.name",
-          "does": "outcome.design_tree.design_card.options.does",
-          "verdict": "outcome.design_tree.design_card.options.verdict"
+          "name": "outcome.design_tree.cards.options.name.2",
+          "does": "outcome.design_tree.cards.options.does",
+          "cost": "outcome.design_tree.cards.options.cost",
+          "risks": "outcome.design_tree.cards.options.risks"
          }
         ],
-        "chosen": "outcome.design_tree.design_card.chosen",
-        "settled": "settled",
-        "sure": "4",
-        "sure_why": "outcome.design_tree.design_card.sure_why",
-        "overturn": "outcome.design_tree.design_card.overturn"
+        "not_workable": [
+         {
+          "name": "outcome.design_tree.cards.not_workable.name",
+          "why": "outcome.design_tree.cards.not_workable.why"
+         }
+        ],
+        "recommended": "outcome.design_tree.cards.options.name",
+        "confidence": {
+         "level": "4",
+         "why": "outcome.design_tree.cards.confidence.why",
+         "overturn": "outcome.design_tree.cards.confidence.overturn"
+        },
+        "revises": [
+         "D:match"
+        ]
        }
       ]
      },

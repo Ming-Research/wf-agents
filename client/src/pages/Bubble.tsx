@@ -62,12 +62,14 @@ export function BubbleHead({ who, to = null, about = null, mark = null, at, chil
 /// One message: `who` says it (an agent's line, or `owner`), on the right for the owner and where `right` is given,
 /// across the row where `wide` (a message the owner answers in it); `head` over what it says, `after` under it; for the
 /// owner's, `under` a line of the page's own under the sheet.
-export function Bubble({ who, right = false, wide = false, ask, head, after, under, children }: {
+export function Bubble({ who, right = false, wide = false, ask, entry, head, after, under, children }: {
   who: string;
   right?: boolean;
   wide?: boolean;
   /// The ask it is, which brings it into view.
   ask?: number;
+  /// The entry of its conversation it is, for one a decision card links to, which brings it into view.
+  entry?: string;
   head: ReactNode;
   after?: ReactNode;
   under?: ReactNode;
@@ -78,7 +80,7 @@ export function Bubble({ who, right = false, wide = false, ask, head, after, und
   const role = roleClass(colours, who);
   const row = own ? 'talk-row talk-row-owner' : right ? 'talk-row talk-row-right' : wide ? 'talk-row talk-row-answers' : 'talk-row';
   return (
-    <div className={row} data-ask={ask}>
+    <div className={row} data-ask={ask} data-entry={entry}>
       {own || right ? null : <Avatar who={who} role={role} />}
       <div className={own ? 'talk-bubble talk-bubble-owner' : `talk-bubble talk-bubble-agent ${role}`}>
         <div className="talk-bubble-head">{head}</div>

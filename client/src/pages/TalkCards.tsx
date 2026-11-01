@@ -71,7 +71,7 @@ function Said({ text }: { text: string }) {
 /// What a stage's bubble folds under its line: its rounds, oldest first, every one of them, each a line of its round,
 /// its cell's title, whose round it was and the row it took, with what it said under it when it said anything;
 /// at the design stage, the design (the approaches compared, the one chosen, the design and the acceptance, or while
-/// none is chosen, where the engineer leans and what the choice waits for); the design cards its rounds handed in,
+/// none is chosen, where the engineer leans and what the choice waits for); the decision cards its rounds handed in,
 /// each folded to its head line, the one that waits for the owner's ruling too, which the bar over the stream leads to
 /// and opens; and, once the stage is over, what the engine told of the work meanwhile.
 function StageFolds({

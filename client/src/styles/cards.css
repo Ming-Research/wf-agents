@@ -1,4 +1,4 @@
-/* The card every card the page shows the owner shares, a design card and an ask of the owner alike, wherever it is
+/* The card every card the page shows the owner shares, a decision card and an ask of the owner alike, wherever it is
    shown, drawn as GitHub draws a comment: a box, its head on the muted background (its name, where it stands with the
    owner as its status's Label, the round it came from, its facts, who ruled or answered and when among them); and
    boxes that hold what the agent wrote, word for word, each under the page's label for it. A folded card is its head
@@ -124,7 +124,7 @@ details.dc:not([open]) > summary > .fold-open,
   border-color: var(--borderColor-attention-emphasis);
 }
 
-/* A decision of a design card: a numbered fold, its first sentence its title only while folded. */
+/* A decision of a decision card: a numbered fold, its first sentence its title only while folded. */
 .dc-dec {
   padding-top: var(--base-size-12);
   border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
@@ -227,46 +227,134 @@ details.dc:not([open]) > summary > .fold-open,
   background: var(--bgColor-neutral-muted);
 }
 
-/* The option picked, on the accent's tint and edged in the same tint, not in a colour other than its fill. */
+/* The option picked, on the accent's tint and edged all round in the accent, a mark apart from the one recommended. */
 .option-box.picked {
-  border-color: var(--borderColor-accent-muted);
+  border-color: var(--borderColor-accent-emphasis);
   background: var(--bgColor-accent-muted);
 }
 
-.pick-hint {
+/* The mark of the option recommended stays whatever is picked, the one recommended picked too. */
+.option-box.recommended.picked {
+  border-left-color: var(--borderColor-success-emphasis);
+}
+
+/* A decision card stands out from the design around it: a thick frame, room above and below, and its whole body filled
+   with the tint of where it stands, its frame in the same state's colour: attention while it waits for the owner,
+   success once ruled, neutral once replaced or withdrawn. Its head keeps the muted background of every card's head, and
+   its option boxes stay on the page's own background, so that the boxes read apart from the card. */
+.dc.decision-card {
+  margin: var(--base-size-24) 0;
+  border-width: var(--borderWidth-thick);
+}
+
+.dc.decision-card.waits {
+  border-color: var(--borderColor-attention-emphasis);
+  background: var(--bgColor-attention-muted);
+}
+
+.dc.decision-card.ruled {
+  border-color: var(--borderColor-success-emphasis);
+  background: var(--bgColor-success-muted);
+}
+
+.dc.decision-card.old {
+  border-color: var(--borderColor-neutral-emphasis);
+  background: var(--bgColor-neutral-muted);
+}
+
+.decision-card .option-box {
+  background: var(--bgColor-default);
+}
+
+/* The option the owner picked: the accent's tint laid over the page's background, so that it reads the same on the
+   card's tint. */
+.decision-card .option-box.picked {
+  background: linear-gradient(var(--bgColor-accent-muted), var(--bgColor-accent-muted)) var(--bgColor-default);
+}
+
+.decision-card .option-box.pickable:hover {
+  background: linear-gradient(var(--bgColor-neutral-muted), var(--bgColor-neutral-muted)) var(--bgColor-default);
+}
+
+/* A decision card's question, the one thing it asks, semibold over its options. */
+.dc-question {
+  font-weight: var(--base-text-weight-semibold);
+}
+
+.dc-overturn {
+  margin: var(--base-size-4) 0 0;
+}
+
+/* A record the card revises: its reference and what the branch did to it, over its words. */
+.dc-record {
+  display: grid;
+  gap: var(--base-size-4);
+  min-width: 0;
+  margin-top: var(--base-size-8);
+}
+
+.dc-record-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+.dc-flow,
+.dc-anchor {
   margin: 0;
+}
+
+/* Where a card stands in a design drawn without its cards: one line naming it. */
+.dc-anchor {
   color: var(--fgColor-muted);
   font-size: var(--text-body-size-small);
 }
 
-.card-was[open] > summary {
-  margin-bottom: var(--base-size-8);
+.dc-error {
+  margin: 0;
+  color: var(--fgColor-danger);
 }
 
-/* The owner's verdict on a decision, and the form that sends the verdicts. */
-.decide {
+/* The ruling of a decision card that waits, under its body and a line apart: the owner's words full width, then
+   Confirm (or Choose this) and Disagree, and at the row's end who a question goes to and Ask. */
+.card-rule {
   display: grid;
-  justify-items: start;
   gap: var(--base-size-8);
+  padding-top: var(--base-size-12);
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
 }
 
-.decide > textarea,
-.decide > span {
-  justify-self: stretch;
-}
-
-.decide-row {
+.card-rule-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--base-size-8);
 }
 
-.decide-options {
-  display: grid;
-  gap: var(--base-size-2);
+.card-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8);
+  margin-left: auto;
 }
 
+/* The owner's questions about a decision card and their answers, in the work's group: one line of links. */
+.dc-asked {
+  margin: 0;
+  color: var(--fgColor-muted);
+}
+
+.needs-in-design {
+  margin: 0;
+}
+
+.card-was[open] > summary {
+  margin-bottom: var(--base-size-8);
+}
+
+/* The rulings given before the latest. */
 .rule-summary {
   display: grid;
   gap: var(--base-size-4);

@@ -41,7 +41,7 @@ export function Held({ c, why }: { c: Course; why: string | null }) {
 
 /// How a work goes on, on one line: a round of it running and how long it has run, or what holds it back, then what it
 /// waits for, linked to where the owner gives it, or, what it waited for come, that it waits for a free slot, saying
-/// why on hovering, and its design cards and asks waiting for the owner as small chips; then why the engine or the
+/// why on hovering, and its decision cards and asks waiting for the owner as small chips; then why the engine or the
 /// architect stopped it, or why it ended.
 export function State({ w, c }: { w: WorkSummary; c: Course }) {
   if (c.over) {
@@ -85,7 +85,7 @@ export function State({ w, c }: { w: WorkSummary; c: Course }) {
       ),
     );
   }
-  // The asks and design cards waiting for the owner that what the work waits for does not name already: they are the
+  // The asks and decision cards waiting for the owner that what the work waits for does not name already: they are the
   // owner's to do, not what holds the work up.
   const asks = w.open_asks - (waits?.kind === 'answer' ? 1 : 0);
   const cards = w.open_design_cards - (waits?.kind === 'ruling' ? 1 : 0);

@@ -3,7 +3,7 @@
 // deviations. A value not of the shape expected is shown as labelled text, never as a tree of JSON.
 
 import { Label, type LabelColorOptions } from '@primer/react';
-import type { ReactNode } from 'react';
+import { createContext, Fragment, useContext, type ReactNode } from 'react';
 
 import type { JsonValue } from '../api';
 import { DocList } from '../document';
@@ -73,8 +73,52 @@ export function Measure({ value }: { value: JsonValue }) {
   return <Labelled value={value} />;
 }
 
-/// The design itself: how it solves the problem, open, with what follows it (the measure); where it changes, what it
-/// leaves out and its cost and pitfalls, each folded.
+/// What stands at a decision card's anchor in a design's text: the card of that key, which the item's design gives;
+/// none where the design is drawn without its cards (an earlier version, a stage's fold), and the anchor is one line
+/// naming the card.
+export const CardsAtAnchors = createContext<((key: string) => ReactNode) | null>(null);
+
+const ANCHOR = /^\s*\[\[card:([a-z0-9]+(?:-[a-z0-9]+)*)\]\]\s*$/;
+
+/// A design's text cut at its anchors, each a line `[[card:<key>]]`: the text between them, and each anchor's key.
+export function anchored(text: string): Array<{ text: string } | { key: string }> {
+  const out: Array<{ text: string } | { key: string }> = [];
+  let run: string[] = [];
+  const flush = () => {
+    if (run.join('\n').trim() !== '') out.push({ text: run.join('\n') });
+    run = [];
+  };
+  for (const line of text.split('\n')) {
+    const m = ANCHOR.exec(line);
+    if (m !== null) {
+      flush();
+      out.push({ key: m[1] ?? '' });
+    } else {
+      run.push(line);
+    }
+  }
+  flush();
+  return out;
+}
+
+/// A design's text, each anchor where it stands: the card of its key, or a line naming it.
+function Anchored({ text }: { text: string }) {
+  const at = useContext(CardsAtAnchors);
+  return (
+    <>
+      {anchored(text).map((p, i) =>
+        'key' in p ? (
+          <Fragment key={i}>{at?.(p.key) ?? <p className="dc-anchor">{t('dc_anchor', { key: p.key })}</p>}</Fragment>
+        ) : (
+          <Markdown key={i} text={p.text} />
+        ),
+      )}
+    </>
+  );
+}
+
+/// The design itself: how it solves the problem, open, with each decision card where it stands in it, and with what
+/// follows it (the measure); where it changes, what it leaves out and its cost and pitfalls, each folded.
 export function Design({ value, after }: { value: JsonValue; after: ReactNode }) {
   if (!isObj(value) || typeof value.solution !== 'string') {
     return (
@@ -91,7 +135,7 @@ export function Design({ value, after }: { value: JsonValue; after: ReactNode })
   ];
   return (
     <div className="shape">
-      <Markdown text={value.solution} />
+      <Anchored text={value.solution} />
       {after}
       {folded.map(([key, v]) =>
         empty(v) ? null : (

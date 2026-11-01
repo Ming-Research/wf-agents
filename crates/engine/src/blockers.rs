@@ -787,7 +787,7 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
                 let why = match holder.holder.as_str() {
                     "items" => "an item it depends on is not merged",
                     _ => {
-                        "every item it depends on is merged, and the owner's ruling on its design card is still needed"
+                        "every item it depends on is merged, and the owner's ruling on its decision cards is still needed"
                     }
                 };
                 hand_over(tx, b.id, &holder, why, "")?;
@@ -822,7 +822,7 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
             let items: Vec<String> = holder.items.iter().map(|(i, _)| format!("item {i}")).collect();
             format!("{about} waits for {} to deliver", items.join(", "))
         }
-        "ruling" => format!("{about} waits for the owner's ruling on its design card to merge"),
+        "ruling" => format!("{about} waits for the owner's ruling on its decision cards to merge"),
         "tool_failure" => {
             let tools: Vec<String> = ctx.unwrapped["failed"]
                 .as_array()
@@ -905,7 +905,7 @@ fn resolve_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Str
             "items": b.items.iter().map(|(i, p)| json!({ "item": i, "project": p })).collect::<Vec<_>>(),
         }),
         (None, _) if b.kind == "ruling" => json!({
-            "text": "The owner confirmed every decision of its design card, and every item it depends on is merged"
+            "text": "The owner confirmed every decision card of it, and every item it depends on is merged"
         }),
         (None, _) => json!({ "text": format!("Resolved at cell {}", ctx.cell.id) }),
     };

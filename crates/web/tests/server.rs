@@ -21,7 +21,7 @@ fn configure(dir: &std::path::Path) {
                    heavy = \"builds\"\npoll_interval = 60\n[machines.hosts.here]\nslots = 1\n[agents.clis.claude]\n\
                    kind = \"claude\"\ncommand = \"claude\"\n[agents.levels.l]\ndesc = \"all\"\ncli = \"claude\"\n\
                    model = \"m\"\n[gh]\nallow = []\n[query]\nmax_rows = 10\ntimeout_ms = 1000\n";
-    let project = "repo = \"o/p\"\ncheckout = \"/p\"\ndesign_goal = \"simple\"\ndesign_paths = [\"design/\"]\n\
+    let project = "repo = \"o/p\"\ncheckout = \"/p\"\ndesign_goal = \"simple\"\n\
                    test_paths = [\"tests/\"]\nobservation_tags = [{ name = \"perf\", desc = \"How fast\" }]\n\
                    [ci]\nfast = \"ci\"\nfull = [\"ci\"]\nmerge_checks = []\n";
     std::fs::create_dir_all(dir.join("projects")).unwrap();
@@ -584,7 +584,7 @@ fn the_owner_sends_images_with_words_and_the_page_reads_them_by_id() {
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
-// The owner answers an ask of the owner and rules on a design card on the page, as the command line would write them;
+// The owner answers an ask of the owner and rules on a decision card on the page, as the command line would write them;
 // what cannot be done is refused with the reason.
 #[test]
 fn the_owner_answers_and_rules_on_the_page() {
@@ -606,8 +606,9 @@ fn the_owner_answers_and_rules_on_the_page() {
             [],
         )?;
         tx.execute(
-            "INSERT INTO design_cards (work, round, body, status) VALUES (1, 1, '[]', 'open')",
-            [],
+            "INSERT INTO design_cards (work, round, key, body, status) VALUES (1, 1, 'red-run', ?1, 'open')",
+            [r#"{"key": "red-run", "question": "Stop or run on?", "options": [{"name": "A"}, {"name": "B"}],
+                 "recommended": "A"}"#],
         )?;
         Ok(())
     })
@@ -619,13 +620,13 @@ fn the_owner_answers_and_rules_on_the_page() {
     let (status, again) = post(s.port, "/api/v1/asks/1/answer", answer, "application/json");
     assert_eq!(status, 422, "{again}");
     assert!(again.contains("answered already"), "{again}");
-    // The design card that waits for the owner's ruling is among the conversation's, which the bar pins, though the
+    // The decision card that waits for the owner's ruling is among the conversation's, which the bar pins, though the
     // work does not wait on it yet, as the list counts it.
     let here = format!("127.0.0.1:{}", s.port);
     let (status, talk) = get(s.port, "/api/v1/conversation?key=work%3A1", &here, "");
     assert_eq!(status, 200, "{talk}");
     assert!(talk.contains(r#""design_cards":[{"id":1,"#), "{talk}");
-    let ruling = r#"{"decisions":[{"decision":1,"verdict":"disagree","text":"Keep the old name."}]}"#;
+    let ruling = r#"{"verdict":"disagree","text":"Keep the old name."}"#;
     let (status, done) = post(s.port, "/api/v1/design-cards/1/rule", ruling, "application/json");
     assert_eq!(status, 200, "{done}");
     let said: String = db
@@ -634,7 +635,7 @@ fn the_owner_answers_and_rules_on_the_page() {
         .unwrap();
     assert_eq!(
         said,
-        "Ruling on design card 1:\n- decision 1: disagree: Keep the old name."
+        "Ruling on decision card 1 (red-run): the owner disagrees: Keep the old name."
     );
     // A work is started; one that ended cannot be.
     let (status, done) = post(s.port, "/api/v1/works/1/start", "{}", "application/json");

@@ -1,34 +1,36 @@
-// What the owner decides on the page: design cards and asks of the owner, which share one card wherever the page
-// shows them (a work's tabs, an item's page, the round panel): a frame whose head says which card it is, where it
+// What the owner decides on the page: decision cards and asks of the owner, which share one card wherever the page
+// shows them (an item's design, a work's group, the round panel): a frame whose head says which card it is, where it
 // stands with the owner as its status's chip, the round it came from and its facts (who ruled or answered and when,
-// or for a design card that waits that it blocks nothing until the work merges); and boxes that hold what the agent
-// wrote, word for word, each under a label of the page's, with option boxes for approaches and options alike.
-// A design card holds each decision as a numbered fold: once ruled its verdict as a chip, its change and kind as chips
-// and its node; then the owner's words on it, the decision (or what it was and what it becomes, or what it removes),
-// why, what is provisional or to check, the approaches compared with the chosen one first, how sure and what would
-// overturn it. While it waits for a ruling, the owner rules on each decision (confirm, disagree with a reason, or click
-// another of its approaches to choose it) and sends the verdicts on all of them at once, after a summary of what is
-// sent. A replacing card says first what it changed from the one it replaced, and a card ruled more than once keeps
-// its earlier rulings in a fold. An ask of the owner holds what it asks about, each point under its kind coloured by
-// the kind's group, and for a decision the options with the one recommended; in its conversation the ask is the asking
-// agent's bubble, answered in that bubble by its buttons and a small box of the owner's words. Both write what the
-// command line writes, and the engine goes on at once. The owner rules and answers in the messages view alone:
-// wherever else a card shows, it says where it waits to be ruled on or answered.
+// or for a decision card that waits that it blocks nothing until the work merges); and boxes that hold what the agent
+// wrote, word for word, each under a label of the page's, with option boxes for the options of both. A decision card
+// is one question put to the owner: its question, its options as boxes, the one recommended marked, picked by a click
+// as an ask's are; those found not workable, folded; how sure, as pips, with why and what would overturn it; the
+// records it changes, folded, each with its words; and, while it waits, a box of the owner's words with Confirm, which
+// becomes Choose on another option picked, Disagree, and Ask, which asks about it, to the architect unless the owner
+// ticks the engineer, and rules nothing. It is ruled and asked about in its stage's bubble of the work's group, the
+// messages view being the one place the owner acts, and links to the questions about it and their answers there; in its item's design it stands at its anchor read only, saying
+// where it is ruled. Its whole body is filled with the tint of where it stands, inside a thick frame. A replacing card says first what it changed from the one it
+// replaced, and a card ruled more than once keeps its earlier rulings in a fold; a design card of a flow version before
+// decision cards is drawn as it was, each decision a numbered fold, read only. An ask of the owner holds what it asks
+// about, and for a decision the options with the one recommended; in its conversation the ask is the asking agent's
+// bubble, answered in that bubble by its buttons and a small box of the owner's words. Both write what the command line
+// writes, and the engine goes on at once.
 
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-react';
-import { Button, ButtonGroup, Label, Textarea, type LabelColorOptions } from '@primer/react';
-import { Fragment, useState, type MouseEvent, type ReactNode } from 'react';
+import { ChevronDownIcon, ChevronRightIcon, ReplyIcon } from '@primer/octicons-react';
+import { Button, Checkbox, FormControl, Label, Textarea, type LabelColorOptions } from '@primer/react';
+import { Fragment, useContext, useState, type MouseEvent, type ReactNode } from 'react';
 
-import { askChoice, askParts, useAnswersHere, useAskPick } from '../answer';
+import { askChoice, askParts, CardTalk, pickAfter, useAnswersHere, useAskPick } from '../answer';
 import type { DesignCard, JsonValue, OwnerAsk } from '../api';
 import { toneVariant } from '../components';
+import { DocList } from '../document';
 import { duration, time } from '../format';
 import { postJson } from '../http';
 import { OptionBoxes } from '../item/Shapes';
 import { isObj, label, Labelled, str, words, type Obj } from '../labelled';
 import { reread, useNow } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
-import { Fold, RoundAt, SendForm, SubHeading } from '../parts';
+import { Fold, LinkButton, RoundAt, SubHeading } from '../parts';
 import { href, Link, navigate } from '../route';
 import { t, tn } from '../text';
 import { joined, SEP, Sheet } from '../voices';
@@ -52,15 +54,18 @@ export function bringIntoView(id: string): boolean {
 }
 
 /// A card the page shows the owner: open, its head over its body; folded, its head as the one line that opens it.
-export function CardFrame({ id, head, folded = false, children }: {
+/// `look` is a decision card's own look, after where it stands with the owner.
+export function CardFrame({ id, head, folded = false, look = null, children }: {
   id: string;
   head: ReactNode;
   folded?: boolean;
+  look?: string | null;
   children: ReactNode;
 }) {
+  const more = look !== null ? ` ${look}` : '';
   if (folded) {
     return (
-      <details className="dc dc-folded" id={id}>
+      <details className={`dc dc-folded${more}`} id={id}>
         <summary className="dc-head">
           <ChevronRightIcon className="fold-closed" />
           <ChevronDownIcon className="fold-open" />
@@ -71,18 +76,24 @@ export function CardFrame({ id, head, folded = false, children }: {
     );
   }
   return (
-    <div className="dc" id={id}>
+    <div className={`dc${more}`} id={id}>
       <div className="dc-head">{head}</div>
       <div className="dc-body">{children}</div>
     </div>
   );
 }
 
-/// How a card, or one decision of it, stands, as a chip: done with the owner, waiting for the owner, replaced, or
-/// disagreed with.
-type Tone = 'ok' | 'wait' | 'old' | 'no';
+/// How a card, or one decision of it, stands, as a chip: done with the owner, waiting for the owner, replaced or
+/// withdrawn, disagreed with, or another of its options chosen.
+type Tone = 'ok' | 'wait' | 'old' | 'no' | 'chose';
 
-const CHIP: Record<Tone, LabelColorOptions> = { ok: 'success', wait: 'attention', old: toneVariant('neutral'), no: 'danger' };
+const CHIP: Record<Tone, LabelColorOptions> = {
+  ok: 'success',
+  wait: 'attention',
+  old: toneVariant('neutral'),
+  no: 'danger',
+  chose: 'accent',
+};
 
 function StatusChip({ tone, children }: { tone: Tone; children: ReactNode }) {
   return <Label variant={CHIP[tone]}>{children}</Label>;
@@ -164,80 +175,6 @@ export function firstSentence(text: string): string {
   return chars.length > 120 ? `${chars.slice(0, 119).join('')}…` : one;
 }
 
-/// What the owner set for one decision before sending: a verdict, and for a disagreement why and any approach chosen
-/// instead.
-export type Verdict = { verdict: 'confirm' | 'disagree' | null; text: string; option: string };
-
-const UNSET: Verdict = { verdict: null, text: '', option: '' };
-
-/// Whether a decision's verdict can be sent: a confirmation, or a disagreement that says why or chooses an approach.
-export function verdictReady(v: Verdict): boolean {
-  return v.verdict === 'confirm' || (v.verdict === 'disagree' && (v.text.trim() !== '' || v.option !== ''));
-}
-
-/// One decision's verdict in words, as the summary before sending and the rulings given say it.
-export function verdictLine(n: number, verdict: string | null, option: string, text: string): string {
-  const head =
-    verdict === 'confirm'
-      ? t('rule_line_confirm', { n })
-      : verdict === 'disagree'
-        ? option !== ''
-          ? t('rule_line_choose', { n, option })
-          : t('rule_line_disagree', { n })
-        : t('rule_line_unset', { n });
-  return verdict === 'disagree' && text.trim() !== '' ? `${head}: ${text.trim()}` : head;
-}
-
-/// What a click on an approach of a decision sets: the approach recommended confirms the decision; another chooses it
-/// instead, disagreeing; the approach chosen already, clicked again, is cleared.
-export function pickApproach(v: Verdict, name: string, recommended: string): Verdict {
-  if (name === v.option) return { ...v, option: '', verdict: v.text.trim() !== '' ? 'disagree' : null };
-  if (name === recommended) return { verdict: 'confirm', text: '', option: '' };
-  return { ...v, option: name, verdict: 'disagree' };
-}
-
-/// The owner's verdict on one decision while the card waits: confirm, or disagree saying why; another approach is
-/// chosen by clicking it among the approaches compared.
-function RuleDecision({ v, set }: { v: Verdict; set: (v: Verdict) => void }) {
-  return (
-    <div className="decide decision-rule">
-      <ButtonGroup>
-        <Button
-          size="small"
-          leadingVisual={v.verdict === 'confirm' ? CheckIcon : undefined}
-          onClick={() => set({ verdict: 'confirm', text: '', option: '' })}
-          aria-pressed={v.verdict === 'confirm'}
-        >
-          {t('rule_confirm')}
-        </Button>
-        <Button
-          size="small"
-          leadingVisual={v.verdict === 'disagree' ? CheckIcon : undefined}
-          onClick={() => set({ ...v, verdict: 'disagree' })}
-          aria-pressed={v.verdict === 'disagree'}
-        >
-          {t('rule_disagree')}
-        </Button>
-      </ButtonGroup>
-      {v.verdict === 'disagree' ? (
-        <>
-          {v.option !== '' ? <p className="muted pick-hint">{t('rule_chosen_option', { option: v.option })}</p> : null}
-          <Textarea
-            block
-            resize="vertical"
-            value={v.text}
-            rows={2}
-            placeholder={t(v.option !== '' ? 'rule_why_more_hint' : 'rule_why_hint')}
-            onChange={(e) => set({ ...v, text: e.target.value })}
-          />
-        </>
-      ) : (
-        <p className="muted pick-hint">{t('rule_pick_hint')}</p>
-      )}
-    </div>
-  );
-}
-
 /// How sure the agent is, as five pips with the number filled.
 function Pips({ n }: { n: number }) {
   return (
@@ -265,28 +202,20 @@ function verdictsByDecision(r: Obj): Map<number, Ruled> {
   return new Map(r.decisions.filter(isObj).map((d) => [Number(d.decision), one(d)]));
 }
 
-/// One decision of a design card, a numbered fold: once ruled its verdict as a chip, its change and kind as chips and
-/// its node, its first sentence as its title while folded; open, the owner's words on it once ruled, then in boxes the
-/// decision (what it was and what it becomes for a change, what it removes for a removal), why, what is provisional or
-/// to check, the approaches compared with the chosen one first (which the owner may click to choose one for this
-/// decision while the card waits, and which mark the one the owner chose once ruled), how sure and what would
-/// overturn it. `own` says whether the owner's words show here: the ruling was this decision's own, not the card's.
-function Decision(props: {
-  d: Obj;
-  n: number;
-  v: Verdict | null;
-  set: ((v: Verdict) => void) | null;
-  ruled: Ruled | null;
-  own: boolean;
-}) {
-  const { d, n, v, set, ruled } = props;
+/// One decision of a design card of before decision cards, read only, a numbered fold: once ruled its verdict as a
+/// chip, its change and kind as chips and its node, its first sentence as its title while folded; open, the owner's
+/// words on it once ruled, then in boxes the decision (what it was and what it becomes for a change, what it removes
+/// for a removal), why, what is provisional or to check, the approaches compared with the chosen one first, the one the
+/// owner chose marked, how sure and what would overturn it. `own` says whether the owner's words show here: the ruling
+/// was this decision's own, not the card's.
+function Decision(props: { d: Obj; n: number; ruled: Ruled | null; own: boolean }) {
+  const { d, n, ruled } = props;
   const change = str(d.change);
   const settled = str(d.settled);
   const chosen = str(d.chosen);
   const options = chosenFirst(Array.isArray(d.options) ? d.options.filter(isObj) : [], chosen);
   const sure = Number(str(d.sure));
   const decision = change === 'remove' ? d.before : d.after;
-  const pick = set !== null && v !== null ? (name: string) => set(pickApproach(v, name, chosen)) : null;
   const warn = settled === 'provisional' || settled === 'to_check' ? 'warn' : null;
   const verdict = ruled === null ? null : ruled.verdict === 'disagree' ? 'no' : ruled.verdict === 'confirm' ? 'ok' : null;
   return (
@@ -344,8 +273,7 @@ function Decision(props: {
               ]}
               recommended={chosen}
               mark={t('dc_chosen')}
-              picked={v?.option ?? ruled?.option ?? ''}
-              onPick={pick}
+              picked={ruled?.option ?? ''}
             />
           </Box>
         ) : null}
@@ -362,23 +290,33 @@ function Decision(props: {
           </Box>
         ) : null}
         <TextBox label={t('decision_overturn')} value={d.overturn} />
-        {set !== null && v !== null ? <RuleDecision v={v} set={set} /> : null}
       </div>
     </details>
   );
 }
 
-/// The rulings given on a design card, the earliest first.
+/// The rulings given on a card, the earliest first.
 function rulingsOf(c: DesignCard): Obj[] {
   return Array.isArray(c.rulings) ? c.rulings.filter(isObj) : [];
 }
 
-/// How a design card stands: waiting for a ruling, replaced, disagreed with in its latest ruling, or confirmed.
-function cardTone(c: DesignCard): Tone {
-  if (c.status === 'open') return 'wait';
-  if (c.status === 'replaced') return 'old';
+/// The owner's rulings on a card, the earliest first.
+function ownerRulings(c: DesignCard): Obj[] {
+  return rulingsOf(c).filter((r) => str(r.by) === 'owner');
+}
+
+/// How a card stands with the owner, as its chip: waiting for a ruling, replaced, withdrawn, confirmed, another option
+/// chosen, or disagreed with, by its latest ruling.
+function cardTone(c: DesignCard): [Tone, string] {
+  if (c.status === 'open') return ['wait', t('dc_waits')];
+  if (c.status === 'replaced') return ['old', t('dc_replaced')];
+  if (c.status === 'withdrawn') return ['old', t('dc_withdrawn')];
   const last = rulingsOf(c).at(-1);
-  return last !== undefined && [...verdictsByDecision(last).values()].some((v) => v.verdict === 'disagree') ? 'no' : 'ok';
+  if (last === undefined) return ['ok', t('dc_confirmed')];
+  const verdicts = [...verdictsByDecision(last).values()];
+  if (verdicts.some((v) => v.verdict === 'disagree')) return ['no', t('dc_disagreed')];
+  if (verdicts.some((v) => v.verdict === 'choose')) return ['chose', t('dc_chose')];
+  return ['ok', t('dc_confirmed')];
 }
 
 /// Who ruled and when, as a fact of the card's head.
@@ -387,16 +325,19 @@ function ruledFact(r: Obj): string {
   return typeof r.at === 'number' ? t('dc_ruled_at', { who, at: time(r.at) }) : t('dc_ruled', { who });
 }
 
-/// A ruling's verdict on one decision, or on the whole card for a ruling made before rulings were per decision, in
-/// words, as the summary before sending says it.
+/// A ruling's verdict, on one decision of a design card of before or on the whole card, in words.
 function rulingLine(n: number, v: Ruled): string {
-  if (n !== 0) return verdictLine(n, v.verdict, v.option, v.text);
-  const head = v.option !== '' ? `${words(v.verdict)}, ${t('ruling_option', { option: v.option })}` : words(v.verdict);
-  return v.text.trim() !== '' ? `${head}: ${v.text.trim()}` : head;
+  const head =
+    v.verdict === 'choose'
+      ? t('ruling_chose', { option: v.option })
+      : v.option !== ''
+        ? `${words(v.verdict)}, ${t('ruling_option', { option: v.option })}`
+        : words(v.verdict);
+  const said = v.text.trim() !== '' ? `${head}: ${v.text.trim()}` : head;
+  return n === 0 ? said : t('ruling_decision', { n, said });
 }
 
-/// The rulings before the latest, in a fold under the decisions: each who ruled and when, over its verdict on each
-/// decision as the summary before sending says it.
+/// The rulings before the latest, in a fold under the card: each who ruled and when, over its verdict.
 function EarlierRulings({ list }: { list: Obj[] }) {
   if (list.length === 0) return null;
   return (
@@ -412,50 +353,6 @@ function EarlierRulings({ list }: { list: Obj[] }) {
         </div>
       ))}
     </Fold>
-  );
-}
-
-/// What the owner sends: a summary of the verdict set on each decision, and the button that sends them all at once,
-/// once every decision has one that can be sent.
-function RuleForm({ c, verdicts }: { c: DesignCard; verdicts: Verdict[] }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const ready = verdicts.every(verdictReady);
-  const send = () => {
-    setBusy(true);
-    setError(null);
-    const decisions = verdicts.map((v, i) => ({
-      decision: i + 1,
-      verdict: v.verdict ?? 'confirm',
-      ...(v.verdict === 'disagree' && v.text.trim() !== '' ? { text: v.text.trim() } : {}),
-      ...(v.verdict === 'disagree' && v.option !== '' ? { option: v.option } : {}),
-    }));
-    postJson(`/api/v1/design-cards/${c.id}/rule`, { decisions }).then(decided, (e: unknown) => {
-      setBusy(false);
-      setError(e instanceof Error ? e.message : String(e));
-    });
-  };
-  return (
-    <SendForm
-      above={
-        <div className="rule-summary">
-          <SubHeading>{t('rule_summary_title')}</SubHeading>
-          <ul>
-            {verdicts.map((v, i) => (
-              <li key={i} className={verdictReady(v) ? undefined : 'muted'}>
-                {verdictLine(i + 1, v.verdict, v.option, v.text)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      }
-      label={t('rule_send')}
-      ready={ready}
-      busy={busy}
-      why={t('rule_not_ready')}
-      onSend={send}
-      error={error}
-    />
   );
 }
 
@@ -478,7 +375,7 @@ export function askConversation(a: OwnerAsk): string {
   return body.from === 'architect' && typeof body.project === 'string' ? `architect:${body.project}` : `work:${a.work}`;
 }
 
-/// A link to a design card: brought into view where the page shows it, else on its item's page.
+/// A link to a decision card: brought into view where the page shows it, else on its item's page.
 function CardLink({ id, item }: { id: number; item: number | null }) {
   const to = item !== null ? `/items/${item}#design-card-${id}` : null;
   const go = (e: MouseEvent<HTMLAnchorElement>) => {
@@ -494,39 +391,25 @@ function CardLink({ id, item }: { id: number; item: number | null }) {
   );
 }
 
-/// A design card as the owner reads and rules on it, in the card every card shares: its head (its number, how it
-/// stands as its status's chip, while it waits whether it changed since a card the owner ruled on, the round that
-/// handed it in at its cell, and its facts: when, the card it replaced, who ruled last and when, while it waits that it
-/// blocks nothing until the work merges, and for a replaced one the card that replaced it); what it changed from the
-/// card it replaced; each decision, with the owner's verdict on it once ruled; the earlier rulings, folded; and while
-/// it waits, what the owner sends. `round` is the link to the round that handed it in; a folded card is one line.
-export function DesignCardView({ c, round, folded = false }: { c: DesignCard; round: ReactNode; folded?: boolean }) {
-  const tone = cardTone(c);
-  const decisions = Array.isArray(c.body) ? c.body.filter(isObj) : isObj(c.body) ? [c.body] : [];
-  const can = useAnswersHere();
-  const open = c.status === 'open' && can;
-  const [set, setSet] = useState<Verdict[]>([]);
-  const given = decisions.map((_, i) => set[i] ?? UNSET);
-  const setOne = (i: number) => (v: Verdict) => setSet(() => given.map((x, j) => (j === i ? v : x)));
+/// The head of a card: its number, how it stands as its status's chip, while it waits whether it changed since a card
+/// of its key the owner ruled on, the round that handed it in at its cell, and its facts: when, the card it replaced,
+/// who ruled last and when, while it waits that it blocks nothing until the work merges, for a replaced one the card
+/// that replaced it, and for a withdrawn one that it was.
+function CardHead({ c, round }: { c: DesignCard; round: ReactNode }) {
+  const [tone, says] = cardTone(c);
   const r = c.replaced;
-  const when = c.at !== null ? time(c.at) : '';
-  const rulings = rulingsOf(c);
-  const last = rulings.at(-1) ?? null;
-  const verdicts = last !== null ? verdictsByDecision(last) : new Map<number, Ruled>();
-  const whole = verdicts.get(0) ?? null;
-  const head = (
+  const last = rulingsOf(c).at(-1) ?? null;
+  return (
     <>
       <span className="dc-name">{t('dc_name', { id: c.id })}</span>
-      <StatusChip tone={tone}>
-        {tone === 'wait' ? t('dc_waits') : tone === 'old' ? t('dc_replaced') : tone === 'no' ? t('dc_disagreed') : t('dc_confirmed')}
-      </StatusChip>
+      <StatusChip tone={tone}>{says}</StatusChip>
       {c.status === 'open' && c.ruled_before !== null ? (
         <span className="dc-again">{t('dc_changed_since', { id: c.ruled_before })}</span>
       ) : null}
       <RoundAt round={round} cell={c.cell} title={c.title} />
       <span className="dc-note">
         {joined([
-          when,
+          c.at !== null ? time(c.at) : '',
           c.replaces !== null ? (
             <>
               {t('dc_replaces')} <CardLink id={c.replaces} item={c.item} />
@@ -549,43 +432,311 @@ export function DesignCardView({ c, round, folded = false }: { c: DesignCard; ro
       </span>
     </>
   );
+}
+
+/// What changed from the card a card replaced, in its agent's words, when it says.
+function ChangedFrom({ c }: { c: DesignCard }) {
+  if (c.replaces === null || c.changed === null || c.changed.trim() === '') return null;
+  return <TextBox label={t('dc_changed_from', { id: c.replaces })} note={t('dc_changed_note')} tone="chg" value={c.changed} />;
+}
+
+/// What the owner sends on a decision card: the verdict, and with it the option chosen and the owner's words.
+export type CardRuling = { verdict: 'confirm' | 'choose' | 'disagree'; option?: string; text?: string };
+
+/// What a ruling form sends, from the option picked on the card's boxes and the owner's words: the option recommended,
+/// or none, confirms; another chooses it; `disagree` disagrees, which needs words and no other option picked. None
+/// while it cannot be sent.
+export function cardRuling(verdict: 'agree' | 'disagree', picked: string, recommended: string, text: string): CardRuling | null {
+  const words = text.trim();
+  const said = words !== '' ? { text: words } : {};
+  if (verdict === 'disagree') {
+    return words !== '' && (picked === '' || picked === recommended) ? { verdict: 'disagree', text: words } : null;
+  }
+  if (picked !== '' && picked !== recommended) return { verdict: 'choose', option: picked, ...said };
+  return { verdict: 'confirm', ...said };
+}
+
+/// The ruling of a decision card that waits, under its body: a box of the owner's words full width, then Confirm, or,
+/// with another option picked on its boxes, Choose it; and Disagree, which sends the words alone.
+function CardRule({ c, picked, recommended }: { c: DesignCard; picked: string; recommended: string }) {
+  const [text, setText] = useState('');
+  const [to, setTo] = useState<string[]>(['architect']);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const agree = cardRuling('agree', picked, recommended, text);
+  const disagree = cardRuling('disagree', picked, recommended, text);
+  const failed = (e: unknown) => {
+    setBusy(false);
+    setError(e instanceof Error ? e.message : String(e));
+  };
+  const send = (r: CardRuling | null) => {
+    if (r === null) return;
+    setBusy(true);
+    setError(null);
+    postJson(`/api/v1/design-cards/${c.id}/rule`, r).then(decided, failed);
+  };
+  const asked = askedTo(to);
+  const ask = () => {
+    const question = text.trim();
+    if (question === '' || asked === null) return;
+    setBusy(true);
+    setError(null);
+    postJson(`/api/v1/works/${c.work}/say`, { text: question, to: asked, design_card: c.id }).then(() => {
+      setBusy(false);
+      setText('');
+      reread('messages', 'architect', 'work:*');
+    }, failed);
+  };
+  const tick = (x: string, on: boolean) => setTo((now) => (on ? [...now, x] : now.filter((y) => y !== x)));
   return (
-    <CardFrame id={`design-card-${c.id}`} head={head} folded={folded}>
-      {c.replaces !== null && c.changed !== null && c.changed.trim() !== '' ? (
-        <TextBox
-          label={t('dc_changed_from', { id: c.replaces })}
-          note={t('dc_changed_note')}
-          tone="chg"
-          value={c.changed}
-        />
-      ) : null}
-      {whole !== null ? <OwnerWords title={t('dc_your_ruling')} choice={whole.option} text={whole.text} /> : null}
-      {decisions.length === 0 ? <Labelled value={c.body} /> : null}
-      {decisions.map((d, i) => (
-        <Decision
-          key={i}
-          d={d}
-          n={i + 1}
-          v={open ? given[i] : null}
-          set={open ? setOne(i) : null}
-          ruled={whole ?? verdicts.get(i + 1) ?? null}
-          own={whole === null}
-        />
+    <div className="card-rule" role="group" aria-label={t('card_rule_label', { id: c.id })}>
+      <Textarea
+        block
+        resize="vertical"
+        rows={1}
+        value={text}
+        disabled={busy}
+        placeholder={t(agree?.verdict === 'choose' ? 'card_words_choose' : 'card_words')}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="card-rule-actions">
+        <Button size="small" variant="primary" disabled={busy || agree === null} onClick={() => send(agree)}>
+          {agree?.verdict === 'choose' ? t('card_choose') : t('card_confirm')}
+        </Button>
+        <Button
+          size="small"
+          disabled={busy || disagree === null}
+          title={disagree === null ? t('card_disagree_needs') : undefined}
+          onClick={() => send(disagree)}
+        >
+          {t('card_disagree')}
+        </Button>
+        <span className="card-ask" role="group" aria-label={t('card_ask_label', { id: c.id })}>
+          {ASK_TO.map((x) => (
+            <FormControl key={x} layout="horizontal" disabled={busy}>
+              <Checkbox checked={to.includes(x)} onChange={(e) => tick(x, e.target.checked)} />
+              <FormControl.Label>{`@${words(x)}`}</FormControl.Label>
+            </FormControl>
+          ))}
+          <Button
+            size="small"
+            leadingVisual={ReplyIcon}
+            disabled={busy || text.trim() === '' || asked === null}
+            title={t('card_ask_hint')}
+            onClick={ask}
+          >
+            {t('card_ask')}
+          </Button>
+        </span>
+      </div>
+      {error !== null ? <p className="dc-error">{error}</p> : null}
+    </div>
+  );
+}
+
+/// Who the owner's question about a decision card may go to, in the order the card lists them: its project's architect,
+/// whom it goes to unless the owner ticks otherwise, and the work's engineer.
+const ASK_TO = ['architect', 'engineer'];
+
+/// Who a question about a decision card goes to, by who is ticked: one of them, both, or none while none is.
+export function askedTo(ticked: string[]): string | null {
+  if (ticked.length === 0) return null;
+  return ticked.length > 1 ? 'both' : ticked[0];
+}
+
+/// The owner's questions about a decision card and their answers, in the work's group where the card is: one line of
+/// links, each bringing that message into view; nothing elsewhere, or while none was asked.
+function CardAskedLine({ id }: { id: number }) {
+  const talk = useContext(CardTalk);
+  const asked = talk?.asked.get(id) ?? [];
+  if (talk === null || asked.length === 0) return null;
+  return (
+    <p className="dc-asked">
+      <ReplyIcon /> {t('card_asked')}{' '}
+      {asked.map((a, i) => (
+        <Fragment key={a.entry}>
+          {i > 0 ? SEP : null}
+          <LinkButton onClick={() => talk.go(a.entry)}>
+            {t(a.answer ? 'card_asked_answer' : 'card_asked_question', { at: time(a.at) })}
+          </LinkButton>
+        </Fragment>
       ))}
+    </p>
+  );
+}
+
+/// The owner's ruling on a decision card once given: the option that stands (the one recommended, confirmed, or the one
+/// chosen) semibold over the owner's words, or the words of a disagreement, in the sheet of what is sent to an agent.
+function CardRuled({ r, recommended }: { r: Obj; recommended: string }) {
+  const verdict = str(r.verdict);
+  const choice = verdict === 'choose' ? str(r.option) : verdict === 'confirm' ? recommended : '';
+  return <OwnerWords title={t('dc_your_ruling')} choice={choice} text={str(r.text)} />;
+}
+
+/// One record a decision card revises, as the branch had it when the card was posted: its reference, what the branch
+/// did to it, and its words.
+function RevisedRecord({ r }: { r: Obj }) {
+  const change = str(r.change);
+  return (
+    <div className="dc-record">
+      <div className="dc-record-head">
+        <code>{str(r.reference)}</code>
+        <Label variant="secondary">{change === 'added' ? t('dc_new') : change === 'removed' ? t('dc_removed') : t('dc_changed')}</Label>
+      </div>
+      <div className={`dc-val${change === 'removed' ? ' dc-val-was' : ''}`}>
+        <Markdown text={str(r.text)} />
+      </div>
+    </div>
+  );
+}
+
+/// A decision card as the owner reads and rules on it, in the card every card shares, as the mock the owner approved
+/// draws it: its head; what changed from the card of its key it replaced; its question, semibold; its options as boxes
+/// one under another, each its name, what it does, its cost and its risks, the one recommended marked, picked by a
+/// click while it waits; the options considered and found not workable, folded; how sure, as five pips with why and
+/// what would overturn it; where it departs from an earlier ruling; the records it changes, folded, each with its
+/// words; the flow drawn from the branch, for the card that carries a work's flow; and then, while it waits, in a
+/// conversation a box for the owner's words with Confirm, Disagree and Ask, and elsewhere where it is ruled; in a
+/// conversation, links to the owner's questions about it and their answers; once ruled, the owner's ruling,
+/// the earlier ones folded; once withdrawn, why. Its whole body is filled with the tint of where it stands, inside a
+/// thick frame: attention while it waits, success once ruled, neutral once replaced or withdrawn. `round` is the link to
+/// the round that handed it in; a folded card is one line.
+function DecisionCard({ c, body, round, folded, rules }: {
+  c: DesignCard;
+  body: Obj;
+  round: ReactNode;
+  folded: boolean;
+  rules: boolean;
+}) {
+  const [picked, setPicked] = useState('');
+  const recommended = str(body.recommended);
+  const options = Array.isArray(body.options) ? body.options.filter(isObj) : [];
+  const dropped = Array.isArray(body.not_workable) ? body.not_workable.filter(isObj) : [];
+  const confidence = isObj(body.confidence) ? body.confidence : {};
+  const level = Number(str(confidence.level));
+  const records = Array.isArray(c.revision) ? c.revision.filter(isObj) : [];
+  const rulings = ownerRulings(c);
+  const last = rulings.at(-1) ?? null;
+  const open = c.status === 'open' && rules;
+  const chosen = last !== null && str(last.verdict) === 'choose' ? str(last.option) : '';
+  const look = c.status === 'open' ? 'waits' : c.status === 'ruled' ? 'ruled' : 'old';
+  return (
+    <CardFrame
+      id={`design-card-${c.id}`}
+      head={<CardHead c={c} round={round} />}
+      folded={folded}
+      look={`decision-card ${look}`}
+    >
+      <ChangedFrom c={c} />
+      <p className="dc-question">
+        <MarkdownInline text={str(body.question)} />
+      </p>
+      <OptionBoxes
+        options={options}
+        fields={[
+          ['does', t('option_does')],
+          ['cost', t('option_cost_only')],
+          ['risks', t('option_risks')],
+        ]}
+        recommended={recommended}
+        mark={t('ask_recommended')}
+        picked={open ? picked : chosen}
+        onPick={open ? (name) => setPicked((now) => pickAfter(now, name)) : null}
+      />
+      {dropped.length > 0 ? (
+        <Fold summary={t('dc_not_workable', { n: dropped.length })}>
+          <DocList items={dropped.map((o) => ({ lead: str(o.name), parts: [[t('dc_why_not_workable'), o.why]] }))} />
+        </Fold>
+      ) : null}
+      {level >= 1 && level <= 5 ? (
+        <Box
+          label={t('dc_sure')}
+          note={
+            <>
+              <Pips n={level} /> {level}/5{SEP}{t(`sure_${level}` as 'sure_1')}
+            </>
+          }
+        >
+          <Markdown text={str(confidence.why)} />
+          {str(confidence.overturn) !== '' ? (
+            <p className="dc-overturn">
+              <strong>{t('dc_overturned_if')}</strong> <MarkdownInline text={str(confidence.overturn)} />
+            </p>
+          ) : null}
+        </Box>
+      ) : null}
+      <TextBox label={t('dc_departs')} tone="warn" value={body.departs} />
+      {records.length > 0 ? (
+        <Fold summary={t('dc_records', { n: records.length })}>
+          {records.map((r, i) => (
+            <RevisedRecord key={i} r={r} />
+          ))}
+        </Fold>
+      ) : null}
+      {c.flow !== null ? (
+        <p className="dc-flow">
+          <Link to={href({ page: 'flow', version: null, graph: null, cell: null, project: null, ref: null, from: c.flow.in_force, snapshot: c.flow.snapshot })}>
+            {t('dc_flow')}
+          </Link>
+        </p>
+      ) : null}
+      {c.withdrawn !== null ? <TextBox label={t('dc_withdrawn_why')} value={c.withdrawn} /> : null}
+      {last !== null ? <CardRuled r={last} recommended={recommended} /> : null}
       <EarlierRulings list={rulings.slice(0, -1)} />
-      {open && decisions.length > 0 ? <RuleForm c={c} verdicts={given} /> : null}
-      {c.status === 'open' && !can ? <AnswerThere conversation={`work:${c.work}`} what="rule" /> : null}
+      {open ? <CardRule c={c} picked={picked} recommended={recommended} /> : null}
+      <CardAskedLine id={c.id} />
+      {c.status === 'open' && !rules ? <AnswerThere conversation={`work:${c.work}`} what="rule" /> : null}
     </CardFrame>
   );
 }
 
-/// Which of a list of design cards is open at first: the one waiting for a ruling, else the newest that was not
-/// replaced; every other is folded to its one line.
+/// A design card of a flow version before decision cards, as it was, read only: its head; what it changed from the card
+/// it replaced; each decision, with the owner's verdict on it once ruled; the earlier rulings, folded.
+function DesignCardBefore({ c, round, folded }: { c: DesignCard; round: ReactNode; folded: boolean }) {
+  const decisions = Array.isArray(c.body) ? c.body.filter(isObj) : isObj(c.body) ? [c.body] : [];
+  const rulings = rulingsOf(c);
+  const last = rulings.at(-1) ?? null;
+  const verdicts = last !== null ? verdictsByDecision(last) : new Map<number, Ruled>();
+  const whole = verdicts.get(0) ?? null;
+  return (
+    <CardFrame id={`design-card-${c.id}`} head={<CardHead c={c} round={round} />} folded={folded}>
+      <ChangedFrom c={c} />
+      {whole !== null ? <OwnerWords title={t('dc_your_ruling')} choice={whole.option} text={whole.text} /> : null}
+      {decisions.length === 0 ? <Labelled value={c.body} /> : null}
+      {decisions.map((d, i) => (
+        <Decision key={i} d={d} n={i + 1} ruled={whole ?? verdicts.get(i + 1) ?? null} own={whole === null} />
+      ))}
+      <EarlierRulings list={rulings.slice(0, -1)} />
+    </CardFrame>
+  );
+}
+
+/// A decision card wherever the page shows it: one question in the decision card's shape, ruled in a conversation,
+/// the one place the owner acts, and elsewhere read only, saying where it is ruled; a design card of before, read
+/// only. `round` is the link to the round that handed it in; a folded card is one line.
+export function DesignCardView({ c, round, folded = false }: { c: DesignCard; round: ReactNode; folded?: boolean }) {
+  const here = useAnswersHere();
+  if (!isObj(c.body) || typeof c.body.question !== 'string') {
+    return <DesignCardBefore c={c} round={round} folded={folded} />;
+  }
+  return <DecisionCard c={c} body={c.body} round={round} folded={folded} rules={here} />;
+}
+
+/// Which of a list of decision cards is open at first: the one waiting for a ruling, else the newest current one.
 export function currentCard(cards: DesignCard[]): number | null {
   const open = cards.find((c) => c.status === 'open');
   if (open !== undefined) return open.id;
-  const live = cards.filter((c) => c.status !== 'replaced');
+  const live = cards.filter((c) => c.status === 'ruled');
   return live.length > 0 ? Math.max(...live.map((c) => c.id)) : null;
+}
+
+/// The card of a key a design's anchor stands for, among the cards of the work that wrote the design: its current
+/// card, open or ruled, else its newest.
+export function cardOfKey(cards: DesignCard[], work: number, key: string): DesignCard | null {
+  const mine = cards.filter((c) => c.work === work && c.key === key);
+  const current = mine.filter((c) => c.status === 'open' || c.status === 'ruled');
+  const from = current.length > 0 ? current : mine;
+  return from.length > 0 ? from.reduce((a, b) => (b.id > a.id ? b : a)) : null;
 }
 
 /// The part of an ask's card about the owner's answer: none in a conversation, where what answers the ask and the

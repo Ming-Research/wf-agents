@@ -69,7 +69,7 @@ pub fn notify(tx: &Transaction<'_>, work: Option<i64>, text: &str) -> Result<(),
 }
 
 /// Writes to the notifications log alone, through the outbox, what the owner's page says in its own place and keeps no
-/// notice of: a design card waiting, new or replacing another, which the card pinned in the work's group and the bubble
+/// notice of: a decision card waiting, new or replacing another, which the card pinned in the work's group and the bubble
 /// of the stage that handed it in say, and a work ready to merge but held, which the group's head says.
 fn log_only(tx: &Transaction<'_>, work: i64, text: &str) -> Result<(), String> {
     outbox(tx, Some(work), "notify", &json!({ "text": text }))
@@ -183,66 +183,125 @@ fn sql_value(v: db::rusqlite::types::Value) -> Value {
     }
 }
 
-/// Whether the design paths changed on the work's branch against main.
-fn tree_changed(w: &Work, project: &config::Project) -> Result<bool, String> {
-    let Some(wt) = &w.worktree else { return Ok(false) };
-    let fork = git::fork_point(wt, &project.main)?;
-    Ok(git::changed(wt, &fork, "HEAD")?
-        .iter()
-        .any(|f| git::under(f, &project.design_paths)))
-}
-
-/// The work's design cards not yet replaced, newest first: their ids and statuses.
-fn current_design_cards(tx: &Transaction<'_>, work: i64) -> Result<Vec<(i64, String)>, String> {
-    let mut st = tx
-        .prepare("SELECT id, status FROM design_cards WHERE work = ?1 AND status <> 'replaced' ORDER BY id DESC")
-        .map_err(sql)?;
-    st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
-        .map_err(sql)?
-        .collect::<Result<_, _>>()
-        .map_err(sql)
-}
-
-/// The work's design card not yet replaced: its id and status.
-fn current_design_card(tx: &Transaction<'_>, work: i64) -> Result<Option<(i64, String)>, String> {
-    tx.query_row(
-        "SELECT id, status FROM design_cards WHERE work = ?1 AND status <> 'replaced' ORDER BY id DESC LIMIT 1",
-        [work],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )
-    .optional()
-    .map_err(sql)
-}
-
-/// A new design card of a round, open, with what the round said changed from the cards it replaces.
-fn new_design_card(tx: &Transaction<'_>, round: RoundId, body: &Value, changed: Option<&Value>) -> Result<i64, String> {
-    let changed = changed.and_then(Value::as_str).filter(|s| !s.trim().is_empty());
-    tx.execute(
-        "INSERT INTO design_cards (work, round, body, status, changed) VALUES (?1, ?2, ?3, 'open', ?4)",
-        params![round.work, round.n, body.to_string(), changed],
-    )
-    .map_err(sql)?;
-    Ok(tx.last_insert_rowid())
-}
-
-/// Queues a new design card for the architect of the work's project to look at: whether it holds and the approaches
-/// it chose are reasonable. The owner alone rules on it.
-fn design_card_matter(ctx: &Ctx, tx: &Transaction<'_>, card: i64, raised: RoundId) -> Result<(), String> {
-    let Some(item) = &ctx.item else { return Ok(()) };
-    let what = format!("Design card {card} of {} to look at", ctx.about());
-    let m = Matter {
-        project: item.project.clone(),
-        kind: "design_card".into(),
-        what,
-        body: json!({ "design_card": card }),
-        item: Some(item.id),
-        raised: Some((raised.work, raised.n)),
-        ..Matter::default()
+/// Posts the decision cards the work's latest design handed in, with the keys it withdrew, for the owner to rule on:
+/// each new card, or new version of a key, is queued for the architect to look at, and the owner is told what is new,
+/// what replaced a card the owner had ruled, and what was withdrawn. A card of a work whose branch changes the flow
+/// carries the flow drawn from the branch, beside the version the work runs on.
+fn post_cards(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
+    let path = format!("{}.design_tree", ctx.within);
+    let Some((round, tree)) = ctx.last(tx, "D4", &path)? else {
+        return Ok(());
     };
-    queue_matter(tx, &m).map_err(sql)?;
+    let project = ctx.project()?;
+    let (Some(records), Some(wt)) = (&project.records, &ctx.work.worktree) else {
+        return Ok(());
+    };
+    let of_round = |p: &str| -> Result<Value, String> {
+        let v: Option<String> = tx
+            .query_row(
+                "SELECT json_extract(output, ?3) FROM rounds WHERE work = ?1 AND n = ?2",
+                params![round.work, round.n, format!("$.{}.{p}", ctx.within)],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(sql)?
+            .flatten();
+        Ok(v.map(|t| serde_json::from_str(&t).unwrap_or(Value::String(t)))
+            .unwrap_or(Value::Null))
+    };
+    let listed = |v: Option<&Value>| match v {
+        Some(Value::Array(xs)) => xs.clone(),
+        _ => Vec::new(),
+    };
+    let cards = listed(tree.get("cards"));
+    let edits = listed(tree.get("edits"));
+    let withdrawn = listed(Some(&of_round("withdrawn")?));
+    let solution = of_round("design.solution")?;
+    let fork = git::fork_point(wt, &project.main)?;
+    let revised = crate::reasoning::revised(wt, &fork, "HEAD", &records.root)?;
+    let handed = crate::cards::Handed {
+        cards: &cards,
+        edits: &edits,
+        withdrawn: &withdrawn,
+        solution: solution.as_str().unwrap_or_default(),
+    };
+    let posted = crate::cards::post(tx, round, &handed, &revised)?;
+    let ids = |xs: &[i64]| crate::cards::and_list(&xs.iter().map(i64::to_string).collect::<Vec<_>>());
+    let plural = |n: usize| if n == 1 { "card" } else { "cards" };
+    let mut said = Vec::new();
+    let new: Vec<i64> = posted.new.iter().map(|x| x.0).collect();
+    if !new.is_empty() {
+        said.push(format!(
+            "Decision {} {} of {} wait for your ruling. They block nothing until the merge.",
+            plural(new.len()),
+            ids(&new),
+            ctx.about()
+        ));
+    }
+    let again: Vec<String> = posted
+        .new
+        .iter()
+        .filter_map(|(card, was)| was.filter(|w| w.1).map(|w| format!("{card} replaces {}", w.0)))
+        .collect();
+    if !again.is_empty() {
+        said.push(format!(
+            "A decision card you ruled changed: {}; rule on it again.",
+            again.join(", ")
+        ));
+    }
+    let gone: Vec<i64> = posted.withdrawn.iter().map(|x| x.0).collect();
+    if !gone.is_empty() {
+        said.push(format!(
+            "Decision {} {} of {} {} withdrawn.",
+            plural(gone.len()),
+            ids(&gone),
+            ctx.about(),
+            if gone.len() == 1 { "is" } else { "are" }
+        ));
+    }
+    if !said.is_empty() {
+        log_only(tx, ctx.work.id, &said.join(" "))?;
+    }
+    carry_flow(ctx, tx, round, &new)
+}
+
+/// In wf-agents' own repository, has the card that carries the work's flow carry it as the branch has it now: a card
+/// posted in this round (`fresh`) takes it as posted; another is posted again as a new version, which the owner rules
+/// before the merge, and the owner is told. The new version changes the drawing alone: the flow's change in
+/// implementation went through the work's reviews, which hold it to the design and its cards. A flow that does not compile is said, the card
+/// carrying no drawing of it.
+fn carry_flow(ctx: &Ctx, tx: &Transaction<'_>, round: RoundId, fresh: &[i64]) -> Result<(), String> {
+    let project = ctx.project()?;
+    let Some(wt) = &ctx.work.worktree else { return Ok(()) };
+    if !crate::cards::own_repository(project) {
+        return Ok(());
+    }
+    let fork = git::fork_point(wt, &project.main)?;
+    let Some((card, failed)) = crate::cards::carry_flow(tx, round, wt, &fork, ctx.work.flow_version, fresh)? else {
+        return Ok(());
+    };
+    if let Some(why) = failed {
+        log_only(
+            tx,
+            ctx.work.id,
+            &format!(
+                "The flow on the branch of {} does not compile, so decision card {card} carries no drawing of it: {why}",
+                ctx.about()
+            ),
+        )?;
+    }
+    if !fresh.contains(&card) {
+        log_only(
+            tx,
+            ctx.work.id,
+            &format!(
+                "The flow of {} changed in implementation: decision card {card} carries it as the branch now has it and waits for your ruling before the merge.",
+                ctx.about()
+            ),
+        )?;
+    }
     Ok(())
 }
-
 /// Carries out one action.
 pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> Result<(), String> {
     let w = ctx.work.id;
@@ -324,109 +383,19 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             )
             .map_err(sql)?;
         }
-        "post_design_card" => {
-            if !tree_changed(&ctx.work, ctx.project()?)? {
-                return Ok(());
-            }
-            let path = format!("{}.design_tree.design_card", ctx.within);
-            let Some((round, body)) = ctx.last(tx, "D4", &path)? else {
-                return Ok(());
-            };
-            let posted: Option<i64> = tx
-                .query_row(
-                    "SELECT id FROM design_cards WHERE work = ?1 AND round = ?2",
-                    [round.work, round.n],
-                    |r| r.get(0),
-                )
-                .optional()
-                .map_err(sql)?;
-            if posted.is_some() {
-                return Ok(());
-            }
-            // What changed from the cards a redesign set aside is said beside the card, in the same return.
-            let changed: Option<Value> = tx
-                .query_row(
-                    "SELECT json_extract(output, ?3) FROM rounds WHERE work = ?1 AND n = ?2",
-                    params![
-                        round.work,
-                        round.n,
-                        format!("$.{}.design_tree.design_card_changed", ctx.within)
-                    ],
-                    |r| r.get::<_, Option<String>>(0),
-                )
-                .optional()
-                .map_err(sql)?
-                .flatten()
-                .map(Value::String);
-            let card = new_design_card(tx, round, &body, changed.as_ref())?;
-            // The cards of this work the redesign set aside are replaced by this one.
-            tx.execute(
-                "UPDATE design_cards SET replaced_by = ?2
-                 WHERE status = 'replaced' AND replaced_by IS NULL AND id <> ?2 AND work = ?1",
-                params![w, card],
-            )
-            .map_err(sql)?;
-            design_card_matter(ctx, tx, card, round)?;
-            log_only(
-                tx,
-                w,
-                &format!(
-                    "Design card {card} of {} waits for your ruling; the architect looks at it too. It blocks nothing until the merge.",
-                    ctx.about()
-                ),
-            )?;
-        }
-        "update_design_card" => {
-            let Some(body) = at_value else { return Ok(()) };
-            // The cards it replaces are read before it is made: read after, the newest not replaced is itself.
-            let before = current_design_cards(tx, w)?;
-            let changed = at_path(&ctx.unwrapped, "design_card_changed");
-            let card = new_design_card(tx, ctx.round, &body, changed.as_ref())?;
-            design_card_matter(ctx, tx, card, ctx.round)?;
-            if before.is_empty() {
-                log_only(tx, w, &format!("Design card {card} of {} is new.", ctx.about()))?;
-            } else {
-                for (old, _) in &before {
-                    tx.execute(
-                        "UPDATE design_cards SET status = 'replaced', replaced_by = ?2 WHERE id = ?1",
-                        params![old, card],
-                    )
-                    .map_err(sql)?;
-                }
-                db::withdraw_card_looks(tx, w).map_err(sql)?;
-                let again = if before.iter().any(|(_, status)| status == "ruled") {
-                    " A decision you ruled on changed: it must be confirmed again."
-                } else {
-                    ""
-                };
-                let olds = before
-                    .iter()
-                    .map(|(id, _)| id.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                log_only(
-                    tx,
-                    w,
-                    &format!(
-                        "Design card {card} of {} replaces design card {olds}.{again}",
-                        ctx.about()
-                    ),
-                )?;
-            }
-        }
-        "replace_design_card" => {
-            tx.execute(
-                "UPDATE design_cards SET status = 'replaced' WHERE status IN ('open', 'ruled') AND work = ?1",
-                [w],
-            )
-            .map_err(sql)?;
-            db::withdraw_card_looks(tx, w).map_err(sql)?;
-        }
+        "post_design_card" => post_cards(ctx, tx)?,
+        "post_flow_card" => carry_flow(ctx, tx, ctx.round, &[])?,
         "notify_pending_approvers" => {
-            let why = match current_design_card(tx, w)? {
-                Some((card, status)) if status == "open" => format!("design card {card} waits for your ruling"),
-                Some((card, _)) => format!("design card {card} is ruled, but not confirmed for the head to merge"),
-                None => "it waits for the items it depends on to merge".to_string(),
+            let open: Vec<String> = crate::cards::current(tx, w)?
+                .iter()
+                .filter(|c| !c.confirmed())
+                .map(|c| c.id.to_string())
+                .collect();
+            let why = match open.as_slice() {
+                [] => "it waits for the items it depends on to merge, or for a design that matches its decision cards"
+                    .to_string(),
+                [one] => format!("decision card {one} waits for your ruling"),
+                more => format!("decision cards {} wait for your ruling", crate::cards::and_list(more)),
             };
             log_only(tx, w, &format!("{} is ready to merge, but {why}.", ctx.about()))?;
         }
@@ -616,6 +585,24 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 }
                 _ => (ctx.cell.id.clone(), ctx.round.n),
             };
+            // The decision card the owner's words the round was handed asked about, when they asked about one: the
+            // answer to the owner is about it.
+            let cards: Vec<i64> = {
+                let mut st = tx
+                    .prepare(
+                        "SELECT DISTINCT design_card FROM interjections
+                         WHERE work = ?1 AND delivered_round = ?2 AND speaker = 'owner' AND design_card IS NOT NULL",
+                    )
+                    .map_err(sql)?;
+                st.query_map(params![ctx.round.work, round], |r| r.get(0))
+                    .map_err(sql)?
+                    .collect::<Result<_, _>>()
+                    .map_err(sql)?
+            };
+            let card = match cards.as_slice() {
+                [one] => Some(*one),
+                _ => None,
+            };
             for a in all {
                 let to = a["to"].as_str().unwrap_or("owner");
                 let text = a["text"].as_str().unwrap_or_default().trim();
@@ -649,8 +636,8 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 // An answer to the owner is the agent's message to the owner, of the round whose return holds it, as
                 // what it tells the owner is; the notifications log says it too.
                 tx.execute(
-                    "INSERT INTO owner_messages (work, round, text) VALUES (?1, ?2, ?3)",
-                    params![ctx.round.work, round, text],
+                    "INSERT INTO owner_messages (work, round, text, design_card) VALUES (?1, ?2, ?3, ?4)",
+                    params![ctx.round.work, round, text, card],
                 )
                 .map_err(sql)?;
                 let logged = format!("The {line} of {} answers the {to}: {text}", ctx.about());
