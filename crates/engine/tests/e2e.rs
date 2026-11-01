@@ -11815,13 +11815,17 @@ fn a_halt_dispatches_no_step_and_lets_the_step_under_way_end() {
     let hold = Gate::default();
     let (f, h) = (failing.clone(), hold.clone());
     let mut agents = scripts();
-    // The round of `R1` of the work to fail fails once; the other's waits at the gate.
+    // The round of `R1` of the work to fail fails once, when the other's round has come to the gate, where it waits.
     agents.insert(
         "R1",
         Box::new(move |r: &Request, _: usize| {
             if f.compare_exchange(r.work, 0, Ordering::SeqCst, Ordering::SeqCst)
                 .is_ok()
             {
+                let until = Instant::now() + Duration::from_secs(10);
+                while h.came() == 0 && Instant::now() < until {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
                 let report = format!("Claude AI usage limit reached|{reset}");
                 return (Vec::new(), vec![("@error", json!(report))]);
             }
@@ -11835,7 +11839,7 @@ fn a_halt_dispatches_no_step_and_lets_the_step_under_way_end() {
     failing.store(a, Ordering::SeqCst);
     hold.shut();
     let halted = turns_until(&mut e, &Go::default(), |e| {
-        e.halt().is_some() && !e.in_flight().contains(&a)
+        e.halt().is_some() && !e.in_flight().contains(&a) && hold.came() > 0
     });
     let log = said.lock().unwrap().join("\n");
     assert!(halted, "{log}");
@@ -12356,5 +12360,159 @@ fn a_cause_told_once_is_not_told_again_after_another_cause_between() {
     let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
     assert_eq!((h.kind.as_str(), h.until), ("usage_limit", reset * 1000), "{log}");
     assert_eq!((told(&s, "usage_limit"), told(&s, "offline")), (1, 1), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A failed run's cause that another work's round meets after the loop dispatched a step stops that step's round too,
+// as the owner is told no agent round starts: the second work's step is held at its first write, the session it
+// opens, before its round starts, until the first work's round failed for a usage limit; its round does not start, and
+// it goes on from its cell once the wait is over.
+#[test]
+fn a_round_whose_step_was_dispatched_before_a_halt_does_not_start() {
+    let reset = db::now() / 1000 + 3600;
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            if n == 1 {
+                let report = format!("Claude AI usage limit reached|{reset}");
+                return (Vec::new(), vec![("@error", json!(report))]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let stop = Gate::default();
+    let held = Arc::new(AtomicI64::new(0));
+    let (g, which) = (stop.clone(), held.clone());
+    // The first write on the thread of the work held waits at the gate, once.
+    let hooks = Hooks {
+        commit: Some(Arc::new(move |_: &db::rusqlite::Connection, _: &[db::Changed]| {
+            let w = which.load(Ordering::SeqCst);
+            if w != 0 && std::thread::current().name() == Some(format!("work {w}").as_str()) {
+                which.store(0, Ordering::SeqCst);
+                g.pass();
+            }
+        })),
+        ..Hooks::default()
+    };
+    let (s, mut e, said, first, second) = two_works_with("halt-before-a-round", agents, hooks);
+    // The first pass starts both works; the next dispatches the round of `R1` of each.
+    e.tick().unwrap();
+    let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    stop.shut();
+    held.store(b, Ordering::SeqCst);
+    e.dispatch(&Go::default()).unwrap();
+    let until = Instant::now() + Duration::from_secs(10);
+    while !(stop.came() > 0 && e.halt().is_some() && !e.in_flight().contains(&a)) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(stop.came() > 0 && e.halt().is_some(), "{log}");
+    stop.open();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let rounds_at = |e: &Engine, work: i64| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(rounds_at(&e, b), 0, "{log}");
+    let (_, at, paused) = state(&e, second).unwrap();
+    assert_eq!((at.as_str(), paused), ("R1", None), "{log}");
+    assert_eq!(failed_kinds(&e), ["usage_limit"], "{log}");
+    // Once the limit resets, both works go on from their cell.
+    e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    for item in [first, second] {
+        let (_, at, paused) = state(&e, item).unwrap();
+        assert_eq!(paused, None, "{log}");
+        assert_ne!(at, "R1", "{log}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Of two works that wait, holding no slot, with one slot free, the one whose wait is over goes on, though the other,
+// whose wait is not over, has the lower id: the loop grants slots only to works whose step found their wait over, so
+// that a work still waiting never takes the slot a work back from waiting needs. Here the second work asked the
+// architect and its reply came, while the first still waits for its own reply.
+#[test]
+fn a_work_back_from_waiting_takes_the_free_slot_before_one_still_waiting_with_a_lower_id() {
+    let s = setup("still-waiting-lower-id");
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            if n <= 2 {
+                an_ask("architect")
+            } else {
+                (Vec::new(), Vec::new())
+            }
+        }),
+    );
+    let (mut e, said, first) = start(&s, agents);
+    let second =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Add another', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", params![id])?;
+            Ok(id)
+        })
+        .unwrap();
+    // The question each work put to the architect, taken off the queue as if a work of the architect had it in hand.
+    let question = |e: &mut Engine, item: i64| -> Option<i64> {
+        let m: Option<i64> =
+            e.db.conn()
+                .query_row(
+                    "SELECT id FROM architect_matters WHERE kind = 'engineer_question' AND item = ?1",
+                    [item],
+                    |r| r.get(0),
+                )
+                .ok();
+        if let Some(m) = m {
+            e.db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE architect_matters SET handled_work = (SELECT min(id) FROM works WHERE graph = 'architect'),
+                       handled_round = 1 WHERE id = ?1 AND handled_round IS NULL",
+                    [m],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        }
+        m
+    };
+    // With one slot, the first work asks and waits, holding none, and the second starts in it and asks in turn.
+    assert!(
+        steps_until(&mut e, 30, |e| question(e, first).is_some() && question(e, second).is_some()),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let asked = question(&mut e, second).unwrap();
+    let (a, _, _) = state(&e, first).unwrap();
+    let (b, _, _) = state(&e, second).unwrap();
+    assert!(a < b);
+    e.db.write(Actor::Architect, |tx| {
+        tx.execute(
+            "UPDATE architect_matters SET reply = ?2 WHERE id = ?1",
+            params![asked, json!({ "text": "Go ahead.", "why": "It holds." }).to_string()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    assert!(
+        steps_until(&mut e, 10, |e| state(e, second).is_some_and(|x| x.1 == "A4")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(state(&e, first).map(|x| x.1).as_deref(), Some("A2"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

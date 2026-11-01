@@ -367,6 +367,12 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     if !starts_with.is_empty() {
         input["system"] = system_parts;
     }
+    // A failed run's cause that another work's round met after the loop dispatched this step stops this round too, as
+    // the owner was told: it does not start, and the work goes on from its cell once the wait is over.
+    if e.halted() {
+        let _ = std::fs::remove_file(&given_again);
+        return Ok(Advance::Waits("a failed run's cause stops every work".to_string()));
+    }
     let round =
         e.db.write(Actor::Engine, |tx| {
             db::keep(tx, &kept)?;

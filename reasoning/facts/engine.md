@@ -18,6 +18,8 @@ Fact first-message-varies: A session's first message begins with what differs fr
 
 Fact gh-log-noise: What gh puts before every line of a check's log (the job, the step and the time) and the escapes that colour the text, which gh writes with the escape character as the two characters "^[", take most of each line and say nothing about why the check is red.
 
+Fact grant-to-any-waiting-starves: A loop that granted a free slot to every work that waits, in the order of the works' ids, gave it each turn to a work whose wait was not over, which waited on, while a work with a higher id whose wait was over found no slot free and was held, turn after turn.
+
 Fact json-text-escapes: A text inside JSON escapes every quote it holds, which an agent reading it then reads through.
 
 Fact main-merge-sent-back: Counted as a work's own, the changes a merge of main brought into its branch sent a return back for a design card or a change the work never made.

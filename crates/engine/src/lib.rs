@@ -149,9 +149,9 @@ struct Shared {
     /// While a failed run's cause stops every work alike (a usage limit, no network), why and until when: no new
     /// round starts until then.
     halt: Mutex<Option<Halt>>,
-    /// The kind of failed run the owner was last told stops every work, until a round runs to a return again: the
-    /// owner is told once.
-    told: Mutex<Option<String>>,
+    /// The kinds of failed run the owner was told stop every work, until a round runs to a return again: the owner is
+    /// told of each once, though the rounds of several works meet several causes in turn.
+    told: Mutex<BTreeSet<String>>,
     /// How many times in a row the engine looked at the network itself and found it down, since a round last tried.
     looked: Mutex<u32>,
     /// The owner's global pause while it holds, as the loop that runs the engine hands it each turn: no work takes a
@@ -392,10 +392,7 @@ impl Engine {
                 *standing = Some(halt);
             }
         }
-        let mut told = lock(&self.shared.told);
-        let first = told.as_deref() != Some(kind.as_str());
-        *told = Some(kind);
-        first
+        lock(&self.shared.told).insert(kind)
     }
 
     /// The owner's global pause while it holds, as the loop that runs the engine last handed it: no work takes a step
@@ -730,6 +727,8 @@ impl Engine {
             }
             *halt = None;
             drop(halt);
+            // A work whose step found the wait standing as its round was to start is idle: every work goes on now.
+            self.rouse();
             self.say(&format!("the wait for {} is over: works go on", seen.kind));
             return false;
         }
@@ -737,7 +736,7 @@ impl Engine {
 
     /// A round ran to a return: whatever stopped every work has passed.
     fn returned(&self) {
-        *lock(&self.shared.told) = None;
+        lock(&self.shared.told).clear();
     }
 
     /// The compiled flow a work runs on, read from the database the first time any thread asks for it.
@@ -1034,8 +1033,9 @@ impl Engine {
 
     /// The works whose wait is over and that wait on, holding no slot, until their machine has a slot free, as the last
     /// step of each found and as each stands now: one since paused or ended, or whose machine has a slot free again,
-    /// which the loop grants its next step, is not among them. The owner's page shows them so, since a work whose answer came
-    /// and that does not move would otherwise look ready.
+    /// which the loop grants its next step, is not among them. The owner's page shows them so, since a work whose answer
+    /// came and that does not move would otherwise look ready. It only reads: which works wait on for a slot changes
+    /// only as the loop reaps their steps and grants them slots.
     pub fn waiting_for_slot(&mut self) -> Result<Vec<i64>, String> {
         let mut out = Vec::new();
         let held = lock(&self.shared.held_for_slot).clone();
@@ -1043,8 +1043,6 @@ impl Engine {
             let w = self.work(id)?;
             if w.ended.is_none() && w.paused.is_none() && self.waiting(&w)? && !self.room_for(&w)? {
                 out.push(id);
-            } else {
-                lock(&self.shared.held_for_slot).remove(&id);
             }
         }
         Ok(out)
