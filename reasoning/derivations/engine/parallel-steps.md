@@ -23,3 +23,10 @@ Rests on: C:product-grade, F:finish-round-unchecked, F:cancel-cuts-round, D:work
 
 Rejected:
 - A lock of each work held by its step until the step ends, which cancelling the work's item takes first: rejected because the owner's page and an architect's step would wait on a round of minutes, one thing holding up another again, and an architect cancelling several items would take several locks in turn.
+
+Decision later-wait-holds: While a failed run's cause stops every work, a cause another work's round meets meanwhile leaves standing whichever of the two waits ends later, and the loop's look at the network ends or prolongs only the wait it looked at, so that no step is dispatched before every cause known to have stopped the works has passed; instead of each new cause's wait replacing the one that stood, because with the rounds of several works side by side two may fail together, and a wait of half a minute for the network set over a usage limit that resets in an hour would let rounds run before the limit reset; and instead of one wait kept for each cause at once, because its one gain, knowing without a round that the network is still down once a longer wait ends, costs a round's failed run while a change of how the engine and the owner's page tell why every work stopped would cost every reader of it.
+
+Rests on: C:product-grade, F:wait-set-over, D:global-failure-wait, D:loop-schedules
+
+Rejected:
+- Ranking the causes that stop every work, a usage limit above an expired login above no network, the higher kept: rejected because a cause ranked higher whose wait ends sooner would still let steps start before the wait it replaced ended, which the time each wait ends decides and a rank does not.

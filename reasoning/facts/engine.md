@@ -52,6 +52,8 @@ Fact texts-filled-db: The shared formats, the rules, a cell's task and the schem
 
 Fact told-columns-named-right: An agent told the columns where its query went wrong names them right in its next round.
 
+Fact wait-set-over: A failed run's cause that stops every work set its wait over whatever wait stood, and the look at the network ended whatever wait stood once it was done, so that a later cause's shorter wait, or one a step set during the look, replaced or ended a longer one.
+
 Fact waved-off-red-breaks-main: A red check waved off as not the change's own is how a change breaks main.
 
 Fact whole-streaming-checked: The service checks the JSON of a tool input streamed whole.
