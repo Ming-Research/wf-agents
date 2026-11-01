@@ -6045,8 +6045,8 @@ fn a_new_session_checks_the_policy_only_once_the_policy_or_the_constitution_chan
 }
 
 // The check of the policy in force, in doubt, asks the owner whether to research a new policy, which parks the check at
-// it while the architect waits for the reply; the reply brings it back, the check no longer hands in that the policy
-// holds, and it goes on to write the new policy by the owner's stance. The engine asks the owner to approve the draft,
+// it while the architect waits for the reply; the reply brings it back, the check cannot hand in that the policy holds
+// while none is in force, and it goes on to write the new policy by the owner's stance. The engine asks the owner to approve the draft,
 // which parks the check at the writing: a reply other than approved brings it back there, to be written again by it,
 // and approved, exactly, has it take effect: it is the policy in force, no draft waits any longer, the check is closed,
 // and the plan of what to do next, which the new session's understanding queued and the new policy asked for again, is
@@ -6152,7 +6152,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
                 |r| r.get(0),
             )
             .expect(&log);
-    assert!(refused.contains("the owner replied to your question"), "{refused}");
+    assert!(refused.contains("the owner replied and no policy is in force"), "{refused}");
     assert_eq!(rows_at(&e, arch, "P2"), ["written", "written"], "{log}");
     // The writing is given the owner's reply that brought it back; the first, which the session was given at the
     // check, by its address only.
