@@ -396,8 +396,8 @@ impl Engine {
 
     /// Brings works on an older flow version to the version the engine runs, which the loop does when each next goes
     /// on, before it dispatches its step: a work that can move moves ([`Engine::move_up`]), and the rest are taken over
-    /// ([`Engine::take_over`]).
-    fn bring_up(&mut self, works: &[Work]) -> Result<(), String> {
+    /// ([`Engine::take_over`]). Gives the new works started on the items of those taken over.
+    fn bring_up(&mut self, works: &[Work]) -> Result<Vec<i64>, String> {
         let mut over = Vec::new();
         for w in works {
             match self.cannot_move(w)? {
@@ -405,8 +405,7 @@ impl Engine {
                 Some(cannot) => over.push((w.clone(), self.moved_on(&cannot))),
             }
         }
-        self.take_over(&over)?;
-        Ok(())
+        self.take_over(&over)
     }
 
     /// Why a work on an older flow version cannot move to the version the engine runs ([`versions::why_not`]): what

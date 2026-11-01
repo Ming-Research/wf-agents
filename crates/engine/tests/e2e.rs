@@ -25,13 +25,6 @@ trait Passes {
     fn tick(&mut self) -> Result<bool, String>;
     /// The owner's round of one work while every other work is paused.
     fn step_work(&mut self, work: i64) -> Result<Stepped, String>;
-    /// One pass while every work is paused but the works and the projects' architects the owner started.
-    fn step_started(
-        &mut self,
-        after: Option<i64>,
-        started: &std::collections::BTreeSet<i64>,
-        architects: &std::collections::BTreeSet<String>,
-    ) -> Result<Stepped, String>;
     /// The owner's round of a project's architect while every work is paused.
     fn step_architect(&mut self, project: &str) -> Result<Stepped, String>;
     /// One pass in which only `work` goes on, every other work held by the global pause: whether it moved, waits or
@@ -85,23 +78,6 @@ impl Passes for Engine {
             architects: Vec::new(),
         };
         Ok(asked_in(&self.pass(&go)?, &Ask::Work(work)))
-    }
-
-    fn step_started(
-        &mut self,
-        _after: Option<i64>,
-        started: &std::collections::BTreeSet<i64>,
-        architects: &std::collections::BTreeSet<String>,
-    ) -> Result<Stepped, String> {
-        let go = Go {
-            pause: Some(GlobalPause {
-                warm: true,
-                runs: started.clone(),
-                architects: architects.clone(),
-            }),
-            ..Go::default()
-        };
-        Ok(first_moved(&self.pass(&go)?))
     }
 
     fn step_architect(&mut self, project: &str) -> Result<Stepped, String> {
@@ -6890,8 +6866,10 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let (mut e, said, item) = start(&s, agents);
     let work = e.step(None).unwrap().work.unwrap();
     say(&mut e, "Stop the feature until the parser is in.");
-    let started = e.step(Some(work)).unwrap();
+    // A work of the architect starts for what was said, its first step beside the work's own.
+    let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
+    let started = pass.jobs.iter().find(|s| s.work != Some(work)).expect(&log);
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     let stopped = |e: &mut Engine| state(e, item).is_some_and(|x| x.2.is_some());
@@ -7541,7 +7519,7 @@ fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
     assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
-    assert_eq!(warm_now(&mut e,from + 55 * 60_000 + 1_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     let_go_on(&mut e, work);
     e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -7606,14 +7584,14 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
     // Not before 55 minutes, and not once the cache has let the session go.
-    assert_eq!(warm_now(&mut e,from + 54 * 60_000, None).unwrap(), 0);
-    assert_eq!(warm_now(&mut e,from + 60 * 60_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, from + 54 * 60_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, from + 60 * 60_000, None).unwrap(), 0);
     let mut now = from + 55 * 60_000;
-    assert_eq!(warm_now(&mut e,now, None).unwrap(), 1);
-    assert_eq!(warm_now(&mut e,now + 60_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, now, None).unwrap(), 1);
+    assert_eq!(warm_now(&mut e, now + 60_000, None).unwrap(), 0);
     for _ in 0..40 {
         now += 55 * 60_000 + 1_000;
-        warm_now(&mut e,now, None).unwrap();
+        warm_now(&mut e, now, None).unwrap();
     }
     let log = said.lock().unwrap().join("\n");
     let pings = pings_of(&e, work);
@@ -7699,7 +7677,7 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
     let now = from + 55 * 60_000 + 1_000;
     move_to(&mut e, work, "T6");
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(warm_now(&mut e,now, None).unwrap(), 1, "{log}");
+    assert_eq!(warm_now(&mut e, now, None).unwrap(), 1, "{log}");
     assert_eq!(
         pinged(&e),
         [(
@@ -7708,7 +7686,7 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
         )]
     );
     move_to(&mut e, work, "M1");
-    assert_eq!(warm_now(&mut e,now + 2_000, None).unwrap(), 1, "{log}");
+    assert_eq!(warm_now(&mut e, now + 2_000, None).unwrap(), 1, "{log}");
     let pings = pinged(&e);
     assert_eq!(pings.len(), 2, "{pings:?}");
     assert_eq!((pings[1].0.as_str(), &pings[1].1["cell"]), ("engineer", &json!("M1")));
@@ -7735,7 +7713,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
     let (work, _, _) = state(&e, item).unwrap();
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
-    assert_eq!(warm_now(&mut e,from + 55 * 60_000 + 1_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     // At a cell that goes on in the session, a round of the session that runs keeps the ping off.
     move_to(&mut e, work, "D9");
     let session: i64 =
@@ -7757,14 +7735,14 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
             Ok(n)
         })
         .unwrap();
-    assert_eq!(warm_now(&mut e,from + 55 * 60_000 + 1_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     e.db.write(Actor::Engine, |tx| {
         tx.execute("DELETE FROM rounds WHERE work = ?1 AND n = ?2", [work, open])?;
         Ok(())
     })
     .unwrap();
     assert_eq!(
-        warm_now(&mut e,from + 55 * 60_000 + 1_000, None).unwrap(),
+        warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(),
         1,
         "{}",
         said.lock().unwrap().join("\n")
@@ -7801,7 +7779,7 @@ fn a_ping_says_where_the_work_waited_and_for_what() {
     .unwrap();
     let from = last_call(&e, work);
     assert_eq!(
-        warm_now(&mut e,from + 55 * 60_000 + 1_000, None).unwrap(),
+        warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(),
         1,
         "{}",
         said.lock().unwrap().join("\n")
@@ -10569,9 +10547,9 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
         runs: runs.iter().copied().collect(),
         architects: Default::default(),
     };
-    assert_eq!(warm_now(&mut e,due, Some(&paused(false, &[]))).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, due, Some(&paused(false, &[]))).unwrap(), 0);
     assert_eq!(
-        warm_now(&mut e,due, Some(&paused(true, &[]))).unwrap(),
+        warm_now(&mut e, due, Some(&paused(true, &[]))).unwrap(),
         1,
         "{}",
         said.lock().unwrap().join("\n")
@@ -10583,10 +10561,10 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
     // A work the owner started runs on, as every work does with no pause: the line it comes back to is kept warm
     // for its going on.
     let later = due + 55 * 60_000 + 1_000;
-    assert_eq!(warm_now(&mut e,later, Some(&paused(true, &[work]))).unwrap(), 1);
+    assert_eq!(warm_now(&mut e, later, Some(&paused(true, &[work]))).unwrap(), 1);
     let going_on = json!({ "cell": "D1", "on": "work", "what": "the work goes on" });
     assert_eq!(pings_of(&e, work)[1].0, going_on);
-    assert_eq!(warm_now(&mut e,later + 55 * 60_000 + 1_000, None).unwrap(), 1);
+    assert_eq!(warm_now(&mut e, later + 55 * 60_000 + 1_000, None).unwrap(), 1);
     assert_eq!(pings_of(&e, work)[2].0, going_on);
     // The owner's switch is kept in the database, as the owner's, across a restart.
     assert!(api::keep_warm_paused(e.db.conn()).unwrap());

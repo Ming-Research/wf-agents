@@ -8,12 +8,14 @@
 //! effect when the round under way ends. A job's thread marks its job as over and says so (the hook `ended`), and the
 //! loop reaps it ([`Engine::reap`]).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, PoisonError};
 use std::thread::JoinHandle;
 
-use crate::{ARCHITECT, Advance, ENGINEER, Engine, GlobalPause, RoundId, Stepped, Work, actions, architect, lock, warm};
+use crate::{
+    ARCHITECT, Advance, ENGINEER, Engine, GlobalPause, RoundId, Stepped, Work, actions, architect, lock, warm,
+};
 
 /// What the owner lets go on, as the loop that runs the engine hands it at each turn.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -134,8 +136,7 @@ enum Kind {
 /// holds, a work the owner started and a work of an architect the owner started.
 fn goes_on(pause: Option<&GlobalPause>, w: &Work) -> bool {
     pause.is_none_or(|p| {
-        p.runs.contains(&w.id)
-            || (w.graph == ARCHITECT && w.project.as_ref().is_some_and(|x| p.architects.contains(x)))
+        p.runs.contains(&w.id) || (w.graph == ARCHITECT && w.project.as_ref().is_some_and(|x| p.architects.contains(x)))
     })
 }
 
@@ -174,9 +175,10 @@ impl Engine {
     /// dispatches, each on a thread of its own: the owner's rounds asked, of the works with no job in flight; a step of
     /// every other work that goes on, has no job in flight and is not idle; while a slot is free and the global pause
     /// does not hold, a work started on a ready item; and the keep-warm pings due to the sessions of the works with no
-    /// job in flight. A work that waits, holding no slot, is granted a free slot of its machine for its step, in the
-    /// order of the works' ids and before any new work starts; the other works that wait step too, to find what they
-    /// wait for come, and wait on for a slot. Gives the owner's rounds asked that it took without a step, since none
+    /// job in flight. A work whose last step found what it waited for come but no slot granted is granted a free slot
+    /// of its machine for its next step, in the order of the works' ids and before any new work starts; the other works
+    /// that wait step without one, to find what they wait for come, and one that finds it waits on, holding no slot,
+    /// until a later step is granted one. Gives the owner's rounds asked that it took without a step, since none
     /// could run: a project's architect with nothing to start a work for, or a work taken over whose item waits for a
     /// free slot.
     pub fn dispatch(&mut self, go: &Go) -> Result<Vec<Stepped>, String> {
@@ -195,8 +197,12 @@ impl Engine {
             .into_iter()
             .filter(|w| goes_on(pause, w) && !self.has_job(w.id))
             .collect();
+        // The new works that take over the items of works taken over: each step dispatched for one names its item.
+        let mut taking_over = BTreeMap::new();
         if !old.is_empty() {
-            self.bring_up(&old)?;
+            for new in self.bring_up(&old)? {
+                taking_over.insert(new, self.work(new)?.item);
+            }
             self.rouse();
         }
         self.architects_due(pause)?;
@@ -253,8 +259,12 @@ impl Engine {
             if !goes_on(pause, &w) || w.flow_version != self.flow_now {
                 continue;
             }
-            let granted = w.graph == ENGINEER && self.waiting(&w)? && self.room_for(&w)?;
-            self.dispatch_step(id, false, granted, None, None)?;
+            // Only a work whose last step found what it waited for come is granted a slot: a work that waits on, its
+            // step granted one, would keep a new work from starting in that slot while the step ran.
+            let held = lock(&self.shared.held_for_slot).contains(&id);
+            let granted = held && w.graph == ENGINEER && self.waiting(&w)? && self.room_for(&w)?;
+            let started_item = taking_over.get(&id).copied().flatten();
+            self.dispatch_step(id, false, granted, None, started_item)?;
         }
         if pause.is_none() {
             while self.free_slots()? > 0 {
@@ -354,18 +364,16 @@ impl Engine {
         };
         lock(&self.shared.jobs).insert(work, job);
         let shared = Arc::clone(&self.shared);
-        let spawned = std::thread::Builder::new()
-            .name(format!("work {work}"))
-            .spawn(move || {
-                let outcome =
-                    catch_unwind(AssertUnwindSafe(|| ctx.run(work, kind))).unwrap_or_else(|p| Outcome::panicked(&*p));
-                if let Some(j) = lock(&shared.jobs).get_mut(&work) {
-                    j.over = true;
-                }
-                shared.job_over.notify_all();
-                (shared.hooks.ended)();
-                outcome
-            });
+        let spawned = std::thread::Builder::new().name(format!("work {work}")).spawn(move || {
+            let outcome =
+                catch_unwind(AssertUnwindSafe(|| ctx.run(work, kind))).unwrap_or_else(|p| Outcome::panicked(&*p));
+            if let Some(j) = lock(&shared.jobs).get_mut(&work) {
+                j.over = true;
+            }
+            shared.job_over.notify_all();
+            (shared.hooks.ended)();
+            outcome
+        });
         match spawned {
             Ok(t) => {
                 if let Some(j) = lock(&self.shared.jobs).get_mut(&work) {
@@ -391,7 +399,11 @@ impl Engine {
             Kind::Step { asked } => match self.take_step(work, asked) {
                 Ok(a) => {
                     held = matches!(a, Advance::Held(_));
-                    if asked { self.paused_after_step(work).err() } else { None }
+                    if asked {
+                        self.paused_after_step(work).err()
+                    } else {
+                        None
+                    }
                 }
                 Err(e) => Some(e),
             },
@@ -426,7 +438,9 @@ impl Engine {
         let over: Vec<(i64, Job)> = {
             let mut jobs = lock(&self.shared.jobs);
             let ids: Vec<i64> = jobs.iter().filter(|(_, j)| j.over).map(|(id, _)| *id).collect();
-            ids.into_iter().filter_map(|id| jobs.remove(&id).map(|j| (id, j))).collect()
+            ids.into_iter()
+                .filter_map(|id| jobs.remove(&id).map(|j| (id, j)))
+                .collect()
         };
         if over.is_empty() {
             return Ok(Vec::new());
