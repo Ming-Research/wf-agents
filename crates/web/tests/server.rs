@@ -182,23 +182,12 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         .0,
         415
     );
-    // Every work starts paused, waiting sessions kept warm; the owner runs one work's round, once at a time, in a new
-    // session when asked.
+    // Every work starts paused, waiting sessions kept warm; the owner runs the rounds of several works beside each
+    // other, each work's once at a time, in a new session when asked.
     assert!(s.control.asked().paused && s.control.asked().keep_warm);
     assert_eq!(post(s.port, "/api/v1/works/3/step", "{}", "application/json").0, 202);
-    assert_eq!(s.control.asked().step, Some(3));
-    assert_eq!(
-        post(
-            s.port,
-            "/api/v1/works/4/step",
-            r#"{"new_session":true}"#,
-            "application/json"
-        )
-        .0,
-        409
-    );
-    s.control.stepped(Some(3));
-    assert!(s.control.take_new_sessions().is_empty());
+    assert_eq!(s.control.asked().steps, vec![3]);
+    assert_eq!(post(s.port, "/api/v1/works/3/step", "{}", "application/json").0, 409);
     assert_eq!(
         post(
             s.port,
@@ -209,8 +198,11 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         .0,
         202
     );
+    assert_eq!(s.control.asked().steps, vec![3, 4]);
     assert_eq!(s.control.take_new_sessions(), vec![api::Fresh::Work(4)]);
-    s.control.stepped(Some(4));
+    s.control.stepped(3);
+    s.control.stepped(4);
+    assert!(s.control.asked().steps.is_empty());
     // The switch that keeps waiting sessions warm is the owner's, written so.
     let (status, done) = post(
         s.port,
@@ -301,10 +293,10 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
     let here = format!("127.0.0.1:{}", s.port);
     let (_, now) = get(s.port, "/api/v1/status", &here, "");
     assert!(
-        now.contains(r#""paused":false"#) && now.contains(r#""stepping":2"#),
+        now.contains(r#""paused":false"#) && now.contains(r#""stepping":[2]"#),
         "{now}"
     );
-    s.control.stepped(Some(2));
+    s.control.stepped(2);
     assert_eq!(post(s.port, "/api/v1/engine/pause", "{}", "application/json").0, 204);
     assert!(s.control.asked().paused);
     assert!(s.bus.status().is_some_and(|x| x.paused));
@@ -320,8 +312,8 @@ fn status() -> api::Status {
         releasing: Vec::new(),
         waiting_for_slot: Vec::new(),
         architects_started: Vec::new(),
-        running: None,
-        stepping: None,
+        running: Vec::new(),
+        stepping: Vec::new(),
         last_step: None,
         slots: 1,
         slots_used: 0,

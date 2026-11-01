@@ -221,7 +221,7 @@ export function RoundsList(props: {
   if (!drawn) return <p className="muted">{t('no_rounds')}</p>;
   const rows: ReactNode[] = [];
   newest.forEach((r, i) => {
-    const stale = r.outcome === 'running' && status !== null && status.running !== r.work;
+    const stale = r.outcome === 'running' && status !== null && !status.running.includes(r.work);
     const last = r.outcome === 'running' && !stale ? activity.filter((x) => x.round === r.n && live?.work === r.work).pop() : undefined;
     const what = r.not_asked !== null ? t('round_not_asked', { need: words(r.not_asked) }) : stale ? t('round_left_open') : (last?.what ?? tookWords(r));
     const name = rowName(r);

@@ -32,12 +32,12 @@ import { navigate, type Route } from './route';
 import { t, tn, type Key } from './text';
 import { useWidth, type Width } from './width';
 
-/// How many rounds run that a pause of every work lets finish: none while the engine runs, or for a round the owner
-/// asked for, or of a work the owner started.
+/// How many rounds run that a pause of every work lets finish: none while the engine runs; of the rounds that run,
+/// those neither the owner asked for nor of a work the owner started.
 function finishing(s: Status): number {
-  const goesOn =
-    s.running !== null && (s.running === s.stepping || s.started.includes(s.running) || s.architects_started.length > 0);
-  return s.paused && s.running !== null && !goesOn ? 1 : 0;
+  if (!s.paused) return 0;
+  const goesOn = (w: number) => s.stepping.includes(w) || s.started.includes(w) || s.architects_started.length > 0;
+  return s.running.filter((w) => !goesOn(w)).length;
 }
 
 /// What the engine is doing, in a few words; the works the owner started while every work is paused say so on their

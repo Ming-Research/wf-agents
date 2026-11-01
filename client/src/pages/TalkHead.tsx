@@ -202,7 +202,7 @@ function IdleControls({ a, status, waiting }: { a: Architect; status: Status | n
     ? t('work_step_goes_on')
     : waiting === 0
       ? t('arch_queue_none_waiting')
-      : status.stepping !== null || status.halt !== null
+      : status.halt !== null
         ? t('work_step_later')
         : null;
   return (

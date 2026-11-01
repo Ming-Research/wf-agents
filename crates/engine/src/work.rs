@@ -334,9 +334,11 @@ pub struct Ended {
 }
 
 /// Ends a round still open as `e` says; what it cost, when already kept on it and `e` says nothing of it, stays, as for
-/// a round whose work is to be started over, which the takeover cuts off.
+/// a round whose work is to be started over, which the takeover cuts off. A round already ended is an error, so that
+/// the transaction it is ended in rolls back: a step whose work was ended from outside it meanwhile, its round cut off,
+/// takes nothing of what it did over the end.
 pub fn finish_round(conn: &Connection, id: RoundId, e: &Ended) -> Result<(), String> {
-    conn.execute(
+    let n = conn.execute(
         "UPDATE rounds SET output = ?3, transition = ?4, rejected = ?5, usage = coalesce(?6, usage), compactions = ?7,
                 model = coalesce(?8, model), ended_at = ?9
          WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
@@ -353,6 +355,9 @@ pub fn finish_round(conn: &Connection, id: RoundId, e: &Ended) -> Result<(), Str
         ],
     )
     .map_err(sql)?;
+    if n == 0 {
+        return Err(format!("round {id} is not open: it was ended elsewhere"));
+    }
     if let Some(c) = &e.command {
         conn.execute(
             "UPDATE rounds SET input = json_set(input, '$.call.command', json(?3)) WHERE work = ?1 AND n = ?2",

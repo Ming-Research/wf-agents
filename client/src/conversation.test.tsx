@@ -853,8 +853,8 @@ describe('the marks of the list of conversations', () => {
     releasing: [],
     waiting_for_slot: [],
     architects_started: [],
-    running: null,
-    stepping: null,
+    running: [],
+    stepping: [],
     last_step: null,
     slots: 1,
     slots_used: 0,
@@ -963,7 +963,7 @@ describe('the marks of the list of conversations', () => {
 
   it('marks a work’s group by how its work stands now, and nothing before the works are read', () => {
     const works = [work(5, { graph: 'engineer', state: 'running' }), work(6, { graph: 'engineer', state: 'ended' })];
-    expect(workMark(5, works, status({ running: 5 }))).toBe('running');
+    expect(workMark(5, works, status({ running: [5] }))).toBe('running');
     // A round left open that the engine runs no more: ready, its next round closing it first.
     expect(workMark(5, works, status())).toBe('ready');
     expect(workMark(6, works, status())).toBe('ended');
@@ -994,7 +994,7 @@ describe('the marks of the list of conversations', () => {
     expect(architectMark(idle, status({ paused: true, architects_started: ['p'] })).state).toBe('ready');
     // A round of it running: the halo.
     const going = architect([work(10, { state: 'running' }), work(9, { state: 'done', at: 'E2' })]);
-    expect(marked(going, status({ running: 10 }))).toMatchObject({ state: 'running', icon: 'halo', says: 'working' });
+    expect(marked(going, status({ running: [10] }))).toMatchObject({ state: 'running', icon: 'halo', says: 'working' });
     // Held back while it works, by the owner's pause or every work paused: paused, as its head says why.
     const stopped = architect([work(10, { state: 'paused', paused: 'the owner paused it', paused_by: 'owner' })]);
     expect(marked(stopped, status())).toMatchObject({ state: 'paused', icon: 'pause', says: 'paused by you' });
@@ -1004,7 +1004,7 @@ describe('the marks of the list of conversations', () => {
     // A question of its own pinned for the owner's reply: asking while it neither runs nor is held back.
     expect(marked(architect([], { asks: [asked] }), status())).toMatchObject({ state: 'asking', icon: 'question', says: 'asking' });
     expect(architectMark({ ...going, asks: [asked] }, status()).state).toBe('asking');
-    expect(architectMark({ ...going, asks: [asked] }, status({ running: 10 })).state).toBe('running');
+    expect(architectMark({ ...going, asks: [asked] }, status({ running: [10] })).state).toBe('running');
     expect(architectMark({ ...stopped, asks: [asked] }, status()).state).toBe('paused');
     // Once answered, it asks no more.
     expect(architectMark(architect([], { asks: [ask(8, { from: 'architect' }, { text: 'yes' })] }), status()).state).toBe('ready');

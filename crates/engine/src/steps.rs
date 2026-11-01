@@ -420,19 +420,13 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     };
     // A work that ended while its round ran, as when the owner cancelled its item meanwhile, had the round cut off as
     // it ended (`ending::end`): what the round hands in is not taken, and what it cost is kept on it. So for a work
-    // asked to be started over meanwhile, which is started over now, the takeover cutting the round off; one whose
-    // start over waits to be tried again keeps its round open for the takeover to cut off.
-    let ended_now = |e: &Engine| -> Result<Option<String>, String> {
+    // asked to be started over meanwhile, whose round stays open for the takeover to cut off: the loop starts the work
+    // over once this step has ended, since only the loop does what the engine does to a work from outside its step.
+    let gone: Option<String> =
         e.db.conn()
             .query_row("SELECT ended FROM works WHERE id = ?1", [w.id], |r| r.get(0))
-            .map_err(sql)
-    };
-    let mut gone = ended_now(e)?;
+            .map_err(sql)?;
     let over = gone.is_none() && db::start_over_asked(e.db.conn(), w.id).map_err(sql)?;
-    if over {
-        crate::actions::run_start_overs(e)?;
-        gone = ended_now(e)?;
-    }
     if gone.is_some() || over {
         let usage = ended.usage.as_ref().map(Value::to_string);
         e.db.write(Actor::Engine, |tx| {
@@ -443,7 +437,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             Ok(())
         })
         .map_err(sql)?;
-        let what = if over { "was started over" } else { "ended" };
+        let what = if over { "was asked to start over" } else { "ended" };
         e.say(&format!(
             "work {} {what} while {round} ran: what it handed in is not taken",
             w.id
@@ -1171,8 +1165,8 @@ pub fn engine(
             };
             return wait_by(e, w, g, cell, &row, json!({ "given": { "turn": "behind" } }));
         }
-        if slotted && e.waiting(w)? && !e.room_for(w)? {
-            return Ok(waits_for_slot(e, w));
+        if slotted && e.waiting(w)? && !e.granted(w.id) {
+            return Ok(waits_for_slot(w));
         }
     }
     // The agent paused: the work waits, paused by the engine, for the owner's Start; once the owner started it again
@@ -1266,7 +1260,7 @@ pub fn engine(
             return Ok(Advance::Waits(format!("cell {} \"{}\"", cell.id, row.name)));
         }
         if no_slot(e, w, g, &row, slotted)? {
-            return Ok(waits_for_slot(e, w));
+            return Ok(waits_for_slot(w));
         }
         let round =
             e.db.write(Actor::Engine, |tx| {
@@ -1320,7 +1314,8 @@ pub fn engine(
 
 /// Whether a work, in a step held to its machine's slots (`slotted`), stays where it waits instead of going on by
 /// `row`: it waits, holding no slot; the row would take it where it holds one, since the row does not wait again nor
-/// lead to an ask of the owner or the architect, where the work waits holding none; and its machine has no slot free.
+/// lead to an ask of the owner or the architect, where the work waits holding none; and the loop granted its step no
+/// slot, which only the loop does, so that two steps never take the same free slot.
 pub fn no_slot(e: &mut Engine, w: &Work, g: &CompiledGraph, row: &CompiledRow, slotted: bool) -> Result<bool, String> {
     if !slotted || row.waits {
         return Ok(false);
@@ -1329,14 +1324,13 @@ pub fn no_slot(e: &mut Engine, w: &Work, g: &CompiledGraph, row: &CompiledRow, s
     let asks = g
         .cell(&next.at)
         .is_some_and(|c| matches!(c.step.as_deref(), Some("ask_owner" | "ask_architect")));
-    Ok(!asks && e.waiting(w)? && !e.room_for(w)?)
+    Ok(!asks && e.waiting(w)? && !e.granted(w.id))
 }
 
-/// A work that waits on where it waited, what it waited for come, until it may take a slot; the engine keeps that it
-/// does until its next step, for the owner's page.
-pub fn waits_for_slot(e: &mut Engine, w: &Work) -> Advance {
-    e.hold_for_slot(w.id);
-    Advance::Waits(format!(
+/// A work that waits on where it waited, what it waited for come, until the loop grants it a slot; the loop keeps that
+/// it does until its next step, for the owner's page.
+pub fn waits_for_slot(w: &Work) -> Advance {
+    Advance::Held(format!(
         "work {} waits for a free slot to go on from cell {}",
         w.id, w.pos.at
     ))
@@ -1541,7 +1535,7 @@ fn ask(
                 let given = values::given(e, w, g, cell, Some(item), &gathered)?;
                 if given.get("interjection").and_then(Value::as_str) == Some("yes") {
                     if no_slot(e, w, g, &row, slotted)? {
-                        return Ok(waits_for_slot(e, w));
+                        return Ok(waits_for_slot(w));
                     }
                     return finish(
                         e,
@@ -1592,7 +1586,7 @@ fn ask(
         }
         let row = g.take(&cell.id, &output, &given)?.clone();
         if no_slot(e, w, g, &row, slotted)? {
-            return Ok(waits_for_slot(e, w));
+            return Ok(waits_for_slot(w));
         }
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None, &given);
     }

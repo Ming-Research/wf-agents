@@ -244,8 +244,8 @@ describe('how a work goes on', () => {
     releasing: [],
     waiting_for_slot: [],
     architects_started: [],
-    running: null,
-    stepping: null,
+    running: [],
+    stepping: [],
     last_step: null,
     slots: 1,
     slots_used: 0,
@@ -271,18 +271,22 @@ describe('how a work goes on', () => {
     expect(waitOf(both, work({}), status({}))?.tag).toBe('waiting for you');
     // Every work paused: paused by Pause all, said so; Start and Step offered, and no Pause beside Start.
     const all = course(work({}), status({ paused: true }));
-    // Beside its cell: waiting for Step while Step can run a round of it, paused while another step is under way.
+    // Beside its cell: waiting for Step while Step can run a round of it, though the owner asked for another work's
+    // round, which runs beside it; paused while the round of it asked for is still to run.
     expect(waitOf(all, work({}), status({ paused: true }))).toEqual({
       tag: 'waiting for Step',
       why: 'Every work is paused, by Pause all in the bar.',
     });
-    expect(waitOf(all, work({}), status({ paused: true, stepping: 3 }))?.tag).toBe('paused');
+    const besides = status({ paused: true, stepping: [3] });
+    expect(waitOf(course(work({}), besides), work({}), besides)?.tag).toBe('waiting for Step');
+    const asked = status({ paused: true, stepping: [3, 5] });
+    expect(waitOf(course(work({}), asked), work({}), asked)?.tag).toBe('paused');
     expect([all.held, heldName(all).name]).toEqual(['all', 'paused by Pause all']);
     expect(controls(all, status({ paused: true }))).toEqual({ pause: false, start: true, step: true, canStep: true });
     expect(stepWhyNot(all, controls(all, status({ paused: true })))).toBe(null);
     expect(held(all, work({}))).toBe('Every work is paused, by Pause all in the bar.');
     // Started by the owner while every work is paused: it goes on, said so; Pause, and Step greyed till it is paused.
-    const started = course(work({}), status({ paused: true, started: [5], running: 5 }));
+    const started = course(work({}), status({ paused: true, started: [5], running: [5] }));
     expect([started.held, started.started, started.running]).toEqual([null, true, 'goes_on']);
     expect(runningWords(started)).toBe('running (you started it)');
     expect(controls(started, status({ paused: true, started: [5] }))).toEqual({
@@ -315,9 +319,12 @@ describe('how a work goes on', () => {
     );
     expect(other.started).toBe(false);
     // Going on by itself, its round running: Pause only; once paused, it pauses after the round, Step greyed till then.
-    const on = course(work({}), status({ running: 5 }));
-    expect([on.running, controls(on, status({ running: 5 })).pause]).toEqual(['goes_on', true]);
-    expect(waitOf(on, work({}), status({ running: 5 }))).toBeNull();
+    const on = course(work({}), status({ running: [5] }));
+    expect([on.running, controls(on, status({ running: [5] })).pause]).toEqual(['goes_on', true]);
+    expect(waitOf(on, work({}), status({ running: [5] }))).toBeNull();
+    // Two works whose rounds run side by side both show running; another work's round does not make one running.
+    for (const id of [5, 7]) expect(course(work({ id }), status({ running: [5, 7] })).running).toBe('goes_on');
+    expect(course(work({}), status({ running: [3, 7] })).running).toBe(null);
     // Going on by itself between two rounds, or waiting for other items or the architect, says so or nothing.
     expect(waitOf(course(work({}), status({})), work({}), status({}))).toBeNull();
     const items = course(work({ waits: { kind: 'items', items: [3] } }), status({}));
@@ -333,18 +340,26 @@ describe('how a work goes on', () => {
       why: 'What it waited for came: it goes on once its machine has a slot free, before any new work starts.',
     });
     expect(course(work({}), status({})).slot).toBe(false);
-    const pausing = course(work({ paused: 'x', paused_by: 'owner' }), status({ running: 5 }));
+    const pausing = course(work({ paused: 'x', paused_by: 'owner' }), status({ running: [5] }));
     expect(pausing.running).toBe('pausing');
-    expect(stepWhyNot(pausing, controls(pausing, status({ running: 5 })))).toBe('pausing after this round');
-    expect(course(work({ paused: 'x', paused_by: 'owner' }), status({ running: 5, stepping: 5 })).running).toBe('step');
+    expect(stepWhyNot(pausing, controls(pausing, status({ running: [5] })))).toBe('pausing after this round');
+    expect(
+      course(work({ paused: 'x', paused_by: 'owner' }), status({ running: [3, 5], stepping: [5] })).running,
+    ).toBe('step');
     // Halted by the engine on an older flow version: Start and Step, which wait for the round under way.
     const stopped = course(work({ paused: 'cell implement: no', paused_by: 'engine', flow_version: 1 }), status({}));
     expect([stopped.held, stopped.outdated]).toEqual(['engine', true]);
     const why = waitOf(stopped, work({ paused: 'cell implement: no', paused_by: 'engine' }), status({}));
     expect(why).toEqual({ tag: 'halted', why: 'halted: cell implement: no' });
-    expect(controls(stopped, status({ stepping: 3 }))).toEqual({ pause: false, start: true, step: true, canStep: false });
-    expect(stepWhyNot(stopped, controls(stopped, status({ stepping: 3 })))).toBe(
-      'Another round you asked for is under way, or something stops every work: Step waits until it ends.',
+    // The round of another work asked for runs beside it; the round of it asked for before is waited for.
+    expect(controls(stopped, status({ stepping: [3] }))).toEqual({ pause: false, start: true, step: true, canStep: true });
+    const stepped = course(
+      work({ paused: 'cell implement: no', paused_by: 'engine', flow_version: 1 }),
+      status({ stepping: [5] }),
+    );
+    expect(controls(stepped, status({ stepping: [5] }))).toEqual({ pause: false, start: true, step: true, canStep: false });
+    expect(stepWhyNot(stepped, controls(stepped, status({ stepping: [5] })))).toBe(
+      'The round you asked for is under way, or something stops every work: Step waits until it ends.',
     );
     // Paused by the architect: said so, with its reason, not as a problem; Start all leaves it, its Start lets it go on.
     const architect = course(work({ paused: 'it waits for the parser', paused_by: 'architect' }), status({ paused: true }));
@@ -386,7 +401,7 @@ describe('how a work goes on', () => {
     );
     expect(button(work({ graph: 'architect', item: null, project: 'p' }), status({}))).toBe('');
     expect(button(work({ state: 'ended', ended: 'x' }), status({}))).toBe('');
-    expect(startOverWords(work({}), status({ running: 5 }))).toEqual({
+    expect(startOverWords(work({}), status({ running: [5] }))).toEqual({
       title: 'Start work 5 over?',
       body:
         "The round under way is cut off, and its agent's process finishes before the new work begins. A new work on " +
