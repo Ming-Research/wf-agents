@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 Keep the database's daily copy off the machine
+
+Changed: D:db-copies changed
+
+Why: A copy beside the database is lost with the machine. The data directory already has a private repository on GitHub, its git remote, so each daily copy is compressed and uploaded as an asset of a release of that repository, the newest kept as beside the database; a data directory with no remote on GitHub keeps its copies on its machine only.
+
+Re-examined: none rests on D:db-copies
+
+Ruling: the owner's of 2026-11-01 that the data directory's repository, already private, is where they go
+
 ## 2026-11-01 Keep copies of the database
 
 Changed: D:db-copies added, F:db-only-copy added

@@ -751,7 +751,10 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
             }
             // A copy of the database is kept once a day.
             match e.back_up(db::now()) {
-                Ok(Some(copy)) => e.say(&format!("kept a copy of the database: {}", copy.display())),
+                Ok(Some(copy)) => {
+                    e.say(&format!("kept a copy of the database: {}", copy.display()));
+                    e.keep_off_machine(copy);
+                }
                 Ok(None) => {}
                 Err(x) => e.say(&format!("keeping a copy of the database: {x}")),
             }

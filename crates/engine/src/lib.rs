@@ -18,6 +18,7 @@
 //! to the database and the configuration as its step began. Its git commands that change what every worktree of a
 //! project's repository shares take turns ([`sessions::worktree::git`]).
 
+pub mod backup;
 pub mod blockers;
 pub mod database;
 pub mod ending;
@@ -689,6 +690,31 @@ impl Engine {
         db::backup::prune(&dir, db::backup::DAILY, self.config.config.install.backup.keep())
             .map_err(|e| e.to_string())?;
         Ok(Some(copy))
+    }
+
+    /// Keeps a daily copy off the machine as well, on a thread of its own ([`backup`]): compressed, uploaded to the data
+    /// directory's repository on GitHub, the newest kept there as beside the database, the compressed file removed once
+    /// uploaded. A data directory with no remote on GitHub keeps its copies on this machine only, as the log says; a
+    /// failed upload is said, and the next day's copy goes up all the same.
+    pub fn keep_off_machine(&self, copy: PathBuf) {
+        let say = Arc::clone(&self.shared.hooks.say);
+        let data = self.data.clone();
+        let keep = self.config.config.install.backup.keep();
+        std::thread::spawn(move || {
+            let Some(repo) = backup::repository(&data) else {
+                say("the data directory has no repository on GitHub: the database's copies stay on this machine only");
+                return;
+            };
+            let kept = backup::compress(&copy).and_then(|gz| {
+                let up = backup::upload(&repo, &gz, keep);
+                let _ = std::fs::remove_file(&gz);
+                up
+            });
+            match kept {
+                Ok(()) => say(&format!("kept the database's copy off this machine, in {repo}")),
+                Err(x) => say(&format!("keeping the database's copy off this machine: {x}")),
+            }
+        });
     }
 
     /// Reminds the owner of the asks waiting for the owner's answer when a reminder is due at `now`, the installation's
