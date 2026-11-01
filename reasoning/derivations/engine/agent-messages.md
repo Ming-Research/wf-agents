@@ -115,9 +115,9 @@ Decision since-last-work-limits: What happened in a project since its architect'
 
 Rests on: C:efficient, F:commit-list-size, F:agent-reads-git-history
 
-Decision unmeetable-left-out: What a project cannot meet is left out of what its agents are given: a field of every return the project does not ask for, and a gate whose need it does not meet (a gap in what is under test needs something under test), which the engine answers by need, instead of every field and gate in every project, because what no work of the project can meet only invites an answer that does not fit, as a gate the engine answers by need is no column of the review. An ask carries no kind (D:ask-no-kind), so that no kind of question is left out of the return formats.
+Decision unmeetable-left-out: What a project cannot meet is left out of what its agents are given: a field of every return the project does not ask for, and a check after design the project's way does not reach, as the gap in what is under test for a project with nothing under test (D:way-cells), instead of every field and check in every project, because what no work of the project can meet only invites an answer that does not fit, as a check its way did not reach is no column of the review. An ask carries no kind (D:ask-no-kind), so that no kind of question is left out of the return formats.
 
-Rests on: C:information, F:unmeetable-invites-misfit, D:gate-na-no-column, D:ask-no-kind
+Rests on: C:information, F:unmeetable-invites-misfit, D:gate-na-no-column, D:ask-no-kind, D:way-cells
 
 Decision shared-return-forms: The forms every agent's return shares (asking, tools, pausing, answers, redirect, side reports, progress) are one conditional input holding every tool and role some cell of the session's line has, the same for every round of the line, and each cell's own answer is another, which also says which shared forms the cell has; both are given once in a session for each flow version, with the value of each setting they name (such as the owner's language) written beside it, and the always inputs name the format to hand in, while the command line keeps its one structured-output envelope and the engine checks each return against the cell's whole schema, instead of each cell's whole return schema in every round, because the shared forms are most of every schema and do not change within a flow version.
 
@@ -131,11 +131,7 @@ Decision read-only-worktree-words: The worktree an agent is given is said as the
 
 Rests on: C:information
 
-Decision tree-review-since-last: The design tree review is given the change to the design tree since the last design tree review, or across the whole branch at the first, instead of since the last table review, because the table review runs just before it on the same head and left nothing to review.
-
-Rests on: C:efficient
-
-Decision fix-table: The fix cell's table is one input the engine makes of its sources: each finding of the reviews, column they could not verify, test that went wrong, conflict and check not green is a row, numbered F1, F2, ... across all of them and saying where it came from; the round's record keeps the table, the fix answers every row by its number and no other, a table with no row runs no round of the fix (reasoning/derivations/flow.md), and the checks that follow a finding or a test read through the table to its own number or name, instead of each source given apart and answered by the numbers it carries, because the table review's columns and the design tree review's share numbers, and a conflict or a check had none to be answered by.
+Decision fix-table: The fix cell's table is one input the engine makes of its sources: each finding of the reviews, column they could not verify, test that went wrong, conflict and check not green, and a change to the code asked at the way on, is a row, numbered F1, F2, ... across all of them and saying where it came from; it holds only what was handed in since the fix last answered (`unanswered`), so that no row is answered twice; the round's record keeps the table, the fix answers every row by its number and no other, a table with no row runs no round of the fix (reasoning/derivations/flow.md), and the checks that follow a finding or a test read through the table to its own number or name, instead of each source given apart and answered by the numbers it carries, because the table review's columns and those of the check of the code against the records share numbers, and a conflict or a check had none to be answered by.
 
 Rests on: C:information
 
@@ -151,11 +147,11 @@ Decision unmeasured-slowdown-column: The column of a measured slowdown, when not
 
 Rests on: C:efficient, D:unverified-column-decided
 
-Decision review-card-ci-inputs: The table review and the design tree review are given the work's design card as it stands, its latest, and the earlier cards it replaced by number only, and the latest run of the fast CI, of the full CI on the draft and of the tests on the code before the change, each with the head it ran on, its result and the links to its runs, instead of every design card of the work in full and no CI, because a replaced card is history they need not judge, and their columns ask whether the evidence comes from the head to be merged, which each review spent a round of tools finding.
+Decision review-card-ci-inputs: The table review and the check of the code against the records are given the work's design card as it stands, its latest, and the earlier cards it replaced by number only, and the latest run of the fast CI, of the full CI on the draft and of the tests on the code before the change, each with the head it ran on, its result and the links to its runs, instead of every design card of the work in full and no CI, because a replaced card is history they need not judge, and their columns ask whether the evidence comes from the head to be merged, which each review spent a round of tools finding.
 
 Rests on: C:efficient, C:information, F:review-finds-head
 
-Decision review-base-commits: The reviews (the blind review, the table review and the design tree review) are given what they review by commits the work's worktree has (`review_base`): main as fetched, `origin/<main>`, which is the pull request's base; the commit of main the branch was cut from or last took main in at; the head under review; the command that reads the change between them; and at a re-review the head the last table review looked at; and every worktree's description says to read main as `origin/<main>`, a local branch of it maybe missing or out of date; instead of the description alone saying that main is the branch `<main>`, because in the sixth trial the blind review ran `git diff trial-main...HEAD` in a worktree that had no branch `trial-main`, only `origin/trial-main`, and had to read the base off the log.
+Decision review-base-commits: The reviews (the blind review, the table review and the check of the code against the records) are given what they review by commits the work's worktree has (`review_base`): main as fetched, `origin/<main>`, which is the pull request's base; the commit of main the branch was cut from or last took main in at; the head under review; the command that reads the change between them; and at a re-review the head the last table review looked at; and every worktree's description says to read main as `origin/<main>`, a local branch of it maybe missing or out of date; instead of the description alone saying that main is the branch `<main>`, because in the sixth trial the blind review ran `git diff trial-main...HEAD` in a worktree that had no branch `trial-main`, only `origin/trial-main`, and had to read the base off the log.
 
 Rests on: C:information, F:blind-review-base
 

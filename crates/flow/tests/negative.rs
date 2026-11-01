@@ -144,7 +144,7 @@ case!(an_engine_step_nothing_uses, "an engine step nothing uses: extra", |v| {
     v["engine"]["steps"]["extra"] = json!("x");
 });
 case!(no_such_engine_action, "no such engine action: nope", |v| {
-    row(v, "D8", "report")["do"] = json!(["lock_acceptance", "post_design_card", "nope"]);
+    row(v, "D14", "report")["do"] = json!(["lock_acceptance", "post_design_card", "nope"]);
 });
 case!(
     a_line_mixing_low_with_other_efforts,
@@ -248,21 +248,21 @@ case!(
     a_gate_that_may_not_apply_and_goes_on_by_rows,
     "a gate that may not apply goes on to one cell",
     |v| {
-        node(v, "D8")["na"] = json!("only documents change");
+        node(v, "D14")["na"] = json!("only documents change");
     }
 );
 case!(
     a_gate_that_goes_on_both_ways,
     "a gate goes on to one cell or by rows",
     |v| {
-        node(v, "D8")["to"] = json!("D9");
+        node(v, "D14")["to"] = json!("D15");
     }
 );
 case!(
     a_gate_with_rows_that_records_a_value,
     "a gate with rows records what each row does",
     |v| {
-        node(v, "D8")["sets"] = json!({ "stage": "design_on" });
+        node(v, "D14")["sets"] = json!({ "stage": "design_on" });
     }
 );
 case!(
@@ -298,11 +298,11 @@ case!(
     an_answer_from_a_cell_nobody_asks,
     "only a cell that is asked answers the one that asked",
     |v| {
-        row(v, "D3", "found")["to"] = json!("@asker");
+        row(v, "D7", "findings")["to"] = json!("@asker");
     }
 );
 case!(a_row_counts_no_such_counter, "no such counter", |v| {
-    row(v, "D3", "found")["counts"] = json!("x");
+    row(v, "D7", "findings")["counts"] = json!("x");
 });
 case!(a_counter_no_row_counts, "a counter no row counts", |v| {
     graph(v)["limits"]["counters"]
@@ -355,9 +355,9 @@ case!(
 );
 case!(
     a_gate_that_names_a_kind,
-    "an ask carries no kind, and gate D8 names one",
+    "an ask carries no kind, and gate D14 names one",
     |v| {
-        node(v, "D8")["about"] = json!("split");
+        node(v, "D14")["about"] = json!("split");
     }
 );
 // A flow from before asks lost their kinds, as at an older commit, is still shown: its kinds of question, the kind its
@@ -374,7 +374,7 @@ fn a_flow_from_before_asks_lost_their_kinds_is_shown_and_does_not_run() {
             0,
             json!({ "name": "kind", "title": "Kind", "type": "enum", "desc": "Which kind", "values": "askKinds" }),
         );
-    node(&mut v, "D8")["about"] = json!("an_old_kind");
+    node(&mut v, "D14")["about"] = json!("an_old_kind");
     let text = serde_json::to_string(&v).unwrap();
     let shown = flow::compile_shown(&text, &context()).unwrap();
     let ask = shown
@@ -497,7 +497,7 @@ case!(no_row_holds, "no row", |v| {
     remove_row(v, "M1", "wait");
 });
 case!(a_design_of_only_the_design_paths_with_no_way_on, "no row", |v| {
-    remove_row(v, "D8", "design_paths_only");
+    remove_row(v, "D14", "design_paths_only");
 });
 case!(a_split_that_leaves_nothing_with_no_way_to_the_end, "no row", |v| {
     remove_row(v, "A4", "all_to_sub_items");
@@ -508,16 +508,16 @@ case!(a_way_on_that_a_guard_row_also_takes, "overlap", |v| {
 
 // Every state.
 case!(a_recorded_value_not_recorded_on_a_way_in, "not recorded", |v| {
-    obj(row(v, "R1", "done")).remove("sets");
+    obj(row(v, "S1", "started")).remove("sets");
 });
 case!(a_recorded_value_nobody_reads, "never read", |v| {
     row(v, "A2", "answered")["sets"] = json!({ "extra": "x" });
 });
 case!(a_row_no_return_takes, "never taken", |v| {
-    obj(row(v, "D3", "found")).remove("sets");
+    row(v, "D2", "decided")["if"][1] = json!(["is", "@finding.verdict", ["decided", "trade_off", "must_change"]]);
 });
 case!(a_value_no_way_records, "never taken", |v| {
-    obj(node(v, "R2")).remove("sets");
+    obj(row(v, "I1", "done")).remove("sets");
 });
 case!(a_cell_asked_again_while_it_waits, "asked again", |v| {
     node(v, "A1")["out"][0]["fields"].as_array_mut().unwrap().push(json!({
@@ -539,8 +539,8 @@ case!(
         );
     }
 );
-case!(the_design_never_asked_about_other_projects, "unreached D7", |v| {
-    node(v, "D6")["to"] = json!("D8");
+case!(the_design_never_asked_about_other_projects, "unreached D12", |v| {
+    node(v, "D11")["to"] = json!("D14");
 });
 
 // A cell whose rows test a value the engine works out lists what it is worked out from.
@@ -578,11 +578,11 @@ case!(
     a_row_into_the_asking_part_past_the_cells_that_are_asked,
     "side entry",
     |v| {
-        node(v, "D5")["to"] = json!("A4");
+        node(v, "D10")["to"] = json!("A4");
     }
 );
 case!(a_row_into_another_block_past_its_entries, "side entry", |v| {
-    row(v, "D9", "needed")["to"] = json!("T1");
+    row(v, "D15", "needed")["to"] = json!("T1");
 });
 case!(
     a_row_into_the_receiving_cell_not_marked_as_taking_an_interjection,
@@ -652,13 +652,21 @@ case!(
         node(v, "T6")["inputs"][1]["empty"] = json!({ "to": "T7", "note": "Nothing." });
     }
 );
-case!(
-    a_gate_that_needs_no_such_need,
-    "no such engine need: nothing_known",
-    |v| {
-        node(v, "D4")["needs"] = json!("nothing_known");
-    }
-);
+// Which way a work goes is a cell of its own with a row each way: a cell of a flow that runs needs nothing to apply,
+// which a flow from before, as at an older commit, still shows.
+#[test]
+fn a_cell_that_needs_something_to_apply_is_only_shown() {
+    let edit = |v: &mut Value| {
+        node(v, "D9")["needs"] = json!("flow_feedback");
+    };
+    refused(
+        edit,
+        "cell D9 needs something to apply, which a cell of its own with a row each way decides",
+    );
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    edit(&mut v);
+    flow::compile_shown(&v.to_string(), &context()).unwrap();
+}
 case!(a_field_that_needs_no_such_need, "a field needs no such need", |v| {
     graph(v)["agentCommon"]["needs"] = json!({ "flow_feedback": "nothing_known" });
 });
@@ -742,7 +750,10 @@ case!(an_input_missing_on_some_way, "missing", |v| {
 case!(an_input_marked_maybe_that_is_always_there, "marked maybe", |v| {
     node(v, "T4")["inputs"][4]["maybe"] = json!(true);
 });
+// The fix's table, which a change asked at the way on may leave empty, is taken as one it must always have a row of.
 case!(an_input_missing_behind_an_engine_step, "missing", |v| {
+    obj(&mut node(v, "T6")["inputs"][0]).remove("maybe");
+    drop_source(v, "T6", json!(["A4", "next.change"]));
     drop_source(v, "T6", json!(["T4", "previous[not_fixed]"]));
     drop_source(v, "T6", json!(["T4", "previous[insist]"]));
 });

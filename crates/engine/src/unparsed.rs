@@ -529,7 +529,7 @@ mod tests {
     fn a_form_written_as_its_json_text_is_taken_with_the_closing_brackets_after_it_dropped() {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
-        let cell = g.cell("D2").unwrap();
+        let cell = g.cell("D4").unwrap();
         let schema = cell.schema.clone().unwrap();
         let answer = json!({
             "chosen": "One SQL statement with a total row",

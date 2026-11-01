@@ -213,6 +213,9 @@ const POLICY_CHECK: &str = "P1";
 /// The cell of the engineer's graph a work is done at, as the views read it.
 const ENGINEER_END: &str = "E1";
 
+/// The cell of the engineer's graph that writes the design, which the look at a design card reads it from.
+const DESIGN: &str = "D4";
+
 /// The most rows an input of the architect's gives of one list.
 const ROWS: usize = 200;
 
@@ -4601,8 +4604,11 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
                 if let Some(c) = rows.first() {
                     let design = query_json(
                         conn,
-                        "SELECT json_extract(output, '$.outcome') AS design FROM rounds
-                         WHERE work = ?1 AND cell = 'D2' AND transition IS NOT NULL ORDER BY n DESC LIMIT 1",
+                        &format!(
+                            "SELECT json_extract(output, '$.outcome') AS design FROM rounds
+                             WHERE work = ?1 AND cell IN {} AND transition IS NOT NULL ORDER BY n DESC LIMIT 1",
+                            db::cells_sql(ENGINEER, &[DESIGN])
+                        ),
                         &[&c["work"].as_i64().unwrap_or_default()],
                         1,
                     )?;

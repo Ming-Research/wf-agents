@@ -190,20 +190,41 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: O
 }
 
 /// Whether the work's next round at a cell opens a new session for its line because the flow fixes one there: the
-/// cell is one its line starts a new session at, and the work has had no round there yet. The session the line has
-/// going on before it ends there.
+/// cell is one its line starts a new session at and the work has had no round there yet, or the work last came to it
+/// by a row that starts one each time and has had no round there since. A return sent back, an answer brought back
+/// and tools run come back to the cell after a round of it, and go on in its session. The session the line has going
+/// on before it ends there.
 pub fn opens(conn: &Connection, work: i64, cell: &CompiledCell) -> Result<bool, String> {
-    if !cell.new_session {
+    let rounds_after = |n: i64| -> Result<i64, String> {
+        conn.query_row(
+            "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = ?2 AND n > ?3 AND session IS NOT NULL",
+            params![work, cell.id, n],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())
+    };
+    if cell.new_session && rounds_after(0)? == 0 {
+        return Ok(true);
+    }
+    if cell.fresh_session.is_empty() {
         return Ok(false);
     }
-    let before: i64 = conn
+    // The latest round that took a row here which starts a new session each time.
+    let came: Option<i64> = conn
         .query_row(
-            "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = ?2 AND session IS NOT NULL",
-            params![work, cell.id],
+            "SELECT max(n) FROM rounds WHERE work = ?1 AND transition IS NOT NULL
+               AND cell || '·' || transition IN (SELECT value FROM json_each(?2))",
+            params![
+                work,
+                serde_json::to_string(&cell.fresh_session).map_err(|e| e.to_string())?
+            ],
             |r| r.get(0),
         )
         .map_err(|e| e.to_string())?;
-    Ok(before == 0)
+    match came {
+        Some(n) => Ok(rounds_after(n)? == 0),
+        None => Ok(false),
+    }
 }
 
 /// The line of the architect's works, whose session goes on from one of a project's architect works to the next.

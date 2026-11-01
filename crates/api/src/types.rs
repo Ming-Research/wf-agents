@@ -302,7 +302,8 @@ pub struct RoundSummary {
     pub tool_runs: i64,
     /// What the round said it did.
     pub progress: Option<String>,
-    /// For a gate the engine answered itself, since the project does not have what it needs: that need.
+    /// For a gate of a flow version from before the engine's choices of the way were cells of their own, which the
+    /// engine answered itself since the project did not have what it needed: that need.
     pub not_asked: Option<String>,
     /// For an agent's round, where it spent its tokens, from its usage record.
     pub tokens: Option<RoundTokens>,
@@ -979,8 +980,8 @@ pub struct ProjectSettings {
     /// The paths whose change is a change of design, and those that hold tests.
     pub design_paths: Vec<String>,
     pub test_paths: Vec<String>,
-    /// The command that checks the design tree; none when there is none.
-    pub design_check: Option<String>,
+    /// Where it keeps its records, which the reasoning system keeps; none when it keeps none.
+    pub records: Option<String>,
     /// The workflow each push of a work's branch runs, those that make up the full CI, and the checks a merge needs.
     pub ci_fast: String,
     pub ci_full: Vec<String>,
@@ -2168,7 +2169,6 @@ pub enum Part {
     Line,
     Stage,
     Step,
-    Needs,
     Input,
     Rule,
     Prompt,

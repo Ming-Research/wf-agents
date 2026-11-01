@@ -73,10 +73,6 @@ pub fn new_session_why(why: sessions::Start, cell: &CompiledCell, limit: u64, mo
     }
 }
 
-fn need_met(project: &config::Project, need: &str) -> bool {
-    project.has(need).unwrap_or(false)
-}
-
 /// The inputs of a step that is not an agent's round, as its round records them: the value of each, by its sources,
 /// without what the flow says each is.
 fn recorded_inputs(gathered: &[Gathered]) -> Value {
@@ -131,11 +127,6 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         Some(_) => Some(e.project_of(w)?),
         None => None,
     };
-    if let Some(need) = &cell.needs
-        && !project.as_ref().is_some_and(|p| need_met(p, need))
-    {
-        return not_applicable(e, w, g, cell, need);
-    }
     // A table the cell must answer that has no row leaves its round nothing to answer: no round runs, and the engine
     // takes the cell's row for it, recorded with why.
     if let Some(row) = crate::row(cell, flow::format::NOTHING_TO_ANSWER).cloned() {
@@ -927,83 +918,6 @@ fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Ad
     Ok(Advance::Moved)
 }
 
-/// Why a gate whose need the project's configuration does not answer is not asked, as the engine's answer says it.
-fn why_not_asked(e: &mut Engine, w: &Work, need: &str) -> Result<String, String> {
-    let desc = e
-        .flow(w.flow_version)?
-        .engine
-        .needs
-        .get(need)
-        .cloned()
-        .unwrap_or_default();
-    Ok(format!(
-        "Not asked: this question needs what this project does not have. {desc}"
-    ))
-}
-
-/// A gate whose need the project's configuration does not answer is not asked: the engine answers not applicable
-/// where the gate's answer has that, and no otherwise, and says why.
-fn not_applicable(
-    e: &mut Engine,
-    w: &Work,
-    g: &CompiledGraph,
-    cell: &CompiledCell,
-    need: &str,
-) -> Result<Advance, String> {
-    let why = why_not_asked(e, w, need)?;
-    // The gate's answer: not applicable where it has that, else its outcome that goes on; a gate of a flow version
-    // whose answer was empty hands in none.
-    let verdicts: Vec<String> = cell
-        .schema
-        .as_ref()
-        .and_then(|s| s.pointer(&format!("/properties/{}/anyOf/0/properties/answer/oneOf", g.within)))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|b| b.pointer("/properties/verdict/const").and_then(Value::as_str))
-        .map(str::to_string)
-        .collect();
-    let verdict = verdicts
-        .iter()
-        .find(|v| *v == "not_applicable")
-        .or_else(|| cell.outcomes.first())
-        .or(verdicts.first());
-    let own = match verdict {
-        Some(v) => json!({ "answer": { "verdict": v, "why": why } }),
-        None => json!({}),
-    };
-    let mut output = Map::new();
-    output.insert(g.within.clone(), own);
-    output.insert(
-        "progress".into(),
-        json!(format!("The engine answered not applicable: {why}")),
-    );
-    output.insert("side_reports".into(), json!([]));
-    output.insert("tell_owner".into(), json!([]));
-    // A project asked for flow feedback gets none from the engine's own answer.
-    let feedback = crate::architect::FLOW_FEEDBACK;
-    if cell
-        .schema
-        .as_ref()
-        .is_some_and(|s| s["properties"].get(feedback).is_some())
-    {
-        output.insert(feedback.into(), json!("none"));
-    }
-    let output = Value::Object(output);
-    let item = e.subject(w)?;
-    let gathered = inputs::gather(e, w, g, cell, item.as_ref())?;
-    let given = values::given(e, w, g, cell, item.as_ref(), &gathered)?;
-    let row = g.take(&cell.id, &output, &given)?.clone();
-    let commit = e.config.commit.clone();
-    let input = json!({ "engine": { "not_applicable": need } });
-    let round =
-        e.db.write(Actor::Engine, |tx| {
-            work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
-        })
-        .map_err(sql)?;
-    finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)
-}
-
 /// Ends a round that took a row: the round, what the row and the cell's own actions do, and where the work goes,
 /// in one transaction. `given` is what the rows were given, which an action at an input read by id reads.
 #[allow(clippy::too_many_arguments)]
@@ -1315,6 +1229,15 @@ pub fn engine(
             out
         }
         Some("full_ci_on_draft") => tools::full_ci(e, w, needed(&item, w)?, round)?,
+        Some("check_records") => {
+            let project = e.project_of(w)?;
+            let wt = w
+                .worktree
+                .as_deref()
+                .ok_or_else(|| format!("work {} has no worktree to check the records in", w.id))?;
+            let fork = git::fork_point(wt, &project.main)?;
+            crate::reasoning::check(e, &project, wt, &fork)?
+        }
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
         Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
@@ -1723,16 +1646,20 @@ pub fn what_is_asked(asked: &[Value]) -> String {
 }
 
 /// The directories outside the worktree an agent may read: where the engine saves a tool's output too long to give
-/// inline, and the logs of red checks it names; made when missing, by their real paths, so that the CLI's rules match.
+/// inline, and the logs of red checks it names, made when missing; and the installation's copy of the reasoning
+/// system, whose check a cell that works on the records runs itself, when there is one. Each by its real path, so
+/// that the CLI's rules match.
 fn readable_dirs(e: &Engine) -> Vec<std::path::PathBuf> {
-    ["tool-output", "logs"]
+    let mut out: Vec<std::path::PathBuf> = ["tool-output", "logs"]
         .iter()
         .filter_map(|name| {
             let dir = e.data.join(name);
             std::fs::create_dir_all(&dir).ok()?;
             std::fs::canonicalize(&dir).ok()
         })
-        .collect()
+        .collect();
+    out.extend(std::fs::canonicalize(crate::reasoning::system(e)).ok());
+    out
 }
 
 /// Cell `T7`: what runs next, from what the design chose, what the review accepted, whether the change
@@ -1742,7 +1669,7 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
     let reviews = inputs::answered(e, w, g, "T4")?;
     let adversarial = inputs::answered(e, w, g, "T1")?;
     let fixes = inputs::answered(e, w, g, "T6")?;
-    let chose = inputs::last_return(e, w, g, "D9", "adversarial")?
+    let chose = inputs::last_return(e, w, g, "D15", "adversarial")?
         .and_then(|r| at_path(&r, "adversarial.verdict"))
         .is_some_and(|v| v == "needed");
     let not_accepted = inputs::last_return(e, w, g, "T4", "no_adversarial")?

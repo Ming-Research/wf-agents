@@ -1,6 +1,6 @@
-Decision rules-in-flow: The rules agents follow are the flow's rules (how the design tree is written, the review tables, interjections among them), written in `flow/flow.json`, travelling with the flow and independent of any project, each given to cells as a conditional input: the general rules to every agent's cell, the engineering standards to every engineer's cell and the advisor's, and the design tree writing, the review table and the design tree review to the cells that name them; a rule given to every cell of some lines names those lines, and a cell does not name it again, instead of rule files in the project's configuration, because how an engineer, a reviewer or an adversarial tester works is the same in every project and belongs to the flow those roles are cells of, and such rules define how the flow works rather than how one project works.
+Decision rules-in-flow: The rules agents follow are the flow's rules (the review tables and interjections among them), written in `flow/flow.json`, travelling with the flow and independent of any project, each given to cells as a conditional input: the general rules to every agent's cell, the engineering standards to every engineer's cell and the advisor's, and the review table to the cells that name it; a rule given to every cell of some lines names those lines, and a cell does not name it again; the rules a project's records are kept by are the reasoning system's (D:reasoning-rules-by-role); instead of rule files in the project's configuration, because how an engineer, a reviewer or an adversarial tester works is the same in every project and belongs to the flow those roles are cells of, and such rules define how the flow works rather than how one project works.
 
-Rests on: C:independent, D:harness-only
+Rests on: C:independent, D:harness-only, D:reasoning-rules-by-role
 
 Rejected:
 - Rule files in each project's configuration for how agents work: rejected because the same rules then have to be kept in every project, and the flow cannot be checked against them.
@@ -42,12 +42,12 @@ Decision item-writing-rule: How the architect writes an item is said in its rule
 
 Rests on: C:information
 
-Decision review-checklist: A review is given its checklist as the review table and the design tree review, and its own way of working in its tasks and its findings: it reviews only the change, reruns no test already green, adds no new style demand, reviews only the PR's own change where it merges main, marks each item passed, findings, cannot be verified or not applicable with no pass without evidence, and gives each finding where it is, the quoted text or the missing evidence, and the reason, quoting both sides of a contradiction; a defect in the PR description is a finding too, instead of the engineering standards as what a reviewer checks, because the standards say how agents work themselves, not what a review checks.
+Decision review-checklist: A review is given its checklist as the review table, and in a project that keeps records the columns of the check of the code against them (D:code-against-records), and its own way of working in its tasks and its findings: it reviews only the change, reruns no test already green, adds no new style demand, reviews only the PR's own change where it merges main, marks each item passed, findings, cannot be verified or not applicable with no pass without evidence, and gives each finding where it is, the quoted text or the missing evidence, and the reason, quoting both sides of a contradiction; a defect in the PR description is a finding too, instead of the engineering standards as what a reviewer checks, because the standards say how agents work themselves, not what a review checks.
 
-Rests on: C:information
+Rests on: C:information, D:code-against-records
 
 Rejected:
-- Giving a reviewer the engineering standards as a checklist: rejected because they say how an agent works, while what a review checks is the review table and the design tree review.
+- Giving a reviewer the engineering standards as a checklist: rejected because they say how an agent works, while what a review checks is the review table and the check of the code against the records.
 
 Decision project-rules: A project's own rule texts, which its configuration lists, are given to every agent's cell beside the flow's rules, and hold only what is particular to that project, instead of carrying the flow's rules too, because a rule a project needs (such as a goal its projects share) cannot be written into the flow, while the flow's rules hold in every project.
 
@@ -77,7 +77,7 @@ Decision review-table-standards: The review table names what the engineering sta
 
 Rests on: C:design-on-merit, D:review-checklist
 
-Decision no-design-tree: Every project should have a design tree; one with none yet names no design paths, so its works raise no design card, and the design tree review answers its four points on code against decisions not applicable there, as the earlier board's rules skipped every step about a tree, instead of a review that asks for nodes a project has no tree to hold, because such a finding could not be fixed and would only send the work round the fix.
+Decision no-design-tree: A project's records are built once, outside the flow; until then its configuration names none, and its works skip every step on them (the challenge of the chain, the records' check and coherence review, the check of the code against them), as the earlier board's rules skipped every step about a tree, instead of a review that asks for records a project has none of, because such a finding could not be fixed and would only send the work round the fix.
 
 Rests on: C:efficient
 

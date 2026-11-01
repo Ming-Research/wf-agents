@@ -37,6 +37,7 @@ import {
   labelSize,
   type Marks,
   SessionBadge,
+  freshEachTime,
   sessionWidth,
   sizes,
   startsAnew,
@@ -279,6 +280,7 @@ function Legend({ charts, stores, legend, colours }: {
   }
   const order = (key: string) => (key === 'fresh' ? 1 : key.startsWith('kind-') ? 2 : 0);
   const styles = [...kinds].sort((a, b) => order(a[0]) - order(b[0]));
+  const freshEach = cells.some(freshEachTime);
   const efforts = effortsOf(cells);
   const effortW = effortWidth();
   const rules = cells.some((c) => (c.rules ?? []).length > 0);
@@ -407,6 +409,14 @@ function Legend({ charts, stores, legend, colours }: {
             {label}
           </li>
         ))}
+        {freshEach ? (
+          <li>
+            <svg className="fc legend-swatch" width={sessionWidth()} height="18" viewBox={`0 0 ${sessionWidth()} 18`}>
+              <SessionBadge x={0} y={1} each />
+            </svg>
+            {t('legend_fresh_each')}
+          </li>
+        ) : null}
         {efforts.length > 0 ? (
           <li>
             <svg

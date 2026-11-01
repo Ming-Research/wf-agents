@@ -18,7 +18,6 @@ const PART: Record<Part, Key> = {
   line: 'part_line',
   stage: 'part_stage',
   step: 'part_step',
-  needs: 'part_needs',
   input: 'part_input',
   rule: 'part_rule',
   prompt: 'part_prompt',

@@ -45,7 +45,6 @@ const cell = (id: string, kind: string, line: string | null) => ({
   gate: false,
   title: `cell ${id}`,
   step: null,
-  needs: null,
   line,
   stage: null,
   inputs: [],

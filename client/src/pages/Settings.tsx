@@ -446,8 +446,8 @@ function Project({
             { label: t('settings_design_paths'), value: <Codes list={p.design_paths} /> },
             { label: t('settings_test_paths'), value: <Codes list={p.test_paths} /> },
             {
-              label: t('settings_design_check'),
-              value: p.design_check !== null ? <Name>{p.design_check}</Name> : t('settings_none'),
+              label: t('settings_records'),
+              value: p.records !== null ? <Name>{p.records}</Name> : t('settings_none'),
             },
             { label: t('settings_ci_fast'), value: <Name>{p.ci_fast}</Name> },
             { label: t('settings_ci_full'), value: <Codes list={p.ci_full} /> },

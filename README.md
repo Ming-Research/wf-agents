@@ -52,6 +52,15 @@ architects' worktrees under `worktrees/`, which its git leaves out. Once the con
 `wf-agents init` makes the database; it is the only command that does, and every command that works on the database,
 the engine included, fails when there is none, so a wrong `--data` is an error and not an empty view.
 
+## A project's records
+
+A project that keeps records by the reasoning system names them in its file, `records = { root = "reasoning", ascii =
+true }` (`ascii` for records in English only), and its works derive their designs from them, check them and are given
+the system's rules by role; one that names none skips every step on them. The installation keeps one clone of
+github.com/Ming-Research/reasoning-system for every project, `reasoning-system` in the data directory unless
+`install.toml` names another as `[reasoning] system`: the engine runs its `check.py` on a work's records and reads its
+rules from there.
+
 ## The agents' own configuration
 
 The engine runs every agent's command line with a configuration directory of its own (`CLAUDE_CONFIG_DIR` for

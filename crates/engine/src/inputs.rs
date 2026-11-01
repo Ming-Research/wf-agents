@@ -18,6 +18,157 @@ const ROWS: usize = 200;
 /// The engineer's cell that fixes what the checks after implementing found, answering a numbered table.
 const FIX: &str = "T6";
 
+/// The engineer's cell that writes the design, whose returns are the design's versions.
+const DESIGN: &str = "D4";
+
+/// The input that gives a check after design what the design changed since it last answered.
+const DESIGN_CHANGE: &str = "design_change";
+
+/// The design fields a check after design judges, outside the design's own: the way chosen, why, and the estimate.
+const DESIGN_FIELDS: [&str; 3] = ["chosen", "why", "estimate"];
+
+/// What the design changed since the check `cell` last answered: each of its fields that changed, as a difference of
+/// lines between the design the check was given then (the latest design written before that answer) and the design
+/// now, the fields that did not change by name, and the check's answer then with why; none before its first answer,
+/// and none when no design was written since.
+fn design_change(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> Result<Option<Value>, String> {
+    let Some(last) = answered(e, w, g, cell)?.into_iter().next() else {
+        return Ok(None);
+    };
+    let designs = returns_holding(e, w, g, DESIGN, "design")?;
+    let Some((now_round, now)) = designs.first() else {
+        return Ok(None);
+    };
+    let Some((then_round, then)) = designs.iter().find(|(r, _)| *r < last.id) else {
+        return Ok(None);
+    };
+    if now_round == then_round {
+        return Ok(None);
+    }
+    // Every field of the design, then those of the return beside it that a check reads.
+    let mut fields: Vec<(String, Value, Value)> = Vec::new();
+    let mut names: Vec<String> = Vec::new();
+    for d in [&now["design"], &then["design"]] {
+        for k in d.as_object().into_iter().flatten().map(|(k, _)| k) {
+            if !names.contains(k) {
+                names.push(k.clone());
+            }
+        }
+    }
+    for k in &names {
+        fields.push((
+            format!("design.{k}"),
+            then["design"][k].clone(),
+            now["design"][k].clone(),
+        ));
+    }
+    for k in DESIGN_FIELDS {
+        fields.push((k.to_string(), then[k].clone(), now[k].clone()));
+    }
+    let text = |v: &Value| match v {
+        Value::String(s) => s.clone(),
+        Value::Null => String::new(),
+        other => serde_json::to_string_pretty(other).unwrap_or_default(),
+    };
+    let mut changed = Map::new();
+    let mut unchanged = Vec::new();
+    // How long the design now is, and its difference, counted alike: a difference no shorter than the design is no
+    // help, and the check judges the whole design, as the first time.
+    let (mut whole, mut diffs) = (0, 0);
+    for (name, was, is) in fields {
+        whole += text(&is).len();
+        if was == is {
+            unchanged.push(Value::String(name));
+        } else {
+            let d = line_diff(&text(&was), &text(&is));
+            diffs += d.len();
+            changed.insert(name, Value::String(d));
+        }
+    }
+    if diffs >= whole {
+        return Ok(None);
+    }
+    let answer = last
+        .output
+        .as_ref()
+        .map(|o| g.unwrap(o))
+        .and_then(|o| o.get("answer").cloned())
+        .unwrap_or(Value::Null);
+    Ok(Some(json!({
+        "changed": changed,
+        "unchanged": unchanged,
+        "your_last_answer": answer,
+    })))
+}
+
+/// A text's sentences, each line split after every full stop, question or exclamation mark that ends a sentence: the
+/// units a difference of a design's text is counted in, since a paragraph is one line.
+fn sentences(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let mut start = 0;
+        for (i, c) in line.char_indices() {
+            let end = i + c.len_utf8();
+            if matches!(c, '.' | '?' | '!') && line[end..].starts_with(' ') {
+                out.push(line[start..end].trim());
+                start = end;
+            }
+        }
+        out.push(line[start..].trim());
+    }
+    out
+}
+
+/// The sentences of `now` that differ from `then`, each one a line: each removed one after `-` and each added one after
+/// `+`, with the sentence before and after a change as it stands, after a space, and `...` where unchanged ones are left
+/// out.
+pub fn line_diff(then: &str, now: &str) -> String {
+    let a: Vec<&str> = sentences(then);
+    let b: Vec<&str> = sentences(now);
+    // The longest common subsequence's lengths, from the ends.
+    let mut lcs = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for i in (0..a.len()).rev() {
+        for j in (0..b.len()).rev() {
+            lcs[i][j] = if a[i] == b[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+    // Each line, kept (' '), removed ('-') or added ('+').
+    let mut ops: Vec<(char, &str)> = Vec::new();
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() || j < b.len() {
+        if i < a.len() && j < b.len() && a[i] == b[j] {
+            ops.push((' ', a[i]));
+            i += 1;
+            j += 1;
+        } else if j < b.len() && (i == a.len() || lcs[i][j + 1] > lcs[i + 1][j]) {
+            ops.push(('+', b[j]));
+            j += 1;
+        } else {
+            ops.push(('-', a[i]));
+            i += 1;
+        }
+    }
+    let near = |k: usize| (k.saturating_sub(1)..=(k + 1).min(ops.len().saturating_sub(1))).any(|m| ops[m].0 != ' ');
+    let mut out: Vec<String> = Vec::new();
+    let mut skipped = false;
+    for (k, (op, line)) in ops.iter().enumerate() {
+        if *op != ' ' || near(k) {
+            if skipped && !out.is_empty() {
+                out.push("...".to_string());
+            }
+            skipped = false;
+            out.push(format!("{op}{line}"));
+        } else {
+            skipped = true;
+        }
+    }
+    out.join("\n")
+}
+
 /// The view of the work's rounds that a flow version stored before the history was removed still names. It re-sent
 /// every round's whole record, so no input gives it any longer.
 const HISTORY: &str = "work_history";
@@ -200,10 +351,13 @@ pub fn gather(
     item: Option<&Item>,
 ) -> Result<Vec<Gathered>, String> {
     let mut out = Vec::new();
+    // The cell's own last answer, which an input that reads only what it has not answered reads after.
+    let last_answer = answered(e, w, g, &cell.id)?.first().map(|r| r.id);
     for x in &cell.inputs {
         let mut parts: Vec<Part> = Vec::new();
+        let after = if x.unanswered { last_answer } else { None };
         for s in &x.from {
-            parts.extend(source(e, w, g, cell, item, s, x.newest)?);
+            parts.extend(source(e, w, g, cell, item, s, x.newest, after)?);
         }
         let value = match parts.as_slice() {
             [] => None,
@@ -245,7 +399,9 @@ fn came_from(e: &Engine, w: &Work, g: &CompiledGraph, path: &str) -> Result<Opti
     Ok(cells.into_iter().rev().find(|c| c != at && !shared(c)))
 }
 
-/// What one source of an input gives: none when it has nothing.
+/// What one source of an input gives: none when it has nothing. A place is read only from the returns handed in
+/// after the round `after`, when one is given.
+#[allow(clippy::too_many_arguments)]
 fn source(
     e: &Engine,
     w: &Work,
@@ -254,6 +410,7 @@ fn source(
     item: Option<&Item>,
     s: &Src,
     newest: bool,
+    after: Option<RoundId>,
 ) -> Result<Option<Part>, String> {
     Ok(match s {
         Src::Place(c, p) => {
@@ -263,7 +420,10 @@ fn source(
                 _ => Some(c.clone()),
             };
             let Some(id) = id else { return Ok(None) };
-            let held = returns_holding(e, w, g, &id, p)?;
+            let mut held = returns_holding(e, w, g, &id, p)?;
+            if let Some(a) = after {
+                held.retain(|(r, _)| *r > a);
+            }
             let mut values = held.iter().filter_map(|(r, ret)| at_path(ret, p).map(|v| (*r, v)));
             let Some((round, value)) = values.next() else {
                 return Ok(None);
@@ -344,6 +504,10 @@ fn source(
         }
         // What the cell before this one on a matter's path answered is a place of that round's return.
         Src::Engine(n) if n == crate::architect::BEFORE => crate::architect::before(e, w, g)?,
+        Src::Engine(n) if n == DESIGN_CHANGE => design_change(e, w, g, &cell.id)?.map(|v| Part {
+            origin: Origin::Engine(n.clone()),
+            value: v,
+        }),
         Src::Engine(n) => engine_input(e, w, g, item, n)?.map(|v| Part {
             origin: Origin::Engine(n.clone()),
             value: v,
@@ -501,6 +665,14 @@ pub fn engine_input(
     if crate::architect::INPUTS.contains(&name) {
         return crate::architect::input(e, w, g, name);
     }
+    // The reasoning system's rules and check, for the project of the work, an architect's included.
+    if crate::reasoning::is_input(name) {
+        let named = item.map(|i| i.project.as_str()).or(w.project.as_deref());
+        let Some(project) = named.and_then(|p| e.config.config.projects.get(p)) else {
+            return Ok(None);
+        };
+        return crate::reasoning::input(e, project, name);
+    }
     if name == "free_slots" {
         let hosts = &e.config.config.install.machines.hosts;
         return Ok(Some(
@@ -553,46 +725,14 @@ pub fn engine_input(
             }
             None => None,
         },
-        "design_tree_diff" | "tree_changes_to_review" => match wt {
+        "design_tree_diff" => match wt {
             Some(wt) => {
-                // At a re-review of the design tree, the change since the last design tree review; the table review
-                // runs just before it on the same head, so its head would leave nothing to review.
-                let base = if name == "tree_changes_to_review" {
-                    crate::values::head_reviewed_by(e, w, g, "T5")?
-                } else {
-                    None
-                };
-                let base = match base {
-                    Some(b) => b,
-                    None => git::fork_point(wt, &main)?,
-                };
-                let d = git::diff(wt, &base, "HEAD", &design_paths(e, item))?;
+                let fork = git::fork_point(wt, &main)?;
+                let d = git::diff(wt, &fork, "HEAD", &design_paths(e, item))?;
                 (!d.trim().is_empty()).then_some(Value::String(d))
             }
             None => None,
         },
-        "tree_check_numbers" => {
-            let check = e
-                .config
-                .config
-                .projects
-                .get(&item.project)
-                .and_then(|p| p.design_check.clone());
-            match (wt, check) {
-                (Some(wt), Some(cmd)) => {
-                    let fork = git::fork_point(wt, &main)?;
-                    let out = std::process::Command::new("sh")
-                        .arg("-c")
-                        .arg(format!("{cmd} {fork}"))
-                        .current_dir(wt)
-                        .output()
-                        .map_err(|e| format!("{cmd}: {e}"))?;
-                    let printed = String::from_utf8_lossy(&out.stdout).into_owned();
-                    (!printed.trim().is_empty()).then_some(Value::String(printed))
-                }
-                _ => None,
-            }
-        }
         other => return Err(format!("no such engine input: {other}")),
     })
 }
@@ -713,6 +853,21 @@ fn project_guide(e: &Engine, item: &Item, wt: &Path, commit: &str) -> Result<Val
 mod tests {
     use super::*;
 
+    // What a design changed is the sentences removed and added, each with the sentence beside it as it stands, the
+    // unchanged ones between two changes far apart left out; a paragraph is split into its sentences.
+    #[test]
+    fn a_change_of_the_design_is_its_sentences_removed_and_added() {
+        let then = "one\ntwo\nthree\nfour\nfive\nsix\nseven";
+        let now = "one\n2\nthree\nfour\nfive\nsix\nseven\neight";
+        assert_eq!(line_diff(then, now), " one\n-two\n+2\n three\n...\n seven\n+eight");
+        assert_eq!(line_diff("same", "same"), "");
+        assert_eq!(line_diff("", "new"), "+new");
+        assert_eq!(
+            line_diff("It reads. It writes. It ends.", "It reads. It checks. It ends."),
+            " It reads.\n-It writes.\n+It checks.\n It ends."
+        );
+    }
+
     #[test]
     fn a_path_keeps_its_branch_and_lists_what_a_list_holds() {
         let x = json!({
@@ -761,6 +916,7 @@ mod tests {
                 from: Vec::new(),
                 maybe: true,
                 newest: false,
+                unanswered: false,
             },
             parts: vec![
                 place(

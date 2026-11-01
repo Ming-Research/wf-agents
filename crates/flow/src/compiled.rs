@@ -12,8 +12,8 @@ use ts_rs::TS;
 use crate::check::Analysis;
 use crate::field::{Field, segment};
 use crate::format::{
-    Always, Atom, BlockerCell, Blockers, Check, Choice, Counter, Do, EngineNames, EnumText, Form, Handle, Kind,
-    NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src,
+    Always, Atom, BlockerCell, Blockers, Check, Choice, Counter, Do, EngineNames, EnumText, FRESH_SESSION, Form,
+    Handle, Kind, NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src,
 };
 use crate::graph::{Cell, CellKind, Graph, ensure};
 
@@ -115,6 +115,9 @@ pub struct CompiledInput {
     /// It reads each place from its cell's newest answer only: a field that answer leaves out is none there.
     #[serde(default, skip_serializing_if = "is_false")]
     pub newest: bool,
+    /// It reads each place only from returns handed in since the cell's own last answer.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub unanswered: bool,
 }
 
 /// A rule of the flow an agent's cell is given, by its name.
@@ -173,13 +176,15 @@ pub struct CompiledCell {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub needs: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line: Option<String>,
     /// A row leads here with the action `open_session`: the cell starts a new session of its line at its first round in
     /// a work.
     #[serde(default, skip_serializing_if = "is_false")]
     pub new_session: bool,
+    /// The rows that lead here with the action `fresh_session`, each as `<cell>·<row>`: the cell starts a new session of
+    /// its line each time the work comes by one of them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fresh_session: Vec<String>,
     /// The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
     /// declared one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -906,7 +911,6 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             gate: c.gate,
             title: c.title.clone(),
             step: c.step.clone(),
-            needs: c.needs.clone(),
             line: c.line.clone(),
             new_session: c.line.is_some()
                 && g.cells.iter().any(|m| {
@@ -914,6 +918,19 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                         .iter()
                         .any(|r| r.to == c.id && r.actions.iter().any(|d| d.name() == OPEN_SESSION))
                 }),
+            fresh_session: if c.line.is_some() {
+                g.cells
+                    .iter()
+                    .flat_map(|m| {
+                        m.rows
+                            .iter()
+                            .filter(|r| r.to == c.id && r.actions.iter().any(|d| d.name() == FRESH_SESSION))
+                            .map(move |r| format!("{}·{}", m.id, r.name))
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
             effort: c.effort.clone(),
             stage: g.stage.get(&ci).cloned(),
             tools: c.tools.clone(),
@@ -929,6 +946,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
                     from: x.from.clone(),
                     maybe: x.maybe,
                     newest: x.newest,
+                    unanswered: x.unanswered,
                 })
                 .collect(),
             rules: c

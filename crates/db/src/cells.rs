@@ -5,27 +5,44 @@
 //! code: the architect's first codes P1 to P11, N1, Q1, Q2, X1 and S1 were other cells, and so was the engineer's S0,
 //! its start before the cell an item waits at to start took that code; a round of those versions at one of them reads
 //! as the cell with that code now, so that no round of this version reads as another cell. The architect's first two
-//! cells were W0 and W1 while their stage was named wake; they took the letter of its name now, start.
+//! cells were W0 and W1 while their stage was named wake; they took the letter of its name now, start. The engineer's
+//! design stage was numbered again in the order it runs, when the engine's choices of its way became cells of their
+//! own: its D2 and D4 to D9 were other cells before, and a round of those versions at one of them reads as the cell
+//! with that code now.
 
 /// Each cell, by its graph and its code, with the ids it had in the flow versions before: its number or first code,
 /// its name, and its name with its stage, where each was another.
-const BEFORE: [(&str, &str, &[&str]); 70] = [
+const BEFORE: [(&str, &str, &[&str]); 76] = [
     ("engineer", "S0", &["U0"]),
     ("engineer", "S1", &["0", "start", "S0"]),
     ("engineer", "R1", &["1", "research", "research.problem"]),
     ("engineer", "R2", &["1a", "stands", "research.stands"]),
     ("engineer", "D1", &["2", "compare", "design.compare"]),
-    ("engineer", "D2", &["2a", "choose", "design.choose"]),
+    ("engineer", "D2", &[]),
     ("engineer", "D3", &["2b", "rethink_design", "design.rethink"]),
-    ("engineer", "D4", &["3a", "gap_under_test", "design.gap_under_test"]),
-    ("engineer", "D5", &["3b", "sure", "design.sure"]),
-    ("engineer", "D6", &["3c", "cost", "design.cost"]),
-    ("engineer", "D7", &["3d", "cross_project", "design.cross_project"]),
-    ("engineer", "D8", &["3e", "split", "design.split"]),
+    ("engineer", "D4", &["2a", "choose", "design.choose", "D2"]),
+    ("engineer", "D5", &[]),
+    ("engineer", "D6", &[]),
+    ("engineer", "D7", &[]),
+    ("engineer", "D8", &[]),
     (
         "engineer",
         "D9",
-        &["3f", "adversarial_needed", "design.adversarial_needed"],
+        &["3a", "gap_under_test", "design.gap_under_test", "D4"],
+    ),
+    ("engineer", "D10", &["3b", "sure", "design.sure", "D5"]),
+    ("engineer", "D11", &["3c", "cost", "design.cost", "D6"]),
+    ("engineer", "D12", &[]),
+    (
+        "engineer",
+        "D13",
+        &["3d", "cross_project", "design.cross_project", "D7"],
+    ),
+    ("engineer", "D14", &["3e", "split", "design.split", "D8"]),
+    (
+        "engineer",
+        "D15",
+        &["3f", "adversarial_needed", "design.adversarial_needed", "D9"],
     ),
     ("engineer", "I1", &["4", "implement"]),
     ("engineer", "T1", &["6", "adversarial", "test.adversarial"]),
@@ -179,5 +196,15 @@ mod tests {
         assert_eq!(code_of("engineer", "U0"), Some("S0"));
         assert_eq!(code_of("engineer", "S0"), Some("S0"));
         assert_eq!(cells_sql("engineer", &["S1"]), "('S1', '0', 'start')");
+        // The design stage numbered in the order it runs: an id that is another cell's code now reads as that cell, and
+        // a cell's names before are its own.
+        assert_eq!(code_of("engineer", "D4"), Some("D4"));
+        assert_eq!(code_of("engineer", "choose"), Some("D4"));
+        assert_eq!(code_of("engineer", "adversarial_needed"), Some("D15"));
+        assert_eq!(
+            cells_sql("engineer", &["D15"]),
+            "('D15', '3f', 'adversarial_needed', 'design.adversarial_needed')"
+        );
+        assert_eq!(cells_sql("engineer", &["D2"]), "('D2')");
     }
 }

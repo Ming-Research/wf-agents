@@ -765,7 +765,7 @@ merge_checks = ["check"]
 fn scripts() -> BTreeMap<&'static str, Script> {
     let mut s: BTreeMap<&'static str, Script> = BTreeMap::new();
     s.insert(
-        "D2",
+        "D4",
         Box::new(|_: &Request, _: usize| {
             (
                 vec![
@@ -780,11 +780,7 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         }),
     );
     s.insert(
-        "D3",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.better", "present_best")], Vec::new())),
-    );
-    s.insert(
-        "D9",
+        "D15",
         Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "not_needed")], Vec::new())),
     );
     // Implementing: a work's first round changes the code and asks for ci; the next hands in the end. Which it is the
@@ -1131,7 +1127,7 @@ fn an_earlier_attempts_design_change_is_named_and_reverted() {
     let s = setup("earlier-attempt");
     let mut agents = scripts();
     agents.insert(
-        "D3",
+        "D1",
         Box::new(|r: &Request, n: usize| {
             let wt = &r.worktree;
             if n == 1 {
@@ -1143,7 +1139,7 @@ fn an_earlier_attempts_design_change_is_named_and_reverted() {
                 let sha = git(wt, &["log", "--format=%H", "--grep", "Sneak a decision in"]);
                 git(wt, &["revert", "--no-edit", sha.trim()]);
             }
-            (vec![("outcome.better", "present_best")], Vec::new())
+            (Vec::new(), Vec::new())
         }),
     );
     let (mut e, said, item) = start(&s, agents);
@@ -1152,7 +1148,7 @@ fn an_earlier_attempts_design_change_is_named_and_reverted() {
             e.db.conn()
                 .prepare(
                     "SELECT r.transition, r.rejected FROM rounds r JOIN works w ON w.id = r.work
-                     WHERE w.item = ?1 AND r.cell = 'D3' AND r.ended_at IS NOT NULL ORDER BY r.work, r.n",
+                     WHERE w.item = ?1 AND r.cell = 'D1' AND r.ended_at IS NOT NULL ORDER BY r.work, r.n",
                 )
                 .unwrap();
         st.query_map([item], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -1234,7 +1230,22 @@ fn step_to(e: &mut Engine, item: i64, cell: &str) {
         }
         e.step(None).unwrap();
     }
-    panic!("the work did not come to {cell}");
+    let rounds: Vec<String> =
+        e.db.conn()
+            .prepare(
+                "SELECT r.cell || ' ' || coalesce(r.transition, coalesce(r.rejected, 'running')) FROM rounds r
+             JOIN works w ON w.id = r.work WHERE w.item = ?1 ORDER BY r.work, r.n",
+            )
+            .unwrap()
+            .query_map([item], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+    panic!(
+        "the work did not come to {cell}: {:?}, by {}",
+        state(e, item),
+        rounds.join("; ")
+    );
 }
 
 fn worktree_of(e: &Engine, work: i64) -> PathBuf {
@@ -1312,13 +1323,13 @@ fn a_merge_of_main_is_not_the_works_own_design_change() {
     let mut agents = scripts();
     let root = s.root.clone();
     agents.insert(
-        "D3",
+        "D1",
         Box::new(move |r: &Request, n: usize| {
             if n == 1 {
                 main_moves_on(&root, &[("design/main.md", "Decision: main's.\n")], "Main's decision");
                 merge_main(&r.worktree);
             }
-            (vec![("outcome.better", "present_best")], Vec::new())
+            (Vec::new(), Vec::new())
         }),
     );
     agents.insert(
@@ -1331,9 +1342,9 @@ fn a_merge_of_main_is_not_the_works_own_design_change() {
     );
     let (mut e, said, item) = start(&s, agents);
     step_to(&mut e, item, "I1");
-    let rethinks = ended_at(&e, item, "D3");
-    assert_eq!(rethinks.len(), 1, "{rethinks:?}\n{}", said.lock().unwrap().join("\n"));
-    assert!(rethinks[0].0.is_some(), "{rethinks:?}");
+    let derived = ended_at(&e, item, "D1");
+    assert_eq!(derived.len(), 1, "{derived:?}\n{}", said.lock().unwrap().join("\n"));
+    assert!(derived[0].0.is_some(), "{derived:?}");
     let (work, _, _) = state(&e, item).unwrap();
     let wt = worktree_of(&e, work);
     card_at(&mut e, work, &git(&wt, &["rev-parse", "HEAD"]));
@@ -1367,7 +1378,7 @@ fn a_cells_own_design_change_counts_beside_a_merge_of_main() {
     let mut agents = scripts();
     let root = s.root.clone();
     agents.insert(
-        "D3",
+        "D1",
         Box::new(move |r: &Request, n: usize| {
             let wt = &r.worktree;
             if n == 1 {
@@ -1381,18 +1392,18 @@ fn a_cells_own_design_change_counts_beside_a_merge_of_main() {
                 let sha = git(wt, &["log", "--format=%H", "--grep", "Sneak a decision in"]);
                 git(wt, &["revert", "--no-edit", sha.trim()]);
             }
-            (vec![("outcome.better", "present_best")], Vec::new())
+            (Vec::new(), Vec::new())
         }),
     );
     let (mut e, said, item) = start(&s, agents);
     for _ in 0..40 {
-        if ended_at(&e, item, "D3").iter().any(|(t, _)| t.is_some()) {
+        if ended_at(&e, item, "D1").iter().any(|(t, _)| t.is_some()) {
             break;
         }
         e.step(None).unwrap();
     }
     let log = said.lock().unwrap().join("\n");
-    let rounds = ended_at(&e, item, "D3");
+    let rounds = ended_at(&e, item, "D1");
     assert_eq!(rounds.len(), 3, "{rounds:?}\n{log}");
     let first = rounds[0].1.clone().unwrap_or_default();
     assert!(
@@ -1791,7 +1802,7 @@ fn session_of(e: &Engine, work: i64, cell: &str) -> i64 {
 #[test]
 fn a_work_at_an_unchanged_cell_moves_and_keeps_its_session() {
     let s = setup("moves");
-    let (mut e, said, item, work) = at_r2_on_an_older_version(&s, |g| renamed(g, "D2"));
+    let (mut e, said, item, work) = at_r2_on_an_older_version(&s, |g| renamed(g, "D4"));
     let v: i64 =
         e.db.conn()
             .query_row("SELECT flow_version FROM works WHERE id = ?1", [work], |r| r.get(0))
@@ -2197,38 +2208,288 @@ fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The round of a work at a gate whose need the project does not answer is the engine's own answer: it says why no
-// agent is asked, and no agent runs.
+// Which way the design stage goes is the engine's cells' rows, never a switch hidden in a gate: a project that keeps no
+// records goes from the derivation straight to the design (`D2` `no_records`) and past the check of the records (`D5`
+// `unchanged`), and one with nothing under test and no other project past those gates (`D8` `no`, `D12` `no`), each a
+// round of the engine's own; the cells on the ways not taken never run.
 #[test]
-fn a_gate_the_project_cannot_meet_is_the_engines_answer() {
-    let s = setup("gate-preview");
+fn the_design_stage_goes_its_way_by_the_engines_rows() {
+    let s = setup("design-way");
     let (mut e, said, item) = start(&s, scripts());
-    for _ in 0..40 {
-        if state(&e, item).is_some_and(|(_, at, _)| at == "D4") {
+    step_to(&mut e, item, "I1");
+    let log = said.lock().unwrap().join("\n");
+    for (cell, row) in [("D2", "no_records"), ("D5", "unchanged"), ("D8", "no"), ("D12", "no")] {
+        assert_eq!(
+            ended_at(&e, item, cell),
+            [(Some(row.to_string()), None)],
+            "{cell}\n{log}"
+        );
+    }
+    for cell in ["D3", "D6", "D7", "D9", "D13"] {
+        assert!(ended_at(&e, item, cell).is_empty(), "{cell}\n{log}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The check of the test's records, standing in for the reasoning system's: it says what it was given, and is red until
+/// the records hold a log.
+const CHECK_PY: &str = "import os, sys\nprint('given: ' + ' '.join(sys.argv[1:]))\nsys.exit(0 if os.path.exists('design/log.md') else 1)\n";
+
+/// A setup whose project keeps records, in `design/`, kept by a copy of the reasoning system in the test's directory
+/// that the installation names: its rules, each saying which it is, and its check ([`CHECK_PY`]).
+fn setup_records(name: &str) -> Setup {
+    let s = setup(name);
+    let system = s.root.join("reasoning-system");
+    for rule in ["reading", "writing", "dcr", "extension-work", "extension-cards"] {
+        write(&system, &format!("rules/{rule}.md"), &format!("The rule {rule}.\n"));
+    }
+    write(&system, "check.py", CHECK_PY);
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(
+        &s.data,
+        "install.toml",
+        &format!("{install}\n[reasoning]\nsystem = \"{}\"\n", system.display()),
+    );
+    let p = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    write(
+        &s.data,
+        "projects/p.toml",
+        &p.replace(
+            "rules = [\"ground\"]",
+            "rules = [\"ground\"]\nrecords = { root = \"design\", ascii = true }",
+        ),
+    );
+    git(
+        &s.data,
+        &["commit", "-q", "-am", "records kept by the reasoning system"],
+    );
+    s
+}
+
+// A project that keeps records derives its design from them: a trade-off they leave open is challenged in a session of
+// its own (`D3`), the design writes the records, and their check, the installation's copy of the reasoning system run
+// on the branch against its fork point (`D6`), sends a red back to the design by a row, with what it printed, not as a
+// return sent back; once green, the coherence review runs in a session of its own (`D7`). The cells that work on the
+// records are given the reasoning system's rules.
+#[test]
+fn a_project_that_keeps_records_checks_and_reviews_them() {
+    let s = setup_records("records");
+    let mut agents = scripts();
+    agents.insert(
+        "D1",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.finding", "trade_off")], Vec::new())),
+    );
+    agents.insert(
+        "D4",
+        Box::new(|r: &Request, n: usize| {
+            let wt = &r.worktree;
+            // The first design revises a record and writes no log; the second, back from the check, writes the log.
+            let file = if n == 1 { "design/decision.md" } else { "design/log.md" };
+            write(wt, file, "Decision: one.\n");
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Revise the records"]);
+            (
+                vec![("outcome.design_tree", "change"), ("outcome.measure", "not_measured")],
+                vec![
+                    (
+                        "outcome.acceptance",
+                        json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
+                    ),
+                    ("outcome.design_tree.design_card[].node", json!("design")),
+                ],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "D8");
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(ended_at(&e, item, "D2"), [(Some("full".to_string()), None)], "{log}");
+    let designs = ended_at(&e, item, "D4");
+    assert_eq!(designs.len(), 2, "{designs:?}\n{log}");
+    assert!(
+        designs.iter().all(|(t, why)| t.is_some() && why.is_none()),
+        "{designs:?}"
+    );
+    let checks = ended_at(&e, item, "D6");
+    let rows: Vec<Option<String>> = checks.into_iter().map(|(t, _)| t).collect();
+    assert_eq!(rows, [Some("red".to_string()), Some("green".to_string())], "{log}");
+    let (work, _, _) = state(&e, item).unwrap();
+    let printed: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(output, '$.check.printed') FROM rounds WHERE work = ?1 AND cell = 'D6' ORDER BY n",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(printed.starts_with("given: --root design --ascii --base "), "{printed}");
+    assert!(printed.contains("--ready"), "{printed}");
+    assert_eq!(ended_at(&e, item, "D7"), [(Some("none".to_string()), None)], "{log}");
+    // The challenge and the coherence review each started the review line's session afresh.
+    let review = line_sessions(&e, work, "review");
+    let cells: Vec<&str> = review.iter().map(|x| x.2.as_str()).collect();
+    assert_eq!(cells, ["D3", "D7"], "{review:?}");
+    // The derivation was given the rules of reading the records and of keeping the work in line with them.
+    let given: String =
+        e.db.conn()
+            .query_row(
+                "SELECT input FROM rounds WHERE work = ?1 AND cell = 'D1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(
+        given.contains("engine·reasoning_reading") && given.contains("engine·reasoning_work"),
+        "{given}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The owner's word to the work's engineer, waiting to be delivered.
+fn owner_says(e: &mut Engine, work: i64, text: &str) {
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'owner', ?2)",
+            params![work, text],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+// An interjection that comes while the work stands at one of the engine's steps and asks only for a change to the code
+// is the way on `fix`: the change is a row of the fix's table, which the fix answers like any other, and the work goes
+// on as after any fix, with no new design.
+#[test]
+fn a_change_to_the_code_an_interjection_asks_is_a_row_of_the_fix() {
+    let s = setup("way-on-fix");
+    let mut agents = scripts();
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| {
+            (
+                vec![("outcome.next", "fix")],
+                vec![
+                    (
+                        "outcome.next.change.what",
+                        json!("Halt every work on a red check, with a test."),
+                    ),
+                    ("outcome.next.change.asked_in", json!("The owner: halt every work.")),
+                ],
+            )
+        }),
+    );
+    // The fix makes the change and asks for ci, then answers its table's one row.
+    agents.insert(
+        "T6",
+        Box::new(|r: &Request, n: usize| {
+            let wt = &r.worktree;
+            if n == 1 {
+                write(wt, "src/lib.txt", "old\nfeature\nhalt\n");
+                git(wt, &["add", "-A"]);
+                git(wt, &["commit", "-q", "-m", "Halt every work"]);
+                let head = git(wt, &["rev-parse", "HEAD"]);
+                let tools = json!([{ "tool": "ci", "head": head, "tests": ["feature"] }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.head", json!(head)),
+                    (
+                        "outcome.rows",
+                        json!([{ "answer": "fixed", "id": "F1", "commit": head }]),
+                    ),
+                ],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "T7");
+    let (work, _, _) = state(&e, item).unwrap();
+    owner_says(&mut e, work, "Halt every work on a red check; nothing else changes.");
+    for _ in 0..12 {
+        if ended_at(&e, item, "T6")
+            .iter()
+            .any(|(t, _)| t.as_deref() == Some("done"))
+        {
             break;
         }
         e.step(None).unwrap();
     }
     let log = said.lock().unwrap().join("\n");
-    let (work, at, _) = state(&e, item).unwrap();
-    assert_eq!(at, "D4", "{log}");
-    e.step(None).unwrap();
-    let (output, input): (String, String) =
-        e.db.conn()
-            .query_row(
-                "SELECT output, input FROM rounds WHERE work = ?1 AND cell = 'D4'",
-                [work],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap();
-    let output: Value = serde_json::from_str(&output).unwrap();
-    let why = output["outcome"]["answer"]["why"].as_str().unwrap_or_default();
-    assert!(
-        why.starts_with("Not asked: this question needs what this project does not have."),
-        "{output}"
+    assert_eq!(ended_at(&e, item, "A4"), [(Some("fix".to_string()), None)], "{log}");
+    let fixes = ended_at(&e, item, "T6");
+    assert_eq!(
+        fixes.last(),
+        Some(&(Some("done".to_string()), None)),
+        "{fixes:?}\n{log}"
     );
-    let input = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
-    assert_eq!(input, json!({ "engine": { "not_applicable": "under_test" } }));
+    let table = message_at(&e, work, "T6", false);
+    assert!(
+        table.contains("Halt every work on a red check, with a test."),
+        "{table}"
+    );
+    assert!(ended_at(&e, item, "D1").len() == 1, "no new design\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// On a redesign, a check after design is given what the design changed since it last answered, sentence by sentence,
+// with its answer then; the first time it judges the whole design and is given no change.
+#[test]
+fn a_check_after_a_redesign_is_given_what_the_design_changed() {
+    let s = setup("gates-change");
+    let mut agents = scripts();
+    agents.insert(
+        "D4",
+        Box::new(|_: &Request, n: usize| {
+            let solution = if n == 1 {
+                "Read the input. Parse it into tokens."
+            } else {
+                "Read the input. Parse it into tokens. Keep the tokens' positions."
+            };
+            (
+                vec![
+                    ("outcome.design_tree", "unchanged"),
+                    ("outcome.measure", "not_measured"),
+                ],
+                vec![
+                    (
+                        "outcome.acceptance",
+                        json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
+                    ),
+                    ("outcome.design.solution", json!(solution)),
+                    (
+                        "outcome.design.where",
+                        json!("The parser module and its tests, and nothing else of the program."),
+                    ),
+                ],
+            )
+        }),
+    );
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "redesign")], Vec::new())),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "T7");
+    let (work, _, _) = state(&e, item).unwrap();
+    owner_says(&mut e, work, "Keep the tokens' positions too.");
+    for _ in 0..30 {
+        if ended_at(&e, item, "D10").len() == 2 {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(ended_at(&e, item, "D10").len(), 2, "{log}");
+    let first = message_at(&e, work, "D10", false);
+    assert!(!first.contains("engine·design_change"), "{first}");
+    let again = message_at(&e, work, "D10", true);
+    assert!(again.contains("+Keep the tokens' positions."), "{again}");
+    assert!(again.contains("your_last_answer"), "{again}");
+    assert!(!again.contains("-Read the input."), "{again}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -2603,9 +2864,9 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     );
     assert!(formats.contains("- items (id, project, title, "), "{formats}");
     assert!(!formats.contains("CREATE TABLE"), "{formats}");
-    let design = &rounds.iter().rev().find(|r| r.1 == "D2").unwrap().0;
-    let acceptance = format!("{design}·D2·acceptance");
-    assert_eq!(given(&at("D9"), &acceptance), Some(false), "{}", at("D9"));
+    let design = &rounds.iter().rev().find(|r| r.1 == "D4").unwrap().0;
+    let acceptance = format!("{design}·D4·acceptance");
+    assert_eq!(given(&at("D15"), &acceptance), Some(false), "{}", at("D15"));
     // Implementing starts a new session, which holds nothing: the acceptance is given whole again.
     assert_eq!(given(&at("I1"), &acceptance), Some(true), "{}", at("I1"));
     assert_eq!(given(&at("T3"), &acceptance), Some(true), "{}", at("T3"));
@@ -7946,7 +8207,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
     let s = setup_priced("no-warm");
     let mut scripts = scripts();
     scripts.insert(
-        "D9",
+        "D15",
         Box::new(|_: &Request, _: usize| {
             (
                 vec![("outcome.adversarial", "not_needed")],
@@ -7961,7 +8222,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
     let from = last_call(&e, work);
     assert_eq!(warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     // At a cell that goes on in the session, a round of the session that runs keeps the ping off.
-    move_to(&mut e, work, "D9");
+    move_to(&mut e, work, "D15");
     let session: i64 =
         e.db.conn()
             .query_row(
@@ -7975,7 +8236,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
             let n = next_round(tx, work)?;
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
-                 VALUES (?1, ?2, 'D9', ?3, '{}', 'c', ?4)",
+                 VALUES (?1, ?2, 'D15', ?3, '{}', 'c', ?4)",
                 params![work, n, session, from],
             )?;
             Ok(n)

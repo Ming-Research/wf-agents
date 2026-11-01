@@ -124,7 +124,6 @@ function cell(id: string, stage: string | null, rows: CompiledRow[], extra: Part
     gate: false,
     title: `cell ${id}`,
     step: null,
-    needs: null,
     line: 'engineer',
     stage,
     inputs: [],

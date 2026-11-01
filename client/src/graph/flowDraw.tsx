@@ -41,6 +41,12 @@ export function startsAnew(c: CompiledCell): boolean {
   return c.kind === 'agent' && c.line == null;
 }
 
+/// Whether a cell of a line starts the line's session afresh each time the work comes to it by a row that says so
+/// (`fresh_session`), so that what the line looked at before does not lead it.
+export function freshEachTime(c: CompiledCell): boolean {
+  return c.kind === 'agent' && c.line != null && (c.fresh_session ?? []).length > 0;
+}
+
 /// The style a cell is drawn in: for an agent's round its role's colour, the one `colours` gives its line, or the
 /// neutral grey for one on no line or on a line with no colour (`roleClass`); else its kind's.
 export function styleOf(c: CompiledCell, colours: Colours): string {
@@ -222,13 +228,13 @@ export function sessionWidth(): number {
   return Math.ceil(measure(t('chart_new_session'), chartFonts().badge)) + 12;
 }
 
-/// The badge of a cell that starts a new session every time it runs, its top left corner at `x`, `y`: of an effort
-/// badge's size, outlined instead of filled, saying so, and why on hovering.
-export function SessionBadge({ x, y }: { x: number; y: number }) {
+/// The badge of a cell that starts a new session every time it runs, or each time the work comes to it, its top left
+/// corner at `x`, `y`: of an effort badge's size, outlined instead of filled, saying so, and which and why on hovering.
+export function SessionBadge({ x, y, each = false }: { x: number; y: number; each?: boolean }) {
   const width = sessionWidth();
   return (
     <g className="fc-session">
-      <title>{t('chart_new_session_title')}</title>
+      <title>{t(each ? 'chart_fresh_session_title' : 'chart_new_session_title')}</title>
       <rect x={x} y={y} width={width} height={EFFORT_HEIGHT} rx={EFFORT_HEIGHT / 2} />
       <text x={x + width / 2} y={y + 11.5} textAnchor="middle">
         {t('chart_new_session')}
@@ -240,7 +246,10 @@ export function SessionBadge({ x, y }: { x: number; y: number }) {
 /// How wide the badges over a cell's top left corner run from the cell's left edge: its effort's, then its new
 /// session's; none for a cell with neither.
 export function cornerWidth(c: CompiledCell): number {
-  const widths = [effortOf(c) !== null ? effortWidth() : 0, startsAnew(c) ? sessionWidth() : 0].filter((w) => w > 0);
+  const widths = [
+    effortOf(c) !== null ? effortWidth() : 0,
+    startsAnew(c) || freshEachTime(c) ? sessionWidth() : 0,
+  ].filter((w) => w > 0);
   return widths.length > 0 ? widths.reduce((a, w) => a + w, 0) + BADGE_GAP * (widths.length - 1) - 4 : 0;
 }
 
@@ -475,7 +484,9 @@ function CellShape({ n, cell, style, box, lines, note, marks }: {
         <Lacks lacks={note.lacks} x={box.x + box.width / 2} y={box.y + box.height - PAD_Y - MARKS + 3} />
       ) : null}
       {effort !== null ? <EffortBadge effort={effort} x={box.x - 4} y={box.y - 9} width={effortW} /> : null}
-      {startsAnew(cell) ? <SessionBadge x={sessionX} y={box.y - 9} /> : null}
+      {startsAnew(cell) || freshEachTime(cell) ? (
+        <SessionBadge x={sessionX} y={box.y - 9} each={freshEachTime(cell)} />
+      ) : null}
       {mark !== null ? (
         <text className="fc-mark" x={markX} y={box.y - 4}>
           {mark}

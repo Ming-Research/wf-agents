@@ -38,6 +38,10 @@ Fact reply-to-ended-work: An architect left holding the question of a work that 
 
 Fact repository-english: Everything in a public repository, its pull requests included, is in English.
 
+Fact session-anchors: An agent that judges something in a session holding the reasoning that made it, its own or another's, leans on that reasoning.
+
+Assumed: comparing the challenges and reviews made in a session started afresh with those made in the session that made the design would settle or overturn it
+
 Fact translation-reads-as-one: A translation reads as a translation.
 
 Fact view-note-passes-check: A database view named only as a note let a field nothing reads pass the check that every field is read.

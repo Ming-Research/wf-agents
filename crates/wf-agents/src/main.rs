@@ -317,11 +317,19 @@ fn flow_check(flow: &Path, schema: Option<&Path>) -> Result<(), String> {
             let cells = sessions::format_cells(g, c);
             let size = flow::formats::common_format_of(g, &cells).chars().count();
             let starts: Vec<&str> = cells.iter().filter(|x| x.new_session).map(|x| x.id.as_str()).collect();
-            let at = if starts.is_empty() {
+            let fresh: Vec<&str> = cells
+                .iter()
+                .filter(|x| !x.fresh_session.is_empty())
+                .map(|x| x.id.as_str())
+                .collect();
+            let mut at = if starts.is_empty() {
                 String::new()
             } else {
                 format!(", new sessions at {}", starts.join(", "))
             };
+            if !fresh.is_empty() {
+                at.push_str(&format!(", a new session each time at {}", fresh.join(", ")));
+            }
             lines.push(format!("{line} {size}{at}"));
         }
         println!(

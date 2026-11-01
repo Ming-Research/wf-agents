@@ -1011,19 +1011,16 @@ pub fn columns(
             }
             if item.deliver != "report" {
                 cols.push("The research's judgment that the work stands: does its reason hold?".into());
-                cols.push("The judgment that there is no better design: does its reason hold?".into());
                 for (c, what) in [
-                    ("D4", "a gap in what is under test"),
-                    ("D5", "unsure facts"),
-                    ("D6", "architectural burden"),
-                    ("D7", "cross-project dependency"),
-                    ("D8", "splitting"),
+                    ("D9", "a gap in what is under test"),
+                    ("D10", "unsure facts"),
+                    ("D11", "architectural burden"),
+                    ("D13", "cross-project dependency"),
+                    ("D14", "splitting"),
                 ] {
-                    // A check the project lacks what it needs for was answered by the engine, not judged: no column.
-                    let not_asked = g
-                        .cell(c)
-                        .and_then(|x| x.needs.as_deref())
-                        .is_some_and(|need| project.is_some_and(|p| !p.has(need).unwrap_or(false)));
+                    // A check the work's way did not reach, as one a project with nothing under test is not asked, was
+                    // not judged: no column.
+                    let not_asked = crate::inputs::answered(e, w, g, c).map_or(true, |r| r.is_empty());
                     // The outcome the check went on by, as a gate names it; a flow version before gates named their
                     // outcomes answered no.
                     let on = g
@@ -1073,12 +1070,8 @@ pub fn columns(
                 }
             }
         }
-        "T5" => {
-            let review = rule("design_tree_review");
-            for i in [1, 2, 3, 4, 10, 11] {
-                cols.extend(review.get(i).cloned());
-            }
-        }
+        // The check of the code against the records: the columns its rule lists after the table review's.
+        "T5" => cols.extend(records_columns(&rule("review_table"))),
         _ => {}
     }
     cols.into_iter()
@@ -1105,6 +1098,17 @@ fn fixed_columns(table: &[String], report: bool) -> Vec<String> {
         .position(|l| l.starts_with("The review list in the project's configuration"))
         .unwrap_or(table.len());
     table.iter().take(list).skip(2).cloned().collect()
+}
+
+/// The columns of the check of the code against the records, which the review table's rule lists after the line that
+/// opens them, found by its words.
+fn records_columns(table: &[String]) -> Vec<String> {
+    table
+        .iter()
+        .skip_while(|l| !l.starts_with("A work in a project that keeps records has"))
+        .skip(1)
+        .cloned()
+        .collect()
 }
 
 /// The numbers of the columns the last table review that handed in a table could not verify.
@@ -1151,19 +1155,24 @@ mod tests {
             .map(|r| r.text.clone())
             .unwrap();
         let change = fixed_columns(&table, false);
-        assert_eq!(change.len(), 8, "{change:?}");
+        assert_eq!(change.len(), 7, "{change:?}");
         assert!(change[0].starts_with("The change matches the design"), "{}", change[0]);
         assert!(
-            change[7].starts_with("Tests and checks changed without"),
+            change[6].starts_with("Tests and checks changed without"),
             "{}",
-            change[7]
+            change[6]
         );
+        // The check of the code against the records has its own columns, after the table review's.
+        let records = records_columns(&table);
+        assert_eq!(records.len(), 5, "{records:?}");
+        assert!(records[0].starts_with("Choices governed"), "{}", records[0]);
+        assert!(records[4].starts_with("The chain challenged"), "{}", records[4]);
         let report = fixed_columns(&table, true);
         assert_eq!(report.len(), 1);
         assert!(report[0].starts_with("A work that delivers a report"), "{}", report[0]);
         let mut older = table.clone();
-        older.remove(9);
-        assert_eq!(fixed_columns(&older, false), change[..7].to_vec());
+        older.remove(8);
+        assert_eq!(fixed_columns(&older, false), change[..6].to_vec());
         assert_eq!(fixed_columns(&older, true), report);
     }
 

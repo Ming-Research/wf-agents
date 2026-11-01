@@ -258,7 +258,8 @@ why: string | null, started_at: number, ended_at: number | null, model: string |
  */
 progress: string | null, 
 /**
- * For a gate the engine answered itself, since the project does not have what it needs: that need.
+ * For a gate of a flow version from before the engine's choices of the way were cells of their own, which the
+ * engine answered itself since the project did not have what it needed: that need.
  */
 not_asked: string | null, 
 /**
@@ -1422,9 +1423,9 @@ main: string,
  */
 design_paths: Array<string>, test_paths: Array<string>, 
 /**
- * The command that checks the design tree; none when there is none.
+ * Where it keeps its records, which the reasoning system keeps; none when it keeps none.
  */
-design_check: string | null, 
+records: string | null, 
 /**
  * The workflow each push of a work's branch runs, those that make up the full CI, and the checks a merge needs.
  */
@@ -2307,7 +2308,7 @@ title: string, status: ChangeKind, changes: Array<Change>, };
 /**
  * The part of a cell or a graph a change is in.
  */
-export type Part = "title" | "kind" | "gate" | "line" | "stage" | "step" | "needs" | "input" | "rule" | "prompt" | "prompt_by" | "forms" | "field" | "row" | "row_order" | "check" | "always" | "handoff" | "shown" | "read_by" | "inenum" | "start" | "end" | "asking" | "receive" | "counter" | "interjection" | "rounds";
+export type Part = "title" | "kind" | "gate" | "line" | "stage" | "step" | "input" | "rule" | "prompt" | "prompt_by" | "forms" | "field" | "row" | "row_order" | "check" | "always" | "handoff" | "shown" | "read_by" | "inenum" | "start" | "end" | "asking" | "receive" | "counter" | "interjection" | "rounds";
 
 /**
  * One change: the part, which one of it, and what it was and is, as the compiled flow writes it.
@@ -2408,8 +2409,9 @@ inputs: { [key in string]: string },
  */
 values: { [key in string]: string }, 
 /**
- * What a gate needs to apply to a project. A gate whose need the project does not meet is passed by the
- * engine on its own row, without a round.
+ * What a project's configuration answers that a field of every agent's return is asked for on (`needs` of
+ * `agentCommon`). Which way a work goes is never one of these: the engine's choices of the way are cells with
+ * rows of their own.
  */
 needs: { [key in string]: string }, 
 /**
@@ -2611,12 +2613,17 @@ kind: string,
 /**
  * Written as a gate.
  */
-gate: boolean, title: string, step?: string | null, needs?: string | null, line?: string | null, 
+gate: boolean, title: string, step?: string | null, line?: string | null, 
 /**
  * A row leads here with the action `open_session`: the cell starts a new session of its line at its first round in
  * a work.
  */
 new_session?: boolean, 
+/**
+ * The rows that lead here with the action `fresh_session`, each as `<cell>·<row>`: the cell starts a new session of
+ * its line each time the work comes by one of them.
+ */
+fresh_session?: Array<string>, 
 /**
  * The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
  * declared one.
@@ -2676,7 +2683,11 @@ numbered?: string | null, what: string, from: Array<Src>, maybe: boolean,
 /**
  * It reads each place from its cell's newest answer only: a field that answer leaves out is none there.
  */
-newest?: boolean, };
+newest?: boolean, 
+/**
+ * It reads each place only from returns handed in since the cell's own last answer.
+ */
+unanswered?: boolean, };
 
 /**
  * Where an input comes from.
@@ -2709,6 +2720,10 @@ export type Form = { own?: boolean, field?: string | null, say: string,
  * The lines whose cells outside the asking part have this form; with none, every agent's cell has it.
  */
 lines?: Array<string> | null, 
+/**
+ * The cells that have this form, whatever their lines; none, and the lines say which.
+ */
+cells?: Array<string> | null, 
 /**
  * Fields of `every` a return of this form does not hold. It leaves them as an earlier return wrote them.
  */

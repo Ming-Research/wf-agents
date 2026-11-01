@@ -51,6 +51,29 @@ pub struct Install {
     pub agents: Agents,
     pub gh: Gh,
     pub query: Query,
+    #[serde(default)]
+    pub reasoning: Reasoning,
+}
+
+/// The installation's one copy of the reasoning system, which every project that keeps records is kept by.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Reasoning {
+    /// A clone of the reasoning system (github.com/Ming-Research/reasoning-system): relative to the data directory, or
+    /// absolute. By default `reasoning-system` in the data directory. The engine runs its `check.py` on a project's
+    /// records and gives its rules (`rules/`) to the cells that work on them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<PathBuf>,
+}
+
+impl Reasoning {
+    /// Where the reasoning system is, for the data directory `data`.
+    pub fn system(&self, data: &Path) -> PathBuf {
+        match &self.system {
+            Some(d) => data.join(d),
+            None => data.join("reasoning-system"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -390,9 +413,11 @@ pub struct Project {
     /// The paths whose change is a change of design, and gives a design card. Every project should have a design tree;
     /// one that has none yet names none, and its works raise no design card.
     pub design_paths: Vec<String>,
-    /// The command that checks the design tree, run in the worktree with the fork point from main as its argument.
+    /// The project's records, kept by the reasoning system: its works derive their designs from them, check them with
+    /// the installation's copy of the reasoning system and give its rules to the cells that work on them. None, and
+    /// the project keeps no records: its works skip every step on them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub design_check: Option<String>,
+    pub records: Option<Records>,
     /// The paths that hold tests: the only ones the adversarial tester changes.
     pub test_paths: Vec<String>,
     /// The places adversarial testing attacks, beyond the acceptance.
@@ -433,6 +458,17 @@ pub struct Project {
     /// takes in to improve the flow: on unless set to false; off, no agent is asked for it.
     #[serde(default = "on", skip_serializing_if = "is_on")]
     pub flow_feedback: bool,
+}
+
+/// Where a project keeps its records, and how they are checked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Records {
+    /// The directory in the project's repository that holds them, such as `reasoning`.
+    pub root: String,
+    /// Whether they are in English only, which their check then holds them to (check.py's `--ascii`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ascii: bool,
 }
 
 fn on() -> bool {
@@ -476,28 +512,39 @@ pub struct Ci {
 }
 
 /// The settings the flow reads from a project, as `{"config": name}` inputs name them.
-pub const SETTINGS: [&str; 4] = ["design_goal", "attack_points", "full_ci", "deploy"];
+pub const SETTINGS: [&str; 7] = [
+    "design_goal",
+    "attack_points",
+    "full_ci",
+    "deploy",
+    "records",
+    "under_test",
+    "other_projects",
+];
 
 impl Project {
-    /// The value an input that reads a setting is given; none for a setting the flow does not read.
+    /// The value an input that reads a setting is given, null where the project sets nothing; none for a setting the
+    /// flow does not read.
     pub fn setting(&self, name: &str) -> Option<serde_json::Value> {
         use serde_json::{Value, json};
         let text = |t: &Option<String>| t.as_ref().map_or(Value::Null, |s| Value::String(s.clone()));
+        let list = |l: &Vec<String>| if l.is_empty() { Value::Null } else { json!(l) };
         Some(match name {
             "design_goal" => Value::String(self.design_goal.clone()),
             "attack_points" => text(&self.attack_points),
             "full_ci" => json!({"workflows": self.ci.full, "merge_checks": self.ci.merge_checks}),
             "deploy" => text(&self.deploy),
+            "records" => self.records.as_ref().map_or(Value::Null, |r| json!(r)),
+            "under_test" => list(&self.under_test),
+            "other_projects" => list(&self.other_projects),
             _ => return None,
         })
     }
 
-    /// Whether the project has what a gate, a kind of question or a field of every return needs; none for a need the
-    /// configuration does not answer.
+    /// Whether the project meets what a field of every return needs; none for a need the configuration does not
+    /// answer.
     pub fn has(&self, need: &str) -> Option<bool> {
         match need {
-            "under_test" => Some(!self.under_test.is_empty()),
-            "other_projects" => Some(!self.other_projects.is_empty()),
             "flow_feedback" => Some(self.flow_feedback),
             _ => None,
         }
@@ -1365,9 +1412,17 @@ asks = 9
         assert_eq!(p.main, "main");
         assert_eq!(p.setting("full_ci").unwrap()["merge_checks"][1], "lint");
         assert_eq!(p.setting("deploy"), Some(serde_json::Value::Null));
-        assert_eq!(p.has("under_test"), Some(false));
+        assert_eq!(p.has("under_test"), None);
         assert_eq!(p.has("flow_feedback"), Some(true));
+        // What a project does not set reads as nothing: no records, nothing under test.
+        assert_eq!(p.setting("records"), Some(serde_json::Value::Null));
+        assert_eq!(p.setting("under_test"), Some(serde_json::Value::Null));
         assert!(p.setting("nope").is_none());
+        // The reasoning system is the installation's one copy, in the data directory unless one is named.
+        assert_eq!(
+            c.install.reasoning.system(Path::new("/data")),
+            Path::new("/data/reasoning-system")
+        );
         // Agents run with a configuration directory of their own, inside the data directory unless one is set.
         let cli = &c.install.agents.clis["claude"];
         assert_eq!(cli.home(Path::new("/data"), "claude"), Path::new("/data/agents/claude"));

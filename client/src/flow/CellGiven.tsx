@@ -440,11 +440,6 @@ export function StepGiven({ c, opened, onOpened }: {
       {c.step ? (
         <Part title={t('given_step')} code={c.step}>
           <p className="pp-note">{inline(f.compiled.engine.steps[c.step] ?? '')}</p>
-          {c.needs ? (
-            <p className="pp-note">
-              {inline(t('step_needs', { need: `\`${c.needs}\`` }))} {inline(f.compiled.engine.needs[c.needs] ?? '')}
-            </p>
-          ) : null}
         </Part>
       ) : null}
       <Part title={t('given_reads')} facts={t('given_reads_facts')}>

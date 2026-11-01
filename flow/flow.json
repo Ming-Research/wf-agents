@@ -382,24 +382,55 @@
       }
     },
     "decision_kind": {
-      "type": "enum",
-      "values": [
-        [
-          "carry_on",
-          "The design stays: go back to the cell that asked, with this reply, and carry on"
-        ],
-        [
-          "redesign",
-          "Go back and change the design: the approach, the design tree or the acceptance"
-        ],
-        [
-          "item_changed",
-          "What the work must deliver has changed: go back and research the problem itself again"
-        ],
-        [
-          "wait_for_items",
-          "The architect's reply has this work stop and wait until other items deliver, then carry on"
-        ]
+      "type": "union",
+      "by": "way",
+      "branches": [
+        {
+          "value": "carry_on",
+          "desc": "The design stays: go back to the cell that asked, with this reply, and carry on",
+          "fields": []
+        },
+        {
+          "value": "redesign",
+          "desc": "Go back and change the design: the approach, the records or the acceptance",
+          "fields": []
+        },
+        {
+          "value": "item_changed",
+          "desc": "What the work must deliver has changed: go back and research the problem itself again",
+          "fields": []
+        },
+        {
+          "value": "wait_for_items",
+          "desc": "The architect's reply has this work stop and wait until other items deliver, then carry on",
+          "fields": []
+        },
+        {
+          "value": "fix",
+          "desc": "Only a change to the code, asked for by an interjection that came while the work stood at one of the engine's steps, the design and the acceptance unchanged: the fix makes it as a row of its table, and the work goes on as after any fix",
+          "fields": [
+            {
+              "name": "change",
+              "title": "The change",
+              "type": "obj",
+              "desc": "The change to the code, which the fix makes as a row of its table",
+              "fields": [
+                {
+                  "name": "what",
+                  "title": "What to change",
+                  "type": "text",
+                  "desc": "The change to make, as the interjection asks it, with the test that shows it"
+                },
+                {
+                  "name": "asked_in",
+                  "title": "Asked in",
+                  "type": "text",
+                  "desc": "The interjection that asks it: who said it, in a few words"
+                }
+              ]
+            }
+          ]
+        }
       ]
     },
     "fullci_state": {
@@ -1002,19 +1033,6 @@
         [
           "table",
           "Reviewed before: the review goes straight to the table"
-        ]
-      ]
-    },
-    "tree_state": {
-      "type": "enum",
-      "values": [
-        [
-          "changed",
-          "The change to review touches design tree nodes: at the first review, across the whole branch; at a re-review, since the last review"
-        ],
-        [
-          "unchanged",
-          "The change to review touches no design tree node"
         ]
       ]
     },
@@ -2426,6 +2444,19 @@
           "No rule says what should have been done: say which, in tell_owner if your return has it, else beside this cause"
         ]
       ]
+    },
+    "records_state": {
+      "type": "enum",
+      "values": [
+        [
+          "keeps",
+          "The project keeps records: its configuration names them"
+        ],
+        [
+          "none",
+          "The project keeps no records"
+        ]
+      ]
     }
   },
   "tools": [
@@ -2974,7 +3005,8 @@
       "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, and what was said in the works' groups only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session. A work on an item that paused for its time budget also has its project's architect look at where it is stuck, as a place to set straight.",
-      "stop_work": "A work cancelled, taken over by a work on a newer flow version because the cell it stands at is not the same there or a return it handed in does not fit its cell there (else it moves to that version and goes on where it stands), or started over by the owner or its project's architect, which a new work on the version the engine runs takes over as it would on a newer one, ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off, and a round running when it is started over hands in nothing. A work taken over leaves its worktree and pull request to the work that takes it over."
+      "stop_work": "A work cancelled, taken over by a work on a newer flow version because the cell it stands at is not the same there or a return it handed in does not fit its cell there (else it moves to that version and goes on where it stands), or started over by the owner or its project's architect, which a new work on the version the engine runs takes over as it would on a newer one, ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off, and a round running when it is started over hands in nothing. A work taken over leaves its worktree and pull request to the work that takes it over.",
+      "check_records": "Runs the reasoning system's check (check.py in the installation's copy) on the project's records in the work's worktree, against the fork point from main and with `--ready`: green when it passes, red when it fails, each with what it printed."
     },
     "actions": {
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
@@ -3029,14 +3061,14 @@
       "ask_approval": "Pins the engine's short question to the owner, whether the draft the round wrote is approved (Approve this policy? Reply exactly: approved), in the owner's one-to-one with the architect, as a question of the architect's that parks the matter in hand at the cell, without the draft; the draft is the round's return, which waits for the approval.",
       "queue_group_talk": "Queues what was said in the groups of the project's works since its architect last read it, other than to it, as one matter of the kind group_talk, when there is such talk and no such matter is open: the owner's words there, and what the engineers told the owner, which the architect is to know as well. New talk joins the one open, whose material is worked out when it is handled. Like flow feedback, it starts no work of the architect: queued as the architect waits to start, a work picks it only when it came before that work started; queued at the end of a batch, the work that runs takes it.",
       "edit_notebook": "Writes each section of the notebook the round rewrote, whole, as the project's architect's notebook's latest version of it; the versions before stay, for the owner to look at.",
-      "change_observations": "Makes each change to the project's observations a round hands in beside its own answer, at once, as an answer's effects make theirs."
+      "change_observations": "Makes each change to the project's observations a round hands in beside its own answer, at once, as an answer's effects make theirs.",
+      "fresh_session": "The line of the cell the row goes to starts a new session there, each time the work takes the row: the session manager ends the one the line had going on."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
       "design_paths_unchanged": "Nothing in the design paths changed in this round: the engine compares them on the branch at the start of the round and at its return. The design tree changes only when designing, implementing and fixing.",
       "measure_matches_runs": "An answer of measured has this work's measure runs in this cell among the engine's records; an answer of not_measured has none.",
       "design_card_matches_tree": "The design paths changed on the branch and are committed. Each decision on the design card matches a changed node (except those it says sub-items carry, which are not on this branch), and every changed node is on the design card. A decision it says comes from the parent is word for word that section of the parent's design card. An answer of unchanged changed nothing; a report can only answer unchanged; an answer of design_paths_only changed nothing outside the design paths.",
-      "design_tree_check": "When the design paths changed, the design tree check the project's configuration names passes on the branch, given the fork point with main.",
       "acceptance_matches_locked": "Locked acceptance conditions are handed in word for word; to change them, the agent asks the advisor first, or, after a ruling of the owner's that disagrees with a decision of the design card, the design changes them as the ruling needs. Those the advisor changed were locked by the engine then. A work that delivers a change has no report_answer condition.",
       "chosen_matches_ruling": "When the owner chose another approach for a decision in a ruling on the design card, the new design card's decision in the same node chooses it; otherwise the agent asks the owner first.",
       "head_pushed_and_green": "The head is the local HEAD, the worktree is clean, it was pushed with ci, and the latest fast CI run on it is green.",
@@ -3086,8 +3118,6 @@
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",
       "project_guide": "The project's AGENTS.md, and the index of the design tree (a title and one sentence per node), with the full text of the nodes the item cites.",
       "local_commits": "The bundle of the work's local commits the session manager made (git bundle).",
-      "tree_changes_to_review": "The change to the design tree to review: across the whole branch at the first review, since the last review at a re-review; the engine lists the nodes changed.",
-      "tree_check_numbers": "The numbers the engine's run of the design tree check prints: nodes, depth, decisions, and how many more than at the fork point.",
       "design_tree_diff": "The change to the design paths on the branch against main, decision by decision.",
       "review_base": "What a review reviews, by commits the work's worktree has: main as fetched (`origin/<main>`), which is the pull request's base, the commit of main the branch was cut from or last took main in at, the head under review, the git command that reads the change between them, and at a re-review the head the last table review looked at.",
       "existing_work": "What already exists for the item, as pointers to read: its earlier works here, with how far each got, why it ended and the queries that read their rounds, returns, design cards and asks of the owner, and what each asked the architect and had withdrawn when it ended; where an imported item came from; the branch taken over, with the git commands that show what it adds beyond main; the PR kept, with the gh commands for its description, comments, reviews and checks.",
@@ -3122,7 +3152,14 @@
       "notebook_other": "The text of the section other of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
       "words_behind_changes": "The owner's words behind the batch's changes: each matter of the owner's words a change came from, with the words whole and where they were said.",
       "fix_table": "The table the work's latest fix answered, as the fix was given it: each row with its number and what it held, a red check with its run and the end of its log.",
-      "levels": "The levels of the installation an item may be at, lowest first, each with its model and what work it is for."
+      "levels": "The levels of the installation an item may be at, lowest first, each with its model and what work it is for.",
+      "reasoning_reading": "The reasoning system's rule for every agent whose work rests on a project's records (rules/reading.md), as the installation's copy of the reasoning system has it; none for a project that keeps no records.",
+      "reasoning_writing": "The reasoning system's rule for the agents that derive and change a project's records (rules/writing.md), as the installation's copy has it; none for a project that keeps no records.",
+      "reasoning_cards": "The reasoning system's extension that puts a revision of the records to the owner as a card (rules/extension-cards.md), as the installation's copy has it; none for a project that keeps no records.",
+      "reasoning_work": "The reasoning system's extension that keeps the work in line with the derivations (rules/extension-work.md), as the installation's copy has it; none for a project that keeps no records.",
+      "reasoning_dcr": "The reasoning system's design coherence review (rules/dcr.md), as the installation's copy has it; none for a project that keeps no records.",
+      "reasoning_check": "The command that runs the reasoning system's check (check.py in the installation's copy) on the project's records in the work's worktree, with the options the project's records take; none for a project that keeps no records.",
+      "design_change": "For a check after design: what the design changed since the check last answered, field by field as a difference of lines between the design it was given then and the design now, with its answer then and why; none at the first design, and none when the design did not change since."
     },
     "values": {
       "came_by": "How the work came to choose the way on.",
@@ -3142,15 +3179,16 @@
       "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's reply, the cell of the owner's words when the flow no longer has that cell; a check of the policy back with the owner's reply to its draft takes effect when the reply is exactly approved, and is written again otherwise.",
       "split": "Whether the reply brought back split off sub-items, and whether this work keeps a part.",
       "start": "What holds an item back from starting, if anything.",
-      "tree": "Whether the change to review touches design tree nodes.",
       "turn": "Whether the work is first in its project's merge queue.",
       "understanding": "Whether the session the architect's work goes on in is the one its previous work left, or a new one.",
       "waited": "Whether every item waited for is merged.",
-      "work": "What the work changes: the implementation, the design paths only, or a report."
+      "work": "What the work changes: the implementation, the design paths only, or a report.",
+      "records": "Whether the project keeps records, which its configuration names.",
+      "records_change": "Whether the branch changed the project's records since its fork point from main.",
+      "under_test": "Whether the project's configuration names something under test.",
+      "other_projects": "Whether the project's configuration names other projects it depends on or that depend on it."
     },
     "needs": {
-      "under_test": "The project's configuration names something under test (a language, a compiler, a library) whose gaps this project's work is meant to find.",
-      "other_projects": "The project's configuration names other projects it depends on or that depend on it.",
       "flow_feedback": "The project's configuration asks its agents what was wrong with each round's cell (`flow_feedback`, on unless set to false)."
     },
     "stores": {
@@ -3300,8 +3338,6 @@
         ],
         "inputs": [
           "local_commits",
-          "tree_changes_to_review",
-          "tree_check_numbers",
           "design_tree_diff",
           "review_base"
         ]
@@ -3654,6 +3690,9 @@
       ],
       "change_observations": [
         "observations"
+      ],
+      "fresh_session": [
+        "sessions"
       ]
     },
     "reads": {
@@ -3775,12 +3814,6 @@
           "batch"
         ]
       },
-      "tree": {
-        "says": "the branch: design paths changed since the last review",
-        "stores": [
-          "branch"
-        ]
-      },
       "turn": {
         "says": "the project's merge queue: another work ahead",
         "stores": [
@@ -3804,6 +3837,26 @@
         "says": "what the item delivers; the design's verdict on the design tree",
         "stores": [
           "items"
+        ]
+      },
+      "records": {
+        "says": "the configuration: the project's records"
+      },
+      "records_change": {
+        "says": "the branch: the records changed since the fork point",
+        "stores": [
+          "branch"
+        ]
+      },
+      "under_test": {
+        "says": "the configuration: what is under test"
+      },
+      "other_projects": {
+        "says": "the configuration: the related projects"
+      },
+      "check_records": {
+        "stores": [
+          "branch"
         ]
       }
     }
@@ -3890,7 +3943,13 @@
             "D6",
             "D7",
             "D8",
-            "D9"
+            "D9",
+            "D10",
+            "D11",
+            "D12",
+            "D13",
+            "D14",
+            "D15"
           ],
           "entries": [
             "R1",
@@ -3913,12 +3972,16 @@
             "L1"
           ],
           "entries": [
-            "I1"
+            "I1",
+            "T6"
           ]
         },
         {
           "name": "asking",
-          "asking": true
+          "asking": true,
+          "entries": [
+            "A8"
+          ]
         },
         {
           "name": "tools",
@@ -3967,7 +4030,7 @@
           },
           {
             "name": "review",
-            "desc": "The reviewer: the first review starts a new session, and the blind review, the table review, the design tree review and re-reviews all continue it",
+            "desc": "The reviewer: the first review starts a new session, and the blind review, the table review, the check of the code against the records and re-reviews all continue it; the challenge of the chain (cell `D3`) and the coherence review (cell `D7`) each start a new session every time",
             "colour": "teal"
           },
           {
@@ -4028,45 +4091,8 @@
           ]
         },
         {
-          "name": "design_tree_writing",
-          "desc": "What the design tree records, how it is written and when it changes: whenever design, implementation or a fix changes the design tree, this applies",
-          "text": [
-            "The design tree records the key technical decisions this project rests on: what was chosen, why, and what was not chosen. It is organized by concept, not by the layout of the code: a tree is one root node file `design/<concept>.md` under `design/`, with its child nodes in the directory of the same name, `design/<concept>/`, as deep as needed.",
-            "Any change to the design paths the project's configuration names gives a design card. Design paths that are not in the node format (a specification, for instance) are changed as the project's AGENTS.md says.",
-            "The tree is written for the agents that will change the code later and kept for the long term; the design card is written for the owner. Derivations, measurements and point-by-point comparisons go in `research/`; a node states only conclusions, and its reasons link straight to the section of the research notes.",
-            "Record only key decisions: those that affect later implementation or the overall architecture. A decision is a real choice between several workable approaches, even one that looks obvious: it changes accepted behaviour or persistent state, a condition of safety or trust, a shared interface or representation, a clear performance commitment, or a lasting rule of the project. How big the work is or how many files it changes is no reason; a matter with only one workable approach is not recorded. Hold the granularity: too fine, and decisions drown in detail; too coarse, and important choices go unguarded.",
-            "Say which kind of ground a reason is: a derivation states its premises and only the conclusions they give; an observation states what was seen and under what conditions; a principle or a single measurement shows only that the choice is suitable, not that it is the only one. Write the reasons when choosing, not afterwards.",
-            "A decision that cannot be settled during design still goes into the tree. A provisional one says in its reasons why it is decided this way for now, what is uncertain and when it would be reopened; one still to check says what assumption the work goes on under and how it will be checked. The design card marks the decision provisional or to check. When it is settled later, the node is changed and a new design card handed in as usual.",
-            "The node format (the engine checks it when a round returns, and rejects the return if it fails): one node per file, named after the decision it governs; inside, one or more `Decision:` lines, optionally followed by a `Rejected:` list. Each field takes one line, with a blank line between fields; list items follow straight after the heading or the previous item. The tree uses ASCII only.",
-            "`Decision:` states the choice, with the reason after `because`, the approach not chosen after `instead of`, or both; at least one of the two. Each `Rejected:` line reads `- <approach>: rejected because <reason>`, and the reason says how it differs from the chosen one, not just the choice turned around. Write for someone who has not seen the original material: spell out abbreviations and short names.",
-            "A node holds no dates, history or progress; measurements and facts appear only as evidence in reasons, and anything mentioned is named for what it is, without dates or numbers.",
-            "Before changing the tree, apply three filters: it is a decision, not a description, so a node that only describes is not wanted; it records the grounds, not the code, so an interface or implementation with no alternative to compare does not go in; a shared rule is written once, on the common ancestor. Keep each decision short: the choice, the deciding reason or the approach not chosen, and the qualifications needed to keep the meaning.",
-            "To bring back a rejected approach, first say what has changed.",
-            "The tree and the implementation change together: during design, change the nodes on the branch, commit them locally and write the design card; when a later round changes the tree again, its return carries the whole design card as it stands after the change. If the code holds an important design choice the tree does not yet have, add it. Before changing a node, read it and its ancestors.",
-            "Approaches the design card did not choose that are worth remembering go into the node's `Rejected:`, with the reasons the design card gives. When the owner confirms the change, what the design card chose is the node's decision; when the owner chooses another approach, the work goes back to design and the tree changes with it."
-          ]
-        },
-        {
-          "name": "design_tree_review",
-          "desc": "How the review reviews the design tree and the design in the code: it applies to a work that does not change the design tree too",
-          "text": [
-            "Review by the points below: the change to the design tree, the whole change, and the existing nodes concerned with their ancestors. A work that does not change the design tree is reviewed too: does a node govern each design choice in its code? In a project whose configuration names no design paths, which has no tree, the four points on code against decisions are not applicable.",
-            "Design card against tree: each decision on the design card says the same thing as the change to its node on the branch; the approaches the design card did not choose that are worth remembering are in `Rejected:`; a decision marked provisional says in the node's reasons what is uncertain and when it would be reopened; one marked to check says what assumption the work goes on under and how it will be checked.",
-            "Is it a decision: each node added or changed meets the node format and the three filters. Report nodes that describe and decide nothing, rejection reasons that go in circles, and choices or grounds that cannot be understood without the original material.",
-            "Consistency: compare each changed node with its ancestors and siblings, and widen to related decisions where needed; for a change that governs a whole concept, read its whole subtree. Say which nodes you read; for every conflict, narrowing or broken dependency, quote both sides.",
-            "Is the architecture right: for each structural choice, were holes in the design and better designs looked for while making and changing it, and can the owner see what was found? The returns of comparing approaches and of thinking again whether there is a better design are among your inputs. Report a concrete hole, or a clearly better design, left unaddressed; something deferred that is not recorded in the database counts too. Judge by what was built and the grounds recorded for it; do not demand imagined generality, and do not supply reasons for it after the code is written.",
-            "In the four points below, \"code\" means everything that implements a decision, specifications and configuration included; widen to affected users where needed.",
-            "Decisions in the code: for each change that embodies a design choice, point to the node that governs it; report one with no node as a missing change to the design tree. Ordinary implementation steps need no node.",
-            "Contradiction: report code that contradicts a decision, or implements a rejected approach, without a change to the tree that replaces the decision.",
-            "Orphans: for code removed, find decisions left with no implementation; report a retired approach whose rejection reason is not recorded, and a rejected approach still in the implementation.",
-            "Incomplete: for each design commitment in scope, find the behaviour and conditions that support it; report what is missing, half done, a placeholder, or short of evidence. A single related function does not make it done. Design unrelated to this work, and anything explicitly deferred, is out of scope, unless the deferral contradicts this work's scope or its claim to be done.",
-            "To check: each to-check this work adds is either checked, or says why it stays and which work will check it; report one with neither as a finding.",
-            "The numbers the design tree check prints (nodes, depth, decisions, compared with the fork point) are among your inputs; report on them."
-          ]
-        },
-        {
           "name": "review_table",
-          "desc": "Which columns the engine lists for the table review: one table for a work that delivers a change and one for a report, and a further round for a work that changes the design tree",
+          "desc": "Which columns the engine lists for the table review: one table for a work that delivers a change and one for a report, and a round of its own that checks the code against the records in a project that keeps them",
           "text": [
             "The review table is the list the engine puts in the question for the review: one number per column, one row of answer per column. Below is which columns the engine lists. At a re-review it lists only the columns to review this time: when reviewing what changed, the columns the changed part concerns; when looking at disputes only, the columns the last review could not verify, by their numbers, and none when it verified them all.",
             "Every work that delivers a change has these columns:",
@@ -4075,18 +4101,22 @@
             "The tests catch errors: a wrong result turns a test red; a bug fix has an example that is red before the change and green after; new behaviour is covered for normal use, errors and edge cases; the fast CI reaches the change; a new test not run before the change (not_run) has what it should show there, a new-behaviour test failing or an old-behaviour test passing, shown some other way, or that is a finding.",
             "A measured slowdown: always a finding, however small; only the owner can accept a slowdown. When nothing was measured (the design decided without measuring and no measurement ran), this column rests on the design's reason that no measurement was needed: pass when that reason holds for the change as made, a finding that asks for the measurement when it does not; never cannot be verified for want of a measurement.",
             "Replies were followed: the replies of the advisor, the architect and the owner on this work, and each way on the engineer chose; a reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding.",
-            "Design in the code is governed by nodes: review by the four points on code against decisions in the design tree review (decisions in the code, contradiction, orphans, incomplete); a work that does not change the design tree is reviewed too.",
             "Repository hygiene: anything added at the root, and any change to the project's AGENTS.md, was agreed by the owner; a dependency's version that moved says which version and why, and that version is on its repository's main; no local paths, machine addresses or credentials; each new file can say whom it is for and when it will be removed; ported code keeps its license notice; one place defines a thing, the others point to it; the documents changed with the code, and the PR description covers every file of the diff.",
             "Tests and checks changed without a column of their own: compare each test, check or expected result the diff changes with its version before; one removed, skipped, narrowed, regenerated or weakened without a technical reason is a finding.",
             "The review list in the project's configuration: one column per entry.",
             "A work that delivers a change also has columns made from the work itself:",
             "One column per acceptance condition: can it be checked; is the evidence there, does it come from the head to be merged, and does it hold.",
-            "One column per judgment in the research and design: the work stands; there is no better design; and for each check answered \"no\" (a gap in what is under test, unsure facts, architectural burden, cross-project dependency, splitting), its reason.",
+            "One column per judgment in the research and design: the work stands; and for each check answered \"no\" (a gap in what is under test, unsure facts, architectural burden, cross-project dependency, splitting) that ran, its reason.",
             "One column per workaround and per design change: does its reason hold, and did the design change with it.",
             "One column per test or check removed, skipped or relaxed: compared with before, is there a technical reason; a compiler limitation, a timeout or an unimplemented feature is no reason.",
             "One column per new test: take the other side on its running time. Do other tests already catch what it catches, could it be smaller or faster, could it be folded into another test? If the writer's reasons can be knocked down, it is a finding.",
             "A work that delivers a report has another table: one column per acceptance condition, for which section of the report answers it and whether the answer is right; whether the evidence supports the conclusions; whether the approaches compared ran under the same conditions (the same load, machine, versions and settings); whether a conclusion claims more than was measured; whether it can be reproduced (the measurement code and commands are in the repository and rerun as written); whether \"what to do next\" holds; and, as for a change, one column per judgment in the research and design.",
-            "A work that changes the design tree has, after the table review, a round of its own for the design tree: one column for each point of the design tree review: design card against tree, is it a decision, consistency, is the architecture right, to check, and the numbers the design tree check prints. The four points on code against decisions were reviewed in the table review and are not answered again."
+            "A work in a project that keeps records has, after the table review, a round of its own that checks the code against them by extension-work section 3, with these columns:",
+            "Choices governed: each choice between workable approaches the work makes is governed by a derivation.",
+            "Contradiction: no part of the work contradicts a derivation or implements a rejected approach without its revision.",
+            "Orphans: nothing removed leaves a derivation with nothing implementing it, or a rejected approach still implemented.",
+            "Commitments: no commitment of the derivations in the work's scope is missing, half done or a placeholder.",
+            "The chain challenged: the derivations constraining the solution were named, and what revising each would give."
           ]
         }
       ],
@@ -4116,7 +4146,7 @@
           },
           {
             "name": "design",
-            "desc": "Comparing approaches, choosing one, writing the design, and the checks after design",
+            "desc": "Deriving the design from the records, challenging and writing it, checking the records, and the checks after design",
             "nodes": [
               "D1",
               "D2",
@@ -4126,7 +4156,13 @@
               "D6",
               "D7",
               "D8",
-              "D9"
+              "D9",
+              "D10",
+              "D11",
+              "D12",
+              "D13",
+              "D14",
+              "D15"
             ]
           },
           {
@@ -4187,7 +4223,8 @@
           "A4",
           "A5",
           "A6",
-          "A7"
+          "A7",
+          "A8"
         ],
         "receive": "A4",
         "roles": [
@@ -4262,7 +4299,15 @@
           },
           {
             "name": "redesigns",
-            "desc": "The times cell `D3` found a better design and went back to cell `D1` to compare again"
+            "desc": "The times a cell found that the records must change: the work goes back to cell `D1` to derive again, or, in a project that keeps no records, back to that cell"
+          },
+          {
+            "name": "records_red",
+            "desc": "The times the records check (cell `D6`) was red and the design went back to cell `D4`"
+          },
+          {
+            "name": "coherence_findings",
+            "desc": "The times the coherence review (cell `D7`) had findings and the design went back to cell `D4`"
           },
           {
             "name": "total_time",
@@ -4322,6 +4367,16 @@
               "say": "`redirect`",
               "lines": [
                 "engineer"
+              ]
+            },
+            {
+              "field": "records_must_change",
+              "say": "`records_must_change`",
+              "cells": [
+                "D4",
+                "I1",
+                "T5",
+                "T6"
               ]
             }
           ],
@@ -4393,6 +4448,17 @@
             "to": "A4",
             "counts": "interjections",
             "interject": true
+          },
+          {
+            "name": "records_must_change",
+            "if": [
+              [
+                "has",
+                "records_must_change"
+              ]
+            ],
+            "to": "A8",
+            "counts": "redesigns"
           }
         ],
         "inputs": [
@@ -4474,6 +4540,26 @@
                   "$ref": "interject_answer"
                 },
                 "desc": "Answers to the other speakers, one per speaker; leave it out if there are none"
+              }
+            ]
+          },
+          {
+            "name": "records_must_change",
+            "title": "The records must change",
+            "type": "obj",
+            "desc": "Hand this in when the work cannot be done right without revising a record of the project's: the work goes back to cell `D1` to derive again, or, in a project that keeps no records, comes back to you. A design change that touches no record is not this",
+            "fields": [
+              {
+                "name": "what",
+                "title": "What must change",
+                "type": "text",
+                "desc": "Which records must change, and the revision it calls for"
+              },
+              {
+                "name": "why",
+                "title": "Why",
+                "type": "text",
+                "desc": "What the work found that calls for it, with the evidence"
               }
             ]
           },
@@ -5037,9 +5123,6 @@
                 ]
               ],
               "to": "R2",
-              "sets": {
-                "rethought": "no"
-              },
               "main": true
             }
           ],
@@ -5088,7 +5171,7 @@
         {
           "id": "D1",
           "kind": "agent",
-          "title": "Compare approaches",
+          "title": "Derive from the records",
           "effort": "high",
           "line": "engineer",
           "tools": [
@@ -5108,15 +5191,28 @@
               ]
             },
             {
-              "name": "The better design found on rethinking",
-              "what": "The better design named when thinking again; none if the work did not come from that step",
+              "name": "What was found that the records must change",
+              "what": "What a cell found that the records must change, which sent the work back here through cell `A8`: each from that cell's newest return; none when the work did not come back so",
               "from": [
                 [
-                  "@from",
-                  "better[found]"
+                  "D4",
+                  "records_must_change"
+                ],
+                [
+                  "I1",
+                  "records_must_change"
+                ],
+                [
+                  "T5",
+                  "records_must_change"
+                ],
+                [
+                  "T6",
+                  "records_must_change"
                 ]
               ],
-              "maybe": true
+              "maybe": true,
+              "newest": true
             },
             {
               "name": "Rulings on the design card",
@@ -5128,61 +5224,145 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Reasoning rules",
+              "what": "The reasoning system's rules reading.md and extension-work.md, as the installation's copy of it has them; given only when the project keeps records",
+              "from": [
+                {
+                  "engine": "reasoning_reading"
+                },
+                {
+                  "engine": "reasoning_work"
+                }
+              ],
+              "maybe": true
             }
           ],
-          "rules": [
-            "design_tree_writing"
-          ],
           "prompt": [
-            "This work stands; now research how to do it. This round only compares approaches; the next one chooses. If you need to measure, you may write measurement code, put it in `research/`, commit it locally and run it with measure; the measurement code stays on this work's branch, and no other file changes. Read the code to change and the design tree carefully. By the project's design goal, think from first principles: what the problem needs at bottom, and what solution makes the most sense; do not start from how the existing code is written and patch together something that works. If decisions of a design card were disagreed with, take the reasons as new constraints, and compare by the approaches the owner chose for them too."
+            "This work stands; now derive how to do it. Change no file but measurement code: if you need to measure, put it in `research/`, commit it locally and run it with measure; it stays on this work's branch. When the project keeps records (you are given the reasoning rules), work from them as extension-work section 1, steps 1 and 2, says: find the derivations that govern the problem, follow each up to the articles, and derive the solution from them and from the problem itself. Without records, design from the problem itself, from first principles and by the project's design goal, and hand in decided. If decisions of a design card were disagreed with, take the reasons as new constraints. If a cell found that the records must change, start from what it found."
           ],
           "promptBy": {
             "by": "deliver",
             "cases": {
               "change": [
-                "Compare several approaches that solve this problem, at least three, each with how it works, what is good about it, and its cost and risk; where only a measurement can tell them apart, measure first and judge the results yourself."
+                "This work delivers a change: derive how the code changes."
               ],
               "report": [
-                "This work delivers only a report, and what is wanted is the answer to its question: compare several ways of researching it, at least three, each with what it measures, where and how it judges, what is good about it, and its cost and risk. This round only compares the ways: the research itself, the real comparison and the measurements, are done in the implementation round; if a small sample must be measured first to know whether a way works, such as how large the noise is or how long one run takes, you may measure it now."
+                "This work delivers only a report, and what is wanted is the answer to its question: derive how to research it, what it measures and where and how it judges. The research itself is done in the implementation round; if a small sample must be measured first to know whether a way works, such as how large the noise is or how long one run takes, you may measure it now."
               ]
             }
           },
           "out": [
             {
-              "name": "options",
-              "title": "The approaches compared",
+              "name": "derivations",
+              "title": "The derivations that govern it",
               "type": "list",
-              "desc": "The approaches you compared, at least three: look for a more elegant one too, and give the example that shows why a simple fix is not enough, if there is one",
+              "desc": "The derivations that govern the problem, each followed up to the articles; none when the project keeps no records",
               "item": {
                 "type": "obj",
                 "fields": [
                   {
-                    "name": "name",
-                    "title": "Name",
+                    "name": "id",
+                    "title": "Derivation",
                     "type": "text",
-                    "desc": "What this approach is called, in a few words"
+                    "desc": "The derivation, as `D:<id>`"
                   },
                   {
-                    "name": "how",
-                    "title": "How it works",
+                    "name": "chain",
+                    "title": "What it rests on",
                     "type": "text",
-                    "desc": "Roughly how it works"
-                  },
-                  {
-                    "name": "good",
-                    "title": "Good",
-                    "type": "text",
-                    "desc": "What is good about it"
-                  },
-                  {
-                    "name": "bad",
-                    "title": "Bad",
-                    "type": "text",
-                    "desc": "Its cost and risk"
+                    "desc": "What it rests on, up to the articles, and how it bears on the problem"
                   }
                 ]
-              },
-              "min": 3
+              }
+            },
+            {
+              "name": "solution",
+              "title": "The solution derived",
+              "type": "text",
+              "desc": "The solution derived: how it solves the problem, in outline; the design is written next"
+            },
+            {
+              "name": "finding",
+              "title": "What the records give",
+              "type": "union",
+              "by": "verdict",
+              "desc": "What the records give for this problem",
+              "branches": [
+                {
+                  "value": "decided",
+                  "desc": "The records decide it, with one workable way and nothing to change; or the project keeps no records",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "title": "Why it is decided",
+                      "type": "text",
+                      "desc": "The derivations that decide it; without records, why this way"
+                    }
+                  ]
+                },
+                {
+                  "value": "trade_off",
+                  "desc": "The records leave several workable ways open: a trade-off for the owner",
+                  "fields": [
+                    {
+                      "name": "open",
+                      "title": "What the records leave open",
+                      "type": "text",
+                      "desc": "What the records leave open, and why each way below is workable"
+                    },
+                    {
+                      "name": "options",
+                      "title": "The workable ways",
+                      "type": "list",
+                      "min": 2,
+                      "desc": "The workable ways, at least two",
+                      "item": {
+                        "type": "obj",
+                        "fields": [
+                          {
+                            "name": "name",
+                            "title": "Name",
+                            "type": "text",
+                            "desc": "What this approach is called, in a few words"
+                          },
+                          {
+                            "name": "how",
+                            "title": "How it works",
+                            "type": "text",
+                            "desc": "Roughly how it works"
+                          },
+                          {
+                            "name": "good",
+                            "title": "Good",
+                            "type": "text",
+                            "desc": "What is good about it"
+                          },
+                          {
+                            "name": "bad",
+                            "title": "Bad",
+                            "type": "text",
+                            "desc": "Its cost and risk"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "value": "must_change",
+                  "desc": "No workable way without revising a record",
+                  "fields": [
+                    {
+                      "name": "what",
+                      "title": "What must change",
+                      "type": "text",
+                      "desc": "Which records must change, the revision proposed and why, and what rests on them"
+                    }
+                  ]
+                }
+              ]
             }
           ],
           "cases": [
@@ -5203,7 +5383,9 @@
             }
           ],
           "shown": [
-            "options"
+            "derivations",
+            "solution",
+            "finding"
           ],
           "inenums": {
             "deliver": "deliver_kind"
@@ -5211,8 +5393,261 @@
         },
         {
           "id": "D2",
+          "kind": "engine",
+          "title": "Which way the design goes",
+          "inputs": [
+            {
+              "id": "finding",
+              "name": "What the records give",
+              "what": "What cell `D1` found: the records decide it, a trade-off they leave open, or that they must change",
+              "from": [
+                [
+                  "D1",
+                  "finding"
+                ]
+              ]
+            },
+            {
+              "name": "The project's records",
+              "what": "Where the project keeps its records, and whether they are in English only, as its configuration says; none when it keeps none",
+              "from": [
+                {
+                  "config": "records"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "no_records",
+              "if": [
+                [
+                  "inp",
+                  "records",
+                  [
+                    "none"
+                  ]
+                ]
+              ],
+              "to": "D4",
+              "main": true,
+              "note": "The project keeps no records: the design is written from the problem itself."
+            },
+            {
+              "name": "decided",
+              "if": [
+                [
+                  "inp",
+                  "records",
+                  [
+                    "keeps"
+                  ]
+                ],
+                [
+                  "is",
+                  "@finding.verdict",
+                  [
+                    "decided"
+                  ]
+                ]
+              ],
+              "to": "D4",
+              "main": true
+            },
+            {
+              "name": "full",
+              "if": [
+                [
+                  "inp",
+                  "records",
+                  [
+                    "keeps"
+                  ]
+                ],
+                [
+                  "is",
+                  "@finding.verdict",
+                  [
+                    "trade_off",
+                    "must_change"
+                  ]
+                ]
+              ],
+              "to": "D3",
+              "do": [
+                "fresh_session"
+              ],
+              "main": true
+            }
+          ],
+          "inenums": {
+            "records": "records_state"
+          }
+        },
+        {
+          "id": "D3",
           "kind": "agent",
-          "title": "Choose one and write the design",
+          "title": "Challenge the chain",
+          "effort": "high",
+          "line": "review",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "name": "How the work is understood",
+              "what": "How this work is understood",
+              "from": [
+                [
+                  "R1",
+                  "understanding"
+                ]
+              ]
+            },
+            {
+              "name": "What the records give",
+              "what": "What cell `D1` derived: the derivations that govern the problem, followed up to the articles, the solution, and its finding",
+              "from": [
+                [
+                  "D1",
+                  "derivations"
+                ],
+                [
+                  "D1",
+                  "solution"
+                ],
+                [
+                  "D1",
+                  "finding"
+                ]
+              ]
+            },
+            {
+              "name": "Reasoning rules",
+              "what": "The reasoning system's rules reading.md and extension-work.md, as the installation's copy of it has them; given only when the project keeps records",
+              "from": [
+                {
+                  "engine": "reasoning_reading"
+                },
+                {
+                  "engine": "reasoning_work"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The records check",
+              "what": "The command that runs the reasoning system's check on the project's records in your worktree; given only when the project keeps records",
+              "from": [
+                {
+                  "engine": "reasoning_check"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "prompt": [
+            "Challenge the chain the solution of cell `D1` stands on, as extension-work section 1, steps 3 and 4, says: name the derivations that constrain it most, and for each say whether revising it would give a clearly better solution by the same articles: that solution, what it gains and costs, and which records rest on the derivation (the records check with `--dependents`). Go no higher than the articles. A revision that breaks on a record below it is kept as rejected, citing that record. Think it through in earnest; change no file."
+          ],
+          "out": [
+            {
+              "name": "constraints",
+              "title": "The derivations that constrain it most",
+              "type": "list",
+              "min": 1,
+              "desc": "The derivations that constrain the solution most, each with what revising it would give",
+              "item": {
+                "type": "union",
+                "by": "verdict",
+                "common": [
+                  {
+                    "name": "id",
+                    "title": "Derivation",
+                    "type": "text",
+                    "desc": "The derivation, as `D:<id>`"
+                  },
+                  {
+                    "name": "without",
+                    "title": "Without it",
+                    "type": "text",
+                    "desc": "What you would do without it"
+                  }
+                ],
+                "branches": [
+                  {
+                    "value": "better",
+                    "desc": "Revising it gives a clearly better solution by the same articles: propose the revision",
+                    "fields": [
+                      {
+                        "name": "gains",
+                        "title": "What it gains and costs",
+                        "type": "text",
+                        "desc": "The better solution, what it gains and what it costs"
+                      },
+                      {
+                        "name": "dependents",
+                        "title": "What rests on it",
+                        "type": "text",
+                        "desc": "The records resting on the derivation, which the revision examines again"
+                      }
+                    ]
+                  },
+                  {
+                    "value": "not_better",
+                    "desc": "Revising it gives no clearly better solution",
+                    "fields": [
+                      {
+                        "name": "why",
+                        "title": "Why not",
+                        "type": "text",
+                        "desc": "The solution its revision would give, and why it is not clearly better"
+                      }
+                    ]
+                  },
+                  {
+                    "value": "breaks",
+                    "desc": "Its revision breaks on a record resting on it: keep it as rejected",
+                    "fields": [
+                      {
+                        "name": "why",
+                        "title": "Where it breaks",
+                        "type": "text",
+                        "desc": "The record it breaks on, and how"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "cases": [
+            {
+              "name": "done",
+              "if": [
+                [
+                  "own"
+                ]
+              ],
+              "to": "D4",
+              "main": true
+            }
+          ],
+          "checks": [
+            {
+              "check": "design_paths_unchanged"
+            }
+          ],
+          "shown": [
+            "constraints"
+          ]
+        },
+        {
+          "id": "D4",
+          "kind": "agent",
+          "title": "Write the design, the records revision and the decision cards",
           "effort": "xhigh",
           "line": "engineer",
           "tools": [
@@ -5222,23 +5657,58 @@
           ],
           "inputs": [
             {
-              "name": "The approaches compared",
-              "what": "The approaches compared",
+              "name": "What the records give",
+              "what": "What cell `D1` derived: the derivations that govern the problem, the solution, and its finding",
               "from": [
                 [
                   "D1",
-                  "options"
+                  "derivations"
+                ],
+                [
+                  "D1",
+                  "solution"
+                ],
+                [
+                  "D1",
+                  "finding"
                 ]
               ]
             },
             {
-              "name": "Whether it was already rethought",
-              "what": "Whether this design has already been through thinking again (cell `D3`)",
+              "name": "The challenge of the chain",
+              "what": "The challenge of the chain the solution stands on, from its latest round; none when the design came straight from cell `D1`",
               "from": [
-                {
-                  "recorded": "rethought"
-                }
-              ]
+                [
+                  "D3",
+                  "constraints"
+                ]
+              ],
+              "maybe": true,
+              "newest": true
+            },
+            {
+              "name": "What the records check printed",
+              "what": "When the records check was red the last time it ran, what it printed; none otherwise",
+              "from": [
+                [
+                  "D6",
+                  "check[red].printed"
+                ]
+              ],
+              "maybe": true,
+              "newest": true
+            },
+            {
+              "name": "What the coherence review found",
+              "what": "When the coherence review had findings the last time it ran, its findings; none otherwise",
+              "from": [
+                [
+                  "D7",
+                  "review[findings]"
+                ]
+              ],
+              "maybe": true,
+              "newest": true
             },
             {
               "name": "Whether the acceptance is locked",
@@ -5271,37 +5741,60 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Reasoning rules",
+              "what": "The reasoning system's rules reading.md, writing.md and extension-cards.md, as the installation's copy of it has them; given only when the project keeps records",
+              "from": [
+                {
+                  "engine": "reasoning_reading"
+                },
+                {
+                  "engine": "reasoning_writing"
+                },
+                {
+                  "engine": "reasoning_cards"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The records check",
+              "what": "The command that runs the reasoning system's check on the project's records in your worktree; given only when the project keeps records",
+              "from": [
+                {
+                  "engine": "reasoning_check"
+                }
+              ],
+              "maybe": true
             }
           ],
-          "rules": [
-            "design_tree_writing"
-          ],
           "prompt": [
-            "This round only designs. If you need to measure, you may write measurement code, put it in `research/`, commit it locally and run it with measure; the measurement code stays on this work's branch; change no file other than the measurement code and the design tree. Choose one of the approaches compared; if the owner chose another approach for a decision of a design card, choose that one for that decision, and if the owner changed the acceptance, write it as changed; say in what point it beats each of the others, covering every one not chosen. If only a measurement can decide, measure first and judge the results yourself; if you measured, say how the results shaped the choice, and if not, why no measurement was needed. Then write the design itself: how it solves the problem, until it is clear, with code before and after and diagrams if useful; for a change to language rules, a checker or a library interface, give the code after the change and show how the problem's example is accepted after it; then where it changes, what it leaves out, and its constraints and pitfalls. If the design tree must change (the design paths the project's configuration names, such as design/), change the nodes in this round as the design tree rules say and commit them locally, then write the design card: one section per decision added, changed or removed, before, after and why, at least three approaches compared, the chosen one the recommendation and why each other was not chosen; how sure you are, on what grounds, and what would overturn it; provisional or to check for what cannot be settled; if the tree does not change, say why. Write the acceptance conditions to test at the end, each one sentence of plain language, saying whether a test or a measurement meets it; if they are locked already, write them as locked, and if you think they must change, first ask the advisor and write them as the reply says. If you cannot choose, ask, saying where it is stuck and what is missing to decide. When designing again after sub-items were split off: the design card still covers the whole work, and each decision says who carries it, this work itself or which sub-item; the branch keeps only the nodes this work carries itself and drops those given to sub-items. When this work was split off and the parent's design card has decisions it says this work carries: write those nodes exactly as on it, copy those decisions unchanged onto your design card and say they come from the parent; the owner's rulings on the parent's design card count for them as they are; decisions not on the parent's design card are written as usual."
+            "This round writes the design. Change no file but measurement code (put it in `research/`, commit it locally and run it with measure) and the records. Take the way cell `D1` derived: where the records decide it, that way; for a trade-off, the option you recommend, saying in what point it beats each other option; take in the challenge of the chain, if there was one, making a revision it found clearly better. If the owner chose another approach for a decision of a design card, choose that one for that decision, and if the owner changed the acceptance, write it as changed. If only a measurement can decide, measure first and judge the results yourself; if you measured, say how the results shaped the choice, and if not, why no measurement was needed. Then write the design itself: how it solves the problem, until it is clear, with code before and after and diagrams if useful; for a change to language rules, a checker or a library interface, give the code after the change and show how the problem's example is accepted after it; then where it changes, what it leaves out, and its constraints and pitfalls. When the records change (a trade-off put to the owner, a revision), revise them in this round as the reasoning rules say, with the revision's entry in their log, run the records check and commit locally, then write the design card: one section per decision added, changed or removed, before, after and why, at least three approaches compared, the chosen one the recommendation and why each other was not chosen; how sure you are, on what grounds, and what would overturn it; provisional or to check for what cannot be settled; if the design paths do not change, say why. Coming back from the records check or the coherence review, put right what it found and hand in the whole design again. When you designed this work before, keep word for word the text of what does not change and change only what changes, so that the checks after design judge only the change. If the records must change in a way cell `D1` did not derive, hand in records_must_change. Write the acceptance conditions to test at the end, each one sentence of plain language, saying whether a test or a measurement meets it; if they are locked already, write them as locked, and if you think they must change, first ask the advisor and write them as the reply says. If you cannot choose, ask, saying where it is stuck and what is missing to decide. When designing again after sub-items were split off: the design card still covers the whole work, and each decision says who carries it, this work itself or which sub-item; the branch keeps only the records this work carries itself and drops those given to sub-items. When this work was split off and the parent's design card has decisions it says this work carries: write those records exactly as on it, copy those decisions unchanged onto your design card and say they come from the parent; the owner's rulings on the parent's design card count for them as they are; decisions not on the parent's design card are written as usual."
           ],
           "promptBy": {
             "by": "deliver",
             "cases": {
               "change": [
-                "This work delivers a change: the design says how the code changes, and the estimate says which parts the implementation changes, how large and hard each is, which are only mechanical, and where it is most likely to be bigger than expected. If what this work delivers is a change to the design paths, such as a correction to a specification or a reorganization of the design tree, answer design_tree with design_paths_only."
+                "This work delivers a change: the design says how the code changes, and the estimate says which parts the implementation changes, how large and hard each is, which are only mechanical, and where it is most likely to be bigger than expected. If what this work delivers is a change to the design paths, such as a correction to a specification or a reorganization of the records, answer design_tree with design_paths_only."
               ],
               "report": [
-                "This work delivers only a report: the design is the research plan: what it must answer, what it compares, what it measures and how, and how the conclusions are judged; where says where the research notes and measurement code go; the design tree does not change; the estimate says how many sets of measurements, how large each, roughly how long, and how much the research notes will say. An acceptance condition may be answered by the report: write the question the report must answer and what evidence counts as an answer."
+                "This work delivers only a report: the design is the research plan: what it must answer, what it compares, what it measures and how, and how the conclusions are judged; where says where the research notes and measurement code go; the records do not change; the estimate says how many sets of measurements, how large each, roughly how long, and how much the research notes will say. An acceptance condition may be answered by the report: write the question the report must answer and what evidence counts as an answer."
               ]
             }
           },
           "out": [
             {
               "name": "chosen",
-              "title": "Chosen approach",
+              "title": "The way chosen",
               "type": "text",
-              "desc": "Which one you chose (its name in options)"
+              "desc": "The way the design takes, in a few words: for a trade-off, the option you recommend (its name among the options of cell `D1`); otherwise the way the records decide, or without records the way you designed"
             },
             {
               "name": "why",
-              "title": "Why this one, not the others",
+              "title": "Why this way",
               "type": "text",
-              "desc": "Why you chose it, and why it is good: in what point it beats each of the others, covering every one not chosen"
+              "desc": "Why this way: the derivations that decide it; for a trade-off, in what point it beats each other option, covering every one not chosen"
             },
             {
               "name": "measure",
@@ -5370,14 +5863,14 @@
             },
             {
               "name": "design_tree",
-              "title": "Whether the design tree changes",
+              "title": "Whether the design paths change",
               "type": "union",
-              "desc": "Whether the design tree changes",
+              "desc": "Whether the design paths change",
               "by": "verdict",
               "branches": [
                 {
                   "value": "unchanged",
-                  "desc": "This design changes no decision in the design tree, and nothing in the design paths on the branch",
+                  "desc": "This design changes no record, and nothing in the design paths on the branch",
                   "fields": [
                     {
                       "name": "why",
@@ -5389,7 +5882,7 @@
                 },
                 {
                   "value": "change",
-                  "desc": "The design tree changes: change the nodes in this round as the design tree rules say, commit them locally, and write the design card here. It does not stop you going on; it only holds up the merge",
+                  "desc": "The design paths change: revise the records in this round as the reasoning rules say, commit them locally, and write the design card here. It does not stop you going on; it only holds up the merge",
                   "fields": [
                     {
                       "$ref": "design_card"
@@ -5401,7 +5894,7 @@
                 },
                 {
                   "value": "design_paths_only",
-                  "desc": "What this work delivers is a change to the design paths, such as a correction to a specification or a reorganization of the design tree: change the nodes in this round as the design tree rules say, commit them locally, and write the design card here; the implementation round changes no other file",
+                  "desc": "What this work delivers is a change to the design paths, such as a correction to a specification or a reorganization of the records: revise them in this round as the reasoning rules say, commit them locally, and write the design card here; the implementation round changes no other file",
                   "fields": [
                     {
                       "$ref": "design_card"
@@ -5432,37 +5925,14 @@
           ],
           "cases": [
             {
-              "name": "first",
+              "name": "done",
               "if": [
                 [
                   "own"
-                ],
-                [
-                  "inp",
-                  "rethought",
-                  [
-                    "no"
-                  ]
                 ]
               ],
-              "to": "D3",
+              "to": "D5",
               "main": true
-            },
-            {
-              "name": "revised",
-              "if": [
-                [
-                  "own"
-                ],
-                [
-                  "inp",
-                  "rethought",
-                  [
-                    "yes"
-                  ]
-                ]
-              ],
-              "to": "D4"
             }
           ],
           "checks": [
@@ -5477,14 +5947,6 @@
             {
               "at": "design_tree[design_paths_only].design_card",
               "check": "design_card_matches_tree"
-            },
-            {
-              "at": "design_tree[change].design_card",
-              "check": "design_tree_check"
-            },
-            {
-              "at": "design_tree[design_paths_only].design_card",
-              "check": "design_tree_check"
             },
             {
               "at": "acceptance",
@@ -5515,18 +5977,919 @@
             "design_tree"
           ],
           "inenums": {
-            "rethought": [
-              [
-                "no",
-                "This version of the design has not been through thinking again yet"
-              ],
-              [
-                "yes",
-                "It came back from thinking again and was revised"
-              ]
-            ],
             "deliver": "deliver_kind"
           }
+        },
+        {
+          "id": "D5",
+          "kind": "engine",
+          "title": "Whether the records changed",
+          "inputs": [
+            {
+              "name": "The project's records",
+              "what": "Where the project keeps its records, and whether they are in English only, as its configuration says; none when it keeps none",
+              "from": [
+                {
+                  "config": "records"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "changed",
+              "if": [
+                [
+                  "inp",
+                  "records_change",
+                  [
+                    "changed"
+                  ]
+                ]
+              ],
+              "to": "D6",
+              "main": true
+            },
+            {
+              "name": "unchanged",
+              "if": [
+                [
+                  "inp",
+                  "records_change",
+                  [
+                    "unchanged"
+                  ]
+                ]
+              ],
+              "to": "D8",
+              "main": true
+            }
+          ],
+          "inenums": {
+            "records_change": [
+              [
+                "changed",
+                "The branch changed the project's records since its fork point from main"
+              ],
+              [
+                "unchanged",
+                "It did not, or the project keeps no records"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "D6",
+          "kind": "tool",
+          "title": "Check the records",
+          "step": "check_records",
+          "inputs": [
+            {
+              "name": "The project's records",
+              "what": "Where the project keeps its records, and whether they are in English only, as its configuration says",
+              "from": [
+                {
+                  "config": "records"
+                }
+              ]
+            }
+          ],
+          "out": [
+            {
+              "name": "check",
+              "title": "The records check",
+              "type": "union",
+              "by": "verdict",
+              "desc": "What the reasoning system's check said of the records on the branch, against the fork point from main",
+              "branches": [
+                {
+                  "value": "green",
+                  "desc": "It passes",
+                  "fields": [
+                    {
+                      "name": "printed",
+                      "title": "What it printed",
+                      "type": "text",
+                      "desc": "What the check printed: what is open or assumed, and what rests on each"
+                    }
+                  ]
+                },
+                {
+                  "value": "red",
+                  "desc": "It fails",
+                  "fields": [
+                    {
+                      "name": "printed",
+                      "title": "What it printed",
+                      "type": "text",
+                      "desc": "What the check printed: each fault"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "green",
+              "if": [
+                [
+                  "is",
+                  "check.verdict",
+                  [
+                    "green"
+                  ]
+                ]
+              ],
+              "to": "D7",
+              "do": [
+                "fresh_session"
+              ],
+              "main": true
+            },
+            {
+              "name": "red",
+              "if": [
+                [
+                  "is",
+                  "check.verdict",
+                  [
+                    "red"
+                  ]
+                ]
+              ],
+              "to": "D4",
+              "counts": "records_red",
+              "note": "The design round puts the records right from what the check printed: ordinary drafting, not a fault."
+            }
+          ]
+        },
+        {
+          "id": "D7",
+          "kind": "agent",
+          "title": "Coherence review",
+          "effort": "high",
+          "line": "review",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "name": "The project's records",
+              "what": "Where the project keeps its records, and whether they are in English only, as its configuration says",
+              "from": [
+                {
+                  "config": "records"
+                }
+              ]
+            },
+            {
+              "name": "The change under review",
+              "what": "The change to review, by commits the worktree has: main as fetched, the commit of main the branch was cut from or last took main in at, the head, and the git command that reads the change between them",
+              "from": [
+                {
+                  "engine": "review_base"
+                }
+              ]
+            },
+            {
+              "name": "What the records check printed",
+              "what": "What the records check printed on the change, against its fork point and with `--ready`",
+              "from": [
+                [
+                  "D6",
+                  "check[green].printed"
+                ]
+              ]
+            },
+            {
+              "name": "The design and its card",
+              "what": "The design, and the design card as it stands, the latest of this work",
+              "from": [
+                [
+                  "D4",
+                  "design"
+                ],
+                {
+                  "db": "work_design_card",
+                  "by": "work"
+                }
+              ]
+            },
+            {
+              "name": "Reasoning rules",
+              "what": "The reasoning system's rules reading.md, writing.md, extension-cards.md and dcr.md, as the installation's copy of it has them; given only when the project keeps records",
+              "from": [
+                {
+                  "engine": "reasoning_reading"
+                },
+                {
+                  "engine": "reasoning_writing"
+                },
+                {
+                  "engine": "reasoning_cards"
+                },
+                {
+                  "engine": "reasoning_dcr"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The records check",
+              "what": "The command that runs the reasoning system's check on the project's records in your worktree; given only when the project keeps records",
+              "from": [
+                {
+                  "engine": "reasoning_check"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "prompt": [
+            "Review what the records check cannot: the design coherence review (dcr.md) of the change to the records, reading the change whole, every record it adds, changes or removes with what each rests on, and every record resting on those; and each design card by extension-cards section 2: each option workable, each dismissal a reason that holds, the obvious ways covered, the card and the revision saying the same. Say which records you read. Change no file."
+          ],
+          "out": [
+            {
+              "name": "review",
+              "title": "The coherence review",
+              "type": "union",
+              "by": "verdict",
+              "desc": "What the review found",
+              "common": [
+                {
+                  "name": "read",
+                  "title": "Records read",
+                  "type": "text",
+                  "desc": "Which records you read"
+                }
+              ],
+              "branches": [
+                {
+                  "value": "none",
+                  "desc": "Nothing found: the records cohere, and the cards hold",
+                  "fields": []
+                },
+                {
+                  "value": "findings",
+                  "desc": "Findings: the design round puts them right",
+                  "fields": [
+                    {
+                      "name": "findings",
+                      "title": "Findings",
+                      "type": "list",
+                      "min": 1,
+                      "desc": "Each finding",
+                      "item": {
+                        "type": "obj",
+                        "fields": [
+                          {
+                            "name": "what",
+                            "title": "Finding",
+                            "type": "text",
+                            "desc": "The finding, quoting both sides and the premises each rests on"
+                          },
+                          {
+                            "name": "resolve",
+                            "title": "What would resolve it",
+                            "type": "text",
+                            "desc": "What would resolve it"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "none",
+              "if": [
+                [
+                  "is",
+                  "review.verdict",
+                  [
+                    "none"
+                  ]
+                ]
+              ],
+              "to": "D8",
+              "main": true
+            },
+            {
+              "name": "findings",
+              "if": [
+                [
+                  "is",
+                  "review.verdict",
+                  [
+                    "findings"
+                  ]
+                ]
+              ],
+              "to": "D4",
+              "counts": "coherence_findings"
+            }
+          ],
+          "checks": [
+            {
+              "check": "design_paths_unchanged"
+            }
+          ],
+          "shown": [
+            "review"
+          ]
+        },
+        {
+          "id": "D8",
+          "kind": "engine",
+          "title": "Whether something is under test",
+          "inputs": [
+            {
+              "name": "What is under test",
+              "what": "What the project's configuration names under test, such as a language, a compiler or a library; none when it names nothing",
+              "from": [
+                {
+                  "config": "under_test"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "yes",
+              "if": [
+                [
+                  "inp",
+                  "under_test",
+                  [
+                    "yes"
+                  ]
+                ]
+              ],
+              "to": "D9",
+              "main": true
+            },
+            {
+              "name": "no",
+              "if": [
+                [
+                  "inp",
+                  "under_test",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "D10",
+              "main": true
+            }
+          ],
+          "inenums": {
+            "under_test": [
+              [
+                "yes",
+                "The project's configuration names something under test, whose gaps its work is meant to find"
+              ],
+              [
+                "no",
+                "It names none"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "D9",
+          "kind": "gate",
+          "title": "Gaps in what is under test",
+          "effort": "medium",
+          "question": "Judge whether carrying out your design meets a way of writing something that a programmer would naturally write, but that what is under test rejects or handles badly. If it does, give the code you want to write, the error it really gives (run it, not from memory), and why this way of writing it is natural.",
+          "na": "the work writes and changes no code that uses what is under test, such as a change to documents only",
+          "to": "D10",
+          "inputs": [
+            {
+              "name": "The design",
+              "what": "The design: which approach, why, and the design itself",
+              "from": [
+                [
+                  "D4",
+                  "chosen"
+                ],
+                [
+                  "D4",
+                  "why"
+                ],
+                [
+                  "D4",
+                  "design"
+                ]
+              ]
+            },
+            {
+              "name": "What the design changed",
+              "what": "What the design changed since your last answer, with that answer and why; none at the first design. Given it, judge whether the change alters your last answer: one it does not touch you hand in again, why saying the change does not touch it; one it does you judge on the change, the whole design beside it",
+              "from": [
+                {
+                  "engine": "design_change"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "outcomes": {
+            "on": [
+              "no_gap",
+              "Carrying out the design meets nothing of the kind"
+            ],
+            "problem": [
+              "gap",
+              "Carrying out the design meets a natural way of writing something that what is under test rejects or handles badly"
+            ]
+          }
+        },
+        {
+          "id": "D10",
+          "kind": "gate",
+          "title": "Whether you are sure",
+          "effort": "high",
+          "question": "Judge whether every fact your design rests on that would change the direction if it were wrong is checked. If not, say what you are unsure of, which fact would change the direction, and how to check it.",
+          "na": "for a report, the facts the research plan has not checked are exactly what the work sets out to check",
+          "to": "D11",
+          "inputs": [
+            {
+              "name": "The design",
+              "what": "The design: which approach, why, and the design itself",
+              "from": [
+                [
+                  "D4",
+                  "chosen"
+                ],
+                [
+                  "D4",
+                  "why"
+                ],
+                [
+                  "D4",
+                  "design"
+                ]
+              ]
+            },
+            {
+              "name": "What the design changed",
+              "what": "What the design changed since your last answer, with that answer and why; none at the first design. Given it, judge whether the change alters your last answer: one it does not touch you hand in again, why saying the change does not touch it; one it does you judge on the change, the whole design beside it",
+              "from": [
+                {
+                  "engine": "design_change"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "outcomes": {
+            "on": [
+              "sure",
+              "Every such fact is checked"
+            ],
+            "problem": [
+              "unsure",
+              "The design rests on a fact not yet checked that would change the direction if it were wrong"
+            ]
+          }
+        },
+        {
+          "id": "D11",
+          "kind": "gate",
+          "title": "Cost: architectural burden",
+          "effort": "medium",
+          "question": "Judge, by your design, whether the change is worth its architectural burden and what it costs to maintain. If not, say where the burden lies, and give at least three ways out, such as building this design, a smaller change, or not doing it.",
+          "na": "a report, or a change to documents only, changes no architecture and adds no burden",
+          "to": "D12",
+          "inputs": [
+            {
+              "name": "The design",
+              "what": "The design: which approach, why, and the design itself",
+              "from": [
+                [
+                  "D4",
+                  "chosen"
+                ],
+                [
+                  "D4",
+                  "why"
+                ],
+                [
+                  "D4",
+                  "design"
+                ]
+              ]
+            },
+            {
+              "name": "What the design changed",
+              "what": "What the design changed since your last answer, with that answer and why; none at the first design. Given it, judge whether the change alters your last answer: one it does not touch you hand in again, why saying the change does not touch it; one it does you judge on the change, the whole design beside it",
+              "from": [
+                {
+                  "engine": "design_change"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "outcomes": {
+            "on": [
+              "worth_it",
+              "The change is worth its burden and its cost to maintain"
+            ],
+            "problem": [
+              "too_costly",
+              "The change is so large that the architectural burden grows heavy and maintenance costs more, so that it is not worth it"
+            ]
+          }
+        },
+        {
+          "id": "D12",
+          "kind": "engine",
+          "title": "Whether the project has other projects",
+          "inputs": [
+            {
+              "name": "Other projects",
+              "what": "The projects the project's configuration names as depending on it or it on them; none when it names none",
+              "from": [
+                {
+                  "config": "other_projects"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "yes",
+              "if": [
+                [
+                  "inp",
+                  "other_projects",
+                  [
+                    "yes"
+                  ]
+                ]
+              ],
+              "to": "D13",
+              "main": true
+            },
+            {
+              "name": "no",
+              "if": [
+                [
+                  "inp",
+                  "other_projects",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "D14",
+              "main": true
+            }
+          ],
+          "inenums": {
+            "other_projects": [
+              [
+                "yes",
+                "The project's configuration names other projects it depends on or that depend on it"
+              ],
+              [
+                "no",
+                "It names none"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "D13",
+          "kind": "gate",
+          "title": "Cross-project dependency",
+          "effort": "medium",
+          "question": "Judge, by your design, whether this work can go on by itself, or must wait for another project to deliver something. If it must wait, say which project, what it must deliver, and the items already in the database for it.",
+          "to": "D14",
+          "inputs": [
+            {
+              "name": "The design",
+              "what": "The design: which approach, why, and the design itself",
+              "from": [
+                [
+                  "D4",
+                  "chosen"
+                ],
+                [
+                  "D4",
+                  "why"
+                ],
+                [
+                  "D4",
+                  "design"
+                ]
+              ]
+            },
+            {
+              "name": "What the design changed",
+              "what": "What the design changed since your last answer, with that answer and why; none at the first design. Given it, judge whether the change alters your last answer: one it does not touch you hand in again, why saying the change does not touch it; one it does you judge on the change, the whole design beside it",
+              "from": [
+                {
+                  "engine": "design_change"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "outcomes": {
+            "on": [
+              "on_its_own",
+              "It needs nothing another project has yet to deliver"
+            ],
+            "problem": [
+              "waits_for_project",
+              "It must wait for another project to deliver something"
+            ]
+          }
+        },
+        {
+          "id": "D14",
+          "kind": "gate",
+          "title": "Size: one PR or split",
+          "effort": "medium",
+          "question": "Judge, by your design and its estimate, whether one PR can do this work, meaning one engineer can do it in a day and a reader can take it in at a glance, or whether it must be split into several, as it must when a part has to merge on its own before the rest can go on. If it must be split, say what each sub-item does and what the parent keeps; if it was split before, ask, given the sub-items already split off, whether what remains must be split again.",
+          "inputs": [
+            {
+              "name": "The estimate",
+              "what": "The estimate in the design",
+              "from": [
+                [
+                  "D4",
+                  "estimate"
+                ]
+              ]
+            },
+            {
+              "name": "The design",
+              "what": "The design: which approach, why, and the design itself",
+              "from": [
+                [
+                  "D4",
+                  "chosen"
+                ],
+                [
+                  "D4",
+                  "why"
+                ],
+                [
+                  "D4",
+                  "design"
+                ]
+              ]
+            },
+            {
+              "name": "Sub-items already split off",
+              "what": "The sub-items this work has already split off and what each does; none if it was never split",
+              "from": [
+                {
+                  "db": "item_dependencies",
+                  "by": "item"
+                }
+              ]
+            },
+            {
+              "id": "tree",
+              "name": "Whether the design tree changes",
+              "what": "Whether the design changes the design tree, and whether it changes only the design paths",
+              "from": [
+                [
+                  "D4",
+                  "design_tree"
+                ]
+              ]
+            },
+            {
+              "name": "What the design changed",
+              "what": "What the design changed since your last answer, with that answer and why; none at the first design. Given it, judge whether the change alters your last answer: one it does not touch you hand in again, why saying the change does not touch it; one it does you judge on the change, the whole design beside it",
+              "from": [
+                {
+                  "engine": "design_change"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "rows": [
+            {
+              "name": "implementation",
+              "if": [
+                [
+                  "inp",
+                  "deliver",
+                  [
+                    "change"
+                  ]
+                ],
+                [
+                  "is",
+                  "@tree.verdict",
+                  [
+                    "unchanged",
+                    "change"
+                  ]
+                ]
+              ],
+              "to": "D15",
+              "main": true
+            },
+            {
+              "name": "design_paths_only",
+              "if": [
+                [
+                  "inp",
+                  "deliver",
+                  [
+                    "change"
+                  ]
+                ],
+                [
+                  "is",
+                  "@tree.verdict",
+                  [
+                    "design_paths_only"
+                  ]
+                ]
+              ],
+              "to": "I1",
+              "do": [
+                "open_session",
+                "lock_acceptance",
+                "post_design_card"
+              ],
+              "main": true,
+              "note": "No dedicated adversarial testing: a change to the design paths only has no code to test."
+            },
+            {
+              "name": "report",
+              "if": [
+                [
+                  "inp",
+                  "deliver",
+                  [
+                    "report"
+                  ]
+                ]
+              ],
+              "to": "I1",
+              "sets": {
+                "full_ci": "skipped"
+              },
+              "do": [
+                "open_session",
+                "lock_acceptance",
+                "post_design_card"
+              ],
+              "main": true,
+              "note": "No dedicated adversarial testing, and no full CI on the draft: a report touches only `research/`; the merge queue runs the full CI as usual."
+            }
+          ],
+          "inenums": {
+            "deliver": "deliver_kind"
+          },
+          "outcomes": {
+            "on": [
+              "one_pr",
+              "One PR can do it"
+            ],
+            "problem": [
+              "must_split",
+              "It must be split into several works"
+            ]
+          }
+        },
+        {
+          "id": "D15",
+          "kind": "agent",
+          "title": "Whether dedicated adversarial testing is needed",
+          "effort": "medium",
+          "line": "engineer",
+          "tools": [
+            "gh",
+            "query"
+          ],
+          "inputs": [
+            {
+              "name": "The design",
+              "what": "The design itself",
+              "from": [
+                [
+                  "D4",
+                  "design"
+                ]
+              ]
+            },
+            {
+              "name": "Acceptance conditions written",
+              "what": "The acceptance conditions this round's design wrote",
+              "from": [
+                [
+                  "D4",
+                  "acceptance"
+                ]
+              ]
+            }
+          ],
+          "prompt": [
+            "By your design and its acceptance conditions, does this work need a separate agent dedicated to adversarial testing, writing tests against each acceptance condition and digging for corner cases? Do it when the change could go wrong silently, such as in a compiler, a checker, a runtime, a data format, concurrency, a safety guarantee, a parser or a proof (does the theorem say what the specification says), or for new behaviour existing tests do not cover; it may be skipped for documents, the wording of rules, renames, or a pure refactoring existing tests already cover. If you skip it, give the reasons plainly: which existing tests cover which places, and why nothing can go wrong silently; and when you skip it, the round that finishes the work hands in the acceptance table itself, with the results of each new test run before and after the change; the review checks these reasons. If anything this round must be asked, ask."
+          ],
+          "out": [
+            {
+              "name": "adversarial",
+              "title": "Whether adversarial testing is needed",
+              "type": "union",
+              "by": "verdict",
+              "desc": "Whether dedicated adversarial testing is needed",
+              "branches": [
+                {
+                  "value": "needed",
+                  "desc": "Start dedicated adversarial testing",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "title": "Why",
+                      "type": "text",
+                      "desc": "Why: where it could go wrong silently"
+                    }
+                  ]
+                },
+                {
+                  "value": "not_needed",
+                  "desc": "No dedicated adversarial testing",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "title": "Why",
+                      "type": "text",
+                      "desc": "Why not: which existing tests cover which places, and why nothing can go wrong silently"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "cases": [
+            {
+              "name": "needed",
+              "if": [
+                [
+                  "is",
+                  "adversarial.verdict",
+                  [
+                    "needed"
+                  ]
+                ]
+              ],
+              "to": "I1",
+              "do": [
+                "open_session",
+                "lock_acceptance",
+                "post_design_card"
+              ],
+              "main": true
+            },
+            {
+              "name": "not_needed",
+              "if": [
+                [
+                  "is",
+                  "adversarial.verdict",
+                  [
+                    "not_needed"
+                  ]
+                ]
+              ],
+              "to": "I1",
+              "do": [
+                "open_session",
+                "lock_acceptance",
+                "post_design_card"
+              ],
+              "main": true
+            }
+          ],
+          "checks": [
+            {
+              "check": "design_paths_unchanged"
+            }
+          ]
         },
         {
           "id": "X1",
@@ -5767,548 +7130,6 @@
           ]
         },
         {
-          "id": "D3",
-          "kind": "agent",
-          "title": "Whether there is a better design",
-          "effort": "xhigh",
-          "line": "engineer",
-          "tools": [
-            "gh",
-            "query"
-          ],
-          "inputs": [
-            {
-              "name": "The design",
-              "what": "The design: which approach, why, and the design itself",
-              "from": [
-                [
-                  "D2",
-                  "chosen"
-                ],
-                [
-                  "D2",
-                  "why"
-                ],
-                [
-                  "D2",
-                  "design"
-                ]
-              ]
-            }
-          ],
-          "prompt": [
-            "By the project's design goal, think it through again from first principles: what does the problem need at bottom, and does your solution make sense? Is there a better design: more elegant, with a better structure in the code; more complete, covering all it should; truer to the intent of the design, in line with the project's design goal, the design tree and the project's references? Think again in earnest; do not answer for the sake of answering. If there is, say what is better about it and what must change; if not, say which approaches you considered this time and why the present one is best."
-          ],
-          "out": [
-            {
-              "name": "better",
-              "title": "Whether there is a better design",
-              "type": "union",
-              "desc": "Whether there is a better design",
-              "by": "verdict",
-              "branches": [
-                {
-                  "value": "found",
-                  "desc": "A better design is found: next you change the design",
-                  "fields": [
-                    {
-                      "name": "what",
-                      "title": "The better design",
-                      "type": "text",
-                      "desc": "What the better design is, and what must change"
-                    },
-                    {
-                      "name": "why",
-                      "title": "What is better",
-                      "type": "text",
-                      "desc": "What is better: structure, completeness, fit with the design goal, which of these"
-                    }
-                  ]
-                },
-                {
-                  "value": "present_best",
-                  "desc": "The present one is best",
-                  "fields": [
-                    {
-                      "name": "considered",
-                      "title": "Approaches considered",
-                      "type": "list",
-                      "desc": "Which approaches you considered this round",
-                      "item": {
-                        "type": "text",
-                        "desc": "One approach, in a sentence"
-                      },
-                      "min": 1
-                    },
-                    {
-                      "name": "why",
-                      "title": "Why the present one is best",
-                      "type": "text",
-                      "desc": "Why the present one is best"
-                    }
-                  ]
-                }
-              ]
-            }
-          ],
-          "cases": [
-            {
-              "name": "found",
-              "if": [
-                [
-                  "is",
-                  "better.verdict",
-                  [
-                    "found"
-                  ]
-                ]
-              ],
-              "to": "D1",
-              "sets": {
-                "rethought": "yes"
-              },
-              "counts": "redesigns"
-            },
-            {
-              "name": "present_best",
-              "if": [
-                [
-                  "is",
-                  "better.verdict",
-                  [
-                    "present_best"
-                  ]
-                ]
-              ],
-              "to": "D4",
-              "main": true
-            }
-          ],
-          "checks": [
-            {
-              "check": "design_paths_unchanged"
-            }
-          ]
-        },
-        {
-          "id": "D4",
-          "kind": "gate",
-          "title": "Gaps in what is under test",
-          "effort": "medium",
-          "needs": "under_test",
-          "question": "Judge whether carrying out your design meets a way of writing something that a programmer would naturally write, but that what is under test rejects or handles badly. If it does, give the code you want to write, the error it really gives (run it, not from memory), and why this way of writing it is natural.",
-          "na": "the work writes and changes no code that uses what is under test, such as a change to documents only",
-          "to": "D5",
-          "inputs": [
-            {
-              "name": "The design",
-              "what": "The design: which approach, why, and the design itself",
-              "from": [
-                [
-                  "D2",
-                  "chosen"
-                ],
-                [
-                  "D2",
-                  "why"
-                ],
-                [
-                  "D2",
-                  "design"
-                ]
-              ]
-            }
-          ],
-          "outcomes": {
-            "on": [
-              "no_gap",
-              "Carrying out the design meets nothing of the kind"
-            ],
-            "problem": [
-              "gap",
-              "Carrying out the design meets a natural way of writing something that what is under test rejects or handles badly"
-            ]
-          }
-        },
-        {
-          "id": "D5",
-          "kind": "gate",
-          "title": "Whether you are sure",
-          "effort": "high",
-          "question": "Judge whether every fact your design rests on that would change the direction if it were wrong is checked. If not, say what you are unsure of, which fact would change the direction, and how to check it.",
-          "na": "for a report, the facts the research plan has not checked are exactly what the work sets out to check",
-          "to": "D6",
-          "inputs": [
-            {
-              "name": "The design",
-              "what": "The design: which approach, why, and the design itself",
-              "from": [
-                [
-                  "D2",
-                  "chosen"
-                ],
-                [
-                  "D2",
-                  "why"
-                ],
-                [
-                  "D2",
-                  "design"
-                ]
-              ]
-            }
-          ],
-          "outcomes": {
-            "on": [
-              "sure",
-              "Every such fact is checked"
-            ],
-            "problem": [
-              "unsure",
-              "The design rests on a fact not yet checked that would change the direction if it were wrong"
-            ]
-          }
-        },
-        {
-          "id": "D6",
-          "kind": "gate",
-          "title": "Cost: architectural burden",
-          "effort": "medium",
-          "question": "Judge, by your design, whether the change is worth its architectural burden and what it costs to maintain. If not, say where the burden lies, and give at least three ways out, such as building this design, a smaller change, or not doing it.",
-          "na": "a report, or a change to documents only, changes no architecture and adds no burden",
-          "to": "D7",
-          "inputs": [
-            {
-              "name": "The design",
-              "what": "The design: which approach, why, and the design itself",
-              "from": [
-                [
-                  "D2",
-                  "chosen"
-                ],
-                [
-                  "D2",
-                  "why"
-                ],
-                [
-                  "D2",
-                  "design"
-                ]
-              ]
-            }
-          ],
-          "outcomes": {
-            "on": [
-              "worth_it",
-              "The change is worth its burden and its cost to maintain"
-            ],
-            "problem": [
-              "too_costly",
-              "The change is so large that the architectural burden grows heavy and maintenance costs more, so that it is not worth it"
-            ]
-          }
-        },
-        {
-          "id": "D7",
-          "kind": "gate",
-          "title": "Cross-project dependency",
-          "effort": "medium",
-          "needs": "other_projects",
-          "question": "Judge, by your design, whether this work can go on by itself, or must wait for another project to deliver something. If it must wait, say which project, what it must deliver, and the items already in the database for it.",
-          "to": "D8",
-          "inputs": [
-            {
-              "name": "The design",
-              "what": "The design: which approach, why, and the design itself",
-              "from": [
-                [
-                  "D2",
-                  "chosen"
-                ],
-                [
-                  "D2",
-                  "why"
-                ],
-                [
-                  "D2",
-                  "design"
-                ]
-              ]
-            }
-          ],
-          "outcomes": {
-            "on": [
-              "on_its_own",
-              "It needs nothing another project has yet to deliver"
-            ],
-            "problem": [
-              "waits_for_project",
-              "It must wait for another project to deliver something"
-            ]
-          }
-        },
-        {
-          "id": "D8",
-          "kind": "gate",
-          "title": "Size: one PR or split",
-          "effort": "medium",
-          "question": "Judge, by your design and its estimate, whether one PR can do this work, meaning one engineer can do it in a day and a reader can take it in at a glance, or whether it must be split into several, as it must when a part has to merge on its own before the rest can go on. If it must be split, say what each sub-item does and what the parent keeps; if it was split before, ask, given the sub-items already split off, whether what remains must be split again.",
-          "inputs": [
-            {
-              "name": "The estimate",
-              "what": "The estimate in the design",
-              "from": [
-                [
-                  "D2",
-                  "estimate"
-                ]
-              ]
-            },
-            {
-              "name": "The design",
-              "what": "The design: which approach, why, and the design itself",
-              "from": [
-                [
-                  "D2",
-                  "chosen"
-                ],
-                [
-                  "D2",
-                  "why"
-                ],
-                [
-                  "D2",
-                  "design"
-                ]
-              ]
-            },
-            {
-              "name": "Sub-items already split off",
-              "what": "The sub-items this work has already split off and what each does; none if it was never split",
-              "from": [
-                {
-                  "db": "item_dependencies",
-                  "by": "item"
-                }
-              ]
-            },
-            {
-              "id": "tree",
-              "name": "Whether the design tree changes",
-              "what": "Whether the design changes the design tree, and whether it changes only the design paths",
-              "from": [
-                [
-                  "D2",
-                  "design_tree"
-                ]
-              ]
-            }
-          ],
-          "rows": [
-            {
-              "name": "implementation",
-              "if": [
-                [
-                  "inp",
-                  "deliver",
-                  [
-                    "change"
-                  ]
-                ],
-                [
-                  "is",
-                  "@tree.verdict",
-                  [
-                    "unchanged",
-                    "change"
-                  ]
-                ]
-              ],
-              "to": "D9",
-              "main": true
-            },
-            {
-              "name": "design_paths_only",
-              "if": [
-                [
-                  "inp",
-                  "deliver",
-                  [
-                    "change"
-                  ]
-                ],
-                [
-                  "is",
-                  "@tree.verdict",
-                  [
-                    "design_paths_only"
-                  ]
-                ]
-              ],
-              "to": "I1",
-              "do": [
-                "open_session",
-                "lock_acceptance",
-                "post_design_card"
-              ],
-              "main": true,
-              "note": "No dedicated adversarial testing: a change to the design paths only has no code to test."
-            },
-            {
-              "name": "report",
-              "if": [
-                [
-                  "inp",
-                  "deliver",
-                  [
-                    "report"
-                  ]
-                ]
-              ],
-              "to": "I1",
-              "sets": {
-                "full_ci": "skipped"
-              },
-              "do": [
-                "open_session",
-                "lock_acceptance",
-                "post_design_card"
-              ],
-              "main": true,
-              "note": "No dedicated adversarial testing, and no full CI on the draft: a report touches only `research/`; the merge queue runs the full CI as usual."
-            }
-          ],
-          "inenums": {
-            "deliver": "deliver_kind"
-          },
-          "outcomes": {
-            "on": [
-              "one_pr",
-              "One PR can do it"
-            ],
-            "problem": [
-              "must_split",
-              "It must be split into several works"
-            ]
-          }
-        },
-        {
-          "id": "D9",
-          "kind": "agent",
-          "title": "Whether dedicated adversarial testing is needed",
-          "effort": "medium",
-          "line": "engineer",
-          "tools": [
-            "gh",
-            "query"
-          ],
-          "inputs": [
-            {
-              "name": "The design",
-              "what": "The design itself",
-              "from": [
-                [
-                  "D2",
-                  "design"
-                ]
-              ]
-            },
-            {
-              "name": "Acceptance conditions written",
-              "what": "The acceptance conditions this round's design wrote",
-              "from": [
-                [
-                  "D2",
-                  "acceptance"
-                ]
-              ]
-            }
-          ],
-          "prompt": [
-            "By your design and its acceptance conditions, does this work need a separate agent dedicated to adversarial testing, writing tests against each acceptance condition and digging for corner cases? Do it when the change could go wrong silently, such as in a compiler, a checker, a runtime, a data format, concurrency, a safety guarantee, a parser or a proof (does the theorem say what the specification says), or for new behaviour existing tests do not cover; it may be skipped for documents, the wording of rules, renames, or a pure refactoring existing tests already cover. If you skip it, give the reasons plainly: which existing tests cover which places, and why nothing can go wrong silently; and when you skip it, the round that finishes the work hands in the acceptance table itself, with the results of each new test run before and after the change; the review checks these reasons. If anything this round must be asked, ask."
-          ],
-          "out": [
-            {
-              "name": "adversarial",
-              "title": "Whether adversarial testing is needed",
-              "type": "union",
-              "by": "verdict",
-              "desc": "Whether dedicated adversarial testing is needed",
-              "branches": [
-                {
-                  "value": "needed",
-                  "desc": "Start dedicated adversarial testing",
-                  "fields": [
-                    {
-                      "name": "why",
-                      "title": "Why",
-                      "type": "text",
-                      "desc": "Why: where it could go wrong silently"
-                    }
-                  ]
-                },
-                {
-                  "value": "not_needed",
-                  "desc": "No dedicated adversarial testing",
-                  "fields": [
-                    {
-                      "name": "why",
-                      "title": "Why",
-                      "type": "text",
-                      "desc": "Why not: which existing tests cover which places, and why nothing can go wrong silently"
-                    }
-                  ]
-                }
-              ]
-            }
-          ],
-          "cases": [
-            {
-              "name": "needed",
-              "if": [
-                [
-                  "is",
-                  "adversarial.verdict",
-                  [
-                    "needed"
-                  ]
-                ]
-              ],
-              "to": "I1",
-              "do": [
-                "open_session",
-                "lock_acceptance",
-                "post_design_card"
-              ],
-              "main": true
-            },
-            {
-              "name": "not_needed",
-              "if": [
-                [
-                  "is",
-                  "adversarial.verdict",
-                  [
-                    "not_needed"
-                  ]
-                ]
-              ],
-              "to": "I1",
-              "do": [
-                "open_session",
-                "lock_acceptance",
-                "post_design_card"
-              ],
-              "main": true
-            }
-          ],
-          "checks": [
-            {
-              "check": "design_paths_unchanged"
-            }
-          ]
-        },
-        {
           "id": "I1",
           "kind": "agent",
           "title": "Implement",
@@ -6327,7 +7148,7 @@
               "what": "The design's description",
               "from": [
                 [
-                  "D2",
+                  "D4",
                   "design"
                 ]
               ]
@@ -6347,7 +7168,7 @@
               "what": "Whether the design chose dedicated adversarial testing, and why; none for a report or a change to the design paths only, which the engine records as no",
               "from": [
                 [
-                  "D9",
+                  "D15",
                   "adversarial"
                 ]
               ],
@@ -6374,63 +7195,60 @@
               ]
             },
             {
-              "name": "Approach chosen, measure, tree change, estimate",
-              "what": "The approach chosen and why, its measure, the design tree change and the estimate",
+              "name": "Way chosen, measure, design paths, estimate",
+              "what": "The way chosen and why, its measure, whether the design paths change, and the estimate",
               "from": [
                 [
-                  "D2",
+                  "D4",
                   "chosen"
                 ],
                 [
-                  "D2",
+                  "D4",
                   "why"
                 ],
                 [
-                  "D2",
+                  "D4",
                   "measure"
                 ],
                 [
-                  "D2",
+                  "D4",
                   "design_tree"
                 ],
                 [
-                  "D2",
+                  "D4",
                   "estimate"
                 ]
               ]
             },
             {
               "name": "Checks after design",
-              "what": "The checks after design: the answers of cells `D4` to `D8`, each with why",
+              "what": "The checks after design: the answers of cells `D9` to `D14` that ran, each with why",
               "from": [
                 [
-                  "D4",
+                  "D9",
                   "answer"
                 ],
                 [
-                  "D5",
+                  "D10",
                   "answer"
                 ],
                 [
-                  "D6",
+                  "D11",
                   "answer"
                 ],
                 [
-                  "D7",
+                  "D13",
                   "answer"
                 ],
                 [
-                  "D8",
+                  "D14",
                   "answer"
                 ]
               ]
             }
           ],
-          "rules": [
-            "design_tree_writing"
-          ],
           "prompt": [
-            "To run CI or a measurement, commit locally and use ci or measure. Before handing in done, your last commit must have run with ci and the fast CI must be green. With your answer, write where you departed from the plan, as surprise, workaround or design_changed; leave it empty if nowhere. If the design chose no dedicated adversarial testing, done also hands in the acceptance table and the results of each new test you added, run once after the change with ci and once before it with ci_before. When done, write what changed in tests and checks: for each added, what errors it catches, how long it runs on its own and why it is worth that time; for each removed, skipped or relaxed, its technical reason. If the chosen approach stays, the acceptance is untouched and nothing comes up that you must ask about, you may change the design yourself and write it as design_changed; to change the approach or the acceptance, or when something comes up that you must ask about, do not work around it: ask. If you change the design tree (the design paths the project's configuration names), change it as the design tree rules say, and the return carries the whole design card as it stands after the change."
+            "To run CI or a measurement, commit locally and use ci or measure. Before handing in done, your last commit must have run with ci and the fast CI must be green. With your answer, write where you departed from the plan, as surprise, workaround or design_changed; leave it empty if nowhere. If the design chose no dedicated adversarial testing, done also hands in the acceptance table and the results of each new test you added, run once after the change with ci and once before it with ci_before. When done, write what changed in tests and checks: for each added, what errors it catches, how long it runs on its own and why it is worth that time; for each removed, skipped or relaxed, its technical reason. If the chosen approach stays, the acceptance is untouched and nothing comes up that you must ask about, you may change the design yourself and write it as design_changed; to change the approach or the acceptance, or when something comes up that you must ask about, do not work around it: ask. A change that needs the records changed you do not make: hand in records_must_change, and the work goes back to derive again. When this round changes the design paths the project's configuration names, the return carries the whole design card as it stands after the change."
           ],
           "promptBy": {
             "by": "work",
@@ -6439,7 +7257,7 @@
                 "This work delivers a change: change the code by the design. If the branch has no change against main, you may not hand in done: ask, saying why no change is needed, such as another PR having fixed it already."
               ],
               "design_paths_only": [
-                "This work changes only the design paths: the nodes and the design card were changed and committed in the design round. This round changes no file outside the design paths: check the nodes against the design and the design card once more, and run the design tree check; if nodes must still change, change them as the design tree rules say and hand in a new design card."
+                "This work changes only the design paths: they and the design card were changed and committed in the design round. This round changes no file outside the design paths: check them against the design and the design card once more; if the records must still change, hand in records_must_change."
               ],
               "report": [
                 "This work delivers only a report: do the research and measurements by the design, write the conclusions into `research/` with the measurement code, so that they can be reproduced; change no implementation code and no file outside `research/`. The report states the problem, the approaches compared, what was measured, and the conclusions, which claim no more than was measured. With done, write what to do next in followup. If the research meets a gap in what is under test (a natural way of writing something rejected or handled badly), ask as usual; if the advisor judges it a gap, write it into the report and into followup."
@@ -6487,7 +7305,10 @@
               ],
               "to": "T7",
               "main": true,
-              "note": "The PR stays a draft, and only the fast CI runs."
+              "note": "The PR stays a draft, and only the fast CI runs.",
+              "sets": {
+                "stage": "code"
+              }
             }
           ],
           "always": [
@@ -6520,10 +7341,6 @@
             {
               "at": "design_card",
               "check": "design_card_when_tree_changed"
-            },
-            {
-              "at": "design_card",
-              "check": "design_tree_check"
             },
             {
               "at": "design_card_changed",
@@ -6567,7 +7384,7 @@
               "what": "The design's description",
               "from": [
                 [
-                  "D2",
+                  "D4",
                   "design"
                 ]
               ]
@@ -6587,7 +7404,7 @@
               "what": "Why the design chose adversarial testing; none if it chose none",
               "from": [
                 [
-                  "D9",
+                  "D15",
                   "adversarial[needed].why"
                 ]
               ],
@@ -7479,7 +8296,7 @@
             },
             {
               "name": "Returns of the research rounds",
-              "what": "The returns of the research rounds: whether the work stands, and the reason of each check after design, each a column of its own, in each answer",
+              "what": "The returns of the research and design rounds: whether the work stands, what the records give, the way chosen, and the reason of each check after design that ran, each a column of its own, in each answer",
               "from": [
                 [
                   "R2",
@@ -7491,46 +8308,42 @@
                 ],
                 [
                   "D1",
-                  "options"
-                ],
-                [
-                  "D2",
-                  "chosen"
-                ],
-                [
-                  "D2",
-                  "why"
-                ],
-                [
-                  "D2",
-                  "measure"
-                ],
-                [
-                  "D2",
-                  "design_tree[unchanged].why"
-                ],
-                [
-                  "D3",
-                  "better[present_best]"
+                  "finding"
                 ],
                 [
                   "D4",
+                  "chosen"
+                ],
+                [
+                  "D4",
+                  "why"
+                ],
+                [
+                  "D4",
+                  "measure"
+                ],
+                [
+                  "D4",
+                  "design_tree[unchanged].why"
+                ],
+                [
+                  "D9",
                   "answer"
                 ],
                 [
-                  "D5",
+                  "D10",
                   "answer"
                 ],
                 [
-                  "D6",
+                  "D11",
                   "answer"
                 ],
                 [
-                  "D7",
+                  "D13",
                   "answer"
                 ],
                 [
-                  "D8",
+                  "D14",
                   "answer"
                 ]
               ]
@@ -7540,7 +8353,7 @@
               "what": "The design's description; the design card as it stands, the latest of this work, with the numbers of the earlier cards of this work it replaced, which are not given; no design card when the design tree did not change",
               "from": [
                 [
-                  "D2",
+                  "D4",
                   "design"
                 ],
                 {
@@ -7587,7 +8400,7 @@
             },
             {
               "name": "Your last review",
-              "what": "At a re-review, what your last review left open, with its numbers: the findings and the columns not verified of the table review, the findings of the design tree round, and the findings held not fixed or insisted on; none at the first review",
+              "what": "At a re-review, what your last review left open, with its numbers: the findings and the columns not verified of the table review, the findings of the check of the code against the records, and the findings held not fixed or insisted on; none at the first review",
               "from": [
                 [
                   "T4",
@@ -7674,7 +8487,7 @@
               "what": "Why the design chose no dedicated adversarial testing; none if it chose some, for a report, or for a change to the design paths only",
               "from": [
                 [
-                  "D9",
+                  "D15",
                   "adversarial[not_needed].why"
                 ]
               ],
@@ -7753,11 +8566,10 @@
             }
           ],
           "rules": [
-            "review_table",
-            "design_tree_review"
+            "review_table"
           ],
           "prompt": [
-            "This round is the table review: by the review table listed in the question, one row per column, none left out; for each column say what your judgment rests on: passed, findings, cannot be verified or not applicable; no evidence is no pass. Review only this change: do not rerun tests already green, and add no new style demands; where the change merges main, review how the PR's own change changed, not what main brought. If there was a blind review first, bring each of its findings along unchanged into the column it belongs to, keeping its number; those you withdraw after seeing the design and the reasons go in withdrawn. A measured slowdown is always a finding, never accepted, however small: only the owner can accept a slowdown. When nothing was measured, judge that column by the design's reason that no measurement was needed: pass when it holds for the change as made, a finding asking for the measurement when it does not; never cannot_verify for want of a measurement. When you dispute a fact with the engineer and insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result. At a re-review, answer one row for each of your findings last time, those of the design tree round included; a column you could not verify last time is listed again by its number, and you answer it in the table, judging what the engineer answered: when the engineer could not verify it either, decide it, a pass on what the work shows or a finding that says what evidence is needed, and not cannot_verify again; a finding the advisor, the architect or the owner ruled on is settled by the ruling: for one the engineer answered advisor_ruled, withdraw it and do not insist again. A reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding. If adversarial testing handed in suspects, go and look where they point. Where the fix answered a red check fixed, read its log: a fix that turns the check green without removing what turned it red is a finding. Review whether a node governs the design in the code by the four points on code against decisions in the design tree review, also for a work that does not change the design tree; the changes to the design tree itself, if any, get a round of their own next. If you asked someone, carry on with this round's review when the reply comes."
+            "This round is the table review: by the review table listed in the question, one row per column, none left out; for each column say what your judgment rests on: passed, findings, cannot be verified or not applicable; no evidence is no pass. Review only this change: do not rerun tests already green, and add no new style demands; where the change merges main, review how the PR's own change changed, not what main brought. If there was a blind review first, bring each of its findings along unchanged into the column it belongs to, keeping its number; those you withdraw after seeing the design and the reasons go in withdrawn. A measured slowdown is always a finding, never accepted, however small: only the owner can accept a slowdown. When nothing was measured, judge that column by the design's reason that no measurement was needed: pass when it holds for the change as made, a finding asking for the measurement when it does not; never cannot_verify for want of a measurement. When you dispute a fact with the engineer and insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result. At a re-review, answer one row for each of your findings last time, those of the check of the code against the records included; a column you could not verify last time is listed again by its number, and you answer it in the table, judging what the engineer answered: when the engineer could not verify it either, decide it, a pass on what the work shows or a finding that says what evidence is needed, and not cannot_verify again; a finding the advisor, the architect or the owner ruled on is settled by the ruling: for one the engineer answered advisor_ruled, withdraw it and do not insist again. A reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding. If adversarial testing handed in suspects, go and look where they point. Where the fix answered a red check fixed, read its log: a fix that turns the check green without removing what turned it red is a finding. In a project that keeps records, the code is checked against them in a round of its own next. If you asked someone, carry on with this round's review when the reply comes."
           ],
           "promptBy": {
             "by": "deliver",
@@ -7798,7 +8610,7 @@
               "name": "previous",
               "title": "Earlier findings",
               "type": "list",
-              "desc": "Only at a re-review: one row for each of your findings last time, those of the design tree round included; not at the first review",
+              "desc": "Only at a re-review: one row for each of your findings last time, those of the check of the code against the records included; not at the first review",
               "optional": true,
               "item": {
                 "type": "union",
@@ -7882,16 +8694,16 @@
           ],
           "cases": [
             {
-              "name": "tree_changed",
+              "name": "records",
               "if": [
                 [
                   "own"
                 ],
                 [
                   "inp",
-                  "tree",
+                  "records",
                   [
-                    "changed"
+                    "keeps"
                   ]
                 ]
               ],
@@ -7906,14 +8718,15 @@
                 ],
                 [
                   "inp",
-                  "tree",
+                  "records",
                   [
-                    "unchanged"
+                    "none"
                   ]
                 ]
               ],
               "to": "M1",
-              "main": true
+              "main": true,
+              "note": "The project keeps no records: there is no check of the code against them."
             }
           ],
           "checks": [
@@ -7956,13 +8769,13 @@
           ],
           "inenums": {
             "deliver": "deliver_kind",
-            "tree": "tree_state"
+            "records": "records_state"
           }
         },
         {
           "id": "T5",
           "kind": "agent",
-          "title": "Review the design tree",
+          "title": "Check the code against the records",
           "effort": "high",
           "line": "review",
           "tools": [
@@ -7972,10 +8785,10 @@
           "inputs": [
             {
               "name": "The design and its card",
-              "what": "The design's description; the design card as it stands, the latest of this work, with the numbers of the earlier cards of this work it replaced, which are not given; no design card when the design tree did not change",
+              "what": "The design's description; the design card as it stands, the latest of this work, with the numbers of the earlier cards of this work it replaced, which are not given; no design card when the design paths did not change",
               "from": [
                 [
-                  "D2",
+                  "D4",
                   "design"
                 ],
                 {
@@ -7985,35 +8798,21 @@
               ]
             },
             {
-              "name": "Approaches and the rethink",
-              "what": "The returns of the two rounds that compared approaches and thought again whether there is a better design",
+              "name": "What the records give and the challenge",
+              "what": "What cell `D1` derived, and the challenge of the chain it stands on; no challenge when the design came straight from cell `D1`",
               "from": [
                 [
                   "D1",
-                  "options"
+                  "derivations"
+                ],
+                [
+                  "D1",
+                  "finding"
                 ],
                 [
                   "D3",
-                  "better[present_best]"
+                  "constraints"
                 ]
-              ]
-            },
-            {
-              "name": "Design tree change to review",
-              "what": "The change to the design tree to review: at the first review, across the whole branch; at a re-review, since the last review; the engine lists the nodes changed",
-              "from": [
-                {
-                  "engine": "tree_changes_to_review"
-                }
-              ]
-            },
-            {
-              "name": "Design tree check numbers",
-              "what": "The numbers the engine's run of the design tree check prints: nodes, depth, decisions, and how many more than at the fork point",
-              "from": [
-                {
-                  "engine": "tree_check_numbers"
-                }
               ]
             },
             {
@@ -8045,18 +8844,38 @@
                   "engine": "review_base"
                 }
               ]
+            },
+            {
+              "name": "Reasoning rules",
+              "what": "The reasoning system's rules reading.md and extension-work.md, as the installation's copy of it has them; given only when the project keeps records",
+              "from": [
+                {
+                  "engine": "reasoning_reading"
+                },
+                {
+                  "engine": "reasoning_work"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The records check",
+              "what": "The command that runs the reasoning system's check on the project's records in your worktree; given only when the project keeps records",
+              "from": [
+                {
+                  "engine": "reasoning_check"
+                }
+              ],
+              "maybe": true
             }
           ],
-          "rules": [
-            "design_tree_review"
-          ],
           "prompt": [
-            "This round reviews only the change to the design tree, reading the nodes it touches and their ancestors: by the design tree review, one column each for design card against tree, is it a decision, consistency, is the architecture right, to check, and the numbers the design tree check prints, each saying what your judgment rests on; no evidence is no pass. Review only this change: do not rerun tests already green, and add no new style demands; where the change merges main, review how the PR's own change changed, not what main brought. The four points on code against decisions were reviewed in the table review and are not answered here. At a re-review, review only the nodes changed since the last review; last time's findings were answered in the table review and are not answered here. If you asked someone, carry on with this round's review when the reply comes."
+            "This round checks the code against the records, as extension-work section 3 says, reading the derivations that govern the work and what they rest on: one column for each point the engine lists in the question, each saying what your judgment rests on; no evidence is no pass. A choice between workable approaches that no derivation governs is no finding of yours: hand in records_must_change, saying the choice and why, and the work goes back to derive it. Review only this change: do not rerun tests already green; where the change merges main, review how the PR's own change changed, not what main brought. At a re-review, review only what changed since the last review; last time's findings were answered in the table review and are not answered here. If you asked someone, carry on with this round's review when the reply comes."
           ],
           "out": [
             {
               "$ref": "review_columns",
-              "desc": "The design tree's review table: one row for each column the engine lists in the question, none left out"
+              "desc": "The table of the code against the records: one row for each column the engine lists in the question, none left out"
             }
           ],
           "cases": [
@@ -8106,8 +8925,8 @@
             },
             {
               "id": "tree",
-              "name": "Design tree review table",
-              "what": "The design tree review's table: the verdict of each column; none when the change to review touched no design tree node",
+              "name": "Table of the code against the records",
+              "what": "The table of the check of the code against the records: the verdict of each column; none when the project keeps no records",
               "from": [
                 [
                   "T5",
@@ -8632,7 +9451,7 @@
                 "to": "T7",
                 "note": "The table to answer has no row, so a round of the fix could answer nothing: the engine goes on, in place of the round, to choose what runs next, as after a fix that answered nothing."
               },
-              "what": "The table to answer, one row per entry, numbered F1, F2, ... across all of them, every row answered by its number: the review's findings, the columns it could not verify, the findings not fixed or insisted on; red new tests, new tests whose result before the change does not fit their kind, and tests adversarial testing insisted on; conflicts and red or flaky checks of the full CI on the draft while catching up with main; conflicts and reds in the merge queue; checks found broken by this merge, and the deployment log",
+              "what": "The table to answer, one row per entry, numbered F1, F2, ... across all of them, every row answered by its number: the review's findings, the columns it could not verify, the findings not fixed or insisted on; red new tests, new tests whose result before the change does not fit their kind, and tests adversarial testing insisted on; conflicts and red or flaky checks of the full CI on the draft while catching up with main; conflicts and reds in the merge queue; checks found broken by this merge, and the deployment log; a change to the code an interjection asked for, as the way on chose it",
               "from": [
                 [
                   "T4",
@@ -8693,8 +9512,14 @@
                 [
                   "L1",
                   "main[broken_by_merge]"
+                ],
+                [
+                  "A4",
+                  "next.change"
                 ]
-              ]
+              ],
+              "unanswered": true,
+              "maybe": true
             },
             {
               "name": "The item",
@@ -8721,7 +9546,7 @@
               "what": "The design's description",
               "from": [
                 [
-                  "D2",
+                  "D4",
                   "design"
                 ]
               ]
@@ -8756,9 +9581,6 @@
                 ]
               ]
             }
-          ],
-          "rules": [
-            "design_tree_writing"
           ],
           "out": [
             {
@@ -9016,10 +9838,6 @@
               "check": "design_card_when_tree_changed"
             },
             {
-              "at": "design_card",
-              "check": "design_tree_check"
-            },
-            {
               "at": "design_card_changed",
               "check": "design_card_changed_when_replacing"
             }
@@ -9036,8 +9854,9 @@
             "- A test adversarial testing wrote that is red after the change, or whose result before the change does not fit its kind: fix the implementation and answer fixed, or answer test_wrong when the test itself is wrong. A test adversarial testing insisted on goes to the advisor when neither side gives way.",
             "- A conflict while catching up with main: merge main into the branch, resolve every file in conflict, commit the merge and answer resolved with that commit; if you cannot resolve it, ask, saying where the conflict is and why you cannot resolve it.",
             "- A red or flaky check: fix what turned it red and answer fixed; when this change did not cause it, answer not_caused_by_change with the evidence, such as the same check red on main, or unrelated_flake.",
+            "- A change to the code an interjection asked for, as the way on chose it: make it, with the test that shows it, and answer fixed; when it turns out to need the design or the acceptance changed, ask, and when it needs the records changed, hand in records_must_change.",
             "Before fixing a defect, search for others of its kind and fix them with it; say in your progress what you found.",
-            "Before handing in, your last commit must have run with ci and the fast CI must be green. Hand in, as when implementing, the head, what changed in tests and checks, and where this round departed from the design; when the design chose no dedicated adversarial testing, also the rows of the acceptance table and the results of the new tests that changed in this round. If you change the design tree (the design paths the project's configuration names), change it as the design tree rules say, and the return carries the whole design card as it stands after the change."
+            "Before handing in, your last commit must have run with ci and the fast CI must be green. Hand in, as when implementing, the head, what changed in tests and checks, and where this round departed from the design; when the design chose no dedicated adversarial testing, also the rows of the acceptance table and the results of the new tests that changed in this round. A change that needs the records changed you do not make: hand in records_must_change, and the work goes back to derive again. When this round changes the design paths the project's configuration names, the return carries the whole design card as it stands after the change."
           ]
         },
         {
@@ -9834,7 +10653,7 @@
                 "In another cell you got an interjection, thought what comes next might change, and handed in redirect to come here. The interjection is in the session: read it again from the start and work out what the speaker wants; when the owner and the architect say different things, the owner's word goes. If on reflection nothing needs to change, choose carry_on and go back to that cell."
               ],
               "interjection_at_engine": [
-                "While the work stood at one of the engine's own steps (such as choosing what runs next, or waiting to merge), an interjection came for you: it is at the top of the input, and you have not read it yet. Read it and work out what the speaker wants; when the owner and the architect say different things, the owner's word goes. If you choose carry_on, the work goes back to that step and the engine judges again."
+                "While the work stood at one of the engine's own steps (such as choosing what runs next, or waiting to merge), an interjection came for you: it is at the top of the input, and you have not read it yet. Read it and work out what the speaker wants; when the owner and the architect say different things, the owner's word goes. If you choose carry_on, the work goes back to that step and the engine judges again. If it asks only for a change to the code, with the design and the acceptance unchanged, choose fix, saying the change and the interjection it comes from: the fix makes it as a row of its table. A change to the design or the acceptance is redesign."
               ],
               "waited": [
                 "The items you stopped to wait for are all merged, and what they delivered is in the input. Work out whether what they delivered is what this work expected: if so, carry on; if not, decide by where it differs whether to change the design or whether what this work must deliver has changed."
@@ -9846,10 +10665,9 @@
           },
           "out": [
             {
+              "$ref": "decision_kind",
               "name": "next",
               "title": "How it goes on",
-              "type": "enum",
-              "values": "decision_kind",
               "desc": "By the reply brought back, how you go on"
             }
           ],
@@ -9859,7 +10677,7 @@
               "if": [
                 [
                   "is",
-                  "next",
+                  "next.way",
                   [
                     "item_changed"
                   ]
@@ -9894,7 +10712,7 @@
               "if": [
                 [
                   "is",
-                  "next",
+                  "next.way",
                   [
                     "redesign"
                   ]
@@ -9903,7 +10721,8 @@
                   "inp",
                   "stage",
                   [
-                    "design_on"
+                    "design_on",
+                    "code"
                   ]
                 ],
                 [
@@ -9924,8 +10743,8 @@
               ],
               "to": "D1",
               "sets": {
-                "rethought": "no",
-                "full_ci": "not_green"
+                "full_ci": "not_green",
+                "stage": "design_on"
               },
               "do": [
                 "replace_design_card"
@@ -9936,7 +10755,7 @@
               "if": [
                 [
                   "is",
-                  "next",
+                  "next.way",
                   [
                     "redesign"
                   ]
@@ -9976,7 +10795,7 @@
               "if": [
                 [
                   "is",
-                  "next",
+                  "next.way",
                   [
                     "carry_on"
                   ]
@@ -10010,7 +10829,7 @@
               "if": [
                 [
                   "is",
-                  "next",
+                  "next.way",
                   [
                     "carry_on"
                   ]
@@ -10058,11 +10877,133 @@
               ]
             },
             {
+              "name": "fix",
+              "if": [
+                [
+                  "is",
+                  "next.way",
+                  [
+                    "fix"
+                  ]
+                ],
+                [
+                  "inp",
+                  "stage",
+                  [
+                    "code"
+                  ]
+                ],
+                [
+                  "inp",
+                  "came_by",
+                  [
+                    "interjection_at_engine"
+                  ]
+                ],
+                [
+                  "inp",
+                  "split",
+                  [
+                    "not_split"
+                  ]
+                ],
+                [
+                  "inp",
+                  "design_card_disputed",
+                  [
+                    "no"
+                  ]
+                ],
+                [
+                  "inp",
+                  "must_wait",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "T6",
+              "do": [
+                "open_session"
+              ],
+              "note": "The change is a row of the fix's table; after the fix the work goes on as after any fix."
+            },
+            {
+              "name": "fix_unfit",
+              "if": [
+                [
+                  "is",
+                  "next.way",
+                  [
+                    "fix"
+                  ]
+                ],
+                [
+                  "or",
+                  [
+                    [
+                      "inp",
+                      "stage",
+                      [
+                        "research",
+                        "design_on"
+                      ]
+                    ],
+                    [
+                      "inp",
+                      "came_by",
+                      [
+                        "reply",
+                        "withdrawn",
+                        "interjection",
+                        "waited"
+                      ]
+                    ],
+                    [
+                      "inp",
+                      "split",
+                      [
+                        "split"
+                      ]
+                    ],
+                    [
+                      "inp",
+                      "design_card_disputed",
+                      [
+                        "yes"
+                      ]
+                    ]
+                  ]
+                ],
+                [
+                  "inp",
+                  "split",
+                  [
+                    "split",
+                    "not_split"
+                  ]
+                ],
+                [
+                  "inp",
+                  "must_wait",
+                  [
+                    "no"
+                  ]
+                ]
+              ],
+              "to": "A2",
+              "counts": "flow_anomalies",
+              "note": "A flow anomaly: a change to the code alone is the way on only once the work has implemented, for an interjection that came while it stood at one of the engine's steps, with no sub-item split off and no disagreement with the design card. The architect gets it as a gap of the flow, with the reply or interjection brought back, the way the engineer chose and its progress; its reply brings the work back here to choose again.",
+              "do": [
+                "raise_blocker"
+              ]
+            },
+            {
               "name": "wait_for_items",
               "if": [
                 [
                   "is",
-                  "next",
+                  "next.way",
                   [
                     "wait_for_items"
                   ]
@@ -10095,11 +11036,12 @@
               "if": [
                 [
                   "is",
-                  "next",
+                  "next.way",
                   [
                     "carry_on",
                     "redesign",
-                    "item_changed"
+                    "item_changed",
+                    "fix"
                   ]
                 ],
                 [
@@ -10130,7 +11072,7 @@
               "if": [
                 [
                   "is",
-                  "next",
+                  "next.way",
                   [
                     "wait_for_items"
                   ]
@@ -10163,7 +11105,7 @@
               "if": [
                 [
                   "is",
-                  "next",
+                  "next.way",
                   [
                     "carry_on"
                   ]
@@ -10186,11 +11128,12 @@
               "if": [
                 [
                   "is",
-                  "next",
+                  "next.way",
                   [
                     "redesign",
                     "item_changed",
-                    "wait_for_items"
+                    "wait_for_items",
+                    "fix"
                   ]
                 ],
                 [
@@ -10218,6 +11161,10 @@
               [
                 "design_on",
                 "The cell the work stopped at was in design or after it"
+              ],
+              [
+                "code",
+                "The work had implemented: the cell it stopped at was implementing or after it"
               ]
             ],
             "split": [
@@ -10490,7 +11437,7 @@
             },
             {
               "name": "Research and design so far",
-              "what": "This work's research and design: the engineer's understanding, the approaches compared and the chosen design, as far as the work has come; coming from cell `R1` or `R2` there are no approaches compared yet, and when cell `R1` only asked there is no understanding either",
+              "what": "This work's research and design: the engineer's understanding, what the records give and the design, as far as the work has come; coming from cell `R1` or `R2` there is no design yet, and when cell `R1` only asked there is no understanding either",
               "from": [
                 [
                   "R1",
@@ -10498,18 +11445,18 @@
                 ],
                 [
                   "D1",
-                  "options"
+                  "finding"
                 ],
                 [
-                  "D2",
+                  "D4",
                   "chosen"
                 ],
                 [
-                  "D2",
+                  "D4",
                   "why"
                 ],
                 [
-                  "D2",
+                  "D4",
                   "design"
                 ]
               ],
@@ -10520,7 +11467,7 @@
               "what": "The estimate in the design; none before design is done",
               "from": [
                 [
-                  "D2",
+                  "D4",
                   "estimate"
                 ]
               ],
@@ -10972,6 +11919,74 @@
           ]
         },
         {
+          "id": "A8",
+          "kind": "engine",
+          "title": "Whether the project keeps records",
+          "inputs": [
+            {
+              "name": "What was found",
+              "what": "What the cell that handed in records_must_change found",
+              "from": [
+                [
+                  "@stopped",
+                  "records_must_change"
+                ]
+              ]
+            },
+            {
+              "name": "The project's records",
+              "what": "Where the project keeps its records, and whether they are in English only, as its configuration says; none when it keeps none",
+              "from": [
+                {
+                  "config": "records"
+                }
+              ],
+              "maybe": true
+            }
+          ],
+          "out": [],
+          "cases": [
+            {
+              "name": "keeps",
+              "if": [
+                [
+                  "inp",
+                  "records",
+                  [
+                    "keeps"
+                  ]
+                ]
+              ],
+              "to": "D1",
+              "sets": {
+                "full_ci": "not_green",
+                "stage": "design_on"
+              },
+              "do": [
+                "replace_design_card"
+              ],
+              "note": "Back to derive again, carrying what the cell found, even halfway through implementation."
+            },
+            {
+              "name": "none",
+              "if": [
+                [
+                  "inp",
+                  "records",
+                  [
+                    "none"
+                  ]
+                ]
+              ],
+              "to": "A5",
+              "note": "This project keeps no records: the work goes back to the cell that handed in records_must_change, which carries on without them."
+            }
+          ],
+          "inenums": {
+            "records": "records_state"
+          }
+        },
+        {
           "id": "E1",
           "kind": "engine",
           "title": "End",
@@ -11039,7 +12054,7 @@
         "The engine records by decision which version of each decision the owner went through. When the design card changes, only the changed decisions go through again, the owner being shown how each changed since last seen. When a decision the owner confirmed changes, the engine tells the owner at once, without waiting for cell `M1`.",
         "The owner's ruling is an interjection, carrying which version of each decision the owner saw. Before sending it, the engine compares: for a decision changed since, it does not send that part but tells the owner it changed and how, and asks the owner to look at the new one; the rest is sent.",
         "The owner rules on each decision of the design card, and sends the verdicts on all of them at once: confirm it, disagree with it saying why, or choose another of its approaches. A decision confirmed is only recorded; a ruling that confirms every decision is a word to the engineer, given at its next round, and the way on does not change. The design card is confirmed when every decision on it is. Once confirmed it is settled and cannot be withdrawn; to change it, open a new work.",
-        "On a ruling that disagrees with any decision (another of its approaches chosen, or why it does not work), the decisions disagreed with reach the engineer, each with the approach chosen and why, and the engineer can only hand in redirect and go to cell `A4` to choose the way on, and cell `A4` may not carry on: to change the design, back to cell `D1` to design again; if what the item needs has changed, back to cell `R1`; if unsure, ask the owner. Cells `D1` and `D2` can read the ruling, still after a new or compacted session; if the owner chose another approach for a decision, cell `D2` must choose it for that decision. If the owner's approach changes the acceptance, the design that follows the ruling (cell `D2`) writes the new acceptance, without the engineer asking the advisor: the owner's ruling is its authority, and the engine locks it after design as it locks any design's.",
+        "On a ruling that disagrees with any decision (another of its approaches chosen, or why it does not work), the decisions disagreed with reach the engineer, each with the approach chosen and why, and the engineer can only hand in redirect and go to cell `A4` to choose the way on, and cell `A4` may not carry on: to change the design, back to cell `D1` to design again; if what the item needs has changed, back to cell `R1`; if unsure, ask the owner. Cells `D1` and `D4` can read the ruling, still after a new or compacted session; if the owner chose another approach for a decision, cell `D4` must choose it for that decision. If the owner's approach changes the acceptance, the design that follows the ruling (cell `D4`) writes the new acceptance, without the engineer asking the advisor: the owner's ruling is its authority, and the engine locks it after design as it locks any design's.",
         "When cell `A4` chooses redesign or item_changed, the engine marks the design cards this work has as replaced: the owner can no longer rule on them, and the new design gives a new design card.",
         "When sub-items were split off, the parent's design card still covers the whole work, and each decision says who carries it; if the design card was not yet in the database when the split happened, the engine puts it there first, blocking nothing. A decision a sub-item copies unchanged from the parent's design card counts as gone through where the owner went through it on the parent's design card, and need not go through again; decisions the sub-item adds go through as usual. At cell `M1`, the parent compares only the decisions it carries itself, and a sub-item compares what it copied with that section of the parent's design card.",
         "At cell `M1`, the engine compares the change to the design tree in the commit to be merged with the version the owner went through: it passes only if every decision is confirmed and word for word the same. One not gone through, or changed since, waits at cell `M1`, and the engine tells the owner that this design card is holding up the merge. What was gone through and has not changed since need not go through again."
@@ -15008,6 +16023,22 @@
               "from": [
                 {
                   "engine": "told_owner"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Reasoning rules",
+              "what": "The reasoning system's rules reading.md, writing.md and extension-cards.md, as the installation's copy of it has them; given only when the project keeps records",
+              "from": [
+                {
+                  "engine": "reasoning_reading"
+                },
+                {
+                  "engine": "reasoning_writing"
+                },
+                {
+                  "engine": "reasoning_cards"
                 }
               ],
               "maybe": true

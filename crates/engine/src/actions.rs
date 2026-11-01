@@ -295,7 +295,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             .map_err(sql)?;
         }
         "lock_acceptance" => {
-            let Some((round, acceptance)) = ctx.last(tx, "D2", &format!("{}.acceptance", ctx.within))? else {
+            let Some((round, acceptance)) = ctx.last(tx, "D4", &format!("{}.acceptance", ctx.within))? else {
                 return Err("no design handed in acceptance conditions to lock".into());
             };
             let item = ctx.item_id()?;
@@ -329,7 +329,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 return Ok(());
             }
             let path = format!("{}.design_tree.design_card", ctx.within);
-            let Some((round, body)) = ctx.last(tx, "D2", &path)? else {
+            let Some((round, body)) = ctx.last(tx, "D4", &path)? else {
                 return Ok(());
             };
             let posted: Option<i64> = tx
@@ -528,9 +528,10 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 &json!({ "repo": ctx.project()?.repo, "pr": pr, "comment": comment }),
             )?;
         }
-        // The session manager opens the new session as the round at the cell the row leads to starts, at the work's
-        // first round there: the cell's `new_session`, which the compiler sets from this action.
-        "open_session" => {}
+        // The session manager opens the new session as the round at the cell the row leads to starts: at the work's
+        // first round there, the cell's `new_session`, or each time the row is taken, its `fresh_session`, which the
+        // compiler sets from these actions.
+        "open_session" | "fresh_session" => {}
         "queue_for_architect" => {
             // Each side report is one matter of the kind report for the architect of the work's project, queued once,
             // which starts a work of it when none runs; its queue marks one urgent.

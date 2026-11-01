@@ -42,7 +42,6 @@ const cell = (id: string, title: string, rows: CompiledRow[], extra: Partial<Com
   gate: false,
   title,
   step: null,
-  needs: null,
   line: null,
   stage: null,
   inputs: [],

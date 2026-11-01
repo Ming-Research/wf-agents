@@ -51,8 +51,9 @@ pub struct EngineNames {
     /// The values the engine itself knows about a work, which rows switch on with `inp` and cells name in
     /// `inenums`; a value rows record with `sets` is not one of these.
     pub values: BTreeMap<String, String>,
-    /// What a gate needs to apply to a project. A gate whose need the project does not meet is passed by the
-    /// engine on its own row, without a round.
+    /// What a project's configuration answers that a field of every agent's return is asked for on (`needs` of
+    /// `agentCommon`). Which way a work goes is never one of these: the engine's choices of the way are cells with
+    /// rows of their own.
     pub needs: BTreeMap<String, String>,
     /// The places the engine keeps what it writes and reads later, by name: what each holds, the layer it belongs to
     /// and the tables and views that hold it. None in a flow version stored before the flow named them.
@@ -381,6 +382,8 @@ pub enum Handle {
 pub struct Block {
     pub name: String,
     pub nodes: Option<Vec<String>>,
+    /// The cells the block is entered at. The asking part is entered at the cells that are asked, and at those it
+    /// names here besides, which a row of the cell that leaves for it leads to.
     pub entries: Option<Vec<String>>,
     /// The block is the asking part: its cells are `asking.nodes`, its entries the cells that are asked.
     pub asking: Option<bool>,
@@ -402,7 +405,8 @@ pub struct Sessions {
 }
 
 /// A line: the agent whose cells go on in one session. The fixed places it starts a new one at are the cells a row
-/// leads to with the action [`OPEN_SESSION`]: at the work's first round there.
+/// leads to with the action [`OPEN_SESSION`], at the work's first round there, or with [`FRESH_SESSION`], each time
+/// the work takes the row.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Line {
@@ -652,6 +656,9 @@ pub struct Form {
     /// The lines whose cells outside the asking part have this form; with none, every agent's cell has it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lines: Option<Vec<String>>,
+    /// The cells that have this form, whatever their lines; none, and the lines say which.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cells: Option<Vec<String>>,
     /// Fields of `every` a return of this form does not hold. It leaves them as an earlier return wrote them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub without: Vec<String>,
@@ -773,7 +780,8 @@ pub struct Node {
     /// the work ends; elsewhere, before the step. Each is one of `engine.actions`.
     #[serde(rename = "do")]
     pub actions: Option<Vec<String>>,
-    /// What a gate needs to apply, one of `engine.needs`.
+    /// What a gate of a flow from before the engine's choices of the way were cells of their own needed to apply, one
+    /// of `engine.needs`: read only so that such a flow can still be shown; a cell of a flow that runs has none.
     pub needs: Option<String>,
     pub question: Option<String>,
     /// For a gate that may not apply: an example of a work it does not apply to.
@@ -792,6 +800,10 @@ pub struct Node {
 /// The action on a row that opens a new session of the line of the cell it leads to, at the work's first round there:
 /// a place the flow fixes for a line's session to start afresh.
 pub const OPEN_SESSION: &str = "open_session";
+
+/// The action on a row that opens a new session of the line of the cell it leads to each time the work takes the row:
+/// a place the flow fixes for a line to look afresh, in no session that earlier rounds shaped.
+pub const FRESH_SESSION: &str = "fresh_session";
 
 /// The action on a row into a holder's cell that raises the task's blocker there.
 pub const RAISE_BLOCKER: &str = "raise_blocker";
@@ -950,6 +962,9 @@ pub struct Input {
     /// The input reads each place from its cell's newest answer only: a field that answer leaves out is none there,
     /// as a branch of a return is, instead of the newest answer that has it.
     pub newest: Option<bool>,
+    /// The input reads each place only from returns handed in since the cell's own last answer, so that what an
+    /// earlier answer of the cell answered is not given to it again, such as a row of a table it answered once.
+    pub unanswered: Option<bool>,
 }
 
 /// Where a work goes from a cell whose numbered table it must answer has no row: the cell's row `nothing_to_answer`

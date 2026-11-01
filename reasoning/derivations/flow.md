@@ -74,7 +74,7 @@ Decision engine-jumps-as-rows: A jump the engine made out of the flow's sight is
 
 Rests on: C:flow-does
 
-Decision empty-table-row: A numbered table a cell must answer says where the work goes when it has no row (`empty` on the input), and the cell has that row, `nothing_to_answer`, which the engine takes in place of the cell's round, recorded with why, as it takes a line's row for a new session; the compiler refuses such a table without it. The fix (`T6`), the one such cell, goes on to choose what runs next (`T7`), where its own answer goes, as after a fix that answered nothing. Instead of the round, because a round with nothing to answer can only redirect or ask: in the sixth trial a work at the fix with an empty table redirected to choose the way on (`A4`), whose carry on led back to the fix, round after round; and instead of a choice at `A4` for a cell with nothing to answer, because that covers only the way back through `A4`, while a round that cannot be answered must never be the only way on, however the work came to its cell.
+Decision empty-table-row: A numbered table a cell must answer says where the work goes when it has no row (`empty` on the input), and the cell has that row, `nothing_to_answer`, which the engine takes in place of the cell's round, recorded with why, as it takes a line's row for a new session; the compiler refuses such a table without it, also one that may hold nothing on some way, as the fix's does when a change asked at the way on was set aside by a later way on. The fix (`T6`), the one such cell, goes on to choose what runs next (`T7`), where its own answer goes, as after a fix that answered nothing. Instead of the round, because a round with nothing to answer can only redirect or ask: in the sixth trial a work at the fix with an empty table redirected to choose the way on (`A4`), whose carry on led back to the fix, round after round; and instead of a choice at `A4` for a cell with nothing to answer, because that covers only the way back through `A4`, while a round that cannot be answered must never be the only way on, however the work came to its cell.
 
 Rests on: C:design-on-merit, C:efficient, F:empty-table-loop
 
@@ -82,9 +82,16 @@ Decision time-budget: The total time is measured, not counted: the time of a wor
 
 Rests on: C:design-on-merit
 
-Decision ruling-acceptance: When the owner's ruling disagrees with a decision of the design card and the owner's approach changes the acceptance, the design that follows the ruling (`D2`) writes the new acceptance without asking the advisor, and the engine locks it after design as any design's, instead of the ruling stating the acceptance, because acceptance conditions are written in the engineer's form (numbers, tests or measurements, criteria), which the owner's ruling on approaches does not and should not ask of the owner.
+Decision ruling-acceptance: When the owner's ruling disagrees with a decision of the design card and the owner's approach changes the acceptance, the design that follows the ruling (`D4`) writes the new acceptance without asking the advisor, and the engine locks it after design as any design's, instead of the ruling stating the acceptance, because acceptance conditions are written in the engineer's form (numbers, tests or measurements, criteria), which the owner's ruling on approaches does not and should not ask of the owner.
 
 Rests on: C:owner-page
+
+Decision way-on-fix: Choosing the way on (`A4`) has a fifth way, `fix`, for an interjection that came while the work stood at one of the engine's steps (`T7`, `M1`, `A6`) after it implemented and asks only for a change to the code, the design and the acceptance unchanged: the change, with the interjection it comes from, goes straight to the fix (`T6`) as a row of its table, and the work goes on as after any fix; a change to the design or the acceptance stays `redesign`, and a change that turns out to need the records changed goes back to derive again from the fix as any other (D:records-back-to-derive); instead of `redesign` as the only way to change the code, because a redesign does the design, the implementation and every check again for a change that touches none of them.
+
+Rests on: C:efficient, C:flow-does, F:fix-took-redesign, D:fix-table, D:records-back-to-derive
+
+Rejected:
+- A redesign for every change an interjection asks for: rejected because it redoes the design, the implementation and all the testing for a change to the code alone.
 
 Decision interjection-sets-aside: A row of an engine step that takes an interjection, as `T7`'s, sets aside what the step handed in (the checks it chose), which the step works out again if the way on comes back to it, and the compiler counts it as dropping nothing, instead of an action on the row that does nothing but read what is set aside (`set_aside_checks`), because an action that does nothing is behaviour the flow names and the engine does not have.
 
@@ -98,6 +105,6 @@ Decision review-sees-fix-table: The table review after a fix is given the table 
 
 Rests on: C:information
 
-Decision re-review-inputs: A re-review is given what its last review left open, with its numbers (the table review's findings and columns not verified, the design tree round's findings, and the findings held not fixed or insisted on), instead of only what its session holds, because it answers each of them row by row, and a session started afresh holds none of them; the columns it passed are not given, since nothing about them is answered.
+Decision re-review-inputs: A re-review is given what its last review left open, with its numbers (the table review's findings and columns not verified, the findings of the check of the code against the records, and the findings held not fixed or insisted on), instead of only what its session holds, because it answers each of them row by row, and a session started afresh holds none of them; the columns it passed are not given, since nothing about them is answered.
 
 Rests on: C:information, C:efficient, F:fresh-session-empty

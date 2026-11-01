@@ -93,3 +93,9 @@ Fact trial-sandbox-base: In a trial whose project's main was a sandbox branch, a
 Fact trial-unparsed-rerun: In a trial one round whose return the command line gave up on cost $0.33 rerun whole, and every later attempt re-read the whole session, 190,000 to 230,000 tokens each.
 
 Fact kept-policy-redrafted: Asked by `P1` whether to research a new policy, the owner replied to keep the policy until the new reasoning system is live; `P1` then had to hand in `write_policy`, and `P2` wrote the policy in force again as a draft for the owner to approve, adding a principle and a signal and removing numbers, the architect reporting in its flow feedback that a reply to keep it should close the check.
+
+Fact fix-took-redesign: In a trial an interjection that asked for one fix of one function with a test, the acceptance unchanged, could take only a redesign at the way on, which did the design, the implementation and all the testing again, about two hours and $19, and the way on's flow feedback said no way fitted.
+
+Fact redesign-gates-whole: In a trial, after a redesign that added one rule to a design the owner had confirmed, the design was handed in whole again and every check after design judged the whole design again, the flow feedback of one saying that judging only what changed would save rounds.
+
+Fact design-rewritten-whole: In a trial the design written again after a redesign that added one rule rewrote the whole text: its difference from the design before, counted by sentence, came to 11.5 KB against a design of 9.2 KB.

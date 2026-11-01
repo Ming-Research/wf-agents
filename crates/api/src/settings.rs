@@ -108,7 +108,7 @@ fn view(c: &config::Config, commit: &str, compiled: &flow::Compiled) -> Settings
                 main: p.main.clone(),
                 design_paths: p.design_paths.clone(),
                 test_paths: p.test_paths.clone(),
-                design_check: p.design_check.clone(),
+                records: p.records.as_ref().map(|r| r.root.clone()),
                 ci_fast: p.ci.fast.clone(),
                 ci_full: p.ci.full.clone(),
                 merge_checks: p.ci.merge_checks.clone(),

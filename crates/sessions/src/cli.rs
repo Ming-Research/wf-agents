@@ -1726,7 +1726,7 @@ mod tests {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
         let s = envelope(g, Some("engineer"));
-        let schema = g.cell("D2").unwrap().schema.clone().unwrap();
+        let schema = g.cell("D4").unwrap().schema.clone().unwrap();
         let mut ret = json!({
             "tell_owner": [],
             "side_reports": [],

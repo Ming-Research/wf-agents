@@ -361,6 +361,11 @@ export function layUnit(
       Math.max(LANE_START, inset),
       W - Math.max(CORNER_TOP, inset),
     );
+    // Circles crowded on one side of the lane, with no room there for their lines, meet the cell `STEP` apart all the
+    // same, so that no two lines run into the cell as one.
+    for (let i = land.length - 1; i > 0; i--) {
+      if (land[i] - land[i - 1] < STEP) land[i - 1] = land[i] - STEP;
+    }
     const circleH = Math.max(...ins.map((it) => it.circle.height));
     const reach = span(
       above,

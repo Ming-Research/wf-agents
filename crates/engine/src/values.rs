@@ -61,7 +61,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             if item.deliver == "report" {
                 return s("report");
             }
-            let tree = last_return(e, w, g, "D2", "design_tree")?.and_then(|r| at_path(&r, "design_tree.verdict"));
+            let tree = last_return(e, w, g, "D4", "design_tree")?.and_then(|r| at_path(&r, "design_tree.verdict"));
             if tree.as_ref().and_then(Value::as_str) == Some("design_paths_only") {
                 s("design_paths_only")
             } else {
@@ -72,19 +72,40 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             let reviewed = !answered(e, w, g, "T3")?.is_empty() || !answered(e, w, g, "T4")?.is_empty();
             s(if reviewed { "table" } else { "blind" })
         }
-        "tree" => {
+        // What the project's configuration says of it, which the design stage's cells choose the way by.
+        "records" => s(if e.project_of(w)?.records.is_some() {
+            "keeps"
+        } else {
+            "none"
+        }),
+        "under_test" => s(if e.project_of(w)?.under_test.is_empty() {
+            "no"
+        } else {
+            "yes"
+        }),
+        "other_projects" => s(if e.project_of(w)?.other_projects.is_empty() {
+            "no"
+        } else {
+            "yes"
+        }),
+        // Whether the branch changed the project's records since its fork point from main, its own commits only.
+        "records_change" => {
             let project = e.project_of(w)?;
-            let Some(wt) = &w.worktree else { return s("unchanged") };
-            let base = match reviewed_head(e, w, g)? {
-                Some(h) => h,
-                None => git::fork_point(wt, &project.main)?,
+            let (Some(records), Some(wt)) = (&project.records, &w.worktree) else {
+                return s("unchanged");
             };
-            let changed = git::own_changes(wt, &project.main, &base, "HEAD")?;
-            s(if changed.iter().any(|f| git::under(f, &project.design_paths)) {
-                "changed"
-            } else {
-                "unchanged"
-            })
+            let fork = git::fork_point(wt, &project.main)?;
+            let changed = git::own_changes(wt, &project.main, &fork, "HEAD")?;
+            s(
+                if changed
+                    .iter()
+                    .any(|f| git::under(f, std::slice::from_ref(&records.root)))
+                {
+                    "changed"
+                } else {
+                    "unchanged"
+                },
+            )
         }
         // What the merge gate waits for: the items it depends on while one is not merged, then the owner's ruling.
         "gates" => s(match gates_waiting_for(e, w, item)? {

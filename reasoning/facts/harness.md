@@ -33,3 +33,5 @@ Fact sqlite-immediate-write-lock: An immediate SQLite transaction takes the data
 Fact sqlite-wal-reads: SQLite in write-ahead-log mode lets reads run beside a write.
 
 Fact tool-call-either: To the model, handing in `tools` and calling a tool in the middle of a round are each one tool call.
+
+Fact worktree-no-submodule: A worktree `git worktree add` makes holds none of the repository's submodules until they are initialised in it.

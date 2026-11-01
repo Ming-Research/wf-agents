@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::field::{Field, Resolved, Shapes, add_to_desc, by_id, head, is_path, resolve};
 use crate::format::{
-    Always, Atom, Branches, Check, Choice, Do, Empty, Flow, Form, Input, Kind, NOTHING_TO_ANSWER, Node, NodeKind,
-    OPEN_SESSION, PromptBy, RawBranch, RawField, RawRow, ReadBy, Role, Rule, Source, Src,
+    Always, Atom, Branches, Check, Choice, Do, Empty, FRESH_SESSION, Flow, Form, Input, Kind, NOTHING_TO_ANSWER, Node,
+    NodeKind, OPEN_SESSION, PromptBy, RawBranch, RawField, RawRow, ReadBy, Role, Rule, Source, Src,
 };
 
 macro_rules! ensure {
@@ -70,6 +70,8 @@ pub(crate) struct In {
     pub maybe: bool,
     /// It reads each place from its cell's newest answer only.
     pub newest: bool,
+    /// It reads each place only from returns handed in since the cell's own last answer.
+    pub unanswered: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -103,7 +105,6 @@ pub(crate) struct Cell {
     pub gate: bool,
     pub title: String,
     pub step: Option<String>,
-    pub needs: Option<String>,
     pub line: Option<String>,
     /// The reasoning effort the cell runs at, when it declares one.
     pub effort: Option<String>,
@@ -252,6 +253,7 @@ fn input(x: &Input, common: bool) -> In {
         from: x.from.clone(),
         maybe: x.maybe.unwrap_or(false),
         newest: x.newest.unwrap_or(false),
+        unanswered: x.unanswered.unwrap_or(false),
     }
 }
 
@@ -461,6 +463,17 @@ impl<'s> Graph<'s> {
         for f in &ret.forms {
             let ok = f.lines.iter().flatten().all(|l| lines.contains(l));
             ensure!(ok, "a form for no such line: {:?} {:?}", f.field, f.lines);
+            let ok = f.cells.iter().flatten().all(|c| {
+                flow.nodes
+                    .iter()
+                    .any(|n| &n.id == c && matches!(n.kind, NodeKind::Agent | NodeKind::Gate))
+            });
+            ensure!(ok, "a form for no such agent's cell: {:?} {:?}", f.field, f.cells);
+            ensure!(
+                f.cells.is_none() || f.lines.is_none(),
+                "a form names its cells or its lines, not both: {:?}",
+                f.field
+            );
             let ok = f.without.iter().all(|w| ret.every.contains(w));
             ensure!(
                 ok,
@@ -508,9 +521,12 @@ impl<'s> Graph<'s> {
                 .as_ref()
                 .is_some_and(|x| n.without.iter().flatten().any(|w| w == x));
             !left_out
-                && match &f.lines {
-                    None => true,
-                    Some(ls) => n.line.as_ref().is_some_and(|l| ls.contains(l)) && !flow.asking.nodes.contains(&n.id),
+                && match (&f.cells, &f.lines) {
+                    (Some(cs), _) => cs.contains(&n.id),
+                    (None, None) => true,
+                    (None, Some(ls)) => {
+                        n.line.as_ref().is_some_and(|l| ls.contains(l)) && !flow.asking.nodes.contains(&n.id)
+                    }
                 }
         };
         // A field every return holds that is kept to some lines is held by the agents' cells of those lines alone.
@@ -654,7 +670,7 @@ impl<'s> Graph<'s> {
                     x.what
                 );
                 ensure!(
-                    x.numbered.is_none() || x.maybe == Some(true) || x.empty.is_some(),
+                    x.numbered.is_none() || x.empty.is_some(),
                     "a numbered table the cell must answer says where the work goes when it has no row: {nid} {}",
                     x.what
                 );
@@ -926,7 +942,6 @@ impl<'s> Graph<'s> {
                 gate: flow.nodes.iter().any(|m| &m.id == nid && m.kind == NodeKind::Gate),
                 title: n.title.clone(),
                 step: n.step.clone(),
-                needs: n.needs.clone(),
                 line,
                 effort: n.effort.clone(),
                 tools,
@@ -1008,11 +1023,11 @@ impl<'s> Graph<'s> {
         }
         // A row opens a new session only into an agent's cell, whose line's session it is.
         for c in &cells {
-            for r in c
-                .rows
-                .iter()
-                .filter(|r| r.actions.iter().any(|d| d.name() == OPEN_SESSION))
-            {
+            for r in c.rows.iter().filter(|r| {
+                r.actions
+                    .iter()
+                    .any(|d| d.name() == OPEN_SESSION || d.name() == FRESH_SESSION)
+            }) {
                 ensure!(
                     cells.iter().any(|m| m.id == r.to && m.kind == CellKind::Agent),
                     "a row opens a new session into a cell that is not an agent's: {} {}",
@@ -1086,7 +1101,16 @@ impl<'s> Graph<'s> {
         let mut block_names = Vec::new();
         for (bi, b) in flow.blocks.iter().enumerate() {
             let (members, ents): (Vec<usize>, Vec<usize>) = if b.asking == Some(true) {
-                (region.iter().copied().collect(), asked.iter().copied().collect())
+                ensure!(
+                    b.nodes.is_none(),
+                    "the asking part's cells are asking.nodes: {}",
+                    b.name
+                );
+                let mut ents: BTreeSet<usize> = asked.clone();
+                for x in b.entries.iter().flatten() {
+                    ents.insert(idx(x)?);
+                }
+                (region.iter().copied().collect(), ents.into_iter().collect())
             } else {
                 let (Some(ns), Some(es)) = (&b.nodes, &b.entries) else {
                     return Err(format!("a block lists its cells and entries: {}", b.name));

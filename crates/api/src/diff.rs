@@ -144,7 +144,6 @@ fn cell(gf: &CompiledGraph, from: &CompiledCell, gt: &CompiledGraph, to: &Compil
     changed(&mut out, Part::Line, "", &from.line, &to.line);
     changed(&mut out, Part::Stage, "", &from.stage, &to.stage);
     changed(&mut out, Part::Step, "", &from.step, &to.step);
-    changed(&mut out, Part::Needs, "", &from.needs, &to.needs);
     inputs(&mut out, &from.inputs, &to.inputs);
     let rules =
         |c: &CompiledCell| -> Vec<(String, Value)> { c.rules.iter().map(|r| (r.name.clone(), json!(true))).collect() };

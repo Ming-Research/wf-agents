@@ -29,6 +29,13 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
+/// The fix's numbered table.
+fn t6_table(c: &flow::Compiled) -> flow::CompiledInput {
+    let g = c.graph("engineer").unwrap();
+    let t6 = g.cell("T6").unwrap();
+    t6.inputs.iter().find(|x| x.numbered.is_some()).unwrap().clone()
+}
+
 // The fix, the one cell with a table it must answer, has a way on when the table has no row, which the engine takes in
 // place of its round: on to choose what runs next, where its answer goes.
 #[test]
@@ -38,10 +45,18 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
     let tables: Vec<&str> = g
         .cells
         .iter()
-        .filter(|c| c.inputs.iter().any(|x| x.numbered.is_some() && !x.maybe))
+        .filter(|c| c.rows.iter().any(|r| r.name == "nothing_to_answer"))
         .map(|c| c.id.as_str())
         .collect();
     assert_eq!(tables, ["T6"]);
+    // Its table reads only what it has not answered, a change to the code the way on asked among it.
+    let table = t6_table(&c);
+    assert!(table.unanswered, "{table:?}");
+    assert!(
+        table
+            .from
+            .contains(&flow::format::Src::Place("A4".into(), "next.change".into()))
+    );
     let t6 = g.cell("T6").unwrap();
     let row = t6.rows.iter().find(|r| r.name == "nothing_to_answer").unwrap();
     assert_eq!(row.to, "T7");
@@ -469,8 +484,8 @@ fn a_capability_report_unblocks_first_is_answered_and_is_work_once_it_recurs() {
 }
 
 // An ask carries no kind: the one asked reads what it is about from what it says. An ask's point is what is asked and
-// what was checked, with no kind among its fields; a gate asks what its question says, the one that needs something
-// under test saying what to give; the ways (`H3`) weigh a question by what it says, with no case for a kind of
+// what was checked, with no kind among its fields; a gate asks what its question says, the one about something under
+// test, which only a project with something under test reaches, saying what to give; the ways (`H3`) weigh a question by what it says, with no case for a kind of
 // question; and no graph lists kinds of question.
 #[test]
 fn an_ask_carries_no_kind() {
@@ -491,9 +506,16 @@ fn an_ask_carries_no_kind() {
             assert!(n.get("about").is_none(), "{}", n["id"]);
         }
     }
-    let gap = engineer.cell("D4").unwrap();
+    let gap = engineer.cell("D9").unwrap();
     assert!(gap.prompt[0].contains("give the code you want to write, the error it really gives"));
-    assert_eq!(gap.needs.as_deref(), Some("under_test"));
+    // Only a project with something under test is asked it: the cell before chooses so by a row of its own.
+    let under_test = engineer.cell("D8").unwrap();
+    let yes = under_test.rows.iter().find(|r| r.name == "yes").unwrap();
+    assert_eq!(yes.to, "D9");
+    assert_eq!(
+        serde_json::to_value(&yes.conditions).unwrap(),
+        serde_json::json!([["inp", "under_test", ["yes"]]])
+    );
     let ways = c.graph("architect").unwrap().cell("H3").unwrap();
     assert!(ways.prompt_by.is_none() && ways.inenums.is_empty());
 }
@@ -834,7 +856,7 @@ fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     let cells = v["flows"][0]["nodes"].as_array_mut().unwrap();
     let implement = cells.iter_mut().find(|n| n["id"] == "I1").unwrap();
-    implement["rules"] = serde_json::json!(["design_tree_writing", "engineering"]);
+    implement["rules"] = serde_json::json!(["engineering"]);
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
     assert!(
         e.contains("a cell names a rule every cell of its line is given: I1"),
@@ -990,7 +1012,7 @@ fn every_sample_takes_its_row() {
             n += 1;
         }
     }
-    assert_eq!(n, 32);
+    assert_eq!(n, 42);
 }
 
 // A return with its form outside the field it sits in fits no schema; a recorded value changes the row taken.
@@ -1017,21 +1039,21 @@ fn a_return_that_does_not_fit_says_where() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let sample = &samples["D3"][0]["json"];
+    let sample = &samples["D1"][1]["json"];
     let refused = |edit: &dyn Fn(&mut Value)| {
         let mut x = sample.clone();
         edit(&mut x);
-        g.take("D3", &x, &Map::new()).unwrap_err()
+        g.take("D1", &x, &Map::new()).unwrap_err()
     };
-    let e = refused(&|x| x["outcome"]["better"]["verdict"] = "maybe".into());
+    let e = refused(&|x| x["outcome"]["finding"]["verdict"] = "maybe".into());
     assert!(
-        e.ends_with(r#"outcome.better.verdict is "maybe", and must be one of "found", "present_best""#),
+        e.ends_with(r#"outcome.finding.verdict is "maybe", and must be one of "decided", "trade_off", "must_change""#),
         "{e}"
     );
     let e = refused(&|x| {
-        x["outcome"]["better"].as_object_mut().unwrap().remove("why");
+        x["outcome"]["finding"].as_object_mut().unwrap().remove("open");
     });
-    assert!(e.ends_with("outcome.better has no why"), "{e}");
+    assert!(e.ends_with("outcome.finding has no open"), "{e}");
     let e = refused(&|x| x["outcome"] = Value::String(x["outcome"].to_string()));
     assert!(e.ends_with("outcome must be an object, and is a string"), "{e}");
 }
@@ -1085,7 +1107,7 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
             }
         }
     }
-    assert_eq!(helpers, ["T1", "T3", "T4", "T5", "A1", "B2", "X2"]);
+    assert_eq!(helpers, ["D3", "D7", "T1", "T3", "T4", "T5", "A1", "B2", "X2"]);
 }
 
 // The architect tells the owner what the engineer does and no more: what only the owner can do (starting a work the
@@ -1197,7 +1219,19 @@ fn a_work_moves_by_its_rows() {
     let p = take(&p, "back");
     assert_eq!((p.at.as_str(), p.stopped.as_deref()), ("R1", None));
     let p = take(&p, "done");
-    assert_eq!((p.at.as_str(), p.recorded["rethought"].as_str()), ("R2", "no"));
+    assert_eq!(p.at, "R2");
     let wrong = g.cell("A5").unwrap().rows.iter().find(|r| r.name == "back").unwrap();
     assert!(g.step(&p, wrong).is_err());
+    // A finding that the records must change, at any cell that can make it, goes back to derive again; in a project
+    // that keeps no records it comes back to the cell that found it.
+    let at = |cell: &str| flow::Position {
+        at: cell.to_string(),
+        ..flow::Position::default()
+    };
+    let p = take(&at("I1"), "records_must_change");
+    assert_eq!((p.at.as_str(), p.stopped.as_deref()), ("A8", Some("I1")));
+    let back = take(&take(&p, "none"), "back");
+    assert_eq!((back.at.as_str(), back.stopped.as_deref()), ("I1", None));
+    let again = take(&p, "keeps");
+    assert_eq!((again.at.as_str(), again.stopped.as_deref()), ("D1", None));
 }

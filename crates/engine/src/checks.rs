@@ -213,7 +213,7 @@ impl Ctx<'_> {
             .map_err(|e| e.to_string())?;
         match work::json_col(locked) {
             Some(Value::Array(xs)) => Ok(xs),
-            _ => Ok(items(self.last("D2", "acceptance")?.as_ref())),
+            _ => Ok(items(self.last("D4", "acceptance")?.as_ref())),
         }
     }
 
@@ -389,38 +389,6 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             }
             Ok(())
         }
-        "design_tree_check" => {
-            if at.is_some_and(|a| a == "design_card") && v.is_none() {
-                return Ok(());
-            }
-            let Some(cmd) = &c.project()?.design_check else {
-                return Ok(());
-            };
-            let wt = c.wt()?;
-            if c.design(&c.branch_changes()?).is_empty() {
-                return Ok(());
-            }
-            let fork = c.fork()?;
-            let out = std::process::Command::new("sh")
-                .arg("-c")
-                .arg(format!("{cmd} {fork}"))
-                .current_dir(wt)
-                .output()
-                .map_err(|e| format!("{cmd}: {e}"))?;
-            if out.status.success() {
-                Ok(())
-            } else {
-                let text = format!(
-                    "{}{}",
-                    String::from_utf8_lossy(&out.stdout),
-                    String::from_utf8_lossy(&out.stderr)
-                );
-                fail(format!(
-                    "the design tree check `{cmd} {fork}` fails:\n{}",
-                    crate::hub::tail(&text, 40)
-                ))
-            }
-        }
         "acceptance_matches_locked" => {
             let given = items(v);
             if c.item()?.deliver == "change" && given.iter().any(|a| a["by"] == "report_answer") {
@@ -582,7 +550,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             Ok(())
         }
         "new_test_results" | "guard_test_results" => {
-            if c.last("D9", "adversarial")?.is_some_and(|a| a["verdict"] == "needed") {
+            if c.last("D15", "adversarial")?.is_some_and(|a| a["verdict"] == "needed") {
                 return Ok(());
             }
             let new = check == "new_test_results";
@@ -910,7 +878,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         }
         "no_adversarial_when_due" => {
             let first = c.accepted("T4")?.is_empty();
-            let chose = c.last("D9", "T1")?.is_some_and(|a| a["verdict"] == "needed");
+            let chose = c.last("D15", "T1")?.is_some_and(|a| a["verdict"] == "needed");
             let ran = !c.accepted("T1")?.is_empty();
             let kind = values::value(c.e, c.w, c.g, c.item, "work")?;
             let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran;

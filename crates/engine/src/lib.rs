@@ -33,6 +33,7 @@ mod failed;
 mod faults;
 mod inputs;
 pub mod message;
+mod reasoning;
 mod reminders;
 pub mod schedule;
 mod steps;

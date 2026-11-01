@@ -55,7 +55,6 @@ function graph(name: string, cells: string[]): CompiledGraph {
       gate: false,
       title: `cell ${id}`,
       step: null,
-      needs: null,
       line: null,
       stage: null,
       inputs: [],

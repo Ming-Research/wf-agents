@@ -206,6 +206,13 @@ fn build(text: &str, cx: &Context, purpose: Purpose) -> Result<Compiled, Error> 
                     f.name, n.id
                 )));
             }
+            // Which way a work goes is a cell with rows of its own, never a switch hidden in another cell.
+            if let Some(n) = f.nodes.iter().find(|n| n.needs.is_some()) {
+                return Err(fail(format!(
+                    "{}: cell {} needs something to apply, which a cell of its own with a row each way decides",
+                    f.name, n.id
+                )));
+            }
         }
     }
     let mut problems = Vec::new();
@@ -273,9 +280,10 @@ fn names(source: &Source, graphs: &[Graph], cx: &Context, problems: &mut Vec<Str
             actions.extend(r.actions.iter().flatten().map(|d| d.name().to_string()));
         }
         needs.extend(g.flow.agent_common.needs.values().cloned());
+        // A flow from before the engine's choices of the way were cells, only shown, names what its gates needed.
+        needs.extend(g.flow.nodes.iter().filter_map(|n| n.needs.clone()));
         for c in &g.cells {
             steps.extend(c.step.clone());
-            needs.extend(c.needs.clone());
             actions.extend(c.actions.iter().cloned());
             for r in &c.rows {
                 actions.extend(r.actions.iter().map(Do::name).map(str::to_string));
