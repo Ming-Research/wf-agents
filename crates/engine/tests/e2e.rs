@@ -10362,8 +10362,9 @@ fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
     let c = api::Control::default();
     // Every work paused, as the engine starts: nothing moves.
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
+    // Started all, one turn starts both works, side by side.
     c.set_paused(false);
-    let moved = turns(&mut e, &c, 2);
+    let moved = turns(&mut e, &c, 1);
     let log = said.lock().unwrap().join("\n");
     assert_eq!(moved.len(), 2, "{log}");
     let (one, two) = (moved[0], moved[1]);
