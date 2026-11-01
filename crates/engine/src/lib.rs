@@ -674,6 +674,23 @@ impl Engine {
         Ok(sent)
     }
 
+    /// Keeps a copy of the database once a day while the engine runs ([`db::backup`]): when the newest daily copy is a
+    /// day old, or there is none, it copies the database whole, as one snapshot read on a connection of its own while
+    /// the works' writes go on, and keeps the newest copies the installation's configuration says (`[backup] keep`);
+    /// gives the copy's path when it took one.
+    pub fn back_up(&self, now: i64) -> Result<Option<PathBuf>, String> {
+        const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+        let database = config::database(&self.data);
+        let dir = db::backup::dir(&database);
+        if db::backup::newest(&dir, db::backup::DAILY).is_some_and(|at| now - at < DAY_MS) {
+            return Ok(None);
+        }
+        let copy = db::backup::copy_file(&database, db::backup::DAILY).map_err(|e| e.to_string())?;
+        db::backup::prune(&dir, db::backup::DAILY, self.config.config.install.backup.keep())
+            .map_err(|e| e.to_string())?;
+        Ok(Some(copy))
+    }
+
     /// Reminds the owner of the asks waiting for the owner's answer when a reminder is due at `now`, the installation's
     /// interval after the oldest was put and after the last reminder ([`reminders::due`]): one notice for all of them,
     /// whatever the works do, then carries out the outbox, which writes it to the notifications log. Gives whether it

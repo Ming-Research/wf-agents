@@ -20,3 +20,11 @@ Rejected:
 Decision computed-as-views: What can be computed is not stored: counters, total time, stages, anomaly summaries, what the engine accumulates and free slots are views, instead of stored fields, because a stored summary can disagree with the history it summarizes.
 
 Rests on: C:information, F:copies-drift
+
+Decision db-copies: The database is copied whole, as one snapshot (SQLite's `VACUUM INTO`, which the works' writes do not wait on), into `db/backups/` beside it: by the database itself before each migration, the newest seven such copies kept, and by the engine once a day while it runs, the newest kept as the installation's configuration says (`[backup] keep`, seven when not set), because the database is the only copy of every item, round, observation and conversation and a migration changes it in place. A copy beside the database is lost with the machine: a copy off it, uploaded to a private repository the owner makes, is the next step and waits for that repository.
+
+Rejected:
+- Copies committed to a git repository: rejected because each copy of a binary file grows the history for good, and GitHub refuses a file over 100 MB, which the database already is.
+
+Rests on: C:product-grade, F:db-only-copy
+

@@ -16,6 +16,7 @@ use serde_json::Value;
 pub use rusqlite;
 
 pub mod attachments;
+pub mod backup;
 mod cells;
 mod matters;
 mod questions;
@@ -478,6 +479,9 @@ impl Db {
         if at == 0 {
             return Err(refusal(&self.conn)?);
         }
+        // A copy of the database as it stands is kept before it is migrated, so that a migration that goes wrong
+        // loses nothing.
+        backup::before_migration(&self.conn, at)?;
         // The setting cannot change within a transaction, so it is set around it, and put back whatever comes.
         let keys: bool = self.conn.pragma_query_value(None, "foreign_keys", |r| r.get(0))?;
         self.conn.pragma_update(None, "foreign_keys", false)?;
@@ -1707,6 +1711,36 @@ mod tests {
         let new = Db::in_memory().unwrap();
         assert_eq!(shape(db.conn()).unwrap(), shape(new.conn()).unwrap());
         assert_eq!(version_of(db.conn()).unwrap(), VERSION);
+    }
+
+    // A database opened older than this wf-agents is copied as it stood before it is migrated: the copy, in `backups/`
+    // beside it, holds the version and the rows it had; opened again at its version, it is not copied again.
+    #[test]
+    fn a_database_is_copied_before_it_is_migrated() {
+        let home = std::env::temp_dir().join(format!("wf-agents-db-{}-before-migration", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let path = home.join("wf-agents.sqlite");
+        let mut old = at_version(VERSION - 1);
+        old.write(Actor::Owner, |tx| item(tx, "kept")).unwrap();
+        old.conn.execute("VACUUM INTO ?1", [path.to_string_lossy()]).unwrap();
+        let db = Db::open(&path).unwrap();
+        assert_eq!(version_of(db.conn()).unwrap(), VERSION);
+        let dir = backup::dir(&path);
+        let copies = backup::copies(&dir, backup::BEFORE_MIGRATION);
+        assert_eq!(copies.len(), 1);
+        assert!(
+            copies[0]
+                .to_string_lossy()
+                .ends_with(&format!("-v{}.sqlite", VERSION - 1))
+        );
+        let copy = Connection::open(&copies[0]).unwrap();
+        assert_eq!(version_of(&copy).unwrap(), VERSION - 1);
+        assert_eq!(names(&copy, "SELECT title FROM items").unwrap(), ["kept"]);
+        drop(db);
+        Db::open(&path).unwrap();
+        assert_eq!(backup::copies(&dir, backup::BEFORE_MIGRATION).len(), 1);
+        std::fs::remove_dir_all(&home).unwrap();
     }
 
     // A database made at a path, whether there was no file or an empty one, has the shape of a new one in memory, with

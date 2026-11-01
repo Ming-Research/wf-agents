@@ -63,3 +63,6 @@ Fact whole-streaming-checked: The service checks the JSON of a tool input stream
 Fact work9-session-tokens: Work 9's engineer session reached 312,000 tokens before implementing and 531,000 at its end, every call reading all of it again.
 
 Fact wrong-change-reason-resent: An agent told it made a change it did not make takes the reason for a mistake and is sent back again.
+
+Fact db-only-copy: The database is one SQLite file in the data directory, whose `db/` directory git leaves out; nothing else holds the items, rounds, observations and conversations, and a migration changes the file in place.
+

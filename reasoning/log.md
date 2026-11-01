@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 Keep copies of the database
+
+Changed: D:db-copies added, F:db-only-copy added
+
+Why: The database is the only copy of every item, round, observation and conversation, and a migration changes it in place; nothing copied it. The database now copies itself before each migration and the engine once a day, under `db/backups/`, keeping the newest. A copy off the machine waits for a private repository the owner makes.
+
+Re-examined: none rests on the records added
+
+Ruling: the owner's approval of 2026-10-31 of database copies, and of 2026-11-01 to do them before the system develops itself
+
 ## 2026-11-01 Derive the design from the records, the engine's choices of the way as cells
 
 Changed: D:design-from-records added, D:fresh-review-sessions added, D:records-back-to-derive added, D:code-against-records added, D:reasoning-system-copy added, D:records-check added, D:reasoning-rules-by-role added, D:way-cells added, D:gate-needs removed, D:gate-unmet-answer removed, D:gate-na-no-column changed, D:work-own-change changed, D:unmeetable-left-out changed, D:tree-review-since-last removed, D:review-card-ci-inputs changed, D:review-base-commits changed, D:new-session-points changed, D:rules-in-flow changed, D:review-checklist changed, D:no-design-tree changed, D:ruling-acceptance changed, D:re-review-inputs changed, F:session-anchors added, F:worktree-no-submodule added, D:way-on-fix added, D:fix-table changed, D:empty-table-row changed, D:gates-judge-change added, F:fix-took-redesign added, F:redesign-gates-whole added, F:design-rewritten-whole added

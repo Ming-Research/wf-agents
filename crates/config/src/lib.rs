@@ -53,6 +53,8 @@ pub struct Install {
     pub query: Query,
     #[serde(default)]
     pub reasoning: Reasoning,
+    #[serde(default)]
+    pub backup: Backup,
 }
 
 /// The installation's one copy of the reasoning system, which every project that keeps records is kept by.
@@ -64,6 +66,23 @@ pub struct Reasoning {
     /// records and gives its rules (`rules/`) to the cells that work on them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system: Option<PathBuf>,
+}
+
+/// The copies of the database the engine keeps, beside it under `db/backups/`: one before every migration, which the
+/// database itself takes, and one a day while the engine runs.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Backup {
+    /// How many daily copies are kept, the newest; 7 when not set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep: Option<usize>,
+}
+
+impl Backup {
+    /// How many daily copies are kept.
+    pub fn keep(&self) -> usize {
+        self.keep.unwrap_or(7)
+    }
 }
 
 impl Reasoning {

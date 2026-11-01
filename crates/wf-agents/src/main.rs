@@ -749,6 +749,12 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
             if let Err(x) = e.remind(db::now()) {
                 e.say(&format!("reminding the owner of the asks waiting: {x}"));
             }
+            // A copy of the database is kept once a day.
+            match e.back_up(db::now()) {
+                Ok(Some(copy)) => e.say(&format!("kept a copy of the database: {}", copy.display())),
+                Ok(None) => {}
+                Err(x) => e.say(&format!("keeping a copy of the database: {x}")),
+            }
             // What the owner asked as the loop dispatches: what it asks after wakes the loop's wait at once.
             let asked = control.asked();
             let go = engine::Go {
