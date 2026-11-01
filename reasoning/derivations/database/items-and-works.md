@@ -34,7 +34,7 @@ Rests on: D:card-ask-apart, D:engine-mechanical, D:policy-parts
 Rejected:
 - The plan (segments under the policy's stages that the root items hung on, gates on which segments might touch a specification, a public interface or a data format, and budgets shared out among them, checked before each merge): rejected because the decision card already puts each such change to the owner, and a mechanical limit cannot tell drift in direction from a change the work needs.
 
-Decision matters-table: The architects' matters are a table of their own, each for a project, which records which side reports, questions and decision cards an architect took and how it replied, instead of views over the rounds, because a matter has a state the rounds do not hold: whether an ask of the owner holds it and which cell asked, replied to or handled.
+Decision matters-table: The architects' matters are a table of their own, each for a project, which records which side reports, questions and decision cards an architect took and how it replied, instead of views over the rounds, because a matter has a state the rounds do not hold: whether an ask of the owner holds it and which cell asked, the second cell a matter of two cells goes on at, replied to or handled.
 
 Rests on: C:information, D:computed-as-views
 

@@ -302,11 +302,12 @@ async function layPart(
     for (const side of ['NORTH', 'SOUTH'] as const) {
       const lane = side === 'NORTH' ? u.top : u.bottom;
       const mine = ms.filter((p) => p.side === side).sort((p, q) => p.at - q.at);
+      // As far apart as arrows side by side, so that elkjs moves none over onto the line of the one beside it.
       const xs = landings(
         mine.map((p) => x0 + p.at),
         lane.from + 4,
         lane.to - 4,
-        8,
+        EDGE_EDGE,
       );
       mine.forEach((p, i) => placed.push({ id: p.id, side, x: xs[i] }));
     }

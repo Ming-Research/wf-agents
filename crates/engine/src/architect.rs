@@ -177,6 +177,21 @@ const SET_POLICY: &str = "P2";
 const TAKES_EFFECT: &str = "P12";
 const APPROVED: &str = "approved";
 
+/// The matters of two cells, by each first cell and the second it goes on at: the first sends the matter back to the
+/// queue (`go_on_at_second_cell`), so that the owner's words that came meanwhile are taken first, and the look at the
+/// queue takes it again before any other matter but those, a reply and the waits.
+const SECOND_CELLS: [(&str, &str); 3] = [("H2", "H3"), ("H4", "H5"), (POLICY_CHECK, SET_POLICY)];
+
+/// The rows of the look at the queue the engine works out besides the matters it takes: the wait for the owner's reply
+/// to a question just put, the wait for the owner's next words, and a matter of two cells taken again at its second
+/// cell; the value of where the batch stands while the owner talks; and the talk an answer to the owner's words leaves
+/// open, for the owner's next words.
+const WAITS: &str = "waits";
+const LISTENS: &str = "listens";
+const SECOND_CELL: &str = "second_cell";
+const TALKING: &str = "talking";
+const OPEN: &str = "open";
+
 /// The engine's short question to the owner whether the draft of a new policy is approved.
 const APPROVAL: &str = "Approve this policy? Reply exactly: approved";
 
@@ -604,7 +619,7 @@ pub fn queue_due(e: &mut Engine) -> Result<(), String> {
 
 /// The matter the latest pick in a work of the architect chose before round `before`, or before none: the matter the
 /// look at the queue took (cell `Q0`), or the one the architect picked (cell `Q1`); none when the latest look at the
-/// queue found none, or many with no pick after it.
+/// queue found none, or many with no pick after it, or waited for the owner, the words it listens after being no pick.
 pub fn picked_before(conn: &Connection, work: i64, before: Option<i64>) -> Result<Option<i64>, String> {
     let row: Option<(String, Option<String>)> = conn
         .query_row(
@@ -619,7 +634,9 @@ pub fn picked_before(conn: &Connection, work: i64, before: Option<i64>) -> Resul
     let Some((cell, output)) = row else { return Ok(None) };
     let o = json_col(output).unwrap_or(Value::Null);
     Ok(if cell == LOOK {
-        o["queue"]["matter"].as_i64()
+        o["queue"]["matter"]
+            .as_i64()
+            .filter(|_| o["queue"]["verdict"] != LISTENS)
     } else {
         o["outcome"]["pick"]["matter"].as_i64()
     })
@@ -773,15 +790,47 @@ fn questions(e: &Engine, project: &str) -> Result<Option<Value>, String> {
     Ok((!rows.is_empty()).then_some(Value::Array(rows)))
 }
 
-/// The question the architect waits for the owner's reply to at the look at the queue (`Q0`), as the owner's interface
-/// reads it too ([`db::question_waited_on`]): the newest question pending, when it was put less than the installation's
-/// wait for the owner's reply (`agents.owner_reply_wait`) ago and the owner said nothing to the architect since in their
-/// one-to-one. None otherwise: the question then waits at the back of the queue, and blocks nothing.
-pub fn waits_on(e: &Engine, project: &str) -> Result<Option<i64>, String> {
-    let wait = i64::try_from(e.config.config.install.agents.owner_reply_wait)
+/// The installation's wait for the owner's reply (`agents.owner_reply_wait`), in milliseconds: how long the look at the
+/// queue waits for the reply to a question just put, or for the owner's next words.
+fn reply_wait(e: &Engine) -> i64 {
+    i64::try_from(e.config.config.install.agents.owner_reply_wait)
         .unwrap_or(i64::MAX / 1000)
-        .saturating_mul(1000);
-    db::question_waited_on(e.db.conn(), project, wait, db::now()).map_err(sql)
+        .saturating_mul(1000)
+}
+
+/// The owner's words the architect of `project` waits after at the look at the queue for what the owner says next
+/// (`Q0`'s row `listens`), by their matter: those it answered last (`H8`), when it answered them less than `wait_ms`
+/// (the installation's wait for the owner's reply) before `now`, its answer leaving the talk open, and the owner said
+/// nothing to it since: no words, wherever said, and no reply to a question. None otherwise: the architect goes on.
+fn listens_after(conn: &Connection, project: &str, wait_ms: i64, now: i64) -> Result<Option<i64>, String> {
+    let last: Option<(i64, i64, Option<String>)> = conn
+        .query_row(
+            &format!(
+                "SELECT m.id, coalesce(r.ended_at, r.started_at), json_extract(r.output, '$.outcome.answer.talk')
+                 FROM architect_matters m JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
+                 WHERE m.project = ?1 AND m.kind = 'owner_words' AND r.cell IN {}
+                 ORDER BY 2 DESC, m.id DESC LIMIT 1",
+                db::cells_sql(ARCHITECT, &[TALK])
+            ),
+            [project],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(sql)?;
+    let Some((matter, at, talk)) = last else {
+        return Ok(None);
+    };
+    if talk.as_deref() != Some(OPEN) || now - at >= wait_ms {
+        return Ok(None);
+    }
+    let said = count(
+        conn,
+        "SELECT (SELECT count(*) FROM architect_matters WHERE project = ?1 AND kind = 'owner_words' AND at > ?2)
+              + (SELECT count(*) FROM owner_asks a JOIN works w ON w.id = a.work
+                 WHERE w.graph = 'architect' AND w.project = ?1 AND json_extract(a.answer, '$.at') > ?2)",
+        &[&project, &at],
+    )?;
+    Ok((said == 0).then_some(matter))
 }
 
 /// Whether a cell has a row of that name.
@@ -801,6 +850,44 @@ fn taken_first<'a>(cell: &CompiledCell, can: &'a [Value]) -> (Option<&'a Value>,
     (said, back)
 }
 
+/// The wait the look at the queue takes now, when neither of the matters taken first ([`taken_first`]) is there and
+/// the cell has its row: for the owner's reply to the question just put ([`db::question_waited_on`]), else for the
+/// owner's next words after the architect answered the owner's words leaving the talk open ([`listens_after`]); none
+/// otherwise.
+fn wait_now(
+    conn: &Connection,
+    project: &str,
+    cell: &CompiledCell,
+    all: &[Value],
+    wait_ms: i64,
+    now: i64,
+) -> Result<Option<Value>, String> {
+    let (said, back) = taken_first(cell, all);
+    if said.is_some() || back.is_some() {
+        return Ok(None);
+    }
+    if has_row(cell, WAITS)
+        && let Some(q) = db::question_waited_on(conn, project, wait_ms, now).map_err(sql)?
+    {
+        return Ok(Some(json!({ "verdict": WAITS, "question": q })));
+    }
+    if has_row(cell, LISTENS)
+        && let Some(m) = listens_after(conn, project, wait_ms, now)?
+    {
+        return Ok(Some(json!({ "verdict": LISTENS, "matter": m })));
+    }
+    Ok(None)
+}
+
+/// The matter of two cells the look at the queue takes again to go on at its second cell, where the cell has the row
+/// for it: the oldest that its first cell sent back to the queue.
+fn going_on<'a>(cell: &CompiledCell, can: &'a [Value]) -> Option<&'a Value> {
+    if !has_row(cell, SECOND_CELL) {
+        return None;
+    }
+    can.iter().find(|r| r["goes_on_at"].is_string())
+}
+
 /// The matter at the head of the queue the look at the queue takes next, where the cell has the row for it: the check
 /// of the policy before the plan of what to do next, the oldest of its kind.
 fn at_head<'a>(cell: &CompiledCell, can: &'a [Value]) -> Option<&'a Value> {
@@ -810,49 +897,61 @@ fn at_head<'a>(cell: &CompiledCell, can: &'a [Value]) -> Option<&'a Value> {
     HEAD.iter().find_map(|kind| can.iter().find(|r| r["kind"] == *kind))
 }
 
-/// Whether the look at the queue would wait for the owner's reply to a question now, as [`look_at_queue`] works it
-/// out, without closing anything: so that a wait taken again records no new round.
-pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<bool, String> {
-    if !has_row(cell, "waits") {
-        return Ok(false);
-    }
-    let project = project_of(w)?;
-    let all = queued(e.db.conn(), project, w.id)?;
-    let (said, back) = taken_first(cell, &all);
-    Ok(said.is_none() && back.is_none() && waits_on(e, project)?.is_some())
-}
-
-/// Cell `Q0`: what can be picked from the project's queue now; the owner's words, the oldest first, then a matter back
-/// with the owner's reply, the oldest first, then the matters at the head of the queue ([`at_head`]), and a lone matter
-/// are picked here, without a round; while the newest question pending was put just now and the owner said nothing
-/// since, the architect waits for the reply ([`waits_on`]) before the matters at the head of the queue, which a flow
-/// version before did not. The owner's words, a matter back with the reply and the wait come from all the work can
-/// take ([`queued`]), never held back by the hold to set the project straight, which holds back only the matters from
-/// the head of the queue on ([`pickable`]).
-pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
+/// The row by which the look at the queue would wait for the owner now, as [`look_at_queue`] works it out, without
+/// closing anything: so that a wait taken again by the same row records no new round. None when it would not wait.
+pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<Option<String>, String> {
     let project = project_of(w)?;
     let conn = e.db.conn();
     let all = queued(conn, project, w.id)?;
+    let wait = wait_now(conn, project, cell, &all, reply_wait(e), db::now())?;
+    Ok(wait.and_then(|v| v["verdict"].as_str().map(str::to_string)))
+}
+
+/// Cell `Q0`: what can be picked from the project's queue now; the owner's words, the oldest first, then a matter back
+/// with the owner's reply, the oldest first, then a matter of two cells that goes on at its second cell, the oldest
+/// first ([`going_on`]), then the matters at the head of the queue ([`at_head`]), and a lone matter are picked here,
+/// without a round. Before the matter of two cells the architect waits for the owner ([`wait_now`]): for the reply to
+/// the newest question pending while it was put just now, and else for the owner's next words while it answered the
+/// owner's words just now leaving the talk open, the owner having said nothing since either; a flow version before
+/// waited only for the reply, or not at all. The owner's words, a matter back with the reply, the waits and a matter
+/// of two cells come from all the work can take ([`queued`]), never held back by the hold to set the project straight,
+/// which holds back only the matters from the head of the queue on ([`pickable`]).
+pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
+    look(e.db.conn(), project_of(w)?, w.id, cell, reply_wait(e), db::now())
+}
+
+/// What the look at the queue of the architect's work `work` finds at `now`, `wait_ms` being the installation's wait
+/// for the owner's reply ([`look_at_queue`]).
+fn look(
+    conn: &Connection,
+    project: &str,
+    work: i64,
+    cell: &CompiledCell,
+    wait_ms: i64,
+    now: i64,
+) -> Result<Value, String> {
+    let all = queued(conn, project, work)?;
     let can = straight_first(conn, project, all.clone())?;
-    let handled = handled_in_batch(conn, w.id)?;
     let (said, back) = taken_first(cell, &all);
-    let waits = if said.is_none() && back.is_none() && has_row(cell, "waits") {
-        waits_on(e, project)?
+    let queue = if let Some(said) = said {
+        json!({ "verdict": "owner_words", "matter": said["matter"] })
+    } else if let Some(back) = back {
+        json!({ "verdict": "answered", "matter": back["matter"] })
+    } else if let Some(wait) = wait_now(conn, project, cell, &all, wait_ms, now)? {
+        wait
+    } else if let Some(m) = going_on(cell, &all) {
+        json!({ "verdict": SECOND_CELL, "matter": m["matter"] })
+    } else if let Some(h) = at_head(cell, &can) {
+        json!({ "verdict": "head", "matter": h["matter"] })
     } else {
-        None
-    };
-    let head = at_head(cell, &can);
-    let queue = match (said, back, waits, head, can.as_slice()) {
-        (Some(said), _, _, _, _) => json!({ "verdict": "owner_words", "matter": said["matter"] }),
-        (None, Some(back), _, _, _) => json!({ "verdict": "answered", "matter": back["matter"] }),
-        (None, None, Some(q), _, _) => json!({ "verdict": "waits", "question": q }),
-        (None, None, None, Some(h), _) => json!({ "verdict": "head", "matter": h["matter"] }),
-        (None, None, None, None, []) if handled > 0 || !collected(conn, w.id)?.is_empty() => {
-            json!({ "verdict": "none_after_batch" })
+        match can.as_slice() {
+            [] if handled_in_batch(conn, work)? > 0 || !collected(conn, work)?.is_empty() => {
+                json!({ "verdict": "none_after_batch" })
+            }
+            [] => json!({ "verdict": "none" }),
+            [one] => json!({ "verdict": "one", "matter": one["matter"] }),
+            many => json!({ "verdict": "many", "count": many.len() }),
         }
-        (None, None, None, None, []) => json!({ "verdict": "none" }),
-        (None, None, None, None, [one]) => json!({ "verdict": "one", "matter": one["matter"] }),
-        (None, None, None, None, many) => json!({ "verdict": "many", "count": many.len() }),
     };
     Ok(json!({ "queue": queue }))
 }
@@ -866,19 +965,28 @@ fn answer_of(conn: &Connection, ask: i64) -> Result<Option<Value>, String> {
     Ok(json_col(answer.flatten()))
 }
 
-/// Where the matter picked goes: back to the cell that asked about it, when it comes back with the owner's answer, or to
-/// the cell where a new policy takes effect when that cell is the one that writes it and the answer is exactly approved;
-/// otherwise the first cell of its kind's path.
+/// Where the matter picked goes ([`route_of`]).
 fn route(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
-    let conn = e.db.conn();
-    let m = picked(conn, w.id)?.ok_or_else(|| format!("work {}: no matter is picked", w.id))?;
-    let (kind, asked, resume): (String, Option<i64>, Option<String>) = conn
+    route_of(e.db.conn(), w.id, g)
+}
+
+/// Where the matter the architect's work `work` picked goes: on at its second cell, when its first cell sent it back to
+/// the queue; back to the cell that asked about it, when it comes back with the owner's answer, or to the cell where a
+/// new policy takes effect when that cell is the one that writes it and the answer is exactly approved; otherwise the
+/// first cell of its kind's path. A second cell the flow no longer has is not gone on at, and a matter back with the
+/// answer whose asking cell the flow no longer has goes to the cell of the owner's words.
+fn route_of(conn: &Connection, work: i64, g: &CompiledGraph) -> Result<String, String> {
+    let m = picked(conn, work)?.ok_or_else(|| format!("work {work}: no matter is picked"))?;
+    let (kind, asked, resume, goes_on): (String, Option<i64>, Option<String>, Option<String>) = conn
         .query_row(
-            "SELECT kind, asked, resume_cell FROM architect_matters WHERE id = ?1",
+            "SELECT kind, asked, resume_cell, goes_on_at FROM architect_matters WHERE id = ?1",
             [m],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .map_err(|x| format!("matter {m}: {x}"))?;
+    if let Some(cell) = goes_on.filter(|c| g.cell(c).is_some()) {
+        return Ok(cell);
+    }
     if let (Some(a), Some(cell)) = (asked, resume)
         && let Some(answer) = answer_of(conn, a)?
     {
@@ -895,29 +1003,47 @@ fn route(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<String, String> {
         .ok_or_else(|| format!("matter {m} is of a kind the architect's graph has no path for: {kind}"))
 }
 
-/// Whether the batch goes on, goes to its review, or is done; done with nothing to rethink when it handled no matter
+/// Whether the batch goes on ([`batch_next`]).
+fn next_in_batch(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<&'static str, String> {
+    batch_next(e.db.conn(), project_of(w)?, w.id, g, reply_wait(e), db::now())
+}
+
+/// Whether the batch of the architect's work `work` goes on, waits while the owner talks, goes to its review, or is
+/// done, at `now`, `wait_ms` being the installation's wait for the owner's reply. It waits when no matter can be picked
+/// and the architect waits for the owner's next words ([`listens_after`]), so that its review and rethink wait until the
+/// owner goes quiet, which a flow version before did not; it is done with nothing to rethink when it handled no matter
 /// and changed no item since the last rethink, as when the matter in hand was parked again for the owner's reply, for
 /// which a flow version before ran the rethink all the same.
-fn next_in_batch(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<&'static str, String> {
-    let conn = e.db.conn();
-    let can = pickable(conn, project_of(w)?, w.id)?.len();
-    let handled = handled_in_batch(conn, w.id)?;
-    let nothing = || -> Result<bool, String> {
-        let row = g.cells.iter().any(|c| {
+fn batch_next(
+    conn: &Connection,
+    project: &str,
+    work: i64,
+    g: &CompiledGraph,
+    wait_ms: i64,
+    now: i64,
+) -> Result<&'static str, String> {
+    let can = pickable(conn, project, work)?.len();
+    let handled = handled_in_batch(conn, work)?;
+    let has_value = |value: &str| {
+        g.cells.iter().any(|c| {
             c.inenums
                 .get("next_in_batch")
-                .is_some_and(|vs| vs.iter().any(|v| v.0 == "nothing"))
-        });
+                .is_some_and(|vs| vs.iter().any(|v| v.0 == value))
+        })
+    };
+    let nothing = || -> Result<bool, String> {
         let changed = count(
             conn,
             "SELECT count(*) FROM architect_item_changes WHERE work = ?1 AND round > ?2",
-            &[&w.id, &batch_start(conn, w.id)?],
+            &[&work, &batch_start(conn, work)?],
         )?;
-        Ok(row && handled == 0 && changed == 0)
+        Ok(has_value("nothing") && handled == 0 && changed == 0)
     };
     Ok(if can > 0 && handled < BATCH {
         "more"
-    } else if !collected(conn, w.id)?.is_empty() {
+    } else if can == 0 && has_value(TALKING) && listens_after(conn, project, wait_ms, now)?.is_some() {
+        TALKING
+    } else if !collected(conn, work)?.is_empty() {
         "review"
     } else if nothing()? {
         "nothing"
@@ -926,7 +1052,6 @@ fn next_in_batch(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<&'static str
     })
 }
 
-/// How many reviews of an architect work's batch found something to fix.
 fn fixes_found(conn: &Connection, work: i64) -> Result<i64, String> {
     let from = batch_start(conn, work)?;
     count(
@@ -1237,7 +1362,7 @@ pub fn ask_owner(
             // The matter the ask holds waits for the answer out of the queue, and goes back to the cell that takes it.
             if let (Some(m), Some(c)) = (holds, &resume) {
                 tx.execute(
-                    "UPDATE architect_matters SET asked = ?2, resume_cell = ?3 WHERE id = ?1",
+                    "UPDATE architect_matters SET asked = ?2, resume_cell = ?3, goes_on_at = NULL WHERE id = ?1",
                     params![m, id, c],
                 )?;
             }
@@ -2300,7 +2425,8 @@ fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
                 .map_err(sql)?;
             let decides = KINDS.iter().find(|k| k.0 == kind).map_or("H8", |k| k.2);
             tx.execute(
-                "UPDATE architect_matters SET asked = ?2, resume_cell = ?3, handled_work = NULL, handled_round = NULL
+                "UPDATE architect_matters SET asked = ?2, resume_cell = ?3, goes_on_at = NULL, handled_work = NULL,
+                   handled_round = NULL
                  WHERE id = ?1",
                 params![m, ask, decides],
             )
@@ -2605,7 +2731,7 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             .map_err(sql)?;
             let ask = tx.last_insert_rowid();
             tx.execute(
-                "UPDATE architect_matters SET asked = ?2, resume_cell = ?3 WHERE id = ?1",
+                "UPDATE architect_matters SET asked = ?2, resume_cell = ?3, goes_on_at = NULL WHERE id = ?1",
                 params![m, ask, ctx.cell.id],
             )
             .map_err(sql)?;
@@ -2645,8 +2771,24 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
         "close_matter" => {
             let m = matter_of(tx, w)?;
             tx.execute(
-                "UPDATE architect_matters SET handled_work = ?2, handled_round = ?3 WHERE id = ?1 AND handled_round IS NULL",
+                "UPDATE architect_matters SET handled_work = ?2, handled_round = ?3, goes_on_at = NULL
+                 WHERE id = ?1 AND handled_round IS NULL",
                 params![m, ctx.round.work, ctx.round.n],
+            )
+            .map_err(sql)?;
+        }
+        "go_on_at_second_cell" => {
+            // The matter goes back to the queue between its cells, to go on at its second cell once the owner's words
+            // that came meanwhile were taken.
+            let m = matter_of(tx, w)?;
+            let second = SECOND_CELLS
+                .iter()
+                .find(|s| s.0 == ctx.cell.id)
+                .map(|s| s.1)
+                .ok_or_else(|| format!("cell {} is the first cell of no matter of two cells", ctx.cell.id))?;
+            tx.execute(
+                "UPDATE architect_matters SET goes_on_at = ?2 WHERE id = ?1",
+                params![m, second],
             )
             .map_err(sql)?;
         }
@@ -5066,12 +5208,15 @@ pub fn before(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Part>, S
     let Some(m) = picked(conn, w.id)? else {
         return Ok(None);
     };
-    // The agent's cell whose own answer leads here, as the crux `H2` finds leads to `H3`.
+    // The agent's cell whose own answer leads here, as the crux `H2` finds leads to `H3`, through the queue for a matter
+    // of two cells.
+    let first = SECOND_CELLS.iter().find(|s| s.1 == w.pos.at).map(|s| s.0);
     let Some(prev) = g.cells.iter().find(|c| {
         c.kind == "agent"
-            && c.rows
-                .iter()
-                .any(|r| !r.common && r.to == w.pos.at && r.conditions.contains(&flow::format::Atom::Own))
+            && (first == Some(c.id.as_str())
+                || c.rows
+                    .iter()
+                    .any(|r| !r.common && r.to == w.pos.at && r.conditions.contains(&flow::format::Atom::Own)))
     }) else {
         return Ok(None);
     };
@@ -5589,5 +5734,184 @@ mod tests {
         assert_eq!(not_sent["not_made"][1]["key"], "cover", "{not_sent}");
         assert!(why(1).contains("cancelled in the same batch"), "{not_sent}");
         assert!(why(0).contains("answered again"), "{not_sent}");
+    }
+
+    /// The installation's wait for the owner's reply the tests take, five minutes, and when the architect answered the
+    /// owner's words.
+    const WAIT: i64 = 300_000;
+    const ANSWERED: i64 = 1_000_000;
+
+    /// The architect's graph of the flow, compiled once.
+    fn architect_graph() -> &'static CompiledGraph {
+        static FLOW: std::sync::OnceLock<Compiled> = std::sync::OnceLock::new();
+        FLOW.get_or_init(|| {
+            let relations = db::relations(db::SCHEMA).unwrap();
+            let tables = db::index_of(db::SCHEMA).unwrap();
+            flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap()
+        })
+        .graph(ARCHITECT)
+        .unwrap()
+    }
+
+    /// A database with a work of project p's architect whose round 3, at `H8`, answered the owner's words (matter 1) at
+    /// [`ANSWERED`], its answer leaving the talk `talk`; and a check of the policy at the head of the queue (matter 2).
+    fn talked(talk: &str) -> db::Db {
+        let mut db = db::Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B1', 'p')",
+                [],
+            )?;
+            let answer = json!({ "outcome": { "answer": { "way": "done", "reply": "Done.", "talk": talk } } });
+            for (n, cell, row, output) in [
+                (1, LOOK, "owner_words", json!({ "queue": { "verdict": "owner_words", "matter": 1 } })),
+                (2, "Q2", "to_owner_words", json!({})),
+                (3, TALK, "done", answer),
+            ] {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                     VALUES (1, ?1, ?2, '{}', ?3, ?4, 'c', ?5, ?5)",
+                    params![n, cell, output.to_string(), row, ANSWERED - 3 + n],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, at, handled_work, handled_round)
+                 VALUES ('p', 'owner_words', 'Says', '{}', 1, 1, 3)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, at) VALUES ('p', 'check_policy', 'Check', '{}', 2)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        db
+    }
+
+    // Once the architect answered the owner's words, leaving the talk open, the look at the queue waits for what the
+    // owner says next before the matters at the head of the queue, until the wait for the owner's reply runs out; an
+    // answer that ended the talk, or the owner's words since, held by a question, leave it nothing to wait for.
+    #[test]
+    fn the_look_at_the_queue_listens_while_the_talk_is_open() {
+        let q0 = architect_graph().cell(LOOK).unwrap();
+        let look_at = |db: &db::Db, now: i64| look(db.conn(), "p", 1, q0, WAIT, now).unwrap()["queue"].clone();
+        let open = talked(OPEN);
+        assert_eq!(
+            look_at(&open, ANSWERED + 60_000),
+            json!({ "verdict": LISTENS, "matter": 1 })
+        );
+        let head = json!({ "verdict": "head", "matter": 2 });
+        assert_eq!(look_at(&open, ANSWERED + WAIT), head);
+        assert_eq!(look_at(&talked("over"), ANSWERED + 60_000), head);
+        let mut said = talked(OPEN);
+        said.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body) VALUES (1, 3, '{\"question\":\"Which item?\"}')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, at, asked, resume_cell)
+                 VALUES ('p', 'owner_words', 'Says more', '{}', ?1, 1, 'H8')",
+                [ANSWERED + 30_000],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(listens_after(said.conn(), "p", WAIT, ANSWERED + 60_000).unwrap(), None);
+    }
+
+    // While the architect waits for the owner's next words and no matter can be picked, the batch's review waits too,
+    // until the owner goes quiet; once the talk is over, the batch is done at once.
+    #[test]
+    fn the_batch_waits_while_the_owner_talks() {
+        let g = architect_graph();
+        let next = |db: &db::Db, now: i64| batch_next(db.conn(), "p", 1, g, WAIT, now).unwrap();
+        let picked_none = |db: &mut db::Db, collect: bool| {
+            db.write(Actor::Engine, |tx| {
+                tx.execute("UPDATE architect_matters SET withdrawn = 'gone' WHERE id = 2", [])?;
+                if collect {
+                    tx.execute(
+                        "INSERT INTO architect_item_changes (work, round, matter, change, state)
+                         VALUES (1, 3, 1, '{}', 'collected')",
+                        [],
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        };
+        let mut open = talked(OPEN);
+        assert_eq!(next(&open, ANSWERED + 60_000), "more");
+        picked_none(&mut open, true);
+        assert_eq!(next(&open, ANSWERED + 60_000), TALKING);
+        assert_eq!(next(&open, ANSWERED + WAIT), "review");
+        let mut over = talked("over");
+        picked_none(&mut over, false);
+        assert_eq!(next(&over, ANSWERED + 60_000), "done");
+    }
+
+    // A matter of two cells its first cell sent back to the queue is taken again after the owner's words that came
+    // meanwhile, before the matters at the head of the queue and not as a matter back with the owner's answer, though
+    // it came back with one before its first cell; and it goes on at its second cell.
+    #[test]
+    fn a_matter_of_two_cells_goes_on_at_its_second_cell_after_the_owner_s_words() {
+        let g = architect_graph();
+        let q0 = g.cell(LOOK).unwrap();
+        let mut db = db::Db::in_memory().unwrap();
+        let round = |tx: &Transaction<'_>, n: i64, cell: &str, row: &str, output: Value| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (1, ?1, ?2, '{}', ?3, ?4, 'c', ?1, ?1)",
+                params![n, cell, output.to_string(), row],
+            )
+        };
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'Q0', 'p')",
+                [],
+            )?;
+            round(tx, 1, "H2", "found", json!({}))?;
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body, answer)
+                 VALUES (1, 1, '{\"question\":\"Which part?\"}', '{\"text\":\"The parser.\",\"at\":1}')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, at, asked, resume_cell, goes_on_at)
+                 VALUES ('p', 'engineer_question', 'Asks', '{}', 1, 1, 'H2', 'H3')",
+                [],
+            )?;
+            for (kind, at) in [("make_plan", 2), ("owner_words", 3)] {
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, what, body, at) VALUES ('p', ?1, 'x', '{}', ?2)",
+                    params![kind, at],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let look_at = |db: &db::Db| look(db.conn(), "p", 1, q0, WAIT, 10).unwrap()["queue"].clone();
+        assert_eq!(look_at(&db), json!({ "verdict": "owner_words", "matter": 3 }));
+        db.write(Actor::Engine, |tx| {
+            let over = json!({ "outcome": { "answer": { "way": "done", "reply": "Done.", "talk": "over" } } });
+            round(tx, 2, TALK, "done", over)?;
+            tx.execute(
+                "UPDATE architect_matters SET handled_work = 1, handled_round = 2 WHERE id = 3",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let taken = look_at(&db);
+        assert_eq!(taken, json!({ "verdict": SECOND_CELL, "matter": 1 }));
+        db.write(Actor::Engine, |tx| {
+            round(tx, 3, LOOK, SECOND_CELL, json!({ "queue": taken }))?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(route_of(db.conn(), 1, g).unwrap(), "H3");
     }
 }

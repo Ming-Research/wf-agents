@@ -1476,6 +1476,9 @@ pub struct ArchitectWork {
     /// The matter it handles now: the one its latest pick chose, until that matter is handled or held by an ask; none
     /// when it handles none, or is over.
     pub handling: Option<i64>,
+    /// Whether it waits at its look at the queue for the owner's next words, having answered the owner's words with the
+    /// talk left open (`Q0`'s row `listens`): the owner's next words are taken at once.
+    pub listens: bool,
 }
 
 /// A matter for an architect that it has not handled.

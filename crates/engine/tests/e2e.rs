@@ -263,7 +263,14 @@ impl Agents for Scripted {
             Some(f) => f(r, n),
             None => (Vec::new(), Vec::new()),
         };
-        let pick: BTreeMap<String, String> = pick.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let mut pick: BTreeMap<String, String> =
+            pick.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        // The answer to the owner's words ends the talk, so that the architect waits for no more words, unless the
+        // script says otherwise.
+        if r.cell == "H8" {
+            pick.entry("outcome.answer.talk".into())
+                .or_insert_with(|| "over".into());
+        }
         let mut set: BTreeMap<String, Value> = set.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
         // The understanding and the plan rewrite their sections of the notebook, unless the script says otherwise.
         let sections: &[&str] = match r.cell.as_str() {
@@ -4772,8 +4779,8 @@ fn a_resumed_session_goes_from_starting_to_the_queue() {
 }
 
 // An engineer's question to its project's architect is a matter of its queue, which starts a work of the architect; the
-// engineer's work waits at its question, holding no slot. The architect finds the crux, weighs the ways and replies,
-// and the reply takes the work on from there unchanged.
+// engineer's work waits at its question, holding no slot. The architect finds the crux, the question going back to the
+// queue between, weighs the ways and replies, and the reply takes the work on from there unchanged.
 #[test]
 fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     let s = setup("question");
@@ -4834,7 +4841,8 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     assert!(replied, "{log}");
     let path = path_of(&e, arch);
     let at = path.iter().position(|c| c == "H2").expect(&log);
-    assert_eq!(&path[at - 1..at + 3], ["Q2", "H2", "H3", "B1"], "{log}");
+    // The crux found, the question goes back to the queue and on to the ways, which reply.
+    assert_eq!(&path[at - 1..at + 5], ["Q2", "H2", "Q0", "Q2", "H3", "B1"], "{log}");
     // The ways were given the crux by its address in the session, not again.
     let ways = message_at(&e, arch, "H3", false);
     assert!(ways.contains("·H2·crux"), "{ways}");
@@ -6771,7 +6779,11 @@ fn the_search_of_observations_hands_back_candidates() {
     let (e, arch, log, s) = searched("search", json!([{ "id": 1, "why": "It records the same slowness." }]));
     let path = path_of(&e, arch);
     let at = path.iter().position(|c| c == "X2").expect(&log);
-    assert_eq!(&path[at - 2..at + 3], ["H4", "H5", "X2", "H5", "B1"], "{log}");
+    assert_eq!(
+        &path[at - 4..at + 3],
+        ["H4", "Q0", "Q2", "H5", "X2", "H5", "B1"],
+        "{log}"
+    );
     let (line, model): (String, String) =
         e.db.conn()
             .query_row(

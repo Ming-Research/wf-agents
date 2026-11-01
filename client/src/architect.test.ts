@@ -62,6 +62,7 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
 const architectWork = (id: number, extra: Partial<WorkSummary> = {}, handling: ArchitectWork['handling'] = null): ArchitectWork => ({
   work: work(id, extra),
   handling,
+  listens: false,
 });
 
 const matter = (id: number, extra: Partial<Matter> = {}): Matter => ({
@@ -154,6 +155,7 @@ describe("the architect's page", () => {
       kind: 'working',
       work: going.work,
       handling: queue[0],
+      listens: false,
       waiting: 3,
     });
     expect(architectState([architectWork(10, { state: 'running', at: 'Q0' })], [])).toMatchObject({ handling: null, waiting: 0 });

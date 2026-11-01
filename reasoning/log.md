@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 The architect waits for the owner's next words, and goes back to the queue between two cells
+
+Changed: D:owner-words-matter changed, D:matter-kinds-paths changed, D:check-plan-head-matters changed, D:matters-table changed, D:state-marks changed, D:architect-no-chart-line changed, F:owner-talks-in-turns added
+
+Why: The owner often says more right after the architect's answer (F:owner-talks-in-turns, assumed), and those words waited behind the architect's other matters and its batch's review. `H8` now says whether its answer leaves the talk open: over when the owner ended it, as by telling the architect to go on, or the words need nothing more from the owner. While an answer left it open less than the wait for the owner's reply ago, with nothing said since, `Q0` waits for the owner's next words (`listens`), each taken at once as a matter of its own, and `B1` puts the batch's review and rethink off (`talking`) while no matter can be picked; the architect goes on at once when the talk is over or the wait runs out, and a round under way is not cut off. A matter of two cells (`H2` and `H3`, `H4` and `H5`, `P1` and `P2`) goes back to the queue between them, so that the owner's words that came during its first cell are taken before its second; `Q0` takes it again before any other matter but the owner's words, a reply and the waits (`second_cell`), and the router sends it on at its second cell, which the matter keeps (`goes_on_at`, migration 64), a matter going on no longer counting as back with the owner's answer. The head of the one-to-one and the list of conversations say the architect waits for the owner's next words while it does.
+
+Re-examined: D:architect-box-queue, D:card-as-comment, D:card-ask, D:card-question-strip, D:conversation-box, D:decision-card-look, D:owner-rules-cards, D:owner-words-status, D:pinned-questions and D:shared-card (on D:owner-words-matter): still hold, the owner's words reaching the architect through its queue as before; D:new-session-check-held (on D:check-plan-head-matters): still holds; D:field-read and D:side-reports-view (on D:matters-table): still hold; D:live-bubble, D:matter-part, D:messages-view-look, D:observations-view-look and D:state-filter (on D:state-marks): still hold, a work's marks unchanged; none rests on D:matter-kinds-paths or D:architect-no-chart-line
+
+Ruling: the owner's approval of 2026-11-01 of the change drawn on the flow page: "build it as drawn"
+
 ## 2026-11-01 One node for the actions on a cell's rows back into itself
 
 Changed: D:chart-moves-actions-stores changed

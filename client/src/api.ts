@@ -1626,7 +1626,12 @@ export type ArchitectWork = { work: WorkSummary,
  * The matter it handles now: the one its latest pick chose, until that matter is handled or held by an ask; none
  * when it handles none, or is over.
  */
-handling: number | null, };
+handling: number | null, 
+/**
+ * Whether it waits at its look at the queue for the owner's next words, having answered the owner's words with the
+ * talk left open (`Q0`'s row `listens`): the owner's next words are taken at once.
+ */
+listens: boolean, };
 
 /**
  * A window of a project's architect's rounds, across its works, in the order they started, oldest first; and whether

@@ -697,6 +697,11 @@ CREATE TABLE architect_matters (
   -- the draft of a new policy, the cell that wrote it, a reply of exactly approved going to where it takes effect
   -- instead.
   resume_cell TEXT,
+  -- For a matter of two cells that its first cell sent back to the queue, so that the owner's words that came meanwhile
+  -- are taken first: its second cell, where it goes on (`H3` after `H2`, `H5` after `H4`, `P2` after `P1`). NULL
+  -- otherwise, and again once it is closed or a cell on its path asks the owner about it. Read by: the queue, which
+  -- takes it again before any other matter but the owner's words, a reply and the waits; the engine, which routes it.
+  goes_on_at TEXT,
   -- The architect's reply to an engineer's question or failure, JSON; NULL until it replied. The owner's answer in the
   -- work's group to a question the architect holds is the reply too, said by the owner (by). Read by: the engine,
   -- which takes it back unchanged to the work that asked.
@@ -1272,7 +1277,7 @@ CREATE VIEW architect_queue AS
   -- Each project's queue: the matters not handled, not withdrawn and not held by an ask of the owner still waiting,
   -- each with who waits for it (an agent: an engineer stopped at the architect's cell for its question; the owner, for
   -- the owner's words; or no one), when it came and how long it has waited, whether it comes back with the owner's
-  -- answer and to which cell, and whether it is urgent.
+  -- answer and to which cell, the second cell a matter of two cells goes on at, and whether it is urgent.
   -- Read by: cells `S0`, `S1` and `Q0`; the engine, which takes `S0`'s rows by it for each project whose architect
   -- runs no work, and gives the architect its queue; the owner's interface.
   SELECT m.project, m.id AS matter, m.kind, m.detail, m.item, m.what,
@@ -1286,8 +1291,9 @@ CREATE VIEW architect_queue AS
       ELSE 'none' END AS waits,
     m.at,
     CAST(unixepoch('subsec') * 1000 AS INTEGER) - m.at AS waited_ms,
-    m.asked IS NOT NULL AS answered,
+    m.asked IS NOT NULL AND m.goes_on_at IS NULL AS answered,
     m.resume_cell AS back_to,
+    m.goes_on_at,
     coalesce(json_extract(m.body, '$.urgent'), 0) AS urgent
   FROM architect_matters m
   WHERE m.handled_round IS NULL AND m.withdrawn IS NULL

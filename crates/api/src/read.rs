@@ -1829,7 +1829,13 @@ pub fn architect(
     let mut out_works = Vec::new();
     for (_, s) in architect_works {
         let handling = if over(&s) { None } else { handling(conn, s.id)? };
-        out_works.push(ArchitectWork { handling, work: s });
+        // It waits by the row of the look at the queue that waits for the owner's next words.
+        let listens = matches!(&s.waits, Some(Waits::Row { cell, row }) if cell == "Q0" && row == "listens");
+        out_works.push(ArchitectWork {
+            handling,
+            listens,
+            work: s,
+        });
     }
     let mut asks = asks(conn, "WHERE w.graph IN ('architect', 'policy')", &[])?;
     asks.retain(|a| mine.contains(&a.work));

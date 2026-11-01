@@ -882,7 +882,7 @@ describe('the marks of the list of conversations', () => {
   const architect = (works: WorkSummary[], extra: Partial<Architect> = {}): Architect => ({
     project: 'p',
     projects: ['p'],
-    works: works.map((w) => ({ work: w, handled: 0, handling: null })),
+    works: works.map((w) => ({ work: w, handled: 0, handling: null, listens: false })),
     queue: [],
     holds: [],
     asks: [],
@@ -964,9 +964,14 @@ describe('the marks of the list of conversations', () => {
     expect(architectMark(going, status({ paused: true })).state).toBe('paused');
     // Between rounds: ready.
     expect(architectMark(going, status())).toEqual({ state: 'ready', words: 'between rounds' });
+    // Waiting for the owner's next words, its answer having left the talk open: waiting.
+    const listening = { ...going, works: going.works.map((w, i) => (i === 0 ? { ...w, listens: true } : w)) };
+    expect(marked(listening, status())).toMatchObject({ state: 'waiting', icon: 'clock', says: 'waiting for your next words' });
+    expect(architectMark(listening, status({ running: [10] })).state).toBe('running');
     // A question of its own pinned for the owner's reply: asking while it neither runs nor is held back.
     expect(marked(architect([], { asks: [asked] }), status())).toMatchObject({ state: 'asking', icon: 'question', says: 'asking' });
     expect(architectMark({ ...going, asks: [asked] }, status()).state).toBe('asking');
+    expect(architectMark({ ...listening, asks: [asked] }, status()).state).toBe('asking');
     expect(architectMark({ ...going, asks: [asked] }, status({ running: [10] })).state).toBe('running');
     expect(architectMark({ ...stopped, asks: [asked] }, status()).state).toBe('paused');
     // Once answered, it asks no more.

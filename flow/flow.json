@@ -3007,7 +3007,7 @@
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wait_for_matter": "No work of the project's architect runs: the engine takes this cell's rows for each project whose architect runs none, without a round, and one that takes `due` gets a work of the architect's graph, on no item, which starts at the cell that row leads to. The work holds no slot, and one runs at a time for each project; once it ends, the project waits here again. What was said in the works' groups since the architect last read it is queued first (`queue_group_talk`).",
       "end_architect_work": "Ends the architect's work.",
-      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, and what was said in the works' groups only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round.",
+      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, and what was said in the works' groups only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply; then, when the architect answered the owner's words less than that wait ago and the owner said nothing since, it waits for the owner's next words; then a matter of two cells waiting for its second cell; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session. A work on an item that paused for its time budget also has its project's architect look at where it is stuck, as a place to set straight.",
       "stop_work": "A work cancelled, taken over by a work on a newer flow version because the cell it stands at is not the same there or a return it handed in does not fit its cell there (else it moves to that version and goes on where it stands), or started over by the owner or its project's architect, which a new work on the version the engine runs takes over as it would on a newer one, ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off, and a round running when it is started over hands in nothing. A work taken over leaves its worktree and pull request to the work that takes it over.",
@@ -3065,7 +3065,8 @@
       "edit_notebook": "Writes each section of the notebook the round rewrote, whole, as the project's architect's notebook's latest version of it; the versions before stay, for the owner to look at.",
       "change_observations": "Makes each change to the project's observations a round hands in beside its own answer, at once, as an answer's effects make theirs.",
       "fresh_session": "The line of the cell the row goes to starts a new session there, each time the work takes the row: the session manager ends the one the line had going on.",
-      "post_flow_card": "In wf-agents' own repository, posts a new version of the work's card that carries the flow, under its key, carrying the flow as the branch now has it and saying the flow changed in implementation; the owner rules it before the merge."
+      "post_flow_card": "In wf-agents' own repository, posts a new version of the work's card that carries the flow, under its key, carrying the flow as the branch now has it and saying the flow changed in implementation; the owner rules it before the merge.",
+      "go_on_at_second_cell": "Puts the matter in hand back at the head of the queue, to go on at its second cell (`H3` after `H2`, `H5` after `H4`, `P2` after `P1`)."
     },
     "checks": {
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
@@ -3175,10 +3176,10 @@
       "held": "Where the question the work put to an architect stands: replied, handed to a related project's architect, waited past its limit of the architect's time, its architect gone, an item the work depended on cancelled, or something said to the work",
       "interjection": "Whether an interjection for the engineer is waiting to be delivered.",
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
-      "next_in_batch": "Whether the batch goes on, goes to review, is done, or is done with nothing to rethink: no matter handled and no item changed since the last rethink.",
+      "next_in_batch": "Whether the batch goes on, waits while the owner talks, goes to review, is done, or is done with nothing to rethink: no matter handled and no item changed since the last rethink.",
       "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, flow feedback, or a fault of wf-agents forwarded to the architect.",
       "review_round": "Whether the review starts with a blind review or goes straight to the table.",
-      "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's reply, the cell of the owner's words when the flow no longer has that cell; a check of the policy back with the owner's reply to its draft takes effect when the reply is exactly approved, and is written again otherwise.",
+      "route": "Where the matter picked goes: the first cell of its kind's path, or the cell that asked when it comes back with the owner's reply, or its second cell when a matter of two cells goes on, the cell of the owner's words when the flow no longer has that cell; a check of the policy back with the owner's reply to its draft takes effect when the reply is exactly approved, and is written again otherwise.",
       "split": "Whether the reply brought back split off sub-items, and whether this work keeps a part.",
       "start": "What holds an item back from starting, if anything.",
       "turn": "Whether the work is first in its project's merge queue.",
@@ -3689,6 +3690,9 @@
       ],
       "post_flow_card": [
         "design_cards"
+      ],
+      "go_on_at_second_cell": [
+        "architect_queue"
       ]
     },
     "reads": {
@@ -12644,6 +12648,14 @@
           {
             "name": "policies_set",
             "desc": "The times a new policy took effect"
+          },
+          {
+            "name": "talk_waits",
+            "desc": "The times the batch's review and rethink waited while the owner talked"
+          },
+          {
+            "name": "second_cells",
+            "desc": "The times a matter of two cells went back to the queue between them, so that the owner's words that came meanwhile are taken first"
           }
         ]
       },
@@ -13374,8 +13386,12 @@
                   ]
                 ]
               ],
-              "to": "P2",
-              "note": "The owner wants a new policy, or with none in force replied that none is needed: it is written by the owner's stance, a new one, or the course the project keeps with why none is needed."
+              "to": "Q0",
+              "note": "The owner wants a new policy, or with none in force replied that none is needed: it is written by the owner's stance, a new one, or the course the project keeps with why none is needed. The matter goes back to the head of the queue to go on at `P2`: the owner's words that came meanwhile are taken first, and otherwise it is taken again at once.",
+              "do": [
+                "go_on_at_second_cell"
+              ],
+              "counts": "second_cells"
             }
           ],
           "without": [
@@ -14121,6 +14137,30 @@
                   ]
                 },
                 {
+                  "value": "listens",
+                  "desc": "None of those, and the architect answered the owner's words less than the wait for the owner's reply ago, the answer leaving the talk open, with nothing said to it since: the architect waits for the owner's next words",
+                  "fields": [
+                    {
+                      "name": "matter",
+                      "title": "Words answered",
+                      "type": "int",
+                      "desc": "The owner's words last answered, by their matter"
+                    }
+                  ]
+                },
+                {
+                  "value": "second_cell",
+                  "desc": "None of those, and a matter of two cells waits for its second cell: it is taken again, before any other matter, without a pick",
+                  "fields": [
+                    {
+                      "name": "matter",
+                      "title": "Matter picked",
+                      "type": "int",
+                      "desc": "The matter taken again"
+                    }
+                  ]
+                },
+                {
                   "value": "head",
                   "desc": "None of those, and a matter at the head of the queue can be picked: the check of the policy before the plan of what to do next, each taken without a pick",
                   "fields": [
@@ -14183,7 +14223,7 @@
               ],
               "to": "Q2",
               "main": true,
-              "note": "The owner's words are taken first, before any other matter and without a pick; the matter in hand was finished first, since nothing is interrupted."
+              "note": "The owner's words are taken first, before any other matter and without a pick; a round under way is not cut off, and a matter of two cells goes on at its second cell after them."
             },
             {
               "name": "answered",
@@ -14215,6 +14255,37 @@
               "waits": true,
               "until": "agents.owner_reply_wait",
               "note": "The architect waits for the owner's reply to the question it just put, five minutes unless the installation sets another wait (`agents.owner_reply_wait`): the reply comes back at once. Once the wait ran out, or the owner said anything else to the architect, the question waits at the back of the queue and blocks nothing, and the architect goes on."
+            },
+            {
+              "name": "listens",
+              "if": [
+                [
+                  "is",
+                  "queue.verdict",
+                  [
+                    "listens"
+                  ]
+                ]
+              ],
+              "to": "Q0",
+              "waits": true,
+              "until": "agents.owner_reply_wait",
+              "note": "The architect just answered the owner's words, leaving the talk open (`H8`), and waits for what the owner says next, five minutes unless the installation sets another wait (`agents.owner_reply_wait`): the owner's next words are taken at once, each a matter of its own. Once the wait ran out, the architect goes on: a matter of two cells first, then the review and rethink the talk put off, then the queue."
+            },
+            {
+              "name": "second_cell",
+              "if": [
+                [
+                  "is",
+                  "queue.verdict",
+                  [
+                    "second_cell"
+                  ]
+                ]
+              ],
+              "to": "Q2",
+              "main": true,
+              "note": "A matter of two cells goes on at its second cell, before any other matter and without a pick, once the owner's words that came meanwhile were answered and the owner went quiet."
             },
             {
               "name": "head",
@@ -14456,7 +14527,7 @@
           "inputs": [
             {
               "name": "The matter picked",
-              "what": "The matter picked: the owner's words, the matter back with the owner's answer, the matter at the head of the queue or the lone matter the look at the queue took, or the one the pick chose",
+              "what": "The matter picked: the owner's words, the matter back with the owner's answer or going on at its second cell, the matter at the head of the queue or the lone matter the look at the queue took, or the one the pick chose",
               "from": [
                 [
                   "Q0",
@@ -14465,6 +14536,10 @@
                 [
                   "Q0",
                   "queue[answered].matter"
+                ],
+                [
+                  "Q0",
+                  "queue[second_cell].matter"
                 ],
                 [
                   "Q0",
@@ -14533,8 +14608,8 @@
                 ]
               ],
               "to": "H3",
-              "main": false,
-              "note": "A matter coming back with the owner's answer goes on at the cell that asked, without its first cell again."
+              "main": true,
+              "note": "A matter coming back with the owner's answer, or going on after its first cell, goes on at its second cell, without its first cell again."
             },
             {
               "name": "to_what_is_it",
@@ -14562,8 +14637,8 @@
                 ]
               ],
               "to": "H5",
-              "main": false,
-              "note": "A matter coming back with the owner's answer goes on at the cell that asked, without its first cell again."
+              "main": true,
+              "note": "A matter coming back with the owner's answer, or going on after its first cell, goes on at its second cell, without its first cell again."
             },
             {
               "name": "to_have_fixed",
@@ -14659,7 +14734,8 @@
                 ]
               ],
               "to": "P2",
-              "note": "The owner's reply to the draft is feedback: the draft is written again by it and asks for approval again, or is dropped when the reply keeps the policy in force."
+              "note": "A matter coming back with the owner's answer, or going on after its first cell, goes on at its second cell, without its first cell again.",
+              "main": true
             },
             {
               "name": "approved",
@@ -14700,7 +14776,7 @@
               ],
               [
                 "H3",
-                "An engineer's question back with the owner's answer to what was asked while weighing the ways"
+                "An engineer's question back with the owner's answer to what was asked while weighing the ways; or one going on to weigh the ways once its crux was found"
               ],
               [
                 "H4",
@@ -14708,7 +14784,7 @@
               ],
               [
                 "H5",
-                "A report back with the owner's answer to what was asked while taking it in"
+                "A report back with the owner's answer to what was asked while taking it in; or one going on to take it in once what it is was found"
               ],
               [
                 "H7",
@@ -14736,7 +14812,7 @@
               ],
               [
                 "P2",
-                "A check of the policy back with the owner's reply to its draft, or to what the writing of it asked, other than approved: the draft is written again by it"
+                "A check of the policy back with the owner's reply to its draft, or to what the writing of it asked, other than approved: the draft is written again by it; or a check of the policy going on to write a new one"
               ],
               [
                 "P12",
@@ -15184,8 +15260,13 @@
                   "own"
                 ]
               ],
-              "to": "H3",
-              "main": true
+              "to": "Q0",
+              "main": true,
+              "do": [
+                "go_on_at_second_cell"
+              ],
+              "counts": "second_cells",
+              "note": "The matter goes back to the head of the queue to go on at `H3`: the owner's words that came meanwhile are taken first, and otherwise it is taken again at once."
             }
           ],
           "without": [
@@ -15608,8 +15689,13 @@
                   "own"
                 ]
               ],
-              "to": "H5",
-              "main": true
+              "to": "Q0",
+              "main": true,
+              "do": [
+                "go_on_at_second_cell"
+              ],
+              "counts": "second_cells",
+              "note": "The matter goes back to the head of the queue to go on at `H5`: the owner's words that came meanwhile are taken first, and otherwise it is taken again at once."
             }
           ],
           "without": [
@@ -16303,7 +16389,7 @@
             }
           ],
           "prompt": [
-            "This round answers the owner's words, in one round: find out what the owner asks and what for; when the owner wants one thing done, ask yourself what it is for, and say what you see that the owner may not. Hand in your reply to the owner and one way on: done, when it is done now in effects; re_plan, when it changes what comes first or is about how you work, and what to do next is planned again under the policy in force, the plan holding the owner's words with their date and why; or new_policy, when it touches the direction itself, and whether the policy still holds is checked. You do not change the constitution or the policy yourself.",
+            "This round answers the owner's words, in one round: find out what the owner asks and what for; when the owner wants one thing done, ask yourself what it is for, and say what you see that the owner may not. Hand in your reply to the owner and one way on: done, when it is done now in effects; re_plan, when it changes what comes first or is about how you work, and what to do next is planned again under the policy in force, the plan holding the owner's words with their date and why; or new_policy, when it touches the direction itself, and whether the policy still holds is checked. You do not change the constitution or the policy yourself. Say whether the talk stays open: over when the owner ended it, as by telling you to go on with your work, or when the words need nothing more from the owner; open otherwise, and you wait a few minutes for what the owner says next.",
             "Your reply goes where the owner said the words: in a work's group, there; else in your one-to-one. When the words leave open what the owner wants, ask the owner, and the reply comes back here. When the words are clearly meant as the answer to one of the questions pending, say in your reply that the owner ticks that question and replies there; never take them as its answer yourself. When the words ask about a decision card, answer the question; the card stays the owner's to rule. When your answer finds the card wrong, have its engineer change it, by an interjection in effects: a new version comes to the owner."
           ],
           "out": [
@@ -16319,6 +16405,22 @@
                   "title": "Reply",
                   "type": "text",
                   "desc": "Your reply to the owner's words, in the owner's language (the setting `owner.language`)"
+                },
+                {
+                  "name": "talk",
+                  "title": "The talk",
+                  "type": "enum",
+                  "desc": "Whether the talk stays open after your reply, the architect waiting for the owner's next words, or is over",
+                  "values": [
+                    [
+                      "open",
+                      "The owner may well say more on it: you wait a few minutes for the owner's next words"
+                    ],
+                    [
+                      "over",
+                      "The owner ended the talk, as by telling you to go on with your work, or the words need nothing more from the owner: you go on at once"
+                    ]
+                  ]
                 }
               ],
               "branches": [
@@ -17168,6 +17270,21 @@
               "counts": "handled"
             },
             {
+              "name": "talking",
+              "if": [
+                [
+                  "inp",
+                  "next_in_batch",
+                  [
+                    "talking"
+                  ]
+                ]
+              ],
+              "to": "Q0",
+              "counts": "talk_waits",
+              "note": "The owner is talking with the architect: the review and rethink at the end of the batch wait until the owner goes quiet, so that the owner's next words are answered at once; the architect waits for them at `Q0`."
+            },
+            {
               "name": "review",
               "if": [
                 [
@@ -17226,6 +17343,10 @@
               [
                 "more",
                 "Matters can be picked, and fewer than 20 were handled in this batch"
+              ],
+              [
+                "talking",
+                "No matter can be picked, and the owner's words were answered less than the wait for the owner's reply ago, the answer leaving the talk open, with nothing said since: the batch's review and rethink wait until the owner goes quiet"
               ],
               [
                 "review",

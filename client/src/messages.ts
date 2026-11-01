@@ -421,6 +421,7 @@ const messages = {
   talk_architect_page: "Open the architect's page",
   talk_architect_working: 'working',
   talk_architect_between: 'between rounds',
+  talk_architect_listens: 'waiting for your next words',
   talk_architect_handles: 'handles: {what} | at {at}',
   talk_architect_at: 'at {at}',
   talk_architect_held: 'held back: every work is paused',

@@ -83,7 +83,7 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (29, 116, 157));
+    assert_eq!((s.cells, s.rows, s.states), (29, 119, 157));
     let g = c.graph("architect").unwrap();
     for gone in [
         "E1", "H6", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",
@@ -205,10 +205,11 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
 
 // The check of the policy and the plan of what to do next are matters at the head of the queue: a new session's
 // understanding queues both and goes on to the queue; the look at the queue takes them after the owner's words, a
-// matter back with the owner's reply and the wait for a question just put, and before the others, without a pick
-// (`head`), and the router sends each to its cell. The check closes it when the policy holds, asks the owner in doubt,
-// and goes on to write a new policy by the owner's reply, or by the owner's words that asked for it (`write_policy`,
-// which the engine refuses otherwise); the writing asks the owner to approve it,
+// matter back with the owner's reply, the waits for the owner and a matter of two cells going on at its second cell,
+// and before the others, without a pick (`head`), and the router sends each to its cell. The check closes it when the
+// policy holds, asks the owner in doubt, and goes on to write a new policy by the owner's reply, or by the owner's
+// words that asked for it (`write_policy`, which the engine refuses otherwise), through the queue, where the owner's
+// words that came meanwhile are taken first; the writing asks the owner to approve it,
 // which parks the check there, and the router sends it back to the writing with any other reply, and with approved to
 // where it takes effect, which queues the plan and closes the check. The plan closes its matter. Whoever wants a check
 // or a plan queues it: no row of a batch's rethink, a talk or the taking effect goes to the check or the plan. An
@@ -235,7 +236,10 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
         to("Q0", &["queue_check_policy", "queue_make_plan"])
     );
     let q0: Vec<&str> = g.cell("Q0").unwrap().rows.iter().map(|r| r.name.as_str()).collect();
-    assert_eq!(q0[..4], ["owner_words", "answered", "waits", "head"]);
+    assert_eq!(
+        q0[..6],
+        ["owner_words", "answered", "waits", "listens", "second_cell", "head"]
+    );
     assert_eq!(row("Q0", "head").to, "Q2");
     let given = |v: &str| Map::from_iter([("route".to_string(), Value::String(v.into()))]);
     for at in ["P1", "P2", "P12", "N1"] {
@@ -243,7 +247,8 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
         assert_eq!(r.to, at);
     }
     assert_eq!(way(&row("P1", "holds")), to("B1", &["close_matter"]));
-    assert_eq!(way(&row("P1", "write_policy")), to("P2", &[]));
+    // A new policy is written at the second cell of the check, which goes back to the queue between them.
+    assert_eq!(way(&row("P1", "write_policy")), to("Q0", &["go_on_at_second_cell"]));
     assert_eq!(row("P1", "ask_owner").to, "A3");
     // It writes a new policy only once the owner said yes, by the reply or by the words that asked for the check.
     assert!(
@@ -289,7 +294,7 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
     };
     assert_eq!(into("P1"), ["Q2"]);
     assert_eq!(into("N1"), ["Q2"]);
-    assert_eq!(into("P2"), ["P1", "Q2"]);
+    assert_eq!(into("P2"), ["Q2"]);
     assert_eq!(into("P12"), ["Q2"]);
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     let ask = v["flows"][1]["nodes"]
@@ -311,9 +316,9 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
 // The owner's words are answered in one round, as the owner decided: the look at the queue takes them first, without a
 // pick (`Q0`); the cell of the owner's words (`H8`) replies and takes one way on, back to the batch (`B1`): done; the
 // plan of what to do next made again, or the policy checked, each a matter it queues at the head of the queue. It may
-// ask the owner, whose reply comes back to it; no cell waits for the owner's reply in a talk (`H11`) any longer. A row
-// that waits in the architect's graph with no setting bounding the wait is refused, since the architect stops for no
-// one.
+// ask the owner, whose reply comes back to it; no cell waits for the owner's reply in a talk (`H11`) any longer, but
+// while its answer leaves the talk open the look at the queue waits a while for the owner's next words. A row that
+// waits in the architect's graph with no setting bounding the wait is refused, since the architect stops for no one.
 #[test]
 fn the_owner_s_words_are_answered_in_one_round() {
     let c = compiled();
@@ -349,6 +354,18 @@ fn the_owner_s_words_are_answered_in_one_round() {
         )
         .unwrap();
     assert_eq!((wait.to.as_str(), wait.waits), ("Q0", true));
+    // While the answer leaves the talk open, the look at the queue waits for the owner's next words, and the batch's
+    // review and rethink wait with it.
+    let listens = g
+        .take(
+            "Q0",
+            &serde_json::json!({ "queue": { "verdict": "listens", "matter": 3 } }),
+            &none,
+        )
+        .unwrap();
+    assert_eq!((listens.to.as_str(), listens.waits), ("Q0", true));
+    let talking = Map::from_iter([("next_in_batch".to_string(), Value::String("talking".into()))]);
+    assert_eq!(g.take("B1", &serde_json::json!({}), &talking).unwrap().to, "Q0");
     assert!(g.cell("H11").is_none());
     for (name, to, then) in [
         ("done", "B1", vec!["close_matter"]),

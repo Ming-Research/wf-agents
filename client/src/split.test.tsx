@@ -183,7 +183,7 @@ describe('a round picked beside a chart', () => {
     const g = graph('architect', ['A1', 'B1']);
     const { compiled, view } = flow(g);
     const d = detail(work(7, g));
-    const shown: ArchitectWork = { work: d.work, handling: null };
+    const shown: ArchitectWork = { work: d.work, handling: null, listens: false };
     const a: ArchitectRead = {
       project: 'p',
       projects: ['p'],

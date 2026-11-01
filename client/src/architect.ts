@@ -128,17 +128,17 @@ export type ArchitectState =
   | { kind: 'never'; waiting: number }
   /// Its last work is over, since when.
   | { kind: 'idle'; since: number | null; waiting: number }
-  /// A work of it goes on, handling a matter or none.
-  | { kind: 'working'; work: WorkSummary; handling: Matter | null; waiting: number };
+  /// A work of it goes on, handling a matter or none, and whether it waits for the owner's next words.
+  | { kind: 'working'; work: WorkSummary; handling: Matter | null; listens: boolean; waiting: number };
 
 /// How an architect stands: never worked; no work of it running since its last one ended; or a work of it running,
-/// with the matter it handles; and how many matters are in its queue.
+/// with the matter it handles and whether it waits for the owner's next words; and how many matters are in its queue.
 export function architectState(works: ArchitectWork[], queue: Matter[]): ArchitectState {
   const waiting = queueParts(queue).waiting.length;
   const going = works.find((w) => !overWork(w.work));
   if (going !== undefined) {
     const handling = going.handling !== null ? (queue.find((m) => m.id === going.handling) ?? null) : null;
-    return { kind: 'working', work: going.work, handling, waiting };
+    return { kind: 'working', work: going.work, handling, listens: going.listens, waiting };
   }
   if (works.length === 0) return { kind: 'never', waiting };
   return { kind: 'idle', since: works[0].work.last_at, waiting };
@@ -149,9 +149,10 @@ export function architectState(works: ArchitectWork[], queue: Matter[]): Archite
 export type Standing = { state: WorkState; words: string };
 
 /// How an architect stands now, as the head of its one-to-one says it: a round of it running; held back while it works
-/// (paused by the owner, with every work or by itself, or stopped by the engine or by itself); between rounds; or, with
-/// no work of it running, held back by every work paused while matters wait for it, else idle with nothing in its queue
-/// or about to take up the matters waiting.
+/// (paused by the owner, with every work or by itself, or stopped by the engine or by itself); waiting for the owner's
+/// next words, having answered the owner's words with the talk left open; between rounds; or, with no work of it
+/// running, held back by every work paused while matters wait for it, else idle with nothing in its queue or about to
+/// take up the matters waiting.
 export function architectNow(a: Architect, status: Status | null): Standing {
   const state = architectState(a.works, a.queue);
   if (state.kind === 'working') {
@@ -160,6 +161,7 @@ export function architectNow(a: Architect, status: Status | null): Standing {
       return { state: 'running', words: c.running === 'step' ? runningWords(c) : t('talk_architect_working') };
     }
     if (c.held !== null) return { state: c.held === 'engine' ? 'halted' : 'paused', words: heldName(c).name };
+    if (state.listens) return { state: 'waiting', words: t('talk_architect_listens') };
     return { state: 'ready', words: t('talk_architect_between') };
   }
   const started = status !== null && status.architects_started.includes(a.project);
@@ -174,7 +176,8 @@ export function architectNow(a: Architect, status: Status | null): Standing {
 /// reply marks it asking, as a work that asked is.
 export function architectMark(a: Architect, status: Status | null): Standing {
   const now = architectNow(a, status);
-  if (now.state === 'ready' && a.asks.some((x) => x.answer === null)) return { state: 'asking', words: t('state_asking') };
+  const free = now.state === 'ready' || now.state === 'waiting';
+  if (free && a.asks.some((x) => x.answer === null)) return { state: 'asking', words: t('state_asking') };
   return now;
 }
 

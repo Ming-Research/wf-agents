@@ -172,6 +172,10 @@ Fact owner-speaks-to-engineer-architect: The owner speaks to a work's engineer a
 
 Fact owner-steps-architect: The owner steps the architect one round at a time, as the owner steps a work.
 
+Fact owner-talks-in-turns: Once the architect answered the owner's words, the owner often says more on them within minutes, as in a chat.
+
+Assumed: how often the owner's words follow the architect's answer within the installation's wait for the owner's reply, read from the conversations, would settle or overturn it
+
 Fact owner-understands-by-diagrams: The owner understands a design by its diagrams, of every kind.
 
 Fact owner-uses-start-all: The owner uses Start all and Pause all often.
