@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 Take the UI spec's path out of Article 8 into a derivation
+
+Changed: C:owner-page changed, D:ui-spec-held added
+
+Why: Article 8 named the UI spec by its path in design/, which the records' move to reasoning/ made stale, and an article of the constitution naming a node of the records is out of place, the articles being the axioms the records derive from. The article keeps its principle, that like things look alike, and loses its last sentence, that the page is built to its UI spec, which a check in CI holds, and its last violation, a change to the page that departs from the spec without changing it; D:ui-spec-held, at the top of the UI spec, decides both, because like things look alike only when every part is built from one set of rules, and a rule kept only in the code is a second copy of them, which drifts (F:copies-drift). The constitution now names no file or record.
+
+Re-examined: the derivations resting on C:owner-page: each still holds, the principle being unchanged
+
+Ruling: the owner's ruling of 2026-11-01 that an article names no record
+
 ## 2026-11-01 Make reasoning/ the only copy of the records, checked by the reasoning system's check
 
 Changed: D:tree-check-counts removed, D:tree-check-format removed, D:engineer-question-blocker changed, D:fix-table changed, D:work-flow-version changed, D:owner-images-input changed
