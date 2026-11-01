@@ -419,7 +419,7 @@ function Works({ works }: { works: ItemDetail['works'] }) {
         {works.map((w) => (
           <tr key={w.id}>
             <td>
-              <Link to={`/works/${w.id}`}>#{w.id}</Link>
+              <Link to={`/works/${w.id}`}>{t('work_name', { id: w.id })}</Link>
             </td>
             <td>
               <WorkBadge state={liveState(w, status)} />

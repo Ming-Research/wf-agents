@@ -52,7 +52,7 @@ function Row({ w, tab }: { w: WorkSummary; tab: WorkTab }) {
   const stage = w.stage !== null ? w.stage.replaceAll('_', ' ') : '';
   return (
     <tr className="clickable" onClick={() => navigate(workHref(w.id, { tab }))}>
-      <td title={`#${w.id}`}>#{w.id}</td>
+      <td>{t('work_name', { id: w.id })}</td>
       <td title={item}>
         {w.item !== null ? (
           <>
@@ -272,7 +272,7 @@ function WorkLine({ w }: { w: WorkSummary }) {
       lead={<WorksBack />}
       name={
         <>
-          <strong>#{w.id}</strong>{' '}
+          <strong>{t('work_name', { id: w.id })}</strong>{' '}
           {w.item !== null ? (
             <>
               <ItemRef id={w.item} title={w.title} hint={`${name}\n${t('open_item')}`} />

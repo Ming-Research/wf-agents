@@ -81,13 +81,16 @@ export function totals(list: Conversation[]): { waiting: number; unread: number 
   };
 }
 
-/// What a conversation is called in the list and over it.
-export function conversationTitle(c: Pick<Conversation, 'key' | 'kind' | 'project' | 'projects' | 'work' | 'title'>): string {
+/// What a conversation is called in the list and over it, in words: a work's group by its item's number and title, then
+/// the work's own name (`W35`), "#" being an item's alone.
+export function conversationTitle(
+  c: Pick<Conversation, 'key' | 'kind' | 'project' | 'projects' | 'work' | 'item' | 'title'>,
+): string {
   switch (c.kind) {
     case 'architect':
       return t('conv_architect', { project: c.project ?? c.key.slice('architect:'.length) });
     case 'work':
-      return t('conv_work_item', { id: c.work ?? '', title: c.title ?? '' });
+      return t('conv_work_item', { item: c.item ?? '', title: c.title ?? '', work: c.work ?? '' });
     case 'projects':
       return t('conv_projects', { projects: c.projects.join(', ') });
     default:

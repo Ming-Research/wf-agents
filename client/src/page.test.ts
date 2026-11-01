@@ -387,7 +387,7 @@ describe('how a work goes on', () => {
     expect(button(work({ graph: 'architect', item: null, project: 'p' }), status({}))).toBe('');
     expect(button(work({ state: 'ended', ended: 'x' }), status({}))).toBe('');
     expect(startOverWords(work({}), status({ running: 5 }))).toEqual({
-      title: 'Start work 5 over?',
+      title: 'Start W5 over?',
       body:
         "The round under way is cut off, and its agent's process finishes before the new work begins. A new work on " +
         'item #1 takes over the branch, the worktree and the pull request, starts from the first cell and is given ' +
@@ -2263,7 +2263,8 @@ describe("the owner's conversations", () => {
   });
 
   it('names each conversation by its subject, and each side of an entry and whom a message is for', () => {
-    expect(conversationTitle(talk('work:5', { work: 5, item: 3, title: 'Parse it' }))).toBe('#5 Parse it');
+    // A work's group by its item's number and title, then the work's name: "#" is an item's alone.
+    expect(conversationTitle(talk('work:5', { work: 5, item: 3, title: 'Parse it' }))).toBe('#3 Parse it W5');
     expect(conversationTitle(talk('architect:p'))).toBe('Architect of p');
     expect(conversationTitle(talk('projects:p|q', { projects: ['p', 'q'] }))).toBe('Architects of p, q');
     expect(conversationTitle(talk('wf-agents'))).toBe('wf-agents');

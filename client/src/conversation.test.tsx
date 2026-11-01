@@ -1097,7 +1097,7 @@ describe("a work's group as a chat", () => {
     );
     expect(over).toContain('<span class="state-mark state-mark-neutral" title="ended"');
     expect(over).toContain('ended: the flow moved to version 18');
-    expect(over).toContain('taken over by work 31');
+    expect(over).toContain('taken over by W31');
     expect(over).toContain('href="/messages?c=work%3A31"');
   });
 

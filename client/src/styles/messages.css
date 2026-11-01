@@ -29,6 +29,29 @@
   white-space: nowrap;
 }
 
+/* A work's group is named by its item, then the work's own name (W35) in muted text: the item's words give way where
+   the line ends, the work's name stays whole, in the list and in the group's head alike. */
+.talks-title:has(.talks-work),
+.talk-head-name:has(.talks-work) {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.talks-title-words {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.talks-work {
+  flex: none;
+  margin-left: var(--base-size-4);
+  color: var(--fgColor-muted);
+  font-weight: var(--base-text-weight-normal);
+}
+
 /* The buttons under a project's heading that show or hide its works in each state, as over the items' tree. */
 .talks-states {
   padding: 0 var(--base-size-8) var(--base-size-4);

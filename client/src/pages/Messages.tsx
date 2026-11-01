@@ -133,7 +133,7 @@ import { ArchitectAskBlock } from './ArchitectAsk';
 import { ArchitectSide, useSideOpen } from './ArchitectSide';
 import { Bubble, BubbleHead } from './Bubble';
 import { AskView } from './Decide';
-import { ArchitectHead, PlainHead, WfAgentsHead, WorkHead } from './TalkHead';
+import { ArchitectHead, PlainHead, WfAgentsHead, WorkGroupName, WorkHead } from './TalkHead';
 import { MatterBubble, PlanBubble, PolicyBubble, StageBubble } from './TalkCards';
 
 /// Marks a fault of wf-agents read, where it shows.
@@ -240,7 +240,7 @@ export function List({ list, open, works }: { list: Conversation[]; open: string
                   <RowMark c={c} works={works} status={status} />
                 </NavList.LeadingVisual>
                 <span className="talks-title" title={conversationTitle(c)}>
-                  {conversationTitle(c)}
+                  <WorkGroupName c={c} />
                 </span>
                 {(c.waiting > 0 || c.unread > 0) && shownByState(c, stateOf, shown) ? (
                   <NavList.TrailingVisual>
