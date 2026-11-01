@@ -57,3 +57,5 @@ Fact cli-writes-message-before-call: The agent command line writes a round's mes
 Fact outage-copies-session: During an outage of about an hour and a half, with a round let try every half minute, one engineer's session (work 35) took 27 copies of its 72 KB message and grew to 44 MB, nine times the next largest of 146 sessions; its next round read about 200,000 tokens of context at each of its 149 turns, for $15.12, and handed in no return.
 
 Fact refused-session-bloated: Of 146 agent sessions, the service's safety classifier refused only one, four times in 22 minutes: the session grown to 44 MB with copies of one message.
+
+Fact outage-stops-on-tools: In an outage during which no agent round ran, a work's push and check of its CI failed after three attempts and asked the architect, and the architect's worktree could not be brought to main and the engine paused the architect, so that nothing went on after the network was back until the architect was started again.

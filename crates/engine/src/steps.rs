@@ -191,11 +191,16 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return failed::pause(e, w, &why);
     }
     // A round of a project's architect reads the project at the latest main: its graph's worktree is brought there
-    // first. Where it cannot be, the work waits for the owner, with why.
+    // first. Where it cannot be, the work waits for the owner, with why; or, while the network is down, every work
+    // waits for it.
     if item.is_none()
         && let Err(why) = architect::ready(e, w, g, cell)
     {
-        return failed::pause(e, w, &format!("cell {}: {why}", cell.id));
+        let why = format!("cell {}: {why}", cell.id);
+        if e.network_down() {
+            return e.wait_offline(w.id, &why);
+        }
+        return failed::pause(e, w, &why);
     }
     let line_of_cell = crate::line_of(g, cell);
     let (level_name, level, _) = level_of(e, g, cell, item.as_ref()).map_err(|x| format!("work {}: {x}", w.id))?;
@@ -1298,7 +1303,17 @@ pub fn engine(
     ));
     let output = match step.as_deref() {
         Some("start_work") => start_work(e, w, needed(&item, w)?)?,
-        Some("run_tools") => tools::run_tools(e, w, item.as_ref(), round, &gathered)?,
+        Some("run_tools") => {
+            let out = tools::run_tools(e, w, item.as_ref(), round, &gathered)?;
+            // A tool that failed for want of the network while the network is down is no failure of the work's: no
+            // question goes to the architect; every work waits for the network, and this cell runs again then.
+            if let Some(what) = network_failure(&out)
+                && e.network_down()
+            {
+                return e.wait_offline(w.id, &format!("cell {}: {what}", cell.id));
+            }
+            out
+        }
         Some("full_ci_on_draft") => tools::full_ci(e, w, needed(&item, w)?, round)?,
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
@@ -1316,6 +1331,21 @@ pub fn engine(
     }
     let row = g.take(&cell.id, &output, &given)?.clone();
     finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)
+}
+
+/// The first tool of a tool step's output that failed reaching the network or GitHub's API, with what it reported.
+fn network_failure(out: &Value) -> Option<String> {
+    out["failed"]
+        .as_array()?
+        .iter()
+        .find(|f| f["kind"] == "network_or_api")
+        .map(|f| {
+            format!(
+                "{}: {}",
+                f["tool"].as_str().unwrap_or_default(),
+                f["what"].as_str().unwrap_or_default()
+            )
+        })
 }
 
 /// Whether a work, in a step held to its machine's slots (`slotted`), stays where it waits instead of going on by

@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 Let a tool or a step that fails without the network wait for it, as an agent's run does
+
+Changed: D:global-failure-wait changed, F:outage-stops-on-tools added
+
+Why: An outage hit no agent round, so the engine's wait for the network never started: a work's push and CI check failed after three attempts and asked the architect, and the architect's worktree could not be brought to main and the architect was paused, leaving every work standing after the network was back. Now a tool, the architect's worktree or any other step of the engine's that fails while the engine finds the network down waits for it as an agent's run does, and a tool stops its attempts at once then.
+
+Re-examined: D:global-failure-wait's dependents, which still hold
+
+Ruling: the owner's ruling of 2026-11-01 to treat the network failures of tools and git as the same wait
+
 ## 2026-11-01 Bring two records in line with the page they describe
 
 Changed: D:approaches-as-choice changed, D:work-group-chat changed
