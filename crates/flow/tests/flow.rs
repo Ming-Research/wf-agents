@@ -55,7 +55,8 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 
 // The architect's graph compiles with no finding, as the design the owner approved: where it waits for a work to start
 // and the start of its work, which only a new session understands the project at (`S0`, `S1`, `U1`), the queue (`Q0`)
-// and each matter's path, the check of the policy, the writing of a new one and its taking effect (`P1`, `P2`, `P12`),
+// and each matter's path, the check of the policy, the writing of a new one, or its draft dropped when the owner keeps
+// the policy in force, and its taking effect (`P1`, `P2`, `P12`),
 // the plan of what to do next (`N1`), the review of a batch of item changes and whether to plan or check again (`B1`,
 // `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds only its matter (`A3`), the tools (`X1`), the observer
 // (`X2`) and the wait for the owner's Start after a pause (`X3`): as many cells, rows and states. No wrap-up, no wait
@@ -67,7 +68,7 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (30, 120, 164));
+    assert_eq!((s.cells, s.rows, s.states), (30, 121, 164));
     let g = c.graph("architect").unwrap();
     for gone in ["E1", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11"] {
         assert!(g.cell(gone).is_none(), "{gone}");
