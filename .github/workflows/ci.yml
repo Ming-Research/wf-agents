@@ -52,19 +52,29 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
       # The project's records (reasoning/), by the reasoning system's check, check.py, taken from the reasoning system
-      # (github.com/Ming-Research/reasoning-system) at the commit named here: the project holds only its records. On a
-      # push it also holds every change to them since the branch's tip before the push to a new entry at the top of
-      # their log; the first push of a branch and a run by hand have no such tip, and check the records as they are.
+      # (github.com/Ming-Research/reasoning-system) at the commit named here: the project holds only its records. It
+      # also holds every change to them since a base to a new entry at the top of their log: on the line works merge
+      # into (`MAIN_LINE`, the project's `main`), the tip before the push; on a work's branch, where it forks from that
+      # line, so that what a merge of the line brought in is not the branch's own change and the branch's entries stay
+      # on top, as merging it into the line needs. A run with neither checks the records as they are.
       - name: Check the reasoning records
         env:
           BEFORE: ${{ github.event.before }}
+          BRANCH: ${{ github.ref_name }}
+          MAIN_LINE: first-version
           REASONING_SYSTEM: 6d87fd0bbca321bacdd9fa7fe60d2b2cedf1c0bf
         run: |
           check="$RUNNER_TEMP/check.py"
           curl -fsSL --retry 3 -o "$check" \
             "https://raw.githubusercontent.com/Ming-Research/reasoning-system/$REASONING_SYSTEM/check.py"
-          if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            exec python3 -B "$check" --root reasoning --ascii --base "$BEFORE" --ready
+          base=""
+          if [ "$BRANCH" != "$MAIN_LINE" ] && git rev-parse -q --verify "origin/$MAIN_LINE" >/dev/null; then
+            base=$(git merge-base HEAD "origin/$MAIN_LINE")
+          elif [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            base=$BEFORE
+          fi
+          if [ -n "$base" ]; then
+            exec python3 -B "$check" --root reasoning --ascii --base "$base" --ready
           fi
           exec python3 -B "$check" --root reasoning --ascii
       # The page's TypeScript types are generated from the Rust types; the page is checked against what they generate
