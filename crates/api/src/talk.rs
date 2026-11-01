@@ -344,18 +344,13 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
         .collect();
     let mut design_cards = Vec::new();
     if let Some(work) = key.strip_prefix("work:").and_then(|w| w.parse::<i64>().ok()) {
-        // A design card is in the bubble of the stage that handed it in, and the one the work waits on pinned under the
-        // head: its entry only counts what waits for the owner in the list.
+        // A design card is in the bubble of the stage that handed it in: its entry only counts what waits for the
+        // owner in the list.
         entries.retain(|e| e.source != "card");
         entries.extend(stage_cards(conn, flows, work)?);
-        // The design card a work waits for the owner's ruling on before its merge: the blocker the owner holds.
-        design_cards = read::design_cards(
-            conn,
-            flows,
-            "WHERE c.status = 'open' AND EXISTS (SELECT 1 FROM blockers b WHERE b.work = c.work AND b.kind = 'ruling'
-               AND b.holder = 'owner' AND b.ended IS NULL) AND c.work = ?1",
-            &[work],
-        )?;
+        // Every design card of the work that waits for the owner's ruling, whether or not the work waits on it yet, as
+        // the list counts them: what the bar under the head pins.
+        design_cards = read::design_cards(conn, flows, "WHERE c.status = 'open' AND c.work = ?1", &[work])?;
     }
     if let Some(project) = key.strip_prefix("architect:") {
         entries.extend(matter_cards(conn, flows, project)?);

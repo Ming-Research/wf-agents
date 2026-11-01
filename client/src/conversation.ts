@@ -215,8 +215,8 @@ export function pinnedAsks(d: ConversationDetail): ConversationEntry[] {
 }
 
 /// What waits for the owner in a conversation and has its place in the stream, one pin each for the bar over the
-/// stream, oldest first: the design cards a work waits on to be ruled, the asks that wait, and the questions an
-/// architect put that wait for the owner's reply; each by its number and the words it says first.
+/// stream, oldest first: the design cards that wait for the owner's ruling, the asks that wait, and the questions an
+/// architect put that wait for the owner's reply, as the list counts them; each by its number and its first words.
 export type Pin = { kind: 'card' | 'ask' | 'question'; id: number; at: number; words: string };
 
 export function pinsOf(d: ConversationDetail): Pin[] {

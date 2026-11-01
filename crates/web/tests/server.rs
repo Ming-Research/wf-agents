@@ -627,6 +627,12 @@ fn the_owner_answers_and_rules_on_the_page() {
     let (status, again) = post(s.port, "/api/v1/asks/1/answer", answer, "application/json");
     assert_eq!(status, 422, "{again}");
     assert!(again.contains("answered already"), "{again}");
+    // The design card that waits for the owner's ruling is among the conversation's, which the bar pins, though the
+    // work does not wait on it yet, as the list counts it.
+    let here = format!("127.0.0.1:{}", s.port);
+    let (status, talk) = get(s.port, "/api/v1/conversation?key=work%3A1", &here, "");
+    assert_eq!(status, 200, "{talk}");
+    assert!(talk.contains(r#""design_cards":[{"id":1,"#), "{talk}");
     let ruling = r#"{"decisions":[{"decision":1,"verdict":"disagree","text":"Keep the old name."}]}"#;
     let (status, done) = post(s.port, "/api/v1/design-cards/1/rule", ruling, "application/json");
     assert_eq!(status, 200, "{done}");
