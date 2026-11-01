@@ -5,7 +5,7 @@ name: build
 # branch the engine is installed from.
 on:
   push:
-    branches: [first-version]
+    branches: [main]
   workflow_dispatch:
 
 permissions:

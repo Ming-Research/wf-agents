@@ -19,11 +19,11 @@ on:
 permissions:
   contents: read
 
-# A newer push to the same branch makes the older run pointless; main keeps every run. So does first-version, which
-# works merge into until the first version is reviewed: the engine watches the run on each merge commit.
+# A newer push to the same branch makes the older run pointless; main, which works merge into, keeps every run: the
+# engine watches the run on each merge commit.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/first-version' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # The Rust tests take most of the time, so they run split across three jobs, beside a job for everything else; the
 # job `check` is red whenever any of them is, which is the check the projects' configuration waits for to merge.
@@ -56,12 +56,13 @@ jobs:
       # also holds every change to them since a base to a new entry at the top of their log: on the line works merge
       # into (`MAIN_LINE`, the project's `main`), the tip before the push; on a work's branch, where it forks from that
       # line, so that what a merge of the line brought in is not the branch's own change and the branch's entries stay
-      # on top, as merging it into the line needs. A run with neither checks the records as they are.
+      # on top, as merging it into the line needs. A run with neither, or whose tip before held no records yet, checks
+      # the records as they are.
       - name: Check the reasoning records
         env:
           BEFORE: ${{ github.event.before }}
           BRANCH: ${{ github.ref_name }}
-          MAIN_LINE: first-version
+          MAIN_LINE: main
           REASONING_SYSTEM: 6d87fd0bbca321bacdd9fa7fe60d2b2cedf1c0bf
         run: |
           check="$RUNNER_TEMP/check.py"
@@ -70,7 +71,7 @@ jobs:
           base=""
           if [ "$BRANCH" != "$MAIN_LINE" ] && git rev-parse -q --verify "origin/$MAIN_LINE" >/dev/null; then
             base=$(git merge-base HEAD "origin/$MAIN_LINE")
-          elif [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+          elif [ -n "$BEFORE" ] && git cat-file -e "$BEFORE:reasoning/log.md" 2>/dev/null; then
             base=$BEFORE
           fi
           if [ -n "$base" ]; then
