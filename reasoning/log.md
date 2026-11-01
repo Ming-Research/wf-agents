@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 Refuse that the policy holds without one only once the owner replied
+
+Changed: D:policy-in-check changed
+
+Why: The check `holds_needs_policy` refused that the policy holds whenever none was in force, before any reply too, which the flow had allowed and the drawing the owner approved did not change; it now refuses it only once the owner replied, as `no_holds_after_reply` did, and only while no policy is in force.
+
+Re-examined: none rests on D:policy-in-check
+
+Ruling: the owner's ruling of 2026-11-01 that a reply keeping the policy closes the check, drawn and approved
+
 ## 2026-11-01 Name an observation O<n>
 
 Changed: D:work-name changed

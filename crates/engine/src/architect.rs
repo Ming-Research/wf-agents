@@ -3394,10 +3394,18 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             if v.is_none_or(|x| x["verdict"] != "holds") {
                 return Ok(());
             }
-            if policy(c.e, project_of(c.w)?)?.is_none() {
+            let Some(m) = picked(conn, c.w.id)? else { return Ok(()) };
+            let replied = count(
+                conn,
+                "SELECT count(*) FROM architect_matters m JOIN owner_asks a ON a.id = m.asked
+                 WHERE m.id = ?1 AND a.answer IS NOT NULL",
+                &[&m],
+            )? > 0;
+            if replied && policy(c.e, project_of(c.w)?)?.is_none() {
                 return Err(
-                    "no policy is in force, so none can hold: ask the owner whether to research one, and once the \
-                     owner replied, hand in write_policy with the owner's stance"
+                    "the owner replied and no policy is in force, so none can hold: hand in write_policy with the \
+                     owner's stance, the course the project keeps when the owner says none is needed, or ask again \
+                     when the reply does not answer"
                         .into(),
                 );
             }
