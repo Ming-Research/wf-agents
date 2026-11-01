@@ -10,9 +10,9 @@ Decision review-columns-ci-conditional: The columns of a cell's review table are
 
 Rests on: C:efficient, F:table-ci-repeat-tokens, D:always-conditional-inputs
 
-Decision sent-back-message: After a return sent back, the message says only why it was sent back and that the return is to be rewritten, with its format's address, and gives and refers to nothing else, instead of the whole message again, because the agent did the work and holds everything it was given; only the return was wrong, and giving the task again tells it to do the work again.
+Decision sent-back-message: After a return sent back, the message to the session that wrote it says only why it was sent back and that the return is to be rewritten, with its format's address, and gives and refers to nothing else, instead of the whole message again, which only a new session is given (D:sent-back-new-session), because the agent did the work and its session holds everything it was given; only the return was wrong, and giving the task again tells it to do the work again.
 
-Rests on: C:efficient, F:task-again-redo
+Rests on: C:efficient, F:task-again-redo, D:sent-back-new-session
 
 Rejected:
 - Giving the whole message again after a return sent back, with the reason added: rejected because it repeats the task to an agent that did it, and spends a round's worth of tokens to say that one return was written wrongly.
@@ -115,7 +115,7 @@ Decision since-last-work-limits: What happened in a project since its architect'
 
 Rests on: C:efficient, F:commit-list-size, F:agent-reads-git-history
 
-Decision unmeetable-left-out: What a project cannot meet is left out of what its agents are given: a field of every return the project does not ask for, and a gate whose need it does not meet (a gap in what is under test needs something under test), which the engine answers by need, instead of every field and gate in every project, because what no work of the project can meet only invites an answer that does not fit, as a gate the engine answers by need is no column of the review. An ask carries no kind (D:ask-no-kind), so that no kind of question is left out of the return formats any longer.
+Decision unmeetable-left-out: What a project cannot meet is left out of what its agents are given: a field of every return the project does not ask for, and a gate whose need it does not meet (a gap in what is under test needs something under test), which the engine answers by need, instead of every field and gate in every project, because what no work of the project can meet only invites an answer that does not fit, as a gate the engine answers by need is no column of the review. An ask carries no kind (D:ask-no-kind), so that no kind of question is left out of the return formats.
 
 Rests on: C:information, F:unmeetable-invites-misfit, D:gate-na-no-column, D:ask-no-kind
 
@@ -147,9 +147,9 @@ Decision unverified-column-decided: A column the review could not verify is list
 
 Rests on: C:efficient
 
-Decision unmeasured-slowdown-column: The column of a measured slowdown, when nothing was measured (the design decided without measuring and no measurement ran), rests on the design's reason that no measurement was needed, which the review judges against the change as made, a finding asking for the measurement where the reason does not hold, never a column not verified for want of a measurement.
+Decision unmeasured-slowdown-column: The column of a measured slowdown, when nothing was measured (the design decided without measuring and no measurement ran), rests on the design's reason that no measurement was needed, which the review judges against the change as made, a finding asking for the measurement where the reason does not hold, never a column not verified for want of a measurement, so that the column does not go back and forth (D:unverified-column-decided): with no measurement run, no later review could verify it either.
 
-Open: the reason, which the decision does not give; to ask the owner.
+Rests on: C:efficient, D:unverified-column-decided
 
 Decision review-card-ci-inputs: The table review and the design tree review are given the work's design card as it stands, its latest, and the earlier cards it replaced by number only, and the latest run of the fast CI, of the full CI on the draft and of the tests on the code before the change, each with the head it ran on, its result and the links to its runs, instead of every design card of the work in full and no CI, because a replaced card is history they need not judge, and their columns ask whether the evidence comes from the head to be merged, which each review spent a round of tools finding.
 

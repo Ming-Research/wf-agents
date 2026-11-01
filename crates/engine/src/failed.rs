@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use db::Actor;
-use db::rusqlite::params;
+use db::rusqlite::{OptionalExtension, params};
 use flow::format::{Failure, Handle, Rounds};
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::json;
@@ -28,8 +28,37 @@ pub struct Halt {
 }
 
 /// How long the engine waits, each time a cause it does not know the end of is found to last (the network is down,
-/// the login has expired), before it lets one round find out whether it has passed.
-const PROBE: i64 = 30_000;
+/// the login has expired), before it looks again: at the network itself, or by letting one round find out.
+pub(crate) const PROBE: i64 = 30_000;
+
+/// Every how many looks in a row at the network, each finding it down, a round tries anyway: five minutes of looks.
+pub(crate) const LOOKS: u32 = 10;
+
+/// How long a look at the network waits for the service's host to take a connection.
+const LOOK_WAIT: Duration = Duration::from_secs(5);
+
+/// Whether the agents' service can be reached from here: its host, the one `ANTHROPIC_BASE_URL` names or Anthropic's
+/// API, resolves and takes a connection within a few seconds. Looking costs no round and writes nothing in a session.
+pub fn network_reachable() -> bool {
+    use std::net::{TcpStream, ToSocketAddrs};
+    let host = std::env::var("ANTHROPIC_BASE_URL")
+        .ok()
+        .and_then(|u| {
+            let rest = u.split_once("://").map_or(u.as_str(), |(_, r)| r).to_string();
+            rest.split('/').next().map(str::to_string)
+        })
+        .filter(|h| !h.is_empty())
+        .unwrap_or_else(|| "api.anthropic.com".to_string());
+    let at = if host.contains(':') {
+        host
+    } else {
+        format!("{host}:443")
+    };
+    at.to_socket_addrs()
+        .ok()
+        .and_then(|mut a| a.next())
+        .is_some_and(|a| TcpStream::connect_timeout(&a, LOOK_WAIT).is_ok())
+}
 
 /// The longest a run that failed in passing waits before it runs again.
 const RETRY_MAX: Duration = Duration::from_secs(300);
@@ -145,6 +174,24 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
     Ok(Advance::Stopped)
 }
 
+/// The cell's round before `round` in its work, when its run ended as the same kind of failed run too: none when the
+/// round before at the cell did anything else.
+fn refused_before(e: &Engine, round: RoundId, cell: &str, kind: &str) -> Result<Option<RoundId>, String> {
+    let before: Option<(i64, Option<String>)> =
+        e.db.conn()
+            .query_row(
+                "SELECT n, rejected FROM rounds WHERE work = ?1 AND n < ?2 AND cell = ?3 ORDER BY n DESC LIMIT 1",
+                params![round.work, round.n, cell],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(sql)?;
+    Ok(before.and_then(|(n, rejected)| {
+        let v: serde_json::Value = serde_json::from_str(rejected.as_deref()?).ok()?;
+        (v["failed"]["kind"] == kind).then(|| RoundId::new(round.work, n))
+    }))
+}
+
 /// What a round whose run ended without a return was, and what came of it.
 pub struct Failed<'a> {
     pub w: &'a Work,
@@ -206,6 +253,11 @@ impl Failed<'_> {
                             utc(until),
                             kind.name
                         )
+                    } else if kind.name == "offline" {
+                        format!(
+                            "No agent round starts for any work while the command line reports {} ({what}): {} Each work goes on from its cell once the network is back.",
+                            kind.name, kind.desc
+                        )
                     } else {
                         format!(
                             "No agent round starts for any work while the command line reports {} ({what}): {} One round tries every half minute, and each work goes on from its cell once one runs.",
@@ -222,6 +274,32 @@ impl Failed<'_> {
             }
             // The cell runs again once its wait is over, until it passes.
             Handle::Retry => Ok(Advance::Moved),
+            // The same session would give the service the same context again: the first time, the line's session ends
+            // and the cell runs again in a new one; when the cell's round before was refused too, the work pauses.
+            Handle::Fresh => {
+                let before = refused_before(e, round, &self.cell.id, &kind.name)?;
+                if let Some(first) = before {
+                    let why = format!(
+                        "cell {}: the service refused the agent's run in {first} and again in {round}, in a new session ({}): {what}",
+                        self.cell.id, kind.name
+                    );
+                    return pause(e, self.w, &why);
+                }
+                e.db.write(Actor::Engine, |tx| {
+                    tx.execute(
+                        "UPDATE sessions SET ended = ?3 WHERE ended IS NULL
+                           AND id = (SELECT session FROM rounds WHERE work = ?1 AND n = ?2)",
+                        params![round.work, round.n, db::now()],
+                    )?;
+                    Ok(())
+                })
+                .map_err(sql)?;
+                e.say(&format!(
+                    "{round} was refused ({}): its line's session ends, and {} runs again in a new one",
+                    kind.name, self.cell.id
+                ));
+                Ok(Advance::Moved)
+            }
             // A return to repair is repaired within its round (`unparsed`); one that comes here was not, and waits for
             // the owner as a pause does.
             Handle::Pause | Handle::Repair => {

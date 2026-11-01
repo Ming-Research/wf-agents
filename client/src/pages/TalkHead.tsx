@@ -15,7 +15,7 @@ import { Fragment, useState } from 'react';
 import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
 import { architectNow, architectState, holdWords, matterSentence } from '../architect';
 import { course, heldName, RunningMark, StateChip, WORK_TONE, WorkBadge } from '../components';
-import { forwardNewChoices, stageName } from '../conversation';
+import { conversationTitle, forwardNewChoices, stageName } from '../conversation';
 import {
   atWork,
   Control,
@@ -34,6 +34,18 @@ import { reread, useResource, useStatus } from '../live';
 import { architectHref, forProject, Link, navigate, workHref } from '../route';
 import { t } from '../text';
 import { factsAfter } from '../voices';
+
+/// A conversation's name as the list and its head show it: a work's group its item's number and title, cut where the
+/// line ends, then the work's name (`W35`), whole, in muted text; any other conversation its title.
+export function WorkGroupName({ c }: { c: Conversation }) {
+  if (c.kind !== 'work') return <>{conversationTitle(c)}</>;
+  return (
+    <>
+      <span className="talks-title-words">{t('conv_work_title', { item: c.item ?? '', title: c.title ?? '' })}</span>
+      <span className="talks-work">{t('work_name', { id: c.work ?? '' })}</span>
+    </>
+  );
+}
 
 /// The tiers an item may be put at: those up to the highest an item may be at, in order.
 export function tiersAllowed(s: Settings): string[] {
@@ -119,7 +131,7 @@ export function WorkHead({ c, w }: { c: Conversation; w: WorkSummary | null }) {
       <div className="talk-head-title">
         {on !== null ? <WorkControls w={on} status={status} /> : null}
         <h2 className="talk-head-name">
-          {t('conv_work_item', { id: c.work ?? '', title: c.title ?? '' })}
+          <WorkGroupName c={c} />
         </h2>
         {w !== null ? <WorkState w={w} status={status} /> : null}
         {facts.length > 0 ? (

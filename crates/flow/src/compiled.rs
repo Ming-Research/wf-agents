@@ -1141,7 +1141,7 @@ fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
     for k in &r.failed.kinds {
         out.push(CompiledRow {
             waits: k.handle == Handle::Wait,
-            pauses: matches!(k.handle, Handle::Pause | Handle::Repair),
+            pauses: matches!(k.handle, Handle::Pause | Handle::Fresh | Handle::Repair),
             ..row(&k.name, Atom::Failed(k.name.clone()), &format!("{} {}", k.when, k.desc))
         });
     }

@@ -71,12 +71,12 @@ describe('the list of conversations', () => {
       'wf-agents',
       'p',
       'Architect of p',
-      '#9 Work 9',
-      '#6 Work 6',
-      '#5 Work 5',
+      '#9 Work 9 W9',
+      '#6 Work 6 W6',
+      '#5 Work 5 W5',
       'q',
       'Architect of q',
-      '#4 Work 4',
+      '#4 Work 4 W4',
       'Connected projects',
       'Architects of p, q',
     ]);
@@ -96,7 +96,7 @@ describe('the list of conversations', () => {
       ['1 work is done. Click to show it.', 'false'],
     ]);
     expect(html).toContain('tree-state tree-tone-success');
-    expect(read(html)).not.toContain('#5 Work 5');
+    expect(read(html)).not.toContain('#5 Work 5 W5');
   });
 
   it("draws each button as its state's mark and its count, with no words, the state and the count said as its name", () => {
@@ -186,9 +186,9 @@ describe('what the list hides counts nowhere', () => {
     const html = renderToStaticMarkup(<List list={counts} open="work:5" works={works} />);
     // The row of each conversation, from its title to the end of its item.
     const row = (title: string) => html.slice(html.indexOf(`title="${title}"`)).split('</li>')[0];
-    expect(html).toContain('title="#5 Work 5"');
-    expect(row('#5 Work 5')).not.toMatch(/waits for you|since you last read/);
-    expect(row('#9 Work 9')).toContain('title="1 thing here waits for you"');
+    expect(html).toContain('title="#5 Work 5 W5"');
+    expect(row('#5 Work 5 W5')).not.toMatch(/waits for you|since you last read/);
+    expect(row('#9 Work 9 W9')).toContain('title="1 thing here waits for you"');
     expect(row('Architect of p')).toContain('title="2 new since you last read"');
   });
 });

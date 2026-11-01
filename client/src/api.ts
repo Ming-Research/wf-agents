@@ -771,16 +771,20 @@ state: string,
 project: string, architect_work: number | null, round: number | null, cell: string | null, };
 
 /**
- * A conversation in full: its entries in time order; what waits for the owner in it, the open blockers the owner
- * holds with their forms (the asks, which show where they were asked, and the design cards whose ruling a work waits
- * for, pinned at its top); in the one-to-one with an architect, the questions it pinned for the owner's reply, at its
- * bottom, and the one it waits on now; and how far the owner has read it.
+ * A conversation in full: its entries in time order; what waits for the owner in it, which the bar under its head
+ * pins (the asks, which show where they were asked, and the design cards that wait for the owner's ruling, in the
+ * bubbles of their stages); in the one-to-one with an architect, the questions it put to the owner that wait for a
+ * reply, and the one it waits on now; and how far the owner has read it.
  */
 export type ConversationDetail = { key: string, entries: Array<ConversationEntry>, 
 /**
  * The asks that wait for the owner where they were asked; the questions pinned are not among them.
  */
-asks: Array<OwnerAsk>, design_cards: Array<DesignCard>, 
+asks: Array<OwnerAsk>, 
+/**
+ * The design cards of its work that wait for the owner's ruling, whether or not the work waits on one yet.
+ */
+design_cards: Array<DesignCard>, 
 /**
  * In the one-to-one with an architect: the questions it pinned for the owner's reply, newest first, each an ask of
  * the architect's that waits and parks a matter still open, as the engine reads them; none in another
@@ -841,7 +845,7 @@ images: Array<ImageSent>, };
 
 /**
  * What the owner says to a project's architect in their one-to-one: the words, the images sent with them, and the
- * question pinned there that they reply to, when the owner ticked one.
+ * question of the architect's they reply to, when the box replies to one.
  */
 export type ArchitectSaid = { text: string, 
 /**
@@ -2575,7 +2579,7 @@ export type Failure = { name: string,
  */
 when: string, handle: Handle, desc: string, };
 
-export type Handle = "wait" | "retry" | "pause" | "repair";
+export type Handle = "wait" | "retry" | "pause" | "fresh" | "repair";
 
 /**
  * A way a round ends that is the engine's, not the agent's: a round cut off, a step it cannot take, a message it does

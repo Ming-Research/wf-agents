@@ -170,7 +170,7 @@ function WorkRows({ list, status, at }: { list: WorkSummary[]; status: Status | 
         {list.map((w) => (
           <tr key={w.id}>
             <td>
-              <Link to={workHref(w.id)}>#{w.id}</Link>
+              <Link to={workHref(w.id)}>{t('work_name', { id: w.id })}</Link>
             </td>
             <td>{w.item !== null ? <ItemRef id={w.item} title={w.title} /> : null}</td>
             <td>{standingWords(w, status)}</td>

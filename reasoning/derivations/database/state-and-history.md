@@ -16,7 +16,7 @@ Decision round-definition: One agent run from the input the engine gives to the 
 
 Rests on: C:information
 
-Decision round-key: A round is known by its work and its number among the work's rounds, counted from 1 in the order they started, and named R<work>-<n> (R5-9 is the ninth round of work 5) wherever a person or an agent sees one: the page and its addresses, the interface, the command line, the views agents query and the addresses in agents' messages; the rounds' key is the work and the number, every row that points to a round holds both under a foreign key over the two, and no number across all works is left, instead of one sequence of round numbers across all works, because a person or an agent reading a round should see at once which round of its work it is, and one sequence across works made a work's rounds jump (work 1's 102 rounds were spread over 1 to 240).
+Decision round-key: A round is known by its work and its number among the work's rounds, counted from 1 in the order they started, and named R<work>-<n> (R5-9 is the ninth round of work 5) wherever a person or an agent sees one: the page and its addresses, the interface, the command line, the views agents query and the addresses in agents' messages; the rounds' key is the work and the number, every row that points to a round holds both under a foreign key over the two, and there is no number across all works, instead of one sequence of round numbers across all works, because a person or an agent reading a round should see at once which round of its work it is, and one sequence across works made a work's rounds jump (work 1's 102 rounds were spread over 1 to 240).
 
 Rests on: C:information, F:global-round-numbers
 

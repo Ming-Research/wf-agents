@@ -1125,7 +1125,12 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
                         .map(str::to_string)
                         .or_else(|| (!errors.is_empty()).then(|| errors.join("; ")))
                         .unwrap_or_else(|| "the CLI gave no reason".to_string());
-                    reply.error = Some(format!("{}: {why}", v["subtype"].as_str().unwrap_or("error")));
+                    // The subtype names what failed on the CLI's side; an error the CLI reports under "success", as it
+                    // reports an API it cannot reach, is said by its reason alone.
+                    reply.error = Some(match v["subtype"].as_str() {
+                        Some("success") => why,
+                        k => format!("{}: {why}", k.unwrap_or("error")),
+                    });
                 }
                 reply.result = v["result"].as_str().map(str::to_string);
                 let structured = v.get("structured_output").filter(|s| !s.is_null()).cloned();
@@ -1187,9 +1192,11 @@ fn json_in(text: &str) -> Option<Value> {
 /// The kinds of run that end without a return, as the flow's rounds section names them, and what tells each apart in
 /// what the CLI reports. The first kind whose words the report holds is the kind; a report that holds none of them is
 /// a passing failure.
-const KINDS: [(&str, &[&str]); 5] = [
+const KINDS: [(&str, &[&str]); 6] = [
     // First, since what the command line reports of it may quote the agent's return, which may hold any words.
     ("unparsed", &["max_structured_output_retries"]),
+    // The service's own words when its safety classifier stops a run or refuses its message.
+    ("flagged", &["safeguards flagged", "stopped by a safety classifier"]),
     (
         "usage_limit",
         &[
@@ -2058,6 +2065,17 @@ mod tests {
             r.error.as_deref(),
             Some("error_during_execution: the CLI gave no reason")
         );
+        // An API it cannot reach the CLI reports as an error under "success": the reason alone, still told offline.
+        let mut r = Reply::default();
+        read_stream(
+            r#"{"type":"result","subtype":"success","is_error":true,"result":"API Error: Can't reach the API server (ENOTFOUND)"}"#,
+            &mut r,
+        );
+        assert_eq!(
+            r.error.as_deref(),
+            Some("API Error: Can't reach the API server (ENOTFOUND)")
+        );
+        assert_eq!(failure_kind(r.error.as_deref().unwrap_or_default()), "offline");
     }
 
     // What the agent does is told from the stream as it comes: a tool with what it is used on, the start of what it
@@ -2108,6 +2126,12 @@ mod tests {
             "offline"
         );
         assert_eq!(failure_kind("API Error: 529 Overloaded"), "transient");
+        assert_eq!(
+            failure_kind(
+                "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup)."
+            ),
+            "flagged"
+        );
         assert_eq!(failure_kind("claude exited with signal: 9 and no result"), "transient");
     }
 

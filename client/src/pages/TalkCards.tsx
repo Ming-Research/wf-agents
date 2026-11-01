@@ -44,7 +44,7 @@ import { cost, duration } from '../format';
 import { useStatus } from '../live';
 import { words } from '../labelled';
 import { firstWords, Markdown, MarkdownLine } from '../markdown';
-import { CommitLink, Fold, ItemRef, LinkButton, PrLink, RoundLink } from '../parts';
+import { CommitLink, Fold, ItemRef, PrLink, RoundLink } from '../parts';
 import { architectHref, href, Link, observationsHref, roundAt, sideHref } from '../route';
 import { t, tn, type Key } from '../text';
 import { joinedWords, SEP } from '../voices';
@@ -61,36 +61,12 @@ function Said({ text }: { text: string }) {
   );
 }
 
-/// A design card pinned for the owner, named where else it would show: one line that says it waits above, a click
-/// bringing the pinned card into view, instead of the card drawn a second time.
-function PinnedAbove({ id }: { id: number }) {
-  return (
-    <p className="talk-card-note">
-      <LinkButton
-        onClick={() => {
-          const el = document.getElementById(`design-card-${id}`);
-          el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-          el?.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true });
-        }}
-      >
-        {t('stage_card_pinned', { id })}
-      </LinkButton>
-    </p>
-  );
-}
-
 /// What a stage's bubble folds under its line: what its rounds said, oldest first, each with who said it and its round;
 /// at the design stage, the design (the approaches compared, the one chosen, the design and the acceptance, or while
 /// none is chosen, where the engineer leans and what the choice waits for); the design cards its rounds handed in,
-/// each folded to its head line, but one pinned for the owner's ruling (`pinned`), which the band at the top holds and
-/// this names in one line that leads there, so that it shows once; and, once the stage is over, what the engine told
-/// of the work meanwhile.
-function StageFolds({ s, w, work, pinned }: {
-  s: StageCard;
-  w: WorkSummary | null;
-  work: number;
-  pinned: readonly number[];
-}) {
+/// each folded to its head line, the one that waits for the owner's ruling too, which the bar over the stream leads to
+/// and opens; and, once the stage is over, what the engine told of the work meanwhile.
+function StageFolds({ s, w, work }: { s: StageCard; w: WorkSummary | null; work: number }) {
   const engineer = s.notes.filter((n) => n.line === 'engineer');
   const leans = engineer.length > 0 ? engineer[engineer.length - 1].text : null;
   const design = s.stage === 'design' && s.shown.some((x) => ['options', 'chosen', 'design', 'acceptance'].includes(x.path));
@@ -116,13 +92,9 @@ function StageFolds({ s, w, work, pinned }: {
           </div>
         </Fold>
       ) : null}
-      {s.design_cards.map((c) =>
-        pinned.includes(c.id) ? (
-          <PinnedAbove key={c.id} id={c.id} />
-        ) : (
-          <DesignCardView key={c.id} c={c} round={<RoundLink work={c.work} round={c.round} />} folded />
-        ),
-      )}
+      {s.design_cards.map((c) => (
+        <DesignCardView key={c.id} c={c} round={<RoundLink work={c.work} round={c.round} />} folded />
+      ))}
       {!s.current && s.events.length > 0 ? (
         <Fold className="talk-fold" summary={tn('stage_events', s.events.length)}>
           {s.events.map((x, i) => (
@@ -145,14 +117,12 @@ function StageFolds({ s, w, work, pinned }: {
 /// leading to the cell, and what the engine told of the work meanwhile under it; once over, how it ended and why in
 /// words ("sent back: 6 findings in “Design tree review”"), then the pull request and the commit that merged the work,
 /// or the work that took it over; then the gist of what its last round said; and what more there is folded under it
-/// (`StageFolds`), the design card pinned for the owner (`pinned`) named there in one line. Its links go to the work's
-/// project on GitHub (`project`).
-export function StageBubble({ e, s, w, project, pinned }: {
+/// (`StageFolds`). Its links go to the work's project on GitHub (`project`).
+export function StageBubble({ e, s, w, project }: {
   e: ConversationEntry;
   s: StageCard;
   w: WorkSummary | null;
   project: string | null;
-  pinned: readonly number[];
 }) {
   const status = useStatus();
   const work = e.work ?? 0;
@@ -209,7 +179,7 @@ export function StageBubble({ e, s, w, project, pinned }: {
             </p>
           ))
         : null}
-      <StageFolds s={s} w={w} work={work} pinned={pinned} />
+      <StageFolds s={s} w={w} work={work} />
     </LiveBubble>
   );
 }

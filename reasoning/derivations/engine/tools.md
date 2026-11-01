@@ -14,7 +14,7 @@ Decision log-tail-failure: A red check's log tail is what of its log tells why i
 
 Rests on: C:information, C:efficient, F:sixth-trial-log-tails
 
-Decision ci-test-times: The ci tool gives, for each test the agent named, that test's own time, read from the line cargo-nextest writes as each test ends in the logs of every job of the fast CI, the jobs that each run a part of the tests included, with how it ended when it did not pass, or that the test was not found there, because without a time the agent fetched the whole job log to find one, and the time of the whole test binary that holds it, all `cargo test` gives, says nothing about the one test, while nextest runs each test on its own and times it; a fast CI that runs its tests another way gives the agent no times.
+Decision ci-test-times: The ci tool gives, for each test the agent named, that test's own time, read from the line cargo-nextest writes as each test ends in the logs of every job of the fast CI, the jobs that each run a part of the tests included, with how it ended when it failed, because without a time the agent fetched the whole job log to find one, and the time of the whole test binary that holds it, all `cargo test` gives, says nothing about the one test, while nextest runs each test on its own and times it; a fast CI that runs its tests another way gives the agent no times.
 
 Rests on: C:information, C:efficient, F:agent-fetched-job-log, F:cargo-test-binary-time, F:nextest-times-each
 
@@ -32,7 +32,7 @@ Rests on: C:design-on-merit, F:waved-off-red-breaks-main
 
 Decision github-english: What the engine writes to GitHub of its own is in English and holds none of the owner's words or an item's text, which are in the owner's language: a pull request the engineer has handed in no title and description for, at its first push (the ci tool) or when the full CI opens it, is opened as "Item" and the item's number, with a description saying that its title and description are the engineer's to hand in, and the engineer's `pr` at a later push replaces both; a pull request closed because its work ended says only that its work ended without merging, and one closed for the sub-items that took its work over names them by their numbers; instead of the item's title, problem and why, the reason the item was cancelled and the sub-items' titles, because the owner ruled that everything in a pull request is in English, and an item is written in the owner's language.
 
-Rests on: F:repository-english, D:item-language
+Rests on: F:repository-english, D:item-text-language
 
 Decision pr-base-main: A work's pull request merges into the project's main (`main` in its configuration) and nowhere else: whenever the engine opens or updates a pull request (the ci tool, the full CI on the draft), it sets the pull request's base to main when it is another branch, and before it merges one (cell `M2`, and the revert of a merge that broke main) it does so again, merging nothing and failing, with both branches named, when the base cannot be set; instead of merging into whatever base the pull request has, because a pull request keeps the base it was opened with, while a work taken over keeps the pull request of the work before it and a project's main may change: in a trial whose project's main was a sandbox branch, a work taken over held a pull request opened against the real development branch, and merging it would have put the trial's code there.
 

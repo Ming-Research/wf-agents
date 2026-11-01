@@ -2,6 +2,6 @@ Decision loopback-only: The interface listens on the loopback address only and c
 
 Rests on: C:design-on-merit, F:browser-reaches-loopback
 
-Decision no-login: The interface has no login, provisionally, because while it listens on the loopback address only the owner's own machine reaches it; a login is reopened when the interface is to be reached from anywhere else.
+Decision no-login: The interface has no login, because while it listens on the loopback address only the owner's own machine reaches it.
 
 Rests on: C:problem-first, D:loopback-only

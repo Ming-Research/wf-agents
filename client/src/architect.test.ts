@@ -286,7 +286,7 @@ describe("the architect's page", () => {
       ),
     );
     expect(all.parts.map((p) => [p.key, p.words, p.to])).toEqual([
-      ['reply', 'replied to work 7', href({ page: 'messages', open: 'work:7' })],
+      ['reply', 'replied to W7', href({ page: 'messages', open: 'work:7' })],
       ['item new', '1 item made', null],
       ['item reordered', '1 item moved', null],
       ['item other', '1 other item change made', null],
@@ -323,7 +323,7 @@ describe("the architect's page", () => {
     // One thing beside another result is counted and listed.
     const beside = matterResult(matter(handled({ reply: 'Yes.', reply_to: 7 }), [thing('observation', 'merge', 22)]));
     expect(beside.one).toBeNull();
-    expect(beside.parts.map((p) => p.words)).toEqual(['replied to work 7', '1 merged into an observation already there']);
+    expect(beside.parts.map((p) => p.words)).toEqual(['replied to W7', '1 merged into an observation already there']);
     // Item changes beside none it names, what waits for the review, and a count of one or more.
     expect(matterResult(matter(handled({ made: 2, collected: 1 }))).parts.map((p) => p.words)).toEqual([
       '2 item changes made',

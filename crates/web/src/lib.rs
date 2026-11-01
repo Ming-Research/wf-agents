@@ -267,7 +267,7 @@ async fn status(State(app): State<App>) -> Result<Json<api::Status>, Fail> {
 }
 
 /// Tells every open page how the engine stands now that the owner asked something of it: before the engine's loop
-/// does, which it does only between two steps.
+/// does, which it does only once a turn, after it dispatched.
 fn tell_status(app: &App) {
     if let Some(s) = app.bus.status() {
         app.bus.publish(Event::Status {

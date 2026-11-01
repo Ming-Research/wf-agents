@@ -1,8 +1,8 @@
-Decision gate-needs: Each gate in the flow states what it needs (a setting in the project's configuration); a gate whose need is not met for the project is taken by the engine down its not-applicable row and recorded, without running a round, instead of asking an agent, because the answer is fixed by the configuration and a round spent on it is wasted.
+Decision gate-needs: Each gate in the flow states what it needs (a setting in the project's configuration); a gate whose need is not met for the project is answered by the engine, down its not-applicable row where it has one and otherwise down its outcome that goes on, and recorded, without running a round, instead of asking an agent, because the answer is fixed by the configuration and a round spent on it is wasted.
 
 Rests on: C:efficient
 
-Decision gate-na-no-column: A gate the engine took down its not-applicable row is no column of the table review, and its round says that the engine answered it and why, instead of a column asking whether its reason holds, because nobody judged it: the project's configuration answered it.
+Decision gate-na-no-column: A gate the engine answered because the project does not meet its need is no column of the table review, and its round says that the engine answered it and why, instead of a column asking whether its reason holds, because nobody judged it: the project's configuration answered it.
 
 Rests on: C:problem-first, D:gate-needs
 
@@ -10,6 +10,6 @@ Decision work-own-change: Where the engine judges what a work changed from one c
 
 Rests on: C:information, F:main-merge-sent-back
 
-Decision gate-unmet-answer: A gate whose need the project does not meet is answered by the engine instead of being asked: with not applicable where the gate has it, and otherwise with the gate's outcome that goes on, each with why it was not asked.
+Decision gate-unmet-answer: A gate whose need the project does not meet is answered by the engine instead of being asked: with not applicable where the gate has it, and otherwise with the gate's outcome that goes on, each with why it was not asked, because the answer is fixed by the configuration and a round spent on it is wasted (D:gate-needs), and a gate that does not apply to the project holds no work of it back.
 
-Open: the reason, which the decision does not give; to ask the owner.
+Rests on: C:efficient, D:gate-needs
