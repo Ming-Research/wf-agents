@@ -11758,6 +11758,10 @@ fn of_two_works_back_from_waiting_one_takes_the_one_free_slot() {
         Ok(())
     })
     .unwrap();
+    // A pass finds both replies come, granting no slot to a work before its step found its wait over; the next grants
+    // the one free slot to the first.
+    e.tick().unwrap();
+    assert_eq!(at(&e, first).as_deref(), Some("A2"), "{log}");
     e.tick().unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_ne!(at(&e, first).as_deref(), Some("A2"), "{log}");
@@ -12401,6 +12405,8 @@ fn a_round_whose_step_was_dispatched_before_a_halt_does_not_start() {
     let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
     stop.shut();
     held.store(b, Ordering::SeqCst);
+    // The second's round starts a new session, as the owner may ask, whose opening is its step's first write.
+    e.sessions().ask_new(api::Fresh::Work(b));
     e.dispatch(&Go::default()).unwrap();
     let until = Instant::now() + Duration::from_secs(10);
     while !(stop.came() > 0 && e.halt().is_some() && !e.in_flight().contains(&a)) && Instant::now() < until {
@@ -12491,7 +12497,8 @@ fn a_work_back_from_waiting_takes_the_free_slot_before_one_still_waiting_with_a_
     };
     // With one slot, the first work asks and waits, holding none, and the second starts in it and asks in turn.
     assert!(
-        steps_until(&mut e, 30, |e| question(e, first).is_some() && question(e, second).is_some()),
+        steps_until(&mut e, 30, |e| question(e, first).is_some()
+            && question(e, second).is_some()),
         "{}",
         said.lock().unwrap().join("\n")
     );
