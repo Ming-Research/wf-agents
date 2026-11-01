@@ -215,3 +215,5 @@ Fact owner-looks-for-every-round: The owner looks in a stage's bubble for each r
 Fact owner-reads-line-as-speakers: The owner reads the words on a bubble's line as said by the one whose bubble it is, and asked who said them when they were a tester's on the engineer's bubble.
 
 Fact owner-judges-work-by-run-time: The owner judges whether a work ran too long by how long it ran; when it started tells the owner little.
+
+Fact owner-finds-kind-faint: The owner finds what a stage's or a matter's bubble is about, small, muted and of normal weight at its head, too faint for what matters most in it.

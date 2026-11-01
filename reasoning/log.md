@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 Set what a stage's or a matter's bubble is about in semibold
+
+Changed: D:conversation-chat changed, F:owner-finds-kind-faint added
+
+Why: The owner found the stage or the matter at a bubble's head, small, muted and of normal weight, too faint for what matters most in the bubble, and asked for it in bold and nothing else changed; it stays small and muted, after who says it, so that it is not read as a speaker.
+
+Re-examined: the dependents of D:conversation-chat, which still hold, the head's order and parts being unchanged
+
+Ruling: the owner's request of 2026-11-01 to set it in bold and change nothing else
+
 ## 2026-11-01 Stand each bubble where it last changed, list every round of a stage, name who said its gist, and give a work's run time
 
 Changed: D:live-bubble changed, D:chat-holds-members changed, D:work-group-chat changed, D:pinned-band-and-stream changed, D:works-lists-columns changed, F:owner-reads-updated-bubble-as-newest added, F:owner-looks-for-every-round added, F:owner-reads-line-as-speakers added, F:owner-judges-work-by-run-time added

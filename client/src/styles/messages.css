@@ -556,6 +556,11 @@ button.talk-pinbar-line:hover .talk-pinbar-words {
   margin: 0;
 }
 
+/* What a bubble of an agent's own work is about, at its head: a kind's look, semibold so that it is found. */
+.talk-about {
+  font-weight: var(--base-text-weight-semibold);
+}
+
 /* The one line of a thing that runs and then ends, a stage's bubble or a matter's: what happens now or what came of it,
    in words with its links, then the gist of what was said last, muted, all on one line cut where it ends and whole on
    hovering; how it stands is a mark in its head; what the engine told of it meanwhile under it in the colour of what
