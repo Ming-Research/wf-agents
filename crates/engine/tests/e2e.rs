@@ -7950,9 +7950,9 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     for end in [
         item_address.as_str(),
         "·R1·understanding",
-        "·D2·chosen",
-        "·D2·estimate",
-        "·D7·answer",
+        "·D4·chosen",
+        "·D4·estimate",
+        "·D14·answer",
     ] {
         assert_eq!(
             given_ending(implements[0], end),
@@ -7992,7 +7992,7 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     assert_eq!(lines[2].2, "T6,T6");
     let rounds = agent_rounds(&e, item);
     let fixes: Vec<&Value> = rounds.iter().filter(|r| r.1 == "T6").map(|r| &r.2).collect();
-    for end in [item_address.as_str(), "·D2·acceptance", "·D2·design", "·I1·conditions"] {
+    for end in [item_address.as_str(), "·D4·acceptance", "·D4·design", "·I1·conditions"] {
         assert_eq!(
             given_ending(fixes[0], end),
             Some(true),
