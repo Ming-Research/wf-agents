@@ -25,11 +25,9 @@ Decision config-names-as-keys: A name in the configuration (a project, a level, 
 
 Rests on: C:design-on-merit, F:copies-drift
 
-Decision item-level-model: An item's level, its tier, picks the command line and the model its agents run with, and the advisor runs at the level one above the item's (the next in the order of the levels' names, by number when they are numbers; the top level stays at the top), each round recording the model it ran on, instead of every line at the item's level, because the owner decided that the advisor is the engineer with a higher model, as the flow says (D:advisor-as-engineer): one level above the engineer.
+Decision item-level-model: An item's level, its tier, picks the command line and the model its agents run with, and the advisor runs at the level one above the item's (the next in the order of the levels' names, by number when they are numbers; the top level stays at the top), each round recording the model it ran on, instead of every line at the item's level, because the advisor is the engineer with a higher model (D:advisor-as-engineer): one level above the engineer.
 
 Rests on: D:advisor-as-engineer
-
-Open: the premise behind the owner's deciding that the advisor is the engineer with a higher model, one level above the engineer, which D:advisor-as-engineer states as its choice without giving it; to ask the owner.
 
 Decision effort-low-all-or-none: The cells of a line run at `low` all or none, which the flow's check refuses otherwise (the observer's one cell runs at `low`; the architect's rethink after a batch at `medium`), because `low` does not think, and turning thinking on or off may leave nothing of the session's prompt cache; rounds of a line between `medium`, `high` and `xhigh` kept reading it.
 

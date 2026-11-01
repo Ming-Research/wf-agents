@@ -199,3 +199,11 @@ Fact owner-finds-place-on-chart: On a large chart the owner looks for where the 
 Fact owner-cannot-tell-sent-from-held: In one list of a round's conditional inputs, those sent in bold and those held greyed, the owner cannot tell what the agent got this round from what its session already held.
 
 Fact owner-read-work-as-item: The owner read "#5" in the list of conversations, the group of work 5 on item 1, as item 5, which the items' tree names "#5".
+
+Fact owner-reads-round-gist: The owner reads what a round did from a short passage of it, finds its return shown first as JSON unfriendly, and opens the return only when needed.
+
+Fact owner-reads-return-as-json: The owner reads a round's return more easily as its JSON, laid out, than field by field under each field's title, which loses the JSON's layout.
+
+Fact owner-given-titles-strange: The owner finds sections titled "What it was given" and "What it handed back" strange to read.
+
+Fact owner-mixed-sizes-hard: The owner finds a line of words in two sizes hard to read.

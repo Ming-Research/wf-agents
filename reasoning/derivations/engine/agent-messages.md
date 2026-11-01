@@ -147,9 +147,9 @@ Decision unverified-column-decided: A column the review could not verify is list
 
 Rests on: C:efficient
 
-Decision unmeasured-slowdown-column: The column of a measured slowdown, when nothing was measured (the design decided without measuring and no measurement ran), rests on the design's reason that no measurement was needed, which the review judges against the change as made, a finding asking for the measurement where the reason does not hold, never a column not verified for want of a measurement.
+Decision unmeasured-slowdown-column: The column of a measured slowdown, when nothing was measured (the design decided without measuring and no measurement ran), rests on the design's reason that no measurement was needed, which the review judges against the change as made, a finding asking for the measurement where the reason does not hold, never a column not verified for want of a measurement, so that the column does not go back and forth (D:unverified-column-decided): with no measurement run, no later review could verify it either.
 
-Open: the reason, which the decision does not give; to ask the owner.
+Rests on: C:efficient, D:unverified-column-decided
 
 Decision review-card-ci-inputs: The table review and the design tree review are given the work's design card as it stands, its latest, and the earlier cards it replaced by number only, and the latest run of the fast CI, of the full CI on the draft and of the tests on the code before the change, each with the head it ran on, its result and the links to its runs, instead of every design card of the work in full and no CI, because a replaced card is history they need not judge, and their columns ask whether the evidence comes from the head to be merged, which each review spent a round of tools finding.
 

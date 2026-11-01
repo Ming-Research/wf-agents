@@ -59,11 +59,9 @@ Decision line-system-prompt: A session starts with a system prompt that holds wh
 
 Rests on: C:efficient, F:cache-shared, F:cache-prefix, F:append-system-prompt, F:first-message-varies, F:sixth-trial-new-sessions
 
-Decision cell-effort: The session manager starts a round at the reasoning effort its cell declares in the flow, whatever the model the item's level picks, instead of an effort for each level, because the owner set the effort by the kind of task each cell is, and a level is only a model; changing an effort is a change to the flow. A changed effort between rounds of a session keeps its cache while thinking stays on, which the flow's check holds within a line (D:effort-low-all-or-none).
+Decision cell-effort: The session manager starts a round at the reasoning effort its cell declares in the flow, whatever the model the item's level picks, instead of an effort for each level, because what a round's thinking is worth depends on the kind of task its cell is, not on one budget for every cell of an item alike, and a level is only a model; changing an effort is a change to the flow. A changed effort between rounds of a session keeps its cache while thinking stays on, which the flow's check holds within a line (D:effort-low-all-or-none).
 
-Rests on: F:effort-keeps-cache, D:item-level-model, D:effort-low-all-or-none
-
-Open: the premise behind the owner setting the effort by the kind of task each cell is; to ask the owner.
+Rests on: C:efficient, F:effort-keeps-cache, D:item-level-model, D:effort-low-all-or-none
 
 Decision round-hooks: While a round runs, the session manager gives its command line two hooks (`--settings`): after each tool use, `wf-agents deliver` hands in the interjections waiting for the round's line, records them as delivered in the round, and the round's return is checked against them as against those its message gave; after a compaction, the session is given again at once what the round's cell is given as a session that holds nothing but its system prompt is sent it, from a file kept while the round runs; instead of interjections waiting for the next round and a compacted session carrying on without what it was given, because the flow says the session manager does both, and the command line adds a hook's output to the session where the agent is. A round that has ended takes no interjection, so a keep-warm ping, which runs that round's command line again, hands in none; nor does a round of a cell that reads no interjections, as every cell of the architect's graph, whose hook is given no line.
 

@@ -10,6 +10,6 @@ Decision work-own-change: Where the engine judges what a work changed from one c
 
 Rests on: C:information, F:main-merge-sent-back
 
-Decision gate-unmet-answer: A gate whose need the project does not meet is answered by the engine instead of being asked: with not applicable where the gate has it, and otherwise with the gate's outcome that goes on, each with why it was not asked.
+Decision gate-unmet-answer: A gate whose need the project does not meet is answered by the engine instead of being asked: with not applicable where the gate has it, and otherwise with the gate's outcome that goes on, each with why it was not asked, because the answer is fixed by the configuration and a round spent on it is wasted (D:gate-needs), and a gate that does not apply to the project holds no work of it back.
 
-Open: the reason, which the decision does not give; to ask the owner.
+Rests on: C:efficient, D:gate-needs
