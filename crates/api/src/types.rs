@@ -245,6 +245,9 @@ pub struct WorkSummary {
     /// When its first round started, and when its last round started or ended.
     pub started_at: Option<i64>,
     pub last_at: Option<i64>,
+    /// How long its agents' and its tools' rounds ran, the one running counted to now, in milliseconds: not the time
+    /// it waited on the owner, the architect or other items.
+    pub ran_ms: i64,
     pub rounds: i64,
     /// Rounds whose return was sent back, and rounds whose run failed or was cut off.
     pub sent_back: i64,
@@ -1267,12 +1270,16 @@ pub struct StageCard {
     pub design_cards: Vec<DesignCard>,
 }
 
-/// What a round said it did, its progress note: the round, the line whose round it was, and the note.
+/// One round of a stage, as its bubble lists it: the round, its cell's title, the line whose round it was (none for a
+/// step of the engine's or its tools), the row it took (none while it runs, or when it ended without one), and what it
+/// said it did, its progress note, when it said anything.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct StageNote {
     pub round: i64,
+    pub title: Option<String>,
     pub line: Option<String>,
-    pub text: String,
+    pub took: Option<String>,
+    pub text: Option<String>,
 }
 
 /// What a review found: the review, by its cell's title, its round, and how many findings it left open.
@@ -1294,6 +1301,9 @@ pub struct MatterProgress {
     pub what: String,
     /// queued, held, working, done or withdrawn.
     pub state: String,
+    /// When the architect took it up, or when it came into the conversation otherwise: when its bubble says it began,
+    /// the bubble standing at its latest change.
+    pub began: i64,
     /// While it is worked on: the cell the architect is at, with its title, and the round of the architect's work
     /// there.
     pub cell: Option<String>,

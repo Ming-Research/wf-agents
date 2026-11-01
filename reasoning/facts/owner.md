@@ -207,3 +207,11 @@ Fact owner-reads-return-as-json: The owner reads a round's return more easily as
 Fact owner-given-titles-strange: The owner finds sections titled "What it was given" and "What it handed back" strange to read.
 
 Fact owner-mixed-sizes-hard: The owner finds a line of words in two sizes hard to read.
+
+Fact owner-reads-updated-bubble-as-newest: The owner takes a bubble whose words were updated as the newest thing said in the conversation, and looks for it at the bottom.
+
+Fact owner-looks-for-every-round: The owner looks in a stage's bubble for each round of the stage, and reads a cell that ran several times shown as one state as its rounds missing.
+
+Fact owner-reads-line-as-speakers: The owner reads the words on a bubble's line as said by the one whose bubble it is, and asked who said them when they were a tester's on the engineer's bubble.
+
+Fact owner-judges-work-by-run-time: The owner judges whether a work ran too long by how long it ran; when it started tells the owner little.

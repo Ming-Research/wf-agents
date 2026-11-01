@@ -61,13 +61,14 @@ function Said({ text }: { text: string }) {
   );
 }
 
-/// What a stage's bubble folds under its line: what its rounds said, oldest first, each with who said it and its round;
+/// What a stage's bubble folds under its line: its rounds, oldest first, every one of them, each a line of its round,
+/// its cell's title, whose round it was and the row it took, with what it said under it when it said anything;
 /// at the design stage, the design (the approaches compared, the one chosen, the design and the acceptance, or while
 /// none is chosen, where the engineer leans and what the choice waits for); the design cards its rounds handed in,
 /// each folded to its head line, the one that waits for the owner's ruling too, which the bar over the stream leads to
 /// and opens; and, once the stage is over, what the engine told of the work meanwhile.
 function StageFolds({ s, w, work }: { s: StageCard; w: WorkSummary | null; work: number }) {
-  const engineer = s.notes.filter((n) => n.line === 'engineer');
+  const engineer = s.notes.filter((n) => n.line === 'engineer' && n.text !== null);
   const leans = engineer.length > 0 ? engineer[engineer.length - 1].text : null;
   const design = s.stage === 'design' && s.shown.some((x) => ['options', 'chosen', 'design', 'acceptance'].includes(x.path));
   return (
@@ -77,10 +78,10 @@ function StageFolds({ s, w, work }: { s: StageCard; w: WorkSummary | null; work:
           {s.notes.map((n) => (
             <div key={n.round} className="stage-note">
               <p className="talk-card-note">
-                {n.line !== null ? `${lineWho(n.line)} ` : null}
-                <RoundLink work={work} round={n.round} />
+                <RoundLink work={work} round={n.round} />{' '}
+                {joinedWords([n.title, n.line !== null ? lineWho(n.line) : null, n.took !== null ? words(n.took) : null])}
               </p>
-              <Said text={n.text} />
+              {n.text !== null ? <Said text={n.text} /> : null}
             </div>
           ))}
         </Fold>
@@ -126,7 +127,16 @@ export function StageBubble({ e, s, w, project }: {
 }) {
   const status = useStatus();
   const work = e.work ?? 0;
-  const latest = s.notes.length > 0 ? s.notes[s.notes.length - 1] : null;
+  // The gist is what its last round that said anything said, naming who said it when it was not the engineer, whose
+  // look the bubble has as the work's own.
+  const said = s.notes.filter((n) => n.text !== null);
+  const latest = said.length > 0 ? said[said.length - 1] : null;
+  const gist =
+    latest === null || latest.text === null
+      ? null
+      : latest.line !== null && latest.line !== 'engineer'
+        ? t('stage_gist_by', { who: lineWho(latest.line), text: latest.text })
+        : latest.text;
   const rounds = href({ page: 'work', id: work, round: s.first, cell: null, tab: 'rounds', only: null });
   const c = s.current && w !== null ? course(w, status) : null;
   const outcome = stageOutcome(s);
@@ -163,13 +173,13 @@ export function StageBubble({ e, s, w, project }: {
       ) : null}
     </BubbleHead>
   );
-  const title = joinedWords([s.current ? now : ended, latest !== null ? firstWords(latest.text) : null]);
+  const title = joinedWords([s.current ? now : ended, gist !== null ? firstWords(gist) : null]);
   return (
     <LiveBubble
       who="engineer"
       head={head}
       line={line}
-      gist={latest?.text ?? null}
+      gist={gist}
       title={title}
     >
       {s.current
@@ -319,7 +329,7 @@ function ArchitectHead({ at, about = null, mark = null, children }: {
 }
 
 /// A matter of the architect's, as one bubble of the architect's of one line, with no one named, posted when it took
-/// the matter up and updated in place (`LiveBubble`): its head names its kind, what it is about, then where it stands as
+/// the matter up and updated in place (`LiveBubble`), standing at its latest change: its head names its kind, what it is about, then where it stands as
 /// a mark (back in the queue, held by the owner's ask, done or withdrawn; while in hand the architect's own, as its
 /// one-to-one's row shows it: the running halo while a round of it runs, its own trouble while held); its line, in
 /// words: while in hand what happens now, as a stage's line says it; once done what came of it (`matterResult`), and
@@ -328,8 +338,7 @@ function ArchitectHead({ at, about = null, mark = null, children }: {
 /// a fold under the line, and a place to set straight with its steps folded too. A matter about a work leads to that
 /// work's group, which holds it in full. A matter that changed nothing is not in the conversation once done: the queue
 /// beside it lists it among those handled.
-export function MatterBubble({ e, m, project, architect }: {
-  e: ConversationEntry;
+export function MatterBubble({ m, project, architect }: {
   m: MatterProgress;
   project: string;
   architect: WorkSummary | null;
@@ -369,7 +378,7 @@ export function MatterBubble({ e, m, project, architect }: {
           ? t('matter_withdrawn_why', { why: m.withdrawn })
           : t(stands.key);
   const head = (
-    <ArchitectHead at={e.at} about={kind} mark={mark}>
+    <ArchitectHead at={m.began} about={kind} mark={mark}>
       {group !== null ? <Link to={group}>{t('matter_in_group', { work: m.work ?? '' })}</Link> : null}
       {where !== null ? (
         <Link to={where}>

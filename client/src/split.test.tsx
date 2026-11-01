@@ -118,6 +118,7 @@ const work = (id: number, g: CompiledGraph): WorkSummary => ({
   pr: null,
   started_at: 1,
   last_at: 9,
+  ran_ms: 0,
   rounds: 8,
   sent_back: 0,
   failed: 0,

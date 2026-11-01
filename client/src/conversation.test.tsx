@@ -375,6 +375,7 @@ describe("a matter's bubble in the one-to-one with an architect", () => {
     detail: 'missing',
     what: handled.what,
     state: 'done',
+    began: 1,
     cell: null,
     cell_title: null,
     architect_work: null,
@@ -846,6 +847,7 @@ describe('the marks of the list of conversations', () => {
     pr: null,
     started_at: 0,
     last_at: 50,
+    ran_ms: 0,
     rounds: 1,
     sent_back: 0,
     failed: 0,
@@ -988,8 +990,9 @@ describe("a work's group as a chat", () => {
     commit: null,
     taken_over_by: null,
     notes: [
-      { round: 36, line: 'engineer', text: 'Fixed F1.' },
-      { round: 41, line: 'review', text: 'Six findings in the design tree.' },
+      { round: 36, title: 'Fix the findings', line: 'engineer', took: 'done', text: 'Fixed F1.' },
+      { round: 37, title: 'Run tools', line: null, took: 'ran', text: null },
+      { round: 41, title: 'Review the design tree', line: 'review', took: 'findings', text: 'Six findings in the design tree.' },
     ],
     events: [],
     shown: [],
@@ -1022,6 +1025,7 @@ describe("a work's group as a chat", () => {
     pr: null,
     started_at: 0,
     last_at: 50,
+    ran_ms: 0,
     rounds: 72,
     sent_back: 0,
     failed: 0,
@@ -1076,11 +1080,15 @@ describe("a work's group as a chat", () => {
       '<span class="live-line-state"><span class="live-line-why">sent back: 4 findings in “Table review”; 1 finding in “Review the design tree”</span>',
     );
     expect(line).not.toContain('data-component="Label"');
-    expect(line).toContain('Six findings in the design tree.');
+    // The gist is what its last round that said anything said, naming who said it, here not the engineer.
+    expect(line).toContain('review: Six findings in the design tree.');
     expect(line).not.toContain('running-mark');
-    // No cell's code, and the rest folded: what its rounds said.
+    // No cell's code, and the rest folded: every one of its rounds, by its cell's title, whose it was and the row it
+    // took, what it said under it when it said anything.
     expect(html.replace(/<svg.*?<\/svg>/g, '')).not.toMatch(/\bT[0-9]\b|\bM1\b/);
-    expect(html).toContain('What its rounds said (2)');
+    expect(html).toContain('Its rounds (3)');
+    expect(html).toContain('Run tools | ran');
+    expect(html).toContain('Review the design tree | the review | findings');
     // In the stream it is a bubble, not an engine's card on a timeline.
     expect(html).not.toContain('Timeline');
   });
@@ -1356,6 +1364,7 @@ describe("the architect's pause of a work in its group", () => {
     pr: null,
     started_at: 0,
     last_at: 50,
+    ran_ms: 0,
     rounds: 3,
     sent_back: 0,
     failed: 0,
@@ -1521,6 +1530,7 @@ describe("the one-to-one with an architect as a chat", () => {
       detail: 'other',
       what: 'A side report.',
       state: 'working',
+      began: 1,
       cell: null,
       cell_title: null,
       architect_work: null,

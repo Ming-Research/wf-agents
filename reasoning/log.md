@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 Stand each bubble where it last changed, list every round of a stage, name who said its gist, and give a work's run time
+
+Changed: D:live-bubble changed, D:chat-holds-members changed, D:work-group-chat changed, D:pinned-band-and-stream changed, D:works-lists-columns changed, F:owner-reads-updated-bubble-as-newest added, F:owner-looks-for-every-round added, F:owner-reads-line-as-speakers added, F:owner-judges-work-by-run-time added
+
+Why: A stage's or a matter's bubble stood where it began and was updated in place far up the stream, while the owner reads a bubble updated as the newest thing said and looked for it at the bottom; it now stands where it last changed, its head still saying when it began. Its fold listed only the rounds that said something, one line for a cell run several times, which the owner read as rounds missing; it now lists every round, its cell's title, who, the row it took and what it said. The gist on the engineer's bubble was a tester's words with no one named, and the owner asked who said them; it now names who said it when that is not the engineer. The lists of works gave when a work started, which tells the owner little, while the owner judges from how long a work ran whether it ran too long; they now give how long its agents and tools ran, its waits left out.
+
+Re-examined: D:matter-part (D:live-bubble), D:pinned-band and D:answer-in-message (D:pinned-band-and-stream), D:architect-tabs-by-stage and D:architect-tells-in-group (D:work-group-chat): each still holds, the bubbles' parts, the bar and where an ask is answered being unchanged
+
+Ruling: the owner's requests of 2026-11-01 that an updated bubble come last, that a stage's bubble show each of its rounds, folded, that its gist say who said it, and that the lists give a work's total run time in place of its start
+
 ## 2026-11-01 Let a tool or a step that fails without the network wait for it, as an agent's run does
 
 Changed: D:global-failure-wait changed, F:outage-stops-on-tools added

@@ -24,6 +24,7 @@ const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
   pr: null,
   started_at: null,
   last_at: null,
+  ran_ms: 0,
   rounds: 0,
   sent_back: 0,
   failed: 0,
