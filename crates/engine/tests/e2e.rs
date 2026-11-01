@@ -13,8 +13,130 @@ use db::Actor;
 use db::rusqlite::params;
 use engine::agent::{Agents, Reply, Request};
 use engine::hub::{CheckRun, Failure, GitHub};
-use engine::{Advance, Engine, Hooks};
+use engine::{Advance, Ask, Engine, GlobalPause, Go, Hooks, Passed, Stepped};
 use serde_json::{Value, json};
+
+/// The engine's loop as these tests take it: each call is one pass of it ([`Engine::pass`]), which dispatches what the
+/// owner lets go on, each step on a thread of its own, and waits for every job to end, as `wf-agents run --once` does.
+trait Passes {
+    /// One pass while every work goes on: what its first step that moved came to.
+    fn step(&mut self, after: Option<i64>) -> Result<Stepped, String>;
+    /// One pass while every work goes on: whether a step moved or a work started.
+    fn tick(&mut self) -> Result<bool, String>;
+    /// The owner's round of one work while every other work is paused.
+    fn step_work(&mut self, work: i64) -> Result<Stepped, String>;
+    /// One pass while every work is paused but the works and the projects' architects the owner started.
+    fn step_started(
+        &mut self,
+        after: Option<i64>,
+        started: &std::collections::BTreeSet<i64>,
+        architects: &std::collections::BTreeSet<String>,
+    ) -> Result<Stepped, String>;
+    /// The owner's round of a project's architect while every work is paused.
+    fn step_architect(&mut self, project: &str) -> Result<Stepped, String>;
+    /// One pass in which only `work` goes on, every other work held by the global pause: whether it moved, waits or
+    /// stopped.
+    fn advance(&mut self, work: i64) -> Result<Advance, String>;
+}
+
+/// The owner's global pause, every work held but those given and the works of the architects of the projects given.
+fn held_but(runs: &[i64], architects: &[&str]) -> Option<GlobalPause> {
+    Some(GlobalPause {
+        warm: true,
+        runs: runs.iter().copied().collect(),
+        architects: architects.iter().map(|p| (*p).to_string()).collect(),
+    })
+}
+
+/// What a pass came to, as one step: its first step that moved, with every round the pass started or ended.
+fn first_moved(p: &Passed) -> Stepped {
+    Stepped {
+        work: p.work(),
+        started_item: p.started_item(),
+        rounds: p.rounds(),
+        cell: p.cell(),
+        asked: None,
+    }
+}
+
+/// What the owner's round asked as `ask` came to in a pass: its step, or the round taken without one.
+fn asked_in(p: &Passed, ask: &Ask) -> Stepped {
+    p.jobs
+        .iter()
+        .find(|s| s.asked.as_ref() == Some(ask))
+        .cloned()
+        .unwrap_or_default()
+}
+
+impl Passes for Engine {
+    fn step(&mut self, _after: Option<i64>) -> Result<Stepped, String> {
+        Ok(first_moved(&self.pass(&Go::default())?))
+    }
+
+    fn tick(&mut self) -> Result<bool, String> {
+        let p = self.pass(&Go::default())?;
+        Ok(!p.rounds().is_empty() || p.started_item().is_some())
+    }
+
+    fn step_work(&mut self, work: i64) -> Result<Stepped, String> {
+        let go = Go {
+            pause: held_but(&[], &[]),
+            steps: vec![work],
+            architects: Vec::new(),
+        };
+        Ok(asked_in(&self.pass(&go)?, &Ask::Work(work)))
+    }
+
+    fn step_started(
+        &mut self,
+        _after: Option<i64>,
+        started: &std::collections::BTreeSet<i64>,
+        architects: &std::collections::BTreeSet<String>,
+    ) -> Result<Stepped, String> {
+        let go = Go {
+            pause: Some(GlobalPause {
+                warm: true,
+                runs: started.clone(),
+                architects: architects.clone(),
+            }),
+            ..Go::default()
+        };
+        Ok(first_moved(&self.pass(&go)?))
+    }
+
+    fn step_architect(&mut self, project: &str) -> Result<Stepped, String> {
+        let go = Go {
+            pause: held_but(&[], &[]),
+            steps: Vec::new(),
+            architects: vec![project.to_string()],
+        };
+        Ok(asked_in(&self.pass(&go)?, &Ask::Architect(project.to_string())))
+    }
+
+    fn advance(&mut self, work: i64) -> Result<Advance, String> {
+        let go = Go {
+            pause: held_but(&[work], &[]),
+            ..Go::default()
+        };
+        let p = self.pass(&go)?;
+        let w = self.work(work)?;
+        if w.ended.is_some() || w.paused.is_some() || self.done(&w)? {
+            return Ok(Advance::Stopped);
+        }
+        if p.rounds().iter().any(|r| r.work == work) {
+            return Ok(Advance::Moved);
+        }
+        Ok(Advance::Waits(format!("work {work} did not move")))
+    }
+}
+
+/// The keep-warm pings due at `now`, as the loop dispatches them each as its work's job ([`Engine::keep_warm`]), sent
+/// and recorded once every job has ended: how many were dispatched.
+fn warm_now(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<usize, String> {
+    let n = e.keep_warm(now, pause)?;
+    e.drain()?;
+    Ok(n)
+}
 
 /// How many returns of a cell in a row the flow the engine runs sends back before it pauses the work.
 fn pause_after(e: &mut Engine) -> usize {
@@ -3311,7 +3433,7 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
     let busy = Arc::new(Mutex::new(Vec::new()));
     let seen = busy.clone();
     let hooks = Hooks {
-        busy: Arc::new(move |w: Option<i64>| seen.lock().unwrap().push(w)),
+        busy: Arc::new(move |w: &[i64]| seen.lock().unwrap().push(w.to_vec())),
         ..Hooks::default()
     };
     let (mut e, said, item) = start_with(&s, scripts, hooks);
@@ -3331,7 +3453,7 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
             )
             .unwrap();
     assert!(took.is_some(), "{log}");
-    assert_eq!(*busy.lock().unwrap(), [Some(work), None, Some(work), None]);
+    assert_eq!(*busy.lock().unwrap(), [vec![work], vec![], vec![work], vec![]]);
     // Paused, it takes no step by itself.
     let n = rounds_count(&e);
     assert_eq!(e.step(Some(work)).unwrap().work, None);
@@ -4463,7 +4585,7 @@ fn an_action_only_the_owner_can_do_pauses_the_work_until_the_owner_starts_it() {
         if question_took(&e, work).is_some() {
             break;
         }
-        turn(&mut e, &c, None);
+        turn(&mut e, &c);
     }
     let log = said.lock().unwrap().join("\n");
     assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
@@ -7419,7 +7541,7 @@ fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
     assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
-    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e,from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     let_go_on(&mut e, work);
     e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -7484,14 +7606,14 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
     // Not before 55 minutes, and not once the cache has let the session go.
-    assert_eq!(e.keep_warm(from + 54 * 60_000, None).unwrap(), 0);
-    assert_eq!(e.keep_warm(from + 60 * 60_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e,from + 54 * 60_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e,from + 60 * 60_000, None).unwrap(), 0);
     let mut now = from + 55 * 60_000;
-    assert_eq!(e.keep_warm(now, None).unwrap(), 1);
-    assert_eq!(e.keep_warm(now + 60_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e,now, None).unwrap(), 1);
+    assert_eq!(warm_now(&mut e,now + 60_000, None).unwrap(), 0);
     for _ in 0..40 {
         now += 55 * 60_000 + 1_000;
-        e.keep_warm(now, None).unwrap();
+        warm_now(&mut e,now, None).unwrap();
     }
     let log = said.lock().unwrap().join("\n");
     let pings = pings_of(&e, work);
@@ -7577,7 +7699,7 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
     let now = from + 55 * 60_000 + 1_000;
     move_to(&mut e, work, "T6");
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(e.keep_warm(now, None).unwrap(), 1, "{log}");
+    assert_eq!(warm_now(&mut e,now, None).unwrap(), 1, "{log}");
     assert_eq!(
         pinged(&e),
         [(
@@ -7586,7 +7708,7 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
         )]
     );
     move_to(&mut e, work, "M1");
-    assert_eq!(e.keep_warm(now + 2_000, None).unwrap(), 1, "{log}");
+    assert_eq!(warm_now(&mut e,now + 2_000, None).unwrap(), 1, "{log}");
     let pings = pinged(&e);
     assert_eq!(pings.len(), 2, "{pings:?}");
     assert_eq!((pings[1].0.as_str(), &pings[1].1["cell"]), ("engineer", &json!("M1")));
@@ -7613,7 +7735,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
     let (work, _, _) = state(&e, item).unwrap();
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
-    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e,from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     // At a cell that goes on in the session, a round of the session that runs keeps the ping off.
     move_to(&mut e, work, "D9");
     let session: i64 =
@@ -7635,14 +7757,14 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
             Ok(n)
         })
         .unwrap();
-    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e,from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     e.db.write(Actor::Engine, |tx| {
         tx.execute("DELETE FROM rounds WHERE work = ?1 AND n = ?2", [work, open])?;
         Ok(())
     })
     .unwrap();
     assert_eq!(
-        e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(),
+        warm_now(&mut e,from + 55 * 60_000 + 1_000, None).unwrap(),
         1,
         "{}",
         said.lock().unwrap().join("\n")
@@ -7679,7 +7801,7 @@ fn a_ping_says_where_the_work_waited_and_for_what() {
     .unwrap();
     let from = last_call(&e, work);
     assert_eq!(
-        e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(),
+        warm_now(&mut e,from + 55 * 60_000 + 1_000, None).unwrap(),
         1,
         "{}",
         said.lock().unwrap().join("\n")
@@ -9928,52 +10050,63 @@ fn an_observation_with_no_tag_or_a_long_title_is_sent_back() {
 
 // The owner's Start, Pause and Step of a work and of a project's architect, beside the global pause and start.
 
-/// One turn of the engine's loop as `wf-agents run` takes it, which these tests play: the starts over asked carried out,
-/// the owner's Start of a work taken over handed to the work that took it over, the new sessions the owner asked for
-/// handed to the session manager, the pauses of the works the owner started lifted once each may hold a slot, then the
-/// step the owner's asks call for.
-fn turn(e: &mut Engine, c: &api::Control, after: Option<i64>) -> engine::Stepped {
-    e.start_overs().unwrap();
+/// One turn of the engine's loop as `wf-agents run` takes it, which these tests play, every job waited for: the owner's
+/// Start of a work taken over handed to the work that took it over, the new sessions the owner asked for handed to the
+/// session manager, the pauses of the works the owner started lifted once each may hold a slot, then one pass with what
+/// the owner asked, after which the rounds the owner asked for are done with. Gives what the round the owner asked for
+/// came to, or else the first step that moved.
+fn turn(e: &mut Engine, c: &api::Control) -> Stepped {
+    let p = pass_turn(e, c);
+    p.jobs
+        .iter()
+        .find(|s| s.asked.is_some())
+        .cloned()
+        .unwrap_or_else(|| first_moved(&p))
+}
+
+/// One turn of the loop, as [`turn`] takes it: what the whole pass came to.
+fn pass_turn(e: &mut Engine, c: &api::Control) -> Passed {
     for (old, new) in e.replaced() {
         c.replaced(old, new);
     }
-    let asked = c.asked();
     for w in c.take_new_sessions() {
         e.sessions().ask_new(w);
     }
+    let asked = c.asked();
     let (done, architects) = e
         .release_started(&asked.releasing, &asked.architects_releasing)
         .unwrap();
     c.released(&done, &architects);
-    match asked.next() {
-        api::Next::Step(w) => {
-            let s = e.step_work(w).unwrap();
-            c.stepped(Some(w));
-            s
-        }
-        api::Next::Architect(p) => {
-            let s = e.step_architect(&p).unwrap();
-            c.stepped(s.work);
-            s
-        }
-        api::Next::Pass => e.step(after).unwrap(),
-        api::Next::Started => e
-            .step_started(after, &asked.started, &asked.architects_started)
-            .unwrap(),
-        api::Next::Wait => engine::Stepped::default(),
+    let asked = c.asked();
+    let go = Go {
+        pause: asked.paused.then(|| GlobalPause {
+            warm: asked.keep_warm,
+            runs: asked.started.clone(),
+            architects: asked.architects_started.clone(),
+        }),
+        steps: asked.steps.clone(),
+        architects: asked.architects.clone(),
+    };
+    let p = e.pass(&go).unwrap();
+    for (old, new) in e.replaced() {
+        c.replaced(old, new);
     }
+    for s in &p.jobs {
+        match &s.asked {
+            Some(Ask::Work(w)) => c.stepped(*w),
+            Some(Ask::Architect(project)) => c.stepped_architect(project),
+            None => {}
+        }
+    }
+    p
 }
 
-/// Takes turns of the loop, each after the work the last moved, and gives the works that moved, in order.
+/// Takes turns of the loop and gives the works whose steps moved, in order: in each turn, in the order of their ids.
 fn turns(e: &mut Engine, c: &api::Control, n: usize) -> Vec<i64> {
     let mut moved = Vec::new();
-    let mut after = None;
     for _ in 0..n {
-        let s = turn(e, c, after);
-        if let Some(w) = s.work.filter(|_| !s.rounds.is_empty()) {
-            moved.push(w);
-        }
-        after = s.work.or(after);
+        let p = pass_turn(e, c);
+        moved.extend(p.jobs.iter().filter(|s| !s.rounds.is_empty()).filter_map(|s| s.work));
     }
     moved
 }
@@ -10198,7 +10331,7 @@ fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
     // Start all does not lift.
     c.set_paused(true);
     c.ask_step(one, false).unwrap();
-    let stepped = turn(&mut e, &c, None);
+    let stepped = turn(&mut e, &c);
     assert_eq!((stepped.work, stepped.rounds.len()), (Some(one), 1), "{stepped:?}");
     assert_eq!(paused_by(&e, one).as_deref(), Some("owner"));
     c.set_paused(false);
@@ -10215,7 +10348,7 @@ fn a_work_the_owner_starts_still_needs_a_free_slot() {
     let (mut e, said, _) = start(&s, scripts());
     let c = api::Control::default();
     c.set_paused(false);
-    let first = turn(&mut e, &c, None).work.unwrap();
+    let first = turn(&mut e, &c).work.unwrap();
     owner_pauses(&mut e, &c, first);
     e.db.write(Actor::Owner, |tx| {
         tx.execute(
@@ -10227,7 +10360,7 @@ fn a_work_the_owner_starts_still_needs_a_free_slot() {
         Ok(())
     })
     .unwrap();
-    let second = turn(&mut e, &c, Some(first)).work.unwrap();
+    let second = turn(&mut e, &c).work.unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_ne!(second, first, "{log}");
     c.set_paused(true);
@@ -10252,7 +10385,7 @@ fn the_owner_s_start_of_a_work_the_architect_stopped_tells_the_architect() {
     let (mut e, said, item) = start(&s, scripts());
     let c = api::Control::default();
     c.set_paused(false);
-    let work = turn(&mut e, &c, None).work.unwrap();
+    let work = turn(&mut e, &c).work.unwrap();
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",
@@ -10313,7 +10446,7 @@ fn the_architect_the_owner_starts_works_and_goes_on_while_every_work_is_paused()
     assert_eq!(turns(&mut e, &c, 1), [arch]);
     assert_eq!(paused_by(&e, arch), None);
     c.ask_step_architect("p", false).unwrap();
-    let stepped = turn(&mut e, &c, None);
+    let stepped = turn(&mut e, &c);
     assert_eq!(stepped.work, Some(arch));
     assert_eq!(paused_by(&e, arch).as_deref(), Some("owner"));
     assert!(c.asked().architects_started.is_empty());
@@ -10333,7 +10466,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
     let c = api::Control::default();
     c.ask_step(work, true).unwrap();
-    turn(&mut e, &c, None);
+    turn(&mut e, &c);
     let log = said.lock().unwrap().join("\n");
     let lines = line_sessions(&e, work, "engineer");
     assert_eq!(
@@ -10358,7 +10491,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
         if agent_rounds(&e, item).len() > n {
             break;
         }
-        turn(&mut e, &c, None);
+        turn(&mut e, &c);
     }
     let lines = line_sessions(&e, work, "engineer");
     assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.lock().unwrap().join("\n"));
@@ -10369,7 +10502,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
         if agent_rounds(&e, item).len() > n {
             break;
         }
-        turn(&mut e, &c, None);
+        turn(&mut e, &c);
     }
     let lines = line_sessions(&e, work, "engineer");
     let log = said.lock().unwrap().join("\n");
@@ -10398,10 +10531,10 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
     assert_eq!(lines.len(), 1, "{lines:?}\n{log}");
     c.pause(&api::Fresh::Architect("p".into()));
     c.ask_step_architect("p", true).unwrap();
-    turn(&mut e, &c, None);
+    turn(&mut e, &c);
     for _ in 0..5 {
         c.ask_step_architect("p", false).unwrap();
-        turn(&mut e, &c, None);
+        turn(&mut e, &c);
     }
     let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
@@ -10436,9 +10569,9 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
         runs: runs.iter().copied().collect(),
         architects: Default::default(),
     };
-    assert_eq!(e.keep_warm(due, Some(&paused(false, &[]))).unwrap(), 0);
+    assert_eq!(warm_now(&mut e,due, Some(&paused(false, &[]))).unwrap(), 0);
     assert_eq!(
-        e.keep_warm(due, Some(&paused(true, &[]))).unwrap(),
+        warm_now(&mut e,due, Some(&paused(true, &[]))).unwrap(),
         1,
         "{}",
         said.lock().unwrap().join("\n")
@@ -10450,10 +10583,10 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
     // A work the owner started runs on, as every work does with no pause: the line it comes back to is kept warm
     // for its going on.
     let later = due + 55 * 60_000 + 1_000;
-    assert_eq!(e.keep_warm(later, Some(&paused(true, &[work]))).unwrap(), 1);
+    assert_eq!(warm_now(&mut e,later, Some(&paused(true, &[work]))).unwrap(), 1);
     let going_on = json!({ "cell": "D1", "on": "work", "what": "the work goes on" });
     assert_eq!(pings_of(&e, work)[1].0, going_on);
-    assert_eq!(e.keep_warm(later + 55 * 60_000 + 1_000, None).unwrap(), 1);
+    assert_eq!(warm_now(&mut e,later + 55 * 60_000 + 1_000, None).unwrap(), 1);
     assert_eq!(pings_of(&e, work)[2].0, going_on);
     // The owner's switch is kept in the database, as the owner's, across a restart.
     assert!(api::keep_warm_paused(e.db.conn()).unwrap());
