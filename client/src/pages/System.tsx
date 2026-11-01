@@ -269,7 +269,7 @@ function Output({ s }: { s: SystemData }) {
                     <ItemRef id={m.item} title={m.title} />
                   </td>
                   <td>
-                    <Link to={workHref(m.work)}>#{m.work}</Link>
+                    <Link to={workHref(m.work)}>W{m.work}</Link>
                   </td>
                   <td>{time(m.merged_at)}</td>
                   <td className="num">{duration(m.merged_at - m.started_at)}</td>
@@ -309,7 +309,7 @@ function Output({ s }: { s: SystemData }) {
                   </td>
                   <td>{p.item !== null ? <ItemRef id={p.item} title={p.title} /> : null}</td>
                   <td>
-                    <Link to={workHref(p.work)}>#{p.work}</Link>
+                    <Link to={workHref(p.work)}>W{p.work}</Link>
                   </td>
                   <td className="num">{duration(s.at - p.since)}</td>
                 </tr>
@@ -639,7 +639,7 @@ function Counts({ list, head, to }: { list: WorkCount[]; head: string; to: (c: W
         {list.map((c) => (
           <tr key={c.work}>
             <td>
-              <Link to={to(c)}>{c.graph === 'architect' ? t('sys_architect_link') : `#${c.work}`}</Link>
+              <Link to={to(c)}>{c.graph === 'architect' ? t('sys_architect_link') : `W${c.work}`}</Link>
             </td>
             <td>{c.item !== null ? <ItemRef id={c.item} title={c.title} /> : t('sys_architect_of', { project: c.project ?? '' })}</td>
             <td className="num">{c.n}</td>
@@ -733,7 +733,7 @@ function AnomalyRows({ list }: { list: Anomaly[] }) {
               ) : a.round !== null ? (
                 <RoundLink work={a.work} round={a.round} />
               ) : (
-                <Link to={workHref(a.work)}>#{a.work}</Link>
+                <Link to={workHref(a.work)}>W{a.work}</Link>
               )}
             </td>
             <td>{a.item !== null ? <ItemRef id={a.item} title={a.title} /> : t('sys_architect_of', { project: a.project ?? '' })}</td>

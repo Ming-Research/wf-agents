@@ -1408,7 +1408,7 @@ const messages = {
   change_dropped: 'What the review still found',
 
   // The observations view.
-  observation_head: 'Observation {id}',
+  observation_head: 'Observation O{id}',
   observation_reported: 'reported {n} times',
   observation_reported_one: 'reported once',
   observation_closed: 'closed: {why}',

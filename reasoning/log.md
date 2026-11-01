@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 Name an observation O<n>
+
+Changed: D:work-name changed
+
+Why: A matter's result listed "merged into observation #9" beside "moved item #17", each "#" told apart only by the words before it; an observation is now O<n> on the page, in the engine's words and in the architect's overview, "#" being an item's alone, as a work's W<n> made it for works.
+
+Re-examined: none rests on D:work-name
+
+Ruling: the owner's ruling of 2026-11-01 to name observations O<n>
+
 ## 2026-11-01 Close the check of the policy on the owner's reply to keep it
 
 Changed: D:policy-in-check changed, F:kept-policy-redrafted added

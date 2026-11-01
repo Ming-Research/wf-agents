@@ -1972,7 +1972,7 @@ fn became(tx: &Transaction<'_>, matter: i64, outcome: &Value, told: BTreeSet<i64
     )?;
     for id in recorded.iter().filter_map(|r| r["id"].as_i64()) {
         let (title, _) = observation(id)?;
-        parts.push(format!("recorded as observation #{id} \"{title}\""));
+        parts.push(format!("recorded as observation O{id} \"{title}\""));
     }
     let merged: BTreeSet<i64> = items(outcome["effects"].get("observation_changes"))
         .iter()
@@ -1982,7 +1982,7 @@ fn became(tx: &Transaction<'_>, matter: i64, outcome: &Value, told: BTreeSet<i64
     for id in merged {
         let (title, times) = observation(id)?;
         parts.push(format!(
-            "reported once more on observation #{id} \"{title}\", {times} times now"
+            "reported once more on observation O{id} \"{title}\", {times} times now"
         ));
     }
     let made = query_json(
@@ -4180,7 +4180,7 @@ fn observations_overview(e: &Engine, project: &str) -> Result<Value, String> {
                 .map(|mut r| {
                     let id = r["id"].as_i64().unwrap_or_default();
                     r.as_object_mut().map(|o| o.remove("id"));
-                    (format!("#{id}"), r)
+                    (format!("O{id}"), r)
                 })
                 .collect(),
         )

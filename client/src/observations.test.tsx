@@ -245,7 +245,7 @@ describe('the Observations view', () => {
     const html = view(null, 5);
     expect(html).not.toContain('list-split-whole');
     expect(html).toContain('aria-current="page"');
-    expect(html).toContain('Observation 5</h1>');
+    expect(html).toContain('Observation O5</h1>');
     expect(html).toContain('And more after it.');
     expect(html).toContain('Where it came from');
     expect(html).toContain('Close it');

@@ -476,7 +476,7 @@ describe("a matter's bubble in the one-to-one with an architect", () => {
       .replace(/(merged into|recorded|closed) observation/g, 'did')
       .replace(/(made|cancelled|moved) item/g, 'did')
       .replace(/\/(observations|items)\/\d+/g, '/thing')
-      .replace(/#\d+/g, '#n')
+      .replace(/[#O]\d+/g, '#n')
       .replace(/(Stale slots input|Slow parser|Old gap)/g, 'Title');
 
   it('says one merged into an observation and one recorded in the same shape: the one thing, linked, on the line', () => {
@@ -485,7 +485,7 @@ describe("a matter's bubble in the one-to-one with an architect", () => {
     // The line is the thing: what was done to it, then its number and title, a link to it; nothing under the line.
     expect(merged.line).toContain('<span class="live-thing"><span class="live-thing-did">merged into observation</span>');
     expect(merged.line).toContain('href="/observations/22"');
-    expect(merged.line).toContain('<span class="item-ref-n">#22</span>');
+    expect(merged.line).toContain('<span class="item-ref-n">O22</span>');
     expect(merged.line).toContain('Slow parser');
     expect(merged.under).toBe('');
     expect(recorded.line).toContain('<span class="live-thing-did">recorded observation</span>');

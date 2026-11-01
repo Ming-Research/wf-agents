@@ -4728,7 +4728,7 @@ fn a_capability_gap_is_unblocked_by_a_way_around_and_its_work_told_what_became_o
     assert!(
         told[0].starts_with("About your question at cell R1 (\"The `jq` command is not on the machine\"): ")
             && told[0].ends_with(&format!(
-                ": recorded as observation #{id} \"No jq on the machine\". You need not report it again."
+                ": recorded as observation O{id} \"No jq on the machine\". You need not report it again."
             )),
         "{told:?}"
     );
@@ -5109,7 +5109,7 @@ fn the_work_that_handed_a_side_report_in_is_told_what_became_of_it() {
             .query_row("SELECT id FROM observations", [], |r| r.get(0))
             .unwrap();
     let line = format!(
-        "About your side report at cell R1 (\"There is no `jq` on the machine\"): recorded as observation #{id} \
+        "About your side report at cell R1 (\"There is no `jq` on the machine\"): recorded as observation O{id} \
          \"No jq on the machine\". You need not report it again."
     );
     assert_eq!(lines_told(&e, work), std::slice::from_ref(&line), "{log}");
