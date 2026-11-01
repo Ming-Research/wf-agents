@@ -724,6 +724,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
             "usage_limit",
             "offline",
             "transient",
+            "flagged",
             "cannot_run",
             "prompt_too_long",
             "unparsed"
@@ -750,6 +751,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "usage_limit",
                 "offline",
                 "transient",
+                "flagged",
                 "cannot_run",
                 "prompt_too_long",
                 "unparsed",
@@ -771,6 +773,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
             pauses,
             [
                 "sent_back_too_often",
+                "flagged",
                 "prompt_too_long",
                 "unparsed",
                 "cannot_step",
