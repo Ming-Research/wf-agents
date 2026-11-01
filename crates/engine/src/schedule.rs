@@ -526,16 +526,19 @@ impl Engine {
     }
 
     /// One pass of the loop, as `wf-agents run --once` and the tests take it: every work looked at afresh, what `go`
-    /// lets go on dispatched ([`Engine::dispatch`]), every job waited for and reaped; then, unless the global pause
-    /// holds or a failed run's cause stops every work, works started on ready items in the slots that the steps of works
-    /// still waiting were granted and left, as the loop's next turn would start them, and waited for in turn; and the
-    /// outbox the steps filled carried out.
+    /// lets go on dispatched ([`Engine::dispatch`]), every job waited for and reaped; then, when no step moved, unless
+    /// the global pause holds or a failed run's cause stops every work, works started on ready items in the slots that
+    /// the steps of works still waiting were granted and left, as the loop's next turn would start them once those
+    /// works are idle, and waited for in turn; and the outbox the steps filled carried out. After a step that moved,
+    /// the next pass, as the loop's next turn, looks at every work first, so that a work whose wait that step ended is
+    /// granted a free slot before a new work starts in it.
     pub fn pass(&mut self, go: &Go) -> Result<Passed, String> {
         self.rouse();
         let mark = self.db.rounds_mark();
         let mut jobs = self.dispatch(go)?;
         jobs.extend(self.drain()?);
-        if go.pause.is_none() && !self.halted() {
+        let moved = jobs.iter().any(|s| !s.rounds.is_empty());
+        if !moved && go.pause.is_none() && !self.halted() {
             self.start_ready()?;
             jobs.extend(self.drain()?);
         }
