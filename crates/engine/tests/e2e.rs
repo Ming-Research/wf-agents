@@ -813,24 +813,26 @@ fn scripts() -> BTreeMap<&'static str, Script> {
             )
         }),
     );
-    // The table review answers every column of its table, which its session holds from its earlier prompts.
-    let known: Mutex<BTreeMap<String, Vec<String>>> = Mutex::default();
-    s.insert(
-        "T4",
-        Box::new(move |r: &Request, _: usize| {
-            let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
-            let ids = columns_known(&r.prompt, known.lock().unwrap().entry(session).or_default());
-            let cols: Vec<Value> = ids
-                .into_iter()
-                .map(|id| json!({ "id": id, "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } }))
-                .collect();
-            (
-                vec![("outcome.no_adversarial", "stands")],
-                vec![("outcome.columns", json!(cols))],
-            )
-        }),
-    );
+    // The table review answers every column of its table; in a project that keeps records, so does the check of the
+    // code against the records, which the table review leads to.
+    s.insert("T4", answers_columns(vec![("outcome.no_adversarial", "stands")]));
+    s.insert("T5", answers_columns(Vec::new()));
     s
+}
+
+/// A review that answers every column of its table as passing, which its session holds from its earlier prompts, with
+/// the choices `also` beside the table.
+fn answers_columns(also: Vec<(&'static str, &'static str)>) -> Script {
+    let known: Mutex<BTreeMap<String, Vec<String>>> = Mutex::default();
+    Box::new(move |r: &Request, _: usize| {
+        let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
+        let ids = columns_known(&r.prompt, known.lock().unwrap().entry(session).or_default());
+        let cols: Vec<Value> = ids
+            .into_iter()
+            .map(|id| json!({ "id": id, "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } }))
+            .collect();
+        (also.clone(), vec![("outcome.columns", json!(cols))])
+    })
 }
 
 /// Keeps project p's architect from starting a work for slots free while a test looks at something else: a matter of
@@ -7415,21 +7417,16 @@ fn the_merge_waits_for_a_ruling_on_every_decision_card() {
     );
     let cards = cards_of(&e, work);
     assert_eq!(cards.len(), 2, "{log}");
-    let told: Vec<String> = engine::query_json(
-        e.db.conn(),
-        "SELECT json_extract(args, '$.text') AS text FROM outbox WHERE work = ?1 AND kind = 'notify' ORDER BY id",
-        &[&work],
-        100,
-    )
-    .unwrap()
-    .iter()
-    .map(|r| r["text"].as_str().unwrap_or_default().to_string())
-    .collect();
+    // The owner is told which cards hold the merge, as the notifications log has it once the engine sent it.
     let waiting = format!(
         "is ready to merge, but decision cards {} and {} wait for your ruling.",
         cards[0].0, cards[1].0
     );
-    assert!(told.iter().any(|t| t.ends_with(&waiting)), "{told:?}");
+    assert!(
+        told(&s, &waiting) > 0,
+        "{}",
+        std::fs::read_to_string(s.data.join("notifications.log")).unwrap_or_default()
+    );
     let confirm = api::Ruling {
         verdict: "confirm".into(),
         option: None,

@@ -302,7 +302,7 @@ export function sizes(
       const height = ls.length * LINE + note.reads.length * SMALL_LINE + (note.lacks.length > 0 ? MARKS : 0) + 2 * PAD_Y;
       size.set(n.id, { width, height });
     } else if (n.kind === 'action' || n.kind === 'does') {
-      const ls = n.actions.map(actionWords);
+      const ls = n.actions.map((a) => actionLine(a, n.only?.[a]));
       lines.set(n.id, ls);
       const width = Math.ceil(Math.max(...ls.map((l) => measure(l, chartFonts().note)))) + 2 * POINT + 8;
       size.set(n.id, { width, height: ls.length * SMALL_LINE + 12 });
@@ -616,6 +616,12 @@ function edgeTitle(e: ChartEdge, cells: Map<string, CompiledCell>, n: number): s
   ].filter((x) => x !== '');
   const what = rows.join(', ');
   return n > 0 ? `${what}\n${tn('chart_taken', n)}` : what;
+}
+
+/// An action as the node of the actions on a line draws it: its name in words, and for one only some of the rows
+/// through the node do, those rows.
+export function actionLine(action: string, rows: string[] | undefined): string {
+  return rows === undefined ? actionWords(action) : t('chart_action_on', { action: actionWords(action), rows: rows.join(', ') });
 }
 
 /// What hovering the actions a node names says: each action and what it does.

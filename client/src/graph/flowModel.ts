@@ -33,6 +33,9 @@ export type ChartNode = {
   other: string | null;
   /// For the actions on a line and those a cell does every time: the actions, by name, in order.
   actions: string[];
+  /// For the actions on the lines of a cell back into itself, which share one node: each action only some of those
+  /// lines do, with the names of the rows that do it; none for every other node.
+  only?: Record<string, string[]>;
   /// For a store beside a cell: how the cell uses it; none for every other node.
   use: StoreUse | null;
 };
@@ -444,15 +447,28 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
   // A row to a cell: an arrow within a part; between parts, a circle beside the cell it leaves, and a shaded one
   // beside the cell it enters when it comes back into the main part. A row the engine acts on goes through the node of
   // its actions: one node for the rows with the same actions into the same cell, beside that cell and in its box, on
-  // the way in, so that it is not read as part of another line; to another part, beside the circle it leaves by.
+  // the way in, so that it is not read as part of another line; to another part, beside the circle it leaves by. The
+  // rows of a cell back into itself share one node whatever their actions, the first one's, as they share one loop,
+  // each action only some of them do naming the rows that do it: two nodes beside a cell, each with its own loop,
+  // crowded the arrows round it into turns back.
+  const backActions = new Map<string, Map<string, string[]>>();
+  const backNode = new Map<string, string>();
   const toCell = (c: CompiledCell, row: number, t: string) => {
     if (!cells.has(t)) return;
     const same = parts.get(t) === parts.get(c.id);
     const acts = rowActions(c.rows[row]);
     let from = cellNode(c.id);
     if (acts.length > 0) {
-      const id = same ? `a:${t}:${acts.join('+')}` : `a:${c.id}>${t}:${acts.join('+')}`;
+      const back = t === c.id;
+      const own = same ? `a:${t}:${acts.join('+')}` : `a:${c.id}>${t}:${acts.join('+')}`;
+      const id = back ? (backNode.get(t) ?? own) : own;
       node({ id, kind: 'action', cell: t, other: null, beside: same ? t : c.id, actions: acts });
+      if (back) {
+        backNode.set(t, id);
+        const by = backActions.get(id) ?? new Map<string, string[]>();
+        for (const a of acts) by.set(a, [...(by.get(a) ?? []), c.rows[row].name]);
+        backActions.set(id, by);
+      }
       arrow(cellNode(c.id), id, c, row);
       from = id;
     }
@@ -563,6 +579,16 @@ export function chart(g: CompiledGraph, v: GraphView, engine: EngineNames | null
     if (!c) continue;
     e.rows.sort((a, b) => a - b);
     e.label = [...new Set(e.rows.map((i) => c.rows[i].name))].join(', ');
+  }
+  // The shared node of a cell's rows back into itself: every action any of them does, in the order the rows name
+  // them, those only some of them do naming the rows.
+  for (const [id, by] of backActions) {
+    const n = nodes.get(id);
+    if (n === undefined) continue;
+    const all = new Set([...by.values()].flat());
+    n.actions = [...by.keys()];
+    const only = Object.fromEntries([...by].filter(([, rows]) => rows.length < all.size));
+    if (Object.keys(only).length > 0) n.only = only;
   }
   const groups: ChartGroup[] = [];
   const letters = new Map<string, Set<string>>();

@@ -15,6 +15,7 @@ import { ReturnPattern } from './flow/Returns';
 import { enteredFrom, FromTable, lacksMoves, leavesTo, ToTable } from './flow/Rows';
 import { moveWords } from './graph/FlowChart';
 import {
+  actionLine,
   cellRadius,
   cornerWidth,
   EFFORTS,
@@ -320,6 +321,25 @@ describe('the flow as the engine stores it', () => {
     }
     expect(Object.keys(MOST).every((name) => graphs.some(({ g }) => g.name === name))).toBe(true);
   }, 30_000);
+
+  it("draws a cell's rows back into itself through one node of their actions, naming the rows of one only some do", () => {
+    const found = graphs.find((x) => x.g.name === 'engineer');
+    if (found === undefined) throw new Error('no engineer graph');
+    const c = chart(found.g, found.v, engine);
+    const m1 = cellNode('M1');
+    const back = c.nodes.filter(
+      (n) =>
+        n.kind === 'action' &&
+        c.edges.some((e) => e.source === m1 && e.target === n.id) &&
+        c.edges.some((e) => e.source === n.id && e.target === m1),
+    );
+    expect(back).toHaveLength(1);
+    expect(back[0].actions).toEqual(['raise_blocker', 'notify_pending_approvers', 'post_flow_card']);
+    expect(back[0].only).toEqual({ post_flow_card: ['flow_redrawn'] });
+    expect(c.edges.find((e) => e.source === m1 && e.target === back[0].id)?.label).toBe('wait, flow_redrawn, wait_ruling');
+    expect(actionLine('post_flow_card', ['flow_redrawn'])).toBe('post flow card (on flow_redrawn)');
+    expect(actionLine('raise_blocker', undefined)).toBe('raise blocker');
+  });
 
   it('routes every row one way up or down the chart, with no turn back, and over no piece of another row', async () => {
     let rows = 0;

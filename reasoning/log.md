@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 One node for the actions on a cell's rows back into itself
+
+Changed: D:chart-moves-actions-stores changed
+
+Why: The merge's new row for the flow redrawn (`flow_redrawn`, `M1` back to itself) posts the flow's card besides what the other waits do, so the chart drew a second node of actions beside `M1`, each with its own loop, and the layout then routed the row from `M1` back up to `T7` down and up again, which the test of the chart refuses. The rows of a cell back into itself now share one node whatever their actions, as they share the cell's loop, an action only some of them do naming the rows that do it, so that the node still says which row posts the card.
+
+Re-examined: none rests on the record changed
+
+Ruling: the owner's approval of 2026-11-01 of landing phase 2 of step 3.5, with its CI made green
+
 ## 2026-11-01 Decision cards: one question each, in the reasoning system's shape
 
 Changed: D:card-ask added, D:card-question-strip added, D:card-ruled-alone added, D:decision-card-look added, D:decision-cards added, D:flow-change-ruled-redrawn added, F:branch-gone added, F:owner-loses-card-edge added, D:answer-in-message changed, D:approaches-as-choice changed, D:architect-graph-port changed, D:architect-rule changed, D:batch-review-checks changed, D:blocker-record changed, D:card-as-comment changed, D:card-ask-apart changed, D:card-belongs-to-round changed, D:card-change-note changed, D:chart-moves-actions-stores changed, D:conversation-list-order changed, D:conversations-from-blockers changed, D:event-bus changed, D:field-languages changed, D:flow-compare changed, D:interjection-waits changed, D:item-page-blocks changed, D:item-writing-board-rules changed, D:live-bubble changed, D:matter-kinds-paths changed, D:matters-table changed, D:merge-gate-holders changed, D:messages-view-acts changed, D:messages-view-look changed, D:one-ending changed, D:option-boxes changed, D:owner-operations changed, D:owner-rules-cards changed, D:owner-through-architect changed, D:pinned-band changed, D:pinned-band-and-stream changed, D:policy-scope-rule changed, D:rank-integer changed, D:reasoning-rules-by-role changed, D:relation-map changed, D:review-card-ci-inputs changed, D:round-at-cell changed, D:round-name changed, D:ruling-acceptance changed, D:shared-card changed, D:start-end-cells changed, D:step-greyed-when-waiting changed, D:system-view changed, D:takeover-on-go-on changed, D:takeover-start-cells changed, D:three-voices changed, D:two-graphs changed, D:work-group-chat changed, D:work-headline-state changed, D:work-own-change changed, D:work-panel-tabs changed, D:work-state-words changed, D:works-lists-columns changed, D:card-decisions-verdicts removed, D:card-matter-withdrawn removed, D:card-ruling-per-decision removed

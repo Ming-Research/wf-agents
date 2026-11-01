@@ -993,6 +993,7 @@ const messages = {
   chart_rule_title: 'Rule {rule}',
   chart_interjection_title: 'The interjection: this engine step takes one',
   chart_lacks: 'no {move}',
+  chart_action_on: '{action} (on {rows})',
   chart_lacks_title: '{cell} has no {move} ({to}): most cells that could have it do, and this one answers by itself',
   chart_reads_title: 'What the values this step decides by read',
   chart_effort: 'Reasoning effort: {effort}',
