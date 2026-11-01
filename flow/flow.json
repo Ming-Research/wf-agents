@@ -2467,8 +2467,8 @@
   "tools": [
     {
       "name": "ci",
-      "desc": "Pushes your local commits and runs the repository's fast CI on the commit; when it is done, gives you the result of each check",
-      "runs": "The engine checks the head and pushes. On the first push it opens a draft PR with the title and description handed in, and updates them when new ones come. The push runs the fast CI workflow the project's configuration names, the whole of it, which stops a job at its first red test; the engine waits for it to finish and downloads the logs of red checks. It reads from the logs of every job what became of each listed test and how long it took; a test the run did not reach is not run",
+      "desc": "Pushes your local commits and runs the repository's fast CI on the commit; when it is done, gives you the result of each check, and puts in your worktree, uncommitted, the files a red run generated that differ from yours",
+      "runs": "The engine checks the head and pushes. On the first push it opens a draft PR with the title and description handed in, and updates them when new ones come. The push runs the fast CI workflow the project's configuration names, the whole of it, which stops a job at its first red test; the engine waits for it to finish and downloads the logs of red checks. It reads from the logs of every job what became of each listed test and how long it took; a test the run did not reach is not run. When the run is red and uploaded the artifact of generated files the configuration names (generated_artifact), it writes those that differ from the worktree's into it",
       "in": [
         {
           "name": "head",
@@ -2591,6 +2591,31 @@
                       }
                     ]
                   }
+                },
+                {
+                  "name": "generated",
+                  "title": "Generated files",
+                  "type": "obj",
+                  "desc": "The files the red run generated from your head, such as types generated from other types, that differ from your worktree's, now in it uncommitted: commit them with your next commit, and the check comparing them passes",
+                  "optional": true,
+                  "fields": [
+                    {
+                      "name": "files",
+                      "title": "Files",
+                      "type": "list",
+                      "desc": "The files put in your worktree",
+                      "item": {
+                        "type": "text",
+                        "desc": "The file's path in the repository"
+                      }
+                    },
+                    {
+                      "name": "note",
+                      "title": "Note",
+                      "type": "text",
+                      "desc": "What to do with them, or what could not be fetched or written"
+                    }
+                  ]
                 }
               ]
             },

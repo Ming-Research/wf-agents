@@ -107,12 +107,19 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: The page's types are current
         run: git diff --exit-code -- client/src/api.ts
-      # What the Rust types generate, to commit when the step before fails.
+      # What the Rust types generate, to commit when the step before fails, at its path in the repository: the engine's
+      # ci tool puts it in the work's worktree when it differs, the project's configuration naming the artifact
+      # (`generated_artifact`).
+      - name: Keep what the Rust types generate
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/generated/client/src"
+          cp client/src/api.ts "$RUNNER_TEMP/generated/client/src/"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: page-types
-          path: client/src/api.ts
+          path: ${{ runner.temp }}/generated
           if-no-files-found: ignore
 
   test:

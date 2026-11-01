@@ -526,6 +526,11 @@ pub struct Ci {
     /// ci_before then waits for the whole fast CI its push runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests_input: Option<String>,
+    /// The artifact a red run of the fast CI uploads with the files the code generates, such as types generated
+    /// from other types, each at its path in the repository: the ci tool puts those that differ from the head in the
+    /// work's worktree, for the engineer to commit; none when the CI uploads none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated_artifact: Option<String>,
 }
 
 /// The settings the flow reads from a project, as `{"config": name}` inputs name them.
@@ -1390,6 +1395,7 @@ fast = "ci"
 full = ["ci"]
 merge_checks = ["check"]
 tests_input = "tests"
+generated_artifact = "generated"
 [limits]
 fixes = 5
 "#;
@@ -1448,6 +1454,7 @@ asks = 9
         assert_eq!(p.ci.fast, "ci");
         assert_eq!(p.ci.merge_checks, ["check", "lint"]);
         assert_eq!(p.ci.tests_input.as_deref(), Some("tests"));
+        assert_eq!(p.ci.generated_artifact.as_deref(), Some("generated"));
         assert_eq!(
             p.limits,
             BTreeMap::from([("asks".to_string(), 9), ("fixes".to_string(), 5)])

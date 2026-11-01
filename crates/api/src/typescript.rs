@@ -14,7 +14,8 @@ fn decl<T: TS + ?Sized + 'static>(cfg: &Config) -> String {
     format!("{}export {}", T::docs().unwrap_or_default(), T::decl(cfg))
 }
 
-/// The whole of `client/src/api.ts`.
+/// The whole of `client/src/api.ts`, with no space at the end of a line: ts-rs ends the line before a field's comment
+/// with one, which an agent's editor strips, so that a hand edit would never match what this gives.
 pub fn typescript() -> String {
     // Integers are ids, counts and times in milliseconds, all well inside what a JavaScript number holds exactly.
     let cfg = Config::new().with_large_int("number");
@@ -200,4 +201,7 @@ pub fn typescript() -> String {
         decl::<flow::format::ReadBy>(&cfg),
     ];
     format!("{HEADER}\n{}\n", decls.join("\n\n"))
+        .lines()
+        .map(|l| format!("{}\n", l.trim_end()))
+        .collect()
 }

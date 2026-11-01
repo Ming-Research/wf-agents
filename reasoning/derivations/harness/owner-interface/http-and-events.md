@@ -14,6 +14,6 @@ Decision event-reconnect: The page opens the stream again itself, a few seconds 
 
 Rests on: C:information, F:browser-sse-retry, D:event-cursor
 
-Decision generated-types: The interface's types are defined once, in Rust with serde, and the TypeScript types the page uses, the compiled flow's types included, are generated from them, and CI fails when the generated file is stale, instead of the types written by hand on both sides, because two definitions drift, the same rule that makes `db/schema.sql` the only definition of the database (D:schema-sql).
+Decision generated-types: The interface's types are defined once, in Rust with serde, and the TypeScript types the page uses, the compiled flow's types included, are generated from them, with no space at the end of a line, and CI fails when the generated file is stale, uploading the file it generated for the change to commit, instead of the types written by hand on both sides, because two definitions drift, the same rule that makes `db/schema.sql` the only definition of the database (D:schema-sql); no line ends in a space, though ts-rs ends the line before each field's comment with one, and CI hands its file back, because in a trial an engineer could neither generate the file, which compiles, nor edit it to match, its editor stripping those spaces (F:page-types-stuck).
 
-Rests on: F:copies-drift, D:schema-sql
+Rests on: F:copies-drift, F:page-types-stuck, D:schema-sql

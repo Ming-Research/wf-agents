@@ -101,3 +101,5 @@ Fact redesign-gates-whole: In a trial, after a redesign that added one rule to a
 Fact design-rewritten-whole: In a trial the design written again after a redesign that added one rule rewrote the whole text: its difference from the design before, counted by sentence, came to 11.5 KB against a design of 9.2 KB.
 
 Fact smallest-work-cost: In a trial of wf-agents' own development the smallest work done, W28 (a total row for `wf-agents cost`), cost $3.03 and 42 minutes, and its item took four works and about $11.4.
+
+Fact page-types-stuck: In a trial of wf-agents' own development, work W35 changed a Rust type the page uses and stopped at CI's check that the page's types are current: its engineer could neither generate `client/src/api.ts` again, which compiles and its shell does not allow, nor make it match by hand, its edit tool stripping the space that ended 450 of the file's lines; the owner fixed the file by hand (observation O68).

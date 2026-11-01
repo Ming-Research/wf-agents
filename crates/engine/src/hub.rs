@@ -48,6 +48,9 @@ impl Failure {
     }
 }
 
+/// A file of a run's artifact: its path in the artifact, with `/` between its parts, and its bytes.
+pub type ArtifactFile = (String, Vec<u8>);
+
 /// GitHub as the engine's threads share it.
 pub trait GitHub: Send + Sync {
     /// Opens a draft pull request from `branch` into `base`, or, given its number, updates its title and body when
@@ -85,6 +88,10 @@ pub trait GitHub: Send + Sync {
     /// The whole log of a check's job, as gh gives it.
     fn job_log(&self, _repo: &str, _check: &CheckRun) -> Result<String, Failure> {
         Err(Failure::other("no job logs here"))
+    }
+    /// The files of the artifact of that name of the run a check is of; none when the run has no such artifact.
+    fn artifact(&self, _repo: &str, _check: &CheckRun, _name: &str) -> Result<Option<Vec<ArtifactFile>>, Failure> {
+        Err(Failure::other("no artifacts here"))
     }
 }
 
@@ -532,6 +539,20 @@ fn without_escapes(text: &str) -> String {
     out
 }
 
+/// Every file under a directory, each as its path under it with `/` between its parts, after `prefix`, and its bytes.
+fn files_under(dir: &Path, prefix: &str, out: &mut Vec<ArtifactFile>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = format!("{prefix}{}", entry.file_name().to_string_lossy());
+        if entry.file_type()?.is_dir() {
+            files_under(&entry.path(), &format!("{path}/"), out)?;
+        } else {
+            out.push((path, std::fs::read(entry.path())?));
+        }
+    }
+    Ok(())
+}
+
 /// The run and the job a check's link names: .../actions/runs/<run>/job/<job>.
 fn run_and_job(link: &str) -> Option<(String, String)> {
     let (_, rest) = link.split_once("/actions/runs/")?;
@@ -608,6 +629,43 @@ impl GitHub for Gh {
         let (run, job) = run_and_job(&check.run)
             .ok_or_else(|| Failure::other(format!("no run and job in the check's link: {}", check.run)))?;
         self.run(&["run", "view", &run, "-R", repo, "--log", "--job", &job])
+    }
+
+    fn artifact(&self, repo: &str, check: &CheckRun, name: &str) -> Result<Option<Vec<ArtifactFile>>, Failure> {
+        let (run, _) = run_and_job(&check.run)
+            .ok_or_else(|| Failure::other(format!("no run in the check's link: {}", check.run)))?;
+        let listed = self.json(&[
+            "api",
+            &format!("repos/{repo}/actions/runs/{run}/artifacts?per_page=100"),
+        ])?;
+        let there = listed["artifacts"]
+            .as_array()
+            .is_some_and(|xs| xs.iter().any(|x| x["name"] == name && x["expired"] != true));
+        if !there {
+            return Ok(None);
+        }
+        let dir = std::env::temp_dir().join(format!("wf-agents-artifact-{run}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let got = self
+            .run(&[
+                "run",
+                "download",
+                &run,
+                "-R",
+                repo,
+                "-n",
+                name,
+                "-D",
+                &dir.to_string_lossy(),
+            ])
+            .and_then(|_| {
+                let mut files = Vec::new();
+                files_under(&dir, "", &mut files)
+                    .map_err(|e| Failure::other(format!("reading the artifact {name}: {e}")))?;
+                Ok(files)
+            });
+        let _ = std::fs::remove_dir_all(&dir);
+        got.map(Some)
     }
 
     fn rerun(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {

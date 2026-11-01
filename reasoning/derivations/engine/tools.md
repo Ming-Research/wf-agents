@@ -38,6 +38,14 @@ Decision ci-whole-run: The ci tool keeps the run its push starts, the whole fast
 
 Rests on: C:efficient, F:fast-ci-stops-first-red
 
+Decision ci-generated-files: When the fast CI's run of the head handed to the ci tool is red and uploaded the artifact of generated files the project's configuration names (`[ci] generated_artifact`), each file at its path in the repository, the engine writes into the work's worktree, uncommitted, those that differ from the worktree's, and the tool's result names them (`generated`) for the engineer to commit with its next commit, instead of leaving the engineer to generate them, because a change to what a file is generated from leaves CI's check of that file red until the file is generated again, which in a trial the engineer could neither do nor match by hand (F:page-types-stuck), so that it could not get what it needed (C:information), while the run had generated the file already (D:generated-types). Which files a project generates, and the artifact that holds them, are the project's own, so its CI uploads them and its configuration names the artifact, as it names the input that takes the tests to run (D:ci-before-named-tests).
+
+Rests on: C:information, C:independent, F:page-types-stuck, D:generated-types, D:ci-before-named-tests
+
+Rejected:
+- The engine commits the generated files: rejected because the engineer would then hand in a head it did not make, holding a change it has not seen, while committing them itself it sees their diff beside its own change.
+- The engine names the page's types and the artifact that holds them: rejected because the engine says nothing about any project (C:independent).
+
 Decision named-test-status: Both tools give each test named what the run's logs show of it, read from the line cargo-nextest writes as a test ends: passed with its time, failed with how it ended, not run when no log shows it, as when its job stopped at an earlier red test or there is no such test, or unread when the logs could not be read; instead of a time for each, because a test the run did not reach said only that it was not found, which could be read as measured.
 
 Rests on: C:information, F:nextest-times-each, D:ci-test-times

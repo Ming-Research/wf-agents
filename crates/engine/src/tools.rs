@@ -583,9 +583,12 @@ fn ci(
             })
             .collect();
         let tests = test_results(&tests, &logs);
-        Ok(
-            json!({ "push": { "verdict": "pushed", "head": sha, "checks": checks_json(&checks), "tests": tests }, "pr": n }),
-        )
+        let mut push = json!({ "verdict": "pushed", "head": sha, "checks": checks_json(&checks), "tests": tests });
+        let artifact = project.ci.generated_artifact.as_deref();
+        if let Some(g) = generated(e.github(), &repo(project), artifact, &checks, &wt) {
+            push["generated"] = g;
+        }
+        Ok(json!({ "push": push, "pr": n }))
     })?;
     *pushed = Some(sha.clone());
     let mut v = got;
@@ -593,6 +596,57 @@ fn ci(
         o.remove("pr");
     }
     Ok(v)
+}
+
+/// What the engineer is told of the generated files put in its worktree.
+const GENERATED: &str = "What the run generated from your head, put in your worktree uncommitted: commit these files \
+                         with your next commit, and the check comparing them with the committed ones passes";
+
+/// The files a red run of the fast CI generated that differ from the worktree's, written there uncommitted for the
+/// engineer to commit: those of the artifact the project's configuration names (`generated_artifact`), each at its
+/// path in the repository. None when the run is green, the project names no such artifact, the run has none, or each
+/// of its files is as the worktree has it; what could not be fetched or written is said.
+fn generated(
+    github: &dyn hub::GitHub,
+    repo: &str,
+    artifact: Option<&str>,
+    checks: &[CheckRun],
+    wt: &Path,
+) -> Option<Value> {
+    let name = artifact?;
+    let red = checks.iter().find(|c| c.result != "green")?;
+    let files = match github.artifact(repo, red, name) {
+        Ok(fs) => fs?,
+        Err(f) => {
+            return Some(json!({
+                "files": [],
+                "note": format!("The run's generated files could not be fetched: {}", f.what),
+            }));
+        }
+    };
+    let mut put: Vec<String> = Vec::new();
+    for (path, bytes) in files {
+        let rel = Path::new(&path);
+        let to = wt.join(rel);
+        let written = if !rel.components().all(|c| matches!(c, std::path::Component::Normal(_))) {
+            Err(format!("{path} is not a path in the repository"))
+        } else if std::fs::read(&to).is_ok_and(|b| b == bytes) {
+            continue;
+        } else {
+            to.parent()
+                .map_or(Ok(()), std::fs::create_dir_all)
+                .and_then(|()| std::fs::write(&to, &bytes))
+                .map_err(|x| format!("{path}: {x}"))
+        };
+        if let Err(why) = written {
+            return Some(json!({
+                "files": put,
+                "note": format!("Not every file the run generated could be put in your worktree: {why}"),
+            }));
+        }
+        put.push(path);
+    }
+    (!put.is_empty()).then(|| json!({ "files": put, "note": GENERATED }))
 }
 
 fn ci_before(
@@ -1141,5 +1195,109 @@ mod tests {
         assert!(gh_refusal(&allow, &w("api repos/a/b/issues -f title=x")).is_some());
         assert!(gh_refusal(&allow, &w("api repos/a/b/pulls/1 --method=PATCH")).is_some());
         assert!(gh_refusal(&allow, &w("api graphql")).is_some());
+    }
+
+    /// GitHub whose runs hold one artifact, `generated`, with the files given, counting the times it is asked for an
+    /// artifact; asked for nothing else.
+    struct OneArtifact {
+        files: Vec<hub::ArtifactFile>,
+        asked: std::sync::atomic::AtomicUsize,
+    }
+
+    impl hub::GitHub for OneArtifact {
+        fn pull_request(
+            &self,
+            _repo: &str,
+            _branch: &str,
+            _base: &str,
+            _title_body: Option<(&str, &str)>,
+            _existing: Option<i64>,
+        ) -> Result<i64, Failure> {
+            unreachable!("no pull request is opened here")
+        }
+
+        fn checks(&self, _repo: &str, _sha: &str, _workflow: &str) -> Result<Vec<CheckRun>, Failure> {
+            unreachable!("no check runs here")
+        }
+
+        fn rerun(&self, _repo: &str, _sha: &str, _workflow: &str) -> Result<Vec<CheckRun>, Failure> {
+            unreachable!("no check runs here")
+        }
+
+        fn base(&self, _repo: &str, _pr: i64) -> Result<String, Failure> {
+            unreachable!("no pull request is read here")
+        }
+
+        fn set_base(&self, _repo: &str, _pr: i64, _base: &str) -> Result<(), Failure> {
+            unreachable!("no pull request is changed here")
+        }
+
+        fn merge(&self, _repo: &str, _pr: i64) -> Result<String, Failure> {
+            unreachable!("nothing merges here")
+        }
+
+        fn close(&self, _repo: &str, _pr: i64, _comment: &str) -> Result<(), Failure> {
+            unreachable!("no pull request is closed here")
+        }
+
+        fn gh(&self, _dir: &Path, _args: &[String]) -> Result<(i32, String), Failure> {
+            unreachable!("no gh command runs here")
+        }
+
+        fn artifact(
+            &self,
+            _repo: &str,
+            _check: &CheckRun,
+            name: &str,
+        ) -> Result<Option<Vec<hub::ArtifactFile>>, Failure> {
+            self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok((name == "generated").then(|| self.files.clone()))
+        }
+    }
+
+    // The files a red run generated that differ from the worktree's are put there, uncommitted, and named with what to
+    // do with them; a file as the worktree has it is left alone, and nothing is fetched from a green run or for a
+    // project that names no such artifact.
+    #[test]
+    fn a_red_run_s_generated_files_that_differ_are_put_in_the_worktree() {
+        let wt = std::env::temp_dir().join(format!("wf-agents-generated-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&wt);
+        std::fs::create_dir_all(wt.join("client/src")).unwrap();
+        std::fs::write(wt.join("client/src/api.ts"), "export type A = { a: number, };\n").unwrap();
+        std::fs::write(wt.join("same.txt"), "same\n").unwrap();
+        let hub = OneArtifact {
+            files: vec![
+                (
+                    "client/src/api.ts".to_string(),
+                    b"export type A = { a: string, };\n".to_vec(),
+                ),
+                ("same.txt".to_string(), b"same\n".to_vec()),
+            ],
+            asked: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let check = |result: &str| CheckRun {
+            name: "lint".to_string(),
+            result: result.to_string(),
+            run: "https://github.com/o/r/actions/runs/1/job/2".to_string(),
+            log_tail: None,
+            log_path: None,
+        };
+        let green = [check("green")];
+        let red = [check("green"), check("red")];
+        assert_eq!(generated(&hub, "o/r", Some("generated"), &green, &wt), None);
+        assert_eq!(generated(&hub, "o/r", None, &red, &wt), None);
+        assert_eq!(hub.asked.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(generated(&hub, "o/r", Some("other"), &red, &wt), None);
+        assert_eq!(
+            generated(&hub, "o/r", Some("generated"), &red, &wt),
+            Some(json!({ "files": ["client/src/api.ts"], "note": GENERATED }))
+        );
+        assert_eq!(
+            std::fs::read_to_string(wt.join("client/src/api.ts")).unwrap(),
+            "export type A = { a: string, };\n"
+        );
+        // Once they are there, nothing differs.
+        assert_eq!(generated(&hub, "o/r", Some("generated"), &red, &wt), None);
+        let _ = std::fs::remove_dir_all(&wt);
     }
 }

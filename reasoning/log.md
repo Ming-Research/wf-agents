@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 The ci tool hands back the files CI generated
+
+Changed: D:ci-generated-files added, D:generated-types changed, F:page-types-stuck added
+
+Why: In a trial work W35 changed a Rust type the page uses and stopped at CI's check that the page's types are current: its engineer could not generate `client/src/api.ts` again, which compiles and its shell does not allow, nor edit it to match, its edit tool stripping the space that ended 450 of the file's lines (F:page-types-stuck). The generated file now ends no line in a space, so that a hand edit can match what CI generates; and when the fast CI's run of the head the ci tool pushed is red and uploaded the artifact of generated files the project's configuration names (`[ci] generated_artifact`), the engine writes those that differ from the worktree's into it, uncommitted, and the tool's result names them for the engineer to commit with its next commit. The artifact is the project's to name, as wf-agents' CI uploads the page's types as `page-types`, each file at its path in the repository.
+
+Re-examined: none rests on D:generated-types
+
+Ruling: the owner's ruling of 2026-11-01: "close the gap first"
+
 ## 2026-11-01 An item is worth the flow's design and reviews too
 
 Changed: D:item-writing-board-rules changed, D:batch-review-checks changed, F:smallest-work-cost added
