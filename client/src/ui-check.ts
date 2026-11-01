@@ -1,7 +1,8 @@
-// The check of the page against its UI spec (design/harness/owner-interface/ui-spec.md), which `npm run check:ui` runs
-// in CI: in the page's CSS and in the inline styles of its code, every colour, font size, font, weight, spacing,
-// radius and border width is a var() of a Primer token or of the page's own token file, and no rule makes muted text
-// bold. What the check cannot see, such as whether a thing uses the part the spec maps it to, a reviewer checks.
+// The check of the page against its UI spec (reasoning/derivations/harness/owner-interface/ui-spec.md), which
+// `npm run check:ui` runs in CI: in the page's CSS and in the inline styles of its code, every colour, font size, font,
+// weight, spacing, radius and border width is a var() of a Primer token or of the page's own token file, and no rule
+// makes muted text bold. What the check cannot see, such as whether a thing uses the part the spec maps it to, a
+// reviewer checks.
 
 /// Something the check refuses: where, which rule of the spec, and the text that breaks it.
 export type Finding = { file: string; line: number; rule: string; text: string };

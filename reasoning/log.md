@@ -4,11 +4,31 @@
 
 Changed: D:loop-schedules added, D:loop-grants-slots added, D:pings-dispatched added, D:round-ends-once added, D:work-controls changed, D:keep-warm changed, D:engine-threads changed, F:engine-one-step removed, F:step-waits-minutes added, F:steps-never-overlapped added, F:ping-is-a-call added, F:finish-round-unchecked added, F:cancel-cuts-round added, D:later-wait-holds added, F:wait-set-over added, F:grant-to-any-waiting-starves added
 
-Why: The engine's loop is to hand the steps of different works to threads of their own, so that one work's wait on an agent or on CI no longer holds up the others; the derivations record that the loop alone schedules, grants slots, only to works whose last step found their wait over, since a grant to every work that waits starved one whose wait was over, carries out the outbox and carries out the engine's own starts over and takeovers of a work only while it has no job in flight, that pings are dispatched as steps are, that a round is ended only while it is open, which keeps a step from writing over a work the owner or an architect ended meanwhile, and that of two causes stopping every work at once the wait that ends later holds, since rounds of several works may now fail together. F:engine-one-step no longer holds, so D:work-controls and D:keep-warm rest on D:loop-schedules for what it gave them, in words that keep what each decided, and D:engine-threads no longer says the loop takes one step at a time. They keep the words of the decisions of design/engine/parallel-steps.md.
+Why: The engine's loop is to hand the steps of different works to threads of their own, so that one work's wait on an agent or on CI no longer holds up the others; the derivations record that the loop alone schedules, grants slots, only to works whose last step found their wait over, since a grant to every work that waits starved one whose wait was over, carries out the outbox and carries out the engine's own starts over and takeovers of a work only while it has no job in flight, that pings are dispatched as steps are, that a round is ended only while it is open, which keeps a step from writing over a work the owner or an architect ended meanwhile, and that of two causes stopping every work at once the wait that ends later holds, since rounds of several works may now fail together. F:engine-one-step no longer holds, so D:work-controls and D:keep-warm rest on D:loop-schedules for what it gave them, in words that keep what each decided, and D:engine-threads no longer says the loop takes one step at a time.
 
 Re-examined: D:one-machine: still holds, the threads being in one process on one machine; D:wait-holds-no-slot: still holds, a grant being how a waiting work takes a slot; D:architect-per-project: still holds, its architects of several projects now running together as it says; D:global-failure-wait: still holds, each cause's wait unchanged and only which stands when two meet decided apart
 
-Ruling: the owner's confirmation of the design card of item 5, every decision as proposed; D:loop-grants-slots, revised after it to whom the loop grants, pending the owner's confirmation
+Ruling: the owner's confirmation of the design card of item 5, every decision as proposed, and of its revision of D:loop-grants-slots to whom the loop grants
+
+## 2026-11-01 Take the UI spec's path out of Article 8 into a derivation
+
+Changed: C:owner-page changed, D:ui-spec-held added
+
+Why: Article 8 named the UI spec by its path in design/, which the records' move to reasoning/ made stale, and an article of the constitution naming a node of the records is out of place, the articles being the axioms the records derive from. The article keeps its principle, that like things look alike, and loses its last sentence, that the page is built to its UI spec, which a check in CI holds, and its last violation, a change to the page that departs from the spec without changing it; D:ui-spec-held, at the top of the UI spec, decides both, because like things look alike only when every part is built from one set of rules, and a rule kept only in the code is a second copy of them, which drifts (F:copies-drift). The constitution now names no file or record.
+
+Re-examined: the derivations resting on C:owner-page: each still holds, the principle being unchanged
+
+Ruling: the owner's ruling of 2026-11-01 that an article names no record
+
+## 2026-11-01 Make reasoning/ the only copy of the records, checked by the reasoning system's check
+
+Changed: D:tree-check-counts removed, D:tree-check-format removed, D:engineer-question-blocker changed, D:fix-table changed, D:work-flow-version changed, D:owner-images-input changed
+
+Why: Since the move of 2026-10-31 the records were kept twice, in design/ with the root CONSTITUTION.md and in reasoning/, each change made in both by hand; reasoning/ is now the only copy, and the reasoning system's check (check.py, in the submodule reasoning-system/) its only check, which CI runs. The command `wf-agents tree-check`, which counted the nodes of design/ and held them to the design tree's node format, is removed with design/, and so are D:tree-check-counts and D:tree-check-format, which decided it. Four derivations named a node of design/ by its path; each now names the same node under reasoning/derivations/, nothing else changing. F:evidence-node-refused and D:evidence-node-path keep the path of design/ they quote, being what a review cited in the sixth trial.
+
+Re-examined: D:tree-check-format, the only record resting on D:tree-check-counts, is removed with it, and none rests on D:tree-check-format; D:architect-chart-policy-stage and D:work-chart-pinned-version (D:work-flow-version): each still holds, only a path in its premise's words having changed; none rests on D:engineer-question-blocker, D:fix-table or D:owner-images-input
+
+Ruling: the owner's ruling of 2026-11-01 to make reasoning/ the only copy of the records and the reasoning system's check its only check, step 2 of the plan
 
 ## 2026-11-01 Set what a stage's or a matter's bubble is about in semibold
 

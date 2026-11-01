@@ -1,3 +1,7 @@
+Decision ui-spec-held: The owner's page is built to its UI spec, the derivations of this file, which the UI check holds in CI (`npm run check:ui` in `client/`): a change that needs what the spec lacks changes the spec in the same change, saying why, and a change to the page that departs from the spec without changing it is a finding of the review, because like things look alike only when every part is built from one set of rules, and a rule kept only in the code is a second copy of them, which drifts.
+
+Rests on: C:owner-page, F:copies-drift
+
 Decision primer-design-system: The owner's page follows GitHub's Primer design system (primer.style): every colour, type size, weight, spacing, radius and border width is a token of `@primer/primitives` (the functional tokens, such as `--fgColor-default`, `--text-title-shorthand-small` and `--base-size-8`), and every control and recurring part is the `@primer/react` component this spec maps it to, instead of values and parts the page made up view by view, because the owner found the page's look unreasoned (small grey bold labels used as headings) and asked for an industry model to copy and a spec that every later change keeps to.
 
 Rests on: C:owner-page, D:page-react-vite-elkjs, F:owner-reads-github, F:github-dense-text-first, F:page-mostly-agent-text, F:primer-react-carries-behaviour

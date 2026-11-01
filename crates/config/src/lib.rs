@@ -422,7 +422,7 @@ pub struct Project {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<String>,
     /// The project's constitution, the lasting values its decisions come from: a path in its checkout, such as
-    /// `CONSTITUTION.md`; none when the project has none. The architect is given its text.
+    /// `reasoning/constitution.md`; none when the project has none. The architect is given its text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constitution: Option<PathBuf>,
     /// The tags the project's observations may carry, each with what it covers: the architect tags an observation with

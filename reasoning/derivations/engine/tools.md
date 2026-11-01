@@ -18,14 +18,6 @@ Decision ci-test-times: The ci tool gives, for each test the agent named, that t
 
 Rests on: C:information, C:efficient, F:agent-fetched-job-log, F:cargo-test-binary-time, F:nextest-times-each
 
-Decision tree-check-counts: `wf-agents tree-check <fork point>` is a design tree check a project can name as its `design_check`: it counts the design tree under a directory (`design` unless `--root` says another) at HEAD, its nodes (the Markdown files), their depth below the root and the decisions (the paragraphs that start "Decision:"), and how many more of each than at the fork point, because the design tree review is to be given those numbers, and without a check named nothing printed them.
-
-Rests on: C:information
-
-Decision tree-check-format: `wf-agents tree-check` also fails, naming each fault with its node and line, when a node added or changed since the fork point is out of the node format the rule of design tree writing (`design_tree_writing`) sets, and leaves the nodes not changed as they are, instead of only printing numbers, because that rule says the engine rejects a return whose node is out of the format, and the check a project names is how it does so; nodes written before the check are held to it from their next change, since one out of the format would otherwise stop every work that changes the tree.
-
-Rests on: C:flow-does, C:efficient, D:tree-check-counts
-
 Decision not-caused-check: A red check a fix says its change did not cause (`not_caused_by_change`) is checked by the engine: it must be in the project's table of known red checks or red on main as the worktree last fetched it, read from the project's full CI; when main's checks cannot be read, the answer stands as written; instead of taking it as written, because a red check waved off as not the change's own is how a change breaks main.
 
 Rests on: C:design-on-merit, F:waved-off-red-breaks-main

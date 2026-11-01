@@ -135,7 +135,7 @@ Decision tree-review-since-last: The design tree review is given the change to t
 
 Rests on: C:efficient
 
-Decision fix-table: The fix cell's table is one input the engine makes of its sources: each finding of the reviews, column they could not verify, test that went wrong, conflict and check not green is a row, numbered F1, F2, ... across all of them and saying where it came from; the round's record keeps the table, the fix answers every row by its number and no other, a table with no row runs no round of the fix (design/flow.md), and the checks that follow a finding or a test read through the table to its own number or name, instead of each source given apart and answered by the numbers it carries, because the table review's columns and the design tree review's share numbers, and a conflict or a check had none to be answered by.
+Decision fix-table: The fix cell's table is one input the engine makes of its sources: each finding of the reviews, column they could not verify, test that went wrong, conflict and check not green is a row, numbered F1, F2, ... across all of them and saying where it came from; the round's record keeps the table, the fix answers every row by its number and no other, a table with no row runs no round of the fix (reasoning/derivations/flow.md), and the checks that follow a finding or a test read through the table to its own number or name, instead of each source given apart and answered by the numbers it carries, because the table review's columns and the design tree review's share numbers, and a conflict or a check had none to be answered by.
 
 Rests on: C:information
 
