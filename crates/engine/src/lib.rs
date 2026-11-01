@@ -693,32 +693,40 @@ impl Engine {
     /// While no network stops them, the engine looks at the network itself when the wait is over, without running the
     /// command line, which would put the round's message in its session once more, and waits again while it is down;
     /// every [`failed::LOOKS`]th look in a row a round tries anyway, in case what it looks at cannot be reached while
-    /// the service can.
+    /// the service can. The look ends or prolongs only the wait it looked at: a wait a step on another thread set
+    /// meanwhile holds, and is looked at afresh.
     pub fn halted(&self) -> bool {
-        let kind = match lock(&self.shared.halt).as_ref() {
-            Some(h) if db::now() < h.until => return true,
-            Some(h) => h.kind.clone(),
-            None => return false,
-        };
-        if kind == "offline"
-            && let Some(reachable) = &self.shared.hooks.network
-        {
-            let down = !reachable();
-            let mut looked = lock(&self.shared.looked);
-            if down && *looked + 1 < failed::LOOKS {
-                *looked += 1;
-                if let Some(h) = lock(&self.shared.halt).as_mut() {
-                    h.until = db::now() + failed::PROBE;
-                }
-                return true;
+        loop {
+            let seen = match lock(&self.shared.halt).clone() {
+                Some(h) if db::now() < h.until => return true,
+                Some(h) => h,
+                None => return false,
+            };
+            // Whether the network is down, when the engine looks at it itself; the look is taken with no lock held.
+            let down = match &self.shared.hooks.network {
+                Some(reachable) if seen.kind == "offline" => Some(!reachable()),
+                _ => None,
+            };
+            let mut halt = lock(&self.shared.halt);
+            if halt.as_ref() != Some(&seen) {
+                continue;
             }
-            *looked = 0;
+            if let Some(down) = down {
+                let mut looked = lock(&self.shared.looked);
+                if down && *looked + 1 < failed::LOOKS {
+                    *looked += 1;
+                    if let Some(h) = halt.as_mut() {
+                        h.until = db::now() + failed::PROBE;
+                    }
+                    return true;
+                }
+                *looked = 0;
+            }
+            *halt = None;
+            drop(halt);
+            self.say(&format!("the wait for {} is over: works go on", seen.kind));
+            return false;
         }
-        let over = lock(&self.shared.halt).take().map(|h| h.kind);
-        if let Some(kind) = over {
-            self.say(&format!("the wait for {kind} is over: works go on"));
-        }
-        false
     }
 
     /// A round ran to a return: whatever stopped every work has passed.
