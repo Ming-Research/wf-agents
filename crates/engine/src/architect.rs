@@ -3406,14 +3406,13 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
         "policy_or_kept" => {
             let out = &c.unwrapped;
             let has = |k: &str| out.get(k).is_some_and(|x| !x.is_null());
-            match (has("policy"), v.is_some_and(|x| !x.is_null())) {
-                (true, false) => Ok(()),
-                (false, true) if !has("new_measures") => Ok(()),
-                (false, true) => Err("with kept, hand in no new measures: the draft is dropped".into()),
-                (true, true) => Err("hand in either the whole policy or kept, not both".into()),
-                (false, false) => Err(
-                    "hand in the whole policy, or kept with the owner's reply when it keeps the policy in force".into(),
-                ),
+            match v.and_then(|d| d["draft"].as_str()) {
+                Some("written") if has("policy") => Ok(()),
+                Some("written") => Err("a draft written hands in the whole policy".into()),
+                Some("kept") if has("policy") || has("new_measures") => {
+                    Err("a draft kept hands in no policy and no new measures: the draft is dropped".into())
+                }
+                _ => Ok(()),
             }
         }
         "asked_before_writing" => {

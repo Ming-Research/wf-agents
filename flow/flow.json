@@ -3075,7 +3075,7 @@
       "candidates_known": "At most ten candidates, each an open observation of the project.",
       "fix_not_queued_again": "A thing missing or a place to set straight that the queue holds already, as a matter not handled of the same kind and the same place or the same items, is not handed in again unless it names that matter in queued; a matter it names so is one the queue holds.",
       "holds_needs_policy": "The check of the policy hands in that it holds only while a policy is in force; with none, it asks the owner, and writes the course the project keeps by the reply.",
-      "policy_or_kept": "The writing of the policy hands in either the whole policy, or, when the owner's reply to the draft keeps the policy in force, kept with no policy and no new measures.",
+      "policy_or_kept": "The writing of the policy hands in the whole policy with a draft written, or, with a draft kept, no policy and no new measures.",
       "notebook_fits": "The notebook's sections the round rewrote are each named once, each at most 4,000 characters, and with the sections it leaves as they are at most 12,000 characters in all.",
       "understanding_written": "The understanding rewrites the notebook's sections on what the project is now and on what is unclear.",
       "plan_written": "The plan rewrites the notebook's plan.",
@@ -12787,7 +12787,7 @@
           ],
           "prompt": [
             "This round writes the new policy, which takes effect once the owner approves it. The policy is the owner's guiding thought for the near-to-middle term, drawn from the constitution and what the project is now: where to take the project, and the principles for judging what matters and what comes first. It affects everything after it, so take this step as carefully as an engineer researching a problem, and never pass over it lightly.",
-            "Start from the owner's reply. When the owner wants a new policy researched, find out which direction the owner wants and what for, from the owner's words, the project's design goal and the constitution, and read until you can say it: the documents, design trees, code and specifications concerned, and the items and running works on the board. With no policy in force and the owner saying none is needed, write the course the project keeps, with why none is needed in its why. When the owner's reply is about your draft, change what it asks, and hand in the whole policy again; when it drops the draft and keeps the policy in force, hand in kept with the reply as why, and no policy.",
+            "Start from the owner's reply. When the owner wants a new policy researched, find out which direction the owner wants and what for, from the owner's words, the project's design goal and the constitution, and read until you can say it: the documents, design trees, code and specifications concerned, and the items and running works on the board. With no policy in force and the owner saying none is needed, write the course the project keeps, with why none is needed in its why. When the owner's reply is about your draft, change what it asks, and hand in the whole policy again; when it drops the draft and keeps the policy in force, hand in the draft as kept, with the reply as why, and no policy.",
             "Write the text in the owner's language (the setting `owner.language`), with technical terms in their English original. Every architect session started later gets only this text and the constitution: it does not see the discussion, and must judge by it, so the text must stand on its own. Quote none of the owner's words, and write none of the discussion.",
             "The text has four parts: the direction, where to take the project in the near-to-middle term and how to tell it got there; why, written fully: the situation, the lessons, the directions ruled out and the articles of the constitution it rests on, so that a reader meeting a situation never seen can still work it out; the principles for judging what matters and what comes first, from which what to do next is thought out; and the signals that the direction may have to change. It names no item, no order of work, no hold or release, and no number the owner did not give: those are what to do next, which the architect thinks out under the policy.",
             "A signal shows by a number the engine measures, given here and named as it names it, or by something that happens. A signal that needs a number the engine does not measure yet says so, needs a new measure, and you hand that measure in under new_measures: once the owner approves the draft, the engine queues it as a matter of yours, to have an item make the engine measure it.",
@@ -12797,21 +12797,40 @@
             {
               "$ref": "policy",
               "optional": true,
-              "desc": "The policy: its direction, why, its principles and its signals, in the owner's language (the setting `owner.language`) with technical terms in their English original. It names no item, no order of work, no hold or release, and no number the owner did not give. Left out with kept"
+              "desc": "The policy: its direction, why, its principles and its signals, in the owner's language (the setting `owner.language`) with technical terms in their English original. It names no item, no order of work, no hold or release, and no number the owner did not give. Left out when the draft is kept"
             },
             {
-              "name": "kept",
-              "title": "Kept in force",
-              "type": "text",
-              "optional": true,
-              "desc": "Only when the owner's reply to your draft drops it and keeps the policy in force: the reply, as why; then hand in no policy and no new measures"
+              "name": "draft",
+              "title": "The draft",
+              "type": "union",
+              "by": "draft",
+              "desc": "Whether this round wrote the policy, or the owner's reply to the draft keeps the policy in force",
+              "branches": [
+                {
+                  "value": "written",
+                  "desc": "The policy is written, with the new measures its signals need, for the owner to approve",
+                  "fields": []
+                },
+                {
+                  "value": "kept",
+                  "desc": "The owner's reply to the draft drops it and keeps the policy in force: hand in no policy and no new measures",
+                  "fields": [
+                    {
+                      "name": "why",
+                      "title": "Why",
+                      "type": "text",
+                      "desc": "The owner's reply that keeps the policy in force"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "name": "new_measures",
               "title": "New measures the signals need",
               "type": "list",
               "optional": true,
-              "desc": "Each number a signal needs that the engine does not measure yet, one per row; an empty list when every signal shows by a number it measures or by something that happens; left out with kept",
+              "desc": "Each number a signal needs that the engine does not measure yet, one per row; an empty list when every signal shows by a number it measures or by something that happens; left out when the draft is kept",
               "item": {
                 "type": "obj",
                 "fields": [
@@ -12839,8 +12858,11 @@
               "name": "written",
               "if": [
                 [
-                  "has",
-                  "policy"
+                  "is",
+                  "draft.draft",
+                  [
+                    "written"
+                  ]
                 ]
               ],
               "to": "B1",
@@ -12854,8 +12876,11 @@
               "name": "kept",
               "if": [
                 [
-                  "has",
-                  "kept"
+                  "is",
+                  "draft.draft",
+                  [
+                    "kept"
+                  ]
                 ]
               ],
               "to": "B1",
@@ -12873,7 +12898,7 @@
           ],
           "checks": [
             {
-              "at": "kept",
+              "at": "draft",
               "check": "policy_or_kept"
             },
             {
