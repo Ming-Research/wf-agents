@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 Close the check of the policy on the owner's reply to keep it
+
+Changed: D:policy-in-check changed, F:kept-policy-redrafted added
+
+Why: The owner replied to the architect's question whether to research a new policy that it stays as it is until the new reasoning system is live; the flow let `P1` hand in only `write_policy` after a reply, so `P2` wrote the policy in force again as a draft, reworded, and asked the owner to approve it. Now a reply that keeps the policy in force is `holds`, with the reply as why, and closes the check with no draft; `write_policy` is for a reply that wants a new policy, or with none in force says none is needed; and `P2` hands in `kept` when the owner's reply to a draft keeps the policy in force, which drops the draft. The engine's check `no_holds_after_reply` becomes `holds_needs_policy`, and `policy_or_kept` holds `P2` to one of the two; the view `policy_draft` reads only the latest round of `P2`.
+
+Re-examined: none rests on D:policy-in-check
+
+Ruling: the owner's ruling of 2026-11-01 that a reply keeping the policy closes the check, drawn and approved
+
 ## 2026-11-01 Run the steps of different works side by side
 
 Changed: D:loop-schedules added, D:loop-grants-slots added, D:pings-dispatched added, D:round-ends-once added, D:work-controls changed, D:keep-warm changed, D:engine-threads changed, F:engine-one-step removed, F:step-waits-minutes added, F:steps-never-overlapped added, F:ping-is-a-call added, F:finish-round-unchecked added, F:cancel-cuts-round added, D:later-wait-holds added, F:wait-set-over added, F:grant-to-any-waiting-starves added

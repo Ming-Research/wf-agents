@@ -3390,26 +3390,31 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                 ))
             }
         }
-        "no_holds_after_reply" => {
+        "holds_needs_policy" => {
             if v.is_none_or(|x| x["verdict"] != "holds") {
                 return Ok(());
             }
-            let Some(m) = picked(conn, c.w.id)? else { return Ok(()) };
-            let replied = count(
-                conn,
-                "SELECT count(*) FROM architect_matters m JOIN owner_asks a ON a.id = m.asked
-                 WHERE m.id = ?1 AND a.answer IS NOT NULL",
-                &[&m],
-            )? > 0;
-            if replied {
+            if policy(c.e, project_of(c.w)?)?.is_none() {
                 return Err(
-                    "the owner replied to your question whether to research a new policy: once the owner replied, \
-                     the policy is not handed in as holding; hand in write_policy with the owner's stance, or ask \
-                     again when the reply does not answer the question"
+                    "no policy is in force, so none can hold: ask the owner whether to research one, and once the \
+                     owner replied, hand in write_policy with the owner's stance"
                         .into(),
                 );
             }
             Ok(())
+        }
+        "policy_or_kept" => {
+            let out = &c.unwrapped;
+            let has = |k: &str| out.get(k).is_some_and(|x| !x.is_null());
+            match (has("policy"), v.is_some_and(|x| !x.is_null())) {
+                (true, false) => Ok(()),
+                (false, true) if !has("new_measures") => Ok(()),
+                (false, true) => Err("with kept, hand in no new measures: the draft is dropped".into()),
+                (true, true) => Err("hand in either the whole policy or kept, not both".into()),
+                (false, false) => Err(
+                    "hand in the whole policy, or kept with the owner's reply when it keeps the policy in force".into(),
+                ),
+            }
         }
         "asked_before_writing" => {
             if v.is_none_or(|x| x["verdict"] != "write_policy") {

@@ -91,3 +91,5 @@ Fact trial-rethink-misses: In a trial the architect's rethinks read 6,492 tokens
 Fact trial-sandbox-base: In a trial whose project's main was a sandbox branch, a work taken over held a pull request opened against the real development branch.
 
 Fact trial-unparsed-rerun: In a trial one round whose return the command line gave up on cost $0.33 rerun whole, and every later attempt re-read the whole session, 190,000 to 230,000 tokens each.
+
+Fact kept-policy-redrafted: Asked by `P1` whether to research a new policy, the owner replied to keep the policy until the new reasoning system is live; `P1` then had to hand in `write_policy`, and `P2` wrote the policy in force again as a draft for the owner to approve, adding a principle and a signal and removing numbers, the architect reporting in its flow feedback that a reply to keep it should close the check.
