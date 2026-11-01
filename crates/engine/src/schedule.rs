@@ -99,6 +99,9 @@ struct Outcome {
     cell: Option<String>,
     /// Whether the step found what its work waited for come and left it waiting, as the loop granted it no slot.
     held: bool,
+    /// Whether it was the owner's round asked and ran no round, as a failed run's cause that stops every work stood:
+    /// the ask stands.
+    deferred: bool,
     /// What went wrong that the job could not deal with itself: an error left once its step paused its work, or the
     /// panic its thread ended in.
     failed: Option<String>,
@@ -118,6 +121,7 @@ impl Outcome {
             rounds: Vec::new(),
             cell: None,
             held: false,
+            deferred: false,
             failed: Some(format!("its step's thread panicked: {what}")),
             panicked: true,
         }
@@ -443,15 +447,22 @@ impl Engine {
         Ok(())
     }
 
-    /// Does a job on this context's thread: a step of the work, or the pings due to its sessions.
+    /// Does a job on this context's thread: a step of the work, or the pings due to its sessions. The owner's round
+    /// asked that ran no round, since a failed run's cause that stops every work stood when it was to start, leaves
+    /// the work as it was and the owner's ask standing, for the loop to dispatch once the wait is over.
     fn run(&mut self, work: i64, kind: Kind) -> Outcome {
         let mark = self.db.rounds_mark();
         let mut held = false;
+        let mut deferred = false;
         let failed = match kind {
             Kind::Step { asked } => match self.take_step(work, asked) {
                 Ok(a) => {
                     held = matches!(a, Advance::Held(_));
-                    if asked {
+                    deferred = asked
+                        && matches!(a, Advance::Waits(_))
+                        && self.halt().is_some()
+                        && self.rounds_since(&mark).is_ok_and(|(r, _)| r.is_empty());
+                    if asked && !deferred {
                         self.paused_after_step(work).err()
                     } else {
                         None
@@ -466,6 +477,7 @@ impl Engine {
             rounds,
             cell,
             held,
+            deferred,
             failed,
             panicked: false,
         }
@@ -534,7 +546,8 @@ impl Engine {
                     started_item: job.started_item,
                     rounds: outcome.rounds,
                     cell: outcome.cell,
-                    asked: job.asked,
+                    // The owner's round deferred is not the round asked: the ask stands for a later dispatch.
+                    asked: job.asked.filter(|_| !outcome.deferred),
                 });
             }
         }

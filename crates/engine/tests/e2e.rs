@@ -12576,3 +12576,81 @@ fn a_work_back_from_waiting_takes_the_free_slot_before_one_still_waiting_with_a_
     assert_eq!(state(&e, first).map(|x| x.1).as_deref(), Some("A2"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// The owner's Step of a work whose round a failed run's cause stopped before it started, the cause met by another
+// work's round after the loop dispatched the Step, is not taken: the work is not paused and the ask stands; once the
+// wait is over, the Step runs exactly one round and pauses the work after it. Every work is held by the owner's global
+// pause but the one that fails; the stepped work's step is held at its first write, the new session it opens.
+#[test]
+fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_over() {
+    let reset = db::now() / 1000 + 3600;
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            if n == 1 {
+                let report = format!("Claude AI usage limit reached|{reset}");
+                return (Vec::new(), vec![("@error", json!(report))]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let stop = Gate::default();
+    let held = Arc::new(AtomicI64::new(0));
+    let (g, which) = (stop.clone(), held.clone());
+    // The first write on the thread of the work held waits at the gate, once.
+    let hooks = Hooks {
+        commit: Some(Arc::new(move |_: &db::rusqlite::Connection, _: &[db::Changed]| {
+            let w = which.load(Ordering::SeqCst);
+            if w != 0 && std::thread::current().name() == Some(format!("work {w}").as_str()) {
+                which.store(0, Ordering::SeqCst);
+                g.pass();
+            }
+        })),
+        ..Hooks::default()
+    };
+    let (s, mut e, said, first, second) = two_works_with("step-before-a-halt", agents, hooks);
+    // The first pass starts both works; then the first goes on and the owner steps the second.
+    e.tick().unwrap();
+    let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    let go = Go {
+        pause: held_but(&[a], &[]),
+        steps: vec![b],
+        architects: Vec::new(),
+    };
+    stop.shut();
+    held.store(b, Ordering::SeqCst);
+    e.sessions().ask_new(api::Fresh::Work(b));
+    e.dispatch(&go).unwrap();
+    let until = Instant::now() + Duration::from_secs(10);
+    while !(stop.came() > 0 && e.halt().is_some()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(stop.came() > 0 && e.halt().is_some(), "{log}");
+    stop.open();
+    let jobs = e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let ask = Ask::Work(b);
+    assert!(jobs.iter().all(|j| j.asked.as_ref() != Some(&ask)), "{jobs:?}\n{log}");
+    let rounds_at = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                [b],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(rounds_at(&e), 0, "{log}");
+    assert_eq!(state(&e, second).unwrap().2, None, "{log}");
+    // Once the limit resets, the ask that stood runs one round, and the work is paused after it.
+    e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
+    let p = e.pass(&go).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let stepped = asked_in(&p, &ask);
+    assert_eq!(stepped.rounds.iter().filter(|r| r.work == b).count(), 1, "{stepped:?}\n{log}");
+    assert_eq!(rounds_at(&e), 1, "{log}");
+    assert!(state(&e, second).unwrap().2.is_some(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
