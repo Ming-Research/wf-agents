@@ -3,7 +3,7 @@
 What an agent needs to know for this repository, beyond the rules every agent is given. The layout is in
 [README.md](README.md).
 
-- [CONSTITUTION.md](CONSTITUTION.md) decides between designs; read it before designing.
+- [reasoning/constitution.md](reasoning/constitution.md) decides between designs; read it before designing.
 - Everything in the repository is written in English.
 - The code is Rust, edition 2024, on the toolchain `rust-toolchain.toml` pins. It is formatted by rustfmt
   (`rustfmt.toml`), passes clippy with warnings as errors, and uses no `unsafe`; the root `Cargo.toml` sets these
@@ -12,9 +12,10 @@ What an agent needs to know for this repository, beyond the rules every agent is
 - `db/schema.sql` is the only definition of the database: change the database by changing it, with the migration in
   the same pull request.
 - A change to the owner's page follows its UI spec,
-  [design/harness/owner-interface/ui-spec.md](design/harness/owner-interface/ui-spec.md), and passes its check,
-  `npm run check:ui` in `client/`.
+  [reasoning/derivations/harness/owner-interface/ui-spec.md](reasoning/derivations/harness/owner-interface/ui-spec.md),
+  and passes its check, `npm run check:ui` in `client/`.
 - `flow/flow.json` is the only definition of the flow. A change to it, to the views it reads or to the compiler
   passes `wf-agents flow check`; the flow crate's tests run the same check.
-- A change to the node format the flow's rule `design_tree_writing` sets changes the format check of
-  `wf-agents tree-check` (`crates/wf-agents/src/tree.rs`) and its tests in the same change.
+- `reasoning/` holds the project's records, kept by the rules of the reasoning system, the submodule
+  `reasoning-system/`. A change to them is logged at the top of `reasoning/log.md` and passes
+  `python3 -B reasoning-system/check.py --root reasoning --ascii --base <the commit before the change> --ready`.

@@ -29,7 +29,7 @@ Decision card-ruling-per-decision: The owner rules on each decision of a design 
 
 Rests on: C:information, F:owner-disagrees-in-part
 
-Decision work-flow-version: A work runs on the flow version it started with, and onto a newer one only as it goes on after the flow moved to that version: then it moves there when the cell it stands at is unchanged in it and every return it handed in fits its cell's schema there, and otherwise stops, its item starting again on the new version (design/engine/half-done-work.md), because changing the flow under a running work could leave it in a cell or a state the new flow no longer has, which a work at an unchanged cell with returns the new flow takes is not, and a work that ran on to its end would follow a flow that is no longer the flow.
+Decision work-flow-version: A work runs on the flow version it started with, and onto a newer one only as it goes on after the flow moved to that version: then it moves there when the cell it stands at is unchanged in it and every return it handed in fits its cell's schema there, and otherwise stops, its item starting again on the new version (reasoning/derivations/engine/half-done-work.md), because changing the flow under a running work could leave it in a cell or a state the new flow no longer has, which a work at an unchanged cell with returns the new flow takes is not, and a work that ran on to its end would follow a flow that is no longer the flow.
 
 Rests on: C:design-on-merit
 

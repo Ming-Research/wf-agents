@@ -1,5 +1,6 @@
-/* The page's base, as the UI spec (design/harness/owner-interface/ui-spec.md) sets it: Primer's type, colours and
-   sizes on the plain elements, the words of a state in its colour, and tables. Every value is a Primer token. */
+/* The page's base, as the UI spec (reasoning/derivations/harness/owner-interface/ui-spec.md) sets it: Primer's type,
+   colours and sizes on the plain elements, the words of a state in its colour, and tables. Every value is a Primer
+   token. */
 
 body {
   margin: 0;

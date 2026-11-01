@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 Make reasoning/ the only copy of the records, checked by the reasoning system's check
+
+Changed: D:tree-check-counts removed, D:tree-check-format removed, D:engineer-question-blocker changed, D:fix-table changed, D:work-flow-version changed, D:owner-images-input changed
+
+Why: Since the move of 2026-10-31 the records were kept twice, in design/ with the root CONSTITUTION.md and in reasoning/, each change made in both by hand; reasoning/ is now the only copy, and the reasoning system's check (check.py, in the submodule reasoning-system/) its only check, which CI runs. The command `wf-agents tree-check`, which counted the nodes of design/ and held them to the design tree's node format, is removed with design/, and so are D:tree-check-counts and D:tree-check-format, which decided it. Four derivations named a node of design/ by its path; each now names the same node under reasoning/derivations/, nothing else changing. F:evidence-node-refused and D:evidence-node-path keep the path of design/ they quote, being what a review cited in the sixth trial.
+
+Re-examined: D:tree-check-format, the only record resting on D:tree-check-counts, is removed with it, and none rests on D:tree-check-format; D:architect-chart-policy-stage and D:work-chart-pinned-version (D:work-flow-version): each still holds, only a path in its premise's words having changed; none rests on D:engineer-question-blocker, D:fix-table or D:owner-images-input
+
+Ruling: the owner's ruling of 2026-11-01 to make reasoning/ the only copy of the records and the reasoning system's check its only check, step 2 of the plan
+
 ## 2026-11-01 Set what a stage's or a matter's bubble is about in semibold
 
 Changed: D:conversation-chat changed, F:owner-finds-kind-faint added

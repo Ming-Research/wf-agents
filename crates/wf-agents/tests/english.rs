@@ -112,6 +112,11 @@ fn every_tracked_file_is_in_english() {
                 .into_iter()
                 .map(|(_, what)| format!("{f}: its path holds {what}")),
         );
+        // A submodule, such as reasoning-system, is another repository: git lists it as one path, a directory here,
+        // whose files are not this repository's.
+        if root.join(f).is_dir() {
+            continue;
+        }
         let bytes = match std::fs::read(root.join(f)) {
             Ok(b) => b,
             // Deleted and not yet committed.

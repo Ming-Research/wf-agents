@@ -1,6 +1,7 @@
-// The page against its UI spec (design/harness/owner-interface/ui-spec.md): every CSS file and every file of code, as
-// ui-check.ts checks them, the exceptions each still matching something, and the check itself on what it must refuse
-// and let through. `npm run check:ui` runs this file alone, as CI does; `npm test` leaves it to that step.
+// The page against its UI spec (reasoning/derivations/harness/owner-interface/ui-spec.md): every CSS file and every
+// file of code, as ui-check.ts checks them, the exceptions each still matching something, and the check itself on what
+// it must refuse and let through. `npm run check:ui` runs this file alone, as CI does; `npm test` leaves it to that
+// step.
 
 import { describe, expect, it } from 'vitest';
 
