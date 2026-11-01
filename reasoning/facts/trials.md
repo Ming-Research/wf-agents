@@ -99,3 +99,5 @@ Fact fix-took-redesign: In a trial an interjection that asked for one fix of one
 Fact redesign-gates-whole: In a trial, after a redesign that added one rule to a design the owner had confirmed, the design was handed in whole again and every check after design judged the whole design again, the flow feedback of one saying that judging only what changed would save rounds.
 
 Fact design-rewritten-whole: In a trial the design written again after a redesign that added one rule rewrote the whole text: its difference from the design before, counted by sentence, came to 11.5 KB against a design of 9.2 KB.
+
+Fact smallest-work-cost: In a trial of wf-agents' own development the smallest work done, W28 (a total row for `wf-agents cost`), cost $3.03 and 42 minutes, and its item took four works and about $11.4.

@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 An item is worth the flow's design and reviews too
+
+Changed: D:item-writing-board-rules changed, D:batch-review-checks changed, F:smallest-work-cost added
+
+Why: A work through the flow costs much whatever its size: in a trial of wf-agents' own development the smallest work done cost $3.03 and 42 minutes, and its item took four works and about $11.4 (F:smallest-work-cost). The rule of item writing now counts the flow's design and reviews in what an item is worth, and an item too small runs alone only when it is urgent, as a severe bug, or an item waits on it that it cannot ride along with; else it joins a related item not started yet, or waits as an observation. The review of a batch asks it of each new item as a fifth question, an item too small being a fix and not a judgment that could go either way, so that a tiny change no longer runs as a work of its own.
+
+Re-examined: none rests on D:item-writing-board-rules or D:batch-review-checks
+
+Ruling: the owner's approval of 2026-11-01 of the rule's and the review's new words: "change it this way"
+
 ## 2026-11-01 The architect waits for the owner's next words, and goes back to the queue between two cells
 
 Changed: D:owner-words-matter changed, D:matter-kinds-paths changed, D:check-plan-head-matters changed, D:matters-table changed, D:state-marks changed, D:architect-no-chart-line changed, F:owner-talks-in-turns added
