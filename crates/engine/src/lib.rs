@@ -381,11 +381,17 @@ impl Engine {
         *lock(&self.shared.halt) = halt;
     }
 
-    /// Stops every work as `halt` says; gives whether the owner is to be told, which is the first time since a round
-    /// last ran to a return that this kind stops them.
+    /// Stops every work as `halt` says, unless the wait that stands, which another work's round may have set, ends
+    /// later; gives whether the owner is to be told, which is the first time since a round last ran to a return that
+    /// this kind stops them.
     fn halt_every_work(&self, halt: Halt) -> bool {
         let kind = halt.kind.clone();
-        self.set_halt(Some(halt));
+        {
+            let mut standing = lock(&self.shared.halt);
+            if !standing.as_ref().is_some_and(|h| h.until >= halt.until) {
+                *standing = Some(halt);
+            }
+        }
         let mut told = lock(&self.shared.told);
         let first = told.as_deref() != Some(kind.as_str());
         *told = Some(kind);

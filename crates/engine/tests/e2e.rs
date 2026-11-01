@@ -12207,3 +12207,74 @@ fn a_halt_a_step_sets_while_the_loop_looks_at_the_network_holds() {
     assert!(e.halted(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// The rounds of two works side by side fail together, for two causes that stop every work: whichever of the two waits
+// ends later stands, in either order, so that a wait of half a minute for the network that came after a usage limit
+// resetting in an hour does not take its place, and no step is dispatched while the limit holds; the owner is told of
+// each cause once.
+#[test]
+fn of_two_waits_set_together_the_one_that_ends_later_holds() {
+    let reset = db::now() / 1000 + 3600;
+    let limit = format!("Claude AI usage limit reached|{reset}");
+    let offline = "API Error: Connection error. (getaddrinfo ENOTFOUND api.anthropic.com)".to_string();
+    two_waits_set_together("later-wait-second", limit.clone(), offline.clone(), reset);
+    two_waits_set_together("later-wait-first", offline, limit, reset);
+}
+
+/// Two works whose rounds of `R1` run side by side and fail, the first to come with `first` and the other, once that
+/// wait stands, with `second`; the wait for the usage limit that resets at `reset`, in seconds, is the one that holds.
+fn two_waits_set_together(name: &str, first: String, second: String, reset: i64) {
+    let at = Gate::default();
+    let then = Gate::default();
+    let after = then.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            let report = match n {
+                1 => first.clone(),
+                2 => second.clone(),
+                _ => return (Vec::new(), Vec::new()),
+            };
+            at.meet(2);
+            // The second fails only once the test saw the first's wait set.
+            if n == 2 {
+                after.pass();
+            }
+            (Vec::new(), vec![("@error", json!(report))])
+        }),
+    );
+    let (s, mut e, said, a, b) = two_works_with(name, agents, Hooks::default());
+    // The first pass starts both works; the next dispatches the round of `R1` of each.
+    e.tick().unwrap();
+    then.shut();
+    e.dispatch(&Go::default()).unwrap();
+    let until = Instant::now() + Duration::from_secs(10);
+    while e.halt().is_none() && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(e.halt().is_some(), "{log}");
+    then.open();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
+    assert_eq!((h.kind.as_str(), h.until), ("usage_limit", reset * 1000), "{log}");
+    let mut kinds = failed_kinds(&e);
+    kinds.sort();
+    assert_eq!(kinds, ["offline", "usage_limit"], "{log}");
+    let before = rounds_count(&e);
+    e.tick().unwrap();
+    assert_eq!(rounds_count(&e), before, "{log}");
+    assert_eq!((told(&s, "usage_limit"), told(&s, "offline")), (1, 1), "{log}");
+    // Once the limit resets, both works go on from their cell.
+    e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    for item in [a, b] {
+        let (_, at, paused) = state(&e, item).unwrap();
+        assert_eq!(paused, None, "{log}");
+        assert_ne!(at, "R1", "{log}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
