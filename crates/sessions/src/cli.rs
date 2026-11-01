@@ -1125,7 +1125,12 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
                         .map(str::to_string)
                         .or_else(|| (!errors.is_empty()).then(|| errors.join("; ")))
                         .unwrap_or_else(|| "the CLI gave no reason".to_string());
-                    reply.error = Some(format!("{}: {why}", v["subtype"].as_str().unwrap_or("error")));
+                    // The subtype names what failed on the CLI's side; an error the CLI reports under "success", as it
+                    // reports an API it cannot reach, is said by its reason alone.
+                    reply.error = Some(match v["subtype"].as_str() {
+                        Some("success") => why,
+                        k => format!("{}: {why}", k.unwrap_or("error")),
+                    });
                 }
                 reply.result = v["result"].as_str().map(str::to_string);
                 let structured = v.get("structured_output").filter(|s| !s.is_null()).cloned();
@@ -2058,6 +2063,17 @@ mod tests {
             r.error.as_deref(),
             Some("error_during_execution: the CLI gave no reason")
         );
+        // An API it cannot reach the CLI reports as an error under "success": the reason alone, still told offline.
+        let mut r = Reply::default();
+        read_stream(
+            r#"{"type":"result","subtype":"success","is_error":true,"result":"API Error: Can't reach the API server (ENOTFOUND)"}"#,
+            &mut r,
+        );
+        assert_eq!(
+            r.error.as_deref(),
+            Some("API Error: Can't reach the API server (ENOTFOUND)")
+        );
+        assert_eq!(failure_kind(r.error.as_deref().unwrap_or_default()), "offline");
     }
 
     // What the agent does is told from the stream as it comes: a tool with what it is used on, the start of what it
