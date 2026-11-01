@@ -142,7 +142,7 @@ mod tests {
             .execute_batch("PRAGMA journal_mode = WAL; CREATE TABLE t (x); INSERT INTO t VALUES (1), (2);")
             .unwrap();
         let copy = copy_file(&database, DAILY).unwrap();
-        assert_eq!(copies(&dir(&database), DAILY), [copy.clone()]);
+        assert_eq!(copies(&dir(&database), DAILY), std::slice::from_ref(&copy));
         let read = Connection::open(&copy).unwrap();
         let n: i64 = read.query_row("SELECT count(*) FROM t", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 2);
