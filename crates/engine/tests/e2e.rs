@@ -12649,7 +12649,11 @@ fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_
     let p = e.pass(&go).unwrap();
     let log = said.lock().unwrap().join("\n");
     let stepped = asked_in(&p, &ask);
-    assert_eq!(stepped.rounds.iter().filter(|r| r.work == b).count(), 1, "{stepped:?}\n{log}");
+    assert_eq!(
+        stepped.rounds.iter().filter(|r| r.work == b).count(),
+        1,
+        "{stepped:?}\n{log}"
+    );
     assert_eq!(rounds_at(&e), 1, "{log}");
     assert!(state(&e, second).unwrap().2.is_some(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
