@@ -1,5 +1,15 @@
 # Log
 
+## 2026-11-01 Bring two records in line with the page they describe
+
+Changed: D:approaches-as-choice changed, D:work-group-chat changed
+
+Why: The page picks an ask's options on their boxes since ae12047 and pins what waits on the bar under the head since afc54b3, as D:answer-in-message and D:pinned-band-and-stream already say; D:approaches-as-choice still said the options were picked by buttons with the boxes only read, and D:work-group-chat that the design card was pinned under the head. The merge of the Open premises found both.
+
+Re-examined: the dependents of each, which still hold
+
+Ruling: the owner's rulings of 2026-10-31 to pin what waits in one bar, and of 2026-11-01 to pick an ask's options on their boxes, as recommended
+
 ## 2026-11-01 Give moved derivations the premises the records hold
 
 Changed: D:chart-own-svg changed, D:chart-cells-coloured changed, D:chart-effort-badge changed, D:work-chart-halo changed, F:owner-reads-round-gist added, D:work-panel-tabs changed, D:helper-talk changed, D:architect-no-chart-line changed, D:work-usage-tab changed, D:architect-usage-tab changed, D:approaches-as-choice changed, D:images-in-messages changed, D:one-to-one-panel changed, F:owner-given-titles-strange added, F:owner-reads-return-as-json added, D:cell-panel-four-sections changed, D:round-panel changed, D:return-json changed, D:page-sections changed, F:owner-mixed-sizes-hard added, D:one-look-per-kind changed, D:state-filter changed, D:live-bubble changed, D:small-marks changed, D:chart-named-values changed, D:unmeasured-slowdown-column changed, D:gate-unmet-answer changed, D:imported-item changed, D:cell-effort changed, D:item-level-model changed
