@@ -8,7 +8,7 @@ Why: The engine's loop is to hand the steps of different works to threads of the
 
 Re-examined: D:one-machine: still holds, the threads being in one process on one machine; D:wait-holds-no-slot: still holds, a grant being how a waiting work takes a slot; D:architect-per-project: still holds, its architects of several projects now running together as it says; D:global-failure-wait: still holds, each cause's wait unchanged and only which stands when two meet decided apart
 
-Ruling: pending the owner's confirmation of the design card of item 5
+Ruling: the owner's confirmation of the design card of item 5, every decision as proposed
 
 ## 2026-11-01 Bring two records in line with the page they describe
 
