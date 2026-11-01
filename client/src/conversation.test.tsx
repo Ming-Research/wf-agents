@@ -10,7 +10,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from './answer';
+import { AnswersHere, askAnswer, enterSends, handsBack, needsWords, pickAfter } from './answer';
 import type {
   Architect,
   Conversation,
@@ -238,17 +238,23 @@ describe('an ask in its conversation', () => {
     expect(pinned).not.toContain('<textarea');
   });
 
-  it('is answered where it was asked: its options as buttons, none picked, then a small box and Answer', () => {
+  it('is answered where it was asked: its options picked on their boxes, none at first, then a small box and Answer', () => {
     const { inside, after } = bubble(row(drawn(detail([asked(ask(4, choice))])), 'data-ask="4"'));
     // Nothing after the bubble in its row but the ends of the row and of the stream.
     expect(after).toMatch(/^(<\/div>)+$/);
+    // The ask's card holds the options, each box one to pick, none picked; it says nothing of where to answer.
+    const card = inside.slice(0, inside.indexOf('class="talk-answer"'));
+    expect(card).toContain('<div class="option-boxes" role="radiogroup">');
+    expect(card.match(/role="radio" aria-checked="false"/g)).toHaveLength(2);
+    expect(inside).not.toContain('Answer it in its conversation');
+    // Under it, no buttons of the options: the small box and Answer.
     const answer = inside.slice(inside.indexOf('class="talk-answer"'));
-    expect(buttons(answer)).toEqual(['One table', 'Two tables', ADD, 'Answer (disabled)']);
+    expect(buttons(answer)).toEqual([ADD, 'Answer (disabled)']);
     expect(answer).toContain('<textarea');
     expect(answer).toContain('placeholder="Your answer"');
-    // The ask's card in the bubble only reads: its option boxes are not picked, and it says nothing of where to answer.
-    expect(inside).not.toContain('role="radio"');
-    expect(inside).not.toContain('Answer it in its conversation');
+    // Answered, its boxes only read.
+    const done = ask(4, choice, { by: 'owner', at: 9, choice: 'One table', text: '' });
+    expect(drawn(detail([asked(done)]))).not.toContain('role="radio"');
   });
 
   it('has only the small box for an ask in words alone', () => {
@@ -309,14 +315,6 @@ describe('a question the architect holds', () => {
 });
 
 describe('answering an ask', () => {
-  it('answers by its options, or in words alone', () => {
-    expect(answerWay(ask(2, choice))).toEqual({ by: 'option', options: ['One table', 'Two tables'] });
-    // An open choice of the architect's is its own choice.
-    const open = { from: 'architect', kind: 'open', choice: { question: 'Now?', options: [{ name: 'Yes' }, { name: 'Later' }] } };
-    expect(answerWay(ask(3, open))).toEqual({ by: 'option', options: ['Yes', 'Later'] });
-    expect(answerWay(ask(4, words))).toEqual({ by: 'words' });
-  });
-
   it('picks with a click and clears with a second, and needs words only where the ask or the choice does', () => {
     expect(pickAfter('', 'One table')).toBe('One table');
     expect(pickAfter('One table', 'Two tables')).toBe('Two tables');

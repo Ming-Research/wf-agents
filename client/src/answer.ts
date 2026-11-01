@@ -9,13 +9,23 @@
 import { createContext, useContext } from 'react';
 
 import type { JsonValue, OwnerAsk } from './api';
-import { isObj, str, type Obj } from './labelled';
+import { isObj, type Obj } from './labelled';
 import { t } from './messages';
 
 /// Whether what is drawn here is in a conversation, where the owner answers it; elsewhere it only reads.
 export const AnswersHere = createContext<boolean>(false);
 
 export const useAnswersHere = (): boolean => useContext(AnswersHere);
+
+/// The option picked of an ask that waits, shared in its bubble between the boxes of its options in its card, which
+/// pick it, and what answers the ask under them, which sends it: the ask, what is picked, and what a click on a box
+/// does. None outside a bubble that answers an ask.
+export type AskPick = { ask: number; picked: string; pick: (name: string) => void };
+export const AskPicking = createContext<AskPick | null>(null);
+export const useAskPick = (ask: number): AskPick | null => {
+  const p = useContext(AskPicking);
+  return p !== null && p.ask === ask ? p : null;
+};
 
 /// What an ask holds: what the cells handed in, each with its points and its choice. The engine keeps them under
 /// `asked`, each with what it is and its value; an ask written as one (an architect's open choice) is its own.
@@ -35,19 +45,8 @@ export function askChoice(body: JsonValue): Obj | null {
   return askParts(body).map((x) => x.choice).find((c): c is Obj => c !== undefined && isObj(c)) ?? null;
 }
 
-/// How an ask is answered, which the buttons in its bubble offer: by one of the options of its choice, by name, or in
-/// words alone; or in words alone.
-export type Way = { by: 'option'; options: string[] } | { by: 'words' };
 
-export function answerWay(a: OwnerAsk): Way {
-  const choice = askChoice(a.body);
-  const options = (choice !== null && Array.isArray(choice.options) ? choice.options.filter(isObj) : [])
-    .map((o) => str(o.name))
-    .filter((n) => n !== '');
-  return options.length > 0 ? { by: 'option', options } : { by: 'words' };
-}
-
-/// What is picked after a click on a button in an ask's bubble: what was clicked, or nothing when it was the one
+/// What is picked after a click on an option's box in an ask's bubble: what was clicked, or nothing when it was the one
 /// picked already.
 export const pickAfter = (now: string, clicked: string): string => (now === clicked ? '' : clicked);
 

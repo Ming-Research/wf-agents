@@ -14,8 +14,9 @@
 // where it went and how it stands there; its head sets where each new fault goes as it comes, nobody at first. What
 // waits for the owner stays where it came in the stream and is answered there, and a bar of one line under the head
 // pins it, as a chat app pins a message: the design card a work waits on to be ruled, in its stage's bubble; each ask
-// of the owner from a work, as the asking agent's bubble with the buttons of its options, the one picked marked, then
-// a small box for the owner's words, free unless the ask is in words alone or no option is picked, and Answer; each
+// of the owner from a work, as the asking agent's bubble, its options picked on their boxes in its card, the one
+// picked marked, then a small box for the owner's words, free unless the ask is in words alone or no option is picked,
+// and Answer; each
 // question an architect put to the owner, which the box at the bottom replies to; and, with no place in the stream,
 // the architect's pause of a work, with Start, and the architect's own trouble. A click on the bar brings the thing
 // into view and shows the next; its menu lists them all. Once answered, an ask's bubble holds the question with the
@@ -27,7 +28,6 @@
 
 import {
   ArrowDownIcon,
-  CheckIcon,
   CpuIcon,
   ListUnorderedIcon,
   PinIcon,
@@ -74,7 +74,7 @@ import type {
   WorkState,
   WorkSummary,
 } from '../api';
-import { AnswersHere, answerWay, askAnswer, enterSends, handsBack, needsWords, pickAfter } from '../answer';
+import { AnswersHere, AskPicking, askAnswer, enterSends, handsBack, needsWords, pickAfter, useAskPick } from '../answer';
 import { architectMark, architectState } from '../architect';
 import {
   course,
@@ -387,30 +387,17 @@ function useAnswer(): {
   return { text, setText, images, setImages, busy, error, post };
 }
 
-/// How an ask that waits is answered, in its bubble: the buttons of what it offers (the options of its choice), a click
-/// picking one and a second clearing it, the one picked marked; then the small box of the owner's words and Answer. The
-/// words are needed for an ask in words alone and for an option ask with none picked, else they are free; an
-/// engineer's ask the owner holds can be handed back to the architect with them.
+/// How an ask that waits is answered, in its bubble, under its card, whose option boxes pick what it offers (a click
+/// picking one and a second clearing it, the one picked marked): the small box of the owner's words and Answer, which
+/// sends the option picked. The words are needed for an ask in words alone and for an option ask with none picked, else
+/// they are free; an engineer's ask the owner holds can be handed back to the architect with them.
 function AskAnswer({ a }: { a: OwnerAsk }) {
-  const way = answerWay(a);
-  const [pick, setPick] = useState('');
+  const pick = useAskPick(a.id)?.picked ?? '';
   const [back, setBack] = useState(false);
   const { text, setText, images, setImages, busy, error, post } = useAnswer();
   const answer = askAnswer(pick, text, handsBack(a) && back, images.length > 0);
-  const button = (value: string) => (
-    <Button
-      key={value}
-      size="small"
-      leadingVisual={pick === value ? CheckIcon : undefined}
-      aria-pressed={pick === value}
-      onClick={() => setPick(pickAfter(pick, value))}
-    >
-      {value}
-    </Button>
-  );
   return (
     <div className="talk-answer" role="group" aria-label={t('conv_answer_ask', { id: a.id })}>
-      {way.by === 'option' ? <div className="talk-answer-buttons">{way.options.map((o) => button(o))}</div> : null}
       <AnswerBox
         placeholder={t(needsWords(pick) ? 'conv_answer_words' : 'conv_answer_more')}
         ready={answer !== null}
@@ -540,49 +527,55 @@ function Message({ e, to, reply, draft = null, onReply = null, approve = null }:
   const question = e.answerable && e.work !== null && e.matter !== null ? { work: e.work, matter: e.matter } : null;
   const asks = ask !== null && ask.answer === null && !architectAsk(ask);
   const answers = asks || question !== null;
+  // The option picked of an ask that waits here, picked on its card's boxes and sent by what answers it.
+  const [picked, setPicked] = useState('');
+  const picking =
+    asks && ask !== null ? { ask: ask.id, picked, pick: (name: string) => setPicked(pickAfter(picked, name)) } : null;
   return (
-    <Bubble
-      who={own ? 'owner' : from}
-      wide={answers}
-      ask={ask !== null ? ask.id : undefined}
-      head={
-        <BubbleHead who={own ? null : party(e, e.sender)} to={to} at={e.at}>
-          {round ? (
-            <Link to={workHref(e.work ?? 0, { round: e.round ?? 0 })}>
-              {`R${e.work}-${e.round}`}
-            </Link>
-          ) : null}
-          {draft !== null ? <Link to={draft}>{t('conv_draft')}</Link> : null}
-          {e.pending && own ? <span className="talk-state">{t('conv_pending')}</span> : null}
-          {e.undelivered ? <span className="talk-state talk-state-bad">{t('conv_undelivered')}</span> : null}
-        </BubbleHead>
-      }
-      after={
-        <>
-          {asks && ask !== null ? <AskAnswer a={ask} /> : null}
-          {ask !== null && ask.answer !== null ? <AskAnswered a={ask} /> : null}
-          {question !== null ? <QuestionAnswer work={question.work} matter={question.matter} /> : null}
-          {reply !== null ? (
-            <AnswerIn head={t('conv_your_reply')} at={reply.at} text={reply.text} images={reply.images} />
-          ) : null}
-          {onReply !== null || approve !== null ? (
-            <div className="talk-answer">
-              <div className="talk-answer-buttons">
-                {approve !== null ? <Approve project={approve} question={e.id} /> : null}
-                {onReply !== null ? (
-                  <Button size="small" leadingVisual={ReplyIcon} title={t('conv_reply_hint')} onClick={onReply}>
-                    {t('conv_reply')}
-                  </Button>
-                ) : null}
+    <AskPicking.Provider value={picking}>
+      <Bubble
+        who={own ? 'owner' : from}
+        wide={answers}
+        ask={ask !== null ? ask.id : undefined}
+        head={
+          <BubbleHead who={own ? null : party(e, e.sender)} to={to} at={e.at}>
+            {round ? (
+              <Link to={workHref(e.work ?? 0, { round: e.round ?? 0 })}>
+                {`R${e.work}-${e.round}`}
+              </Link>
+            ) : null}
+            {draft !== null ? <Link to={draft}>{t('conv_draft')}</Link> : null}
+            {e.pending && own ? <span className="talk-state">{t('conv_pending')}</span> : null}
+            {e.undelivered ? <span className="talk-state talk-state-bad">{t('conv_undelivered')}</span> : null}
+          </BubbleHead>
+        }
+        after={
+          <>
+            {asks && ask !== null ? <AskAnswer a={ask} /> : null}
+            {ask !== null && ask.answer !== null ? <AskAnswered a={ask} /> : null}
+            {question !== null ? <QuestionAnswer work={question.work} matter={question.matter} /> : null}
+            {reply !== null ? (
+              <AnswerIn head={t('conv_your_reply')} at={reply.at} text={reply.text} images={reply.images} />
+            ) : null}
+            {onReply !== null || approve !== null ? (
+              <div className="talk-answer">
+                <div className="talk-answer-buttons">
+                  {approve !== null ? <Approve project={approve} question={e.id} /> : null}
+                  {onReply !== null ? (
+                    <Button size="small" leadingVisual={ReplyIcon} title={t('conv_reply_hint')} onClick={onReply}>
+                      {t('conv_reply')}
+                    </Button>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          ) : null}
-        </>
-      }
-      under={own && e.words_state !== null ? <WordsLine w={e.words_state} /> : undefined}
-    >
-      <Words e={e} />
-    </Bubble>
+            ) : null}
+          </>
+        }
+        under={own && e.words_state !== null ? <WordsLine w={e.words_state} /> : undefined}
+      >
+        <Words e={e} />
+      </Bubble>
+    </AskPicking.Provider>
   );
 }
 

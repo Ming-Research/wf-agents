@@ -19,7 +19,7 @@ import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from '@primer/octicons-r
 import { Button, ButtonGroup, Label, Textarea, type LabelColorOptions } from '@primer/react';
 import { Fragment, useState, type MouseEvent, type ReactNode } from 'react';
 
-import { askChoice, askParts, useAnswersHere } from '../answer';
+import { askChoice, askParts, useAnswersHere, useAskPick } from '../answer';
 import type { DesignCard, JsonValue, OwnerAsk } from '../api';
 import { toneVariant } from '../components';
 import { duration, time } from '../format';
@@ -632,9 +632,11 @@ function Answer({ answer }: { answer: Obj }) {
 /// it waits and for how long as its status's chip, the round that asked, and its facts: who answered and when, and
 /// whether it is for the architect); for each point, what it asks and what was checked, in boxes, with no kind, which
 /// an ask no longer carries and one recorded with a kind before does not show; the choice, when there is one, its
-/// question and its options in option boxes with the one recommended and the one the owner chose; then, but in a
-/// conversation, the answer, or where it waits to be answered. `round` is the link to the round that asked.
+/// question and its options in option boxes with the one recommended and the one the owner chose, which in the bubble
+/// that answers it while it waits the owner picks on the boxes themselves; then, but in a conversation, the answer, or
+/// where it waits to be answered. `round` is the link to the round that asked.
 export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; round?: ReactNode; folded?: boolean }) {
+  const picking = useAskPick(a.id);
   const body = isObj(a.body) ? a.body : {};
   const held = askParts(body);
   const points = held.flatMap((x) => (Array.isArray(x.points) ? x.points.filter(isObj) : []));
@@ -682,7 +684,8 @@ export function AskView({ a, round = null, folded = false }: { a: OwnerAsk; roun
                 ]}
                 recommended={str(choice.recommended)}
                 mark={t('ask_recommended')}
-                picked={answer !== null ? str(answer.choice) : ''}
+                picked={answer !== null ? str(answer.choice) : (picking?.picked ?? '')}
+                onPick={answer === null ? (picking?.pick ?? null) : null}
               />
             </Box>
           ) : null}
