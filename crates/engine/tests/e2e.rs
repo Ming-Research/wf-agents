@@ -5273,7 +5273,7 @@ fn a_gap_reported_a_third_time_is_taken_into_an_item_moved_ahead() {
         lines_told(&e, work),
         [format!(
             "About your side report at cell R1 (\"There is no `jq` on the machine\"): reported once more on \
-             observation #1 \"No jq\", 3 times now; taken into new item #{fix} \"Install jq\". You need not report \
+             observation O1 \"No jq\", 3 times now; taken into new item #{fix} \"Install jq\". You need not report \
              it again."
         )],
         "{log}"
@@ -9159,7 +9159,7 @@ fn writes_a_policy() -> Script {
     writes_a_policy_with(json!([]))
 }
 
-/// What the cell that writes a new policy hands in: the policy, and the new measures its signals need.
+/// What the cell that writes a new policy hands in: a draft written, the policy, and the new measures its signals need.
 fn writes_a_policy_with(measures: Value) -> Script {
     Box::new(move |_: &Request, _: usize| {
         let policy = json!({ "direction": "Ship the parser.", "why": "Users wait for it.",
@@ -9167,7 +9167,11 @@ fn writes_a_policy_with(measures: Value) -> Script {
                              "signals": [{ "what": "Speed", "how": "merged" }] });
         (
             Vec::new(),
-            vec![("outcome.policy", policy), ("outcome.new_measures", measures.clone())],
+            vec![
+                ("outcome.draft", json!({ "draft": "written" })),
+                ("outcome.policy", policy),
+                ("outcome.new_measures", measures.clone()),
+            ],
         )
     })
 }
