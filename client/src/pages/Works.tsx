@@ -12,7 +12,7 @@ import { useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Status, WorkSummary } from '../api';
 import { course, Loaded } from '../components';
 import { held, takeoverWords } from '../course';
-import { cost, time } from '../format';
+import { cost, duration, time } from '../format';
 import { useResource, useStatus } from '../live';
 import { HeadingLevel, ItemRef, PrLink, Section } from '../parts';
 import { href, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
@@ -77,7 +77,9 @@ function Row({ w, tab }: { w: WorkSummary; tab: WorkTab }) {
         {w.rounds}
         <RoundsMarks w={w} to={(only) => workHref(w.id, { only })} />
       </td>
-      <td title={time(w.started_at)}>{time(w.started_at)}</td>
+      <td className="num" title={duration(w.ran_ms)}>
+        {duration(w.ran_ms)}
+      </td>
       <td title={time(w.last_at)}>{time(w.last_at)}</td>
       <td className="num" title={cost(w.cost_usd)}>
         {cost(w.cost_usd)}
@@ -96,7 +98,7 @@ const COLUMNS = [
   { key: 'at', head: 'col_at', width: 190, num: false },
   { key: 'stage', head: 'col_stage', width: 120, num: false },
   { key: 'rounds', head: 'col_rounds', width: 90, num: true },
-  { key: 'started', head: 'col_started', width: 130, num: false },
+  { key: 'ran', head: 'col_ran', width: 90, num: true },
   { key: 'last', head: 'col_last', width: 130, num: false },
   { key: 'cost', head: 'col_cost', width: 80, num: true },
   { key: 'pr', head: 'col_pr', width: 50, num: false },

@@ -70,8 +70,9 @@ fn attempts(
             Ok(v) => return Ok(v),
             Err(x) => {
                 tried.push(format!("attempt {n}: {}", x.what));
-                if n == ATTEMPTS {
-                    return Err((x, format!("Tried {ATTEMPTS} times. {}", tried.join("; "))));
+                // While the network is down no attempt can do better: the step waits for the network instead.
+                if n == ATTEMPTS || (x.kind == "network_or_api" && e.network_down()) {
+                    return Err((x, format!("Tried {n} times. {}", tried.join("; "))));
                 }
                 std::thread::sleep(Duration::from_secs(5 * n as u64));
             }

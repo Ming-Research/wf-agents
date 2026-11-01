@@ -3082,8 +3082,61 @@ fn no_network_is_looked_at_without_running_a_round() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A tool that fails for want of the network, while the engine finds the network down, is no failure of the work's:
+// no question goes to the architect, every work waits for the network, and the cell runs its tools again once it is
+// back.
+#[test]
+fn a_tool_without_the_network_waits_for_it() {
+    let s = setup("tool-offline");
+    let up = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let seen = up.clone();
+    let hooks = Hooks {
+        network: Some(Arc::new(move || seen.load(std::sync::atomic::Ordering::SeqCst))),
+        ..Hooks::default()
+    };
+    let (mut e, said, item) = start_with(&s, scripts(), hooks);
+    for _ in 0..40 {
+        if state(&e, item).is_some_and(|x| x.1 == "X1") {
+            break;
+        }
+        e.tick().unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(state(&e, item).map(|x| x.1).as_deref(), Some("X1"), "{log}");
+    // The network goes down: the push cannot reach the remote.
+    let away = s.root.join("origin-away");
+    std::fs::rename(&s.origin, &away).unwrap();
+    up.store(false, std::sync::atomic::Ordering::SeqCst);
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "X1", "{log}");
+    assert_eq!(paused, None, "{log}");
+    assert_eq!(e.halt().map(|h| h.kind).as_deref(), Some("offline"), "{log}");
+    let asked: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM architect_matters WHERE work IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(asked, 0, "{log}");
+    // Back: the cell runs its tools again and the work goes on.
+    std::fs::rename(&away, &s.origin).unwrap();
+    up.store(true, std::sync::atomic::Ordering::SeqCst);
+    e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert_ne!(at, "X1", "{log}");
+    assert!(failed_kinds(&e).contains(&"offline".to_string()), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A message the service refused is not run again in the session that holds what it refused: the line's session ends
-// and the round runs once more in a new one; refused again there, the work pauses, naming both rounds.
+// and the round runs once more in a new one.
 #[test]
 fn a_refused_run_goes_on_in_a_new_session_and_pauses_when_refused_again() {
     let report =

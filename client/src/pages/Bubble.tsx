@@ -36,8 +36,8 @@ function Avatar({ who, role }: { who: string; role: string }) {
 /// in one order: who says it, semibold (`who`, none on the owner's own sheet, which its side and its look say); to
 /// whom, as a mention (`to`: `@you` for what is said to the owner, `@engineer`, `@architect` or a helper between agents,
 /// none for an agent's own work); what it is about, for a bubble of an agent's own work (`about`: a stage with its pass,
-/// a matter's kind), in the matter part's look of a kind, small, muted and of normal weight, so that only who says it
-/// is semibold; for a thing that runs and then ends, how it stands as a state's mark (`mark`: `StateMark` or
+/// a matter's kind), in the matter part's look of a kind, small and muted, and semibold so that it is found; for a
+/// thing that runs and then ends, how it stands as a state's mark (`mark`: `StateMark` or
 /// `ToneMark`); when; then its links (`children`: its rounds, its group, what more there is).
 export function BubbleHead({ who, to = null, about = null, mark = null, at, children }: {
   who: string | null;
@@ -51,7 +51,7 @@ export function BubbleHead({ who, to = null, about = null, mark = null, at, chil
     <>
       {who !== null ? <span className="talk-who">{who}</span> : null}
       {to !== null ? <span className="talk-mention">{to}</span> : null}
-      {about !== null ? <span className="talk-card-kind">{about}</span> : null}
+      {about !== null ? <span className="talk-card-kind talk-about">{about}</span> : null}
       {mark}
       {at !== null ? <span className="talk-when">{time(at)}</span> : null}
       {children}

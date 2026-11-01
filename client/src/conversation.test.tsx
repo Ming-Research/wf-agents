@@ -375,6 +375,7 @@ describe("a matter's bubble in the one-to-one with an architect", () => {
     detail: 'missing',
     what: handled.what,
     state: 'done',
+    began: 1,
     cell: null,
     cell_title: null,
     architect_work: null,
@@ -399,7 +400,7 @@ describe("a matter's bubble in the one-to-one with an architect", () => {
     // The head: who, then what it is about, its kind, in the small muted look of a kind, then where it stands as a
     // mark, a work's tick of done saying so on hovering, then when.
     expect(html).toMatch(
-      /<div class="talk-bubble-head"><span class="talk-who">architect<\/span><span class="talk-card-kind">Plan fix: something missing<\/span><span class="state-mark state-mark-success" title="done" role="img" aria-label="done"><svg[^>]*octicon-check-circle[^>]*>.*?<\/svg><\/span><span class="talk-when">/,
+      /<div class="talk-bubble-head"><span class="talk-who">architect<\/span><span class="talk-card-kind talk-about">Plan fix: something missing<\/span><span class="state-mark state-mark-success" title="done" role="img" aria-label="done"><svg[^>]*octicon-check-circle[^>]*>.*?<\/svg><\/span><span class="talk-when">/,
     );
     // The line: what came of it in words, with no chip before it; what it asks whole on hovering.
     const line = html.slice(html.indexOf('class="live-line"'), html.indexOf('</div>', html.indexOf('class="live-line"')));
@@ -422,7 +423,7 @@ describe("a matter's bubble in the one-to-one with an architect", () => {
 
   it('has no fold of steps for a matter with none, and reads working while in hand', () => {
     const html = shown(card({ kind: 'failure', detail: null, what: 'Work 4 failed its tests.', fix: null, handled: null, state: 'working' }));
-    expect(html).toContain('<span class="talk-card-kind">Have a failure fixed</span><span class="state-mark state-mark-accent" title="working"');
+    expect(html).toContain('<span class="talk-card-kind talk-about">Have a failure fixed</span><span class="state-mark state-mark-accent" title="working"');
     expect(html).toContain('<span class="live-line-state"><span class="live-line-now">working</span>');
     expect(html).not.toContain('data-component="Label"');
     expect(html).toContain('<p class="talk-fold-text">Work 4 failed its tests.</p>');
@@ -846,6 +847,7 @@ describe('the marks of the list of conversations', () => {
     pr: null,
     started_at: 0,
     last_at: 50,
+    ran_ms: 0,
     rounds: 1,
     sent_back: 0,
     failed: 0,
@@ -988,8 +990,9 @@ describe("a work's group as a chat", () => {
     commit: null,
     taken_over_by: null,
     notes: [
-      { round: 36, line: 'engineer', text: 'Fixed F1.' },
-      { round: 41, line: 'review', text: 'Six findings in the design tree.' },
+      { round: 36, title: 'Fix the findings', line: 'engineer', took: 'done', text: 'Fixed F1.' },
+      { round: 37, title: 'Run tools', line: null, took: 'ran', text: null },
+      { round: 41, title: 'Review the design tree', line: 'review', took: 'findings', text: 'Six findings in the design tree.' },
     ],
     events: [],
     shown: [],
@@ -1022,6 +1025,7 @@ describe("a work's group as a chat", () => {
     pr: null,
     started_at: 0,
     last_at: 50,
+    ran_ms: 0,
     rounds: 72,
     sent_back: 0,
     failed: 0,
@@ -1065,7 +1069,7 @@ describe("a work's group as a chat", () => {
     // Its head: who says it, then the stage it is about in the small muted look of a kind, how it ended as a mark (sent
     // back, the mark of going back, saying so on hovering), when, and its rounds.
     expect(html).toMatch(
-      /<div class="talk-bubble-head"><span class="talk-who">engineer<\/span><span class="talk-card-kind">Testing and fixing, 2nd time<\/span><span class="state-mark state-mark-attention" title="sent back" role="img" aria-label="sent back"><svg[^>]*octicon-undo[^>]*>.*?<\/svg><\/span><span class="talk-when">/,
+      /<div class="talk-bubble-head"><span class="talk-who">engineer<\/span><span class="talk-card-kind talk-about">Testing and fixing, 2nd time<\/span><span class="state-mark state-mark-attention" title="sent back" role="img" aria-label="sent back"><svg[^>]*octicon-undo[^>]*>.*?<\/svg><\/span><span class="talk-when">/,
     );
     expect(html).toContain('R5-30 to R5-41');
     // How long it took and what it cost, after its rounds.
@@ -1076,11 +1080,15 @@ describe("a work's group as a chat", () => {
       '<span class="live-line-state"><span class="live-line-why">sent back: 4 findings in “Table review”; 1 finding in “Review the design tree”</span>',
     );
     expect(line).not.toContain('data-component="Label"');
-    expect(line).toContain('Six findings in the design tree.');
+    // The gist is what its last round that said anything said, naming who said it, here not the engineer.
+    expect(line).toContain('review: Six findings in the design tree.');
     expect(line).not.toContain('running-mark');
-    // No cell's code, and the rest folded: what its rounds said.
+    // No cell's code, and the rest folded: every one of its rounds, by its cell's title, whose it was and the row it
+    // took, what it said under it when it said anything.
     expect(html.replace(/<svg.*?<\/svg>/g, '')).not.toMatch(/\bT[0-9]\b|\bM1\b/);
-    expect(html).toContain('What its rounds said (2)');
+    expect(html).toContain('Its rounds (3)');
+    expect(html).toContain('Run tools | ran');
+    expect(html).toContain('Review the design tree | the review | findings');
     // In the stream it is a bubble, not an engine's card on a timeline.
     expect(html).not.toContain('Timeline');
   });
@@ -1104,14 +1112,14 @@ describe("a work's group as a chat", () => {
   it('says what happens now on the stage the work is at, live, as the head says it, in words with no cell', () => {
     const now = stage({ stage: 'merge', first: 72, last: 72, current: true, ended_at: null, outcome: null, notes: [] });
     const html = bubble(now, work());
-    expect(html).toContain('<span class="talk-who">engineer</span><span class="talk-card-kind">Merge</span>');
+    expect(html).toContain('<span class="talk-who">engineer</span><span class="talk-card-kind talk-about">Merge</span>');
     expect(html).toContain('paused by you; then it waits for your ruling on design card 15 before it can merge');
     // No cell's title or code: the rounds' link leads to the cell.
     expect(html).not.toContain('Judge whether it may enter the merge queue');
     expect(html).not.toMatch(/\bM1\b/);
     expect(html).toContain('R5-72 to R5-72');
     // Its mark in the head the work's own, as the list of conversations shows it: paused.
-    expect(html).toContain('<span class="talk-card-kind">Merge</span><span class="state-mark state-mark-attention" title="paused"');
+    expect(html).toContain('<span class="talk-card-kind talk-about">Merge</span><span class="state-mark state-mark-attention" title="paused"');
     expect(html).not.toContain('running-mark');
     // A round of the review running: who is at work, with the running mark.
     const running = work({ state: 'running', paused: null, paused_by: null, waits: null, running: { n: 73, cell: 'T4', started_at: 1, tool: false, line: 'review' } });
@@ -1120,7 +1128,7 @@ describe("a work's group as a chat", () => {
     // The running mark in the head, after the stage it is about; the line holds words alone.
     const live = bubble(now, running);
     const head = live.slice(live.indexOf('talk-bubble-head'), live.indexOf('talk-when'));
-    expect(head).toContain('<span class="talk-card-kind">Merge</span><span class="state-mark state-mark-accent" title="running"');
+    expect(head).toContain('<span class="talk-card-kind talk-about">Merge</span><span class="state-mark state-mark-accent" title="running"');
     expect(head).toContain('running-mark');
     expect(live.slice(live.indexOf('class="live-line"'))).not.toContain('running-mark');
     expect(nowWords({ ...c, running: 'goes_on' }, { ...running, running: { n: 73, cell: 'X1', started_at: 1, tool: true, line: 'engineer' } })).toBe(
@@ -1356,6 +1364,7 @@ describe("the architect's pause of a work in its group", () => {
     pr: null,
     started_at: 0,
     last_at: 50,
+    ran_ms: 0,
     rounds: 3,
     sent_back: 0,
     failed: 0,
@@ -1494,7 +1503,7 @@ describe("the one-to-one with an architect as a chat", () => {
     expect(first).toContain('Made the plan');
   });
 
-  it("heads every bubble alike, who first, then to whom or what it is about, then when; only who in semibold", () => {
+  it("heads every bubble alike, who first, then to whom or what it is about, then when; who and what it is about in semibold", () => {
     const s: StageCard = {
       stage: 'merge',
       again: 2,
@@ -1521,6 +1530,7 @@ describe("the one-to-one with an architect as a chat", () => {
       detail: 'other',
       what: 'A side report.',
       state: 'working',
+      began: 1,
       cell: null,
       cell_title: null,
       architect_work: null,
@@ -1566,14 +1576,14 @@ describe("the one-to-one with an architect as a chat", () => {
     const heads = [...html.matchAll(/<div class="talk-bubble-head">(.*?)<\/div>/g)].map((m) => m[1]);
     expect(heads).toHaveLength(5);
     for (const h of heads) expect(h).toMatch(/^<span class="talk-who">(engineer|architect)<\/span>/);
-    // To whom for what is said, what it is about for an agent's own work, in the small muted look of a kind.
+    // To whom for what is said, what it is about for an agent's own work, in the small muted look of a kind, semibold.
     expect(heads[0]).toMatch(/^<span class="talk-who">engineer<\/span><span class="talk-mention">@you<\/span><span class="talk-when">/);
     // How a thing that runs and ends stands is a mark after what it is about, never a chip.
     expect(heads[1]).toMatch(
-      /^<span class="talk-who">engineer<\/span><span class="talk-card-kind">Merge, 3rd time<\/span><span class="state-mark state-mark-success" title="merged" role="img" aria-label="merged"><svg.*?<\/svg><\/span><span class="talk-when">/,
+      /^<span class="talk-who">engineer<\/span><span class="talk-card-kind talk-about">Merge, 3rd time<\/span><span class="state-mark state-mark-success" title="merged" role="img" aria-label="merged"><svg.*?<\/svg><\/span><span class="talk-when">/,
     );
     expect(heads[2]).toMatch(
-      /^<span class="talk-who">architect<\/span><span class="talk-card-kind">Go through side reports<\/span><span class="state-mark state-mark-[a-z]+" title="[^"]+" role="img" aria-label="[^"]+"><svg.*?<\/svg><\/span><span class="talk-when">/,
+      /^<span class="talk-who">architect<\/span><span class="talk-card-kind talk-about">Go through side reports<\/span><span class="state-mark state-mark-[a-z]+" title="[^"]+" role="img" aria-label="[^"]+"><svg.*?<\/svg><\/span><span class="talk-when">/,
     );
     expect(heads[3]).toMatch(/^<span class="talk-who">architect<\/span><span class="talk-when">/);
     expect(heads.join('')).not.toContain('data-component="Label"');

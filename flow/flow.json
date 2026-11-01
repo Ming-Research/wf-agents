@@ -574,7 +574,7 @@
       "name": "kind",
       "title": "Kind of failure",
       "type": "enum",
-      "desc": "Which kind of failure; the engine retried twice and it still failed",
+      "desc": "Which kind of failure; the engine tried three times, or fewer when it found the network down, and it still failed",
       "values": [
         [
           "network_or_api",
@@ -5656,7 +5656,7 @@
               ],
               "to": "A2",
               "counts": "tool_failures",
-              "note": "The engine asks the architect; when the reply comes, this cell runs again only the tools that failed.",
+              "note": "The engine asks the architect; when the reply comes, this cell runs again only the tools that failed. A tool that failed for want of the network while the engine finds the network down is not asked about: every work waits for the network, as for an agent's run that cannot reach it, and this cell runs its tools again once it is back.",
               "do": [
                 "raise_blocker"
               ]

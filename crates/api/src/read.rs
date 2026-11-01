@@ -399,6 +399,21 @@ fn asked_architect(conn: &Connection, r: &Light) -> Result<Option<i64>> {
         .optional()?)
 }
 
+/// How long a work's agents and tools ran: its rounds at an agent's or a tool's cell, the one running counted to `now`;
+/// a round of an ask, or of the engine's, waits rather than runs.
+fn ran(rounds: &[Light], g: Option<&CompiledGraph>, now: i64) -> i64 {
+    rounds
+        .iter()
+        .filter(|r| {
+            r.cell
+                .as_deref()
+                .and_then(|c| g?.cell(c))
+                .is_some_and(|c| c.kind == "agent" || c.kind == "tool")
+        })
+        .map(|r| r.ended_at.unwrap_or(now) - r.started_at)
+        .sum()
+}
+
 fn summary(
     w: &WorkRow,
     rounds: &[Light],
@@ -449,6 +464,7 @@ fn summary(
         pr: w.pr,
         started_at: rounds.first().map(|r| r.started_at),
         last_at: rounds.iter().map(|r| r.ended_at.unwrap_or(r.started_at)).max(),
+        ran_ms: ran(rounds, g, db::now()),
         rounds: rounds.len() as i64,
         sent_back: count(&[RoundOutcome::SentBack]),
         failed: count(&[RoundOutcome::Failed, RoundOutcome::Interrupted]),
@@ -2503,6 +2519,31 @@ mod tests {
     }
 
     #[test]
+    fn a_work_s_run_time_counts_its_agents_and_tools_and_not_its_waits() {
+        let s = setup("ran");
+        let g = s.compiled.graph("engineer");
+        let light = |n: i64, cell: &str, started_at: i64, ended_at: Option<i64>| Light {
+            n,
+            work: 1,
+            cell: Some(cell.into()),
+            transition: None,
+            rejected: None,
+            started_at,
+            ended_at,
+            cost: None,
+        };
+        // Its start and its wait on the architect are the engine's; the agent's round running counts to now.
+        let rounds = [
+            light(1, "S0", 10, Some(20)),
+            light(2, "R1", 30, Some(40)),
+            light(3, "X1", 40, Some(45)),
+            light(4, "A2", 45, Some(48)),
+            light(5, "R1", 50, None),
+        ];
+        assert_eq!(ran(&rounds, g, 70), 10 + 5 + 20);
+    }
+
+    #[test]
     fn a_work_says_where_it_stands_and_what_each_round_came_to() {
         let mut s = setup("work");
         s.db.write(Actor::Engine, |tx| {
@@ -3323,7 +3364,7 @@ mod tests {
         assert_eq!(d.questions.iter().map(|a| a.id).collect::<Vec<_>>(), [2]);
         assert_eq!(d.waits_on, None);
         assert!(d.design_cards.is_empty());
-        // The matter handled comes in at the round that picked it, the one held at the round of the ask that holds it;
+        // The matter handled comes in at the round that handled it, the one held at the round of the ask that holds it;
         // the owner's words still in the queue have no card.
         let cards: Vec<(i64, &str, Option<i64>, i64)> = d
             .entries
@@ -3334,7 +3375,7 @@ mod tests {
                     .map(|m| (m.matter, m.state.as_str(), m.work, e.at))
             })
             .collect();
-        assert_eq!(cards, [(1, "done", Some(1), 205), (3, "held", Some(1), 208)]);
+        assert_eq!(cards, [(1, "done", Some(1), 208), (3, "held", Some(1), 208)]);
         let work = crate::conversation(s.db.conn(), &Flows::default(), &t, "work:1").unwrap();
         let said: Vec<(&str, &str, &str)> = work
             .entries
@@ -3470,13 +3511,13 @@ mod tests {
         assert_eq!(
             seen,
             [
-                ("stage", 110, "research 0 Some(\"stands\") R2-R3".to_string()),
                 ("message", 130, "It stands, as I read it.".to_string()),
-                ("stage", 131, "design 0 Some(\"done\") R4-R6".to_string()),
-                ("stage", 161, "implement 0 Some(\"done\") R7-R7".to_string()),
-                ("stage", 171, "test 0 Some(\"sent_back\") R8-R12".to_string()),
-                ("stage", 220, "test 1 Some(\"no_findings\") R14-R16".to_string()),
-                ("stage", 251, "merge 0 None R17-R17".to_string()),
+                ("stage", 130, "research 0 Some(\"stands\") R2-R3".to_string()),
+                ("stage", 160, "design 0 Some(\"done\") R4-R6".to_string()),
+                ("stage", 170, "implement 0 Some(\"done\") R7-R7".to_string()),
+                ("stage", 210, "test 0 Some(\"sent_back\") R8-R12".to_string()),
+                ("stage", 250, "test 1 Some(\"no_findings\") R14-R16".to_string()),
+                ("stage", 252, "merge 0 None R17-R17".to_string()),
             ]
         );
         let stage = |n: usize| d.entries.iter().filter_map(|e| e.stage.as_ref()).nth(n).unwrap();
@@ -3491,8 +3532,10 @@ mod tests {
         );
         assert_eq!(sent.why, None);
         assert_eq!(
-            sent.notes.last().map(|n| (n.round, n.line.as_deref(), n.text.as_str())),
-            Some((12, Some("review"), "The tree has a gap."))
+            sent.notes
+                .last()
+                .map(|n| (n.round, n.line.as_deref(), n.text.as_deref())),
+            Some((12, Some("review"), Some("The tree has a gap.")))
         );
         // The design card is in the bubble of the stage that handed it in.
         assert_eq!(stage(1).design_cards.iter().map(|c| c.round).collect::<Vec<_>>(), [6]);
@@ -3677,7 +3720,7 @@ mod tests {
     // and the one never picked has no card; a matter withdrawn without being picked comes in when it was withdrawn. A
     // place to set straight carries the place.
     #[test]
-    fn the_matter_cards_come_in_the_order_the_architect_took_them_up() {
+    fn the_matter_cards_stand_where_they_last_changed() {
         let mut s = architect_setup("taken_up");
         let fix =
             |kind: &str| json!({ "fix": { "kind": kind, "where": format!("#{kind}"), "wrong": "w", "steps": ["s"] } });
@@ -3740,15 +3783,24 @@ mod tests {
             ..crate::Talks::default()
         };
         let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
-        let cards: Vec<(i64, &str, i64)> = d
+        // Each stands where it last changed, its head saying when the architect took it up.
+        let cards: Vec<(i64, &str, i64, i64)> = d
             .entries
             .iter()
-            .filter_map(|e| e.matter_card.as_ref().map(|m| (m.matter, m.state.as_str(), e.at)))
+            .filter_map(|e| {
+                e.matter_card
+                    .as_ref()
+                    .map(|m| (m.matter, m.state.as_str(), e.at, m.began))
+            })
             .filter(|c| c.0 >= 5)
             .collect();
         assert_eq!(
             cards,
-            [(6, "done", 600), (5, "working", 620), (8, "withdrawn", withdrawn)]
+            [
+                (6, "done", 610, 600),
+                (5, "working", 620, 620),
+                (8, "withdrawn", withdrawn, withdrawn)
+            ]
         );
         let five = d
             .entries

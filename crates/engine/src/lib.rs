@@ -916,9 +916,13 @@ impl Engine {
                     ));
                     return Ok(Advance::Stopped);
                 }
+                let why = format!("cell {}: {e}", cell.id);
+                // A step that failed while the network is down failed for want of it: every work waits for it.
+                if self.network_down() {
+                    return self.wait_offline(id, &why);
+                }
                 // A step that cannot be taken is the engine's or the configuration's fault, not the work's: the work
                 // is paused with the reason, for the owner to see.
-                let why = format!("cell {}: {e}", cell.id);
                 self.say(&format!("work {id} paused: {why}"));
                 self.pause(id, &why)?;
                 Ok(Advance::Stopped)
@@ -932,6 +936,50 @@ impl Engine {
             .conn()
             .query_row("SELECT ended FROM works WHERE id = ?1", [id], |r| r.get(0))
             .map_err(|e| format!("work {id}: {e}"))
+    }
+
+    /// Whether the engine's own look at the network finds it down; with no look ([`Hooks::network`]), it is taken as
+    /// up.
+    pub(crate) fn network_down(&self) -> bool {
+        self.shared.hooks.network.as_ref().is_some_and(|reachable| !reachable())
+    }
+
+    /// Stops every work while the network is down, for a step of work `id` that failed for want of it, as a run of the
+    /// command line that cannot reach the network does (`offline`): the round the step left open is closed as such a
+    /// failed run, so that its cell runs again once the network is back, and the owner is told once; nothing goes to
+    /// the architect, and the work is not paused.
+    pub(crate) fn wait_offline(&mut self, id: i64, why: &str) -> Result<Advance, String> {
+        let open = work::open_round(self.db.conn(), id)?;
+        self.db
+            .write(Actor::Engine, |tx| {
+                if let Some(r) = &open {
+                    let ended = work::Ended {
+                        rejected: Some(serde_json::json!({ "failed": { "kind": "offline", "what": why } })),
+                        transition: None,
+                        ..work::Ended::default()
+                    };
+                    work::finish_round(tx, r.id, &ended).map_err(db::Error::Abort)?;
+                }
+                Ok(())
+            })
+            .map_err(|e| e.to_string())?;
+        let first = self.halt_every_work(Halt {
+            kind: "offline".into(),
+            until: db::now() + failed::PROBE,
+            why: why.to_string(),
+        });
+        if first {
+            let text = format!(
+                "No step starts for any work while the network cannot be reached ({why}): the engine looks at it every half minute, and each work goes on from its cell once it is back."
+            );
+            self.db
+                .write(Actor::Engine, |tx| {
+                    actions::notify(tx, Some(id), &text).map_err(db::Error::Abort)
+                })
+                .map_err(|e| e.to_string())?;
+        }
+        self.say(&format!("work {id} waits for the network: {why}"));
+        Ok(Advance::Waits(format!("the network: {why}")))
     }
 
     /// Pauses a work whose step cannot be taken: the round the step left open is closed with the reason, so it shows

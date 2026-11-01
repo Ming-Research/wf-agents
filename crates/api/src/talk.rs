@@ -984,12 +984,12 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
         };
         let notes: Vec<StageNote> = rounds
             .iter()
-            .filter_map(|s| {
-                Some(StageNote {
-                    round: s.n,
-                    line: s.line.clone(),
-                    text: s.progress.clone()?,
-                })
+            .map(|s| StageNote {
+                round: s.n,
+                title: s.cell.as_deref().and_then(|c| g.cell(c)).map(|c| c.title.clone()),
+                line: s.line.clone(),
+                took: s.transition.clone(),
+                text: s.progress.clone(),
             })
             .collect();
         // What the engine told of the work from when the work came into the stage to when it came into the next; what it
@@ -1006,6 +1006,7 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
                 (!as_it_stands(&words, text)).then_some(words)
             })
             .collect();
+        let last_change = last.end();
         let card = StageCard {
             stage: x.stage.clone(),
             again,
@@ -1040,7 +1041,9 @@ fn stage_cards(conn: &Connection, flows: &Flows, work: i64) -> Result<Vec<Conver
             id: place as i64 + 1,
             sender: "engineer".into(),
             recipient: "owner".into(),
-            at: card.started_at,
+            // At its latest change, so that the bubble that changed last is at the bottom: its last round's end, or
+            // its start while it runs.
+            at: last_change,
             work: Some(work),
             round: Some(card.first),
             stage: Some(card),
@@ -1088,8 +1091,10 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
         }),
         None => None,
     };
-    // Each matter's place in the conversation: the first round that picked it; else the round that handled it, the
-    // round of the ask that holds it, or when it was withdrawn; none while it waits in the queue untaken.
+    // Each matter's place in the conversation, its latest change, so that the bubble that changed last is at the
+    // bottom: the round that handled it, when it was withdrawn, the round of the ask that holds it, else the first
+    // round that picked it (the one in hand comes at the architect's latest round, below); none while it waits in the
+    // queue untaken.
     let mut st = conn.prepare(&format!(
         "WITH taken AS (
            SELECT CAST(coalesce(json_extract(r.output, '$.queue.matter'),
@@ -1105,15 +1110,17 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
              (SELECT w.id FROM works w WHERE w.graph = 'engineer'
                 AND w.id = coalesce(m.work, CAST(json_extract(m.body, '$.work') AS INTEGER))),
              CASE WHEN m.kind = 'set_straight' THEN json_extract(m.body, '$.fix') END,
-             coalesce(t.at,
+             coalesce(
                (SELECT coalesce(r.ended_at, r.started_at) FROM rounds r
                 WHERE r.work = m.handled_work AND r.n = m.handled_round),
-               (SELECT coalesce(r.ended_at, r.started_at) FROM owner_asks a
-                JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.id = m.asked),
                CASE WHEN m.withdrawn IS NOT NULL THEN coalesce(
                  (SELECT min(c.at) FROM changes c
                   WHERE c.table_name = 'architect_matters' AND c.row_key = json_object('id', m.id)
-                    AND json_extract(c.new_row, '$.withdrawn') IS NOT NULL), m.at) END) AS shown
+                    AND json_extract(c.new_row, '$.withdrawn') IS NOT NULL), m.at) END,
+               (SELECT coalesce(r.ended_at, r.started_at) FROM owner_asks a
+                JOIN rounds r ON r.work = a.work AND r.n = a.round WHERE a.id = m.asked),
+               t.at) AS shown,
+             t.at
            FROM architect_matters m LEFT JOIN taken t ON t.matter = m.id
            WHERE m.project = ?1 AND m.kind <> 'owner_words')
          WHERE shown IS NOT NULL ORDER BY id DESC LIMIT 200",
@@ -1133,12 +1140,25 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
             r.get::<_, Option<i64>>(9)?,
             r.get::<_, Option<String>>(10)?,
             r.get::<_, i64>(11)?,
+            r.get::<_, Option<i64>>(12)?,
         ))
     })?;
     let mut out = Vec::new();
     for row in rows {
-        let (id, kind, detail, what, item, withdrawn, asked, done, held, work, fix, at) = row?;
+        let (id, kind, detail, what, item, withdrawn, asked, done, held, work, fix, at, taken) = row?;
+        let began = taken.unwrap_or(at);
         let now = working.as_ref().filter(|w| w.0 == id);
+        // The matter in hand changes with each round of the architect's: its bubble comes at the latest.
+        let at = match now {
+            Some(w) => conn
+                .query_row(
+                    "SELECT max(coalesce(ended_at, started_at)) FROM rounds WHERE work = ?1",
+                    [w.1],
+                    |r| r.get::<_, Option<i64>>(0),
+                )?
+                .map_or(at, |latest| latest.max(at)),
+            None => at,
+        };
         let state = if done {
             "done"
         } else if withdrawn.is_some() {
@@ -1167,6 +1187,7 @@ fn matter_cards(conn: &Connection, flows: &Flows, project: &str) -> Result<Vec<C
             detail,
             what: what.clone(),
             state: state.into(),
+            began,
             cell: now.map(|w| w.2.clone()),
             cell_title: now.and_then(|w| w.3.clone()),
             architect_work: now.map(|w| w.1),

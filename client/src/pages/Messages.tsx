@@ -734,7 +734,7 @@ function Entry({ e, c, w, architect, replies, forwarding, draft, questions, repl
   if (voice === 'live') {
     const project = c.project ?? '';
     if (e.stage !== null) return <StageBubble e={e} s={e.stage} w={w} project={c.project} />;
-    if (e.matter_card !== null) return <MatterBubble e={e} m={e.matter_card} project={project} architect={architect} />;
+    if (e.matter_card !== null) return <MatterBubble m={e.matter_card} project={project} architect={architect} />;
     if (e.policy !== null) return <PolicyBubble p={e.policy} project={project} />;
     if (e.plan !== null) return <PlanBubble e={e} p={e.plan} project={project} />;
     return null;
