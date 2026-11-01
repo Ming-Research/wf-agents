@@ -12162,3 +12162,48 @@ fn a_work_whose_item_is_cancelled_during_its_agent_s_round_takes_nothing_of_the_
     assert_eq!(rows(&e), cancelled, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// While the loop looks at the network as a wait for no network ends, a step on another thread may stop every work for
+// another cause, here a usage limit that resets in an hour: the look ends only the wait it looked at, and the one set
+// meanwhile still stops every work, so that no step is dispatched before the limit resets.
+#[test]
+fn a_halt_a_step_sets_while_the_loop_looks_at_the_network_holds() {
+    let s = setup("halt-during-a-look");
+    let look = Gate::default();
+    let l = look.clone();
+    // The network is up, once the test lets the look through.
+    let hooks = Hooks {
+        network: Some(Arc::new(move || {
+            l.pass();
+            true
+        })),
+        ..Hooks::default()
+    };
+    let (e, said) = engine_with(&s, scripts(), hooks);
+    e.set_halt(Some(engine::Halt {
+        kind: "offline".into(),
+        until: 0,
+        why: "no network".into(),
+    }));
+    look.shut();
+    let t = e.fork().unwrap();
+    let looking = std::thread::spawn(move || t.halted());
+    let until = Instant::now() + Duration::from_secs(10);
+    while look.came() == 0 && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(look.came(), 1);
+    // A step's run meets a usage limit while the look is under way.
+    let limit = engine::Halt {
+        kind: "usage_limit".into(),
+        until: db::now() + 3_600_000,
+        why: "a usage limit".into(),
+    };
+    e.set_halt(Some(limit.clone()));
+    look.open();
+    looking.join().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(e.halt(), Some(limit), "{log}");
+    assert!(e.halted(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
