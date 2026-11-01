@@ -171,7 +171,8 @@ impl Engine {
     /// One turn of the loop's dispatching, with what the owner lets go on (`go`): it reads the configuration again,
     /// hands the engine the owner's global pause, carries out the outbox but for the works with a job in flight, and,
     /// unless a failed run's cause stops every work, brings the works that go on on an older flow version to the
-    /// version the engine runs, starts a work of each project's architect that goes on when a matter is due for it, and
+    /// version the engine runs, lets the work that took over the item of a work the owner started go on as started,
+    /// starts a work of each project's architect that goes on when a matter is due for it, and
     /// dispatches, each on a thread of its own: the owner's rounds asked, of the works with no job in flight; a step of
     /// every other work that goes on, has no job in flight and is not idle; while a slot is free and the global pause
     /// does not hold, a work started on a ready item; and the keep-warm pings due to the sessions of the works with no
@@ -191,11 +192,10 @@ impl Engine {
         if self.halted() {
             return Ok(taken);
         }
-        let pause = go.pause.as_ref();
         let old: Vec<Work> = self
             .outdated()?
             .into_iter()
-            .filter(|w| goes_on(pause, w) && !self.has_job(w.id))
+            .filter(|w| goes_on(go.pause.as_ref(), w) && !self.has_job(w.id))
             .collect();
         // The new works that take over the items of works taken over: each step dispatched for one names its item.
         let mut taking_over = BTreeMap::new();
@@ -205,6 +205,18 @@ impl Engine {
             }
             self.rouse();
         }
+        // The owner's Start of a work taken over, here or by a start over the outbox held, goes on at once in the work
+        // that took its item over, as the loop hands it on after the turn ([`Engine::replaced`]).
+        let pause = go.pause.clone().map(|mut p| {
+            for (old, new) in lock(&self.shared.replaced).iter() {
+                if p.runs.contains(old) {
+                    p.runs.insert(*new);
+                }
+            }
+            p
+        });
+        self.set_global_pause(pause.clone());
+        let pause = pause.as_ref();
         self.architects_due(pause)?;
         for &work in &go.steps {
             let ask = Ask::Work(work);

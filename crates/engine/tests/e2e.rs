@@ -608,7 +608,12 @@ impl GitHub for FakeHub {
             ],
         );
         git(&dir, &["merge", "--squash", &format!("origin/{branch}")]);
-        git(&dir, &["commit", "-q", "-m", &format!("Merge PR {pr}")]);
+        // A branch whose change main holds already, as when two works of the scripted agent make the same change,
+        // squashes to nothing, and merges as an empty commit.
+        git(
+            &dir,
+            &["commit", "-q", "--allow-empty", "-m", &format!("Merge PR {pr}")],
+        );
         git(&dir, &["push", "-q", "origin", &format!("HEAD:{base}")]);
         Ok(git(&dir, &["rev-parse", "HEAD"]))
     }
@@ -6647,8 +6652,10 @@ fn side_reports_come_to_the_architect_as_reports() {
             })
             .unwrap();
     assert_eq!((detail.as_str(), urgent), ("duplicate", 1));
-    let started = e.step(work).unwrap();
+    // A work of the architect starts for the report, its first step beside the work's own.
+    let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
+    let started = pass.jobs.iter().find(|s| s.work != work).expect(&log);
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     assert!(
@@ -11646,9 +11653,20 @@ fn of_two_works_back_from_waiting_one_takes_the_one_free_slot() {
 // round open meanwhile, so that only the step in flight keeps the ping off.
 #[test]
 fn no_ping_goes_to_a_work_while_its_step_runs() {
-    let s = setup("no-ping-in-a-step");
+    let s = setup_priced("no-ping-in-a-step");
     s.ci.shut();
-    let (mut e, said, item) = start(&s, scripts());
+    let mut agents = scripts();
+    let implement = agents.remove("I1").unwrap();
+    // The engineer's round that asks for CI says what it used, as the CLI does, which a ping needs to run it again.
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            let (pick, mut set) = implement(r, n);
+            set.push(("@usage", used(1.0, 9_000)));
+            (pick, set)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
     let ci = turns_until(&mut e, &Go::default(), |_| s.ci.came() > 0);
     let log = said.lock().unwrap().join("\n");
     assert!(ci, "{log}");
