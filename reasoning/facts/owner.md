@@ -195,3 +195,5 @@ Fact owner-dense-observation-rows: The owner cannot tell apart observation rows 
 Fact named-state-buttons-too-long: The owner finds a row of state buttons, each named by its state, too long for one line of the items' tree or of the list of conversations.
 
 Fact owner-finds-place-on-chart: On a large chart the owner looks for where the view is on the whole chart and goes to another part of it at once.
+
+Fact owner-cannot-tell-sent-from-held: In one list of a round's conditional inputs, those sent in bold and those held greyed, the owner cannot tell what the agent got this round from what its session already held.

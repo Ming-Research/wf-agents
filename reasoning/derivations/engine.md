@@ -2,6 +2,6 @@ Decision engine-mechanical: The engine follows the compiled flow mechanically: i
 
 Rests on: C:flow-does
 
-Decision one-machine: The engine and the session manager run as one process on the owner's machine, instead of across several machines; provisional, because one machine is enough to run the flow first, and several machines are reopened when the work outgrows it.
+Decision one-machine: The engine and the session manager run as one process on the owner's machine, instead of across several machines, because one machine is enough to run the flow first.
 
 Rests on: C:product-grade, F:one-machine-enough

@@ -115,7 +115,7 @@ Decision since-last-work-limits: What happened in a project since its architect'
 
 Rests on: C:efficient, F:commit-list-size, F:agent-reads-git-history
 
-Decision unmeetable-left-out: What a project cannot meet is left out of what its agents are given: a field of every return the project does not ask for, and a gate whose need it does not meet (a gap in what is under test needs something under test), which the engine answers by need, instead of every field and gate in every project, because what no work of the project can meet only invites an answer that does not fit, as a gate the engine answers by need is no column of the review. An ask carries no kind (D:ask-no-kind), so that no kind of question is left out of the return formats any longer.
+Decision unmeetable-left-out: What a project cannot meet is left out of what its agents are given: a field of every return the project does not ask for, and a gate whose need it does not meet (a gap in what is under test needs something under test), which the engine answers by need, instead of every field and gate in every project, because what no work of the project can meet only invites an answer that does not fit, as a gate the engine answers by need is no column of the review. An ask carries no kind (D:ask-no-kind), so that no kind of question is left out of the return formats.
 
 Rests on: C:information, F:unmeetable-invites-misfit, D:gate-na-no-column, D:ask-no-kind
 
