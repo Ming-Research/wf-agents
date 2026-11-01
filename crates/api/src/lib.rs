@@ -24,7 +24,7 @@ mod typescript;
 mod view;
 
 pub use bus::{Bus, Envelope};
-pub use control::{Asked, Control, Fresh, Next};
+pub use control::{Asked, Control, Fresh, Woke};
 pub use diff::diff;
 pub use events::events;
 pub use marks::{mark_read, read_to};

@@ -68,14 +68,14 @@ waiting_for_slot: Array<number>,
  */
 architects_started: Array<string>, 
 /**
- * The work the engine is taking a step of now: its round runs. While every work is paused it is the last round
- * before the pause, unless the owner asked for it.
+ * The works the engine is taking a step of now, in the order of their ids: the round of each runs, beside the
+ * others. While every work is paused they are the last rounds before the pause, unless the owner asked for them.
  */
-running: number | null, 
+running: Array<number>, 
 /**
- * The work whose round the owner asked for, until that round has ended.
+ * The works whose round the owner asked for, in the order asked, until each round has ended.
  */
-stepping: number | null, 
+stepping: Array<number>, 
 /**
  * The last round the owner asked for since the engine started.
  */

@@ -6,15 +6,19 @@ Fact attempt-rewrites-return: Each attempt at a return writes the whole return a
 
 Fact before-run-lint-main: A lint on the code before the change checks main's code with only the tests added.
 
+Fact cancel-cuts-round: Cancelling an item, from the owner's page or by an architect's change, ends its work at once in the same transaction, cutting off the round the work is in, whatever its step is doing.
+
 Fact cargo-test-binary-time: `cargo test` gives only the time of the whole test binary that holds a test.
 
-Fact engine-one-step: The engine's loop takes one step of one work at a time and reads between two steps what the owner asked.
-
 Fact fast-ci-stops-first-red: The fast CI stops a job at its first red test.
+
+Fact finish-round-unchecked: Ending a round changed no row when the round was no longer open and still reported success, so the step that ended it went on to move its work as if it had ended the round.
 
 Fact first-message-varies: A session's first message begins with what differs from session to session: the git status, the working directory, the date.
 
 Fact gh-log-noise: What gh puts before every line of a check's log (the job, the step and the time) and the escapes that colour the text, which gh writes with the escape character as the two characters "^[", take most of each line and say nothing about why the check is red.
+
+Fact grant-to-any-waiting-starves: A loop that granted a free slot to every work that waits, in the order of the works' ids, gave it each turn to a work whose wait was not over, which waited on, while a work with a higher id whose wait was over found no slot free and was held, turn after turn.
 
 Fact json-text-escapes: A text inside JSON escapes every quote it holds, which an agent reading it then reads through.
 
@@ -30,6 +34,8 @@ Fact one-machine-enough: One machine is enough to run the flow first.
 
 Assumed: the work outgrowing one machine overturns it
 
+Fact ping-is-a-call: A ping that keeps a session warm is one call of the agent's command line, which runs until the command line returns.
+
 Fact pr-keeps-base: A pull request keeps the base it was opened with.
 
 Fact refusal-cost: A refusal within the run costs about what a round sent back costs the model: tried with Haiku, 4,763 tokens read, 212 written and 255 put out, against 4,737, 316 and 275 for the same return sent back in a resumed session.
@@ -40,9 +46,15 @@ Fact session-holds-cut-off-round: A session holds everything a round cut off in 
 
 Fact startup-takeover-lost-rulings: Taking over every work on an older flow version as the engine started ended works whose design cards and asks the owner was about to rule on and answer.
 
+Fact step-waits-minutes: A step of a work waits on an agent's command line or on a CI run for minutes: in the owner's database an agent's round took up to about seventeen minutes and a CI run up to about thirteen.
+
+Fact steps-never-overlapped: In the owner's database no two works' agent rounds and no two works' CI runs ever overlapped in time, while several works were alive together, their slots taken.
+
 Fact texts-filled-db: The shared formats, the rules, a cell's task and the schema are the same in round after round and session after session, and stored again in each round they made most of the database.
 
 Fact told-columns-named-right: An agent told the columns where its query went wrong names them right in its next round.
+
+Fact wait-set-over: A failed run's cause that stops every work set its wait over whatever wait stood, and the look at the network ended whatever wait stood once it was done, so that a later cause's shorter wait, or one a step set during the look, replaced or ended a longer one.
 
 Fact waved-off-red-breaks-main: A red check waved off as not the change's own is how a change breaks main.
 

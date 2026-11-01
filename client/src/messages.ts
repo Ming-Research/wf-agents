@@ -603,7 +603,7 @@ const messages = {
     'It stops at the end of the round it is in and stays paused, whatever the global state, until you start it; Start all does not lift it.',
   work_step_hint:
     'Runs exactly one real round of it on your account, whatever the global state; after it, the work is paused by you.',
-  work_step_later: 'Another round you asked for is under way, or something stops every work: Step waits until it ends.',
+  work_step_later: 'The round you asked for is under way, or something stops every work: Step waits until it ends.',
   work_step_goes_on: 'It goes on: Step runs a round of it only while it is paused.',
   confirm_step: 'Run one round of W{id} at cell {cell} now? It is a real round on your account.',
   confirm_takeover:

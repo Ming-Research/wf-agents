@@ -59,11 +59,11 @@ pub struct Status {
     /// The projects whose architect the owner started since every work was last paused: its works go on whatever the
     /// global state.
     pub architects_started: Vec<String>,
-    /// The work the engine is taking a step of now: its round runs. While every work is paused it is the last round
-    /// before the pause, unless the owner asked for it.
-    pub running: Option<i64>,
-    /// The work whose round the owner asked for, until that round has ended.
-    pub stepping: Option<i64>,
+    /// The works the engine is taking a step of now, in the order of their ids: the round of each runs, beside the
+    /// others. While every work is paused they are the last rounds before the pause, unless the owner asked for them.
+    pub running: Vec<i64>,
+    /// The works whose round the owner asked for, in the order asked, until each round has ended.
+    pub stepping: Vec<i64>,
     /// The last round the owner asked for since the engine started.
     pub last_step: Option<StepTaken>,
     /// The slots of every machine together, and how many of them works hold.

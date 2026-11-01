@@ -131,15 +131,25 @@ fn waited_on(e: &mut Engine, w: &Work, g: &CompiledGraph) -> Result<Option<Waite
     }
 }
 
-/// Sends a keep-warm ping to each session of a work's line that the flow can come back to from where the work stands
-/// ([`coming_back`]), whether the work goes on or waits, when the session manager finds it due at `now`; gives how many
-/// it sent. While the owner's global pause holds (`pause`), a work it holds waits on it; none is sent then if the owner
-/// switched keeping warm off, and none while a failed run's cause stops every work. A work whose next round starts the
-/// new session the owner asked for has nothing to keep warm, nor has a work on an older flow version that a new work
-/// will take over.
-pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<usize, String> {
+/// A keep-warm ping due to a session of a work's line, with where the work waits and the line's name.
+#[derive(Debug, Clone)]
+pub struct Ping {
+    due: sessions::warm::Due,
+    waited: Waited,
+    line: String,
+}
+
+/// The keep-warm pings due at `now`, by work: one to each session of a work's line that the flow can come back to
+/// from where the work stands ([`coming_back`]), whether the work goes on or waits, when the session manager finds it
+/// due. A work with a job in flight is due none, since a step of it may run a round in the session (the loop
+/// dispatches a work's pings as its job, one job at most for each work). While the owner's global pause holds
+/// (`pause`), a work it holds waits on it; none is due then if the owner switched keeping warm off, and none while a
+/// failed run's cause stops every work. A work whose next round starts the new session the owner asked for has nothing
+/// to keep warm, nor has a work on an older flow version that a new work will take over.
+pub fn due(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<Vec<(i64, Vec<Ping>)>, String> {
+    let mut out = Vec::new();
     if e.halted() || pause.is_some_and(|p| !p.warm) {
-        return Ok(0);
+        return Ok(out);
     }
     let ids: Vec<i64> = {
         let mut st =
@@ -151,8 +161,10 @@ pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Resul
             .collect::<Result<_, _>>()
             .map_err(|x| x.to_string())?
     };
-    let mut sent = 0;
     for id in ids {
+        if e.has_job(id) {
+            continue;
+        }
         let w = e.work(id)?;
         // A work on an older flow version goes on in its sessions only when it can move to the version the engine runs.
         if e.done(&w)? || (w.flow_version != e.flow_now && e.cannot_move(&w)?.is_some()) {
@@ -191,6 +203,7 @@ pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Resul
         };
         let item = e.subject(&w)?;
         let limit = e.config.config.install.agents.context_limit;
+        let mut pings = Vec::new();
         for (line, next) in lines {
             let cells: Vec<&CompiledCell> = next.iter().filter_map(|c| g.cell(c)).collect();
             // The model and the login account the line's next round runs on: a session on another one starts anew,
@@ -210,27 +223,42 @@ pub fn keep_warm(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Resul
             let Some(due) = sessions::warm::due(e.db.conn(), w.id, &cells, limit, on, now)? else {
                 continue;
             };
-            e.say(&format!(
-                "work {id}: keep-warm ping {} of this wait to session {} of the {line} line, as the work stands at \
-                 cell {} on {}: {}",
-                due.pings + 1,
-                due.session,
-                waited.cell,
-                waited.on,
-                waited.what
-            ));
-            sessions::warm::ping(
-                &mut e.db,
-                e.shared.sessions.agents(),
-                &e.config.config,
-                &due,
-                &waited,
-                now,
-            )?;
-            sent += 1;
+            pings.push(Ping {
+                due,
+                waited: waited.clone(),
+                line,
+            });
+        }
+        if !pings.is_empty() {
+            out.push((id, pings));
         }
     }
-    Ok(sent)
+    Ok(out)
+}
+
+/// Sends a work's keep-warm pings found due at `now`, as the job the loop dispatched for them, and records each.
+pub fn send(e: &mut Engine, work: i64, pings: &[Ping], now: i64) -> Result<(), String> {
+    for p in pings {
+        e.say(&format!(
+            "work {work}: keep-warm ping {} of this wait to session {} of the {} line, as the work stands at cell {} \
+             on {}: {}",
+            p.due.pings + 1,
+            p.due.session,
+            p.line,
+            p.waited.cell,
+            p.waited.on,
+            p.waited.what
+        ));
+        sessions::warm::ping(
+            &mut e.db,
+            e.shared.sessions.agents(),
+            &e.config.config,
+            &p.due,
+            &p.waited,
+            now,
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

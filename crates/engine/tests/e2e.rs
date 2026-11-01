@@ -3,18 +3,117 @@
 //! return the agent hands in is built from the cell's own schema, so a change to the flow that the engine does not
 //! follow fails here.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use db::Actor;
 use db::rusqlite::params;
 use engine::agent::{Agents, Reply, Request};
 use engine::hub::{CheckRun, Failure, GitHub};
-use engine::{Advance, Engine, Hooks};
+use engine::{Advance, Ask, Engine, GlobalPause, Go, Hooks, Passed, Stepped};
 use serde_json::{Value, json};
+
+/// The engine's loop as these tests take it: each call is one pass of it ([`Engine::pass`]), which dispatches what the
+/// owner lets go on, each step on a thread of its own, and waits for every job to end, as `wf-agents run --once` does.
+trait Passes {
+    /// One pass while every work goes on: what its first step that moved came to.
+    fn step(&mut self, after: Option<i64>) -> Result<Stepped, String>;
+    /// One pass while every work goes on: whether a step moved or a work started.
+    fn tick(&mut self) -> Result<bool, String>;
+    /// The owner's round of one work while every other work is paused.
+    fn step_work(&mut self, work: i64) -> Result<Stepped, String>;
+    /// The owner's round of a project's architect while every work is paused.
+    fn step_architect(&mut self, project: &str) -> Result<Stepped, String>;
+    /// One pass in which only `work` goes on, every other work held by the global pause: whether it moved, waits or
+    /// stopped.
+    fn advance(&mut self, work: i64) -> Result<Advance, String>;
+}
+
+/// The owner's global pause, every work held but those given and the works of the architects of the projects given.
+fn held_but(runs: &[i64], architects: &[&str]) -> Option<GlobalPause> {
+    Some(GlobalPause {
+        warm: true,
+        runs: runs.iter().copied().collect(),
+        architects: architects.iter().map(|p| (*p).to_string()).collect(),
+    })
+}
+
+/// What a pass came to, as one step: its first step that moved, with every round the pass started or ended.
+fn first_moved(p: &Passed) -> Stepped {
+    Stepped {
+        work: p.work(),
+        started_item: p.started_item(),
+        rounds: p.rounds(),
+        cell: p.cell(),
+        asked: None,
+    }
+}
+
+/// What the owner's round asked as `ask` came to in a pass: its step, or the round taken without one.
+fn asked_in(p: &Passed, ask: &Ask) -> Stepped {
+    p.jobs
+        .iter()
+        .find(|s| s.asked.as_ref() == Some(ask))
+        .cloned()
+        .unwrap_or_default()
+}
+
+impl Passes for Engine {
+    fn step(&mut self, _after: Option<i64>) -> Result<Stepped, String> {
+        Ok(first_moved(&self.pass(&Go::default())?))
+    }
+
+    fn tick(&mut self) -> Result<bool, String> {
+        let p = self.pass(&Go::default())?;
+        Ok(!p.rounds().is_empty() || p.started_item().is_some())
+    }
+
+    fn step_work(&mut self, work: i64) -> Result<Stepped, String> {
+        let go = Go {
+            pause: held_but(&[], &[]),
+            steps: vec![work],
+            architects: Vec::new(),
+        };
+        Ok(asked_in(&self.pass(&go)?, &Ask::Work(work)))
+    }
+
+    fn step_architect(&mut self, project: &str) -> Result<Stepped, String> {
+        let go = Go {
+            pause: held_but(&[], &[]),
+            steps: Vec::new(),
+            architects: vec![project.to_string()],
+        };
+        Ok(asked_in(&self.pass(&go)?, &Ask::Architect(project.to_string())))
+    }
+
+    fn advance(&mut self, work: i64) -> Result<Advance, String> {
+        let go = Go {
+            pause: held_but(&[work], &[]),
+            ..Go::default()
+        };
+        let p = self.pass(&go)?;
+        let w = self.work(work)?;
+        if w.ended.is_some() || w.paused.is_some() || self.done(&w)? {
+            return Ok(Advance::Stopped);
+        }
+        if p.rounds().iter().any(|r| r.work == work) {
+            return Ok(Advance::Moved);
+        }
+        Ok(Advance::Waits(format!("work {work} did not move")))
+    }
+}
+
+/// The keep-warm pings due at `now`, as the loop dispatches them each as its work's job ([`Engine::keep_warm`]), sent
+/// and recorded once every job has ended: how many were dispatched.
+fn warm_now(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<usize, String> {
+    let n = e.keep_warm(now, pause)?;
+    e.drain()?;
+    Ok(n)
+}
 
 /// How many returns of a cell in a row the flow the engine runs sends back before it pauses the work.
 fn pause_after(e: &mut Engine) -> usize {
@@ -371,12 +470,63 @@ struct Pr {
 /// The pull requests of the fake GitHub, by number, which a test can read and change as GitHub keeps them.
 type Prs = Arc<Mutex<BTreeMap<i64, Pr>>>;
 
-/// GitHub as the engine sees it, over a bare repository: CI is always green, a pull request keeps the base it was
-/// opened with until it is set, and a merge squashes the branch onto the pull request's base.
+/// A gate the scripted agent or GitHub waits at while a test keeps it shut, counting the calls that came to it; open
+/// unless shut. A call waits a minute at most, so that a test whose engine never lets the gate open fails, not hangs.
+#[derive(Clone, Default)]
+struct Gate(Arc<(Mutex<GateState>, Condvar)>);
+
+#[derive(Default)]
+struct GateState {
+    shut: bool,
+    came: usize,
+}
+
+impl Gate {
+    fn shut(&self) {
+        self.0.0.lock().unwrap().shut = true;
+    }
+
+    fn open(&self) {
+        self.0.0.lock().unwrap().shut = false;
+        self.0.1.notify_all();
+    }
+
+    /// Comes to the gate, and waits while it is shut.
+    fn pass(&self) {
+        let (state, cv) = &*self.0;
+        let mut s = state.lock().unwrap();
+        s.came += 1;
+        cv.notify_all();
+        let (s, _) = cv.wait_timeout_while(s, Duration::from_secs(60), |s| s.shut).unwrap();
+        drop(s);
+    }
+
+    /// Comes to the gate, and waits until `n` calls came to it, or ten seconds passed.
+    fn meet(&self, n: usize) {
+        let (state, cv) = &*self.0;
+        let mut s = state.lock().unwrap();
+        s.came += 1;
+        cv.notify_all();
+        let (s, _) = cv
+            .wait_timeout_while(s, Duration::from_secs(10), |s| s.came < n)
+            .unwrap();
+        drop(s);
+    }
+
+    /// How many calls came to it.
+    fn came(&self) -> usize {
+        self.0.0.lock().unwrap().came
+    }
+}
+
+/// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
+/// request keeps the base it was opened with until it is set, and a merge squashes the branch onto the pull request's
+/// base.
 struct FakeHub {
     origin: PathBuf,
     scratch: PathBuf,
     prs: Prs,
+    ci: Gate,
 }
 
 impl GitHub for FakeHub {
@@ -423,6 +573,7 @@ impl GitHub for FakeHub {
     }
 
     fn checks(&self, _repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
+        self.ci.pass();
         Ok(vec![CheckRun {
             name: "check".into(),
             result: "green".into(),
@@ -457,7 +608,12 @@ impl GitHub for FakeHub {
             ],
         );
         git(&dir, &["merge", "--squash", &format!("origin/{branch}")]);
-        git(&dir, &["commit", "-q", "-m", &format!("Merge PR {pr}")]);
+        // A branch whose change main holds already, as when two works of the scripted agent make the same change,
+        // squashes to nothing, and merges as an empty commit.
+        git(
+            &dir,
+            &["commit", "-q", "--allow-empty", "-m", &format!("Merge PR {pr}")],
+        );
         git(&dir, &["push", "-q", "origin", &format!("HEAD:{base}")]);
         Ok(git(&dir, &["rev-parse", "HEAD"]))
     }
@@ -521,6 +677,8 @@ struct Setup {
     origin: PathBuf,
     /// The pull requests on the fake GitHub, kept across the engines a test starts, as GitHub keeps them.
     prs: Prs,
+    /// Where the fake GitHub's checks wait while a test keeps CI from coming back.
+    ci: Gate,
 }
 
 fn setup(name: &str) -> Setup {
@@ -600,6 +758,7 @@ merge_checks = ["check"]
         data,
         origin,
         prs: Prs::default(),
+        ci: Gate::default(),
     }
 }
 
@@ -629,14 +788,20 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "not_needed")], Vec::new())),
     );
     // Implementing: a work's first round changes the code and asks for ci; the next hands in the end. Which it is the
-    // work's worktree says, since several works may implement, each in its own.
+    // work's branch says, by the commit the first made, since several works may implement, each in its own worktree:
+    // the feature, or, when main holds it already from another work, a part of its own.
     s.insert(
         "I1",
         Box::new(|r: &Request, _: usize| {
             let wt = &r.worktree;
-            let done = std::fs::read_to_string(wt.join("src/lib.txt")).is_ok_and(|t| t.contains("feature"));
+            let done = git(wt, &["log", "--format=%s"]).lines().any(|l| l == "Add the feature");
             if !done {
-                write(wt, "src/lib.txt", "old\nfeature\n");
+                let lib = std::fs::read_to_string(wt.join("src/lib.txt")).unwrap_or_default();
+                if lib.contains("feature") {
+                    write(wt, &format!("src/part-{}.txt", r.work), "feature\n");
+                } else {
+                    write(wt, "src/lib.txt", "old\nfeature\n");
+                }
                 git(wt, &["add", "-A"]);
                 git(wt, &["commit", "-q", "-m", "Add the feature"]);
                 let head = git(wt, &["rev-parse", "HEAD"]);
@@ -743,6 +908,7 @@ fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks)
         origin: s.origin.clone(),
         scratch: s.root.clone(),
         prs: s.prs.clone(),
+        ci: s.ci.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let said = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -947,6 +1113,7 @@ fn building_a_message_writes_nothing() {
         origin: s.origin.clone(),
         scratch: s.root.clone(),
         prs: s.prs.clone(),
+        ci: s.ci.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
@@ -2822,6 +2989,8 @@ fn told(s: &Setup, word: &str) -> usize {
 fn a_usage_limit_stops_every_work_until_it_resets() {
     let reset = db::now() / 1000 + 3600;
     let (s, mut e, said, item) = failing("limit", format!("Claude AI usage limit reached|{reset}"), 1);
+    // The first pass starts the work; the second runs its first agent's round, which fails.
+    e.tick().unwrap();
     e.tick().unwrap();
     let log = said.lock().unwrap().join("\n");
     let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
@@ -2848,6 +3017,8 @@ fn a_usage_limit_stops_every_work_until_it_resets() {
 fn no_network_stops_every_work_until_it_is_back() {
     let report = "API Error: Connection error. (getaddrinfo ENOTFOUND api.anthropic.com)".to_string();
     let (s, mut e, said, item) = failing("offline", report, 1);
+    // The first pass starts the work; the second runs its first agent's round, which fails.
+    e.tick().unwrap();
     e.tick().unwrap();
     let log = said.lock().unwrap().join("\n");
     let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
@@ -2888,6 +3059,8 @@ fn no_network_is_looked_at_without_running_a_round() {
         ..Hooks::default()
     };
     let (mut e, said, item) = start_with(&s, scripts, hooks);
+    // The first pass starts the work; the second runs its first agent's round, which fails.
+    e.tick().unwrap();
     e.tick().unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(e.halt().map(|h| h.kind).as_deref(), Some("offline"), "{log}");
@@ -3382,6 +3555,8 @@ fn a_return_neither_repaired_nor_handed_in_again_pauses_the_work() {
 #[test]
 fn an_expired_login_stops_every_work_until_a_round_runs_again() {
     let (s, mut e, said, item) = failing("login", "Not logged in · Please run /login".to_string(), 1);
+    // The first pass starts the work; the second runs its first agent's round, which fails.
+    e.tick().unwrap();
     e.tick().unwrap();
     let log = said.lock().unwrap().join("\n");
     let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
@@ -3473,7 +3648,7 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
     let busy = Arc::new(Mutex::new(Vec::new()));
     let seen = busy.clone();
     let hooks = Hooks {
-        busy: Arc::new(move |w: Option<i64>| seen.lock().unwrap().push(w)),
+        busy: Arc::new(move |w: &[i64]| seen.lock().unwrap().push(w.to_vec())),
         ..Hooks::default()
     };
     let (mut e, said, item) = start_with(&s, scripts, hooks);
@@ -3493,7 +3668,7 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
             )
             .unwrap();
     assert!(took.is_some(), "{log}");
-    assert_eq!(*busy.lock().unwrap(), [Some(work), None, Some(work), None]);
+    assert_eq!(*busy.lock().unwrap(), [vec![work], vec![], vec![work], vec![]]);
     // Paused, it takes no step by itself.
     let n = rounds_count(&e);
     assert_eq!(e.step(Some(work)).unwrap().work, None);
@@ -4625,7 +4800,7 @@ fn an_action_only_the_owner_can_do_pauses_the_work_until_the_owner_starts_it() {
         if question_took(&e, work).is_some() {
             break;
         }
-        turn(&mut e, &c, None);
+        turn(&mut e, &c);
     }
     let log = said.lock().unwrap().join("\n");
     assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
@@ -6647,8 +6822,10 @@ fn side_reports_come_to_the_architect_as_reports() {
             })
             .unwrap();
     assert_eq!((detail.as_str(), urgent), ("duplicate", 1));
-    let started = e.step(work).unwrap();
+    // A work of the architect starts for the report, its first step beside the work's own.
+    let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
+    let started = pass.jobs.iter().find(|s| s.work != work).expect(&log);
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     assert!(
@@ -6930,8 +7107,10 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     let (mut e, said, item) = start(&s, agents);
     let work = e.step(None).unwrap().work.unwrap();
     say(&mut e, "Stop the feature until the parser is in.");
-    let started = e.step(Some(work)).unwrap();
+    // A work of the architect starts for what was said, its first step beside the work's own.
+    let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
+    let started = pass.jobs.iter().find(|s| s.work != Some(work)).expect(&log);
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     let stopped = |e: &mut Engine| state(e, item).is_some_and(|x| x.2.is_some());
@@ -6997,8 +7176,10 @@ fn the_architect_starts_a_work_over() {
     assert_eq!(gone, 2);
     let work = e.step(None).unwrap().work.unwrap();
     say(&mut e, "Begin the feature again, and keep what it built.");
-    let started = e.step(Some(work)).unwrap();
+    // A work of the architect starts for what was said, its first step beside the work's own.
+    let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
+    let started = pass.jobs.iter().find(|s| s.work != Some(work)).expect(&log);
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     let over = |e: &mut Engine| works_of(e, item).len() == 2;
@@ -7581,7 +7762,7 @@ fn a_session_past_the_context_limit_is_replaced_at_the_lines_next_round() {
     assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
-    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     let_go_on(&mut e, work);
     e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -7646,14 +7827,14 @@ fn a_waiting_session_is_kept_warm_until_the_wait_has_cost_one_rewrite() {
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
     // Not before 55 minutes, and not once the cache has let the session go.
-    assert_eq!(e.keep_warm(from + 54 * 60_000, None).unwrap(), 0);
-    assert_eq!(e.keep_warm(from + 60 * 60_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, from + 54 * 60_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, from + 60 * 60_000, None).unwrap(), 0);
     let mut now = from + 55 * 60_000;
-    assert_eq!(e.keep_warm(now, None).unwrap(), 1);
-    assert_eq!(e.keep_warm(now + 60_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, now, None).unwrap(), 1);
+    assert_eq!(warm_now(&mut e, now + 60_000, None).unwrap(), 0);
     for _ in 0..40 {
         now += 55 * 60_000 + 1_000;
-        e.keep_warm(now, None).unwrap();
+        warm_now(&mut e, now, None).unwrap();
     }
     let log = said.lock().unwrap().join("\n");
     let pings = pings_of(&e, work);
@@ -7739,7 +7920,7 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
     let now = from + 55 * 60_000 + 1_000;
     move_to(&mut e, work, "T6");
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(e.keep_warm(now, None).unwrap(), 1, "{log}");
+    assert_eq!(warm_now(&mut e, now, None).unwrap(), 1, "{log}");
     assert_eq!(
         pinged(&e),
         [(
@@ -7748,7 +7929,7 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
         )]
     );
     move_to(&mut e, work, "M1");
-    assert_eq!(e.keep_warm(now + 2_000, None).unwrap(), 1, "{log}");
+    assert_eq!(warm_now(&mut e, now + 2_000, None).unwrap(), 1, "{log}");
     let pings = pinged(&e);
     assert_eq!(pings.len(), 2, "{pings:?}");
     assert_eq!((pings[1].0.as_str(), &pings[1].1["cell"]), ("engineer", &json!("M1")));
@@ -7775,7 +7956,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
     let (work, _, _) = state(&e, item).unwrap();
     pause_by_owner(&mut e, work, "to look at it");
     let from = last_call(&e, work);
-    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     // At a cell that goes on in the session, a round of the session that runs keeps the ping off.
     move_to(&mut e, work, "D9");
     let session: i64 =
@@ -7797,14 +7978,14 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
             Ok(n)
         })
         .unwrap();
-    assert_eq!(e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     e.db.write(Actor::Engine, |tx| {
         tx.execute("DELETE FROM rounds WHERE work = ?1 AND n = ?2", [work, open])?;
         Ok(())
     })
     .unwrap();
     assert_eq!(
-        e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(),
+        warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(),
         1,
         "{}",
         said.lock().unwrap().join("\n")
@@ -7841,7 +8022,7 @@ fn a_ping_says_where_the_work_waited_and_for_what() {
     .unwrap();
     let from = last_call(&e, work);
     assert_eq!(
-        e.keep_warm(from + 55 * 60_000 + 1_000, None).unwrap(),
+        warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(),
         1,
         "{}",
         said.lock().unwrap().join("\n")
@@ -8342,7 +8523,12 @@ fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done
         })
         .unwrap();
     say(&mut e, "Look at the items.");
-    let arch = e.step(None).unwrap().work.unwrap();
+    // A work of the architect starts for what was said, beside the step of the work that merged.
+    e.tick().unwrap();
+    let arch: i64 =
+        e.db.conn()
+            .query_row("SELECT id FROM works WHERE graph = 'architect'", [], |r| r.get(0))
+            .unwrap();
     assert!(
         steps_until(&mut e, 10, |e| path_of(e, arch).iter().any(|c| c == "U1")),
         "{}",
@@ -10090,52 +10276,63 @@ fn an_observation_with_no_tag_or_a_long_title_is_sent_back() {
 
 // The owner's Start, Pause and Step of a work and of a project's architect, beside the global pause and start.
 
-/// One turn of the engine's loop as `wf-agents run` takes it, which these tests play: the starts over asked carried out,
-/// the owner's Start of a work taken over handed to the work that took it over, the new sessions the owner asked for
-/// handed to the session manager, the pauses of the works the owner started lifted once each may hold a slot, then the
-/// step the owner's asks call for.
-fn turn(e: &mut Engine, c: &api::Control, after: Option<i64>) -> engine::Stepped {
-    e.start_overs().unwrap();
+/// One turn of the engine's loop as `wf-agents run` takes it, which these tests play, every job waited for: the owner's
+/// Start of a work taken over handed to the work that took it over, the new sessions the owner asked for handed to the
+/// session manager, the pauses of the works the owner started lifted once each may hold a slot, then one pass with what
+/// the owner asked, after which the rounds the owner asked for are done with. Gives what the round the owner asked for
+/// came to, or else the first step that moved.
+fn turn(e: &mut Engine, c: &api::Control) -> Stepped {
+    let p = pass_turn(e, c);
+    p.jobs
+        .iter()
+        .find(|s| s.asked.is_some())
+        .cloned()
+        .unwrap_or_else(|| first_moved(&p))
+}
+
+/// One turn of the loop, as [`turn`] takes it: what the whole pass came to.
+fn pass_turn(e: &mut Engine, c: &api::Control) -> Passed {
     for (old, new) in e.replaced() {
         c.replaced(old, new);
     }
-    let asked = c.asked();
     for w in c.take_new_sessions() {
         e.sessions().ask_new(w);
     }
+    let asked = c.asked();
     let (done, architects) = e
         .release_started(&asked.releasing, &asked.architects_releasing)
         .unwrap();
     c.released(&done, &architects);
-    match asked.next() {
-        api::Next::Step(w) => {
-            let s = e.step_work(w).unwrap();
-            c.stepped(Some(w));
-            s
-        }
-        api::Next::Architect(p) => {
-            let s = e.step_architect(&p).unwrap();
-            c.stepped(s.work);
-            s
-        }
-        api::Next::Pass => e.step(after).unwrap(),
-        api::Next::Started => e
-            .step_started(after, &asked.started, &asked.architects_started)
-            .unwrap(),
-        api::Next::Wait => engine::Stepped::default(),
+    let asked = c.asked();
+    let go = Go {
+        pause: asked.paused.then(|| GlobalPause {
+            warm: asked.keep_warm,
+            runs: asked.started.clone(),
+            architects: asked.architects_started.clone(),
+        }),
+        steps: asked.steps.clone(),
+        architects: asked.architects.clone(),
+    };
+    let p = e.pass(&go).unwrap();
+    for (old, new) in e.replaced() {
+        c.replaced(old, new);
     }
+    for s in &p.jobs {
+        match &s.asked {
+            Some(Ask::Work(w)) => c.stepped(*w),
+            Some(Ask::Architect(project)) => c.stepped_architect(project),
+            None => {}
+        }
+    }
+    p
 }
 
-/// Takes turns of the loop, each after the work the last moved, and gives the works that moved, in order.
+/// Takes turns of the loop and gives the works whose steps moved, in order: in each turn, in the order of their ids.
 fn turns(e: &mut Engine, c: &api::Control, n: usize) -> Vec<i64> {
     let mut moved = Vec::new();
-    let mut after = None;
     for _ in 0..n {
-        let s = turn(e, c, after);
-        if let Some(w) = s.work.filter(|_| !s.rounds.is_empty()) {
-            moved.push(w);
-        }
-        after = s.work.or(after);
+        let p = pass_turn(e, c);
+        moved.extend(p.jobs.iter().filter(|s| !s.rounds.is_empty()).filter_map(|s| s.work));
     }
     moved
 }
@@ -10148,22 +10345,34 @@ fn owner_pauses(e: &mut Engine, c: &api::Control, work: i64) {
 
 /// A setup whose one machine has two slots, and an engine over it with two items in the queue.
 fn two_works(name: &str) -> (Setup, Engine, Arc<Mutex<Vec<String>>>) {
+    let (s, e, said, _, _) = two_works_with(name, scripts(), Hooks::default());
+    (s, e, said)
+}
+
+/// A setup whose one machine has two slots, and an engine over it as [`start_with`] makes it, with two items in the
+/// queue: the first and the second item.
+fn two_works_with(
+    name: &str,
+    scripts: BTreeMap<&'static str, Script>,
+    hooks: Hooks,
+) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64, i64) {
     let s = setup(name);
     let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
     write(&s.data, "install.toml", &install.replace("slots = 1", "slots = 2"));
     git(&s.data, &["commit", "-q", "-am", "two slots"]);
-    let (mut e, said, _) = start(&s, scripts());
-    e.db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Add another', 'x', 'y', 'change', 'l')",
-            [],
-        )?;
-        let id = tx.last_insert_rowid();
-        tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", params![id])?;
-        Ok(())
-    })
-    .unwrap();
-    (s, e, said)
+    let (mut e, said, first) = start_with(&s, scripts, hooks);
+    let second =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Add another', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", params![id])?;
+            Ok(id)
+        })
+        .unwrap();
+    (s, e, said, first, second)
 }
 
 // A work that waits for the architect's reply holds no slot, and another work starts in the slot it left; once the
@@ -10317,8 +10526,9 @@ fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
     let c = api::Control::default();
     // Every work paused, as the engine starts: nothing moves.
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
+    // Started all, one turn starts both works, side by side.
     c.set_paused(false);
-    let moved = turns(&mut e, &c, 2);
+    let moved = turns(&mut e, &c, 1);
     let log = said.lock().unwrap().join("\n");
     assert_eq!(moved.len(), 2, "{log}");
     let (one, two) = (moved[0], moved[1]);
@@ -10360,7 +10570,7 @@ fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
     // Start all does not lift.
     c.set_paused(true);
     c.ask_step(one, false).unwrap();
-    let stepped = turn(&mut e, &c, None);
+    let stepped = turn(&mut e, &c);
     assert_eq!((stepped.work, stepped.rounds.len()), (Some(one), 1), "{stepped:?}");
     assert_eq!(paused_by(&e, one).as_deref(), Some("owner"));
     c.set_paused(false);
@@ -10377,7 +10587,7 @@ fn a_work_the_owner_starts_still_needs_a_free_slot() {
     let (mut e, said, _) = start(&s, scripts());
     let c = api::Control::default();
     c.set_paused(false);
-    let first = turn(&mut e, &c, None).work.unwrap();
+    let first = turn(&mut e, &c).work.unwrap();
     owner_pauses(&mut e, &c, first);
     e.db.write(Actor::Owner, |tx| {
         tx.execute(
@@ -10389,7 +10599,7 @@ fn a_work_the_owner_starts_still_needs_a_free_slot() {
         Ok(())
     })
     .unwrap();
-    let second = turn(&mut e, &c, Some(first)).work.unwrap();
+    let second = turn(&mut e, &c).work.unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_ne!(second, first, "{log}");
     c.set_paused(true);
@@ -10414,7 +10624,7 @@ fn the_owner_s_start_of_a_work_the_architect_stopped_tells_the_architect() {
     let (mut e, said, item) = start(&s, scripts());
     let c = api::Control::default();
     c.set_paused(false);
-    let work = turn(&mut e, &c, None).work.unwrap();
+    let work = turn(&mut e, &c).work.unwrap();
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",
@@ -10475,7 +10685,7 @@ fn the_architect_the_owner_starts_works_and_goes_on_while_every_work_is_paused()
     assert_eq!(turns(&mut e, &c, 1), [arch]);
     assert_eq!(paused_by(&e, arch), None);
     c.ask_step_architect("p", false).unwrap();
-    let stepped = turn(&mut e, &c, None);
+    let stepped = turn(&mut e, &c);
     assert_eq!(stepped.work, Some(arch));
     assert_eq!(paused_by(&e, arch).as_deref(), Some("owner"));
     assert!(c.asked().architects_started.is_empty());
@@ -10495,7 +10705,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     assert_eq!(at, "D1", "{}", said.lock().unwrap().join("\n"));
     let c = api::Control::default();
     c.ask_step(work, true).unwrap();
-    turn(&mut e, &c, None);
+    turn(&mut e, &c);
     let log = said.lock().unwrap().join("\n");
     let lines = line_sessions(&e, work, "engineer");
     assert_eq!(
@@ -10520,7 +10730,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
         if agent_rounds(&e, item).len() > n {
             break;
         }
-        turn(&mut e, &c, None);
+        turn(&mut e, &c);
     }
     let lines = line_sessions(&e, work, "engineer");
     assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.lock().unwrap().join("\n"));
@@ -10531,7 +10741,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
         if agent_rounds(&e, item).len() > n {
             break;
         }
-        turn(&mut e, &c, None);
+        turn(&mut e, &c);
     }
     let lines = line_sessions(&e, work, "engineer");
     let log = said.lock().unwrap().join("\n");
@@ -10560,10 +10770,10 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
     assert_eq!(lines.len(), 1, "{lines:?}\n{log}");
     c.pause(&api::Fresh::Architect("p".into()));
     c.ask_step_architect("p", true).unwrap();
-    turn(&mut e, &c, None);
+    turn(&mut e, &c);
     for _ in 0..5 {
         c.ask_step_architect("p", false).unwrap();
-        turn(&mut e, &c, None);
+        turn(&mut e, &c);
     }
     let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
@@ -10598,9 +10808,9 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
         runs: runs.iter().copied().collect(),
         architects: Default::default(),
     };
-    assert_eq!(e.keep_warm(due, Some(&paused(false, &[]))).unwrap(), 0);
+    assert_eq!(warm_now(&mut e, due, Some(&paused(false, &[]))).unwrap(), 0);
     assert_eq!(
-        e.keep_warm(due, Some(&paused(true, &[]))).unwrap(),
+        warm_now(&mut e, due, Some(&paused(true, &[]))).unwrap(),
         1,
         "{}",
         said.lock().unwrap().join("\n")
@@ -10612,10 +10822,10 @@ fn sessions_are_kept_warm_while_every_work_is_paused_unless_the_owner_switches_i
     // A work the owner started runs on, as every work does with no pause: the line it comes back to is kept warm
     // for its going on.
     let later = due + 55 * 60_000 + 1_000;
-    assert_eq!(e.keep_warm(later, Some(&paused(true, &[work]))).unwrap(), 1);
+    assert_eq!(warm_now(&mut e, later, Some(&paused(true, &[work]))).unwrap(), 1);
     let going_on = json!({ "cell": "D1", "on": "work", "what": "the work goes on" });
     assert_eq!(pings_of(&e, work)[1].0, going_on);
-    assert_eq!(e.keep_warm(later + 55 * 60_000 + 1_000, None).unwrap(), 1);
+    assert_eq!(warm_now(&mut e, later + 55 * 60_000 + 1_000, None).unwrap(), 1);
     assert_eq!(pings_of(&e, work)[2].0, going_on);
     // The owner's switch is kept in the database, as the owner's, across a restart.
     assert!(api::keep_warm_paused(e.db.conn()).unwrap());
@@ -11225,5 +11435,1226 @@ fn a_forked_context_shares_what_lasts_between_steps() {
             .query_row("SELECT count(*) FROM rounds", [], |r| r.get(0))
             .unwrap();
     assert_eq!(after, rounds);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Works side by side: the loop dispatches each work's step on a thread of its own.
+
+/// Takes turns of the engine's loop as `wf-agents run` takes them, waiting for no job: each reaps the jobs that ended
+/// and dispatches what `go` lets go on, every work looked at afresh, until `done` holds or a minute passed; gives
+/// whether it held.
+fn turns_until(e: &mut Engine, go: &Go, done: impl Fn(&mut Engine) -> bool) -> bool {
+    let until = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < until {
+        e.reap().unwrap();
+        if done(e) {
+            return true;
+        }
+        e.rouse();
+        e.dispatch(go).unwrap();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    done(e)
+}
+
+/// How many rounds of a work there are, and how many of them ended after `since`.
+fn rounds_after(e: &Engine, work: i64, since: i64) -> (i64, i64) {
+    e.db.conn()
+        .query_row(
+            "SELECT count(*), count(*) FILTER (WHERE ended_at > ?2) FROM rounds WHERE work = ?1",
+            params![work, since],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+}
+
+/// When the round of a tool's cell `X1` a work has open started; none when it has none open.
+fn tool_round_open(e: &Engine, work: i64) -> Option<i64> {
+    e.db.conn()
+        .query_row(
+            "SELECT started_at FROM rounds WHERE work = ?1 AND cell = 'X1' AND ended_at IS NULL",
+            [work],
+            |r| r.get(0),
+        )
+        .ok()
+}
+
+// Two works on two ready items of one project, with two slots free on the machine, run their agents' rounds side by
+// side: each round of `R1` waits until the other's has come, or ten seconds, so that rounds taken one after the other
+// do not overlap. While both run, the engine says both works' rounds run, which the owner's page shows as running.
+#[test]
+fn two_works_run_their_agents_rounds_side_by_side() {
+    let met = Gate::default();
+    let at = met.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, _: usize| {
+            at.meet(2);
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let busy = Arc::new(Mutex::new(Vec::new()));
+    let seen = busy.clone();
+    let hooks = Hooks {
+        busy: Arc::new(move |w: &[i64]| seen.lock().unwrap().push(w.to_vec())),
+        ..Hooks::default()
+    };
+    let (s, mut e, said, first, second) = two_works_with("side-by-side", agents, hooks);
+    // The first pass starts both works; the second runs the round of `R1` of each.
+    e.tick().unwrap();
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let span = |item: i64| -> (i64, i64) {
+        e.db.conn()
+            .query_row(
+                "SELECT r.started_at, r.ended_at FROM rounds r JOIN works w ON w.id = r.work
+                 WHERE w.item = ?1 AND r.cell = 'R1'",
+                [item],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap_or_else(|x| panic!("{x}\n{log}"))
+    };
+    let (a, b) = (span(first), span(second));
+    assert!(a.0 < b.1 && b.0 < a.1, "{a:?} {b:?}\n{log}");
+    let works = vec![state(&e, first).unwrap().0, state(&e, second).unwrap().0];
+    let told = busy.lock().unwrap().clone();
+    assert!(told.contains(&works), "{told:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// While one work's CI has not come back, another work of the same project goes on: the fake GitHub holds every check
+// until the test lets it through, and the owner's global pause holds the second work until the first's CI is under
+// way.
+#[test]
+fn a_work_goes_on_while_another_waits_for_its_ci() {
+    let (s, mut e, said, first, second) = two_works_with("beside-ci", scripts(), Hooks::default());
+    s.ci.shut();
+    e.tick().unwrap();
+    let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    let only_first = Go {
+        pause: held_but(&[a], &[]),
+        ..Go::default()
+    };
+    let ci = turns_until(&mut e, &only_first, |_| s.ci.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(ci, "{log}");
+    let since = tool_round_open(&e, a).expect(&log);
+    let went_on = turns_until(&mut e, &Go::default(), |e| rounds_after(e, b, since).1 > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(went_on, "{log}");
+    // The first's CI is still under way: its step in flight, its round open.
+    assert!(e.in_flight().contains(&a), "{log}");
+    assert_eq!(tool_round_open(&e, a), Some(since), "{log}");
+    s.ci.open();
+    e.drain().unwrap();
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Two works that run side by side each merge into main through the flow, in the order they came into the project's
+// merge queue. Every change to their state is one transaction recorded in `changes`, the rows of a transaction written
+// at one time by one writer, one after the other; each work's rounds are numbered from one, none twice or missing,
+// and none is left open.
+#[test]
+fn two_works_side_by_side_merge_in_turn_and_record_every_change_once() {
+    let mut agents = scripts();
+    // Each work changes a file of its own, so that the second has something to merge after the first.
+    agents.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            let file = format!("src/work-{}.txt", r.work);
+            if !wt.join(&file).exists() {
+                write(wt, &file, "feature\n");
+                git(wt, &["add", "-A"]);
+                git(wt, &["commit", "-q", "-m", "Add the feature"]);
+                let head = git(wt, &["rev-parse", "HEAD"]);
+                let tools = json!([{ "tool": "ci", "head": head, "tests": ["feature"], "pr": { "title": "Add the feature", "body": "It adds it." } }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.head", json!(head)),
+                    ("outcome.conditions", json!([{ "how": "tested", "id": "A1", "tests": ["feature"] }])),
+                ],
+            )
+        }),
+    );
+    let (s, mut e, said, first, second) = two_works_with("both-merge", agents, Hooks::default());
+    let over = |e: &Engine, item: i64| state(e, item).is_some_and(|w| w.1 == "E1");
+    // The works in the order they came into the merge queue.
+    let mut queued: Vec<i64> = Vec::new();
+    for _ in 0..300 {
+        e.tick().unwrap();
+        let log = said.lock().unwrap().join("\n");
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT work FROM merge_queue WHERE project = 'p'")
+                .unwrap();
+        let queue: Vec<i64> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
+        drop(st);
+        for w in queue {
+            if !queued.contains(&w) {
+                queued.push(w);
+            }
+        }
+        for item in [first, second] {
+            let paused = state(&e, item).and_then(|w| w.2);
+            assert!(paused.is_none(), "{paused:?}\n{log}");
+        }
+        if over(&e, first) && over(&e, second) {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(over(&e, first) && over(&e, second), "{log}");
+    let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    // Merged onto main in the queue's order: the merges, oldest first, by the works whose pull requests they merged.
+    let subjects = git(
+        &s.root,
+        &["--git-dir", &s.origin.to_string_lossy(), "log", "--format=%s", "main"],
+    );
+    let merged: Vec<i64> = subjects
+        .lines()
+        .rev()
+        .filter_map(|l| l.strip_prefix("Merge PR "))
+        .map(|pr| {
+            let pr: i64 = pr.parse().unwrap();
+            e.db.conn()
+                .query_row("SELECT id FROM works WHERE pr = ?1", [pr], |r| r.get(0))
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(merged.len(), 2, "{subjects}\n{log}");
+    assert_eq!(merged, queued, "{log}");
+    // Each work's rounds numbered from one, none twice or missing, none open.
+    for w in [a, b] {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT n, ended_at IS NULL FROM rounds WHERE work = ?1 ORDER BY n")
+                .unwrap();
+        let rounds: Vec<(i64, bool)> = st
+            .query_map([w], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        let numbers: Vec<i64> = rounds.iter().map(|r| r.0).collect();
+        assert_eq!(numbers, (1..=numbers.len() as i64).collect::<Vec<_>>(), "work {w}");
+        assert!(rounds.iter().all(|r| !r.1), "work {w}: {rounds:?}");
+    }
+    // No transaction's number taken twice: the rows that share one were written at one time, by one writer, one
+    // after the other.
+    let shared: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM (SELECT tx FROM changes GROUP BY tx
+                 HAVING count(DISTINCT at) > 1 OR count(DISTINCT actor) > 1 OR max(id) - min(id) + 1 <> count(*))",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(shared, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner pauses one of two works side by side while its round runs: that round ends as usual and is recorded, the
+// work then takes no step, and the other goes on.
+#[test]
+fn a_work_paused_beside_another_stops_after_its_round_and_the_other_goes_on() {
+    let pausing = Arc::new(AtomicI64::new(0));
+    let hold = Gate::default();
+    let (p, h) = (pausing.clone(), hold.clone());
+    let mut agents = scripts();
+    // The round of `R1` of the work to pause waits at the gate while the test pauses the work.
+    agents.insert(
+        "R1",
+        Box::new(move |r: &Request, _: usize| {
+            if r.work == p.load(Ordering::SeqCst) {
+                h.pass();
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (s, mut e, said, first, second) = two_works_with("pause-beside", agents, Hooks::default());
+    e.tick().unwrap();
+    let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    pausing.store(a, Ordering::SeqCst);
+    hold.shut();
+    let came = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(came, "{log}");
+    api::pause(&mut e.db, a, None).unwrap();
+    hold.open();
+    let ended = turns_until(&mut e, &Go::default(), |e| !e.in_flight().contains(&a));
+    let log = said.lock().unwrap().join("\n");
+    assert!(ended, "{log}");
+    let took: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                [a],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(took.is_some(), "{log}");
+    assert_eq!(paused_by(&e, a).as_deref(), Some("owner"), "{log}");
+    let (mine, _) = rounds_after(&e, a, 0);
+    let (theirs, _) = rounds_after(&e, b, 0);
+    let went_on = turns_until(&mut e, &Go::default(), |e| rounds_after(e, b, 0).0 >= theirs + 2);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(went_on, "{log}");
+    assert_eq!(rounds_after(&e, a, 0).0, mine, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Two items, the second depending on the first by a blocking dependency, run one after the other though two slots are
+// free: no work starts on the second until the first has merged into main, and then one does.
+#[test]
+fn a_blocking_dependency_starts_the_second_item_only_once_the_first_merged() {
+    let (s, mut e, said, first, second) = two_works_with("after-the-first", scripts(), Hooks::default());
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO item_links (item, depends_on, needs, kind) VALUES (?1, ?2, 'the feature', 'blocking')",
+            params![second, first],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let merged = |s: &Setup| {
+        git(
+            &s.root,
+            &["--git-dir", &s.origin.to_string_lossy(), "show", "main:src/lib.txt"],
+        ) == "old\nfeature"
+    };
+    // Whether main held the first's change when the pass that started the second began.
+    let mut after_merge = None;
+    for _ in 0..300 {
+        let was = merged(&s);
+        e.tick().unwrap();
+        if state(&e, second).is_some() {
+            after_merge = Some(was);
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(after_merge, Some(true), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// With one slot free and two works whose wait for the architect's reply is over, only the first goes on, granted the
+// slot; the other waits on for a free slot, named so for the owner's page, until a slot frees, here when the owner
+// pauses the work that holds the other slot. The architect's replies are written by hand, each question taken off the
+// queue as it comes, so that no work of the architect starts.
+#[test]
+fn of_two_works_back_from_waiting_one_takes_the_one_free_slot() {
+    let asked: Arc<Mutex<BTreeSet<i64>>> = Arc::default();
+    let who = asked.clone();
+    let mut agents = scripts();
+    // The first two works to research ask the architect, once each.
+    agents.insert(
+        "R1",
+        Box::new(move |r: &Request, _: usize| {
+            let mut who = who.lock().unwrap();
+            if who.len() < 2 && who.insert(r.work) {
+                an_ask("architect")
+            } else {
+                (Vec::new(), Vec::new())
+            }
+        }),
+    );
+    let (s, mut e, said, first, second) = two_works_with("one-free-slot", agents, Hooks::default());
+    let third =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Add a third', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 3.0)", params![id])?;
+            Ok(id)
+        })
+        .unwrap();
+    // The questions put to the architect, taken off the queue as if a work of the architect had them in hand.
+    let take = |e: &mut Engine| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE architect_matters SET handled_work = (SELECT min(id) FROM works WHERE graph = 'architect'),
+                   handled_round = 1 WHERE kind = 'engineer_question' AND handled_round IS NULL",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    };
+    let at = |e: &Engine, item: i64| state(e, item).map(|w| w.1);
+    for _ in 0..10 {
+        if at(&e, first).as_deref() == Some("A2") && at(&e, second).as_deref() == Some("A2") && at(&e, third).is_some()
+        {
+            break;
+        }
+        e.tick().unwrap();
+        take(&mut e);
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(at(&e, first).as_deref(), Some("A2"), "{log}");
+    assert_eq!(at(&e, second).as_deref(), Some("A2"), "{log}");
+    let (b, c) = (state(&e, second).unwrap().0, state(&e, third).expect(&log).0);
+    // The architect replies to both at once, while the third work holds one of the two slots.
+    e.db.write(Actor::Architect, |tx| {
+        tx.execute(
+            "UPDATE architect_matters SET reply = ?1 WHERE kind = 'engineer_question'",
+            [json!({ "text": "Go ahead.", "why": "It holds." }).to_string()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    // A pass finds both replies come, granting no slot to a work before its step found its wait over; the next grants
+    // the one free slot to the first.
+    e.tick().unwrap();
+    assert_eq!(at(&e, first).as_deref(), Some("A2"), "{log}");
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_ne!(at(&e, first).as_deref(), Some("A2"), "{log}");
+    assert_eq!(at(&e, second).as_deref(), Some("A2"), "{log}");
+    assert_eq!(e.waiting_for_slot().unwrap(), vec![b], "{log}");
+    assert_eq!(e.free_slots().unwrap(), 0, "{log}");
+    // The owner pauses the third, which frees its slot: the second goes on in it.
+    api::pause(&mut e.db, c, None).unwrap();
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_ne!(at(&e, second).as_deref(), Some("A2"), "{log}");
+    assert_eq!(e.waiting_for_slot().unwrap(), Vec::<i64>::new(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// No keep-warm ping goes to a work's sessions while a step of it runs: here its CI has not come back while the owner
+// has paused it, and its engineer's session, due a ping, gets one only once the step has ended. The session has no
+// round open meanwhile, so that only the step in flight keeps the ping off.
+#[test]
+fn no_ping_goes_to_a_work_while_its_step_runs() {
+    let s = setup_priced("no-ping-in-a-step");
+    s.ci.shut();
+    let mut agents = scripts();
+    let implement = agents.remove("I1").unwrap();
+    // The engineer's round that asks for CI says what it used, as the CLI does, which a ping needs to run it again.
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            let (pick, mut set) = implement(r, n);
+            set.push(("@usage", used(1.0, 9_000)));
+            (pick, set)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let ci = turns_until(&mut e, &Go::default(), |_| s.ci.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(ci, "{log}");
+    let work = state(&e, item).unwrap().0;
+    pause_by_owner(&mut e, work, "to look at it");
+    let now = last_call(&e, work) + 55 * 60_000 + 1_000;
+    assert_eq!(e.keep_warm(now, None).unwrap(), 0, "{log}");
+    s.ci.open();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(warm_now(&mut e, now, None).unwrap() > 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A failed run whose cause stops every work, here a usage limit, keeps the loop from dispatching any step until the
+// wait is over, while the step of the other work under way ends as usual and is recorded; then both go on.
+#[test]
+fn a_halt_dispatches_no_step_and_lets_the_step_under_way_end() {
+    let reset = db::now() / 1000 + 3600;
+    let failing = Arc::new(AtomicI64::new(0));
+    let hold = Gate::default();
+    let (f, h) = (failing.clone(), hold.clone());
+    let mut agents = scripts();
+    // The round of `R1` of the work to fail fails once, when the other's round has come to the gate, where it waits.
+    agents.insert(
+        "R1",
+        Box::new(move |r: &Request, _: usize| {
+            if f.compare_exchange(r.work, 0, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                let until = Instant::now() + Duration::from_secs(10);
+                while h.came() == 0 && Instant::now() < until {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                let report = format!("Claude AI usage limit reached|{reset}");
+                return (Vec::new(), vec![("@error", json!(report))]);
+            }
+            h.pass();
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (s, mut e, said, first, second) = two_works_with("halt-beside", agents, Hooks::default());
+    e.tick().unwrap();
+    let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    failing.store(a, Ordering::SeqCst);
+    hold.shut();
+    let halted = turns_until(&mut e, &Go::default(), |e| {
+        e.halt().is_some() && !e.in_flight().contains(&a) && hold.came() > 0
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert!(halted, "{log}");
+    assert_eq!(e.in_flight(), BTreeSet::from([b]), "{log}");
+    // While the halt holds, a turn of the loop dispatches nothing.
+    let n = rounds_count(&e);
+    e.dispatch(&Go::default()).unwrap();
+    assert_eq!(e.in_flight(), BTreeSet::from([b]), "{log}");
+    hold.open();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let took: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                [b],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(took.is_some(), "{log}");
+    assert_eq!(rounds_count(&e), n, "{log}");
+    e.dispatch(&Go::default()).unwrap();
+    assert!(e.in_flight().is_empty(), "{log}");
+    assert_eq!(rounds_count(&e), n, "{log}");
+    // Once the wait is over, both go on.
+    e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
+    let p = e.pass(&Go::default()).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let moved: BTreeSet<i64> = p
+        .jobs
+        .iter()
+        .filter(|j| !j.rounds.is_empty())
+        .filter_map(|j| j.work)
+        .collect();
+    assert_eq!(moved, BTreeSet::from([a, b]), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner cancels a work's item while its CI runs: the cancel ends the work and cuts its round off at once. The step
+// under way, at its end, finds its round ended: its transaction rolls back, the work and its rounds stay as the cancel
+// left them, and the loop does not pause the work.
+#[test]
+fn a_work_whose_item_is_cancelled_during_its_ci_stays_as_the_cancel_left_it() {
+    let s = setup("cancel-in-ci");
+    s.ci.shut();
+    let (mut e, said, item) = start(&s, scripts());
+    let ci = turns_until(&mut e, &Go::default(), |_| s.ci.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(ci, "{log}");
+    let work = state(&e, item).unwrap().0;
+    assert!(tool_round_open(&e, work).is_some(), "{log}");
+    let projects = e.config.config.projects.clone();
+    e.db.write(Actor::Owner, |tx| {
+        engine::ending::cancel_item(tx, item, "no longer needed", "owner", &projects).map_err(db::Error::Abort)
+    })
+    .unwrap();
+    let rows = |e: &Engine| -> Vec<Value> {
+        let mut out = engine::query_json(
+            e.db.conn(),
+            "SELECT at, ended, paused, paused_by FROM works WHERE id = ?1",
+            &[&work],
+            10,
+        )
+        .unwrap();
+        out.extend(
+            engine::query_json(
+                e.db.conn(),
+                "SELECT n, cell, ended_at, transition, rejected FROM rounds WHERE work = ?1 ORDER BY n",
+                &[&work],
+                1000,
+            )
+            .unwrap(),
+        );
+        out
+    };
+    let cancelled = rows(&e);
+    assert!(!cancelled[0]["ended"].is_null(), "{cancelled:?}");
+    assert!(tool_round_open(&e, work).is_none(), "{log}");
+    s.ci.open();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(rows(&e), cancelled, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A start over asked while a step of the work runs, here its CI, waits until that step has ended: the loop's turn
+// meanwhile leaves it in the outbox and the step's round ends as usual; the next turn carries it out.
+#[test]
+fn a_start_over_asked_during_a_step_waits_until_the_step_ends() {
+    let s = setup("start-over-in-ci");
+    s.ci.shut();
+    let (mut e, said, item) = start(&s, scripts());
+    let ci = turns_until(&mut e, &Go::default(), |_| s.ci.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(ci, "{log}");
+    let work = state(&e, item).unwrap().0;
+    api::start_over(&mut e.db, work).unwrap();
+    e.dispatch(&Go::default()).unwrap();
+    assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    assert!(tool_round_open(&e, work).is_some(), "{log}");
+    s.ci.open();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let took: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'X1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(took.as_deref(), Some("ran"), "{log}");
+    e.dispatch(&Go::default()).unwrap();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let works = works_of(&e, item);
+    assert_eq!(works.len(), 2, "{works:?}\n{log}");
+    assert!(works[0].5.is_some(), "{works:?}\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// How many rounds of a work are open.
+fn open_rounds(e: &Engine, work: i64) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT count(*) FROM rounds WHERE work = ?1 AND ended_at IS NULL",
+            [work],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// The transition each of a work's rounds at a cell took, in their order; none for a round that took none.
+fn transitions_at(e: &Engine, work: i64, cell: &str) -> Vec<Option<String>> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT transition FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n")
+            .unwrap();
+    st.query_map(params![work, cell], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+// A step whose thread panics, here in its agent's round, leaves neither a job in flight nor a round open: the loop
+// pauses its work with why, so that the slot it held is free, while the other work's round beside it ends as usual.
+// Once the owner lets it go on, the work is dispatched again: a job left in flight would keep it from any step for good.
+#[test]
+fn a_step_whose_thread_panics_pauses_its_work_and_lets_it_go_on_later() {
+    let panicking = Arc::new(AtomicI64::new(0));
+    let p = panicking.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |r: &Request, _: usize| {
+            if r.work == p.load(Ordering::SeqCst) {
+                panic!("a scripted fault in the agent's round");
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (s, mut e, said, first, second) = two_works_with("panic-in-a-step", agents, Hooks::default());
+    e.tick().unwrap();
+    let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    panicking.store(a, Ordering::SeqCst);
+    let paused = turns_until(&mut e, &Go::default(), |e| {
+        paused_by(e, a).is_some()
+            && !e.in_flight().contains(&a)
+            && transitions_at(e, b, "R1").iter().any(Option::is_some)
+    });
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(paused, "{log}");
+    let why: Option<String> =
+        e.db.conn()
+            .query_row("SELECT paused FROM works WHERE id = ?1", [a], |r| r.get(0))
+            .unwrap();
+    assert_eq!(paused_by(&e, a).as_deref(), Some("engine"), "{log}");
+    assert!(
+        why.as_deref()
+            .is_some_and(|w| w.contains("a scripted fault in the agent's round")),
+        "{why:?}\n{log}"
+    );
+    assert_eq!(open_rounds(&e, a), 0, "{log}");
+    assert!(e.in_flight().is_empty(), "{log}");
+    // The paused work holds no slot: the other holds one of the two at most.
+    assert!(e.free_slots().unwrap() >= 1, "{log}");
+    // The owner lets it go on: its next round of `R1` runs and ends.
+    panicking.store(0, Ordering::SeqCst);
+    api::resume(&mut e.db, a).unwrap();
+    let again = turns_until(&mut e, &Go::default(), |e| {
+        transitions_at(e, a, "R1").iter().any(Option::is_some)
+    });
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(again, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Step of a work whose step is under way waits until that step has ended: the loop's turn meanwhile
+// dispatches no second step of the work and leaves the Step asked, so that the step under way ends as a step of its
+// own and the work is not paused by it; the turn after takes the owner's round, after which the owner holds the work
+// paused.
+#[test]
+fn the_owner_s_step_of_a_work_whose_step_runs_waits_until_that_step_ends() {
+    let s = setup("step-beside-a-step");
+    let hold = Gate::default();
+    let h = hold.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            if n == 1 {
+                h.pass();
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    hold.shut();
+    let came = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(came, "{log}");
+    let work = state(&e, item).unwrap().0;
+    // The round of `R1` under way is among them.
+    let rounds = rounds_after(&e, work, 0).0;
+    let step = Go {
+        pause: held_but(&[], &[]),
+        steps: vec![work],
+        ..Go::default()
+    };
+    let taken = e.dispatch(&step).unwrap();
+    assert!(taken.is_empty(), "{taken:?}\n{log}");
+    assert!(e.in_flight().contains(&work), "{log}");
+    hold.open();
+    let reaped = e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let mine: Vec<&Stepped> = reaped.iter().filter(|s| s.work == Some(work)).collect();
+    assert_eq!(mine.len(), 1, "{reaped:?}\n{log}");
+    assert_eq!(mine[0].asked, None, "{reaped:?}\n{log}");
+    assert_eq!(transitions_at(&e, work, "R1").len(), 1, "{log}");
+    assert_eq!(rounds_after(&e, work, 0).0, rounds, "{log}");
+    assert_eq!(paused_by(&e, work), None, "{log}");
+    // The Step, still asked, is the next turn's: one round, and the work is the owner's, paused.
+    let p = e.pass(&step).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let asked = asked_in(&p, &Ask::Work(work));
+    assert_eq!(asked.work, Some(work), "{p:?}\n{log}");
+    assert_eq!(rounds_after(&e, work, 0).0, rounds + 1, "{p:?}\n{log}");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner cancels a work's item while its agent's round runs: the cancel ends the work and cuts the round off at
+// once. The step under way, as the round's call returns, takes nothing of what it handed in and keeps only what it
+// cost on the round; the work and its rounds otherwise stay as the cancel left them, and the loop neither pauses the
+// work nor dispatches it again.
+#[test]
+fn a_work_whose_item_is_cancelled_during_its_agent_s_round_takes_nothing_of_the_round() {
+    let s = setup("cancel-in-a-round");
+    let hold = Gate::default();
+    let h = hold.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            if n == 1 {
+                h.pass();
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    hold.shut();
+    let came = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(came, "{log}");
+    let work = state(&e, item).unwrap().0;
+    assert_eq!(open_rounds(&e, work), 1, "{log}");
+    let projects = e.config.config.projects.clone();
+    e.db.write(Actor::Owner, |tx| {
+        engine::ending::cancel_item(tx, item, "no longer needed", "owner", &projects).map_err(db::Error::Abort)
+    })
+    .unwrap();
+    let rows = |e: &Engine| -> Vec<Value> {
+        let mut out = engine::query_json(
+            e.db.conn(),
+            "SELECT at, ended, paused, paused_by FROM works WHERE id = ?1",
+            &[&work],
+            10,
+        )
+        .unwrap();
+        out.extend(
+            engine::query_json(
+                e.db.conn(),
+                "SELECT n, cell, ended_at, output, transition, rejected FROM rounds WHERE work = ?1 ORDER BY n",
+                &[&work],
+                1000,
+            )
+            .unwrap(),
+        );
+        out
+    };
+    let cancelled = rows(&e);
+    assert!(!cancelled[0]["ended"].is_null(), "{cancelled:?}");
+    assert_eq!(open_rounds(&e, work), 0, "{log}");
+    hold.open();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(rows(&e), cancelled, "{log}");
+    // What the round cost is kept on it.
+    let cost: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT usage FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(cost.is_some(), "{log}");
+    e.dispatch(&Go::default()).unwrap();
+    assert!(!e.in_flight().contains(&work), "{log}");
+    e.drain().unwrap();
+    assert_eq!(rows(&e), cancelled, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// While the loop looks at the network as a wait for no network ends, a step on another thread may stop every work for
+// another cause, here a usage limit that resets in an hour: the look ends only the wait it looked at, and the one set
+// meanwhile still stops every work, so that no step is dispatched before the limit resets.
+#[test]
+fn a_halt_a_step_sets_while_the_loop_looks_at_the_network_holds() {
+    let s = setup("halt-during-a-look");
+    let look = Gate::default();
+    let l = look.clone();
+    // The network is up, once the test lets the look through.
+    let hooks = Hooks {
+        network: Some(Arc::new(move || {
+            l.pass();
+            true
+        })),
+        ..Hooks::default()
+    };
+    let (e, said) = engine_with(&s, scripts(), hooks);
+    e.set_halt(Some(engine::Halt {
+        kind: "offline".into(),
+        until: 0,
+        why: "no network".into(),
+    }));
+    look.shut();
+    let t = e.fork().unwrap();
+    let looking = std::thread::spawn(move || t.halted());
+    let until = Instant::now() + Duration::from_secs(10);
+    while look.came() == 0 && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(look.came(), 1);
+    // A step's run meets a usage limit while the look is under way.
+    let limit = engine::Halt {
+        kind: "usage_limit".into(),
+        until: db::now() + 3_600_000,
+        why: "a usage limit".into(),
+    };
+    e.set_halt(Some(limit.clone()));
+    look.open();
+    looking.join().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(e.halt(), Some(limit), "{log}");
+    assert!(e.halted(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The rounds of two works side by side fail together, for two causes that stop every work: whichever of the two waits
+// ends later stands, in either order, so that a wait of half a minute for the network that came after a usage limit
+// resetting in an hour does not take its place, and no step is dispatched while the limit holds; the owner is told of
+// each cause once.
+#[test]
+fn of_two_waits_set_together_the_one_that_ends_later_holds() {
+    let reset = db::now() / 1000 + 3600;
+    let limit = format!("Claude AI usage limit reached|{reset}");
+    let offline = "API Error: Connection error. (getaddrinfo ENOTFOUND api.anthropic.com)".to_string();
+    two_waits_set_together("later-wait-second", limit.clone(), offline.clone(), reset);
+    two_waits_set_together("later-wait-first", offline, limit, reset);
+}
+
+/// Two works whose rounds of `R1` run side by side and fail, the first to come with `first` and the other, once that
+/// wait stands, with `second`; the wait for the usage limit that resets at `reset`, in seconds, is the one that holds.
+fn two_waits_set_together(name: &str, first: String, second: String, reset: i64) {
+    let at = Gate::default();
+    let then = Gate::default();
+    let after = then.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            let report = match n {
+                1 => first.clone(),
+                2 => second.clone(),
+                _ => return (Vec::new(), Vec::new()),
+            };
+            at.meet(2);
+            // The second fails only once the test saw the first's wait set.
+            if n == 2 {
+                after.pass();
+            }
+            (Vec::new(), vec![("@error", json!(report))])
+        }),
+    );
+    let (s, mut e, said, a, b) = two_works_with(name, agents, Hooks::default());
+    // The first pass starts both works; the next dispatches the round of `R1` of each.
+    e.tick().unwrap();
+    then.shut();
+    e.dispatch(&Go::default()).unwrap();
+    let until = Instant::now() + Duration::from_secs(10);
+    while e.halt().is_none() && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(e.halt().is_some(), "{log}");
+    then.open();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
+    assert_eq!((h.kind.as_str(), h.until), ("usage_limit", reset * 1000), "{log}");
+    let mut kinds = failed_kinds(&e);
+    kinds.sort();
+    assert_eq!(kinds, ["offline", "usage_limit"], "{log}");
+    let before = rounds_count(&e);
+    e.tick().unwrap();
+    assert_eq!(rounds_count(&e), before, "{log}");
+    assert_eq!((told(&s, "usage_limit"), told(&s, "offline")), (1, 1), "{log}");
+    // Once the limit resets, both works go on from their cell.
+    e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    for item in [a, b] {
+        let (_, at, paused) = state(&e, item).unwrap();
+        assert_eq!(paused, None, "{log}");
+        assert_ne!(at, "R1", "{log}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The rounds of three works side by side fail one after another while the first wait stands: a usage limit, then no
+// network, then the usage limit again. The owner is told of each cause once, as the first time it stops every work:
+// the third round's limit is the one the owner was told of first, and the wait for it still stands, so no second
+// notice of it comes because a notice of another cause came between.
+#[test]
+fn a_cause_told_once_is_not_told_again_after_another_cause_between() {
+    let reset = db::now() / 1000 + 3600;
+    let limit = format!("Claude AI usage limit reached|{reset}");
+    let offline = "API Error: Connection error. (getaddrinfo ENOTFOUND api.anthropic.com)".to_string();
+    let met = Gate::default();
+    let (second, third) = (Gate::default(), Gate::default());
+    let (g2, g3) = (second.clone(), third.clone());
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            let report = match n {
+                1 | 3 => limit.clone(),
+                2 => offline.clone(),
+                _ => return (Vec::new(), Vec::new()),
+            };
+            met.meet(3);
+            // The second and the third fail only once the test let each through, one after the other.
+            match n {
+                2 => g2.pass(),
+                3 => g3.pass(),
+                _ => {}
+            }
+            (Vec::new(), vec![("@error", json!(report))])
+        }),
+    );
+    let s = setup("told-once-between");
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(&s.data, "install.toml", &install.replace("slots = 1", "slots = 3"));
+    git(&s.data, &["commit", "-q", "-am", "three slots"]);
+    let (mut e, said, _) = start_with(&s, agents, Hooks::default());
+    e.db.write(Actor::Owner, |tx| {
+        for (title, position) in [("Add another", 2.0), ("Add a third", 3.0)] {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
+                params![title],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO dispatch_queue (item, position) VALUES (?1, ?2)",
+                params![id, position],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    // The first pass starts the three works; the next dispatches the round of `R1` of each.
+    e.tick().unwrap();
+    second.shut();
+    third.shut();
+    e.dispatch(&Go::default()).unwrap();
+    let failed = |e: &Engine, n: usize| {
+        let until = Instant::now() + Duration::from_secs(10);
+        while failed_kinds(e).len() < n && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        failed_kinds(e).len()
+    };
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed(&e, 1), 1, "{log}");
+    second.open();
+    assert_eq!(failed(&e, 2), 2, "{log}");
+    third.open();
+    e.drain().unwrap();
+    // The notices the steps queued are written out by the loop's next turn, which dispatches nothing while the wait
+    // stands.
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed_kinds(&e).len(), 3, "{log}");
+    let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
+    assert_eq!((h.kind.as_str(), h.until), ("usage_limit", reset * 1000), "{log}");
+    assert_eq!((told(&s, "usage_limit"), told(&s, "offline")), (1, 1), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A failed run's cause that another work's round meets after the loop dispatched a step stops that step's round too,
+// as the owner is told no agent round starts: the second work's step is held at its first write, the session it
+// opens, before its round starts, until the first work's round failed for a usage limit; its round does not start, and
+// it goes on from its cell once the wait is over.
+#[test]
+fn a_round_whose_step_was_dispatched_before_a_halt_does_not_start() {
+    let reset = db::now() / 1000 + 3600;
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            if n == 1 {
+                let report = format!("Claude AI usage limit reached|{reset}");
+                return (Vec::new(), vec![("@error", json!(report))]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let stop = Gate::default();
+    let held = Arc::new(AtomicI64::new(0));
+    let (g, which) = (stop.clone(), held.clone());
+    // The first write on the thread of the work held waits at the gate, once.
+    let hooks = Hooks {
+        commit: Some(Arc::new(move |_: &db::rusqlite::Connection, _: &[db::Changed]| {
+            let w = which.load(Ordering::SeqCst);
+            if w != 0 && std::thread::current().name() == Some(format!("work {w}").as_str()) {
+                which.store(0, Ordering::SeqCst);
+                g.pass();
+            }
+        })),
+        ..Hooks::default()
+    };
+    let (s, mut e, said, first, second) = two_works_with("halt-before-a-round", agents, hooks);
+    // The first pass starts both works; the next dispatches the round of `R1` of each.
+    e.tick().unwrap();
+    let b = state(&e, second).unwrap().0;
+    stop.shut();
+    held.store(b, Ordering::SeqCst);
+    // The second's round starts a new session, as the owner may ask, whose opening is its step's first write.
+    e.sessions().ask_new(api::Fresh::Work(b));
+    e.dispatch(&Go::default()).unwrap();
+    let until = Instant::now() + Duration::from_secs(10);
+    while !(stop.came() > 0 && e.halt().is_some()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(stop.came() > 0 && e.halt().is_some(), "{log}");
+    stop.open();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let rounds_at = |e: &Engine, work: i64| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(rounds_at(&e, b), 0, "{log}");
+    let (_, at, paused) = state(&e, second).unwrap();
+    assert_eq!((at.as_str(), paused), ("R1", None), "{log}");
+    assert_eq!(failed_kinds(&e), ["usage_limit"], "{log}");
+    // Once the limit resets, both works go on from their cell.
+    e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    for item in [first, second] {
+        let (_, at, paused) = state(&e, item).unwrap();
+        assert_eq!(paused, None, "{log}");
+        assert_ne!(at, "R1", "{log}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Of two works that wait, holding no slot, with one slot free, the one whose wait is over goes on, though the other,
+// whose wait is not over, has the lower id: the loop grants slots only to works whose step found their wait over, so
+// that a work still waiting never takes the slot a work back from waiting needs. Here the second work asked the
+// architect and its reply came, while the first still waits for its own reply.
+#[test]
+fn a_work_back_from_waiting_takes_the_free_slot_before_one_still_waiting_with_a_lower_id() {
+    let s = setup("still-waiting-lower-id");
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            if n <= 2 {
+                an_ask("architect")
+            } else {
+                (Vec::new(), Vec::new())
+            }
+        }),
+    );
+    let (mut e, said, first) = start(&s, agents);
+    let second =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Add another', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", params![id])?;
+            Ok(id)
+        })
+        .unwrap();
+    // The question each work put to the architect, taken off the queue as if a work of the architect had it in hand.
+    let question = |e: &mut Engine, item: i64| -> Option<i64> {
+        let m: Option<i64> =
+            e.db.conn()
+                .query_row(
+                    "SELECT id FROM architect_matters WHERE kind = 'engineer_question' AND item = ?1",
+                    [item],
+                    |r| r.get(0),
+                )
+                .ok();
+        if let Some(m) = m {
+            e.db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE architect_matters SET handled_work = (SELECT min(id) FROM works WHERE graph = 'architect'),
+                       handled_round = 1 WHERE id = ?1 AND handled_round IS NULL",
+                    [m],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        }
+        m
+    };
+    // With one slot, the first work asks and waits, holding none, and the second starts in it and asks in turn.
+    assert!(
+        steps_until(&mut e, 30, |e| question(e, first).is_some()
+            && question(e, second).is_some()),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let asked = question(&mut e, second).unwrap();
+    let (a, _, _) = state(&e, first).unwrap();
+    let (b, _, _) = state(&e, second).unwrap();
+    assert!(a < b);
+    e.db.write(Actor::Architect, |tx| {
+        tx.execute(
+            "UPDATE architect_matters SET reply = ?2 WHERE id = ?1",
+            params![asked, json!({ "text": "Go ahead.", "why": "It holds." }).to_string()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    assert!(
+        steps_until(&mut e, 10, |e| state(e, second).is_some_and(|x| x.1 == "A4")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(state(&e, first).map(|x| x.1).as_deref(), Some("A2"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Step of a work whose round a failed run's cause stopped before it started, the cause met by another
+// work's round after the loop dispatched the Step, is not taken: the work is not paused and the ask stands; once the
+// wait is over, the Step runs exactly one round and pauses the work after it. Every work is held by the owner's global
+// pause but the one that fails; the stepped work's step is held at its first write, the new session it opens.
+#[test]
+fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_over() {
+    let reset = db::now() / 1000 + 3600;
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            if n == 1 {
+                let report = format!("Claude AI usage limit reached|{reset}");
+                return (Vec::new(), vec![("@error", json!(report))]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let stop = Gate::default();
+    let held = Arc::new(AtomicI64::new(0));
+    let (g, which) = (stop.clone(), held.clone());
+    // The first write on the thread of the work held waits at the gate, once.
+    let hooks = Hooks {
+        commit: Some(Arc::new(move |_: &db::rusqlite::Connection, _: &[db::Changed]| {
+            let w = which.load(Ordering::SeqCst);
+            if w != 0 && std::thread::current().name() == Some(format!("work {w}").as_str()) {
+                which.store(0, Ordering::SeqCst);
+                g.pass();
+            }
+        })),
+        ..Hooks::default()
+    };
+    let (s, mut e, said, first, second) = two_works_with("step-before-a-halt", agents, hooks);
+    // The first pass starts both works; then the first goes on and the owner steps the second.
+    e.tick().unwrap();
+    let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    let go = Go {
+        pause: held_but(&[a], &[]),
+        steps: vec![b],
+        architects: Vec::new(),
+    };
+    stop.shut();
+    held.store(b, Ordering::SeqCst);
+    e.sessions().ask_new(api::Fresh::Work(b));
+    e.dispatch(&go).unwrap();
+    let until = Instant::now() + Duration::from_secs(10);
+    while !(stop.came() > 0 && e.halt().is_some()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(stop.came() > 0 && e.halt().is_some(), "{log}");
+    stop.open();
+    let jobs = e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let ask = Ask::Work(b);
+    assert!(jobs.iter().all(|j| j.asked.as_ref() != Some(&ask)), "{jobs:?}\n{log}");
+    let rounds_at = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                [b],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(rounds_at(&e), 0, "{log}");
+    assert_eq!(state(&e, second).unwrap().2, None, "{log}");
+    // Once the limit resets, the ask that stood runs one round, and the work is paused after it.
+    e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
+    let p = e.pass(&go).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let stepped = asked_in(&p, &ask);
+    assert_eq!(
+        stepped.rounds.iter().filter(|r| r.work == b).count(),
+        1,
+        "{stepped:?}\n{log}"
+    );
+    assert_eq!(rounds_at(&e), 1, "{log}");
+    assert!(state(&e, second).unwrap().2.is_some(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

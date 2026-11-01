@@ -42,8 +42,8 @@ const status = (extra: Partial<Status> = {}): Status => ({
   releasing: [],
   waiting_for_slot: [],
   architects_started: [],
-  running: null,
-  stepping: null,
+  running: [],
+  stepping: [],
   last_step: null,
   slots: 2,
   slots_used: 0,
@@ -70,7 +70,7 @@ describe('the works by where they stand', () => {
       work(8, { state: 'paused', paused_by: 'engine', paused: 'cell T2: red', waits: { kind: 'answer', ask: 9 } }),
       work(9, { state: 'done' }),
     ];
-    const s = status({ running: 1 });
+    const s = status({ running: [1] });
     expect(byStanding(works, s).map((g) => [g.standing, g.works.map((w) => w.id)])).toEqual([
       ['running', [1]],
       ['ready', [2]],

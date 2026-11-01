@@ -550,8 +550,8 @@ fn status(e: &mut engine::Engine, last: Option<&api::StepTaken>, started_at: i64
         releasing: Vec::new(),
         waiting_for_slot: e.waiting_for_slot()?,
         architects_started: Vec::new(),
-        running: None,
-        stepping: None,
+        running: Vec::new(),
+        stepping: Vec::new(),
         last_step: last.cloned(),
         slots_used: slots - e.free_slots()?,
         slots,
@@ -574,6 +574,47 @@ fn status(e: &mut engine::Engine, last: Option<&api::StepTaken>, started_at: i64
     })
 }
 
+/// Takes note of what a step the loop reaped came to, or of a round the owner asked that the loop took without a
+/// step: a round the owner asked for is done with, and the last of them is what it came to.
+fn took(e: &engine::Engine, control: &api::Control, last: &mut Option<api::StepTaken>, s: &engine::Stepped) {
+    let names: Vec<String> = s.rounds.iter().map(ToString::to_string).collect();
+    match &s.asked {
+        Some(engine::Ask::Work(work)) => {
+            let stepped = s.work.unwrap_or(*work);
+            e.say(&format!(
+                "the round of work {work}, as the owner asked: work {stepped}, rounds {}",
+                names.join(", ")
+            ));
+            *last = Some(api::StepTaken {
+                at: db::now(),
+                asked: *work,
+                work: stepped,
+                rounds: s.rounds.iter().filter(|r| r.work == stepped).map(|r| r.n).collect(),
+                cell: s.cell.clone(),
+            });
+            control.stepped(*work);
+        }
+        Some(engine::Ask::Architect(project)) => {
+            e.say(&format!(
+                "the round of the architect of {project}, as the owner asked: work {}, rounds {}",
+                s.work.map_or_else(|| "none".to_string(), |w| w.to_string()),
+                names.join(", ")
+            ));
+            if let Some(stepped) = s.work {
+                *last = Some(api::StepTaken {
+                    at: db::now(),
+                    asked: stepped,
+                    work: stepped,
+                    rounds: s.rounds.iter().filter(|r| r.work == stepped).map(|r| r.n).collect(),
+                    cell: s.cell.clone(),
+                });
+            }
+            control.stepped_architect(project);
+        }
+        None => {}
+    }
+}
+
 /// Prints the message the work's next agent round would be sent.
 /// Prints the message a work's next round would be sent, with nothing run or recorded: the engine is made only to
 /// read, so no flow version is recorded, no work stopped and none started, beside an engine that may be running.
@@ -593,14 +634,15 @@ fn message(d: &Path, work: i64, json: bool) -> Result<(), String> {
 
 /// Runs the engine on the data directory with `claude -p` and the gh CLI, and serves the owner's page beside it. Every
 /// work starts paused, whatever the owner had started before the engine stopped: the owner starts them on the page;
-/// a work's own pause is kept. Between two steps the loop answers what the page asked: it carries out the starts over
-/// asked, whatever the global state, the owner's Start of a work taken over going on in the work that took its item
-/// over; hands the session manager the new sessions the owner asked for, lifts the pause of the works the owner
-/// started once each may hold a slot, keeps waiting sessions warm unless the owner switched that off while every work
-/// is paused, hands the engine whether every work is paused, which its architects are told, tells how the engine
-/// stands, and takes the round of a work the owner asked for, or else the next step of
-/// the works that go on: every work but those paused by themselves, or while every work is paused, those the owner
-/// started. So a pause takes effect as soon as the round under way has ended.
+/// a work's own pause is kept. The loop is the engine's only scheduler ([`engine::schedule`]): at each turn it reaps
+/// the jobs that ended, the owner's Start of a work taken over going on in the work that took its item over; hands the
+/// session manager the new sessions the owner asked for, lifts the pause of the works the owner started once each may
+/// hold a slot, reminds the owner of the asks waiting, and dispatches, with what the owner asked, the rounds the owner
+/// asked for and a step of each work that goes on and has no job in flight, each on a thread of its own, with the
+/// keep-warm pings due; it tells how the engine stands, and waits until the owner asks something, a job ends or the
+/// idle time passes. So a pause of a work takes effect as soon as its round under way has ended, while the rounds of
+/// other works go on beside it. Once the stop file is there, it dispatches nothing more and waits for the jobs in
+/// flight to end.
 fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     let committed = config::committed(d).map_err(|e| e.to_string())?;
     let github = Box::new(engine::hub::Gh::new(d.join("logs")));
@@ -611,7 +653,7 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     };
     if once {
         let mut e = engine::Engine::new(d, committed, agents, github, said)?;
-        e.tick()?;
+        e.pass(&engine::Go::default())?;
         return Ok(());
     }
     let started_at = db::now();
@@ -620,8 +662,10 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     let events = Arc::clone(&bus);
     // What a running agent is doing goes to the page as it happens.
     let told = Arc::clone(&bus);
-    // So does which work's round runs: the page shows it running, and what stops once it ends.
+    // So does which works' rounds run: the page shows them running, and what stops once each ends.
     let (shown, running) = (Arc::clone(&bus), Arc::clone(&control));
+    // A job that ends wakes the loop, to reap it.
+    let woken = Arc::clone(&control);
     let hooks = engine::Hooks {
         activity: Arc::new(move |work: i64, round: i64, what: &str| {
             told.publish(api::Event::Activity {
@@ -631,14 +675,15 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
                 at: db::now(),
             });
         }),
-        busy: Arc::new(move |work: Option<i64>| {
-            running.set_running(work);
+        busy: Arc::new(move |works: &[i64]| {
+            running.set_running(works);
             if let Some(s) = shown.status() {
                 shown.publish(api::Event::Status {
                     status: Box::new(running.status(s)),
                 });
             }
         }),
+        ended: Arc::new(move || woken.job_ended()),
         // So does every change written, on whichever connection of the engine it is written.
         commit: Some(Arc::new(
             move |conn: &db::rusqlite::Connection, rows: &[db::Changed]| {
@@ -668,102 +713,66 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     e.say(&format!(
         "the page is at http://127.0.0.1:{port}/; every work is paused until the owner starts them there"
     ));
-    // The owner, or whoever installs a new command, stops the engine between steps by creating this file.
+    // The owner, or whoever installs a new command, stops the engine by creating this file: nothing more is dispatched,
+    // and the engine stops once the jobs in flight have ended.
     let stop = d.join("stop");
     let _ = std::fs::remove_file(&stop);
     let idle = Duration::from_secs(10);
     let mut last: Option<api::StepTaken> = None;
-    // The work the last step took, from which the next step goes round the works.
-    let mut after: Option<i64> = None;
-    while !stop.exists() {
-        if let Err(x) = e.start_overs() {
-            e.say(&format!("starting works over: {x}"));
-        }
-        for (old, new) in e.replaced() {
-            control.replaced(old, new);
-        }
-        let asked = control.asked();
-        for work in control.take_new_sessions() {
-            e.sessions().ask_new(work);
-        }
-        e.reload_config();
-        match e.release_started(&asked.releasing, &asked.architects_releasing) {
-            Ok((done, architects)) => control.released(&done, &architects),
-            Err(x) => e.say(&format!("lifting the pause of the works the owner started: {x}")),
-        }
-        // The sessions of works that wait are kept warm between steps, never beside a round.
-        let pause = asked.paused.then(|| engine::GlobalPause {
-            warm: asked.keep_warm,
-            runs: asked.started.clone(),
-            architects: asked.architects_started.clone(),
-        });
-        if let Err(x) = e.keep_warm(db::now(), pause.as_ref()) {
-            e.say(&format!("keeping waiting sessions warm: {x}"));
-        }
-        // The architects that judge what runs and what starts are told whether every work is paused.
-        e.set_global_pause(pause);
-        // The asks waiting for the owner's answer are reminded of once an interval, whatever the works do.
-        if let Err(x) = e.remind(db::now()) {
-            e.say(&format!("reminding the owner of the asks waiting: {x}"));
-        }
-        let now = status(&mut e, last.as_ref(), started_at)?;
-        bus.publish(api::Event::Status {
-            status: Box::new(control.status(now)),
-        });
-        match asked.next() {
-            api::Next::Step(work) => {
-                let s = e.step_work(work)?;
-                let names: Vec<String> = s.rounds.iter().map(ToString::to_string).collect();
-                let stepped = s.work.unwrap_or(work);
-                e.say(&format!(
-                    "the round of work {work}, as the owner asked: work {stepped}, rounds {}",
-                    names.join(", ")
-                ));
-                last = Some(api::StepTaken {
-                    at: db::now(),
-                    asked: work,
-                    work: stepped,
-                    rounds: s.rounds.iter().filter(|r| r.work == stepped).map(|r| r.n).collect(),
-                    cell: s.cell,
-                });
-                control.stepped(Some(work));
+    let mut turns = || -> Result<(), String> {
+        while !stop.exists() {
+            let ended = control.jobs_ended();
+            for s in e.reap()? {
+                took(&e, &control, &mut last, &s);
             }
-            api::Next::Architect(project) => {
-                let s = e.step_architect(&project)?;
-                let names: Vec<String> = s.rounds.iter().map(ToString::to_string).collect();
-                e.say(&format!(
-                    "the round of the architect of {project}, as the owner asked: work {}, rounds {}",
-                    s.work.map_or_else(|| "none".to_string(), |w| w.to_string()),
-                    names.join(", ")
-                ));
-                if let Some(stepped) = s.work {
-                    last = Some(api::StepTaken {
-                        at: db::now(),
-                        asked: stepped,
-                        work: stepped,
-                        rounds: s.rounds.iter().filter(|r| r.work == stepped).map(|r| r.n).collect(),
-                        cell: s.cell,
-                    });
-                }
-                control.stepped(s.work);
+            for (old, new) in e.replaced() {
+                control.replaced(old, new);
             }
-            api::Next::Pass => {
-                let s = e.step(after)?;
-                if s.work.is_none() {
-                    control.wait(&asked, idle);
-                }
-                after = s.work;
+            for work in control.take_new_sessions() {
+                e.sessions().ask_new(work);
             }
-            api::Next::Started => {
-                let s = e.step_started(after, &asked.started, &asked.architects_started)?;
-                if s.work.is_none() {
-                    control.wait(&asked, idle);
-                }
-                after = s.work;
+            e.reload_config();
+            let asked = control.asked();
+            match e.release_started(&asked.releasing, &asked.architects_releasing) {
+                Ok((done, architects)) => control.released(&done, &architects),
+                Err(x) => e.say(&format!("lifting the pause of the works the owner started: {x}")),
             }
-            api::Next::Wait => control.wait(&asked, idle),
+            // The asks waiting for the owner's answer are reminded of once an interval, whatever the works do.
+            if let Err(x) = e.remind(db::now()) {
+                e.say(&format!("reminding the owner of the asks waiting: {x}"));
+            }
+            // What the owner asked as the loop dispatches: what it asks after wakes the loop's wait at once.
+            let asked = control.asked();
+            let go = engine::Go {
+                pause: asked.paused.then(|| engine::GlobalPause {
+                    warm: asked.keep_warm,
+                    runs: asked.started.clone(),
+                    architects: asked.architects_started.clone(),
+                }),
+                steps: asked.steps.clone(),
+                architects: asked.architects.clone(),
+            };
+            for s in e.dispatch(&go)? {
+                took(&e, &control, &mut last, &s);
+            }
+            let now = status(&mut e, last.as_ref(), started_at)?;
+            bus.publish(api::Event::Status {
+                status: Box::new(control.status(now)),
+            });
+            // A job that ended is reaped at the next turn, which lets go on what its step moved; what the owner asked,
+            // or the idle time passing, lets every work be dispatched again.
+            if control.wait(&asked, ended, idle) != api::Woke::JobEnded {
+                e.rouse();
+            }
         }
+        Ok(())
+    };
+    let turned = turns();
+    e.say("stopping: no more is dispatched, and the jobs in flight are waited for");
+    for s in e.drain()? {
+        took(&e, &control, &mut last, &s);
     }
+    turned?;
     let _ = std::fs::remove_file(&stop);
     eprintln!("{} stopped: {} exists", db::now() / 1000, stop.display());
     Ok(())

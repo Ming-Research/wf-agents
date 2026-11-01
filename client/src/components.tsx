@@ -46,7 +46,7 @@ export function Facts({ rows }: { rows: Array<[ReactNode, ReactNode] | null | fa
 /// that round first; and a work the engine's status names as waiting for a free slot, what it waited for come, waits
 /// for that slot, though as read it is ready or still waiting.
 export function liveState(w: WorkSummary, status: Status | null): WorkState {
-  const state = w.state === 'running' && status !== null && status.running !== w.id ? 'ready' : w.state;
+  const state = w.state === 'running' && status !== null && !status.running.includes(w.id) ? 'ready' : w.state;
   if (forSlot(w, status) && (state === 'ready' || state === 'waiting' || state === 'asking')) return 'waiting_for_slot';
   return state;
 }
@@ -81,6 +81,8 @@ export type Course = {
   started: boolean;
   /// The owner started it while it was paused: its pause is lifted once its machine has a slot free.
   releasing: boolean;
+  /// The owner asked for a round of it that has not ended yet.
+  asked: boolean;
 };
 
 export function course(w: WorkSummary, status: Status | null): Course {
@@ -94,6 +96,7 @@ export function course(w: WorkSummary, status: Status | null): Course {
       outdated: false,
       started: false,
       releasing: false,
+      asked: false,
     };
   }
   const started =
@@ -112,9 +115,10 @@ export function course(w: WorkSummary, status: Status | null): Course {
           : status?.paused && !started
             ? 'all'
             : null;
+  const asked = status !== null && status.stepping.includes(w.id);
   let running: Course['running'] = null;
-  if (status !== null && status.running === w.id) {
-    running = status.stepping === w.id ? 'step' : held !== null ? 'pausing' : 'goes_on';
+  if (status !== null && status.running.includes(w.id)) {
+    running = asked ? 'step' : held !== null ? 'pausing' : 'goes_on';
   }
   return {
     over: false,
@@ -125,6 +129,7 @@ export function course(w: WorkSummary, status: Status | null): Course {
     outdated: status !== null && w.flow_version !== status.flow_version,
     started,
     releasing,
+    asked,
   };
 }
 
@@ -133,8 +138,8 @@ export function course(w: WorkSummary, status: Status | null): Course {
 /// paused, or stopped by the engine or the architect), after which it goes on whatever the global state, its own pause
 /// lifted; Pause while it goes on, or the owner started it and it waits for a slot, after which it stays paused
 /// whatever the global state. Step, one round of it, is for a work held back that no round of it runs and that waits
-/// for nothing (`step`), and can run only while no other round asked for is under way and nothing stops every work
-/// (`canStep`).
+/// for nothing (`step`), and can run only while no round of it asked for before is under way and nothing stops every
+/// work (`canStep`): the rounds asked of other works run beside it.
 export function controls(c: Course, status: Status | null) {
   if (c.over || status === null) return { pause: false, start: false, step: false, canStep: false };
   const back = c.held !== null && !c.releasing;
@@ -142,7 +147,7 @@ export function controls(c: Course, status: Status | null) {
     pause: !back,
     start: back,
     step: back && c.running === null && c.waits === null,
-    canStep: status.stepping === null && status.halt === null,
+    canStep: !c.asked && status.halt === null,
   };
 }
 
