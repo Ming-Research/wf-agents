@@ -1,4 +1,4 @@
-Decision data-directory: The data directory, named by `--data` or the `WF_AGENTS_DATA` environment variable and never written in the code, holds data only: the configuration, the database, and the files the database refers to by path (logs of red checks and tool outputs too long to keep inline), because these cannot be rebuilt, belong to the owner and must be kept and backed up together.
+Decision data-directory: The data directory, named by `--data` or the `WF_AGENTS_DATA` environment variable and never written in the code, holds the data: the configuration, the database, and the files the database refers to by path (logs of red checks and tool outputs too long to keep inline), because these cannot be rebuilt, belong to the owner and must be kept and backed up together.
 
 Rests on: C:independent, C:design-on-merit, D:harness-only
 
@@ -10,7 +10,7 @@ Decision binary-apart: The program is not in the data directory: the `wf-agents`
 Rests on: D:harness-only, D:data-directory
 
 Rejected:
-- The binary kept in the data directory: rejected because it mixes the program with the data it works on, so replacing the program touches the data directory and the data directory is no longer data only.
+- The binary kept in the data directory: rejected because it mixes the program with the data it works on, so replacing the program touches the data directory.
 
 Decision worktrees-in-data: The works' worktrees are in the data directory, under `worktrees/`, which the data directory's git leaves out, instead of a directory the installation configuration names, because they are this installation's working copies, kept with the data they belong to, while the directories beside the projects' own checkouts hold the owner's working copies, not the engine's; the data directory is in git, and ignoring them keeps it data.
 

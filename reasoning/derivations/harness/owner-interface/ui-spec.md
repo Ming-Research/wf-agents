@@ -145,7 +145,7 @@ Decision state-marks: A state shown as an icon, where a row has room for a mark 
 
 Rests on: D:state-colours, F:github-state-marks, F:owner-looks-where-work-stands, C:owner-page
 
-Decision waiting-for-slot: A work whose wait is over, the owner's or the architect's answer come or what its row waited for, and that waits on, holding no slot, until its machine has a slot free, is waiting for a free slot, as the engine's status names it, and not ready, because the owner must see why a work whose answer came does not move; its chip says on hovering that it goes on once its machine has a slot free, before any new work starts.
+Decision waiting-for-slot: A work whose wait is over, the architect's answer come or what its row waited for, and that waits on, holding no slot, until its machine has a slot free, is waiting for a free slot, as the engine's status names it, and not ready, because the owner must see why a work whose answer came does not move; its chip says on hovering that it goes on once its machine has a slot free, before any new work starts.
 
 Rests on: D:wait-holds-no-slot, C:owner-page
 

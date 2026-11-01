@@ -14,7 +14,7 @@ Decision log-tail-failure: A red check's log tail is what of its log tells why i
 
 Rests on: C:information, C:efficient, F:sixth-trial-log-tails
 
-Decision ci-test-times: The ci tool gives, for each test the agent named, that test's own time, read from the line cargo-nextest writes as each test ends in the logs of every job of the fast CI, the jobs that each run a part of the tests included, with how it ended when it did not pass, or that the test was not found there, because without a time the agent fetched the whole job log to find one, and the time of the whole test binary that holds it, all `cargo test` gives, says nothing about the one test, while nextest runs each test on its own and times it; a fast CI that runs its tests another way gives the agent no times.
+Decision ci-test-times: The ci tool gives, for each test the agent named, that test's own time, read from the line cargo-nextest writes as each test ends in the logs of every job of the fast CI, the jobs that each run a part of the tests included, with how it ended when it failed, because without a time the agent fetched the whole job log to find one, and the time of the whole test binary that holds it, all `cargo test` gives, says nothing about the one test, while nextest runs each test on its own and times it; a fast CI that runs its tests another way gives the agent no times.
 
 Rests on: C:information, C:efficient, F:agent-fetched-job-log, F:cargo-test-binary-time, F:nextest-times-each
 
