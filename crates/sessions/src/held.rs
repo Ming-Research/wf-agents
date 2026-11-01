@@ -153,8 +153,10 @@ fn system_of(session_rounds: &[Round]) -> Vec<Version> {
 }
 
 impl Held {
-    /// What the session whose rounds these are, oldest first, holds now. A round counts once it handed in a return:
-    /// a run that failed may never have reached the session.
+    /// What the session whose rounds these are, oldest first, holds now. A round that handed in a return holds what
+    /// it was given and what it produced; one whose run ended without a return holds what it was given, which the
+    /// command line wrote into the session before it called the service, unless the command line could not run at
+    /// all (`wrote_message`).
     pub fn of(session_rounds: &[Round]) -> Held {
         Held::with_pings(session_rounds, &[])
     }
@@ -205,10 +207,11 @@ impl Held {
                 };
                 continue;
             }
-            if r.output.is_none() {
+            if r.output.is_some() {
+                h.rounds.insert(r.id);
+            } else if !wrote_message(r) {
                 continue;
             }
-            h.rounds.insert(r.id);
             for x in recorded(&r.input) {
                 let round = h.got.entry(x.hash.clone()).or_insert((r.id, x.address.clone())).0;
                 // What the engine computes is a version of its input only where the round kept it whole: one recorded
@@ -253,6 +256,23 @@ impl Held {
         let own = round_of(address).is_some_and(|r| self.rounds.contains(&r)) && !address.contains("·engine·");
         own || self.conditional.contains(&(address.to_string(), hash.to_string()))
     }
+}
+
+/// Whether a round that handed in no return still put its message in its session: the command line writes the
+/// message into the session before it calls the service, so a run the engine cut off, and one that failed reaching
+/// the service (no network, a usage limit, a server error, a message the service refused), left it there; only a
+/// command line that could not run at all (`cannot_run`: not logged in, not installed) did not. Giving such a round's
+/// message again would put a second copy of it in the session at every attempt.
+fn wrote_message(r: &Round) -> bool {
+    let Some(rej) = r.rejected.as_ref() else {
+        return false;
+    };
+    rej.get("interrupted").is_some()
+        || rej
+            .get("failed")
+            .and_then(|f| f.get("kind"))
+            .and_then(Value::as_str)
+            .is_some_and(|k| k != "cannot_run")
 }
 
 /// A CLI session's rounds, oldest first, and what it holds now, its keep-warm pings' compactions counted.
@@ -361,6 +381,32 @@ mod tests {
         assert!(!h.holds("R1-3·D2·design", "any"));
         assert_eq!(h.compacted, Some(RoundId::new(1, 5)));
         assert!(!h.compacted_waiting);
+    }
+
+    // A run that ended without a return left its message in the session, the command line having written it there
+    // before it called the service: the session holds what it was given, not anything it produced, so that running
+    // it again does not give it all once more; a command line that could not run at all left nothing.
+    #[test]
+    fn a_failed_run_left_its_message_in_the_session() {
+        let task = json!("Implement the scheduler.");
+        let given = json!({ "conditional": [{ "address": "task:I1", "hash": hash(&task), "given": true }] });
+        let failed = |n: i64, kind: &str| Round {
+            transition: None,
+            rejected: Some(json!({ "failed": { "kind": kind, "what": "API Error" } })),
+            ..round(n, given.clone(), None, 0)
+        };
+        for kind in ["offline", "transient", "flagged", "usage_limit"] {
+            let h = Held::of(&[failed(2, kind)]);
+            assert!(h.holds("task:I1", &hash(&task)), "{kind}");
+            assert!(!h.rounds.contains(&RoundId::new(1, 2)), "{kind}");
+        }
+        let cut = Round {
+            transition: None,
+            rejected: Some(json!({ "interrupted": "the engine stopped" })),
+            ..round(2, given.clone(), None, 0)
+        };
+        assert!(Held::of(&[cut]).holds("task:I1", &hash(&task)));
+        assert!(!Held::of(&[failed(2, "cannot_run")]).holds("task:I1", &hash(&task)));
     }
 
     // A session holds the parts of its system prompt, as the round that started it recorded them, from its start to

@@ -231,6 +231,10 @@ Decision round-name: The page names a round R<work>-<n> wherever it shows one (a
 
 Rests on: C:owner-page, D:round-key, F:owner-reads-round-in-work, F:global-round-numbers
 
+Decision work-name: The page names a work W<n> wherever it shows one (the Works view and a work's page, the System view, an item's works, and the page's own sentences about a work: "taken over by W31", "Start W5 over?"), "#" being an item's alone, and a work's group in the conversations by its item's number and title, then the work's name, "#5 Run works in parallel W35", the item's words cut where the line ends and the work's name whole in `--fgColor-muted`, in the list and the group's head alike; instead of "#35" for work 35, because the owner read "#5" in the list of conversations, work 5 on item 1, as item 5, a different item the items' tree names "#5", and a group is a work's, one of several an item may have had, only one of them live.
+
+Rests on: C:information, F:owner-read-work-as-item, D:round-name
+
 Decision held-input-by-hash: A conditional input of a round that its session already held opens, from its greyed row, to what it held, read by the hash the round's record names it with (`/api/v1/works/5/contents/<hash>`): the text the round of the work that gave it gave, or the value the session's own return produced at the cell and path its address names; only a round recorded before its inputs had hashes is read by the address, instead of by the address alone, because an address in a round recorded before rounds were named by their work names a round by a number no round has now, and the owner reads old rounds as well as new ones.
 
 Rests on: C:owner-page, D:round-contents-dedup, D:round-renumbering, D:old-round-addresses, F:owner-reads-old-rounds

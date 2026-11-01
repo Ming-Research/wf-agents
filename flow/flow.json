@@ -11073,7 +11073,7 @@
           "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work at that cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
         },
         "failed": {
-          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer.",
+          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer. The command line writes the round's message into the session before it calls the service, so a round run again in the same session is given only what the session lacks, not its message once more.",
           "kinds": [
             {
               "name": "usage_limit",
@@ -11085,13 +11085,19 @@
               "name": "offline",
               "when": "The network cannot be reached",
               "handle": "wait",
-              "desc": "The engine starts no new round for any work until the network is back, looking every half minute, tells the owner once if it lasts, then carries on each work from the cell it recorded."
+              "desc": "The engine starts no new round for any work until the network is back, looking at it itself every half minute, without running the command line, and letting one round try every five minutes in case what it looks at cannot be reached while the service can; it tells the owner once if it lasts, then carries on each work from the cell it recorded."
             },
             {
               "name": "transient",
               "when": "The service is overloaded, returns a server error or times out, or the command line crashes",
               "handle": "retry",
               "desc": "The engine runs the same round again: once after a short wait, then, while it still fails, after waits that grow each time up to five minutes, until it passes, and records each attempt on the work."
+            },
+            {
+              "name": "flagged",
+              "when": "The service's safety classifier stopped the run or refused its message",
+              "handle": "fresh",
+              "desc": "Running again in the same session would give the classifier the same context: the engine ends the line's session and runs the round once more in a new one; when that is stopped too, it pauses the work and tells the owner, naming the rounds, since what the agent is given needs a look."
             },
             {
               "name": "cannot_run",
@@ -17260,7 +17266,7 @@
           "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work at that cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
         },
         "failed": {
-          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer.",
+          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer. The command line writes the round's message into the session before it calls the service, so a round run again in the same session is given only what the session lacks, not its message once more.",
           "kinds": [
             {
               "name": "usage_limit",
@@ -17272,13 +17278,19 @@
               "name": "offline",
               "when": "The network cannot be reached",
               "handle": "wait",
-              "desc": "The engine starts no new round for any work until the network is back, looking every half minute, tells the owner once if it lasts, then carries on each work from the cell it recorded."
+              "desc": "The engine starts no new round for any work until the network is back, looking at it itself every half minute, without running the command line, and letting one round try every five minutes in case what it looks at cannot be reached while the service can; it tells the owner once if it lasts, then carries on each work from the cell it recorded."
             },
             {
               "name": "transient",
               "when": "The service is overloaded, returns a server error or times out, or the command line crashes",
               "handle": "retry",
               "desc": "The engine runs the same round again: once after a short wait, then, while it still fails, after waits that grow each time up to five minutes, until it passes, and records each attempt on the work."
+            },
+            {
+              "name": "flagged",
+              "when": "The service's safety classifier stopped the run or refused its message",
+              "handle": "fresh",
+              "desc": "Running again in the same session would give the classifier the same context: the engine ends the line's session and runs the round once more in a new one; when that is stopped too, it pauses the work and tells the owner, naming the rounds, since what the agent is given needs a look."
             },
             {
               "name": "cannot_run",

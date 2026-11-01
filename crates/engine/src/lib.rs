@@ -55,7 +55,7 @@ use serde_json::Value;
 pub use sessions::cli as agent;
 
 pub use checks::DESIGN_CARD_RULING;
-pub use failed::{Halt, utc};
+pub use failed::{Halt, network_reachable, utc};
 pub use steps::{cell_request, next_message};
 pub use warm::GlobalPause;
 pub use work::{Item, Round, RoundId, Work, json_col, query_json};
@@ -108,6 +108,9 @@ pub struct Hooks {
     /// What is told the rows each committed write touched, registered on every connection of the engine: how the
     /// owner's page hears of each change.
     pub commit: Option<db::Listener>,
+    /// Whether the agents' service can be reached from here, which the engine looks at itself while no network stops
+    /// every work ([`failed::network_reachable`]); none to let a round find out, as before.
+    pub network: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 }
 
 impl Default for Hooks {
@@ -118,6 +121,7 @@ impl Default for Hooks {
             activity: Arc::new(|_: i64, _: i64, _: &str| {}),
             busy: Arc::new(|_: Option<i64>| {}),
             commit: None,
+            network: None,
         }
     }
 }
@@ -135,6 +139,8 @@ struct Shared {
     /// The kind of failed run the owner was last told stops every work, until a round runs to a return again: the
     /// owner is told once.
     told: Mutex<Option<String>>,
+    /// How many times in a row the engine looked at the network itself and found it down, since a round last tried.
+    looked: Mutex<u32>,
     /// The owner's global pause while it holds, as the loop that runs the engine hands it each turn: no work takes a
     /// step but those the owner started, and no new work starts; none while works go on. The architects that judge
     /// what runs and what starts are told it with the slots.
@@ -164,6 +170,7 @@ impl Shared {
             config: RwLock::new(Arc::new(config)),
             halt: Mutex::default(),
             told: Mutex::default(),
+            looked: Mutex::default(),
             global_pause: Mutex::default(),
             replaced: Mutex::default(),
             held_for_slot: Mutex::default(),
@@ -666,19 +673,31 @@ impl Engine {
     }
 
     /// Whether no new round may start now, because a failed run's cause stops every work; a wait that is over ends.
+    /// While no network stops them, the engine looks at the network itself when the wait is over, without running the
+    /// command line, which would put the round's message in its session once more, and waits again while it is down;
+    /// every [`failed::LOOKS`]th look in a row a round tries anyway, in case what it looks at cannot be reached while
+    /// the service can.
     pub fn halted(&self) -> bool {
-        let over = {
-            let mut halt = lock(&self.shared.halt);
-            let over = match halt.as_ref() {
-                Some(h) if db::now() < h.until => return true,
-                Some(h) => Some(h.kind.clone()),
-                None => None,
-            };
-            if over.is_some() {
-                *halt = None;
-            }
-            over
+        let kind = match lock(&self.shared.halt).as_ref() {
+            Some(h) if db::now() < h.until => return true,
+            Some(h) => h.kind.clone(),
+            None => return false,
         };
+        if kind == "offline"
+            && let Some(reachable) = &self.shared.hooks.network
+        {
+            let down = !reachable();
+            let mut looked = lock(&self.shared.looked);
+            if down && *looked + 1 < failed::LOOKS {
+                *looked += 1;
+                if let Some(h) = lock(&self.shared.halt).as_mut() {
+                    h.until = db::now() + failed::PROBE;
+                }
+                return true;
+            }
+            *looked = 0;
+        }
+        let over = lock(&self.shared.halt).take().map(|h| h.kind);
         if let Some(kind) = over {
             self.say(&format!("the wait for {kind} is over: works go on"));
         }

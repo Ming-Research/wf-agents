@@ -671,6 +671,8 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
                 }
             },
         )),
+        // While no network stops every work, the engine looks at it itself instead of letting a round find out.
+        network: Some(Arc::new(engine::network_reachable)),
         ..said
     };
     let mut e = engine::Engine::new(d, committed, agents, github, hooks)?;

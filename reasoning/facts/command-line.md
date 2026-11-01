@@ -51,3 +51,9 @@ Fact stream-json-images: The command line 2.1.312, tried with haiku, reads an im
 Fact transient-failures-pass: An overloaded service, a server error, a timeout and a crash of the command line pass.
 
 Fact cli-schema-refusal: The command line refuses a return that does not fit its structured-output schema within the round, and the model hands it in again within the round.
+
+Fact cli-writes-message-before-call: The agent command line writes a round's message into its session before it calls the service: a run that fails reaching the service leaves the message in the session, and the session resumed after it holds the message as many times as it was sent.
+
+Fact outage-copies-session: During an outage of about an hour and a half, with a round let try every half minute, one engineer's session (work 35) took 27 copies of its 72 KB message and grew to 44 MB, nine times the next largest of 146 sessions; its next round read about 200,000 tokens of context at each of its 149 turns, for $15.12, and handed in no return.
+
+Fact refused-session-bloated: Of 146 agent sessions, the service's safety classifier refused only one, four times in 22 minutes: the session grown to 44 MB with copies of one message.

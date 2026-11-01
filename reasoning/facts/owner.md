@@ -197,3 +197,5 @@ Fact named-state-buttons-too-long: The owner finds a row of state buttons, each 
 Fact owner-finds-place-on-chart: On a large chart the owner looks for where the view is on the whole chart and goes to another part of it at once.
 
 Fact owner-cannot-tell-sent-from-held: In one list of a round's conditional inputs, those sent in bold and those held greyed, the owner cannot tell what the agent got this round from what its session already held.
+
+Fact owner-read-work-as-item: The owner read "#5" in the list of conversations, the group of work 5 on item 1, as item 5, which the items' tree names "#5".

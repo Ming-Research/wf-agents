@@ -1,5 +1,25 @@
 # Log
 
+## 2026-11-01 Run a failed round again without its message once more, look at the network without a round, and take a refused run to a new session
+
+Changed: D:global-failure-wait changed, D:failed-run-message-held added, D:refused-run-new-session added, F:cli-writes-message-before-call added, F:outage-copies-session added, F:refused-session-bloated added
+
+Why: During an outage the engine let one round try every half minute, and each attempt put the round's whole message in the engineer's session once more, since the command line writes it there before it calls the service and the engine counted a failed run's message as never given: 27 copies of a 72 KB message grew the session to 44 MB, and its next round read about 200,000 tokens at each of 149 turns for $15.12 and was refused by the service's safety classifier, the only refusal among 146 sessions. Now a round run again in the same session is given only what the session lacks; while the network is down the engine looks at it itself, without the command line, letting a round try every five minutes; and a run the classifier refuses runs once more in a new session, the work pausing for the owner when that is refused too.
+
+Re-examined: D:transient-failure-retry and D:failed-run-kind-only, which still hold: a passing failure still runs again in the same session, told only its kind, now given only what the session lacks
+
+Ruling: the owner's ruling of 2026-11-01 to build both fixes of the handling of failed runs, as proposed, and to fix the session filled with repeated content at once
+
+## 2026-11-01 Name a work W<n> on the page, and say why the bar of what waits is tinted
+
+Changed: D:work-name added, F:owner-read-work-as-item added, D:pinned-band changed
+
+Why: The page names a work W<n> and keeps "#" for items, as design's page.md says since commit 4daff66; this is its copy among the records, beside how a round is named. D:pinned-band rested on F:grey-band-not-standing-out without saying what for; it now says the bar takes the tint of what waits rather than a grey, which does not stand out.
+
+Re-examined: D:pinned-band's dependents, which still hold
+
+Ruling: the owner's ruling of 2026-11-01 to write every work as Wnn and a work's group as "#5 Run works in parallel W35"
+
 ## 2026-11-01 Settle contradictions between moved derivations
 
 Changed: D:graph-output-schema changed, D:form-if-then changed, D:cell-effort changed, D:tell-owner-field changed, D:architect-asks-before-flow-items changed, D:sent-back-message changed, D:settings-view changed, D:works-lists-columns changed, D:bar-contents changed, D:work-controls changed, D:architect-controls changed, D:work-state-words changed, D:work-chart-halo changed, D:document-one-style changed, D:pinned-band-and-stream changed, D:functional-colour-tokens changed, D:fill-only-chips changed, D:type-steps changed, D:weight-marks-structure changed, D:corners-lines-shadows changed, D:page-notice-flash changed, D:voice-looks changed, D:number-tiles changed, D:page-header changed, D:item-page-blocks changed, F:chart-layout-sizes-boxes added, D:chart-text-size changed, F:chart-laid-out-loosely removed, D:chart-effort-badge changed
