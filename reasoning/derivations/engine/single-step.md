@@ -21,10 +21,6 @@ Decision work-state-words: A work's state on the page is the state in effect and
 
 Rests on: C:owner-page, D:work-controls, D:wait-holds-no-slot
 
-Decision start-over-control: A work on an item has a fourth control beside its Start, Pause and Step, Start over, in the head of its group only, which asks first what follows and then ends the work for a new one on its item from the first cell, taking over its branch, worktree and pull request (`half-done-work.md`); it acts whatever the global state, and unlike a pause it does not wait for the round under way, which hands in nothing and is cut off once its agent's process has ended, instead of a pause and a cancellation in turn, because an item whose work went wrong can be begun again without losing what it built, and what a round of such a work hands in is of no use.
-
-Rests on: C:efficient, D:start-over
-
 Decision step-feedback: A work's Step says on hovering what it does (one real round on the owner's account, or, on an older flow version, the move to the version the engine runs or the takeover) and asks first, naming the work and the cell; while a round runs, the page shows how long it has run and what the agent is doing, as its command line reports it, and when the round the owner asked for from a work's window or the architect's ends, the page opens it, instead of a box above the rounds showing what the round will be and the message the agent will be sent, because the owner looks at a round after it ran, at what it was given and what it returned, and the box held the top of the Rounds tab for what the round shows once it has run.
 
 Rests on: C:owner-page, F:owner-looks-after-round

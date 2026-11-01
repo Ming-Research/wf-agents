@@ -25,7 +25,7 @@ Decision config-names-as-keys: A name in the configuration (a project, a level, 
 
 Rests on: C:design-on-merit, F:copies-drift
 
-Decision item-level-model: An item's level, its tier, picks the command line and the model its agents run with, each cell at the reasoning effort the flow declares for it whatever the model, a level setting no effort; and the advisor runs at the level one above the item's (the next in the order of the levels' names, by number when they are numbers; the top level stays at the top), each round recording the model it ran on, instead of every line at the item's level, because the owner decided that the advisor is the engineer with a higher model, as the flow says (D:advisor-as-engineer): one level above the engineer.
+Decision item-level-model: An item's level, its tier, picks the command line and the model its agents run with, and the advisor runs at the level one above the item's (the next in the order of the levels' names, by number when they are numbers; the top level stays at the top), each round recording the model it ran on, instead of every line at the item's level, because the owner decided that the advisor is the engineer with a higher model, as the flow says (D:advisor-as-engineer): one level above the engineer.
 
 Rests on: D:advisor-as-engineer
 

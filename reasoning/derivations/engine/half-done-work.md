@@ -50,7 +50,3 @@ Open: the reason, which the decision does not give; to ask the owner.
 Decision item-requeue: An item leaves the dispatch queue when a work starts on it, and an item may be queued again once its works ended: an item is ready when it is not cancelled or held, has no work running, waits for no unmerged item it depends on by a blocking dependency, and is queued or not done, instead of only items never worked on, because an item must be able to have a new work, and the queue holds what waits to start.
 
 Rests on: D:start-over, D:takeover-on-go-on
-
-Decision work-end-actions: The flow names how a work ends as actions of the cells it ends at: `E1`'s (queue a report's what to do next, withdraw what the work raised, end its sessions, remove its worktree) and those of `C1`, the end of a work cancelled or taken over (a work started over among them), which no row leads to (withdraw what it raised, replace its design cards, close its asks of the owner, end its sessions, remove its worktree, close a pull request that never merged), each one part of the one place a work's end is written (`ending::end`), instead of a shared ending only the engine's code says, because what a work's end lets go of is behaviour the owner reads on the chart (Article 7).
-
-Rests on: C:flow-does

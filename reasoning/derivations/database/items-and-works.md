@@ -23,13 +23,13 @@ Rests on: C:efficient
 
 Decision start-order: Works start first from the dispatch queue the owner orders by hand, then in the architect's order: each item by its rank among its project's items, lower first, an item placed nowhere yet, as one just made is, after those placed, in the order made; an item not cancelled, held, done or kept from starting by a blocking dependency is in that order, instead of only the owner's queue, because the architect, who sees the whole, decides what starts next, and holds what should not start yet; provisional: the owner's queue stays until the architect's order alone decides what starts.
 
-Rests on: D:dispatch-rank
+Rests on: D:rank-integer
 
 Open: the premise for the owner's queue starting first and staying until the architect's order alone decides what starts; to ask the owner.
 
-Decision rank-integer: The architect's order is a rank on each item, an integer within its project, which the item changes of its project's architect, once the review of their batch lets them be made, set by moving an item first, last, or just before or after another item of its project, every item of the project ranked afresh, instead of the plan, segments the root items hung on with gates on what each might touch and budgets it might spend, because a change to a specification, a public interface or a data format is a design decision the owner confirms on the work's design card, and whether a work drifts from its direction is the architect's judgment, not a limit the engine measures.
+Decision rank-integer: The dispatch order is the architect's: a rank on each item, an integer within its project, which the item changes of its project's architect (reorder), once the review of their batch lets them be made, set by moving an item first, last, or just before or after another item of its project, every item of the project ranked afresh, and the engine starts ready items by rank, taking projects in turn, instead of the plan, segments the root items hung on with gates on what each might touch and budgets it might spend, because the architect judges what comes first by the constitution and the policy, a change to a specification, a public interface or a data format is a design decision the owner confirms on the work's design card, and whether a work drifts from its direction is the architect's judgment, not a limit the engine measures.
 
-Rests on: D:card-ask-apart, D:engine-mechanical
+Rests on: D:card-ask-apart, D:engine-mechanical, D:policy-parts
 
 Rejected:
 - The plan (segments under the policy's stages that the root items hung on, gates on which segments might touch a specification, a public interface or a data format, and budgets shared out among them, checked before each merge): rejected because the design card already puts each such change to the owner, and a mechanical limit cannot tell drift in direction from a change the work needs.
@@ -41,10 +41,6 @@ Rests on: C:information, D:computed-as-views
 Decision item-changes-table: The item changes an architect hands in are a table of their own (`architect_item_changes`), each collected in the batch of the architect's work and then made, revised or dropped by the review, instead of being written as they are decided, because a batch is reviewed as a whole before any of it is made.
 
 Rests on: D:reviewed-batch
-
-Decision observations-table: Observations are a table of their own beside the items, each for a project, with its tags, where it came from, how many times it was reported, what it refers to and the item that took it in, closed once that item's work merged or with why, instead of notes, because what is seen and not yet worth an item must be found again, counted and folded in.
-
-Rests on: C:problem-first
 
 Decision known-red-table: Known red checks are a table, instead of static configuration, because the architect adds and removes them while works run.
 

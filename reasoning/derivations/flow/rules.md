@@ -1,6 +1,6 @@
-Decision rules-in-flow: The rules agents follow are the flow's rules, written in `flow/flow.json` and independent of any project, each given to cells as a conditional input: the general rules to every agent's cell, the engineering standards to every engineer's cell and the advisor's, and the design tree writing, the review table and the design tree review to the cells that name them; a rule given to every cell of some lines names those lines, and a cell does not name it again, instead of rule files in the project's configuration, because how an engineer, a reviewer or an adversarial tester works is the same in every project and belongs to the flow those roles are cells of.
+Decision rules-in-flow: The rules agents follow are the flow's rules (how the design tree is written, the review tables, interjections among them), written in `flow/flow.json`, travelling with the flow and independent of any project, each given to cells as a conditional input: the general rules to every agent's cell, the engineering standards to every engineer's cell and the advisor's, and the design tree writing, the review table and the design tree review to the cells that name them; a rule given to every cell of some lines names those lines, and a cell does not name it again, instead of rule files in the project's configuration, because how an engineer, a reviewer or an adversarial tester works is the same in every project and belongs to the flow those roles are cells of, and such rules define how the flow works rather than how one project works.
 
-Rests on: C:independent
+Rests on: C:independent, D:harness-only
 
 Rejected:
 - Rule files in each project's configuration for how agents work: rejected because the same rules then have to be kept in every project, and the flow cannot be checked against them.
@@ -36,15 +36,11 @@ Open: the premise behind a project's AGENTS.md being the owner's to set, which t
 
 Decision no-todo-file: The engineering standards' lines on the repository say that a repository keeps no TODO file: open work is an item, which code and documents cite by its number, and a public repository by its number alone, as the earlier board's rules said, instead of a list of open work kept in the repository, because the item is where open work is ranked, started and done, and a list beside it goes stale; and the rest of an item is written for the owner, not for a public repository.
 
-Rests on: C:design-on-merit, F:copies-drift, D:item-language
+Rests on: C:design-on-merit, F:copies-drift, D:item-text-language
 
 Decision item-writing-rule: How the architect writes an item is said in its rule of item writing (`item_writing`), given to its line and to the review of its batch: how the title, the problem, why and the acceptance are each written, how an item that takes in more is, and how large an item is; the fields of the change that makes an item say what each part is and the title's limit, instead of each part's rule in its field's description alone, as for the engineer's fields, because the review of a batch (`B2`), which checks that each change is written as items are, is given the rule and not the fields.
 
 Rests on: C:information
-
-Decision item-language: The change's description (D:item-writing-rule) says the owner reads the item's parts, its title written in English and the rest in the owner's language as every field the owner reads is, because the owner reads the item, as the items of the earlier board were written for the owner, while the engineer's own problem, shown over the item's, is in the owner's language already, and titles keep one language for now, which also keeps a title usable where the project must be English, as in a pull request or a branch.
-
-Rests on: C:owner-page, F:owner-reads-item, F:repository-english, D:item-writing-rule, D:field-languages
 
 Decision review-checklist: A review is given its checklist as the review table and the design tree review, and its own way of working in its tasks and its findings: it reviews only the change, reruns no test already green, adds no new style demand, reviews only the PR's own change where it merges main, marks each item passed, findings, cannot be verified or not applicable with no pass without evidence, and gives each finding where it is, the quoted text or the missing evidence, and the reason, quoting both sides of a contradiction; a defect in the PR description is a finding too, instead of the engineering standards as what a reviewer checks, because the standards say how agents work themselves, not what a review checks.
 
