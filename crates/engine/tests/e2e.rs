@@ -12278,3 +12278,83 @@ fn two_waits_set_together(name: &str, first: String, second: String, reset: i64)
     }
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// The rounds of three works side by side fail one after another while the first wait stands: a usage limit, then no
+// network, then the usage limit again. The owner is told of each cause once, as the first time it stops every work:
+// the third round's limit is the one the owner was told of first, and the wait for it still stands, so no second
+// notice of it comes because a notice of another cause came between.
+#[test]
+fn a_cause_told_once_is_not_told_again_after_another_cause_between() {
+    let reset = db::now() / 1000 + 3600;
+    let limit = format!("Claude AI usage limit reached|{reset}");
+    let offline = "API Error: Connection error. (getaddrinfo ENOTFOUND api.anthropic.com)".to_string();
+    let met = Gate::default();
+    let (second, third) = (Gate::default(), Gate::default());
+    let (g2, g3) = (second.clone(), third.clone());
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            let report = match n {
+                1 | 3 => limit.clone(),
+                2 => offline.clone(),
+                _ => return (Vec::new(), Vec::new()),
+            };
+            met.meet(3);
+            // The second and the third fail only once the test let each through, one after the other.
+            match n {
+                2 => g2.pass(),
+                3 => g3.pass(),
+                _ => {}
+            }
+            (Vec::new(), vec![("@error", json!(report))])
+        }),
+    );
+    let s = setup("told-once-between");
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(&s.data, "install.toml", &install.replace("slots = 1", "slots = 3"));
+    git(&s.data, &["commit", "-q", "-am", "three slots"]);
+    let (mut e, said, _) = start_with(&s, agents, Hooks::default());
+    e.db.write(Actor::Owner, |tx| {
+        for (title, position) in [("Add another", 2.0), ("Add a third", 3.0)] {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
+                params![title],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO dispatch_queue (item, position) VALUES (?1, ?2)",
+                params![id, position],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    // The first pass starts the three works; the next dispatches the round of `R1` of each.
+    e.tick().unwrap();
+    second.shut();
+    third.shut();
+    e.dispatch(&Go::default()).unwrap();
+    let failed = |e: &Engine, n: usize| {
+        let until = Instant::now() + Duration::from_secs(10);
+        while failed_kinds(e).len() < n && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        failed_kinds(e).len()
+    };
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed(&e, 1), 1, "{log}");
+    second.open();
+    assert_eq!(failed(&e, 2), 2, "{log}");
+    third.open();
+    e.drain().unwrap();
+    // The notices the steps queued are written out by the loop's next turn, which dispatches nothing while the wait
+    // stands.
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed_kinds(&e).len(), 3, "{log}");
+    let h = e.halt().unwrap_or_else(|| panic!("no wait:\n{log}"));
+    assert_eq!((h.kind.as_str(), h.until), ("usage_limit", reset * 1000), "{log}");
+    assert_eq!((told(&s, "usage_limit"), told(&s, "offline")), (1, 1), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
