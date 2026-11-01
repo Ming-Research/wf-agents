@@ -788,14 +788,20 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "not_needed")], Vec::new())),
     );
     // Implementing: a work's first round changes the code and asks for ci; the next hands in the end. Which it is the
-    // work's worktree says, since several works may implement, each in its own.
+    // work's branch says, by the commit the first made, since several works may implement, each in its own worktree:
+    // the feature, or, when main holds it already from another work, a part of its own.
     s.insert(
         "I1",
         Box::new(|r: &Request, _: usize| {
             let wt = &r.worktree;
-            let done = std::fs::read_to_string(wt.join("src/lib.txt")).is_ok_and(|t| t.contains("feature"));
+            let done = git(wt, &["log", "--format=%s"]).lines().any(|l| l == "Add the feature");
             if !done {
-                write(wt, "src/lib.txt", "old\nfeature\n");
+                let lib = std::fs::read_to_string(wt.join("src/lib.txt")).unwrap_or_default();
+                if lib.contains("feature") {
+                    write(wt, &format!("src/part-{}.txt", r.work), "feature\n");
+                } else {
+                    write(wt, "src/lib.txt", "old\nfeature\n");
+                }
                 git(wt, &["add", "-A"]);
                 git(wt, &["commit", "-q", "-m", "Add the feature"]);
                 let head = git(wt, &["rev-parse", "HEAD"]);
@@ -7006,8 +7012,10 @@ fn the_architect_starts_a_work_over() {
     assert_eq!(gone, 2);
     let work = e.step(None).unwrap().work.unwrap();
     say(&mut e, "Begin the feature again, and keep what it built.");
-    let started = e.step(Some(work)).unwrap();
+    // A work of the architect starts for what was said, its first step beside the work's own.
+    let pass = e.pass(&Go::default()).unwrap();
     let log = said.lock().unwrap().join("\n");
+    let started = pass.jobs.iter().find(|s| s.work != Some(work)).expect(&log);
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
     let arch = started.work.unwrap();
     let over = |e: &mut Engine| works_of(e, item).len() == 2;
@@ -8351,7 +8359,12 @@ fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done
         })
         .unwrap();
     say(&mut e, "Look at the items.");
-    let arch = e.step(None).unwrap().work.unwrap();
+    // A work of the architect starts for what was said, beside the step of the work that merged.
+    e.tick().unwrap();
+    let arch: i64 =
+        e.db.conn()
+            .query_row("SELECT id FROM works WHERE graph = 'architect'", [], |r| r.get(0))
+            .unwrap();
     assert!(
         steps_until(&mut e, 10, |e| path_of(e, arch).iter().any(|c| c == "U1")),
         "{}",
