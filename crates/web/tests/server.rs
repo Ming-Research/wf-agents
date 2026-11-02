@@ -311,6 +311,7 @@ fn status() -> api::Status {
         started: Vec::new(),
         releasing: Vec::new(),
         waiting_for_slot: Vec::new(),
+        stopping: Vec::new(),
         architects_started: Vec::new(),
         running: Vec::new(),
         stepping: Vec::new(),
