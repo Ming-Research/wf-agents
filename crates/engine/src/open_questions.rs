@@ -2,9 +2,13 @@
 //! recommends. Once the checks after design passed each goes to the project's architect as a matter of its own, which
 //! takes the path an engineer's question takes ([`post`]); the work does not wait, and goes on by what the design
 //! recommends. The answer is kept in the matter's body, and reaches the engineer as an interjection, which turns the
-//! work ([`answer`]). The merge waits until every open question of the work has its answer ([`unanswered`]).
+//! work ([`answer`]). The merge waits until every open question of the work has its answer ([`unanswered`]). The
+//! architect answers one itself, or, for what only the owner can decide, pins it in the owner's one-to-one with an ask
+//! and replies once the owner answered: the matter holds no answer meanwhile, so the merge keeps waiting, and the
+//! owner's words are kept in the answer as they were said.
 
-use db::rusqlite::{Connection, Transaction, params};
+use db::attachments::{self, Words};
+use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
 use db::{Matter, queue_matter};
 use serde_json::{Value, json};
 
@@ -118,22 +122,65 @@ pub fn is_one(tx: &Transaction<'_>, matter: i64) -> Result<bool, String> {
 /// why is the question's answer, kept in the matter's body, and is said to the engineer of the work that asked as an
 /// interjection, which turns the work, unless nothing can be said to it any more. An answer that goes against the
 /// design can only be a redirect, which the engineer judges.
+///
+/// When the owner answered the question the architect pinned for them (an answered ask of kind `question` that holds the
+/// matter: the newest, whatever ask parks the matter now, as the batch review's ask about dropped item changes does when
+/// the reply came with changes), the answer begins with the owner's words as they were said, and the body records who
+/// answered: `answered_by` is `owner` and `owner_ask` the ask that holds the words; otherwise `answered_by` is
+/// `architect`. The merge waits on the answer being there (`unanswered`), so a question pinned stays unanswered until
+/// this reply writes it. The engineer is told who said which part.
 pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), String> {
-    let (work, question): (Option<i64>, String) = tx
+    let (work, question, body): (Option<i64>, String, String) = tx
         .query_row(
-            "SELECT work, what FROM architect_matters WHERE id = ?1",
+            "SELECT work, what, body FROM architect_matters WHERE id = ?1",
+            [matter],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(sql)?;
+    let owner: Option<(i64, String)> = tx
+        .query_row(
+            "SELECT a.id, coalesce(json_extract(a.answer, '$.text'), '') FROM owner_asks a
+             WHERE a.answer IS NOT NULL AND json_extract(a.body, '$.kind') = 'question'
+               AND EXISTS (SELECT 1 FROM json_each(a.body, '$.holds') h WHERE h.value = ?1)
+             ORDER BY a.id DESC LIMIT 1",
             [matter],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
+        .optional()
         .map_err(sql)?;
     let why = text(reply, "why");
-    let answer = match (text(reply, "text"), why) {
+    let said = match (text(reply, "text"), why) {
         (said, "") => said.to_string(),
         (said, why) => format!("{said}\n\n{why}"),
     };
+    let mut body: Value = serde_json::from_str(&body).map_err(sql)?;
+    // The answer kept, and the words the engineer is told it in.
+    let (answer, told) = match &owner {
+        Some((ask, words)) => {
+            let images = attachments::of(tx, Words::Ask(*ask)).map_err(sql)?;
+            let words = attachments::with_named(words, &images);
+            body["answered_by"] = json!("owner");
+            body["owner_ask"] = json!(ask);
+            match said.as_str() {
+                "" => (words.clone(), format!("The owner answered: {words}")),
+                said => (
+                    format!("{words}\n\n{said}"),
+                    format!("The owner answered: {words}\n\nThe architect added: {said}"),
+                ),
+            }
+        }
+        None => {
+            body["answered_by"] = json!("architect");
+            if let Some(o) = body.as_object_mut() {
+                o.remove("owner_ask");
+            }
+            (said.clone(), said)
+        }
+    };
+    body["answer"] = json!(answer);
     tx.execute(
-        "UPDATE architect_matters SET body = json_set(body, '$.answer', ?2), reply_held = NULL WHERE id = ?1",
-        params![matter, answer],
+        "UPDATE architect_matters SET body = ?2, reply_held = NULL WHERE id = ?1",
+        params![matter, body.to_string()],
     )
     .map_err(sql)?;
     let Some(work) = work else { return Ok(()) };
@@ -153,7 +200,7 @@ pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), St
             params![
                 work,
                 ENGINEER,
-                format!("The answer to the open question of your design \"{question}\": {answer}")
+                format!("The answer to the open question of your design \"{question}\": {told}")
             ],
         )
         .map_err(sql)?;

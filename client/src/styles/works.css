@@ -1,7 +1,6 @@
-/* The works: the two lists over the window's width, each under its heading with its count, the ended folded; and a
-   work picked from them, in the list's place: its line over its chart, and its panel on top of the window floating over
-   the chart's right side, its tabs an UnderlineNav over how it goes on and its rounds, its decision cards, its
-   conversation and its usage. */
+/* The works: one table over the window's width, a group of rows for each project; and a work picked from it, in the
+   table's place: its line over its chart, and its panel on top of the window floating over the chart's right side, its
+   tabs an UnderlineNav over how it goes on and its rounds, its decision cards, its conversation and its usage. */
 
 .works-screen {
   flex: 1;
@@ -17,30 +16,53 @@
   overflow: auto;
 }
 
-/* The heading of the works running and waiting, as a section's line, with no rule under it; the ended works' section
-   after it has the line over it that parts a page's sections. */
-.works-active {
-  display: grid;
-  gap: var(--base-size-12);
-  margin-top: var(--base-size-16);
-}
-
-.works-head {
-  display: flex;
-  align-items: center;
-  gap: var(--base-size-8);
-}
-
+/* The table's box is its scroll container's, which clips it to the rounded corners and scrolls it sideways in a narrow
+   window; the table inside has none of its own, so that a project's head, which sticks to the left of what scrolls, has
+   this one to stick in. The container measures its own width in container query units (cqw), which the head is as wide
+   as. */
 .works-wide {
+  margin-top: var(--base-size-16);
   overflow-x: auto;
+  container-type: inline-size;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
   border-radius: var(--borderRadius-medium);
 }
 
-/* Both lists of works have the same columns at the same widths, which the owner drags at the right edge of each
+/* Every project's group has the same columns at the same widths, which the owner drags at the right edge of each
    header and the page keeps; the item takes what the others leave, at least 240px, and a narrower window scrolls the
-   lists sideways. Every cell stays on one line, cut where its column ends and whole on hovering. */
+   table sideways. Every cell stays on one line, cut where its column ends and whole on hovering. */
 .works-table {
   table-layout: fixed;
+}
+
+table.list.works-table {
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+
+/* A project's head row: its cell has no padding of its own and holds a block on a muted ground, with room above it
+   that parts it from the group before (none above the first, under the header), as wide as the container's visible
+   part and stuck to its left edge, so that the buttons at the head's right end stay in sight when the table scrolls
+   sideways. The cell lets the block stick: a cell that clips would be what it sticks in. */
+.works-table td.works-project-cell {
+  padding: 0;
+  overflow: visible;
+  background: var(--bgColor-default);
+}
+
+.works-project-head {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  width: 100cqw;
+  margin-top: var(--base-size-16);
+  padding: var(--base-size-8) var(--base-size-12);
+  background: var(--bgColor-muted);
+}
+
+.works-table tbody:first-of-type .works-project-head {
+  margin-top: 0;
 }
 
 .works-table th,

@@ -1,5 +1,6 @@
-// The items: on the left, each project's items as a tree of what depends on what, with the buttons that show or hide
-// the items in each state, each in its state's colour; on the right, the item picked, in place, or while none is, the
+// The items: on the left, each project's items as a tree of what depends on what, under the project's head: its name
+// and, at the right end of the same row, the buttons that show or hide the items in each state, each in its state's
+// colour; on the right, the item picked, in place, or while none is, the
 // first the tree shows. The split between them is the one a list and what is open from it take (`ListSplit`), a pane
 // the owner drags, its width kept in this browser. Each project's tree is ours, after the v1 board's: each item a card whose left edge is in its state's
 // colour, the items it depends on in a list under it, set in, with a rule down their left. A row has its toggle, which
@@ -11,15 +12,15 @@
 // unfolds them, as its toggle does.
 
 import { ChevronDownIcon, ChevronRightIcon, LinkIcon } from '@primer/octicons-react';
-import { Heading } from '@primer/react';
 import { Fragment, type MouseEvent, type ReactNode, useState } from 'react';
 
 import type { ItemLink, Items as ItemsData, ItemState, ItemSummary } from '../api';
 import { DependencyKind, ITEM_MARK, ITEM_TONE, Loaded, StateChip, StateFilter, useShownStates } from '../components';
+import { sortedProjects } from '../conversation';
 import { depsDone, firstShown, stageAt, STATES, tree, type TreeRow } from '../item/tree';
 import { words } from '../labelled';
 import { useResource } from '../live';
-import { ListSplit } from '../parts';
+import { ListSplit, ProjectHead } from '../parts';
 import { href, navigate } from '../route';
 import { t, tn } from '../text';
 import { joined, SEP } from '../voices';
@@ -184,8 +185,9 @@ function Row({ row, path, data, place, selected, folded, onFold }: RowProps) {
   );
 }
 
-/// One project: its heading, the buttons that show or hide each state's items with their counts (`StateFilter`, the one
-/// part the list of conversations shows or hides each state's works with too); and its tree.
+/// One project: its head (`ProjectHead`), its name and, at the right end of the same row, the buttons that show or hide
+/// each state's items with their counts (`StateFilter`, the one part the list of conversations and the list of works
+/// show or hide each state's works with too); and its tree.
 function Project(props: {
   name: string;
   items: ItemSummary[];
@@ -203,10 +205,7 @@ function Project(props: {
   const heading = `items-project-${props.name}`;
   return (
     <section className="tree-project">
-      <div className="tree-head">
-        <Heading as="h2" variant="small" id={heading}>
-          {props.name}
-        </Heading>
+      <ProjectHead id={heading} name={props.name}>
         <StateFilter
           order={STATES}
           states={props.items.map((i) => i.state)}
@@ -216,7 +215,7 @@ function Project(props: {
           title={(s, n, on) => tn(on ? 'items_hide' : 'items_show', n, { state: t(`item_${s}`) })}
           onShown={props.onShown}
         />
-      </div>
+      </ProjectHead>
       {rows.length === 0 ? <p className="muted tree-none">{t('items_none_shown')}</p> : null}
       {rows.length > 0 ? (
         <ul className="tree" aria-labelledby={heading}>
@@ -250,7 +249,7 @@ function Tree({ data, selected, shown, onShown }: {
   // The rows folded, by their place in the tree.
   const [folded, setFolded] = useState<Set<string>>(() => new Set());
   if (data.items.length === 0) return <p className="muted tree-none">{t('no_items')}</p>;
-  const projects = [...new Set(data.items.map((i) => i.project))].sort();
+  const projects = sortedProjects(data.items.map((i) => i.project));
   // The queue is one for every project: an item's place in it counts from 1.
   const place = new Map(
     data.items

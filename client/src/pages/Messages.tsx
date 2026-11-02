@@ -62,6 +62,7 @@ import {
 
 import type {
   Architect,
+  ArchitectStanding,
   Conversation,
   ConversationDetail,
   ConversationEntry,
@@ -91,12 +92,10 @@ import {
   course,
   heldWords,
   liveState,
-  StateFilter,
   StateMark,
   useShownStates,
   WORK_STATES,
-  WORK_TONE,
-  workStateMark,
+  WorkStateFilter,
 } from '../components';
 import {
   aboutCard,
@@ -135,9 +134,9 @@ import { cost, time } from '../format';
 import { postJson } from '../http';
 import { imagesSent, type PendingImage, saysSomething } from '../images';
 import { isObj, label, str, words } from '../labelled';
-import { reread, useResource, useStatus } from '../live';
+import { reread, useResource, useShared, useStatus } from '../live';
 import { Markdown } from '../markdown';
-import { BackLink, SayBox, Thumbs } from '../parts';
+import { BackLink, ProjectHead, SayBox, Thumbs } from '../parts';
 import { architectHref, forProject, href, Link, navigate, roundAt, type SideTab, sideHref, workHref } from '../route';
 import { t, tn } from '../text';
 import { joinedWords, Long, SEP } from '../voices';
@@ -161,10 +160,13 @@ export function workMark(work: number | null, works: WorkSummary[] | undefined, 
   return w !== undefined ? liveState(w, status) : null;
 }
 
-/// The mark of an architect's one-to-one: how the architect stands, from what its head reads.
+/// The mark of an architect's one-to-one: how the architect stands, from the lean read of every architect that the list
+/// of works draws its architects' rows from too, read once for the page, not from the architect's whole page for each
+/// project.
 function ArchitectMark({ project, status }: { project: string; status: Status | null }) {
-  const r = useResource<Architect>('architect', forProject('/api/v1/architect', project));
-  const m = r.data !== undefined && r.data.project === project ? architectMark(r.data, status) : null;
+  const all = useShared<ArchitectStanding[]>('architect', '/api/v1/architects');
+  const a = all?.find((x) => x.project === project);
+  const m = a !== undefined ? architectMark(a, status) : null;
   return <StateMark state={m?.state ?? null} words={m?.words} />;
 }
 
@@ -203,10 +205,11 @@ export function counted(
 }
 
 /// The list of conversations in its fixed order, each with its mark, what waits for the owner in it (red) and what is
-/// unread (grey); a work's group over greyed in place. Each project's group is headed by its name and the buttons that
-/// show or hide its works in each state, as the items' tree's are (`StateFilter`), the owner's choice one for every
-/// project and kept in this browser; the conversation open stays whatever its state, without its counts while its
-/// state is hidden, since what the buttons hide counts nowhere, as the bar does not count it.
+/// unread (grey); a work's group over greyed in place. Each project's group is headed by its name and, at the right end
+/// of the same row, the buttons that show or hide its works in each state (`ProjectHead`, `WorkStateFilter`), the
+/// owner's choice one for every project, for the list of works too, and kept in this browser; the conversation open
+/// stays whatever its state, without its counts while its state is hidden, since what the buttons hide counts nowhere,
+/// as the bar does not count it.
 export function List({ list, open, works }: { list: Conversation[]; open: string | null; works: WorkSummary[] | undefined }) {
   const status = useStatus();
   const [shown, toggle] = useTalkStates();
@@ -219,22 +222,19 @@ export function List({ list, open, works }: { list: Conversation[]; open: string
           const s = c.kind === 'work' ? stateOf(c) : null;
           return s !== null ? [s] : [];
         });
+        const key = p.project !== null ? `project:${p.project}` : p.part;
+        // A project's group and the groups of connected projects are headed by a name; wf-agents' own is not. The group
+        // takes its name from the heading in its first row, which also holds the buttons, so that they are in no heading.
+        const name = p.part === 'project' ? p.project : p.part === 'projects' ? t('talks_projects') : null;
+        const heading = `talks-project-${key}`;
+        const named = name !== null && name !== '';
         return (
-          <NavList.Group
-            key={p.project !== null ? `project:${p.project}` : p.part}
-            title={p.part === 'project' ? (p.project ?? undefined) : p.part === 'projects' ? t('talks_projects') : undefined}
-          >
-            {states.length > 0 ? (
-              <li className="talks-states">
-                <StateFilter
-                  order={WORK_STATES}
-                  states={states}
-                  shown={shown}
-                  tone={WORK_TONE}
-                  mark={workStateMark}
-                  title={(s, n, on) => tn(on ? 'talks_hide' : 'talks_show', n, { state: t(`state_${s}`) })}
-                  onShown={toggle}
-                />
+          <NavList.Group key={key} aria-labelledby={named ? heading : undefined}>
+            {named ? (
+              <li className="project-head-item">
+                <ProjectHead id={heading} name={name}>
+                  {states.length > 0 ? <WorkStateFilter states={states} shown={shown} onShown={toggle} /> : null}
+                </ProjectHead>
               </li>
             ) : null}
             {(p.part === 'project' ? rowsShown(p.conversations, stateOf, shown, open) : p.conversations).map((c) => (

@@ -96,7 +96,7 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (30, 128, 185));
+    assert_eq!((s.cells, s.rows, s.states), (30, 129, 186));
     let g = c.graph("architect").unwrap();
     for gone in [
         "E1", "H6", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",
@@ -555,8 +555,9 @@ fn an_ask_carries_no_kind() {
 // engineer's graph has no owner's cell (`A3`), no row leads there, no cell holds a blocker for the owner but `M1`'s
 // ruling, and the architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on only to a
 // related project's architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the architect
-// at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the work's design, and an
-// action only the owner can do to the owner by pausing the work.
+// at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the work's
+// design, and an action only the owner can do to the owner by pausing the work. An open question left to the owner they
+// pin in the owner's one-to-one by an ask, and answer the engineer by the owner's reply.
 #[test]
 fn what_only_the_owner_can_settle_goes_through_the_architect() {
     let c = compiled();
@@ -619,6 +620,28 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
             .iter()
             .any(|t| t.contains("pause the work in effects, saying what the owner must do"))
     );
+    // What only the owner decides about an open question the ways pin in the owner's one-to-one, by an ask that only an
+    // open question may make; they are given the owner's reply when the matter comes back with it, and the questions
+    // already pinned, as every cell that may ask is. The crux (`H2`) asks nothing.
+    assert_eq!(ways.rows.iter().find(|r| r.name == "ask_owner").unwrap().to, "A3");
+    assert!(
+        ways.checks
+            .iter()
+            .any(|x| x.at.as_deref() == Some("ask") && x.check == "ask_only_on_open_question")
+    );
+    for input in ["owner_answer", "questions"] {
+        assert!(
+            ways.inputs.iter().any(|x| {
+                x.maybe
+                    && x.from
+                        .iter()
+                        .any(|s| matches!(s, flow::format::Src::Engine(n) if n == input))
+            }),
+            "{input}"
+        );
+    }
+    let crux = c.graph("architect").unwrap().cell("H2").unwrap();
+    assert!(crux.rows.iter().all(|r| r.name != "ask_owner"));
 }
 
 // A matter that comes again and again is not queued while the facts it would carry are those of the last one the
