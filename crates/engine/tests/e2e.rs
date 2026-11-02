@@ -1651,13 +1651,11 @@ fn step_until(e: &mut Engine, item: i64, said: &Arc<Mutex<Vec<String>>>, what: &
 /// A table review that gives the last column of its table a finding, R1, and answers the others as passing; at each
 /// later round it hands in only `later`, its answers to its earlier findings, one list for each round.
 fn review_with_a_finding(later: Vec<Value>) -> Script {
-    let known: Mutex<BTreeMap<String, Vec<String>>> = Mutex::default();
     Box::new(move |r: &Request, n: usize| {
         if n > 1 {
             return (Vec::new(), vec![("outcome.previous", later[n - 2].clone())]);
         }
-        let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
-        let ids = columns_known(&r.prompt, known.lock().unwrap().entry(session).or_default());
+        let ids = columns(&r.prompt);
         let evidence = json!({ "files": [], "ran": [], "nodes": [] });
         let cols: Vec<Value> = ids
             .iter()
