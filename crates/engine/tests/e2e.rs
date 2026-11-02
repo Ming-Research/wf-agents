@@ -13474,3 +13474,37 @@ fn returns_sent_back_either_side_of_a_return_taken_are_not_in_a_row() {
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// `retries` is one counter for a step that failed and a run that failed: with a limit of 1, one step taken again and
+// then one run taken again pass it at the run, which is told once, and the next run taken again is told no more.
+#[test]
+fn a_limit_on_retries_is_told_once_whichever_row_takes_the_count_past_it() {
+    let s = setup("limit-mixed");
+    limit_on(&s, &[("retries", 1)]);
+    no_reply_wait(&s);
+    let mut scripts = scripts();
+    scripts.insert(
+        "U1",
+        Box::new(|_: &Request, n: usize| {
+            let fail = vec![("@error", json!("API Error: 529 Overloaded"))];
+            (Vec::new(), if n <= 2 { fail } else { Vec::new() })
+        }),
+    );
+    let (mut e, said) = engine(&s, scripts);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    // One step taken again already: the count is at the limit, not past it.
+    history(&mut e, arch, &[("U1", None, step_failed())]);
+    let phrase = "passed the limit its project sets on retries";
+    for _ in 0..6 {
+        e.advance(arch).unwrap();
+        if counted(&e, arch, "retries") >= 3 {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(counted(&e, arch, "retries"), 3, "{log}");
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(told(&s, phrase), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
