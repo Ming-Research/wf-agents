@@ -321,8 +321,8 @@ fn call(id: &str, prompt: i64) -> Seen {
 #[test]
 fn a_jump_is_judged_against_the_characters_the_message_gave() {
     let session = [round(1, Some(json!({ "a": 1 })), None), round(2, None, None)];
-    // Two bytes, one character.
-    assert_eq!(guard::given("h\u{e9}llo", &[]), 5);
+    // Three bytes, one character.
+    assert_eq!(guard::given("wait…", &[]), 5);
     assert_eq!(guard::given("ab", &session), 2 + 7);
     let judged = |message: &str| {
         let given = guard::given(message, &session);
@@ -363,7 +363,6 @@ fn a_cost_past_its_line_is_noted_once_and_the_round_goes_on() {
 // The flow: "a distribution with no scale gives no line". A new installation's rounds that never jumped have no scale
 // at the graph's level either, and the first token of a jump must not stop a round.
 #[test]
-#[ignore = "red on purpose: set aside for one CI run so that fail-fast reaches the other tests"]
 fn a_graph_whose_rounds_never_jumped_gives_no_line_of_a_jump() {
     let rows: Vec<Sample> = (0..19)
         .map(|_| Sample {
