@@ -13275,7 +13275,6 @@ fn a_work_paused_while_its_round_runs_keeps_its_slot_until_the_step_ends() {
 // of a work that ends without merging, and a new work that has not taken the pull request over yet holds none, while
 // the work that held it left it to that new work.
 #[test]
-#[ignore]
 fn a_cancel_asked_after_a_start_over_still_closes_the_pull_request() {
     let (s, mut e, said, item, work) = at_the_merge("start-over-then-cancel");
     let worktree = worktree_of(&e, work);
@@ -13322,7 +13321,6 @@ fn a_start_over_is_refused_once_a_cancel_is_asked() {
 // does over the owner's Start: the page's Pause answers that the work stays paused. So the request must not lift the
 // pause once the slot is free.
 #[test]
-#[ignore]
 fn the_owner_s_pause_after_a_resume_keeps_the_work_paused() {
     let s = setup("pause-after-resume");
     let (hold, free) = (Gate::default(), Arc::new(AtomicI64::new(0)));
