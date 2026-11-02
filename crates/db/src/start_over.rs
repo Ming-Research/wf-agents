@@ -228,6 +228,52 @@ mod tests {
         assert!(stands(&db, 1));
     }
 
+    // A work reads as stopping while a request to stop it waits: a start over names the work, and a cancel its item, so
+    // that a work that took the item over is asked too. A work that ended, or is at the end of its graph, is not shown so;
+    // a work with no request is not, and none is once the requests are carried out.
+    #[test]
+    fn a_work_reads_as_stopping_while_a_request_to_stop_it_waits() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')",
+                [],
+            )?;
+            for _ in 0..3 {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', 'l')",
+                    [],
+                )?;
+            }
+            for (item, at, ended) in [
+                (1, "R2", None),
+                (2, "R1", None),
+                (2, "R2", None),
+                (2, "R1", Some("taken over")),
+                (2, "E1", None),
+                (3, "R1", None),
+            ] {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, 1, 'engineer', ?2, ?3)",
+                    params![item, at, ended],
+                )?;
+            }
+            start_over(tx, 1, Actor::Owner, None)?;
+            ask_cancel(tx, 2, 2, "no longer needed", "owner")
+        })
+        .unwrap();
+        assert_eq!(stopping(db.conn()).unwrap(), [1, 2, 3]);
+        assert!(stop_asked(db.conn(), 3).unwrap());
+        assert!(!stop_asked(db.conn(), 6).unwrap());
+        assert!(!stop_asked(db.conn(), 9).unwrap());
+        db.write(Actor::Engine, |tx| {
+            tx.execute("DELETE FROM outbox", [])?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(stopping(db.conn()).unwrap(), Vec::<i64>::new());
+    }
+
     // A work on an item that goes on can be started over once; one of the architect, one ended and one done cannot.
     #[test]
     fn only_a_work_on_an_item_that_goes_on_can_be_started_over() {

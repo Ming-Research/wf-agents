@@ -5183,6 +5183,8 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
         out["state"][0]["waits"] = json!(work_waits(e, engineer_graph(f.as_deref()), work, &at)?);
         // A cancel or a start over asked is not done yet: the item reads as it stands until the work's step has ended.
         out["state"][0]["stopping"] = json!(db::stop_asked(conn, work).map_err(sql)?);
+        // A resume asked waits for a free slot, and the work still reads as paused: this tells it from one with no resume.
+        out["state"][0]["resuming"] = json!(db::resume_asked(conn).map_err(sql)?.contains(&work));
     }
     Ok(Some(out))
 }

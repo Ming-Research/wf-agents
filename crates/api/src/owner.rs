@@ -661,42 +661,40 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
 /// Pauses a work that goes on: a round of it under way ends first, and then it takes no step by itself, whatever the
 /// global state, until the owner starts it again; letting every work go on does not lift it. Why is the owner's words,
 /// or that the owner paused it. A work paused already stays as it is, but for a resume of it that still waits for a free
-/// slot, which this later word withdraws.
+/// slot, which this later word withdraws. It reads and writes in one transaction, so that the loop's lifting of a pause
+/// falls wholly before or wholly after it, and the answer says what holds.
 pub fn pause(db: &mut Db, work: i64, why: Option<&str>) -> Result<String, String> {
-    let found: Option<(Option<String>, Option<String>)> = db
-        .conn()
-        .query_row("SELECT paused, ended FROM works WHERE id = ?1", [work], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
-        .optional()
-        .map_err(sql)?;
-    match found {
-        None => return Err(format!("no work {work}")),
-        Some((_, Some(_))) => return Err(format!("work {work} has ended")),
-        Some((Some(_), None)) => {
-            // A resume that still waits for a slot is the owner's or the architect's earlier word, and this is the later.
-            if !db::resume_asked(db.conn()).map_err(sql)?.contains(&work) {
-                return Err(format!("work {work} is paused already"));
-            }
-            db.write(Actor::Owner, |tx| db::withdraw_resume(tx, work))
-                .map_err(sql)?;
-            return Ok(format!("work {work} stays paused: the resume asked is withdrawn"));
-        }
-        Some((None, None)) => {}
-    }
     let why = why
         .map(str::trim)
         .filter(|w| !w.is_empty())
         .unwrap_or(db::PAUSED_BY_OWNER);
     db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "UPDATE works SET paused = ?2, paused_by = 'owner' WHERE id = ?1",
-            params![work, why],
-        )?;
-        Ok(())
+        let found: Option<(Option<String>, Option<String>)> = tx
+            .query_row("SELECT paused, ended FROM works WHERE id = ?1", [work], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .optional()?;
+        match found {
+            None => Err(db::Error::Abort(format!("no work {work}"))),
+            Some((_, Some(_))) => Err(db::Error::Abort(format!("work {work} has ended"))),
+            Some((Some(_), None)) => {
+                // A resume that still waits for a slot is an earlier word, the owner's or the architect's; this is the later.
+                if !db::resume_asked(tx)?.contains(&work) {
+                    return Err(db::Error::Abort(format!("work {work} is paused already")));
+                }
+                db::withdraw_resume(tx, work)?;
+                Ok(format!("work {work} stays paused: the resume asked is withdrawn"))
+            }
+            Some((None, None)) => {
+                tx.execute(
+                    "UPDATE works SET paused = ?2, paused_by = 'owner' WHERE id = ?1",
+                    params![work, why],
+                )?;
+                Ok(format!("work {work} pauses"))
+            }
+        }
     })
-    .map_err(sql)?;
-    Ok(format!("work {work} pauses"))
+    .map_err(sql)
 }
 
 /// Starts a work over, as the owner: the engine takes it over as it takes over a work on an older flow version, saying
@@ -902,7 +900,11 @@ mod tests {
         "options": [{"name": "A"}, {"name": "B"}], "recommended": "A"}"#;
 
     fn setup() -> Db {
-        let mut db = Db::in_memory().unwrap();
+        filled(Db::in_memory().unwrap())
+    }
+
+    /// A database given one item with one work at `A3`, whose round has an ask of the owner and a decision card.
+    fn filled(mut db: Db) -> Db {
         db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
@@ -1193,6 +1195,55 @@ mod tests {
         db.write(Actor::Owner, |tx| db::lift_pause(tx, 1)).unwrap();
         pause(&mut db, 1, Some("Wait for the release.")).unwrap();
         assert_eq!(paused(&db, 1).0.as_deref(), Some("Wait for the release."));
+    }
+
+    // The owner's Pause that meets the loop lifting the pause it would withdraw waits for the lifting to end, and then
+    // pauses the work, which goes on by then. Reading before the lifting ended and writing after it, the answer was that
+    // the work stays paused, while it went on.
+    #[test]
+    fn the_owner_s_pause_that_meets_the_lifting_of_a_pause_says_what_holds() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-pause-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("meet.db");
+        let mut db = filled(Db::create(&path).unwrap());
+        db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "UPDATE works SET paused = 'cell tools: no', paused_by = 'engine' WHERE id = 1",
+                [],
+            )?;
+            db::ask_resume(tx, 1, Actor::Owner)
+        })
+        .unwrap();
+        let (lifting, begun) = std::sync::mpsc::channel();
+        let the_loop = {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let mut db = Db::open(&path).unwrap();
+                db.write(Actor::Owner, |tx| {
+                    db::lift_pause(tx, 1)?;
+                    lifting.send(()).unwrap();
+                    // Long enough for a Pause that reads apart from its write to read this pause as still there.
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    Ok(())
+                })
+                .unwrap();
+            })
+        };
+        begun.recv().unwrap();
+        assert_eq!(pause(&mut db, 1, None).unwrap(), "work 1 pauses");
+        the_loop.join().unwrap();
+        let paused: (Option<String>, Option<String>) = db
+            .conn()
+            .query_row("SELECT paused, paused_by FROM works WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(
+            paused,
+            (Some(db::PAUSED_BY_OWNER.to_string()), Some("owner".to_string()))
+        );
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // The owner answers an ask once; a second answer is refused.

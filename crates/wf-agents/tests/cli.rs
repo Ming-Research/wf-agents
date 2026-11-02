@@ -382,7 +382,7 @@ fn the_owner_s_cancel_of_an_item_with_a_work_going_on_asks_the_engine() {
         .unwrap()
         .map(|x| x.unwrap())
         .collect();
-    assert_eq!(queued, [(db::CANCEL_ITEM.to_string(), Some("duplicate".to_string()))]);
+    assert_eq!(queued, [("cancel_item".to_string(), Some("duplicate".to_string()))]);
     drop(st);
     drop(base);
     let _ = std::fs::remove_dir_all(&dir);
