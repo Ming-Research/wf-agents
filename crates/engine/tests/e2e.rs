@@ -7237,7 +7237,7 @@ fn an_open_question_pinned_for_the_owner_holds_the_merge_until_the_owner_has_ans
     );
     assert!(message_at(&e, again, "H3", true).contains("Take one table."), "{log}");
     // The answer begins with the owner's words as they were said, and the record says who answered and where.
-    let words = "The owner answered: Take one table.\n\nGo on with one table.\n\nThe owner decided it.";
+    let words = "Take one table.\n\nGo on with one table.\n\nThe owner decided it.";
     assert_eq!(open_questions(&e, work)[0].2.as_deref(), Some(words), "{log}");
     let body = matter_body(&e, matter);
     assert_eq!(
@@ -7249,9 +7249,11 @@ fn an_open_question_pinned_for_the_owner_holds_the_merge_until_the_owner_has_ans
     let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
     assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
     let way_on = message_at(&e, work, "A4", true);
+    // The engineer is told which part is the owner's and which the architect's.
     assert!(
         way_on.contains(
-            "The answer to the open question of your design \"Which table?\": The owner answered: Take one table."
+            "The answer to the open question of your design \"Which table?\": The owner answered: Take one \
+             table.\n\nThe architect added: Go on with one table.\n\nThe owner decided it."
         ),
         "{way_on}"
     );
@@ -7289,18 +7291,25 @@ fn an_engineer_s_question_cannot_be_pinned_for_the_owner() {
 }
 
 // The question pinned for the owner links to the design it is about, which the owner reads it away from: an ask without
-// the link is sent back, nothing is pinned, and the architect that answers the question itself instead has it recorded as
-// its own answer.
+// the link is sent back, and so is one that links to another round of the same work, whose address only begins with the
+// design's; nothing is pinned, and the architect that answers the question itself instead has it recorded as its own
+// answer.
 #[test]
 fn a_question_pinned_for_the_owner_must_link_to_its_design() {
     let s = setup("pin-without-link");
+    let path = config::database(&s.data);
     let mut agents = scripts();
     agents.insert("D2", designs_with_an_open_question());
     agents.insert(
         "H3",
-        Box::new(|_: &Request, n: usize| {
+        Box::new(move |_: &Request, n: usize| {
             if n == 1 {
                 return asks_the_owner("Is one table enough?");
+            }
+            if n == 2 {
+                // The address of the design's round with one more digit: the round of another number.
+                let link = format!("{}0", design_link_of(&path));
+                return asks_the_owner(&format!("Is one table enough? See [the design]({link})."));
             }
             let reply = json!({ "text": "One table.", "why": "The items are few." });
             (Vec::new(), vec![("outcome.reply", reply)])
@@ -7318,12 +7327,11 @@ fn a_question_pinned_for_the_owner_must_link_to_its_design() {
     assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
     let log = said.lock().unwrap().join("\n");
     let sent_back = why_sent_back(&e, ways_work(&e, false), "H3");
-    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
-    assert!(sent_back[0].contains("link to the design"), "{sent_back:?}");
-    assert!(
-        sent_back[0].contains(&format!("/works/{work}?round=R{work}-")),
-        "{sent_back:?}"
-    );
+    assert_eq!(sent_back.len(), 2, "{sent_back:?}\n{log}");
+    for why in &sent_back {
+        assert!(why.contains("link to the design"), "{sent_back:?}");
+        assert!(why.contains(&format!("/works/{work}?round=R{work}-")), "{sent_back:?}");
+    }
     assert_eq!(parked_for(&e, matter), None, "{log}");
     let asks: i64 =
         e.db.conn()
@@ -7429,7 +7437,7 @@ fn an_open_question_pinned_twice_is_answered_by_the_owner_s_last_words_and_their
     let ids = db::attachments::of(e.db.conn(), db::attachments::Words::Ask(second)).unwrap();
     assert_eq!(ids.len(), 1, "{log}");
     let words = db::attachments::with_named("Two tables after all.", &ids);
-    let expected = format!("The owner answered: {words}\n\nGo on with two tables.\n\nThe owner changed it.");
+    let expected = format!("{words}\n\nGo on with two tables.\n\nThe owner changed it.");
     let body = matter_body(&e, matter);
     assert_eq!(
         (&body["answer"], &body["answered_by"], &body["owner_ask"]),
@@ -7449,45 +7457,6 @@ fn an_open_question_pinned_twice_is_answered_by_the_owner_s_last_words_and_their
     assert_eq!(said_first, "Take one table.");
     let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
     assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// The question pinned links to the design it is about, which the matter holds the link to: a link to another round of
-// the same work, whose address only begins with the design's, is no link to the design. The ask is sent back and nothing
-// is pinned.
-#[test]
-fn a_link_to_another_round_is_no_link_to_the_design() {
-    let s = setup("pin-with-another-round");
-    let path = config::database(&s.data);
-    let mut agents = scripts();
-    agents.insert("D2", designs_with_an_open_question());
-    agents.insert(
-        "H3",
-        Box::new(move |_: &Request, n: usize| {
-            if n == 1 {
-                // The address of the design's round with one more digit: the round of another number.
-                let link = format!("{}0", design_link_of(&path));
-                return asks_the_owner(&format!("Is one table enough? See [the design]({link})."));
-            }
-            let reply = json!({ "text": "One table.", "why": "The items are few." });
-            (Vec::new(), vec![("outcome.reply", reply)])
-        }),
-    );
-    agents.insert(
-        "A4",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
-    );
-    let (mut e, said, item) = start(&s, agents);
-    step_to(&mut e, item, "I1");
-    let (work, _, _) = state(&e, item).unwrap();
-    let matter = open_questions(&e, work)[0].0;
-    let settled = |e: &mut Engine| open_questions(e, work)[0].2.is_some() || parked_for(e, matter).is_some();
-    assert!(steps_until(&mut e, 80, settled), "{}", said.lock().unwrap().join("\n"));
-    let log = said.lock().unwrap().join("\n");
-    assert_eq!(parked_for(&e, matter), None, "{log}");
-    let sent_back = why_sent_back(&e, ways_work(&e, false), "H3");
-    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
-    assert!(sent_back[0].contains("link to the design"), "{sent_back:?}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -7582,7 +7551,7 @@ fn a_reply_held_for_the_batch_review_keeps_the_owner_s_words() {
     let log = said.lock().unwrap().join("\n");
     let again = ways_work(&e, true);
     assert!(path_of(&e, again).contains(&"B2".to_string()), "{log}");
-    let words = "The owner answered: Take one table.\n\nGo on with one table.\n\nThe owner decided it.";
+    let words = "Take one table.\n\nGo on with one table.\n\nThe owner decided it.";
     let body = matter_body(&e, matter);
     assert_eq!(
         (&body["answer"], &body["answered_by"], &body["owner_ask"]),
@@ -7609,6 +7578,82 @@ fn a_reply_held_for_the_batch_review_keeps_the_owner_s_words() {
     assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
     let way_on = message_at(&e, work, "A4", true);
     assert!(way_on.contains("The owner answered: Take one table."), "{way_on}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A reply that comes with item changes the batch review drops at its third look is held, and the owner is asked what to
+// do about the dropped changes in another ask that parks the same matter. The owner's words in that ask are not the
+// answer to the open question: the answer is made of the owner's words to the question pinned, which stay on the record,
+// and the engineer is not told the words about the changes as the owner's decision.
+#[test]
+fn the_owner_s_words_about_dropped_changes_are_no_answer_to_a_pinned_open_question() {
+    let s = setup("pinned-reply-dropped");
+    let path = config::database(&s.data);
+    let change = json!({ "kind": "create_item", "key": "one-table", "project": "p", "title": "Merge the tables",
+        "problem": "There are two.", "why": "The owner chose one.", "acceptance": ["One table."],
+        "level": "l", "deliver": "change", "reason": "The owner chose one table." });
+    let with_change = change.clone();
+    let ways: Script = Box::new(move |r: &Request, _: usize| {
+        let reply = json!({ "text": "Go on with one table.", "why": "The owner decided it." });
+        if r.prompt.contains("Leave them out.") {
+            return (Vec::new(), vec![("outcome.reply", reply)]);
+        }
+        if r.prompt.contains("Take one table.") {
+            return (
+                Vec::new(),
+                vec![
+                    ("outcome.reply", reply),
+                    ("outcome.effects", json!({ "item_changes": [with_change.clone()] })),
+                ],
+            );
+        }
+        let link = design_link_of(&path);
+        asks_the_owner(&format!("Is one table enough? See [the design]({link})."))
+    });
+    // The review finds the change wrong at every look, and gives up at the third.
+    let review: Script = Box::new(|_: &Request, _: usize| {
+        let row = json!({ "change": 1, "verdict": "fix", "about": "constitution_and_policy",
+                          "what": "The title is no action.", "how": "Write it as one.", "cause": "rule_missing" });
+        (Vec::new(), vec![("outcome.review", json!([row]))])
+    });
+    let path = config::database(&s.data);
+    let revise: Script = Box::new(move |_: &Request, _: usize| {
+        let c = db::open_read(&path).unwrap();
+        let matter: i64 = c
+            .query_row(
+                "SELECT matter FROM architect_item_changes WHERE state = 'collected'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        (
+            Vec::new(),
+            vec![("outcome.changes", json!([{ "matter": matter, "change": change.clone() }]))],
+        )
+    });
+    let (mut e, said, item, work, matter, first) = pinned(&s, ways, vec![("B2", review), ("B3", revise)]);
+    api::reply_to_question(&mut e.db, "p", first, "Take one table.", &[]).unwrap();
+    // The review drops the changes and asks the owner about them in another ask, which parks the matter.
+    let dropped = |e: &mut Engine| parked_for(e, matter).is_some_and(|p| p.0 != first);
+    assert!(steps_until(&mut e, 120, dropped), "{}", said.lock().unwrap().join("\n"));
+    let second = parked_for(&e, matter).unwrap().0;
+    assert_eq!(open_questions(&e, work)[0].2, None);
+    api::reply_to_question(&mut e.db, "p", second, "Leave them out.", &[]).unwrap();
+    let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
+    assert!(steps_until(&mut e, 120, answered), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    let words = "Take one table.\n\nGo on with one table.\n\nThe owner decided it.";
+    let body = matter_body(&e, matter);
+    assert_eq!(
+        (&body["answer"], &body["answered_by"], &body["owner_ask"]),
+        (&json!(words), &json!("owner"), &json!(first)),
+        "{log}"
+    );
+    let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
+    assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
+    let way_on = message_at(&e, work, "A4", true);
+    assert!(way_on.contains("The owner answered: Take one table."), "{way_on}");
+    assert!(!way_on.contains("Leave them out."), "{way_on}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

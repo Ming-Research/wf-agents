@@ -860,9 +860,9 @@ fn taken_first<'a>(cell: &CompiledCell, can: &'a [Value]) -> (Option<&'a Value>,
 }
 
 /// The wait the look at the queue takes now, when neither of the matters taken first ([`taken_first`]) is there and
-/// the cell has its row: for the owner's reply to the question just put ([`db::question_waited_on`]), else for the
-/// owner's next words after the architect answered the owner's words leaving the talk open ([`listens_after`]); none
-/// otherwise.
+/// the cell has its row: for the owner's reply to the question just put, one that pins no open question
+/// ([`db::question_waited_on`]), else for the owner's next words after the architect answered the owner's words leaving
+/// the talk open ([`listens_after`]); none otherwise.
 fn wait_now(
     conn: &Connection,
     project: &str,
@@ -920,9 +920,9 @@ pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<Option<St
 /// with the owner's reply, the oldest first, then a matter of two cells that goes on at its second cell, the oldest
 /// first ([`going_on`]), then the matters at the head of the queue ([`at_head`]), and a lone matter are picked here,
 /// without a round. Before the matter of two cells the architect waits for the owner ([`wait_now`]): for the reply to
-/// the newest question pending while it was put just now, and else for the owner's next words while it answered the
-/// owner's words just now leaving the talk open, the owner having said nothing since either; a flow version before
-/// waited only for the reply, or not at all. The owner's words, a matter back with the reply, the waits and a matter
+/// the newest question pending that does not pin an open question while it was put just now, and else for the owner's
+/// next words while it answered the owner's words just now leaving the talk open, the owner having said nothing since
+/// either; a flow version before waited only for the reply, or not at all. The owner's words, a matter back with the reply, the waits and a matter
 /// of two cells come from all the work can take ([`queued`]), never held back by the hold to set the project straight,
 /// which holds back only the matters from the head of the queue on ([`pickable`]).
 pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
@@ -5888,6 +5888,57 @@ mod tests {
         })
         .unwrap();
         assert_eq!(listens_after(said.conn(), "p", WAIT, ANSWERED + 60_000).unwrap(), None);
+    }
+
+    // A question the architect just put that pins an open question of an engineer's design is not waited on: the look at
+    // the queue goes on to the matter at the head of the queue at once, while the same question from another kind of
+    // matter is waited on.
+    #[test]
+    fn the_look_at_the_queue_does_not_wait_for_a_question_that_pins_an_open_question() {
+        let q0 = architect_graph().cell(LOOK).unwrap();
+        // A work of the architect whose round 1 put a question (ask 1) that parks a matter of `kind` at `PUT`; and a
+        // check of the policy at the head of the queue (matter 2).
+        let pinned = |kind: &str| {
+            let mut db = db::Db::in_memory().unwrap();
+            db.write(Actor::Engine, |tx| {
+                tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+                tx.execute(
+                    "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B1', 'p')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at)
+                     VALUES (1, 1, 'H3', '{}', 'c', ?1)",
+                    [ANSWERED],
+                )?;
+                tx.execute(
+                    "INSERT INTO owner_asks (work, round, body) VALUES (1, 1, '{\"question\":\"Which?\"}')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, what, body, at, asked, resume_cell)
+                     VALUES ('p', ?1, 'Which?', '{}', 1, 1, 'H3')",
+                    [kind],
+                )?;
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, what, body, at)
+                     VALUES ('p', 'check_policy', 'Check', '{}', 2)",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            db
+        };
+        let look_at = |db: &db::Db| look(db.conn(), "p", 1, q0, WAIT, ANSWERED + 60_000).unwrap()["queue"].clone();
+        assert_eq!(
+            look_at(&pinned("open_question")),
+            json!({ "verdict": "head", "matter": 2 })
+        );
+        assert_eq!(
+            look_at(&pinned("engineer_question")),
+            json!({ "verdict": WAITS, "question": 1 })
+        );
     }
 
     // While the architect waits for the owner's next words and no matter can be picked, the batch's review waits too,

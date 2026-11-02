@@ -8,7 +8,7 @@
 //! owner's words are kept in the answer as they were said.
 
 use db::attachments::{self, Words};
-use db::rusqlite::{Connection, Transaction, params};
+use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
 use db::{Matter, queue_matter};
 use serde_json::{Value, json};
 
@@ -123,25 +123,30 @@ pub fn is_one(tx: &Transaction<'_>, matter: i64) -> Result<bool, String> {
 /// interjection, which turns the work, unless nothing can be said to it any more. An answer that goes against the
 /// design can only be a redirect, which the engineer judges.
 ///
-/// When the owner answered the question the architect pinned for them (the matter's `asked` is an ask with an answer),
-/// the answer begins with the owner's words as they were said, and the body records who answered: `answered_by` is
-/// `owner` and `owner_ask` the ask that holds the words; otherwise `answered_by` is `architect`. The merge waits on the
-/// answer being there (`unanswered`), so a question pinned stays unanswered until this reply writes it.
+/// When the owner answered the question the architect pinned for them (an answered ask of kind `question` that holds the
+/// matter: the newest, whatever ask parks the matter now, as the batch review's ask about dropped item changes does when
+/// the reply came with changes), the answer begins with the owner's words as they were said, and the body records who
+/// answered: `answered_by` is `owner` and `owner_ask` the ask that holds the words; otherwise `answered_by` is
+/// `architect`. The merge waits on the answer being there (`unanswered`), so a question pinned stays unanswered until
+/// this reply writes it. The engineer is told who said which part.
 pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), String> {
-    let (work, question, body, owner): (Option<i64>, String, String, Option<(i64, String)>) = tx
+    let (work, question, body): (Option<i64>, String, String) = tx
         .query_row(
-            "SELECT m.work, m.what, m.body, a.id, json_extract(a.answer, '$.text')
-             FROM architect_matters m LEFT JOIN owner_asks a ON a.id = m.asked AND a.answer IS NOT NULL
-             WHERE m.id = ?1",
+            "SELECT work, what, body FROM architect_matters WHERE id = ?1",
             [matter],
-            |r| {
-                let owner = match r.get::<_, Option<i64>>(3)? {
-                    Some(ask) => Some((ask, r.get::<_, Option<String>>(4)?.unwrap_or_default())),
-                    None => None,
-                };
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, owner))
-            },
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
+        .map_err(sql)?;
+    let owner: Option<(i64, String)> = tx
+        .query_row(
+            "SELECT a.id, coalesce(json_extract(a.answer, '$.text'), '') FROM owner_asks a
+             WHERE a.answer IS NOT NULL AND json_extract(a.body, '$.kind') = 'question'
+               AND EXISTS (SELECT 1 FROM json_each(a.body, '$.holds') h WHERE h.value = ?1)
+             ORDER BY a.id DESC LIMIT 1",
+            [matter],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
         .map_err(sql)?;
     let why = text(reply, "why");
     let said = match (text(reply, "text"), why) {
@@ -149,15 +154,19 @@ pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), St
         (said, why) => format!("{said}\n\n{why}"),
     };
     let mut body: Value = serde_json::from_str(&body).map_err(sql)?;
-    let answer = match &owner {
+    // The answer kept, and the words the engineer is told it in.
+    let (answer, told) = match &owner {
         Some((ask, words)) => {
             let images = attachments::of(tx, Words::Ask(*ask)).map_err(sql)?;
             let words = attachments::with_named(words, &images);
             body["answered_by"] = json!("owner");
             body["owner_ask"] = json!(ask);
             match said.as_str() {
-                "" => format!("The owner answered: {words}"),
-                said => format!("The owner answered: {words}\n\n{said}"),
+                "" => (words.clone(), format!("The owner answered: {words}")),
+                said => (
+                    format!("{words}\n\n{said}"),
+                    format!("The owner answered: {words}\n\nThe architect added: {said}"),
+                ),
             }
         }
         None => {
@@ -165,7 +174,7 @@ pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), St
             if let Some(o) = body.as_object_mut() {
                 o.remove("owner_ask");
             }
-            said
+            (said.clone(), said)
         }
     };
     body["answer"] = json!(answer);
@@ -191,7 +200,7 @@ pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), St
             params![
                 work,
                 ENGINEER,
-                format!("The answer to the open question of your design \"{question}\": {answer}")
+                format!("The answer to the open question of your design \"{question}\": {told}")
             ],
         )
         .map_err(sql)?;
