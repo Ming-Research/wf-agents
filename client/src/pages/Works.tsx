@@ -1,31 +1,35 @@
-// Every work, or the one open. The list shows every row: those running or waiting, then those that have ended,
-// folded at first; both have the same columns at the same widths, which the owner drags, so that they read as one
-// table, and every cell stays on one line. A row says how its work goes on (a round running, what holds it back, what
-// it waits for), its state as it is in effect and why, and leads to its group in the messages view, the one place the
-// owner acts on it. A work opened from it takes the whole window under the bar, its chart under a line that says which
-// work it is, how it goes on and where, leads to its group, and to the other works running or waiting with what each
-// needs of the owner. The marks of rounds that went wrong open the work with only those rounds.
+// Every work, or the one open. The list is one table over the window's width, a group of rows for each project: the
+// project's head (its name and, at the right end of the same row, the buttons that show or hide its works by state, the
+// very buttons of the list of conversations and the owner's one choice for both, done and ended works hidden at first),
+// then its architect, which opens the architect's page, then its works, newest first. The groups share the columns and
+// their widths, which the owner drags, and every cell stays on one line. A row says how its work goes on (a round
+// running, what holds it back, what it waits for), its state as it is in effect and why, and leads to its group in the
+// messages view, the one place the owner acts on it. A work opened from it takes the whole window under the bar, its
+// chart under a line that says which work it is, how it goes on and where, leads to its group, and to the other works
+// running or waiting with what each needs of the owner. The marks of rounds that went wrong open the work with only
+// those rounds.
 
-import { CounterLabel, Heading } from '@primer/react';
 import { useState, type PointerEvent as ReactPointerEvent } from 'react';
 
-import type { Status, WorkSummary } from '../api';
-import { course, Loaded } from '../components';
+import type { ArchitectStanding, Status, WorkState, WorkSummary } from '../api';
+import { architectMark, architectTotals } from '../architect';
+import { course, liveState, Loaded, StateChip, WORK_TONE, WorkStateFilter } from '../components';
+import { sortedProjects } from '../conversation';
 import { held, takeoverWords } from '../course';
 import { cost, duration, time } from '../format';
-import { useResource, useStatus } from '../live';
-import { HeadingLevel, ItemRef, PrLink, Section } from '../parts';
-import { href, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
+import { useResource, useShared, useStatus } from '../live';
+import { ItemRef, PrLink, ProjectHead } from '../parts';
+import { architectHref, href, Link, navigate, type WorkRoute, type WorkTab, workHref } from '../route';
 import { t, tn } from '../text';
 import { joinedWords, SEP } from '../voices';
 import { HeadLine, State, Where, WorksBack } from './HeadLine';
+import { useTalkStates } from './Messages';
 import { Work } from './Work';
 import { RoundsMarks } from './WorkChart';
 
-const ENDED = new Set(['done', 'ended']);
-
-/// The project a work's item is of, said after its title only while there is more than one project, as the engine's
-/// configuration has them: with one, it says nothing.
+/// The project a work's item is of, said after its title on the line over an open work's chart, where no project's head
+/// says it, and only while there is more than one project, as the engine's configuration has them: with one, it says
+/// nothing.
 function projectOf(w: WorkSummary, status: Status | null): string | null {
   return status !== null && Object.keys(status.repos).length > 1 ? w.project : null;
 }
@@ -46,22 +50,14 @@ function ProjectAfter({ project }: { project: string | null }) {
 function Row({ w, tab }: { w: WorkSummary; tab: WorkTab }) {
   const status = useStatus();
   const a = { c: course(w, status) };
-  const project = projectOf(w, status);
-  const item = w.item !== null ? joinedWords([`#${w.item} ${w.title ?? ''}`, project]) : w.graph;
+  const item = w.item !== null ? `#${w.item} ${w.title ?? ''}` : w.graph;
   const at = `${w.at} ${w.at_title ?? ''}`;
   const stage = w.stage !== null ? w.stage.replaceAll('_', ' ') : '';
   return (
     <tr className="clickable" onClick={() => navigate(workHref(w.id, { tab }))}>
       <td>{t('work_name', { id: w.id })}</td>
       <td title={item}>
-        {w.item !== null ? (
-          <>
-            <ItemRef id={w.item} title={w.title} hint={`${item}\n${t('open_item')}`} />
-            <ProjectAfter project={project} />
-          </>
-        ) : (
-          w.graph
-        )}
+        {w.item !== null ? <ItemRef id={w.item} title={w.title} hint={`${item}\n${t('open_item')}`} /> : w.graph}
       </td>
       <td className="state-cell" title={held(a.c, w) ?? w.ended ?? undefined}>
         <State w={w} c={a.c} />
@@ -89,9 +85,59 @@ function Row({ w, tab }: { w: WorkSummary; tab: WorkTab }) {
   );
 }
 
-/// The columns of both lists, in order, with their headers and their own widths; the item takes what the others leave.
+/// A project's architect's row, the first of its group: the columns of a work's row, read over all the architect's works.
+/// Its work is "Architect", its item the architect of the project, leading to its page, which the row opens too; its
+/// state is how the architect stands, as its mark in the list of conversations says it; it is at the cell of the work
+/// that goes on, or else the newest; its rounds, run time and cost are the sums over its works and its last activity
+/// the latest of theirs; it has no stage and no pull request. Its group in the messages view, where the owner speaks to
+/// it, is its link. The buttons that show or hide works by state leave it alone, as they leave the architect's row in
+/// the list of conversations.
+export function ArchitectRow({ a }: { a: ArchitectStanding }) {
+  const status = useStatus();
+  const mark = architectMark(a, status);
+  const total = architectTotals(a);
+  const w = total.work;
+  const page = architectHref({ project: a.project });
+  const name = t('conv_architect', { project: a.project });
+  const at = w !== null ? `${w.at} ${w.at_title ?? ''}` : '';
+  return (
+    <tr className="clickable works-architect" onClick={() => navigate(page)}>
+      <td>{t('works_architect')}</td>
+      <td title={name}>
+        <Link to={page} title={t('talk_architect_page')}>
+          {name}
+        </Link>
+      </td>
+      <td className="state-cell" title={mark.words}>
+        <span className="course">
+          <StateChip tone={WORK_TONE[mark.state]}>{mark.words}</StateChip>
+        </span>
+      </td>
+      <td className="control-cell" onClick={(e) => e.stopPropagation()}>
+        <Link to={href({ page: 'messages', open: `architect:${a.project}` })} title={t('go_to_conversation_hint')}>
+          {t('go_to_conversation')}
+        </Link>
+      </td>
+      <td title={at}>{w !== null ? <Where w={w} c={course(w, status)} /> : null}</td>
+      <td />
+      <td className="num" title={String(total.rounds)}>
+        {total.rounds}
+      </td>
+      <td className="num" title={duration(total.ran_ms)}>
+        {duration(total.ran_ms)}
+      </td>
+      <td title={time(total.last_at)}>{time(total.last_at)}</td>
+      <td className="num" title={cost(total.cost_usd)}>
+        {cost(total.cost_usd)}
+      </td>
+      <td />
+    </tr>
+  );
+}
+
+/// The columns of the table, in order, with their headers and their own widths; the item takes what the others leave.
 const COLUMNS = [
-  { key: 'id', head: 'col_work', width: 56, num: false },
+  { key: 'id', head: 'col_work', width: 96, num: false },
   { key: 'item', head: 'col_item', width: null, num: false },
   { key: 'state', head: 'col_state', width: 360, num: false },
   { key: 'control', head: null, width: 110, num: false },
@@ -195,57 +241,100 @@ function ColumnGrip({ column, widths, onWidths }: {
   );
 }
 
-/// The works as rows. A row opens its work; what waits for the owner and the rounds that went wrong open that tab, or
-/// only those rounds.
-function Table({ works, tab, widths, onWidths }: {
-  works: WorkSummary[];
-  tab: WorkTab;
-  widths: Widths;
-  onWidths: (w: Widths) => void;
+/// The works shown in a project's group: those whose state, as it is in effect, the owner's buttons show, newest first.
+/// The buttons count the project's works by the same states (`projectStates`), so that no button counts what the rows
+/// do not show.
+export function shownWorks(
+  works: readonly WorkSummary[],
+  status: Status | null,
+  shown: readonly WorkState[],
+): WorkSummary[] {
+  return works.filter((w) => shown.includes(liveState(w, status))).sort((a, b) => b.id - a.id);
+}
+
+/// The state of each work of a project, as it is in effect, which its buttons count.
+export const projectStates = (works: readonly WorkSummary[], status: Status | null): WorkState[] =>
+  works.map((w) => liveState(w, status));
+
+/// The id of the heading of a project's group, which the group is labelled by.
+const projectHeading = (project: string) => `works-project-${project}`;
+
+/// A project's head row, the first of its group: its name and, at the right end of the same row, the buttons that show
+/// or hide its works by state; none for a project with no work. Its cell spans the table and holds the head in a block
+/// as wide as the window's visible part, which stays at the left while the table scrolls sideways, so that the buttons
+/// are never scrolled out of sight.
+function ProjectRow({ project, states, shown, onShown }: {
+  project: string;
+  states: readonly WorkState[];
+  shown: readonly WorkState[];
+  onShown: (s: WorkState) => void;
 }) {
-  const fixed = COLUMNS.filter((c) => c.width !== null).reduce((sum, c) => sum + widthOf(widths, c.key), 0);
   return (
-    <table className="list works-table" style={{ minWidth: fixed + ITEM_MIN }}>
-      <colgroup>
-        {COLUMNS.map((c) => (
-          <col key={c.key} style={c.width !== null ? { width: widthOf(widths, c.key) } : undefined} />
-        ))}
-      </colgroup>
-      <thead>
-        <tr>
-          {COLUMNS.map((c) => (
-            <th
-              key={c.key}
-              className={c.num ? 'num' : undefined}
-              aria-label={c.head === null ? t('col_control') : undefined}
-              title={c.head !== null ? t(c.head) : undefined}
-            >
-              {c.head !== null ? t(c.head) : null}
-              <ColumnGrip column={c.key} widths={widths} onWidths={onWidths} />
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {works.map((w) => (
-          <Row key={w.id} w={w} tab={tab} />
-        ))}
-      </tbody>
-    </table>
+    <tr className="works-project">
+      <td colSpan={COLUMNS.length} className="works-project-cell">
+        <div className="works-project-head">
+          <ProjectHead id={projectHeading(project)} name={project}>
+            {states.length > 0 ? <WorkStateFilter states={states} shown={shown} onShown={onShown} /> : null}
+          </ProjectHead>
+        </div>
+      </td>
+    </tr>
   );
 }
 
-/// A list with every row, or a word that it has none.
-function List({ works, tab, widths, onWidths }: {
+/// The works as one table: its header, then a group of rows for each project, by name as the list of conversations
+/// orders its projects (`sortedProjects`): the project's head, its architect, once read, and the works its buttons
+/// show. A row opens its work; what waits for the owner and the rounds that went wrong open that tab, or only those
+/// rounds.
+function Table({ works, architects, tab, widths, onWidths }: {
   works: WorkSummary[];
+  architects: ArchitectStanding[] | undefined;
   tab: WorkTab;
   widths: Widths;
   onWidths: (w: Widths) => void;
 }) {
-  if (works.length === 0) return <p className="muted">{t('none')}</p>;
+  const status = useStatus();
+  const [shown, toggle] = useTalkStates();
+  const fixed = COLUMNS.filter((c) => c.width !== null).reduce((sum, c) => sum + widthOf(widths, c.key), 0);
+  const projects = sortedProjects([...(architects ?? []).map((a) => a.project), ...works.map((w) => w.project ?? '')]);
+  if (projects.length === 0) return <p className="muted">{t('none')}</p>;
   return (
     <div className="works-wide">
-      <Table works={works} tab={tab} widths={widths} onWidths={onWidths} />
+      <table className="list works-table" style={{ minWidth: fixed + ITEM_MIN }}>
+        <colgroup>
+          {COLUMNS.map((c) => (
+            <col key={c.key} style={c.width !== null ? { width: widthOf(widths, c.key) } : undefined} />
+          ))}
+        </colgroup>
+        <thead>
+          <tr>
+            {COLUMNS.map((c) => (
+              <th
+                key={c.key}
+                className={c.num ? 'num' : undefined}
+                aria-label={c.head === null ? t('col_control') : undefined}
+                title={c.head !== null ? t(c.head) : undefined}
+              >
+                {c.head !== null ? t(c.head) : null}
+                <ColumnGrip column={c.key} widths={widths} onWidths={onWidths} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        {projects.map((p) => {
+          const mine = works.filter((w) => (w.project ?? '') === p);
+          const architect = architects?.find((a) => a.project === p);
+          return (
+            <tbody key={p} aria-labelledby={projectHeading(p)}>
+              <ProjectRow project={p} states={projectStates(mine, status)} shown={shown} onShown={toggle} />
+              {architect !== undefined ? <ArchitectRow a={architect} /> : null}
+              {shownWorks(mine, status, shown).map((w) => (
+                <Row key={w.id} w={w} tab={tab} />
+              ))}
+            </tbody>
+          );
+        })}
+      </table>
     </div>
   );
 }
@@ -302,38 +391,18 @@ function WorkLine({ w }: { w: WorkSummary }) {
 
 export function Works({ work }: { work: WorkRoute | null }) {
   const works = useResource<WorkSummary[]>('works', '/api/v1/works');
+  // How every project's architect stands, read once for the page and again when an architect changes.
+  const architects = useShared<ArchitectStanding[]>('architect', '/api/v1/architects');
   const tab = work?.tab ?? 'rounds';
-  // Both lists have the same columns at the same widths.
+  // The columns' widths are one for every project's group.
   const [widths, setWidths] = useState<Widths>(savedWidths);
-  const all = works.data ?? [];
-  const active = all.filter((w) => !ENDED.has(w.state)).sort((a, b) => b.id - a.id);
-  const open = work !== null ? all.find((w) => w.id === work.id) : undefined;
+  const open = work !== null ? works.data?.find((w) => w.id === work.id) : undefined;
   return (
     <div className="works-screen">
-      {/* The list stays as it was, its ended works folded or not, while a work is open in its place. */}
+      {/* The table stays as it was, its buttons as they were set, while a work is open in its place. */}
       <div className="works-lists" style={work !== null ? { display: 'none' } : undefined}>
         <Loaded r={works}>
-          {(list) => {
-            const ended = list
-              .filter((w) => ENDED.has(w.state))
-              .sort((a, b) => (b.last_at ?? 0) - (a.last_at ?? 0));
-            return (
-              <HeadingLevel.Provider value={2}>
-                <section className="works-active">
-                  <div className="works-head">
-                    <Heading as="h2" variant="small">
-                      {t('works_active')}
-                    </Heading>
-                    <CounterLabel>{active.length}</CounterLabel>
-                  </div>
-                  <List works={active} tab={tab} widths={widths} onWidths={setWidths} />
-                </section>
-                <Section title={t('works_ended')} n={ended.length}>
-                  <List works={ended} tab={tab} widths={widths} onWidths={setWidths} />
-                </Section>
-              </HeadingLevel.Provider>
-            );
-          }}
+          {(list) => <Table works={list} architects={architects} tab={tab} widths={widths} onWidths={setWidths} />}
         </Loaded>
       </div>
       {work !== null ? (

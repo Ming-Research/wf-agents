@@ -215,6 +215,25 @@ export function Section({ title, n, open = false, by, id, children }: {
   );
 }
 
+/// The head of a project in a list grouped by project (the list of conversations, the works, the items' tree, the
+/// observations): its name at the left and, at the right end of the same row, the controls over the project's rows
+/// (`children`: the buttons that show or hide them by state, a pick's clear), so that they take no row of their own. The
+/// name and the controls are two siblings of the row, the controls not in the heading. The name gives way first, cut
+/// with an ellipsis; the controls wrap onto a row of their own, at the right, only when they alone are wider than the
+/// row, the name staying on the first. `id` names the heading, for the list it heads to be labelled by it.
+export function ProjectHead({ id, name, children }: { id?: string; name: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="project-head">
+      <Heading as="h2" variant="small" id={id} className="project-head-name">
+        {name}
+      </Heading>
+      {children !== undefined && children !== null && children !== false ? (
+        <div className="project-head-controls">{children}</div>
+      ) : null}
+    </div>
+  );
+}
+
 /// A small fold inside what a section holds (what an input holds, a long condition, earlier text): its chevron and
 /// what it is on one line, what it holds under it, set in by the chevron's width; folded unless `open`. `onToggle`
 /// hears it open and fold, for what is read only once it is open.

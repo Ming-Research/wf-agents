@@ -13,7 +13,7 @@ import { IconButton, Label, Select } from '@primer/react';
 import { Fragment, useState } from 'react';
 
 import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
-import { architectNow, architectState, holdWords, matterSentence } from '../architect';
+import { architectNow, architectState, holdWords, matterSentence, standing } from '../architect';
 import { course, heldName, RunningMark, StateChip, WORK_TONE, WorkBadge } from '../components';
 import { conversationTitle, forwardNewChoices, stageName } from '../conversation';
 import {
@@ -242,7 +242,7 @@ function IdleControls({ a, status, waiting }: { a: Architect; status: Status | n
 /// take them up. Its works are never named.
 function ArchitectNow({ a, status }: { a: Architect; status: Status | null }) {
   const state = architectState(a.works, a.queue);
-  const now = architectNow(a, status);
+  const now = architectNow(standing(a), status);
   const chip = <StateChip tone={WORK_TONE[now.state]}>{now.words}</StateChip>;
   if (state.kind !== 'working') return chip;
   const at = `${state.work.at} ${state.work.at_title ?? ''}`;
