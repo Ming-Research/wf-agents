@@ -40,6 +40,7 @@ mod reasoning;
 mod reminders;
 pub mod schedule;
 mod steps;
+mod test_name;
 mod tools;
 mod unparsed;
 mod values;
