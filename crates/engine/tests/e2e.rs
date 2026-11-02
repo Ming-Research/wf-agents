@@ -1406,6 +1406,304 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The transitions of a cell's rounds that ended, in order.
+fn transitions(e: &Engine, item: i64, cell: &str) -> Vec<String> {
+    ended_at(e, item, cell).into_iter().filter_map(|(t, _)| t).collect()
+}
+
+/// Steps the engine until `done` holds, or fails saying what the work did instead.
+fn step_until(e: &mut Engine, item: i64, said: &Arc<Mutex<Vec<String>>>, what: &str, done: impl Fn(&Engine) -> bool) {
+    for _ in 0..150 {
+        if done(e) {
+            return;
+        }
+        e.step(None).unwrap();
+    }
+    let rounds: Vec<String> =
+        e.db.conn()
+            .prepare(
+                "SELECT r.cell || ' ' || coalesce(r.transition, coalesce(r.rejected, 'running')) FROM rounds r
+                 JOIN works w ON w.id = r.work WHERE w.item = ?1 ORDER BY r.work, r.n",
+            )
+            .unwrap()
+            .query_map([item], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+    panic!(
+        "{what} did not come about in 150 steps: {:?}, by {}\n{}",
+        state(e, item),
+        rounds.join("; "),
+        said.lock().unwrap().join("\n")
+    );
+}
+
+/// A table review that gives the last column of its table a finding, R1, and answers the others as passing; at each
+/// later round it hands in only `later`, its answers to its earlier findings, one list for each round.
+fn review_with_a_finding(later: Vec<Value>) -> Script {
+    let known: Mutex<BTreeMap<String, Vec<String>>> = Mutex::default();
+    Box::new(move |r: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), vec![("outcome.previous", later[n - 2].clone())]);
+        }
+        let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
+        let ids = columns_known(&r.prompt, known.lock().unwrap().entry(session).or_default());
+        let evidence = json!({ "files": [], "ran": [], "nodes": [] });
+        let cols: Vec<Value> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                if i + 1 < ids.len() {
+                    json!({ "id": id, "verdict": "pass", "evidence": evidence })
+                } else {
+                    json!({ "id": id, "verdict": "findings", "evidence": evidence, "findings": [
+                        { "fid": "R1", "where": "the pull request", "what": "It says too little.", "fix": "Say more." }
+                    ] })
+                }
+            })
+            .collect();
+        (
+            vec![("outcome.no_adversarial", "stands")],
+            vec![("outcome.columns", json!(cols))],
+        )
+    })
+}
+
+/// A fix that answers its one row in each round with `rows`, one list for each round, and makes no commit: the head it
+/// hands in is the one the work pushed already. The string `HEAD` in a row stands for that head.
+fn fix_answering(rows: Vec<Value>) -> Script {
+    Box::new(move |r: &Request, n: usize| {
+        let head = git(&r.worktree, &["rev-parse", "HEAD"]);
+        let rows = rows[n - 1].to_string().replace("HEAD", &head);
+        (
+            Vec::new(),
+            vec![
+                ("outcome.head", json!(head)),
+                ("outcome.rows", serde_json::from_str(&rows).unwrap()),
+            ],
+        )
+    })
+}
+
+/// The answers the fix cell can give, by the names the flow gives them.
+fn fix_answers() -> Vec<String> {
+    fn agent<'a>(v: &'a Value, id: &str) -> Option<&'a Value> {
+        match v {
+            Value::Object(o) if o.get("id").is_some_and(|x| x == id) && o.get("kind").is_some_and(|k| k == "agent") => {
+                Some(v)
+            }
+            Value::Object(o) => o.values().find_map(|x| agent(x, id)),
+            Value::Array(a) => a.iter().find_map(|x| agent(x, id)),
+            _ => None,
+        }
+    }
+    let flow: Value = serde_json::from_str(flow::FLOW).unwrap();
+    let rows = agent(&flow, "T6").unwrap()["out"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "rows")
+        .unwrap()
+        .clone();
+    rows["item"]["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["value"].as_str().unwrap().to_string())
+        .collect()
+}
+
+// A fix that is in no commit, such as the pull request's description, answers the review's finding fixed_outside_commit,
+// and the review then looks at that finding again, and only it. In the fourth trial a work whose description lacked two
+// files turned from the merge judgment to the fix, which had no row to answer, to choosing what runs next, which
+// chose nothing, ninety times and more: the answer left the change as it was, and nothing sent the review back.
+#[test]
+fn a_fix_in_no_commit_sends_the_review_back_to_the_finding_it_answered() {
+    let s = setup("fix-no-commit");
+    let mut agents = scripts();
+    agents.insert(
+        "T4",
+        review_with_a_finding(vec![json!([{ "fid": "R1", "verdict": "closed" }])]),
+    );
+    let answered = "The pull request description now names the two test files; pushed with ci.";
+    agents.insert(
+        "T6",
+        Box::new(move |r: &Request, n: usize| {
+            let head = git(&r.worktree, &["rev-parse", "HEAD"]);
+            if n == 1 {
+                // The description is corrected with ci and no tests: there is nothing to run.
+                let pr = json!({ "title": "Add the feature", "body": "It adds the feature and its test." });
+                let tools = json!([{ "tool": "ci", "head": head, "pr": pr }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            let row = json!([{ "answer": "fixed_outside_commit", "id": "F1", "where": answered }]);
+            (Vec::new(), vec![("outcome.head", json!(head)), ("outcome.rows", row)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the review clearing the work", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "clear")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let m1 = transitions(&e, item, "M1");
+    assert_eq!(m1.iter().filter(|t| *t == "fix").count(), 1, "{m1:?}");
+    let t6 = transitions(&e, item, "T6");
+    assert!(!t6.iter().any(|t| t == "nothing_to_answer"), "{t6:?}");
+    assert_eq!(transitions(&e, item, "T4"), ["done", "done"]);
+    let plans: Vec<String> = e
+        .db
+        .conn()
+        .prepare("SELECT json_extract(output, '$.plan.review') FROM rounds WHERE work = ?1 AND cell = 'T7' ORDER BY n")
+        .unwrap()
+        .query_map([work], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect();
+    assert!(plans.iter().any(|p| p == "disputes"), "{plans:?}");
+    // The re-review is given the row and where the fix is.
+    let m = message_at(&e, work, "T4", true);
+    assert!(m.contains("fixed_outside_commit") && m.contains(answered), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A work whose review raises one finding, R1, run through the review's later answers and the fix's rows (see
+/// [`review_with_a_finding`] and [`fix_answering`]) until the review clears it. When the second round of the fix has
+/// answered, `second` replaces the rows it handed in, as a fix that asked the advisor would have answered them. The
+/// review looks at the finding again after every fix, and no round of the fix has an empty table.
+fn finding_is_cleared(name: &str, review: Vec<Value>, fix: Vec<Value>, second: Option<Value>) {
+    let s = setup(name);
+    let mut agents = scripts();
+    let fixes = review.len();
+    agents.insert("T4", review_with_a_finding(review));
+    agents.insert("T6", fix_answering(fix));
+    let (mut e, said, item) = start(&s, agents);
+    let done =
+        |e: &Engine, cell: &str, n: usize| transitions(e, item, cell).iter().filter(|t| *t == "done").count() == n;
+    if let Some(rows) = second {
+        step_until(&mut e, item, &said, "the second fix answering", |e| done(e, "T6", 2));
+        let (work, _, _) = state(&e, item).unwrap();
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE rounds SET output = json_set(output, '$.outcome.rows', json(?2))
+                 WHERE work = ?1 AND cell = 'T6' AND n = (SELECT max(n) FROM rounds WHERE work = ?1 AND cell = 'T6'
+                                                          AND transition = 'done')",
+                params![work, rows.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+    step_until(&mut e, item, &said, "the review clearing the finding", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "clear")
+    });
+    let t6 = transitions(&e, item, "T6");
+    assert!(!t6.iter().any(|t| t == "nothing_to_answer"), "{t6:?}");
+    assert_eq!(transitions(&e, item, "T4").len(), fixes + 1);
+    let m1 = transitions(&e, item, "M1");
+    assert_eq!(m1.iter().filter(|t| *t == "fix").count(), fixes, "{m1:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The review insisted on a finding, the engineer asked the advisor and answered advisor_ruled, which changes nothing in
+// the code: the review looks at the finding again, withdraws it by the ruling, and the work goes on.
+#[test]
+fn a_ruling_that_changes_no_code_sends_the_review_back_to_the_finding() {
+    finding_is_cleared(
+        "ruled-no-code",
+        vec![
+            json!([{ "fid": "R1", "verdict": "insist", "reason": "It is still wrong.", "basis": { "kind": "judgment" } }]),
+            json!([{ "fid": "R1", "verdict": "withdraw" }]),
+        ],
+        vec![
+            json!([{ "answer": "disagree", "id": "F1", "reason": "It is right as it is.", "basis": { "kind": "judgment" } }]),
+            json!([{ "answer": "cannot_verify", "id": "F1", "reason": "Replaced below." }]),
+        ],
+        Some(
+            json!([{ "answer": "advisor_ruled", "id": "F1", "ruling": "The advisor ruled that no change is needed." }]),
+        ),
+    );
+}
+
+// The review said the finding was not fixed, and the engineer answers fixed again with the head it had, no new commit:
+// the review looks at it again, not the merge judgment, the fix and the choice of what runs next in turn.
+#[test]
+fn an_answer_fixed_again_with_no_new_commit_sends_the_review_back_to_the_finding() {
+    finding_is_cleared(
+        "fixed-again-no-commit",
+        vec![
+            json!([{ "fid": "R1", "verdict": "not_fixed", "reason": "It is not." }]),
+            json!([{ "fid": "R1", "verdict": "closed" }]),
+        ],
+        vec![
+            json!([{ "answer": "fixed_outside_commit", "id": "F1", "where": "The pull request description." }]),
+            json!([{ "answer": "fixed", "id": "F1", "commit": "HEAD" }]),
+        ],
+        None,
+    );
+}
+
+// Whatever the fix answers to a row the review raised, and the code does not change, the review looks at it again: every
+// answer the flow gives is tried, so an answer added later cannot be left out. A row another cell raised, as a red check
+// of the full CI, sends the review nowhere. Adversarial testing, which the design did not choose, stays skipped.
+#[test]
+fn every_answer_to_a_row_of_the_review_makes_the_review_look_again() {
+    let s = setup("every-answer");
+    let mut agents = scripts();
+    agents.insert("T4", review_with_a_finding(Vec::new()));
+    agents.insert(
+        "T6",
+        fix_answering(vec![
+            json!([{ "answer": "cannot_verify", "id": "F1", "reason": "Replaced below." }]),
+        ]),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the fix answering", |e| {
+        transitions(e, item, "T6").iter().any(|t| t == "done")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let plan = |e: &mut Engine, rows: Value| -> (String, String) {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE rounds SET output = json_set(output, '$.outcome.rows', json(?2)) WHERE work = ?1 AND cell = 'T6'",
+                params![work, rows.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        move_to(e, work, "T7");
+        e.step_work(work).unwrap();
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(output, '$.plan.review'), json_extract(output, '$.plan.adversarial') FROM rounds
+                 WHERE work = ?1 AND cell = 'T7' ORDER BY n DESC LIMIT 1",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+    };
+    let answers = fix_answers();
+    assert!(answers.iter().any(|a| a == "fixed_outside_commit"), "{answers:?}");
+    for answer in &answers {
+        let got = plan(&mut e, json!([{ "answer": answer, "id": "F1" }]));
+        assert_eq!(got, ("disputes".to_string(), "skipped".to_string()), "{answer}");
+    }
+    // The same answers, the table's one row now a red check of the full CI.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET input = json_set(input, '$.engine.table[0].from', 'T2·result[red]')
+             WHERE work = ?1 AND cell = 'T6'",
+            [work],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    for answer in &answers {
+        let got = plan(&mut e, json!([{ "answer": answer, "id": "F1" }]));
+        assert_eq!(got, ("none".to_string(), "skipped".to_string()), "{answer}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A single step runs exactly one round: starting the work is the first, and each later one is the next round of the
 // work that has a step to take.
 #[test]

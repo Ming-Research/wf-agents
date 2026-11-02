@@ -1078,6 +1078,32 @@ fn a_return_that_does_not_fit_says_where() {
     assert!(e.ends_with("outcome must be an object, and is a string"), "{e}");
 }
 
+// The fix has an answer for a row it fixed in no commit, which gives where the fix is and no commit; the ci tool takes a
+// pull request's title and description with no tests, and ci_before, which runs the tests it lists, still needs them.
+#[test]
+fn a_fix_in_no_commit_and_a_description_pushed_with_no_tests_are_taken() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let mut done = samples["T6"][0]["json"].clone();
+    done["outcome"]["rows"] = serde_json::json!([
+        { "answer": "fixed_outside_commit", "id": "F1", "where": "The pull request description." }
+    ]);
+    assert_eq!(g.take("T6", &done, &Map::new()).unwrap().name, "done");
+    done["outcome"]["rows"][0].as_object_mut().unwrap().remove("where");
+    let e = g.take("T6", &done, &Map::new()).unwrap_err();
+    assert!(e.contains("does not fit the schema"), "{e}");
+    let asks = |tool: Value| {
+        serde_json::json!({ "outcome": { "tools": [tool] }, "side_reports": [], "tell_owner": [],
+                            "progress": "p", "flow_feedback": "none" })
+    };
+    let ci = serde_json::json!({ "tool": "ci", "head": "3f9c2e1", "pr": { "title": "t", "body": "b" } });
+    assert_eq!(g.take("T6", &asks(ci), &Map::new()).unwrap().name, "tools");
+    let before = serde_json::json!({ "tool": "ci_before", "head": "3f9c2e1", "files": ["tests/a.rs"] });
+    let e = g.take("T6", &asks(before), &Map::new()).unwrap_err();
+    assert!(e.contains("does not fit the schema"), "{e}");
+}
+
 // An agent's return schema holds its forms one level down, and a field a form leaves out is not required.
 #[test]
 fn an_agent_schema_holds_its_forms_in_outcome() {
