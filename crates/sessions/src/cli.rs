@@ -9,8 +9,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io::Write;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -144,12 +146,78 @@ pub struct Reply {
     /// Each attempt at a return the command line refused or that is no JSON, in the order made; empty when it took the
     /// first.
     pub refused: Vec<Refused>,
+    /// Why the run was stopped before it ended, when whoever watched it answered [`Next::Stop`]: such a run hands in
+    /// nothing, and its failure is told by this and never by the words of what the CLI reported.
+    pub stopped: Option<String>,
+}
+
+/// One call to the model, as the stream reports it. The stream writes a call on several lines, and says its output
+/// tokens only as they come, so a call may be told more than once: the same `id`, with more output.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Call {
+    /// The id of the message the call wrote.
+    pub id: String,
+    /// The model it ran on, as the stream names it; none when it does not.
+    pub model: Option<String>,
+    /// Its input tokens: not read from the cache, read from it, and written to it for five minutes and for an hour.
+    pub input: i64,
+    pub read: i64,
+    pub written_5m: i64,
+    pub written_1h: i64,
+    /// Its output tokens so far.
+    pub output: i64,
+    /// A subagent's call, which is not in the context of the round's session.
+    pub subagent: bool,
+}
+
+impl Call {
+    /// What the call was given to read: all its input tokens.
+    pub fn prompt(&self) -> i64 {
+        self.input + self.read + self.written_5m + self.written_1h
+    }
+}
+
+/// What the watcher of a running round is told, in terms of no command line in particular.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Seen {
+    /// What the agent is doing, in a line for the owner's page.
+    Doing(String),
+    /// A call to the model, or more of a call told before.
+    Call(Call),
+    /// A tool the agent used: its name, what it used it on, and a digest of its input, by which the same use is known
+    /// again; the input itself is not kept.
+    Tool {
+        name: String,
+        on: Option<String>,
+        digest: u64,
+    },
+    /// The command line compacted the session.
+    Compacted,
+}
+
+/// What the watcher of a running round answers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Next {
+    Go,
+    /// Stop the round, for this reason.
+    Stop(String),
+}
+
+/// A watcher for a run that only tells what the agent is doing, and never stops it: a call apart from a round, such as
+/// a repair.
+pub fn telling(activity: &dyn Fn(&str)) -> impl Fn(Seen) -> Next + '_ {
+    move |seen| {
+        if let Seen::Doing(what) = seen {
+            activity(&what);
+        }
+        Next::Go
+    }
 }
 
 /// The command line agents run in, which the engine's threads share.
 pub trait Agents: Send + Sync {
-    /// Runs a round; `activity` is told what the agent is doing while it runs, as the CLI reports it.
-    fn run(&self, r: &Request, activity: &dyn Fn(&str)) -> Reply;
+    /// Runs a round; `watch` is told what the run does as it happens, and may answer that it be stopped.
+    fn run(&self, r: &Request, watch: &dyn Fn(Seen) -> Next) -> Reply;
 
     /// The CLI's own version, as it reports it.
     fn version(&self, _cli: &config::Cli, _config_dir: Option<&std::path::Path>) -> String {
@@ -380,8 +448,8 @@ impl Claude {
 }
 
 impl Agents for Claude {
-    fn run(&self, r: &Request, activity: &dyn Fn(&str)) -> Reply {
-        let reply = Claude::once(r, activity);
+    fn run(&self, r: &Request, watch: &dyn Fn(Seen) -> Next) -> Reply {
+        let reply = Claude::once(r, watch);
         // A session whose first round was cut off exists, though no round of it ever ended: resume it.
         let in_use = reply.error.as_deref().is_some_and(|e| e.contains("already in use"));
         if r.resume.is_none() && reply.output.is_none() && in_use {
@@ -389,7 +457,7 @@ impl Agents for Claude {
                 resume: Some(r.new_session.clone()),
                 ..r.clone()
             };
-            let mut reply = Claude::once(&again, activity);
+            let mut reply = Claude::once(&again, watch);
             reply.command = command_line(&again);
             return reply;
         }
@@ -410,15 +478,33 @@ impl Agents for Claude {
     }
 }
 
+/// How long a stopped command line has, from the polite signal, to end by itself and what it started, before it and
+/// its process group are killed. It is what the command line's own clean-up may take, and a stopped round holds a slot.
+const STOP_WAIT: Duration = Duration::from_secs(3);
+
+/// Sends a signal to a process group, by the `kill` command, which needs no `unsafe`. Only the engine's own child's
+/// group is ever named, while that child is not reaped: a group's id cannot be taken by another while its leader's
+/// process entry stands, so the signal cannot reach anyone else's.
+fn signal_group(group: u32, signal: &str) {
+    let _ = Command::new("kill")
+        .args(["-s", signal, "--", &format!("-{group}")])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 impl Claude {
-    /// One run of the CLI: the message on its standard input ([`stdin`]), its stream read line by line as it comes,
-    /// each line that says what the agent does told to `activity`.
-    fn once(r: &Request, activity: &dyn Fn(&str)) -> Reply {
+    /// One run of the CLI, in a process group of its own, so that it can be stopped with everything it started: the
+    /// message on its standard input ([`stdin`]), its stream read line by line as it comes, what each line says told to
+    /// `watch`, which may answer that the run be stopped.
+    fn once(r: &Request, watch: &dyn Fn(Seen) -> Next) -> Reply {
         let mut reply = Reply {
             session: r.resume.clone().unwrap_or_else(|| r.new_session.clone()),
             ..Reply::default()
         };
         let child = Claude::command(r)
+            .process_group(0)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -448,10 +534,22 @@ impl Claude {
         });
         let mut stream = Stream::default();
         if let Some(out) = child.stdout.take() {
-            for line in std::io::BufRead::lines(std::io::BufReader::new(out)).map_while(Result::ok) {
-                if let Some(what) = stream.line(&line) {
-                    activity(&what);
+            let mut lines = std::io::BufRead::lines(std::io::BufReader::new(out));
+            'reading: for line in lines.by_ref().map_while(Result::ok) {
+                for seen in stream.line(&line) {
+                    if let Next::Stop(why) = watch(seen) {
+                        reply.stopped = Some(why);
+                        break 'reading;
+                    }
                 }
+            }
+            if let Some(why) = reply.stopped.clone() {
+                stop(&mut child, lines);
+                stream.end(&mut reply);
+                // Whatever the stream gave before it was stopped is not a return, and the run's own end was not read.
+                reply.output = None;
+                reply.error = Some(why);
+                return reply;
             }
         }
         if let Some(Err(e)) = writer.and_then(|t| t.join().ok()) {
@@ -472,30 +570,107 @@ impl Claude {
     }
 }
 
+/// Stops a run and everything it started: asks its process group to end, reads what is left of its stream beside, so
+/// that no write of its own keeps it from ending, gives it [`STOP_WAIT`] at most, and kills the group whatever came of
+/// that. Only then is the child reaped, so that the group's id is the child's for every signal; the threads that hold
+/// its standard input and error are left to end as their pipes close, since a process that left the group could hold
+/// them open.
+fn stop<R>(child: &mut std::process::Child, lines: std::io::Lines<R>)
+where
+    R: std::io::BufRead + Send + 'static,
+{
+    let group = child.id();
+    signal_group(group, "TERM");
+    let (ended, read_all) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for _ in lines.map_while(Result::ok) {}
+        let _ = ended.send(());
+    });
+    let _ = read_all.recv_timeout(STOP_WAIT);
+    signal_group(group, "KILL");
+    // The child itself, in case there is no `kill` to run.
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// What the command line's stream gave as it came: its lines kept for the end but for its partial messages, which are
-/// passed over once the StructuredOutput inputs are rebuilt from them.
+/// passed over once the StructuredOutput inputs are rebuilt from them and the calls read from them.
 #[derive(Debug, Default)]
 pub struct Stream {
     kept: String,
     partials: Partials,
+    calls: Calls,
+    /// The tool uses told, by their ids.
+    tools: BTreeSet<String>,
 }
 
 impl Stream {
-    /// Takes one line of the stream; what it says the agent does, if anything.
-    pub fn line(&mut self, line: &str) -> Option<String> {
-        if self.partials.take(line) {
-            return None;
+    /// Takes one line of the stream; what it says happened, if anything.
+    pub fn line(&mut self, line: &str) -> Vec<Seen> {
+        if line.starts_with(PARTIAL) {
+            // Only the lines that start or end a call or that matter to the input being rebuilt are parsed.
+            let wanted = line.contains("message_start") || line.contains("message_delta") || self.partials.wants(line);
+            if !wanted {
+                return Vec::new();
+            }
+            return serde_json::from_str::<Value>(line).map_or_else(|_| Vec::new(), |v| self.partial(&v));
         }
         let parsed: Option<Value> = serde_json::from_str(line).ok();
         if let Some(v) = &parsed
             && v["type"] == "stream_event"
         {
-            self.partials.event(v);
-            return None;
+            return self.partial(v);
         }
         self.kept.push_str(line);
         self.kept.push('\n');
-        activity_of_value(&parsed?)
+        let Some(v) = parsed else { return Vec::new() };
+        let mut seen: Vec<Seen> = activity_of_value(&v).map(Seen::Doing).into_iter().collect();
+        match v["type"].as_str() {
+            Some("assistant") => {
+                seen.extend(
+                    self.calls
+                        .message(&v["message"], &v["parent_tool_use_id"])
+                        .map(Seen::Call),
+                );
+                if v["parent_tool_use_id"].is_null() {
+                    seen.extend(self.tool_uses(&v["message"]));
+                }
+            }
+            Some("system") if v["subtype"] == "compact_boundary" => seen.push(Seen::Compacted),
+            _ => {}
+        }
+        seen
+    }
+
+    /// Takes a partial message: what it rebuilds, and the call it starts or says more of.
+    fn partial(&mut self, v: &Value) -> Vec<Seen> {
+        self.partials.event(v);
+        let parent = &v["parent_tool_use_id"];
+        let ev = &v["event"];
+        let call = match ev["type"].as_str() {
+            Some("message_start") => self.calls.message(&ev["message"], parent),
+            Some("message_delta") => self.calls.delta(&ev["usage"], parent),
+            _ => None,
+        };
+        call.map(Seen::Call).into_iter().collect()
+    }
+
+    /// The tool uses of an agent's message not told yet.
+    fn tool_uses(&mut self, message: &Value) -> Vec<Seen> {
+        let mut out = Vec::new();
+        for c in message["content"].as_array().into_iter().flatten() {
+            let Some(id) = c["id"].as_str().filter(|_| c["type"] == "tool_use") else {
+                continue;
+            };
+            if self.tools.insert(id.to_string()) {
+                out.push(Seen::Tool {
+                    name: c["name"].as_str().unwrap_or("a tool").to_string(),
+                    on: subject(&c["input"]).map(cut_line),
+                    digest: digest(&c["input"].to_string()),
+                });
+            }
+        }
+        out
     }
 
     /// What the run came to, from the lines kept: [`read_stream`], with each attempt at a return the command line
@@ -503,6 +678,90 @@ impl Stream {
     pub fn end(self, reply: &mut Reply) {
         read_stream(&self.kept, reply);
         reply.refused = self.partials.refused(&refusals(&self.kept));
+    }
+}
+
+/// What a partial message's line starts with, as the command line writes it.
+const PARTIAL: &str = r#"{"type":"stream_event""#;
+
+/// A digest of a tool's input, to know the same input again within a run.
+fn digest(text: &str) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    std::hash::Hash::hash(text, &mut h);
+    std::hash::Hasher::finish(&h)
+}
+
+/// The calls a stream told of, each once by the id of its message, however many lines give it: the partial message that
+/// starts it, each block of it as a line of its own, and the partial message that says its output in the end. Each line
+/// may say its output tokens so far, so a call is told again only when they grew.
+#[derive(Debug, Default)]
+struct Calls {
+    told: BTreeMap<String, Call>,
+    /// The call being written by the agent (the key of none) and by each subagent.
+    open: BTreeMap<Option<String>, String>,
+}
+
+impl Calls {
+    /// Takes a message of the stream, with the tool use of the subagent that wrote it when one did: the call it tells,
+    /// when it tells a new one or more of one. A message the command line makes itself, such as the one it puts in when
+    /// it resumes a session, called no model.
+    fn message(&mut self, m: &Value, parent: &Value) -> Option<Call> {
+        if m["model"] == "<synthetic>" {
+            return None;
+        }
+        let u = &m["usage"];
+        let n = |k: &str| u[k].as_i64();
+        let (input, read, written) = (
+            n("input_tokens")?,
+            n("cache_read_input_tokens")?,
+            n("cache_creation_input_tokens")?,
+        );
+        if input + read + written == 0 {
+            return None;
+        }
+        let (written_5m, written_1h) = match u.get("cache_creation") {
+            Some(c) => (
+                c["ephemeral_5m_input_tokens"].as_i64().unwrap_or(0),
+                c["ephemeral_1h_input_tokens"].as_i64().unwrap_or(0),
+            ),
+            None => (written, 0),
+        };
+        let id = m["id"]
+            .as_str()
+            .map_or_else(|| format!("no id {}", self.told.len()), str::to_string);
+        let key = parent.as_str().map(str::to_string);
+        self.open.insert(key, id.clone());
+        let output = n("output_tokens").unwrap_or(0);
+        if self.told.contains_key(&id) {
+            return self.more(&id, output);
+        }
+        let call = Call {
+            id: id.clone(),
+            model: m["model"].as_str().map(str::to_string),
+            input,
+            read,
+            written_5m,
+            written_1h,
+            output,
+            subagent: !parent.is_null(),
+        };
+        self.told.insert(id, call.clone());
+        Some(call)
+    }
+
+    /// Takes the usage of a partial message that ends the call being written: its output in the end.
+    fn delta(&mut self, usage: &Value, parent: &Value) -> Option<Call> {
+        let id = self.open.get(&parent.as_str().map(str::to_string))?.clone();
+        self.more(&id, usage["output_tokens"].as_i64()?)
+    }
+
+    /// A call told before, with its output now, when that grew.
+    fn more(&mut self, id: &str, output: i64) -> Option<Call> {
+        let call = self.told.get_mut(id)?;
+        (output > call.output).then(|| {
+            call.output = output;
+            call.clone()
+        })
     }
 }
 
@@ -517,19 +776,10 @@ struct Partials {
 }
 
 impl Partials {
-    /// Takes a line that is a partial message as the command line writes it, its type first; whether it was one. Only
-    /// the lines that start, add to or end a StructuredOutput input are parsed.
-    fn take(&mut self, line: &str) -> bool {
-        if !line.starts_with(r#"{"type":"stream_event""#) {
-            return false;
-        }
-        let wanted = line.contains("content_block_start")
-            || line.contains("message_start")
-            || (self.open.is_some() && (line.contains("input_json_delta") || line.contains("content_block_stop")));
-        if wanted && let Ok(v) = serde_json::from_str::<Value>(line) {
-            self.event(&v);
-        }
-        true
+    /// Whether a line that is a partial message may start, add to or end a StructuredOutput input.
+    fn wants(&self, line: &str) -> bool {
+        line.contains("content_block_start")
+            || (self.open.is_some() && (line.contains("input_json_delta") || line.contains("content_block_stop")))
     }
 
     /// Takes a partial message: the agent's own, not a subagent's.
@@ -650,16 +900,25 @@ pub fn activity_of(line: &str) -> Option<String> {
     activity_of_value(&serde_json::from_str(line).ok()?)
 }
 
+/// What a tool's input says it is used on.
+fn subject(input: &Value) -> Option<&str> {
+    ["command", "file_path", "path", "pattern", "description", "url", "query"]
+        .iter()
+        .find_map(|k| input[*k].as_str())
+}
+
+/// A text on one line, its start only when it is long.
+fn cut_line(s: &str) -> String {
+    let one = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one.chars().count() > 160 {
+        format!("{}…", one.chars().take(160).collect::<String>())
+    } else {
+        one
+    }
+}
+
 /// What a parsed line of the CLI's stream says the agent is doing.
 fn activity_of_value(v: &Value) -> Option<String> {
-    let cut = |s: &str| -> String {
-        let one = s.split_whitespace().collect::<Vec<_>>().join(" ");
-        if one.chars().count() > 160 {
-            format!("{}…", one.chars().take(160).collect::<String>())
-        } else {
-            one
-        }
-    };
     match v["type"].as_str()? {
         "assistant" => {
             let said: Vec<String> = v["message"]["content"]
@@ -668,18 +927,15 @@ fn activity_of_value(v: &Value) -> Option<String> {
                 .filter_map(|c| match c["type"].as_str()? {
                     "tool_use" => {
                         let name = c["name"].as_str().unwrap_or("a tool");
-                        let on = ["command", "file_path", "path", "pattern", "description", "url", "query"]
-                            .iter()
-                            .find_map(|k| c["input"][*k].as_str());
-                        Some(match on {
-                            Some(o) => format!("{name}: {}", cut(o)),
+                        Some(match subject(&c["input"]) {
+                            Some(o) => format!("{name}: {}", cut_line(o)),
                             None => name.to_string(),
                         })
                     }
                     "text" => c["text"]
                         .as_str()
                         .filter(|t| !t.trim().is_empty())
-                        .map(|t| format!("says: {}", cut(t))),
+                        .map(|t| format!("says: {}", cut_line(t))),
                     _ => None,
                 })
                 .collect();
@@ -2393,5 +2649,205 @@ mod tests {
         let id = new_session_id();
         assert_eq!(id.len(), 36);
         assert_eq!(&id[14..15], "4");
+    }
+
+    /// The calls of what a stream's lines tell, each time one is told.
+    fn calls_told(lines: &[String]) -> Vec<Call> {
+        let mut stream = Stream::default();
+        let told = lines.iter().flat_map(|l| stream.line(l)).collect::<Vec<_>>();
+        told.into_iter()
+            .filter_map(|s| match s {
+                Seen::Call(c) => Some(c),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A line of a message of the model.
+    fn message(id: &str, parent: Value, prompt: i64, output: i64) -> String {
+        json!({ "type": "assistant", "parent_tool_use_id": parent, "message": { "id": id, "model": "m", "usage": {
+            "input_tokens": 2, "cache_read_input_tokens": prompt, "cache_creation_input_tokens": 500,
+            "cache_creation": { "ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 500 },
+            "output_tokens": output,
+        }, "content": [] } })
+        .to_string()
+    }
+
+    // The stream gives one call on many lines: it is told once, and again only for more output; the partial message
+    // that starts a call tells of it first, and the one that ends it says its output in the end. A subagent's call is
+    // marked, and a message the command line makes itself called no model.
+    #[test]
+    fn a_call_is_told_once_however_many_lines_give_it() {
+        let partial = |event: Value, parent: Value| {
+            json!({ "type": "stream_event", "event": event, "parent_tool_use_id": parent }).to_string()
+        };
+        let start = partial(
+            json!({ "type": "message_start", "message": { "id": "a", "model": "m", "usage": {
+                "input_tokens": 2, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 500,
+                "output_tokens": 1,
+            } } }),
+            Value::Null,
+        );
+        let end = partial(
+            json!({ "type": "message_delta", "usage": { "output_tokens": 435 } }),
+            Value::Null,
+        );
+        let synthetic = json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "id": "s",
+            "model": "<synthetic>", "usage": { "input_tokens": 1, "cache_read_input_tokens": 1,
+            "cache_creation_input_tokens": 1 }, "content": [] } })
+        .to_string();
+        let told = calls_told(&[
+            synthetic,
+            start,
+            message("a", Value::Null, 1000, 1),
+            message("a", Value::Null, 1000, 1),
+            message("b", json!("toolu_1"), 90, 5),
+            end,
+            message("a", Value::Null, 1000, 435),
+            message("c", Value::Null, 2000, 7),
+        ]);
+        let shown: Vec<(&str, i64, i64, bool)> = told
+            .iter()
+            .map(|c| (c.id.as_str(), c.prompt(), c.output, c.subagent))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("a", 1502, 1, false),
+                ("b", 592, 5, true),
+                ("a", 1502, 435, false),
+                ("c", 2502, 7, false)
+            ]
+        );
+        assert_eq!((told[1].written_5m, told[1].written_1h), (0, 500));
+    }
+
+    // Each tool use is told once with a digest of its input, by which the same use is known again; a subagent's is not
+    // the agent's. A compaction is told as one.
+    #[test]
+    fn a_tool_use_is_told_once_with_a_digest_of_its_input() {
+        let using = |id: &str, parent: Value, input: Value| {
+            json!({ "type": "assistant", "parent_tool_use_id": parent, "message": { "content": [
+                { "type": "tool_use", "id": id, "name": "Bash", "input": input }] } })
+            .to_string()
+        };
+        let lines = [
+            using("t1", Value::Null, json!({ "command": "ls" })),
+            using("t1", Value::Null, json!({ "command": "ls" })),
+            using("t2", Value::Null, json!({ "command": "ls" })),
+            using("t3", Value::Null, json!({ "command": "pwd" })),
+            using("t4", json!("toolu_1"), json!({ "command": "ls" })),
+            r#"{"type":"system","subtype":"compact_boundary"}"#.to_string(),
+        ];
+        let mut stream = Stream::default();
+        let told: Vec<Seen> = lines
+            .iter()
+            .flat_map(|l| stream.line(l))
+            .filter(|s| !matches!(s, Seen::Doing(_)))
+            .collect();
+        let digest_of = |s: &Seen| match s {
+            Seen::Tool { digest, .. } => Some(*digest),
+            _ => None,
+        };
+        assert_eq!(told.len(), 4, "{told:?}");
+        assert_eq!(digest_of(&told[0]), digest_of(&told[1]));
+        assert_ne!(digest_of(&told[0]), digest_of(&told[2]));
+        assert!(matches!(&told[0], Seen::Tool { on: Some(on), .. } if on == "ls"));
+        assert_eq!(told[3], Seen::Compacted);
+    }
+
+    /// A request that runs a program, as a test's command line.
+    fn run_of(dir: &Path, program: &Path) -> Request {
+        Request {
+            work: 1,
+            cell: "I1".into(),
+            line: "engineer".into(),
+            cli: config::Cli {
+                kind: config::CliKind::Claude,
+                command: program.display().to_string(),
+                args: Vec::new(),
+                config_dir: None,
+            },
+            model: "m".into(),
+            effort: None,
+            worktree: dir.to_path_buf(),
+            config_dir: None,
+            resume: None,
+            system: None,
+            new_session: "s1".into(),
+            prompt: "p".into(),
+            images: Vec::new(),
+            schema: Value::Null,
+            envelope: Value::Null,
+            refused: Vec::new(),
+            readable: Vec::new(),
+            replay: None,
+            regive: None,
+            deliver: None,
+            bare: true,
+        }
+    }
+
+    // A stopped run ends with everything it started, what ignores the polite signal too, before the run gives its
+    // reply: the program here starts a child that outlives the stream, and neither takes the signal to end.
+    #[test]
+    fn a_stopped_run_takes_its_whole_process_group_with_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("wf-agents-stop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (program, child) = (dir.join("cli"), dir.join("child"));
+        let line = message("a", Value::Null, 1000, 1);
+        let script = format!(
+            "#!/bin/sh\ntrap '' TERM\nsleep 120 &\necho $! > {}\nprintf '%s\\n' '{line}'\nwait\n",
+            quote(&child.display().to_string())
+        );
+        std::fs::write(&program, script).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let began = std::time::Instant::now();
+        let reply = Claude.run(&run_of(&dir, &program), &|seen| match seen {
+            Seen::Call(_) => Next::Stop("past its line".into()),
+            _ => Next::Go,
+        });
+        assert_eq!(reply.stopped.as_deref(), Some("past its line"), "{reply:?}");
+        assert_eq!(reply.error.as_deref(), Some("past its line"), "{reply:?}");
+        assert!(reply.output.is_none(), "{reply:?}");
+        assert!(began.elapsed() < Duration::from_secs(60), "{:?}", began.elapsed());
+        let pid = std::fs::read_to_string(&child).unwrap().trim().to_string();
+        let alive = || {
+            Command::new("kill")
+                .args(["-0", &pid])
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
+        };
+        // What is killed is gone at once, but for its parent's taking it in.
+        let gone = (0..100).any(|_| {
+            if alive() {
+                std::thread::sleep(Duration::from_millis(50));
+                return false;
+            }
+            true
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(gone, "process {pid} outlived the stop");
+    }
+
+    // A run that ends by itself ends as ever under a watcher that lets it go on: the process group changes nothing.
+    #[test]
+    fn a_run_let_go_on_ends_as_ever() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("wf-agents-go-on-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let program = dir.join("cli");
+        let result =
+            r#"{"type":"result","subtype":"success","result":"{\"a\":1}","session_id":"s1","total_cost_usd":0.5}"#;
+        std::fs::write(&program, format!("#!/bin/sh\nprintf '%s\\n' '{result}'\n")).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let reply = Claude.run(&run_of(&dir, &program), &|_| Next::Go);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(reply.stopped.is_none(), "{reply:?}");
+        assert_eq!(reply.output.unwrap()["a"], 1);
     }
 }
