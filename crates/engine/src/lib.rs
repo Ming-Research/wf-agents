@@ -153,11 +153,18 @@ impl Default for Hooks {
     }
 }
 
+/// What a graph as a project's agents are asked it depends on: the flow's version, the graph, the project and the
+/// configuration's commit.
+type AskedGraph = (i64, String, Option<String>, String);
+
 /// What every thread's steps share and what lasts from one step to the next: one for the engine's process. Each lock
 /// is held only while what it guards is read or changed, never across a round, a command or a write.
 struct Shared {
     /// The compiled flows read so far, by version.
     flows: RwLock<BTreeMap<i64, Arc<Compiled>>>,
+    /// The graphs as projects' agents are asked them, by flow version, graph, project and configuration's commit
+    /// ([`Engine::graph_of`]).
+    asked: RwLock<BTreeMap<AskedGraph, Arc<CompiledGraph>>>,
     /// The configuration in use: the last good one read ([`Engine::reload_config`]).
     config: RwLock<Arc<config::Committed>>,
     /// While a failed run's cause stops every work alike (a usage limit, no network), why and until when: no new
@@ -203,6 +210,7 @@ impl Shared {
     ) -> Shared {
         Shared {
             flows: RwLock::new(flows),
+            asked: RwLock::default(),
             config: RwLock::new(Arc::new(config)),
             halt: Mutex::default(),
             told: Mutex::default(),
@@ -838,30 +846,48 @@ impl Engine {
     }
 
     /// The graph a work runs on, as its project's agents are asked it: without the fields of every return whose need
-    /// the project does not meet, such as flow feedback the project's configuration turned off. An owned copy, so the
-    /// engine can be borrowed while it is in use.
-    pub fn graph_of(&mut self, w: &Work) -> Result<CompiledGraph, String> {
+    /// the project does not meet, such as flow feedback the project's configuration turned off. Shared, so the engine
+    /// can be borrowed while it is in use; made once for each flow, graph, project and configuration, since the loop
+    /// asks for it for every work many times a pass and a copy of a graph is large.
+    pub fn graph_of(&mut self, w: &Work) -> Result<Arc<CompiledGraph>, String> {
+        let project = self.project_named(w)?;
+        let key = (w.flow_version, w.graph.clone(), project, self.config.commit.clone());
+        if let Some(g) = self
+            .shared
+            .asked
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&key)
+        {
+            return Ok(Arc::clone(g));
+        }
         let g = self
             .flow(w.flow_version)?
             .graph(&w.graph)
             .cloned()
             .ok_or_else(|| format!("work {}: its flow has no graph {}", w.id, w.graph))?;
-        self.as_asked(w, g)
+        let g = Arc::new(self.as_asked(w, g)?);
+        let mut asked = self.shared.asked.write().unwrap_or_else(PoisonError::into_inner);
+        Ok(Arc::clone(asked.entry(key).or_insert(g)))
     }
 
-    /// A graph as the agents of a work's project are asked it ([`CompiledGraph::as_asked`]).
-    fn as_asked(&self, w: &Work, g: CompiledGraph) -> Result<CompiledGraph, String> {
-        let named: Option<String> = match (&w.project, w.item) {
-            (Some(p), _) => Some(p.clone()),
+    /// The project a work's agents answer to: its own, or its item's; none for a work on neither.
+    fn project_named(&self, w: &Work) -> Result<Option<String>, String> {
+        match (&w.project, w.item) {
+            (Some(p), _) => Ok(Some(p.clone())),
             (None, Some(item)) => self
                 .db
                 .conn()
                 .query_row("SELECT project FROM items WHERE id = ?1", [item], |r| r.get(0))
                 .optional()
-                .map_err(|e| format!("item {item}: {e}"))?,
-            (None, None) => None,
-        };
-        let project = named.and_then(|p| self.config.config.projects.get(&p));
+                .map_err(|e| format!("item {item}: {e}")),
+            (None, None) => Ok(None),
+        }
+    }
+
+    /// A graph as the agents of a work's project are asked it ([`CompiledGraph::as_asked`]).
+    fn as_asked(&self, w: &Work, g: CompiledGraph) -> Result<CompiledGraph, String> {
+        let project = self.project_named(w)?.and_then(|p| self.config.config.projects.get(&p));
         Ok(g.as_asked(|need| project.is_some_and(|p| p.has(need).unwrap_or(false))))
     }
 
