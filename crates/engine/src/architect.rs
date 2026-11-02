@@ -3612,7 +3612,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             // The whole address of a markdown link: one that only begins with the design's (another round of the same
             // work) leads somewhere else.
             if let Some(link) = row["link"].as_str().filter(|l| !l.is_empty())
-                && !markdown_link_targets(&text(&ask["question"])).contains(&link)
+                && !markdown_link_targets(text(&ask["question"])).contains(&link)
             {
                 return Err(format!(
                     "the question is pinned in the owner's one-to-one, away from the design it is about: link to the \
