@@ -8,7 +8,9 @@ for a while is not here but in the owner's current policy.
 
 wf-agents makes agents do a project's work by a defined flow. It belongs to no project: the flow, the engine and the
 data formats say nothing about any project, and everything about a project is in its configuration. Its own
-development and maintenance also go through its own flow: it develops itself.
+development and maintenance also go through its own flow: it develops itself. It is independent of any coding agent
+too: what an agent does is a round the engine runs, counts and can stop, and nothing rests on a feature of one agent's
+command line.
 
 Violations: a branch, a name or a rule added to the flow or the code for one project; something that works only on
 other projects and cannot run on wf-agents itself; wf-agents' own development going around its own flow.
@@ -61,7 +63,8 @@ Violations: giving up a better design because the change is too big or would tak
 How work goes on is drawn in the flow, where the owner and every agent can read it, and a work that went wrong can be
 traced cell by cell: where it stops, who handles what, when something is handed on or taken higher. The engine carries
 the flow out, keeps the data and checks it; it does nothing of its own that a cell or a row could do, and as little as
-possible happens by itself.
+possible happens by itself. The chart is how the owner checks the flow, and what is not on it the owner cannot see:
+every step, an agent's as much as the engine's, is a cell or a row.
 
 Violations: a hand-over, an escalation, a retry or a wait that the engine does out of the flow's sight; behaviour that
 can be found only by reading the engine's code.
