@@ -16,3 +16,7 @@ What an agent needs to know for this repository, beyond the rules every agent is
 - `flow/flow.json` is the only definition of the flow. A change to it, to the views it reads or to the compiler
   passes `wf-agents flow check`; the flow crate's tests run the same check. Such a change is an open question of its
   design, put to the owner with a link to the flow page's comparison, and the merge waits for the answer.
+- A check of an agent's return reports every problem it can find in that return at once, because each send-back costs
+  a round. It collects the problems in `Problems` (`crates/engine/src/checks.rs`, used by `architect::check` too), and
+  returns early with `fail` only when a later test presupposes that an earlier one holds. Several ids compared with a
+  list the engine gave go through `id_misses`.

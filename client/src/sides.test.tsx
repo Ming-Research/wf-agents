@@ -224,6 +224,29 @@ describe("a round's panel", () => {
     expect(html).not.toContain('Where the batch stands');
   });
 
+  // Item #216: a return is sent back with one line for each problem its checks found; a Flash runs the lines of a
+  // text together, so each is shown on a line of its own, the first after the label.
+  it('shows the reason a return was sent back one problem to a line', () => {
+    served.clear();
+    const why = [
+      'columns_answered (columns.id): columns 4, 5 are not answered',
+      'table_answered (rows.id): r1 is answered twice',
+    ].join('\n');
+    const sentBack = { ...detail, round: { ...rounds[1], outcome: 'sent_back' as const, transition: null, why } };
+    served.set('/api/v1/works/7/rounds/2', sentBack);
+    served.set('/api/v1/flows/3', before.compiled);
+    served.set('/api/v1/flows/3/view', before.view);
+    const html = renderToStaticMarkup(<RoundView work={7} n={2} rounds={rounds} open={tables} />);
+    expect(html).toContain('<div>Sent back: columns_answered (columns.id): columns 4, 5 are not answered</div>');
+    expect(html).toContain('<div>table_answered (rows.id): r1 is answered twice</div>');
+    // A reason of one line is shown as it was.
+    const one = { ...sentBack, round: { ...sentBack.round, why: 'columns_answered (columns.id): column 4 is not answered' } };
+    served.set('/api/v1/works/7/rounds/2', one);
+    const single = renderToStaticMarkup(<RoundView work={7} n={2} rounds={rounds} open={tables} />);
+    expect(single).toContain('<div>Sent back: columns_answered (columns.id): column 4 is not answered</div>');
+    expect(single).not.toContain('<div>table_answered');
+  });
+
   it('says where it came from and went over a table none of whose rows is the one', () => {
     served.clear();
     served.set('/api/v1/works/7/rounds/1', { ...detail, round: rounds[0], message: null, output: null });

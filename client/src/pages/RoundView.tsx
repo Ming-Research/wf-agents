@@ -373,13 +373,29 @@ function tookWords(r: RoundSummary): string {
   return t('took_ended', { took: duration(r.ended_at - r.started_at), at: time(r.ended_at) });
 }
 
+/// Why a return was sent back: the engine gives one line for each problem its checks found, and each is shown on a line
+/// of its own, the first after the label, since a text in a `Flash` runs its lines together.
+function SentBack({ why }: { why: string }) {
+  const [first, ...rest] = why.split('\n');
+  return (
+    <Flash variant="warning">
+      <div>{t('rp_sent_back', { why: first })}</div>
+      {rest
+        .filter((line) => line !== '')
+        .map((line, i) => (
+          <div key={i}>{line}</div>
+        ))}
+    </Flash>
+  );
+}
+
 /// The head of a round: who ran it and how long, and what it cost; then, for a return sent back or a run that ended
 /// without one, why.
 function RoundHead({ d, cell }: { d: RoundDetail; cell: CompiledCell | undefined }) {
   const r = d.round;
   const flash =
     r.outcome === 'sent_back' ? (
-      <Flash variant="warning">{t('rp_sent_back', { why: r.why ?? '' })}</Flash>
+      <SentBack why={r.why ?? ''} />
     ) : r.outcome === 'failed' || r.outcome === 'interrupted' ? (
       <Flash variant="danger">{t('rp_no_return', { why: r.why ?? '' })}</Flash>
     ) : null;
