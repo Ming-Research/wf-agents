@@ -2,7 +2,8 @@
 
 For: the architect and the owner, who decide the fix for each class below (item #198, #212, #213 and the rest).
 Kept: as a dated record until the fixes have landed and its numbers are out of date; then deleted.
-Written: 2026-11-02, item #197, work 247. Data snapshot: 2026-11-02 19:50 UTC (round R247-37).
+Written: 2026-11-02, item #197, work 247. Data snapshot: 2026-11-02 19:50 UTC (round R247-37); returns sent back after
+it, up to R250-12 (20:14 UTC), are listed apart in section 4b.
 
 How to read the claims. Each carries a basis: **[read]** a source file, a stored return or the flow text was read in
 this work; **[measured]** counted by a database query given in this report; **[reproduced]** a command was run here;
@@ -20,35 +21,69 @@ return is sent back. This report classifies every return sent back since flow ve
 
 Scope. A round whose `rounds.rejected` holds a `check` or a `format` key and which started at or after flow version
 33 was recorded (1793622870365 ms, 2026-11-02 12:34 UTC). Not counted: failed runs, interrupted runs and `error`
-rows, which are not returns: there are none since version 33; in all history there are 32 failed, 10 interrupted and 6
-error rows [measured]. All rows with `rejected` set in the database: 146 = 68 check + 30 format + 32 failed + 10
-interrupted + 6 error; 98 of them are returns sent back, 31 since version 33 [measured at R247-33 for the older rows,
-with the two sent back since added].
+rows, which are not returns.
 
-Snapshot. 31 rows: 24 check and 7 format; the last is R241-41. The earlier research count of 27 (R247-11) was taken
-before R241-28, R241-35, R241-40 and R241-41 were sent back; the table grew while this report was written, and
-three more came after the snapshot (section 4b); more may have appeared since. The one query that gives the table of
-section 4 as it stood at the snapshot (its row count is the 31, and 34 at R247-40):
+Snapshot. The tables of sections 3 to 8 are cut at the start of round R247-37, 1793649027640 ms (2026-11-02 19:50:27
+UTC). Every number below that says "snapshot" is a query with that upper bound; the rows after it are in section 4b,
+cut at the start of R250-12, 1793650465505 ms (20:14:25 UTC), the latest return sent back when this report was last
+checked. New returns keep being sent back, so a query without an upper bound returns more rows than this report lists.
+
+The count of every kind of row with `rejected` set, up to the snapshot, in all history and since version 33 (query
+Q0):
 
 ```sql
--- Returns the engine sent back since flow version 33 was recorded.
+-- Q0. Rows with `rejected` set, by key, up to the snapshot; the second column is those since version 33.
+SELECT j.key, count(*) AS to_snapshot, sum(r.started_at >= 1793622870365) AS since_v33
+FROM rounds r, json_each(r.rejected) j
+WHERE r.rejected IS NOT NULL AND r.started_at <= 1793649027640
+GROUP BY j.key;
+```
+
+Q0 gives 68 check, 30 format, 32 failed, 10 interrupted and 6 error rows [measured]: 98 returns sent back in all
+history before the snapshot. Since version 33, up to the snapshot, there are 24 check and 7 format rows and no failed,
+interrupted or error row [measured, the second column of Q0]. The earlier research count of 27 (R247-11) was taken before
+R241-28, R241-35, R241-40 and R241-41 were sent back, so the table grew while this report was written.
+
+The one query that gives the table of section 4, whose row count is the 31 of the report (Q1):
+
+```sql
+-- Q1. Returns the engine sent back since flow version 33 was recorded, up to the snapshot (R247-37).
 SELECT r.work, r.n, r.cell, r.started_at, r.rejected
 FROM rounds r
 WHERE r.rejected IS NOT NULL
   AND r.started_at >= 1793622870365
+  AND r.started_at <= 1793649027640
   AND (json_extract(r.rejected, '$.check') IS NOT NULL
        OR json_extract(r.rejected, '$.format') IS NOT NULL)
 ORDER BY r.work, r.n;
 ```
 
-The works of the rows ran on flow version 33 and none had moved from another version (checked when the table had 28
-rows; the three later rows are all in work 241, which was among the works checked) [measured]. All 31
-rounds ran on the engine build 0f7dc28 [measured, `rounds.input` call].
+The rows after the snapshot (section 4b) are the same query with the lower bound `r.started_at > 1793649027640` and
+the upper bound `r.started_at <= 1793650465505`; it returns 6 rows [measured]. Without any upper bound, the query
+returned 37 rows when last run (31 + 6).
+
+The works of all 31 rounds ran on flow version 33, and none had moved from another version [measured, Q2]. The rounds
+hold two `config_commit` values (24 rounds in 8 works and 7 rounds in 3 works; a work may appear under both); what
+those commits are was not looked up.
+
+```sql
+-- Q2. Flow version, move and configuration commit of the works of the 31 rounds of Q1.
+SELECT w.flow_version, w.moved_from IS NOT NULL AS moved, r.config_commit,
+       count(*) AS rounds, count(DISTINCT r.work) AS works
+FROM rounds r JOIN works w ON w.id = r.work
+WHERE r.rejected IS NOT NULL
+  AND r.started_at >= 1793622870365 AND r.started_at <= 1793649027640
+  AND (json_extract(r.rejected, '$.check') IS NOT NULL
+       OR json_extract(r.rejected, '$.format') IS NOT NULL)
+GROUP BY 1, 2, 3;
+```
 
 Sources read. The engine and flow were read at repository commit 6a3eeea. The last commit that changed
 `flow/flow.json` or `crates/engine/src` before version 33 was recorded is be10fd2 (2026-11-02 12:09 UTC), and none
-changed them after, up to 6a3eeea, which contains the build 0f7dc28 [read, `git log`], so the checks and texts quoted
-below are those the 31 rounds met.
+changed them after, up to this branch [read, `git log -- flow/flow.json crates/engine/src`]. The checks and texts quoted
+below are therefore those of that commit. That the 31 rounds met exactly these sources rests on that and on the flow
+version; which engine build each round ran on was not looked up [inferred; confirm from the build the engine recorded
+for each round, if it records one].
 
 Rule for the classes. Each round gets one class: the one problem that would still get the return sent back after the
 others in it are taken away. Judged in this order:
@@ -81,7 +116,9 @@ are not in this table [read].
 | e. check was right | 2 | 6% | the returns | $0.18 |
 
 The shares are rounded. 27 of the 31 (87%) have their cause in the system, and a fix there removes them; 4 are the
-model's or the work's own. By cell: T4 8, I1 7, T1 4, D2 3, T6 3, and one each for T3, H8, H5, H3, G1, D3 [measured].
+model's or the work's own. By cell: T4 8, I1 7, T1 4, D2 3, T6 3, and one each for T3, H8, H5, H3, G1, D3 [measured,
+Q1 grouped by `cell`: `SELECT cell, count(*) FROM <the rows of Q1> GROUP BY cell`]. The class of each row is a judgment
+of this report (section 2, the rule for the classes); the counts are those of the class column of the table in section 4.
 
 ## 4. The 31 returns
 
@@ -102,7 +139,7 @@ Round address is `R<work>-<n>`. "Message" paraphrases what the engine said.
 | R232-40 | T1 | `test_kinds_match` | a guard test written by the adversarial tester has a result before the change that does not fit its table | e |
 | R232-45 | D2 | `acceptance_matches_locked` | locked acceptance must be handed in word for word; ask the advisor first to change it | c |
 | R232-78 | T4 | `evidence_holds` (2) | two `nodes` entries that are round addresses with a sentence | a |
-| R233-59 | T4 | `columns_answered` | column 1 not answered (19 listed, 9 answered) | c |
+| R233-59 | T4 | `columns_answered` | column 1 not answered (9 of the 19 columns answered) | c |
 | R234-23 | I1 | `conditions_cover_acceptance` | vitest name (describe > it) not on the branch | a |
 | R234-26 | I1 | `conditions_cover_acceptance` | the same, reworded | a |
 | R234-27 | I1 | `new_test_results` | a test added as new behaviour is not in the `new_tests` table | c |
@@ -111,7 +148,7 @@ Round address is `R<work>-<n>`. "Message" paraphrases what the engine said.
 | R238-34 | T1 | `conditions_cover_acceptance`, `adversarial_test_results` (2) | nextest-style name not found; a test said red on the head where CI is green; tests written but head not pushed with ci | e |
 | R238-37 | T1 | `conditions_cover_acceptance` | nextest-style name (`engine::e2e name`) not on the branch | a |
 | R238-58 | T6 | format | `deviations[3]` has `why` | b |
-| R238-64 | T4 | `columns_answered` | column 1 not answered (27 listed, 8 answered) | c |
+| R238-64 | T4 | `columns_answered` | column 1 not answered (8 of the 27 columns answered) | c |
 | R239-53 | H5 | `effects_valid` | two observation titles of 22 characters, 20 at most | d |
 | R241-2 | G1 | format | `outcome` holds `brief` and `ask` (null) and fits none of its forms | b |
 | R241-28 | I1 | `new_test_results` | an existing test listed as added new behaviour is not in the `new_tests` table | c |
@@ -121,32 +158,53 @@ Round address is `R<work>-<n>`. "Message" paraphrases what the engine said.
 | R242-13 | D2 | `measure_matches_runs` | answered measured, but the work has no measure run | c |
 | R242-15 | D3 | format | `better` has `considered`, not a field of `found` | b |
 
-Counts: a 10, b 7, c 10, d 2, e 2 = 31 [measured, this table is the query's rows].
+Counts: a 10, b 7, c 10, d 2, e 2 = 31, the class column of this table; the 31 rows are the rows of Q1 [measured].
 
 ## 4b. Sent back after the snapshot (not in the totals of this report)
 
-By R247-40 the query of section 2 returned 34 rows; the three beyond the 31 above were read the same way. With them the
-classes are a 12, b 8, c 10, d 2, e 2. Their own cost is not added to section 8 [measured].
+Six returns were sent back after the snapshot and up to R250-12, the latest when this report was last checked (query Q1
+with the bounds of section 2; the database held 37 rows then, 31 + 6). They were read the same way. With them the
+classes are a 14, b 9, c 10, d 2, e 2 = 37. Their own cost is not added to section 8. The cost column is
+`rounds.usage` cost and the round's duration [measured, `SELECT work, n, json_extract(usage,'$.cost_usd'),
+(ended_at-started_at)/1000 FROM rounds WHERE (work, n) IN (...)`].
 
 | Round | Cell | Sent back by | Message | Class | Cost |
 |---|---|---|---|---|---|
+| R247-38 | I1 | `answers_match_speakers` (`answers.to`) | the architect did not interject in this round | a | $0.75, 157 s |
 | R242-38 | D7 | `answers_match_speakers` (`redirect.answers.to`) | the architect did not interject in this round | a | $0.07, 19 s |
 | R246-29 | T3 | format | `tools[0].tool` is "query", must be "gh" | b | $0.45, 177 s |
-| R247-38 | I1 | `answers_match_speakers` (`answers.to`) | the architect did not interject in this round | a | $0.75, 157 s |
+| R246-33 | T4 | `evidence_holds` (2 evidence objects) | two `nodes` entries that are round addresses | a | $0.09, 40 s |
+| R247-49 | T3 | format | `tools[0].tool` is "query", must be "gh" | b | $0.05, 13 s |
+| R250-12 | D3 | `answers_match_speakers` (`redirect.answers.to`) | the architect did not interject in this round | a | $0.12, 29 s |
+
+```sql
+-- Q3. Round in which each interjection of the four cases was delivered.
+SELECT work, id, speaker, delivered_round FROM interjections
+WHERE (work = 247 AND id = 87) OR (work = 242 AND id = 90) OR (work = 250 AND id IN (95, 96, 97))
+ORDER BY work, id;
+```
 
 - `answers_match_speakers` (`checks.rs:961-977`) accepts an answer only to a side that interjected in the same round
-  [read]. In R247-38 (this work) the architect's interjection ij:87 had been delivered in the round before, R247-36
-  (`interjections.delivered_round` is 36), and R247-38 was given none (its `engine.interjections` is empty); for
-  R242-38 the architect's ij:90 was delivered in R242-37 and R242-38 was given none [measured]. The interjection was shown to
-  R247-38 again as a hook note that said to answer it in that round's return [read, this work's prompt]. R247-36 had
-  ended in a request for tools, a form that holds no answers, so the interjection could not be answered there, and
-  the round that was told to answer it was refused for answering it. The model did what the text said and the check
-  looked at one round, so this is class a. That R242-38 saw the same note is inferred from its answer to the architect
-  [inferred; confirm by reading its stored message]. Fix: an interjection is answerable in the round that
-  was told to answer it, or is not shown again after its round; or the `tools` form can carry answers.
-- R246-29 repeats R227-26 (class b) in another work: T3 asked, with the `query` tool it does not have, for its work's CI
-  record and an item row [read, its stored return]. Twice since version 33, T3 reached for the CI results it is not
-  given. Giving T3 the CI results as an input removes the call and the lost round in both cases.
+  [read]. In R247-38 (this work) the architect's interjection ij:87 had been delivered in the round before, R247-36;
+  for R242-38 the architect's ij:90 was delivered in R242-37; for R250-12 the architect's ij:95 and ij:96 were delivered
+  in R250-11 (ij:97 only in R250-13) [measured, Q3]. R247-38 was given no interjection (its `engine.interjections`
+  is empty) [read, its stored input]. The interjection was shown to R247-38 again as a hook note that said to answer it
+  in that round's return [read, this work's prompt]. R247-36 had ended in a request for tools, a form that holds no
+  answers, so the interjection could not be answered there, and the round that was told to answer it was refused for
+  answering it. In R250-11 the stored return is a design (`outcome.chosen`), not answers [read, its stored return],
+  and R250-12 answered the two interjections in its own return, the same shape. The model did what the text said and
+  the check looked at one round, so this is class a. That R242-38 and R250-12 saw the same note is inferred from their
+  answers to the architect [inferred; confirm by reading their stored messages]. Fix: an interjection is answerable
+  in the round that was told to answer it, or is not shown again after its round; or the `tools` form can carry answers.
+- R246-33 is the evidence check again, in the table review of the work that changes that check. Its first `nodes` list
+  holds the round addresses R246-21 and R246-27, and later columns hold `R246-9`, `R246-31` and other round addresses
+  [read, its stored return]. Nothing in it is a made-up file (section 7).
+- R246-29 and R247-49 repeat R227-26 (class b) in other works. R246-29 asked, with the `query` tool it does not have,
+  for its work's CI record and an item row [read, its stored return]. R247-49 asked for the structure of the `rounds`
+  table and the flow versions, which is the data its work (this one) is about [read, its stored return]. Three times
+  since version 33 T3 reached for the `query` tool it does not have: twice for data its inputs lack about CI and
+  items, once for the database. Giving T3 the CI results as an input removes the first two; the third needs the tool
+  or a statement in the cell that it has none.
 
 ## 5. Classes
 
@@ -163,9 +221,19 @@ writes the name the way its test runner prints it, and the check searches a stri
   35 beside the `it` on line 36 [reproduced: `git grep -c -F -w` on HEAD].
 - nextest `binary name` (R238-37; also R238-34, counted under e). The check cuts at `::` and keeps `e2e name` or
   `flow name`, which no file holds; the bare function name does (`building_a_message_writes_nothing`: 0 files with the
-  `e2e ` prefix, 1 file without it) [reproduced]. The tests exist: the ci tool recorded
+  `e2e ` prefix, 1 file without it) [reproduced]. The tests exist: the ci tool's result recorded
   `engine::e2e an_open_question_pinned_for_the_owner_holds_the_merge_until_the_owner_has_answered` as passed at
-  rounds 22, 27, 36, 40, 46 and 55 of work 238, and R238-38 was accepted with the bare names [measured].
+  rounds 22, 27, 36, 40, 46, 55, 57 and 62 of work 238 (at round 20 it was recorded as failed; round 22 holds the bare
+  name) [measured, Q4], and R238-38 was accepted with the bare names [read, its stored return].
+
+```sql
+-- Q4. Rounds of work 238 whose ci result names the test, with the text around the name (passed or failed).
+SELECT round, substr(result, max(1, instr(result, 'an_open_question_pinned_for_the_owner_holds_the_merge_until_the_owner_has_answered') - 60), 200) AS around
+FROM tool_runs
+WHERE work = 238 AND tool = 'ci'
+  AND instr(result, 'an_open_question_pinned_for_the_owner_holds_the_merge_until_the_owner_has_answered') > 0
+ORDER BY round;
+```
 - a CI step among the tests (R231-76): `npm run check:ui (in the lint job, green)`; the kept part
   `ui (in the lint job, green)` matches no file [reproduced]. The step is real: the project's own rule names
   `check:ui`; it is not a test name, which the field `tests` asks for.
@@ -240,11 +308,19 @@ the cheaper fix is on the cell side: give T3 what it wanted (the CI results) so 
 
 **c1. The measure answer (R231-21, R242-13; `measure_matches_runs`, `checks.rs:333-341`).** D2's `measure` has two
 answers: `not_measured` ("could be decided without measuring") and `measured` ("decided by the measurements you asked
-for before"), `flow.json:5574-5604`. The check counts only runs of the `measure` tool. Work 231 had 67 query runs, 17
-ci, 5 ci_before, 2 gh, 1 full_ci and 0 measure; work 242 had 12 query runs and 0 measure [measured]. Both returns
+for before"), `flow.json:5574-5604`. The check counts only runs of the `measure` tool. Work 231 had 27 query runs and no other tool run before R231-21
+(67 query, 17 ci, 5 ci_before, 3 gh, 1 full_ci and 0 measure over the whole work); work 242 had 9 query runs before
+R242-13 (13 over the whole work) and 0 measure [measured, Q5]. Both returns
 describe a replay or a read of recorded rounds by read-only queries as "the measurement" [read, their `effect`
 texts]. The model's reading is natural; neither answer fits "I read recorded data". Fix: a third answer, "decided from
 recorded data read with queries" with what was read; or word `measured` as "the measure tool ran"; the check stays as it is.
+
+```sql
+-- Q5. Tool runs of works 231 and 242 by tool; the last column counts those before the sent-back round.
+SELECT work, tool, count(*) AS runs,
+       sum(round < CASE work WHEN 231 THEN 21 ELSE 13 END) AS before_the_sent_back_round
+FROM tool_runs WHERE work IN (231, 242) GROUP BY work, tool ORDER BY work, runs DESC;
+```
 
 **c2. Locked acceptance (R232-45; `acceptance_matches_locked`, `checks.rs:421-439`).** The architect changed the item's
 own acceptance text; the lock holds the earlier text, and D2's input says "locked, including what the advisor
@@ -257,9 +333,20 @@ that the lock changes only through the advisor's reply and that a change of the 
 owner does not move it; give the ask a field if the engine needs the kind, or drop the word. The item names D2 and T6;
 only D2 was read here.
 
-**c3. Columns at a re-review (R233-59, R238-64; `columns_answered`, `checks.rs:736-752`).** The engine listed 19 and
-27 columns and the model answered 9 (ids 2,3,5,6,7,10,11,12,18) and 8 (ids 2,3,6,7,9,10,13,22); the next rounds
-answered all 19 and all 27 [measured]. T4's text and the field text say that at a re-review the engine lists only the
+**c3. Columns at a re-review (R233-59, R238-64; `columns_answered`, `checks.rs:736-752`).** The model
+answered 9 columns (ids 2,3,5,6,7,10,11,12,18) and 8 columns (ids 2,3,6,7,9,10,13,22); the next rounds, R233-60 and
+R238-65, answered all 19 (ids 1 to 19) and all 27 (ids 1 to 27) [measured, Q6]. The engine's list therefore held 19 and
+27 columns [inferred from the next rounds' answers; the stored message of the sent-back round was not read].
+
+```sql
+-- Q6. Columns answered by the sent-back T4 rounds and by the rounds after them.
+SELECT r.work, r.n, r.rejected IS NOT NULL AS sent_back,
+       (SELECT count(*) FROM json_each(CASE WHEN json_valid(r.output) THEN r.output ELSE '{}' END, '$.outcome.columns')) AS n_cols,
+       (SELECT group_concat(json_extract(c.value, '$.id'))
+        FROM json_each(CASE WHEN json_valid(r.output) THEN r.output ELSE '{}' END, '$.outcome.columns') c) AS ids
+FROM rounds r
+WHERE r.cell = 'T4' AND ((r.work = 233 AND r.n BETWEEN 59 AND 62) OR (r.work = 238 AND r.n BETWEEN 64 AND 66));
+``` T4's text and the field text say that at a re-review the engine lists only the
 columns the changed part concerns (`flow.json:4146` and `:8131`), while the engine's code lists them all, saying so
 in its comment: "which columns a change concerns is not worked out in this version"
 (`crates/engine/src/message.rs:967-970`) [read]. The text states what the engine does not do. That this made the model skip
@@ -280,8 +367,8 @@ derived from it (or the other way), so there is nothing to reconcile; add a kind
 
 **c5. Observation merges (R226-31, R228-12; `effects_valid`).** A merge that makes an observation reported 3 times or
 more must be folded into an item (`architect.rs:3172-3192`, `RECURS` is 3 at line 201). At those two moments
-observation 84 had been reported 2 times and observation 17 five times, so the merges made 3 and 6 [measured,
-`changes`]. Neither cell is given the number: no input of R226-31 holds an observation entry (20 inputs, none about
+observation 84 had been reported 2 times and observation 17 five times, so the merges made 3 and 6 [read, the
+rows of the `changes` table for the two observations; no query is given because the rows were read by hand, not counted]. Neither cell is given the number: no input of R226-31 holds an observation entry (20 inputs, none about
 observations; no text they refer to holds the key of observation 84), and the candidate list R228-11 handed to
 R228-12 holds only an id and a reason per observation [read; the negative search covers every text the round's input
 refers to]. `observations_overview` (`architect.rs:4346-4396`) gives the count for the ten most recently updated and
@@ -306,11 +393,18 @@ the head it ran on; or have the engine fill the result column from its own recor
 
 - R227-40, `no_adversarial_when_due` (`checks.rs:821-838`). The first table review that was accepted was R227-31
   (R227-28 asked for tools, R227-30 was sent back for evidence); it handed in `stands`. The re-review R227-40 handed in
-  `stands` again and was sent back; R227-38 and R227-41 left the field out [measured, transitions of work 227]. The field
+  `stands` again and was sent back; R227-38 and R227-41 left the field out [measured, Q7]. The field
   text says it is handed in at a re-review only when the judgment becomes `does_not_stand` (`flow.json:8215`). Repeating
   a verdict that has not changed does no harm. Fix options: accept a repeated `stands`, which drops the refusal; or
   make the first review's judgment stand until a return changes it, so the model has no decision to remember. Whether
   anything downstream reads a repeated `stands` was not checked [inferred; confirm in `checks.rs` and the merge gate].
+  ```sql
+  -- Q7. The T4 rounds of work 227: their transition, whether sent back, and the `no_adversarial` they handed in.
+  SELECT n, cell, transition, rejected IS NOT NULL AS sent_back,
+         json_extract(output, '$.outcome.no_adversarial') AS no_adversarial
+  FROM rounds WHERE work = 227 AND cell = 'T4' ORDER BY n;
+  ```
+  R227-30 (sent back for evidence) also held `stands`.
 - R239-53, `effects_valid`. Two new observation titles, "Acceptance swap unstated" and "Tool rounds lack progress",
   have 22 characters each without spaces (10+4+8 and 4+6+4+8), limit 20; the limit is in the field text
   (`flow.json:1759`) and counted by `arch_changes.rs:130-150` [read, counted by hand]. Fix: put the limit where the
@@ -350,8 +444,9 @@ entry whose leading path-like run contains `/` or `.` and does not start with `/
 `nodes` entry (after the same cutting and a trailing `/` removed) exists. Its description (`flow.json:3138`) also says
 the lines cited are in the diff; the code checks neither lines nor the diff.
 
-Every time it sent a return back (8 returns in all history, 11 entries it names; it stops at the first bad entry of each
-evidence object, so there may have been more) [measured, query below]:
+Every time it sent a return back (9 returns in all history up to R246-33, 13 entries it names; it stops at the first bad
+entry of each evidence object, so there may have been more) [measured, Q8]. Eight of the nine are before the snapshot;
+R246-33 came after it:
 
 | Round | Field | What was refused | A made-up file? |
 |---|---|---|---|
@@ -363,16 +458,31 @@ evidence object, so there may have been more) [measured, query below]:
 | R232-78 | `nodes` x2 | round addresses with a sentence | no |
 | R234-34 | `nodes` | a round address with a word | no |
 | R241-35 | `files` | a sentence starting with a bare file name and a running time | no |
+| R246-33 | `nodes` x2 | round addresses (R246-21, R246-27) | no |
 
 ```sql
-SELECT r.work, r.n, r.cell, substr(json_extract(r.rejected,'$.check'),1,120)
+-- Q8. Every return the check sent back, in all history (9 rows when last run).
+SELECT r.work, r.n, r.cell, datetime(r.started_at/1000,'unixepoch') AS t,
+       substr(json_extract(r.rejected,'$.check'),1,120) AS check_text
 FROM rounds r WHERE instr(r.rejected,'evidence_holds') > 0 ORDER BY r.started_at;
 ```
 
 Findings:
 
-1. It has never stopped a made-up file. Since version 33 it sent back 5 of the 21 table reviews whose return held an
-   evidence object [measured]; all five were evidence that is true but not a path.
+1. It has never stopped a made-up file. Since version 33, up to the snapshot, it sent back 5 of the 21 table reviews
+   whose return held an evidence object; counting the review after the snapshot, 6 of 24 [measured, Q9]. All were
+   evidence that is true but not a path.
+
+   ```sql
+   -- Q9. T4 rounds since version 33 whose return holds an evidence object, and those the check sent back.
+   -- With the upper bound `AND r.started_at <= 1793649027640` the result is 21 and 5; without it, 24 and 6.
+   SELECT count(DISTINCT r.work||'-'||r.n) AS t4_rounds_with_evidence,
+          count(DISTINCT CASE WHEN instr(r.rejected,'evidence_holds')>0 THEN r.work||'-'||r.n END) AS sent_back
+   FROM rounds r,
+        json_each(CASE WHEN json_valid(r.output) THEN r.output ELSE '{}' END, '$.outcome.columns') c
+   WHERE r.cell = 'T4' AND r.started_at >= 1793622870365
+     AND json_extract(c.value, '$.evidence') IS NOT NULL;
+   ```
 2. The `nodes` field is a leftover. It was added on 2026-10-26 (commits 08370fa, the engine reading it, and e265d01, the
    field's text "Which design tree nodes") for pages of the design tree [read, `git log -S`]. The design tree left the
    flow in c223f55 (2026-11-02), there is no `design/` directory, and the field text still gives `design/flow.md` as its
@@ -380,47 +490,91 @@ Findings:
 3. Only this check reads `nodes` (a search of `crates/` finds `ev.get("nodes")` at `checks.rs:764` and nothing else that reads
    an evidence field); the page's code (`client/src`) reads no evidence field by name [read, grep]. Whether the page
    shows returns generically was not checked [inferred; confirm by reading how the page draws a stored return].
-4. In accepted returns `nodes` repeats the paths of `files` without line numbers (R227-30 rows, and all 12 entries
-   sampled from R238-65 are real paths) [read, measured sample].
+4. In accepted returns `nodes` often repeats the paths of `files` without line numbers: the first column of R238-65
+   lists `flow/flow.json` and a crate path in `nodes` beside the same files in `files` [read, the stored return; the
+   rest of its `nodes` was not read]. In R246-33, `nodes` holds round addresses only [read, its stored return].
 5. The two halves differ in strictness. `nodes` must be paths; `files` is only checked for entries that look like
-   paths. Of 596 `files` entries in accepted table reviews since version 33, 28 begin with a word with neither `/` nor
-   `.` (approximating `path_in` by the first space-delimited word) and so pass [measured]. The same free text is
-   refused in one field and passes in the other, so the check judges which box the model put the evidence in, not whether it
-   is true.
+   paths. Of the 768 `files` entries in the 13 accepted table reviews (T4 rounds not sent back) from version 33 to the
+   snapshot, 28 (3.6%) begin with a word with neither `/` nor `.` (approximating `path_in` by the first space-delimited
+   word) and so pass [measured, Q10]. The same free text is refused in one field and passes in the other, so the check
+   judges which box the model put the evidence in, not whether it is true.
+
+   ```sql
+   -- Q10. `files` entries of the accepted T4 returns up to the snapshot, and those whose first word has no `/` or `.`.
+   WITH e AS (
+     SELECT substr(f.value, 1, instr(f.value||' ', ' ')-1) AS w
+     FROM rounds r,
+          json_each(CASE WHEN json_valid(r.output) THEN r.output ELSE '{}' END, '$.outcome.columns') c,
+          json_each(c.value, '$.evidence.files') f
+     WHERE r.cell = 'T4' AND r.rejected IS NULL
+       AND r.started_at >= 1793622870365 AND r.started_at <= 1793649027640)
+   SELECT count(*) AS entries, sum(w NOT LIKE '%/%' AND w NOT LIKE '%.%') AS free_text FROM e;
+   ```
+
+6. While this report was written, work 246 put a change of this check in review: an entry that begins with a round's
+   name is looked up as a round and not as a file (its table review lists tests such as
+   `a_round_cited_in_the_evidence_must_exist`) [read, stored return of R246-33; the change was not read and its merge
+   state was not checked]. If it does what those test names say, it removes the four round-address returns (R227-30, R232-78, R234-34,
+   R246-33) once it lands, and leaves the `nodes` field as a second box beside `files`, R231-102 and R241-35 (free
+   text) and the strictness difference of finding 5 as they are [inferred; confirm by reading the change].
 
 Verdict: **not needed; remove the check and the `nodes` field.** What is lost: the engine no longer refuses a cited file
-that does not exist. That has not happened once in 11 entries. A cited file that does not exist is found by whoever follows
+that does not exist. That has not happened once in 13 entries. A cited file that does not exist is found by whoever follows
 the citation (the engineer answering the review, the owner). The cost of keeping it was five lost rounds since version
-33 ($1.00 of round cost, 5 of 21 reviews); keeping only the `files` half would still have sent back R241-35.
+33 up to the snapshot (5 of 21 reviews), six with R246-33; keeping only the `files` half would still have sent back R241-35.
 The removal touches `flow/flow.json` and `checks.rs`, so it is an open question to the owner (AGENTS.md); this report
 decides, it does not make the change.
 
 ## 8. What the returns cost
 
-Snapshot at R247-37: 837 agent rounds since version 33 (rounds with a recorded usage), $237.28, 873.1 minutes of
-round time. The minutes are the sum of round durations; rounds of different works overlap, so it is not elapsed time
-[measured].
+Snapshot at R247-37 (rounds that started from version 33 to the start of R247-37, with a recorded usage): 839 agent
+rounds, $237.40, 873.7 minutes of round time, of which 31 rounds were sent back [measured, Q11]. The minutes are the
+sum of round durations; rounds of different works overlap, so it is not elapsed time.
+
+```sql
+-- Q11. All agent rounds with a recorded usage from version 33 to the snapshot.
+SELECT count(*) AS rounds, round(sum(json_extract(usage,'$.cost_usd')),2) AS cost,
+       round(sum(ended_at-started_at)/60000.0,1) AS mins, sum(rejected IS NOT NULL) AS with_rejected
+FROM rounds
+WHERE started_at >= 1793622870365 AND started_at <= 1793649027640 AND usage IS NOT NULL;
+```
 
 | | Rounds | Cost | Round time |
 |---|---|---|---|
 | The 31 returns sent back | 31 (3.7% of all rounds) | $7.39 (3.1%) | 47.0 min (5.4%) |
-| The round that rewrote each (same work, same cell, next round, not itself sent back) | 28 | $4.51 | 19.6 min |
-| Together | 59 | $11.90 (5.0%) | 66.6 min (7.6%) |
+| The round that rewrote each (same work, same cell, next round, not itself sent back) | 28 | $4.51 | 19.8 min |
+| Together | 59 | $11.90 (5.0%) | 66.8 min (7.6%) |
 
-The rewrite is an upper bound of the waste, since a rewrite may also do other work (the longest are R242-14 at 171 s,
-and R228-13 and R234-28 at 103 s each). Three of the 31 (R227-21, R234-26 and R241-40) have a sent-back round as their next
-round (R227-22, R234-27 and R241-41), which is counted once, among the 31. The sent-back rounds by class, from per-round values: a $2.00 and 11.2
-min, b $1.82 and 13.0 min, c $3.20 and 20.6 min, d $0.19 and 0.7 min, e $0.18 and 1.3 min (the minutes sum to 46.7, the
-difference from 47.0 is the whole seconds kept per row). The dearest: R227-26 ($1.09, 422 s, the T3 call that could not be made), R231-21 ($0.64, 304 s), R234-27
-($0.63, 198 s) [measured].
+The shares are of the totals of Q11. The rewrite is an upper bound of the waste, since a rewrite may also do other
+work (the longest are R242-14 at 171 s, and R228-13 and R234-28 at 103 s each). Three of the 31 (R227-21, R234-26 and
+R241-40) have a sent-back round as their next round (R227-22, R234-27 and R241-41), which is counted once, among the
+31. The sent-back rounds by class: a $2.00 and 11.3 min, b $1.82 and 13.1 min, c $3.20 and 20.7 min, d $0.19 and 0.7
+min, e $0.18 and 1.3 min (the class minutes are rounded to a tenth, so they sum to 47.1 against the 47.0 of the total).
+The dearest: R227-26 ($1.09, 422 s, the T3 call that could not be made), R231-21 ($0.64, 304 s), R234-27 ($0.63, 198 s)
+[measured, Q12, and its per-round variants named in its comment; the same for the longest rewrites].
 
 ```sql
-SELECT count(*) AS n, round(sum(json_extract(usage,'$.cost_usd')),2) AS cost,
-       round(sum(ended_at-started_at)/60000.0,1) AS mins,
-       sum(rejected IS NOT NULL) AS rejected,
-       round(sum(CASE WHEN rejected IS NOT NULL THEN json_extract(usage,'$.cost_usd') END),2) AS rej_cost,
-       round(sum(CASE WHEN rejected IS NOT NULL THEN ended_at-started_at END)/60000.0,1) AS rej_mins
-FROM rounds WHERE started_at >= 1793622870365 AND usage IS NOT NULL;
+-- Q12. The class of each of the 31 rounds (section 4) joined to the rounds table: cost and minutes by class,
+-- the total, and the rewriting rounds. For the dearest and the longest rounds, select the rounds one by one and
+-- order by cost (the sent-back rounds) or by seconds (the rewriting rounds), LIMIT 4.
+WITH cls(work, n, class) AS (VALUES
+  (226,31,'c'),(227,21,'b'),(227,22,'a'),(227,26,'b'),(227,30,'a'),(227,40,'d'),(228,12,'c'),(231,21,'c'),
+  (231,76,'a'),(231,102,'a'),(232,40,'e'),(232,45,'c'),(232,78,'a'),(233,59,'c'),(234,23,'a'),(234,26,'a'),
+  (234,27,'c'),(234,34,'a'),(238,23,'b'),(238,34,'e'),(238,37,'a'),(238,58,'b'),(238,64,'c'),(239,53,'d'),
+  (241,2,'b'),(241,28,'c'),(241,35,'a'),(241,40,'b'),(241,41,'c'),(242,13,'c'),(242,15,'b'))
+SELECT cls.class AS class, count(*) AS n, round(sum(json_extract(r.usage,'$.cost_usd')),2) AS cost,
+       round(sum(r.ended_at-r.started_at)/60000.0,1) AS mins
+FROM cls JOIN rounds r ON r.work = cls.work AND r.n = cls.n GROUP BY cls.class
+UNION ALL
+SELECT 'ALL', count(*), round(sum(json_extract(r.usage,'$.cost_usd')),2), round(sum(r.ended_at-r.started_at)/60000.0,1)
+FROM cls JOIN rounds r ON r.work = cls.work AND r.n = cls.n
+UNION ALL
+-- The rewriting round: the next round of the same work and cell, if it was not itself sent back.
+SELECT 'REWRITES', count(*), round(sum(json_extract(nx.usage,'$.cost_usd')),2), round(sum(nx.ended_at-nx.started_at)/60000.0,1)
+FROM cls JOIN rounds r ON r.work = cls.work AND r.n = cls.n
+JOIN rounds nx ON nx.work = r.work
+  AND nx.n = (SELECT min(x.n) FROM rounds x WHERE x.work = r.work AND x.cell = r.cell AND x.n > r.n)
+WHERE nx.rejected IS NULL;
 ```
 
 ## 9. Across the classes
@@ -431,16 +585,19 @@ FROM rounds WHERE started_at >= 1793622870365 AND usage IS NOT NULL;
 - Where the count is: a and c are 20 of 31. The changes that remove most are: one test identity per runner (a, 5),
   removing `evidence_holds` (a, 5), saying the same thing in the three descriptions of a return (b, 7; direction 1 of
   class b), telling D2, T4, I1 and T6 what the engine does and keeps (c, 10).
-- The pause on every rejection (#198) will pause 31 times by this record; 27 of them would be cleared by a fix to the
+- The pause on every rejection (#198) will pause 31 times by this record (37 with section 4b); 27 of the 31 would be cleared by a fix to the
   system, not by the model's answer. The structured key above would let the pause show the class's usual cause.
-- Two causes came back after the snapshot: T3 asking for CI results it is not given (R227-26, R246-29), and an
-  interjection that cannot be answered in either round it is shown in (R242-38, R247-38). Both are cheap to remove and
-  both recur, which a pause on every rejection would only repeat.
+- Two causes came back after the snapshot: T3 asking for a `query` tool it does not have (R227-26, R246-29, R247-49),
+  and an interjection that cannot be answered in either round it is shown in (R242-38, R247-38, R250-12). Both are
+  cheap to remove and both recur, which a pause on every rejection would only repeat.
 
 ## 10. What is not confirmed
 
-- The model's reasons: c3 (why columns were skipped), c5 (that the cell lacked the count in its message), section 4b
-  (that R242-38 saw the note that told it to answer). Confirm by reading the stored messages in full, or by a trial.
+- The model's reasons: c3 (why columns were skipped, and that the engine's list held 19 and 27 columns), c5 (that the
+  cell lacked the count in its message), section 4b (that R242-38 and R250-12 saw the note that told them to answer).
+  Confirm by reading the stored messages in full, or by a trial.
+- The engine build each of the 31 rounds ran on: only the flow version and the sources at the repository commit were
+  checked (section 2).
 - The test names of R234-23 and R234-26 beyond the `describe > it` form: only the form was checked, not whether every
   test exists on work 234's branch.
 - `test_results_match_runs` (R238-34, R241-41), what reads a repeated `stands` (R227-40), whether the command line takes a nested
