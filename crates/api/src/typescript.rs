@@ -185,6 +185,7 @@ pub fn typescript() -> String {
         decl::<flow::format::Failure>(&cfg),
         decl::<flow::format::Handle>(&cfg),
         decl::<flow::format::EngineCase>(&cfg),
+        decl::<flow::format::Then>(&cfg),
         decl::<flow::CompiledCell>(&cfg),
         decl::<flow::CompiledInput>(&cfg),
         decl::<flow::format::Src>(&cfg),
