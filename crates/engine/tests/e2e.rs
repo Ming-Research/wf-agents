@@ -1402,9 +1402,6 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
         e.step(None).unwrap();
     }
     let (work, _, _) = state(&e, item).unwrap();
-    // Returns of the review, which tells the owner nothing.
-    let returned =
-        |outcome: Value| json!({ "outcome": outcome, "progress": "p", "side_reports": [], "flow_feedback": "none" });
     let add = |e: &mut Engine, cell: &str, output: &Value, row: &str, at: &str| {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
@@ -1442,6 +1439,490 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
     e.step_work(work).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert!(!took(&e).starts_with("fix"), "{}\n{log}", took(&e));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The transitions of a cell's rounds that ended, in order.
+fn transitions(e: &Engine, item: i64, cell: &str) -> Vec<String> {
+    ended_at(e, item, cell).into_iter().filter_map(|(t, _)| t).collect()
+}
+
+/// Steps the engine until `done` holds, or fails saying what the work did instead.
+fn step_until(e: &mut Engine, item: i64, said: &Arc<Mutex<Vec<String>>>, what: &str, done: impl Fn(&Engine) -> bool) {
+    for _ in 0..150 {
+        if done(e) {
+            return;
+        }
+        e.step(None).unwrap();
+    }
+    let rounds: Vec<String> =
+        e.db.conn()
+            .prepare(
+                "SELECT r.cell || ' ' || coalesce(r.transition, coalesce(r.rejected, 'running')) FROM rounds r
+                 JOIN works w ON w.id = r.work WHERE w.item = ?1 ORDER BY r.work, r.n",
+            )
+            .unwrap()
+            .query_map([item], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+    panic!(
+        "{what} did not come about in 150 steps: {:?}, by {}\n{}",
+        state(e, item),
+        rounds.join("; "),
+        said.lock().unwrap().join("\n")
+    );
+}
+
+/// A table review that gives the last column of its table a finding, R1, and answers the others as passing; at each
+/// later round it hands in only `later`, its answers to its earlier findings, one list for each round.
+fn review_with_a_finding(later: Vec<Value>) -> Script {
+    let known: Mutex<BTreeMap<String, Vec<String>>> = Mutex::default();
+    Box::new(move |r: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), vec![("outcome.previous", later[n - 2].clone())]);
+        }
+        let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
+        let ids = columns_known(&r.prompt, known.lock().unwrap().entry(session).or_default());
+        let evidence = json!({ "files": [], "ran": [], "nodes": [] });
+        let cols: Vec<Value> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                if i + 1 < ids.len() {
+                    json!({ "id": id, "verdict": "pass", "evidence": evidence })
+                } else {
+                    json!({ "id": id, "verdict": "findings", "evidence": evidence, "findings": [
+                        { "fid": "R1", "where": "the pull request", "what": "It says too little.", "fix": "Say more." }
+                    ] })
+                }
+            })
+            .collect();
+        (
+            vec![("outcome.no_adversarial", "stands")],
+            vec![("outcome.columns", json!(cols))],
+        )
+    })
+}
+
+/// A fix that answers its one row in each round with `rows`, one list for each round, and makes no commit: the head it
+/// hands in is the one the work pushed already. The string `HEAD` in a row stands for that head.
+fn fix_answering(rows: Vec<Value>) -> Script {
+    Box::new(move |r: &Request, n: usize| {
+        let head = git(&r.worktree, &["rev-parse", "HEAD"]);
+        let rows = rows[n - 1].to_string().replace("HEAD", &head);
+        (
+            Vec::new(),
+            vec![
+                ("outcome.head", json!(head)),
+                ("outcome.rows", serde_json::from_str(&rows).unwrap()),
+            ],
+        )
+    })
+}
+
+// A fix that is in no commit, such as the pull request's description, answers the review's finding fixed_outside_commit,
+// and the review then looks at that finding again, and only it. In the fourth trial a work whose description lacked two
+// files turned from the merge judgment to the fix, which had no row to answer, to choosing what runs next, which
+// chose nothing, ninety times and more: the answer left the change as it was, and nothing sent the review back.
+#[test]
+fn a_fix_in_no_commit_sends_the_review_back_to_the_finding_it_answered() {
+    let s = setup("fix-no-commit");
+    let mut agents = scripts();
+    agents.insert(
+        "T4",
+        review_with_a_finding(vec![json!([{ "fid": "R1", "verdict": "closed" }])]),
+    );
+    let answered = "The pull request description now names the two test files; pushed with ci.";
+    agents.insert(
+        "T6",
+        Box::new(move |r: &Request, n: usize| {
+            let head = git(&r.worktree, &["rev-parse", "HEAD"]);
+            if n == 1 {
+                // The description is corrected with ci and no tests: there is nothing to run.
+                let pr = json!({ "title": "Add the feature", "body": "It adds the feature and its test." });
+                let tools = json!([{ "tool": "ci", "head": head, "pr": pr }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            let row = json!([{ "answer": "fixed_outside_commit", "id": "F1", "where": answered }]);
+            (Vec::new(), vec![("outcome.head", json!(head)), ("outcome.rows", row)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the review clearing the work", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "clear")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let m1 = transitions(&e, item, "M1");
+    assert_eq!(m1.iter().filter(|t| *t == "fix").count(), 1, "{m1:?}");
+    let t6 = transitions(&e, item, "T6");
+    assert!(!t6.iter().any(|t| t == "nothing_to_answer"), "{t6:?}");
+    assert_eq!(transitions(&e, item, "T4"), ["done", "done"]);
+    let plans: Vec<String> = e
+        .db
+        .conn()
+        .prepare("SELECT json_extract(output, '$.plan.review') FROM rounds WHERE work = ?1 AND cell = 'T7' ORDER BY n")
+        .unwrap()
+        .query_map([work], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect();
+    assert!(plans.iter().any(|p| p == "disputes"), "{plans:?}");
+    // The re-review is given the row and where the fix is.
+    let m = message_at(&e, work, "T4", true);
+    assert!(m.contains("fixed_outside_commit") && m.contains(answered), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A work whose review raises one finding, R1, run through the review's later answers and the fix's rows (see
+/// [`review_with_a_finding`] and [`fix_answering`]) until the review clears it. When the second round of the fix has
+/// answered, `second` replaces the rows it handed in, as a fix that asked the advisor would have answered them. The
+/// review looks at the finding again after every fix, and no round of the fix has an empty table.
+fn finding_is_cleared(name: &str, review: Vec<Value>, fix: Vec<Value>, second: Option<Value>) {
+    let s = setup(name);
+    let mut agents = scripts();
+    let fixes = review.len();
+    agents.insert("T4", review_with_a_finding(review));
+    agents.insert("T6", fix_answering(fix));
+    let (mut e, said, item) = start(&s, agents);
+    let done =
+        |e: &Engine, cell: &str, n: usize| transitions(e, item, cell).iter().filter(|t| *t == "done").count() == n;
+    if let Some(rows) = second {
+        step_until(&mut e, item, &said, "the second fix answering", |e| done(e, "T6", 2));
+        let (work, _, _) = state(&e, item).unwrap();
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE rounds SET output = json_set(output, '$.outcome.rows', json(?2))
+                 WHERE work = ?1 AND cell = 'T6' AND n = (SELECT max(n) FROM rounds WHERE work = ?1 AND cell = 'T6'
+                                                          AND transition = 'done')",
+                params![work, rows.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+    step_until(&mut e, item, &said, "the review clearing the finding", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "clear")
+    });
+    let t6 = transitions(&e, item, "T6");
+    assert!(!t6.iter().any(|t| t == "nothing_to_answer"), "{t6:?}");
+    assert_eq!(transitions(&e, item, "T4").len(), fixes + 1);
+    let m1 = transitions(&e, item, "M1");
+    assert_eq!(m1.iter().filter(|t| *t == "fix").count(), fixes, "{m1:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The review insisted on a finding, the engineer asked the advisor and answered advisor_ruled, which changes nothing in
+// the code: the review looks at the finding again, withdraws it by the ruling, and the work goes on.
+#[test]
+fn a_ruling_that_changes_no_code_sends_the_review_back_to_the_finding() {
+    finding_is_cleared(
+        "ruled-no-code",
+        vec![
+            json!([{ "fid": "R1", "verdict": "insist", "reason": "It is still wrong.", "basis": { "kind": "judgment" } }]),
+            json!([{ "fid": "R1", "verdict": "withdraw" }]),
+        ],
+        vec![
+            json!([{ "answer": "disagree", "id": "F1", "reason": "It is right as it is.", "basis": { "kind": "judgment" } }]),
+            json!([{ "answer": "cannot_verify", "id": "F1", "reason": "Replaced below." }]),
+        ],
+        Some(
+            json!([{ "answer": "advisor_ruled", "id": "F1", "ruling": "The advisor ruled that no change is needed." }]),
+        ),
+    );
+}
+
+// The review said the finding was not fixed, and the engineer answers fixed again with the head it had, no new commit:
+// the review looks at it again, not the merge judgment, the fix and the choice of what runs next in turn.
+#[test]
+fn an_answer_fixed_again_with_no_new_commit_sends_the_review_back_to_the_finding() {
+    finding_is_cleared(
+        "fixed-again-no-commit",
+        vec![
+            json!([{ "fid": "R1", "verdict": "not_fixed", "reason": "It is not." }]),
+            json!([{ "fid": "R1", "verdict": "closed" }]),
+        ],
+        vec![
+            json!([{ "answer": "fixed_outside_commit", "id": "F1", "where": "The pull request description." }]),
+            json!([{ "answer": "fixed", "id": "F1", "commit": "HEAD" }]),
+        ],
+        None,
+    );
+}
+
+// Whatever the fix answers to a row a side raised, and the code does not change, that side looks at it again: every
+// answer the flow gives is tried, so an answer added later cannot be left out. The review looks at the rows it raised and
+// adversarial testing, which has run in this work, stays skipped; adversarial testing looks at the rows it raised, and
+// the review goes with it as it does when adversarial testing runs; a row another cell raised, as a red check of the full
+// CI, sends neither anywhere.
+#[test]
+fn every_answer_to_a_row_a_side_raised_makes_that_side_look_again() {
+    let s = setup("every-answer");
+    let mut agents = scripts();
+    agents.insert("T4", review_with_a_finding(Vec::new()));
+    agents.insert(
+        "T6",
+        fix_answering(vec![
+            json!([{ "answer": "cannot_verify", "id": "F1", "reason": "Replaced below." }]),
+        ]),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the fix taking the finding", |e| {
+        state(e, item).is_some_and(|(_, at, _)| at == "T6")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    // Adversarial testing has run on the change the review saw: a round of it, before the fix.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+             SELECT ?1, (SELECT max(n) + 1 FROM rounds WHERE work = ?1), 'T1',
+                    json_object('engine', json(json_extract(input, '$.engine'))), '{\"outcome\":{}}', 'done', 'c', 1, 2
+             FROM rounds WHERE work = ?1 AND cell = 'T4' ORDER BY n DESC LIMIT 1",
+            [work],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    step_until(&mut e, item, &said, "the fix answering", |e| {
+        transitions(e, item, "T6").iter().any(|t| t == "done")
+    });
+    let plan = |e: &mut Engine, rows: Value| -> (String, String) {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE rounds SET output = json_set(output, '$.outcome.rows', json(?2)) WHERE work = ?1 AND cell = 'T6'",
+                params![work, rows.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        move_to(e, work, "T7");
+        e.step_work(work).unwrap();
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(output, '$.plan.review'), json_extract(output, '$.plan.adversarial') FROM rounds
+                 WHERE work = ?1 AND cell = 'T7' ORDER BY n DESC LIMIT 1",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+    };
+    let answers = flow::answers("T6", "rows").unwrap();
+    assert!(answers.iter().any(|a| a == "fixed_outside_commit"), "{answers:?}");
+    let raised_by = |e: &mut Engine, cell: &str| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE rounds SET input = json_set(input, '$.engine.table[0].from', ?2)
+                 WHERE work = ?1 AND cell = 'T6'",
+                params![work, cell],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    };
+    let expect = |e: &mut Engine, review: &str, adversarial: &str| {
+        for answer in &answers {
+            let got = plan(e, json!([{ "answer": answer, "id": "F1" }]));
+            assert_eq!(got, (review.to_string(), adversarial.to_string()), "{answer}");
+        }
+    };
+    // The row is the review's finding.
+    expect(&mut e, "disputes", "skipped");
+    // The row is a test adversarial testing wrote that went wrong.
+    raised_by(&mut e, "T1·new_tests");
+    expect(&mut e, "changed", "disputes");
+    // The row is a red check of the full CI.
+    raised_by(&mut e, "T2·result[red]");
+    expect(&mut e, "none", "skipped");
+    // Adversarial testing, sent back to a row it raised, is given the fix's table with that row and the answer to it,
+    // whatever the answer was: the row's number alone would say nothing of which test it is.
+    raised_by(&mut e, "T1·new_tests");
+    let where_it_is = "Only in the pull request description, pushed with ci.";
+    let fixed = json!([{ "answer": "fixed_outside_commit", "id": "F1", "where": where_it_is }]);
+    assert_eq!(plan(&mut e, fixed).1, "disputes");
+    e.step_work(work).unwrap();
+    let m = message_at(&e, work, "T1", true);
+    assert!(
+        m.contains("It says too little.") && m.contains("fixed_outside_commit") && m.contains(where_it_is),
+        "{m}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Records a round of `cell` that was given `input` and handed in `output`, and leaves the work at `at`, where the row
+/// `transition` of the cell leads.
+fn seed_round(e: &mut Engine, work: i64, cell: &str, input: &Value, output: &Value, transition: &str, at: &str) {
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'c', 1, 2)",
+            params![
+                work,
+                next_round(tx, work)?,
+                cell,
+                input.to_string(),
+                output.to_string(),
+                transition
+            ],
+        )?;
+        tx.execute("UPDATE works SET at = ?2 WHERE id = ?1", params![work, at])?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// A return of an agent's cell with `outcome`, which tells the owner nothing.
+fn returned(outcome: Value) -> Value {
+    json!({ "outcome": outcome, "progress": "p", "side_reports": [], "flow_feedback": "none", "tell_owner": [] })
+}
+
+/// The input of a round of the review that was given the change as the blind review was: what the review is given
+/// again while no commit follows, as when a fix changes only the PR description.
+fn input_of_the_change_reviewed(e: &Engine, work: i64) -> Value {
+    let change: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(input, '$.engine.change') FROM rounds WHERE work = ?1 AND cell = 'T3'
+             ORDER BY n DESC LIMIT 1",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    json!({ "engine": { "change": change } })
+}
+
+/// What the latest round of choosing what runs next planned for the review, and for adversarial testing.
+fn planned(e: &Engine, work: i64) -> (String, String) {
+    e.db.conn()
+        .query_row(
+            "SELECT json_extract(output, '$.plan.review'), json_extract(output, '$.plan.adversarial') FROM rounds
+             WHERE work = ?1 AND cell = 'T7' ORDER BY n DESC LIMIT 1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+}
+
+/// The row the latest round of the merge judgment took.
+fn judged(e: &Engine, work: i64) -> String {
+    e.db.conn()
+        .query_row(
+            "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'M1' ORDER BY n DESC LIMIT 1",
+            [work],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// A fix that answers a row the review left itself (a finding, a finding it did not accept as fixed, or one it insisted
+// on) with no commit after it, as when it changes only the PR description or rests on the advisor's ruling, sends the
+// work back to that review, whatever the answer: only the review can close the row. Without it, the merge judgment
+// sends the work to a fix that has no row to answer, and the work goes round the merge judgment, the fix and the
+// choice of what runs next with no end, as in the sixth trial. Each of the three ways back to the review is taken
+// once, then the review closes its row and the work goes on.
+#[test]
+fn a_fix_that_answered_the_reviews_row_without_a_commit_goes_back_to_the_review() {
+    let s = setup("fix-no-commit");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "T4");
+    let (work, _, _) = state(&e, item).unwrap();
+    let reviewed = input_of_the_change_reviewed(&e, work);
+    let log = || said.lock().unwrap().join("\n");
+    // The review hands in its return and the merge judgment reads it.
+    let review = |e: &mut Engine, outcome: Value| {
+        seed_round(e, work, "T4", &reviewed, &returned(outcome), "done", "M1");
+        e.step_work(work).unwrap();
+    };
+    // The fix answers the one row it was given, which came from `from`, and the work stands where the choice of what
+    // runs next is made.
+    let fix = |e: &mut Engine, row: Value, answer: Value| {
+        let input = json!({ "engine": { "table": [row] } });
+        let output = returned(json!({ "rows": [answer], "head": "abc" }));
+        seed_round(e, work, "T6", &input, &output, "done", "T7");
+    };
+    // The choice of what runs next, and where the work goes after it.
+    let choose = |e: &mut Engine| {
+        e.step_work(work).unwrap();
+        (planned(e, work), state(e, item).unwrap().1)
+    };
+    let disputes = (("disputes".to_string(), "skipped".to_string()), "T4".to_string());
+    let finding = json!({ "id": "1", "verdict": "findings", "evidence": { "files": [], "ran": [], "nodes": [] },
+        "findings": [{ "fid": "R1", "where": "PR description", "what": "It omits the ruling.", "fix": "Add it." }] });
+
+    // A finding of a column, answered fixed: the PR description was changed.
+    review(&mut e, json!({ "columns": [finding] }));
+    assert_eq!(judged(&e, work), "fix", "{}", log());
+    let row = json!({ "row": "F1", "from": "T4·columns[findings]", "column": "1", "fid": "R1",
+                      "where": "PR description", "what": "It omits the ruling.", "fix": "Add it." });
+    fix(&mut e, row, json!({ "id": "F1", "answer": "fixed", "commit": "abc" }));
+    assert_eq!(choose(&mut e), disputes, "{}", log());
+    // The review closes it: the merge judgment sends the work to no fix, and the same answer is not read again.
+    review(&mut e, json!({ "previous": [{ "fid": "R1", "verdict": "closed" }] }));
+    assert!(!judged(&e, work).starts_with("fix"), "{}\n{}", judged(&e, work), log());
+    move_to(&mut e, work, "T7");
+    assert_eq!(choose(&mut e).0.0, "none", "{}", log());
+
+    // The finding not accepted as fixed, answered fixed again.
+    review(
+        &mut e,
+        json!({ "previous": [{ "fid": "R1", "verdict": "not_fixed", "reason": "The ruling is still missing." }] }),
+    );
+    assert_eq!(judged(&e, work), "fix", "{}", log());
+    let message = engine::next_message(&mut e, work).unwrap().text;
+    assert!(message.contains("The ruling is still missing."), "{message}");
+    let row = json!({ "row": "F1", "from": "T4·previous[not_fixed]", "fid": "R1", "verdict": "not_fixed",
+                      "reason": "The ruling is still missing." });
+    fix(&mut e, row, json!({ "id": "F1", "answer": "fixed", "commit": "abc" }));
+    assert_eq!(choose(&mut e), disputes, "{}", log());
+    review(&mut e, json!({ "previous": [{ "fid": "R1", "verdict": "closed" }] }));
+    assert!(!judged(&e, work).starts_with("fix"), "{}\n{}", judged(&e, work), log());
+
+    // The finding the review insisted on, answered advisor_ruled: the review withdraws it by the ruling.
+    review(
+        &mut e,
+        json!({ "previous": [{ "fid": "R1", "verdict": "insist", "reason": "The ruling is still missing.",
+                               "basis": { "kind": "read", "check": "the PR description" } }] }),
+    );
+    assert_eq!(judged(&e, work), "fix", "{}", log());
+    let row = json!({ "row": "F1", "from": "T4·previous[insist]", "fid": "R1", "verdict": "insist",
+                      "reason": "The ruling is still missing." });
+    fix(
+        &mut e,
+        row,
+        json!({ "id": "F1", "answer": "advisor_ruled", "ruling": "No change is needed." }),
+    );
+    assert_eq!(choose(&mut e), disputes, "{}", log());
+    review(&mut e, json!({ "previous": [{ "fid": "R1", "verdict": "withdraw" }] }));
+    assert!(!judged(&e, work).starts_with("fix"), "{}\n{}", judged(&e, work), log());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A fix that answers a row another cell left (a red check of the CI, say) with no commit after it is no reason to
+// review again: the review has no row of its own to close, and what the fix changed is what the checks look at.
+#[test]
+fn a_fix_that_answered_a_row_of_another_cell_without_a_commit_is_not_reviewed_again() {
+    let s = setup("fix-no-commit-other");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "T4");
+    let (work, _, _) = state(&e, item).unwrap();
+    let pass = json!({ "id": "1", "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } });
+    let reviewed = input_of_the_change_reviewed(&e, work);
+    seed_round(
+        &mut e,
+        work,
+        "T4",
+        &reviewed,
+        &returned(json!({ "columns": [pass] })),
+        "done",
+        "M1",
+    );
+    let row = json!({ "row": "F1", "from": "T2·result[red]", "kind": "red", "name": "lint", "result": "red",
+                      "run": "https://example.com/runs/7" });
+    let input = json!({ "engine": { "table": [row] } });
+    let output = returned(json!({ "rows": [{ "id": "F1", "answer": "fixed", "commit": "abc" }], "head": "abc" }));
+    seed_round(&mut e, work, "T6", &input, &output, "done", "T7");
+    e.step_work(work).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(planned(&e, work), ("none".to_string(), "skipped".to_string()), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -7116,6 +7597,10 @@ fn an_open_question_goes_to_the_architect_holds_the_merge_and_its_answer_reaches
         open_questions(&e, work)[0].2.as_deref(),
         Some("One table.\n\nThe items are few.")
     );
+    // The architect answered it itself: the record says so, and holds no ask of the owner.
+    let body = matter_body(&e, matter);
+    assert_eq!(body["answered_by"], "architect", "{body}");
+    assert!(body.get("owner_ask").is_none(), "{body}");
     let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
     assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
     let way_on = message_at(&e, work, "A4", true);
@@ -7123,6 +7608,579 @@ fn an_open_question_goes_to_the_architect_holds_the_merge_and_its_answer_reaches
         way_on.contains("The answer to the open question of your design \"Which table?\": One table."),
         "{way_on}"
     );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A matter's body.
+fn matter_body(e: &Engine, matter: i64) -> Value {
+    let body: String =
+        e.db.conn()
+            .query_row("SELECT body FROM architect_matters WHERE id = ?1", [matter], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    serde_json::from_str(&body).unwrap()
+}
+
+/// The ask of the owner that parks a matter, with the cell the matter goes back to with the owner's reply; none while
+/// no ask parks it.
+fn parked_for(e: &Engine, matter: i64) -> Option<(i64, String)> {
+    let (ask, cell): (Option<i64>, Option<String>) =
+        e.db.conn()
+            .query_row(
+                "SELECT asked, resume_cell FROM architect_matters WHERE id = ?1",
+                [matter],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    ask.zip(cell)
+}
+
+/// The work of the architect whose ways (`H3`) took a round, the first or the last.
+fn ways_work(e: &Engine, last: bool) -> i64 {
+    let order = if last { "DESC" } else { "" };
+    e.db.conn()
+        .query_row(
+            &format!("SELECT work FROM rounds WHERE cell = 'H3' ORDER BY work {order}, n {order} LIMIT 1"),
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// The ways for an open question only the owner can settle: they pin it in the owner's one-to-one, the question linking
+/// to the design as the matter holds the link (the architect's session was given the matter at the crux already, so the
+/// message does not repeat it), and reply once the owner's words are in the message, in words of their own.
+fn ways_pin_for_the_owner(s: &Setup) -> Script {
+    let path = config::database(&s.data);
+    Box::new(move |r: &Request, _: usize| {
+        if r.prompt.contains("Take one table.") {
+            let reply = json!({ "text": "Go on with one table.", "why": "The owner decided it." });
+            return (Vec::new(), vec![("outcome.reply", reply)]);
+        }
+        let c = db::open_read(&path).unwrap();
+        let link: String = c
+            .query_row(
+                "SELECT body ->> '$.design_link' FROM architect_matters WHERE kind = 'open_question' ORDER BY id LIMIT 1",
+                [],
+                |x| x.get(0),
+            )
+            .unwrap();
+        asks_the_owner(&format!("Is one table enough? See [the design]({link})."))
+    })
+}
+
+// An open question the architect pins for the owner has no answer until the owner has answered and the architect has
+// replied by it, so the merge keeps waiting; the architect does not wait for the reply, its work goes on and ends; the
+// question is pinned in the owner's one-to-one with the link to the design; and the owner's reply brings the matter back
+// to the ways, which are given it, and whose reply is kept after the owner's words as they were said, the record saying
+// the owner answered; the engineer is told, and the merge goes on.
+#[test]
+fn an_open_question_pinned_for_the_owner_holds_the_merge_until_the_owner_has_answered() {
+    let s = setup("open-question-pinned");
+    let mut agents = scripts();
+    agents.insert("D2", designs_with_an_open_question());
+    agents.insert("H3", ways_pin_for_the_owner(&s));
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let matter = open_questions(&e, work)[0].0;
+    advance_until(&mut e, work, |e| !ended_at(e, item, "M1").is_empty());
+    let pinned = |e: &mut Engine| parked_for(e, matter).is_some();
+    assert!(steps_until(&mut e, 60, pinned), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    // The matter is parked at the ways for the ask, which holds the question with the link to the design.
+    let (ask, cell) = parked_for(&e, matter).unwrap();
+    assert_eq!(cell, "H3", "{log}");
+    let pinned_question: String =
+        e.db.conn()
+            .query_row(
+                "SELECT body ->> '$.question' FROM owner_asks WHERE id = ?1",
+                [ask],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let link = format!("(/works/{work}?round=R{work}-");
+    assert!(pinned_question.contains(&link), "{pinned_question}");
+    // It has no answer, so the merge goes on waiting for it, and the one-to-one lists it as pending.
+    assert_eq!(open_questions(&e, work)[0].2, None, "{log}");
+    assert_eq!(matter_body(&e, matter).get("answer"), None);
+    let pending: Vec<i64> = {
+        let mut st = e.db.conn().prepare(db::QUESTIONS_PENDING).unwrap();
+        st.query_map(["p"], |r| r.get("question"))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(pending, [ask]);
+    // The architect does not wait for the reply to it: its work ends with no wait at the look at the queue.
+    let arch = ways_work(&e, false);
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert!(
+        cells_of(&e, arch).iter().all(|c| c.1.as_deref() != Some("waits")),
+        "{:?}\n{log}",
+        cells_of(&e, arch)
+    );
+    for _ in 0..10 {
+        e.advance(work).unwrap();
+    }
+    assert_eq!(open_questions(&e, work)[0].2, None, "{log}");
+    assert!(
+        ended_at(&e, item, "M1")
+            .iter()
+            .all(|x| x.0.as_deref() == Some("wait_questions")),
+        "{:?}\n{log}",
+        ended_at(&e, item, "M1")
+    );
+    // The owner replies with the question ticked: the matter is back at the ways with the owner's reply.
+    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[]).unwrap();
+    let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
+    assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    let again = ways_work(&e, true);
+    assert_ne!(again, arch, "{log}");
+    let cells = cells_of(&e, again);
+    let back = cells.iter().position(|c| c.0 == "Q2").expect(&log);
+    assert_eq!(
+        (cells[back].1.as_deref(), cells[back + 1].0.as_str()),
+        (Some("back_with_answer_to_ways"), "H3"),
+        "{cells:?}\n{log}"
+    );
+    assert!(message_at(&e, again, "H3", true).contains("Take one table."), "{log}");
+    // The answer begins with the owner's words as they were said, and the record says who answered and where.
+    let words = "Take one table.\n\nGo on with one table.\n\nThe owner decided it.";
+    assert_eq!(open_questions(&e, work)[0].2.as_deref(), Some(words), "{log}");
+    let body = matter_body(&e, matter);
+    assert_eq!(
+        (&body["answer"], &body["answered_by"], &body["owner_ask"]),
+        (&json!(words), &json!("owner"), &json!(ask)),
+        "{body}"
+    );
+    // The engineer is told it, and the merge goes on.
+    let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
+    assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
+    let way_on = message_at(&e, work, "A4", true);
+    // The engineer is told which part is the owner's and which the architect's.
+    assert!(
+        way_on.contains(
+            "The answer to the open question of your design \"Which table?\": The owner answered: Take one \
+             table.\n\nThe architect added: Go on with one table.\n\nThe owner decided it."
+        ),
+        "{way_on}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The ways ask the owner only about an open question: an engineer waits for the reply to its question, and the ask of the
+// owner is sent back, nothing is pinned, and the reply that follows reaches the engineer.
+#[test]
+fn an_engineer_s_question_cannot_be_pinned_for_the_owner() {
+    let s = setup("pin-engineer-question");
+    let ways: Script = Box::new(|_: &Request, n: usize| {
+        if n == 1 {
+            return asks_the_owner("Is a 3% slowdown acceptable? See [the design](/works/1?round=R1-1).");
+        }
+        let reply = json!({
+            "text": "Put the slowdown to the owner as an open question of your design, and go on.",
+            "why": "Accepting a slowdown is the owner's choice.",
+        });
+        (Vec::new(), vec![("outcome.reply", reply)])
+    });
+    let ask = asks_about_a_gap("The change makes parsing 3% slower, measured over 30 pairs.");
+    let (e, said, _, work, arch) = a_gap_asked(&s, ask, vec![("H3", ways)]);
+    let log = said.lock().unwrap().join("\n");
+    let sent_back = why_sent_back(&e, arch, "H3");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
+    assert!(sent_back[0].contains("cannot be parked for the owner"), "{sent_back:?}");
+    let asks: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM owner_asks", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(asks, 0, "{log}");
+    assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The question pinned for the owner links to the design it is about, which the owner reads it away from: an ask without
+// the link is sent back, and so is one that links to another round of the same work, whose address only begins with the
+// design's; nothing is pinned, and the architect that answers the question itself instead has it recorded as its own
+// answer.
+#[test]
+fn a_question_pinned_for_the_owner_must_link_to_its_design() {
+    let s = setup("pin-without-link");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    agents.insert("D2", designs_with_an_open_question());
+    agents.insert(
+        "H3",
+        Box::new(move |_: &Request, n: usize| {
+            if n == 1 {
+                return asks_the_owner("Is one table enough?");
+            }
+            if n == 2 {
+                // The address of the design's round with one more digit: the round of another number.
+                let link = format!("{}0", design_link_of(&path));
+                return asks_the_owner(&format!("Is one table enough? See [the design]({link})."));
+            }
+            let reply = json!({ "text": "One table.", "why": "The items are few." });
+            (Vec::new(), vec![("outcome.reply", reply)])
+        }),
+    );
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let matter = open_questions(&e, work)[0].0;
+    let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
+    assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    let sent_back = why_sent_back(&e, ways_work(&e, false), "H3");
+    assert_eq!(sent_back.len(), 2, "{sent_back:?}\n{log}");
+    for why in &sent_back {
+        assert!(why.contains("link to the design"), "{sent_back:?}");
+        assert!(why.contains(&format!("/works/{work}?round=R{work}-")), "{sent_back:?}");
+    }
+    assert_eq!(parked_for(&e, matter), None, "{log}");
+    let asks: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM owner_asks", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(asks, 0, "{log}");
+    assert_eq!(matter_body(&e, matter)["answered_by"], "architect", "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The link to its design that the first open question's matter holds, as the ways read it from the database.
+fn design_link_of(path: &std::path::Path) -> String {
+    db::open_read(path)
+        .unwrap()
+        .query_row(
+            "SELECT body ->> '$.design_link' FROM architect_matters WHERE kind = 'open_question' ORDER BY id LIMIT 1",
+            [],
+            |x| x.get(0),
+        )
+        .unwrap()
+}
+
+/// An engine whose work has the open question "Which table?" and whose ways (`H3`) are `ways`, with any other cell
+/// scripted as given, run until the architect pinned the question for the owner and its work ended: the engine, what it
+/// said, the item, its work, the matter of the question, and the ask that parks it.
+fn pinned(
+    s: &Setup,
+    ways: Script,
+    scripted: Vec<(&'static str, Script)>,
+) -> (Engine, Arc<Mutex<Vec<String>>>, i64, i64, i64, i64) {
+    let mut agents = scripts();
+    agents.insert("D2", designs_with_an_open_question());
+    agents.insert("H3", ways);
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
+    );
+    for (cell, script) in scripted {
+        agents.insert(cell, script);
+    }
+    let (mut e, said, item) = start(s, agents);
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let matter = open_questions(&e, work)[0].0;
+    advance_until(&mut e, work, |e| !ended_at(e, item, "M1").is_empty());
+    assert!(
+        steps_until(&mut e, 60, |e| parked_for(e, matter).is_some()),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let ask = parked_for(&e, matter).unwrap().0;
+    let arch = ways_work(&e, false);
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    (e, said, item, work, matter, ask)
+}
+
+// The owner may be asked about the same open question again: the ways, back with the owner's reply, ask once more, and
+// the matter is parked by the new ask. The answer is then made of the last words only, with the image that came with
+// them named as an agent is given words, the record points to the last ask, and the first one, answered, stays as it was
+// said and is pending no more.
+#[test]
+fn an_open_question_pinned_twice_is_answered_by_the_owner_s_last_words_and_their_image() {
+    let s = setup("open-question-pinned-twice");
+    let path = config::database(&s.data);
+    let ways: Script = Box::new(move |r: &Request, _: usize| {
+        if r.prompt.contains("Two tables after all.") {
+            let reply = json!({ "text": "Go on with two tables.", "why": "The owner changed it." });
+            return (Vec::new(), vec![("outcome.reply", reply)]);
+        }
+        let link = design_link_of(&path);
+        let question = if r.prompt.contains("Take one table.") {
+            "Is a second table needed?"
+        } else {
+            "Is one table enough?"
+        };
+        asks_the_owner(&format!("{question} See [the design]({link})."))
+    });
+    let (mut e, said, item, work, matter, first) = pinned(&s, ways, Vec::new());
+    api::reply_to_question(&mut e.db, "p", first, "Take one table.", &[]).unwrap();
+    // The ways ask again: the matter is parked by another ask, while the merge still has no answer.
+    let again = |e: &mut Engine| parked_for(e, matter).is_some_and(|p| p.0 != first);
+    assert!(steps_until(&mut e, 80, again), "{}", said.lock().unwrap().join("\n"));
+    let second = parked_for(&e, matter).unwrap().0;
+    assert_eq!(open_questions(&e, work)[0].2, None);
+    assert_eq!(matter_body(&e, matter).get("answer"), None);
+    let pending = |e: &Engine| -> Vec<i64> {
+        let mut st = e.db.conn().prepare(db::QUESTIONS_PENDING).unwrap();
+        st.query_map(["p"], |r| r.get("question"))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(pending(&e), [second]);
+    let image = api::images(&two_images()[..1]).unwrap();
+    api::reply_to_question(&mut e.db, "p", second, "Two tables after all.", &image).unwrap();
+    let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
+    assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    let ids = db::attachments::of(e.db.conn(), db::attachments::Words::Ask(second)).unwrap();
+    assert_eq!(ids.len(), 1, "{log}");
+    let words = db::attachments::with_named("Two tables after all.", &ids);
+    let expected = format!("{words}\n\nGo on with two tables.\n\nThe owner changed it.");
+    let body = matter_body(&e, matter);
+    assert_eq!(
+        (&body["answer"], &body["answered_by"], &body["owner_ask"]),
+        (&json!(expected), &json!("owner"), &json!(second)),
+        "{body}"
+    );
+    assert!(!expected.contains("Take one table."));
+    assert!(pending(&e).is_empty(), "{log}");
+    let said_first: String =
+        e.db.conn()
+            .query_row(
+                "SELECT answer ->> '$.text' FROM owner_asks WHERE id = ?1",
+                [first],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(said_first, "Take one table.");
+    let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
+    assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work that ends while its open question is pinned for the owner takes the matter out of the queue: the question is
+// pending no more and the architect never waits for it; the owner's reply to it afterwards is taken and puts no answer
+// in the matter of a work that is gone.
+#[test]
+fn a_question_pinned_for_a_work_that_ended_is_pending_no_more() {
+    let s = setup("pinned-work-ended");
+    let path = config::database(&s.data);
+    let ways: Script = Box::new(move |_: &Request, _: usize| {
+        let link = design_link_of(&path);
+        asks_the_owner(&format!("Is one table enough? See [the design]({link})."))
+    });
+    let (mut e, said, item, work, matter, ask) = pinned(&s, ways, Vec::new());
+    let projects = e.config.config.projects.clone();
+    e.db.write(Actor::Owner, |tx| {
+        engine::ending::cancel_item(tx, item, "no longer needed", "owner", &projects).map_err(db::Error::Abort)
+    })
+    .unwrap();
+    let ended = |e: &Engine| -> bool {
+        e.db.conn()
+            .query_row("SELECT ended IS NOT NULL FROM works WHERE id = ?1", [work], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    };
+    for _ in 0..20 {
+        if ended(&e) {
+            break;
+        }
+        e.step_work(work).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(ended(&e), "{log}");
+    let withdrawn: Option<String> =
+        e.db.conn()
+            .query_row("SELECT withdrawn FROM architect_matters WHERE id = ?1", [matter], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert!(withdrawn.is_some(), "{log}");
+    let pending: i64 =
+        e.db.conn()
+            .query_row(
+                &format!("SELECT count(*) FROM ({})", db::QUESTIONS_PENDING),
+                ["p"],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(pending, 0, "{log}");
+    let now = db::now();
+    assert_eq!(db::question_waited_on(e.db.conn(), "p", 300_000, now).unwrap(), None);
+    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[]).unwrap();
+    assert_eq!(matter_body(&e, matter).get("answer"), None, "{log}");
+    assert_eq!(matter_body(&e, matter).get("answered_by"), None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A reply the batch's review holds back, because it comes with changes to items, is written once the batch is made, and
+// then too it begins with the owner's words as they were said and records that the owner answered; the engineer is
+// told it, and the merge goes on.
+#[test]
+fn a_reply_held_for_the_batch_review_keeps_the_owner_s_words() {
+    let s = setup("pinned-reply-held");
+    let path = config::database(&s.data);
+    let ways: Script = Box::new(move |r: &Request, _: usize| {
+        if r.prompt.contains("Take one table.") {
+            let reply = json!({ "text": "Go on with one table.", "why": "The owner decided it." });
+            let change = json!({ "kind": "create_item", "key": "one-table", "project": "p", "title": "Merge the tables",
+                "problem": "There are two.", "why": "The owner chose one.", "acceptance": ["One table."],
+                "level": "l", "deliver": "change", "reason": "The owner chose one table." });
+            return (
+                Vec::new(),
+                vec![
+                    ("outcome.reply", reply),
+                    ("outcome.effects", json!({ "item_changes": [change] })),
+                ],
+            );
+        }
+        let link = design_link_of(&path);
+        asks_the_owner(&format!("Is one table enough? See [the design]({link})."))
+    });
+    let review: Script = Box::new(|_: &Request, _: usize| {
+        let ok = json!({ "change": 1, "verdict": "ok", "why": "Sound." });
+        (Vec::new(), vec![("outcome.review", json!([ok]))])
+    });
+    let (mut e, said, item, work, matter, ask) = pinned(&s, ways, vec![("B2", review)]);
+    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[]).unwrap();
+    let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
+    assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    let again = ways_work(&e, true);
+    assert!(path_of(&e, again).contains(&"B2".to_string()), "{log}");
+    let words = "Take one table.\n\nGo on with one table.\n\nThe owner decided it.";
+    let body = matter_body(&e, matter);
+    assert_eq!(
+        (&body["answer"], &body["answered_by"], &body["owner_ask"]),
+        (&json!(words), &json!("owner"), &json!(ask)),
+        "{body}"
+    );
+    let held: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT reply_held FROM architect_matters WHERE id = ?1",
+                [matter],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(held, None, "{log}");
+    let made: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM items WHERE title = 'Merge the tables'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(made, 1, "{log}");
+    let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
+    assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
+    let way_on = message_at(&e, work, "A4", true);
+    assert!(way_on.contains("The owner answered: Take one table."), "{way_on}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A reply that comes with item changes the batch review drops at its third look is held, and the owner is asked what to
+// do about the dropped changes in another ask that parks the same matter. The owner's words in that ask are not the
+// answer to the open question: the answer is made of the owner's words to the question pinned, which stay on the record,
+// and the engineer is not told the words about the changes as the owner's decision.
+#[test]
+fn the_owner_s_words_about_dropped_changes_are_no_answer_to_a_pinned_open_question() {
+    let s = setup("pinned-reply-dropped");
+    let path = config::database(&s.data);
+    let change = json!({ "kind": "create_item", "key": "one-table", "project": "p", "title": "Merge the tables",
+        "problem": "There are two.", "why": "The owner chose one.", "acceptance": ["One table."],
+        "level": "l", "deliver": "change", "reason": "The owner chose one table." });
+    let with_change = change.clone();
+    let ways: Script = Box::new(move |r: &Request, _: usize| {
+        let reply = json!({ "text": "Go on with one table.", "why": "The owner decided it." });
+        if r.prompt.contains("Leave them out.") {
+            return (Vec::new(), vec![("outcome.reply", reply)]);
+        }
+        if r.prompt.contains("Take one table.") {
+            return (
+                Vec::new(),
+                vec![
+                    ("outcome.reply", reply),
+                    ("outcome.effects", json!({ "item_changes": [with_change.clone()] })),
+                ],
+            );
+        }
+        let link = design_link_of(&path);
+        asks_the_owner(&format!("Is one table enough? See [the design]({link})."))
+    });
+    // The review finds the change wrong at every look, and gives up at the third.
+    let review: Script = Box::new(|_: &Request, _: usize| {
+        let row = json!({ "change": 1, "verdict": "fix", "about": "constitution_and_policy",
+                          "what": "The title is no action.", "how": "Write it as one.", "cause": "rule_missing" });
+        (Vec::new(), vec![("outcome.review", json!([row]))])
+    });
+    let path = config::database(&s.data);
+    let revise: Script = Box::new(move |_: &Request, _: usize| {
+        let c = db::open_read(&path).unwrap();
+        let matter: i64 = c
+            .query_row(
+                "SELECT matter FROM architect_item_changes WHERE state = 'collected'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        (
+            Vec::new(),
+            vec![(
+                "outcome.changes",
+                json!([{ "matter": matter, "change": change.clone() }]),
+            )],
+        )
+    });
+    let (mut e, said, item, work, matter, first) = pinned(&s, ways, vec![("B2", review), ("B3", revise)]);
+    api::reply_to_question(&mut e.db, "p", first, "Take one table.", &[]).unwrap();
+    // The review drops the changes and asks the owner about them in another ask, which parks the matter.
+    let dropped = |e: &mut Engine| parked_for(e, matter).is_some_and(|p| p.0 != first);
+    assert!(steps_until(&mut e, 120, dropped), "{}", said.lock().unwrap().join("\n"));
+    let second = parked_for(&e, matter).unwrap().0;
+    assert_eq!(open_questions(&e, work)[0].2, None);
+    api::reply_to_question(&mut e.db, "p", second, "Leave them out.", &[]).unwrap();
+    let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
+    assert!(
+        steps_until(&mut e, 120, answered),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let words = "Take one table.\n\nGo on with one table.\n\nThe owner decided it.";
+    let body = matter_body(&e, matter);
+    assert_eq!(
+        (&body["answer"], &body["answered_by"], &body["owner_ask"]),
+        (&json!(words), &json!("owner"), &json!(first)),
+        "{log}"
+    );
+    let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
+    assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
+    let way_on = message_at(&e, work, "A4", true);
+    assert!(way_on.contains("The owner answered: Take one table."), "{way_on}");
+    assert!(!way_on.contains("Leave them out."), "{way_on}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

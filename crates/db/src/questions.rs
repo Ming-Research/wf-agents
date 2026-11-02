@@ -22,14 +22,23 @@ pub const QUESTIONS_PENDING: &str = "SELECT a.id AS question, json_extract(a.bod
  ORDER BY at DESC, a.id DESC";
 
 /// The question the architect of `project` waits for the owner's reply to at the look at the queue (`Q0`'s row
-/// `waits`): the newest question pending ([`QUESTIONS_PENDING`]), when it was put less than `wait_ms` (the
-/// installation's wait for the owner's reply) before `now` and the owner said nothing to the architect since in their
-/// one-to-one: no words, no entry of a talk, and no reply to another question. None otherwise: the question then waits
-/// at the back of the queue, and blocks nothing.
+/// `waits`): the newest question pending ([`QUESTIONS_PENDING`]) that parks a matter other than an open question, when
+/// it was put less than `wait_ms` (the installation's wait for the owner's reply) before `now` and the owner said
+/// nothing to the architect since in their one-to-one: no words, no entry of a talk, and no reply to another question.
+/// None otherwise: the question then waits at the back of the queue, and blocks nothing. A question that parks an open
+/// question of an engineer's design is never waited on: the engineer's work goes on without its answer, so the architect
+/// has no reason to stop for it either, and it stays pinned in the one-to-one all the same.
 pub fn question_waited_on(conn: &Connection, project: &str, wait_ms: i64, now: i64) -> Result<Option<i64>> {
-    // The first row is the newest.
+    // The newest of the questions that do not park an open question; the pending query lists them newest first.
     let newest: Option<(i64, Option<i64>)> = conn
-        .query_row(QUESTIONS_PENDING, [project], |r| Ok((r.get("question")?, r.get("at")?)))
+        .query_row(
+            &format!(
+                "SELECT p.question, p.at FROM ({QUESTIONS_PENDING}) p JOIN architect_matters m ON m.id = p.matter
+                 WHERE m.kind <> 'open_question' ORDER BY p.at DESC, p.question DESC LIMIT 1"
+            ),
+            [project],
+            |r| Ok((r.get("question")?, r.get("at")?)),
+        )
         .optional()?;
     let Some((id, Some(at))) = newest else {
         return Ok(None);
@@ -48,4 +57,76 @@ pub fn question_waited_on(conn: &Connection, project: &str, wait_ms: i64, now: i
         |r| r.get(0),
     )?;
     Ok((said == 0).then_some(id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Actor, Db};
+
+    /// A database with a work of project p's architect and, for each of `asks` (kind of the matter it parks, and when
+    /// it was put; the newest last), a round of its own, an ask of the owner that round put, and the matter it parks.
+    fn asked(asks: &[(&str, i64)]) -> Db {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO works (id, item, flow_version, graph, at, project)
+                 VALUES (1, NULL, 1, 'architect', 'H3', 'p')",
+                [],
+            )?;
+            for (n, (kind, at)) in (1..).zip(asks) {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at)
+                     VALUES (1, ?1, 'H3', '{}', 'c', ?2)",
+                    rusqlite::params![n, at],
+                )?;
+                tx.execute(
+                    "INSERT INTO owner_asks (work, round, body) VALUES (1, ?1, json_object('question', 'Which?'))",
+                    [n],
+                )?;
+                let ask = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, what, body, at, asked, resume_cell)
+                     VALUES ('p', ?1, 'Which?', '{}', ?2, ?3, 'H3')",
+                    rusqlite::params![kind, at, ask],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        db
+    }
+
+    // The architect waits for the owner's reply to the newest question it just put, unless that question pins an open
+    // question of an engineer's design: that engineer's work goes on without the answer, so the question is never waited
+    // on, though it stays among the pending ones, and the architect waits for the one put before it. After the wait, or
+    // with nothing pending, there is nothing to wait on.
+    #[test]
+    fn a_question_that_pins_an_open_question_is_not_waited_on() {
+        let wait = 300_000;
+        let db = asked(&[("engineer_question", 1_000), ("open_question", 2_000)]);
+        let pending = |db: &Db| -> Vec<i64> {
+            let mut st = db.conn().prepare(QUESTIONS_PENDING).unwrap();
+            st.query_map(["p"], |r| r.get("question"))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        // Both are pending, the open question's the newest; the architect waits for the other.
+        assert_eq!(pending(&db), [2, 1]);
+        assert_eq!(question_waited_on(db.conn(), "p", wait, 2_500).unwrap(), Some(1));
+        // Once the wait ran out, it waits for nothing.
+        assert_eq!(question_waited_on(db.conn(), "p", wait, 1_000 + wait).unwrap(), None);
+        // With only the open question pending, there is nothing to wait on.
+        let db = asked(&[("open_question", 1_000)]);
+        assert_eq!(pending(&db), [1]);
+        assert_eq!(question_waited_on(db.conn(), "p", wait, 1_500).unwrap(), None);
+        // A question of another kind, put alone, is waited on.
+        let db = asked(&[("report", 1_000)]);
+        assert_eq!(question_waited_on(db.conn(), "p", wait, 1_500).unwrap(), Some(1));
+    }
 }

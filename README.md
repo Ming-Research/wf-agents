@@ -123,9 +123,11 @@ The flow page shows a stored flow version, `flow/flow.json` as it is at a git re
 with git and compiled, nothing written), or the flow a decision card carries, kept in the database as the card's
 branch had it, its graphs side by side, and compares two of them, so that a change to the flow is reviewed there.
 
-The Architect view shows a project's architect, read only, with a switch to another project's when there are several:
-what it does now, its rounds on its graph, the item changes its batches made, what to do next and the policy in force,
-each a tab of the column at its right. Its conversation with the owner, its queue with a card for each matter, and its
-Start, Pause and Step are in its one-to-one in the Messages view. The Observations view shows each project's
+The Works view is one table with a group of rows for each project: the project's name and, at the right end of the same
+row, the buttons that show or hide its works by state, then its architect, then its works. The architect's row opens its
+architect's page, read only, with a switch to another project's when there are several: what it does now, its rounds on
+its graph, the item changes its batches made, what to do next and the policy in force, each a tab of the column at its
+right. Its conversation with the owner, its queue with a card for each matter, and its Start, Pause and Step are in its
+one-to-one in the Messages view. The Observations view shows each project's
 observations, what its architect recorded and no item does yet, filtered by their tags, those taken in by an item or
 closed shown when asked for; one opened shows whole beside them, where the owner closes it.
