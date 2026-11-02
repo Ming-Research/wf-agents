@@ -1363,9 +1363,6 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
         e.step(None).unwrap();
     }
     let (work, _, _) = state(&e, item).unwrap();
-    // Returns of the review, which tells the owner nothing.
-    let returned =
-        |outcome: Value| json!({ "outcome": outcome, "progress": "p", "side_reports": [], "flow_feedback": "none" });
     let add = |e: &mut Engine, cell: &str, output: &Value, row: &str, at: &str| {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
@@ -1403,6 +1400,184 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
     e.step_work(work).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert!(!took(&e).starts_with("fix"), "{}\n{log}", took(&e));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Records a round of `cell` that was given `input` and handed in `output`, and leaves the work at `at`, where the row
+/// `transition` of the cell leads.
+fn record_round(e: &mut Engine, work: i64, cell: &str, input: &Value, output: &Value, transition: &str, at: &str) {
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'c', 1, 2)",
+            params![
+                work,
+                next_round(tx, work)?,
+                cell,
+                input.to_string(),
+                output.to_string(),
+                transition
+            ],
+        )?;
+        tx.execute("UPDATE works SET at = ?2 WHERE id = ?1", params![work, at])?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// A return of an agent's cell with `outcome`, which tells the owner nothing.
+fn returned(outcome: Value) -> Value {
+    json!({ "outcome": outcome, "progress": "p", "side_reports": [], "flow_feedback": "none", "tell_owner": [] })
+}
+
+/// The input of a round of the review that was given the change as the blind review was: what the review is given
+/// again while no commit follows, as when a fix changes only the PR description.
+fn input_of_the_change_reviewed(e: &Engine, work: i64) -> Value {
+    let change: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(input, '$.engine.change') FROM rounds WHERE work = ?1 AND cell = 'T3'
+             ORDER BY n DESC LIMIT 1",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    json!({ "engine": { "change": change } })
+}
+
+/// What the latest round of choosing what runs next planned for the review, and for adversarial testing.
+fn planned(e: &Engine, work: i64) -> (String, String) {
+    e.db.conn()
+        .query_row(
+            "SELECT json_extract(output, '$.plan.review'), json_extract(output, '$.plan.adversarial') FROM rounds
+             WHERE work = ?1 AND cell = 'T7' ORDER BY n DESC LIMIT 1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+}
+
+/// The row the latest round of the merge judgment took.
+fn judged(e: &Engine, work: i64) -> String {
+    e.db.conn()
+        .query_row(
+            "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'M1' ORDER BY n DESC LIMIT 1",
+            [work],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// A fix that answers a row the review left itself (a finding, a finding it did not accept as fixed, or one it insisted
+// on) with no commit after it, as when it changes only the PR description or rests on the advisor's ruling, sends the
+// work back to that review, whatever the answer: only the review can close the row. Without it, the merge judgment
+// sends the work to a fix that has no row to answer, and the work goes round the merge judgment, the fix and the
+// choice of what runs next with no end, as in the sixth trial. Each of the three ways back to the review is taken
+// once, then the review closes its row and the work goes on.
+#[test]
+fn a_fix_that_answered_the_reviews_row_without_a_commit_goes_back_to_the_review() {
+    let s = setup("fix-no-commit");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "T4");
+    let (work, _, _) = state(&e, item).unwrap();
+    let reviewed = input_of_the_change_reviewed(&e, work);
+    let log = || said.lock().unwrap().join("\n");
+    // The review hands in its return and the merge judgment reads it.
+    let review = |e: &mut Engine, outcome: Value| {
+        record_round(e, work, "T4", &reviewed, &returned(outcome), "done", "M1");
+        e.step_work(work).unwrap();
+    };
+    // The fix answers the one row it was given, which came from `from`, and the work stands where the choice of what
+    // runs next is made.
+    let fix = |e: &mut Engine, row: Value, answer: Value| {
+        let input = json!({ "engine": { "table": [row] } });
+        let output = returned(json!({ "rows": [answer], "head": "abc" }));
+        record_round(e, work, "T6", &input, &output, "done", "T7");
+    };
+    // The choice of what runs next, and where the work goes after it.
+    let choose = |e: &mut Engine| {
+        e.step_work(work).unwrap();
+        (planned(e, work), state(e, item).unwrap().1)
+    };
+    let disputes = (("disputes".to_string(), "skipped".to_string()), "T4".to_string());
+    let finding = json!({ "id": "1", "verdict": "findings", "evidence": { "files": [], "ran": [], "nodes": [] },
+        "findings": [{ "fid": "R1", "where": "PR description", "what": "It omits the ruling.", "fix": "Add it." }] });
+
+    // A finding of a column, answered fixed: the PR description was changed.
+    review(&mut e, json!({ "columns": [finding] }));
+    assert_eq!(judged(&e, work), "fix", "{}", log());
+    let row = json!({ "row": "F1", "from": "T4·columns[findings]", "column": "1", "fid": "R1",
+                      "where": "PR description", "what": "It omits the ruling.", "fix": "Add it." });
+    fix(&mut e, row, json!({ "id": "F1", "answer": "fixed", "commit": "abc" }));
+    assert_eq!(choose(&mut e), disputes, "{}", log());
+    // The review closes it: the merge judgment sends the work to no fix, and the same answer is not read again.
+    review(&mut e, json!({ "previous": [{ "fid": "R1", "verdict": "closed" }] }));
+    assert!(!judged(&e, work).starts_with("fix"), "{}\n{}", judged(&e, work), log());
+    move_to(&mut e, work, "T7");
+    assert_eq!(choose(&mut e).0.0, "none", "{}", log());
+
+    // The finding not accepted as fixed, answered fixed again.
+    review(
+        &mut e,
+        json!({ "previous": [{ "fid": "R1", "verdict": "not_fixed", "reason": "The ruling is still missing." }] }),
+    );
+    assert_eq!(judged(&e, work), "fix", "{}", log());
+    let message = engine::next_message(&mut e, work).unwrap().text;
+    assert!(message.contains("The ruling is still missing."), "{message}");
+    let row = json!({ "row": "F1", "from": "T4·previous[not_fixed]", "fid": "R1", "verdict": "not_fixed",
+                      "reason": "The ruling is still missing." });
+    fix(&mut e, row, json!({ "id": "F1", "answer": "fixed", "commit": "abc" }));
+    assert_eq!(choose(&mut e), disputes, "{}", log());
+    review(&mut e, json!({ "previous": [{ "fid": "R1", "verdict": "closed" }] }));
+    assert!(!judged(&e, work).starts_with("fix"), "{}\n{}", judged(&e, work), log());
+
+    // The finding the review insisted on, answered advisor_ruled: the review withdraws it by the ruling.
+    review(
+        &mut e,
+        json!({ "previous": [{ "fid": "R1", "verdict": "insist", "reason": "The ruling is still missing.",
+                               "basis": { "kind": "read", "check": "the PR description" } }] }),
+    );
+    assert_eq!(judged(&e, work), "fix", "{}", log());
+    let row = json!({ "row": "F1", "from": "T4·previous[insist]", "fid": "R1", "verdict": "insist",
+                      "reason": "The ruling is still missing." });
+    fix(
+        &mut e,
+        row,
+        json!({ "id": "F1", "answer": "advisor_ruled", "ruling": "No change is needed." }),
+    );
+    assert_eq!(choose(&mut e), disputes, "{}", log());
+    review(&mut e, json!({ "previous": [{ "fid": "R1", "verdict": "withdraw" }] }));
+    assert!(!judged(&e, work).starts_with("fix"), "{}\n{}", judged(&e, work), log());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A fix that answers a row another cell left (a red check of the CI, say) with no commit after it is no reason to
+// review again: the review has no row of its own to close, and what the fix changed is what the checks look at.
+#[test]
+fn a_fix_that_answered_a_row_of_another_cell_without_a_commit_is_not_reviewed_again() {
+    let s = setup("fix-no-commit-other");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "T4");
+    let (work, _, _) = state(&e, item).unwrap();
+    let pass = json!({ "id": "1", "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } });
+    let reviewed = input_of_the_change_reviewed(&e, work);
+    record_round(
+        &mut e,
+        work,
+        "T4",
+        &reviewed,
+        &returned(json!({ "columns": [pass] })),
+        "done",
+        "M1",
+    );
+    let row = json!({ "row": "F1", "from": "T2·result[red]", "kind": "red", "name": "lint", "result": "red",
+                      "run": "https://example.com/runs/7" });
+    let input = json!({ "engine": { "table": [row] } });
+    let output = returned(json!({ "rows": [{ "id": "F1", "answer": "fixed", "commit": "abc" }], "head": "abc" }));
+    record_round(&mut e, work, "T6", &input, &output, "done", "T7");
+    e.step_work(work).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(planned(&e, work), ("none".to_string(), "skipped".to_string()), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
