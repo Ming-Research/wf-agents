@@ -30,15 +30,24 @@ pub fn after_ms(life: i64) -> i64 {
     life - MARGIN_MS
 }
 
-/// When a session's last call ended: its latest round that ran the command line, or its latest keep-warm ping that
+/// Whether a round's usage says the model was called: the CLI reported something after it started the session (a first
+/// call, or the result), not only that it started. The CLI records `{"started": true}` at its init event, before any
+/// call, so a round that resumed a session and failed there (a usage limit, the network) holds only that and read
+/// nothing from the cache.
+fn called(usage: &Value) -> bool {
+    usage.as_object().is_some_and(|u| u.keys().any(|k| k != "started"))
+}
+
+/// When a session's last call ended: its latest round that called the model, or its latest keep-warm ping that
 /// reached the CLI, whichever came last; those are the calls that read the cache and so kept the prompt in it a
-/// lifetime longer. A round that never ran the command line and a ping that failed before it did leave the cache as it
-/// was and count for nothing. `rounds` are the session's, oldest first, those of the architect's earlier works too, as
+/// lifetime longer. A round that never ran the command line, one that failed after the CLI started and before any call
+/// (its usage says only that it started), and a ping that failed before the CLI did leave the cache as it was and
+/// count for nothing. `rounds` are the session's, oldest first, those of the architect's earlier works too, as
 /// [`crate::held::of_session`] gives them; the pings of every row that has the CLI session count.
 pub fn last_call(conn: &Connection, cli_session: &str, rounds: &[Round]) -> Result<Option<i64>, String> {
     let round = rounds
         .iter()
-        .filter(|r| r.usage.is_some())
+        .filter(|r| r.usage.as_ref().is_some_and(called))
         .filter_map(|r| r.ended_at)
         .max();
     let ping: Option<i64> = conn

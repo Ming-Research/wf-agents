@@ -274,7 +274,8 @@ session: number | null,
  * When it started a new session: why, as the session manager recorded it: line, the line had none going on (its
  * first in the work, or a cell on no line, whose session is its own every round); cell, a cell the line starts a
  * new session at; limit, the line's session before was past the context limit; model or account, the model or the
- * login account its rounds run under changed; owner, the owner asked for one.
+ * login account its rounds run under changed; expired, the CLI's prompt cache let the line's session go (its last
+ * call a cache lifetime or more before), on a line the flow says expires with it; owner, the owner asked for one.
  */
 new_session: string | null, };
 
@@ -555,7 +556,7 @@ unread: number,
 last_at: number | null, };
 
 /**
- * One entry of a conversation of the owner's: what `conversation_entries` gives, or what the engine writes from the
+ * One entry of a conversation of the owner's: what `conversation_shown` gives, or what the engine writes from the
  * flow (a work's stage card, an architect's matter card, the policy taking effect).
  */
 export type ConversationEntry = {
@@ -1042,8 +1043,10 @@ export type Session = { line: string, cli: string, cli_session: string, };
  */
 export type WorkSession = { id: number, line: string,
 /**
- * Why it started: line, cell, limit, or carried (a work of the architect going on in the CLI session the project's
- * previous architect work left).
+ * Why it started: line, the line had none going on; cell, a cell the line starts a new session at; limit, the
+ * session before was past the context limit; model or account, the model or the login account its rounds run
+ * under changed; expired, the CLI's prompt cache let the session before go; owner, the owner asked for one; or
+ * carried (a work of the architect going on in the CLI session the project's previous architect work left).
  */
 started: string,
 /**

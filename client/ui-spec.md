@@ -1404,8 +1404,8 @@ session began.
 ### The round that started a session
 
 A round records the session it ran in, and a session why it started (`sessions.started`: its line had none going on, a
-cell starts one, the one before was past the context limit, the model or the login account changed, the owner asked for
-one, or it goes on from the architect's work before); the first round of a session in its work is the round that started
+cell starts one, the one before was past the context limit, the model or the login account changed, the CLI's prompt
+cache let the one before go, the owner asked for one, or it goes on from the architect's work before); the first round of a session in its work is the round that started
 it, and the page marks it in the list of rounds of a work's page and the architect's, the engineer's lines and helpers
 and the architect's lines alike, saying why on hovering and in the round's panel, but not a round of a cell on no line,
 each of which starts a session of its own, as its cell's badge on the chart says. Every session the session manager
@@ -1494,7 +1494,9 @@ pick or wrap-up, what the owner says to the architect the engineer is given as a
 engineer and the architect say to each other the owner sees, and what the engineer tells the owner the architect is
 given too. The helpers (the advisor, the review, the adversarial testing) are in no group. The entries are gathered from
 the tables that hold them by one view, `conversation_entries`, hidden from agents so that the index of tables the flow
-gives them stays as it is, beside what the engine writes from the flow for the page (the bubble of each stage a work
+gives them stays as it is; the page, and the talk a new session of an architect is told, read the view built on it,
+`conversation_shown`, which leaves out what the page does not show (the engine's notices and the helpers' messages),
+beside what the engine writes from the flow for the page (the bubble of each stage a work
 entered, of each matter an architect took up and of each version of its plan, the policy as it took effect).
 
 The observations are no card in a conversation, which showed each a second time beside its place: what the owner must

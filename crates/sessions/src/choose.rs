@@ -540,6 +540,44 @@ mod tests {
         assert!(expired(&at(&failed, &cell, Some(HOUR), now)));
     }
 
+    // The CLI records that it started at its init event, before any call to the model: a round that resumed a session
+    // and failed there (a usage limit, the network) made no call, so it moves the cache's last read no later, while a
+    // round cut off after the model's first reply did read the cache.
+    #[test]
+    fn a_round_that_failed_before_any_call_to_the_model_does_not_move_the_last_call() {
+        let cell = architect_cell(true);
+        let mut db = session_db();
+        session_round(&mut db, 1, 1_000_000, Some(RAN));
+        // 50 minutes after the real call, a round whose usage says only that the CLI started.
+        session_round(&mut db, 2, 1_000_000 + 50 * 60_000, Some(r#"{"started": true}"#));
+        assert!(goes_on(&at(&db, &cell, Some(HOUR), 1_000_000 + HOUR - 1)));
+        assert!(expired(&at(&db, &cell, Some(HOUR), 1_000_000 + HOUR)));
+        assert!(expired(&at(&db, &cell, Some(HOUR), 1_000_000 + 110 * 60_000 - 1)));
+        // The keep-warm ping is due from the real call, not from the failed round.
+        let due = |now: i64| {
+            let on = On {
+                model: SONNET,
+                home: None,
+                cache: Some(HOUR),
+            };
+            crate::warm::due(db.conn(), 1, &[&cell], 500_000, on, now)
+                .unwrap()
+                .is_some()
+        };
+        assert!(due(1_000_000 + 55 * 60_000));
+
+        // A round cut off after the model's first reply holds that call and moves the last call on.
+        let mut cut = session_db();
+        session_round(&mut cut, 1, 1_000_000, Some(RAN));
+        session_round(
+            &mut cut,
+            2,
+            1_000_000 + 50 * 60_000,
+            Some(r#"{"started": true, "first_call": {"cache_read_input_tokens": 1000}}"#),
+        );
+        assert!(goes_on(&at(&cut, &cell, Some(HOUR), 1_000_000 + HOUR)));
+    }
+
     // A line that does not say its session expires goes on whatever its age, as does a session whose CLI has no
     // prompt cache; `claude` keeps the prompt an hour.
     #[test]
