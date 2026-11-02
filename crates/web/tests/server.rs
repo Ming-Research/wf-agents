@@ -551,6 +551,77 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
+// The page reads a conversation in a window of its latest entries, as many as the request names: whatever the number, the
+// entries given and the runs left out (`gaps`) are all the conversation has, the latest entry is always given, a number
+// above the most is the most, none at all is at least one entry, and a number that is no count is refused.
+#[test]
+fn a_conversation_is_read_in_the_window_the_request_names() {
+    let s = serve("window");
+    let mut db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
+    db.write(db::Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
+            [],
+        )?;
+        tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'R1')", [])?;
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'T4', '{}', 'c', 1)",
+            [],
+        )?;
+        for i in 0..12 {
+            tx.execute(
+                "INSERT INTO owner_messages (work, round, text) VALUES (1, 1, ?1)",
+                [format!("m{i:02}")],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    let here = format!("127.0.0.1:{}", s.port);
+    let read = |limit: &str| -> (u16, serde_json::Value) {
+        let (status, out) = get(s.port, &format!("/api/v1/conversation?key=work%3A1{limit}"), &here, "");
+        let body = out.split_once("\r\n\r\n").map_or("null", |(_, b)| b);
+        (status, serde_json::from_str(body).unwrap_or(serde_json::Value::Null))
+    };
+    let (status, full) = read("");
+    assert_eq!(status, 200, "{full}");
+    let all = full["entries"].as_array().unwrap().len();
+    assert!(all >= 12, "{all}");
+    // Fewer entries than the window: nothing is left out.
+    assert!(full["gaps"].as_array().unwrap().is_empty(), "{full}");
+    let key = |e: &serde_json::Value| (e["source"].as_str().unwrap().to_string(), e["id"].as_i64().unwrap());
+    let last = key(full["entries"].as_array().unwrap().last().unwrap());
+    for limit in ["&limit=3", "&limit=1", "&limit=0"] {
+        let (status, d) = read(limit);
+        assert_eq!(status, 200, "{limit}: {d}");
+        let given: Vec<_> = d["entries"].as_array().unwrap().iter().map(key).collect();
+        let left: i64 = d["gaps"].as_array().unwrap().iter().map(|g| g["count"].as_i64().unwrap()).sum();
+        // The entries given and those left out are the conversation's, and the latest is given, whatever the number.
+        assert_eq!(given.len() as i64 + left, all as i64, "{limit}: {d}");
+        assert_eq!(given.last(), Some(&last), "{limit}");
+        assert!(!given.is_empty(), "{limit}");
+        // Each run left out is told by an entry given.
+        for g in d["gaps"].as_array().unwrap() {
+            assert!(g["count"].as_i64().unwrap() > 0, "{limit}: {d}");
+            assert!(given.contains(&key(g)), "{limit}: {d}");
+        }
+        // What the window does not touch.
+        assert_eq!(d["asks"], full["asks"], "{limit}");
+        assert_eq!(d["read_to"], full["read_to"], "{limit}");
+    }
+    // A number above the most is the most; here that is every entry.
+    let (_, big) = read("&limit=100000");
+    assert_eq!(big["entries"], full["entries"]);
+    assert!(big["gaps"].as_array().unwrap().is_empty());
+    // What is no count is refused, not read as the window.
+    for bad in ["&limit=abc", "&limit=-1"] {
+        let (status, _) = read(bad);
+        assert!((400..500).contains(&status), "{bad}: {status}");
+    }
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
 /// Reads what the interface serves at a path as bytes: its status, its headers and its body.
 fn get_bytes(port: u16, path: &str) -> (u16, String, Vec<u8>) {
     let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
