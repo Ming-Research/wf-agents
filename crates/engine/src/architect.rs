@@ -280,6 +280,14 @@ fn text(v: &Value) -> &str {
     v.as_str().unwrap_or_default()
 }
 
+/// The addresses of the markdown links in a text, each whole: what stands between `](` and the next `)`.
+fn markdown_link_targets(s: &str) -> Vec<&str> {
+    s.split("](")
+        .skip(1)
+        .filter_map(|rest| rest.find(')').map(|end| rest[..end].trim()))
+        .collect()
+}
+
 /// A time to the minute, in UTC, as `2026-10-28 14:03 UTC`.
 fn utc_minute(ms: i64) -> String {
     crate::utc(ms)
@@ -852,9 +860,9 @@ fn taken_first<'a>(cell: &CompiledCell, can: &'a [Value]) -> (Option<&'a Value>,
 }
 
 /// The wait the look at the queue takes now, when neither of the matters taken first ([`taken_first`]) is there and
-/// the cell has its row: for the owner's reply to the question just put ([`db::question_waited_on`]), else for the
-/// owner's next words after the architect answered the owner's words leaving the talk open ([`listens_after`]); none
-/// otherwise.
+/// the cell has its row: for the owner's reply to the question just put, one that pins no open question
+/// ([`db::question_waited_on`]), else for the owner's next words after the architect answered the owner's words leaving
+/// the talk open ([`listens_after`]); none otherwise.
 fn wait_now(
     conn: &Connection,
     project: &str,
@@ -912,9 +920,9 @@ pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<Option<St
 /// with the owner's reply, the oldest first, then a matter of two cells that goes on at its second cell, the oldest
 /// first ([`going_on`]), then the matters at the head of the queue ([`at_head`]), and a lone matter are picked here,
 /// without a round. Before the matter of two cells the architect waits for the owner ([`wait_now`]): for the reply to
-/// the newest question pending while it was put just now, and else for the owner's next words while it answered the
-/// owner's words just now leaving the talk open, the owner having said nothing since either; a flow version before
-/// waited only for the reply, or not at all. The owner's words, a matter back with the reply, the waits and a matter
+/// the newest question pending that does not pin an open question while it was put just now, and else for the owner's
+/// next words while it answered the owner's words just now leaving the talk open, the owner having said nothing since
+/// either; a flow version before waited only for the reply, or not at all. The owner's words, a matter back with the reply, the waits and a matter
 /// of two cells come from all the work can take ([`queued`]), never held back by the hold to set the project straight,
 /// which holds back only the matters from the head of the queue on ([`pickable`]).
 pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
@@ -3579,6 +3587,40 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
             Ok(())
         }
+        "ask_only_on_open_question" => {
+            let Some(ask) = v else { return Ok(()) };
+            let Some(m) = picked(conn, c.w.id)? else { return Ok(()) };
+            let rows = query_json(
+                conn,
+                "SELECT kind, json_extract(body, '$.design_link') AS link FROM architect_matters WHERE id = ?1",
+                &[&m],
+                1,
+            )?;
+            let Some(row) = rows.first() else { return Ok(()) };
+            // An engineer waiting for the reply cannot be left waiting for the owner: its question is answered, and
+            // what only the owner can decide goes back as an open question of the engineer's design, which waits for
+            // nothing.
+            if row["kind"] != crate::open_questions::KIND {
+                return Err(format!(
+                    "matter {m} is {}: its engineer waits for your reply, so it cannot be parked for the owner. Reply \
+                     to it; what only the owner can decide, the reply has the engineer put to the owner as an open \
+                     question of its design",
+                    row["kind"].as_str().unwrap_or("not an open question")
+                ));
+            }
+            // The owner reads the question in their one-to-one, away from the design it is about: it links to it.
+            // The whole address of a markdown link: one that only begins with the design's (another round of the same
+            // work) leads somewhere else.
+            if let Some(link) = row["link"].as_str().filter(|l| !l.is_empty())
+                && !markdown_link_targets(text(&ask["question"])).contains(&link)
+            {
+                return Err(format!(
+                    "the question is pinned in the owner's one-to-one, away from the design it is about: link to the \
+                     design in it, as a markdown link to {link}"
+                ));
+            }
+            Ok(())
+        }
         "policy_text_clean" => {
             let Some(policy) = v else { return Ok(()) };
             let text = policy.to_string();
@@ -5846,6 +5888,57 @@ mod tests {
         })
         .unwrap();
         assert_eq!(listens_after(said.conn(), "p", WAIT, ANSWERED + 60_000).unwrap(), None);
+    }
+
+    // A question the architect just put that pins an open question of an engineer's design is not waited on: the look at
+    // the queue goes on to the matter at the head of the queue at once, while the same question from another kind of
+    // matter is waited on.
+    #[test]
+    fn the_look_at_the_queue_does_not_wait_for_a_question_that_pins_an_open_question() {
+        let q0 = architect_graph().cell(LOOK).unwrap();
+        // A work of the architect whose round 1 put a question (ask 1) that parks a matter of `kind` at `PUT`; and a
+        // check of the policy at the head of the queue (matter 2).
+        let pinned = |kind: &str| {
+            let mut db = db::Db::in_memory().unwrap();
+            db.write(Actor::Engine, |tx| {
+                tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+                tx.execute(
+                    "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B1', 'p')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at)
+                     VALUES (1, 1, 'H3', '{}', 'c', ?1)",
+                    [ANSWERED],
+                )?;
+                tx.execute(
+                    "INSERT INTO owner_asks (work, round, body) VALUES (1, 1, '{\"question\":\"Which?\"}')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, what, body, at, asked, resume_cell)
+                     VALUES ('p', ?1, 'Which?', '{}', 1, 1, 'H3')",
+                    [kind],
+                )?;
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, what, body, at)
+                     VALUES ('p', 'check_policy', 'Check', '{}', 2)",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            db
+        };
+        let look_at = |db: &db::Db| look(db.conn(), "p", 1, q0, WAIT, ANSWERED + 60_000).unwrap()["queue"].clone();
+        assert_eq!(
+            look_at(&pinned("open_question")),
+            json!({ "verdict": "head", "matter": 2 })
+        );
+        assert_eq!(
+            look_at(&pinned("engineer_question")),
+            json!({ "verdict": WAITS, "question": 1 })
+        );
     }
 
     // While the architect waits for the owner's next words and no matter can be picked, the batch's review waits too,

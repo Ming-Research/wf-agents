@@ -2022,8 +2022,11 @@ to it, a strip over the box naming it ("Reply to:" and the question), the owner'
 which the interface's say to the architect takes with `reply_to`, its matter coming back to the cell that asked with the
 reply; with the strip taken off, the words are the owner's words to the architect, which H8 answers. The strip names at
 first the question the architect waits on, as its look at the queue (`Q0`'s row `waits`) works it out from the same
-reading of the database (the newest question pending, put less than the installation's wait for the owner's reply ago,
-with nothing said by the owner since), which the interface gives the page with the questions; once the owner clicks
+reading of the database (the newest question pending that does not pin an open question of an engineer's design, put
+less than the installation's wait for the owner's reply ago, with nothing said by the owner since), which the interface
+gives the page with the questions; a question that pins an open question is never the one the strip names, because the
+architect does not wait for it, and the owner answers it with the Reply under it (words typed in the box with the strip
+taken off are the owner's words to the architect, not the answer to it, and the open question stays unanswered); once the owner clicks
 Reply on a question or takes the strip off, it stays so until the words are sent. Replied to, a question holds the reply
 in its bubble; one whose matter is gone, handled or withdrawn, is pinned no longer, with no Reply.
 
