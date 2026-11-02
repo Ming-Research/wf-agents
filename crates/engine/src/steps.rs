@@ -1694,6 +1694,27 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
                 .any(|row| row["answer"].as_str().is_some_and(|a| kinds.contains(&a)))
         })
     };
+    // Whether the fix answered, since the review, a row that review left itself: a finding, a column it could not
+    // verify, a finding not fixed or insisted on, whatever the answer. The table a fix was given is in its input, and
+    // each row of it says which cell it came from. Only that review can close such a row, so that a fix which
+    // changed nothing in the PR's diff (the PR description, a ruling) is looked at by it again; otherwise the merge
+    // judgment sends the work to a fix whose table holds no row, and the work goes round again.
+    let answered_review_rows = |rs: &[Round]| -> bool {
+        let since = rs.first().map(|r| r.id);
+        fixes.iter().filter(|f| since.is_none_or(|s| f.id > s)).any(|f| {
+            let table = f.input["engine"]["table"].as_array().cloned().unwrap_or_default();
+            f.output
+                .as_ref()
+                .and_then(|o| o[&g.within]["rows"].as_array().cloned())
+                .unwrap_or_default()
+                .iter()
+                .any(|row| {
+                    table.iter().any(|t| {
+                        t["row"] == row["id"] && t["from"].as_str().is_some_and(|from| from.starts_with("T4·"))
+                    })
+                })
+        })
+    };
     let adv = if (chose || not_accepted) && adversarial.is_empty() {
         "all"
     } else if !adversarial.is_empty() && changed_since(&adversarial) {
@@ -1708,9 +1729,11 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
     } else if changed_since(&reviews) {
         "changed"
     } else if answers_after(&reviews, &["disagree", "cannot_verify"])
+        || answered_review_rows(&reviews)
         || !crate::message::unverified_last(e, w, g).is_empty()
     {
-        // The findings disputed, and the columns the last review could not verify, which it decides again.
+        // The findings disputed, the rows the last review left that the fix answered, and the columns it could not
+        // verify, which it decides again.
         "disputes"
     } else {
         "none"
