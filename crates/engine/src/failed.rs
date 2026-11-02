@@ -600,7 +600,13 @@ mod tests {
             .find(|r| !r.waits && !r.conditions.iter().any(Atom::about_no_return))
             .unwrap();
         assert!(from_outside(g, &at("R1", Some(&returned.name))));
-        for shared in ["sent_back", "transient", "transient_too_often", STEP_NETWORK, "step_network_too_often"] {
+        for shared in [
+            "sent_back",
+            "transient",
+            "transient_too_often",
+            STEP_NETWORK,
+            "step_network_too_often",
+        ] {
             assert!(!from_outside(g, &at("R1", Some(shared))), "{shared}");
         }
         assert!(!from_outside(g, &at("R1", None)));

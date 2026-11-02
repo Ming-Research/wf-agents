@@ -2552,7 +2552,10 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     }
     let log = said.lock().unwrap().join("\n");
     let (id, why) = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
-    assert!(why.starts_with("3 returns in a row were sent back, the last at cell R1"), "{why}");
+    assert!(
+        why.starts_with("3 returns in a row were sent back, the last at cell R1"),
+        "{why}"
+    );
     assert!(why.contains("outcome must be an object, and is a string"), "{why}");
     api::resume(&mut e.db, id).unwrap();
     for _ in 0..3 {
@@ -13199,7 +13202,11 @@ fn failures_with_a_return_between_are_not_in_a_row() {
     e.advance(arch).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(paused_by(&e, arch), None, "{log}");
-    assert_eq!(rows_after(&e, arch, past.len()), [Some("transient".to_string())], "{log}");
+    assert_eq!(
+        rows_after(&e, arch, past.len()),
+        [Some("transient".to_string())],
+        "{log}"
+    );
     assert_eq!(counted(&e, arch, "retries"), 9, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
