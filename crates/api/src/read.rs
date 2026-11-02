@@ -1454,7 +1454,7 @@ pub fn flow_view(conn: &Connection, flows: &Flows, version: i64) -> Result<FlowV
 /// The commit of a project's main its files are read at on the page: `origin/<main>` in its checkout as the engine last
 /// fetched it (the page fetches nothing), with when it was committed, which shows how new the text read there is; none
 /// of either when main has no commit there, with why.
-fn main_now(p: &config::Project) -> Result<(String, Option<i64>), String> {
+fn main_now(p: &config::Project) -> std::result::Result<(String, Option<i64>), String> {
     let commit = config::main_commit(p)?;
     let at = config::committed_at(p, &commit).ok();
     Ok((commit, at))
@@ -1462,7 +1462,7 @@ fn main_now(p: &config::Project) -> Result<(String, Option<i64>), String> {
 
 /// A project's guide on the page: the commit of its main it is read at, when that was committed, and the guide as that
 /// commit has it. The reason, in a sentence, when it cannot be had; the commit is then still given when main has one.
-fn guide_now(p: &config::Project) -> (Option<(String, Option<i64>)>, Result<Value, String>) {
+fn guide_now(p: &config::Project) -> (Option<(String, Option<i64>)>, std::result::Result<Value, String>) {
     match main_now(p) {
         Ok((commit, at)) => {
             let guide = config::project_guide_at(&p.checkout, &commit, &p.design_paths(), "")

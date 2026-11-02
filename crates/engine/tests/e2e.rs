@@ -1174,25 +1174,6 @@ fn main_moves_on(root: &Path, files: &[(&str, &str)], message: &str) {
     git(&dir, &["push", "-q", "origin", "HEAD:main"]);
 }
 
-/// Takes files off main, as another pull request merged meanwhile would.
-fn main_drops(root: &Path, files: &[&str], message: &str) {
-    let dir = root.join("elsewhere");
-    if !dir.exists() {
-        let origin = root.join("origin.git");
-        git(
-            root,
-            &["clone", "-q", &origin.to_string_lossy(), &dir.to_string_lossy()],
-        );
-    }
-    git(&dir, &["fetch", "-q", "origin", "main"]);
-    git(&dir, &["reset", "-q", "--hard", "origin/main"]);
-    for f in files {
-        git(&dir, &["rm", "-q", "--", f]);
-    }
-    git(&dir, &["commit", "-q", "-m", message]);
-    git(&dir, &["push", "-q", "origin", "HEAD:main"]);
-}
-
 /// Names `CONSTITUTION.md` as project p's constitution in its configuration.
 fn names_a_constitution(s: &Setup) {
     let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
@@ -13036,6 +13017,27 @@ fn a_constitution_main_does_not_have_stops_the_rounds_and_says_how_to_put_it_rig
             })
             .unwrap();
     assert_eq!(started, 0, "{log}");
+    // The owner puts the file back on main and presses Start: both rounds start, and are given it.
+    main_moves_on(
+        &s.root,
+        &[("CONSTITUTION.md", "## Article 1. Small\n\nKeep it small.\n")],
+        "The constitution",
+    );
+    let engineer = state(&e, item).unwrap().0;
+    api::resume(&mut e.db, engineer).unwrap();
+    api::resume(&mut e.db, arch).unwrap();
+    for _ in 0..6 {
+        if seen.lock().unwrap().len() >= 2 {
+            break;
+        }
+        e.tick().unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    let seen = seen.lock().unwrap();
+    let mut cells: Vec<&str> = seen.iter().map(|x| x.0.as_str()).collect();
+    cells.sort_unstable();
+    assert_eq!(cells, ["G1", "U1"], "{log}");
+    assert!(seen.iter().all(|x| x.1.contains("Keep it small.")), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
