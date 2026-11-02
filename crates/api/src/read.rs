@@ -15,13 +15,13 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Architect, ArchitectRounds, ArchitectStanding, ArchitectWork, CardFlow, DesignCard, DispatchHold, FlowSnapshot,
-    FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail, ItemLink,
-    ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, Matter, MatterCard, NamedText, NotebookSection,
-    NotebookVersion, Observation, ObservationChange, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyDraft,
-    PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional, RoundDetail, RoundImage, RoundInput,
-    RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts, ToolRun, Waits, WorkDetail,
-    WorkSession, WorkState, WorkSummary,
+    Architect, ArchitectPanel, ArchitectRounds, ArchitectStanding, ArchitectWork, CardFlow, DesignCard, DispatchHold,
+    FlowSnapshot, FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail,
+    ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, Matter, MatterCard, NamedText,
+    NotebookSection, NotebookVersion, Observation, ObservationChange, OwnerAsk, OwnerMessage, PausedBy, Ping,
+    PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional, RoundDetail,
+    RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts,
+    ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
