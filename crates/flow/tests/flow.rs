@@ -72,8 +72,9 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 // and the start of its work, which only a new session understands the project at (`S0`, `S1`, `U1`), the queue (`Q0`)
 // and each matter's path, the check of the policy, the writing of a new one, or its draft dropped when the owner keeps
 // the policy in force, and its taking effect (`P1`, `P2`, `P12`),
-// the plan of what to do next (`N1`), the review of a batch of item changes and whether to plan or check again (`B1`,
-// `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds only its matter (`A3`), the tools (`X1`), the observer
+// the plan of what to do next (`N1`), the recording of the decisions in the owner's words, the review of a batch of item
+// changes and whether to plan or check again (`B1`, `B5`, `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds
+// only its matter (`A3`), the tools (`X1`), the observer
 // (`X2`) and the wait for the owner's Start after a pause (`X3`): as many cells, rows and states. No wrap-up, no wait
 // for the owner's reply in a talk, and none of the setting of a policy as a stage of its own (its study, its readings by
 // new architects, the owner's buttons).
@@ -83,7 +84,7 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (30, 128, 185));
+    assert_eq!((s.cells, s.rows, s.states), (31, 135, 185));
     let g = c.graph("architect").unwrap();
     for gone in [
         "E1", "H6", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",
@@ -285,6 +286,15 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
         way(&row("B1", "nothing")),
         to("Q0", &["settle_straight_hold", "queue_group_talk"])
     );
+    // The owner's words a batch handled have their decisions recorded before its item changes are reviewed: the batch's
+    // end goes to the cell that records them, which goes on to the review when a decision or an item change is there to
+    // review, and to the rethink, as the end of a batch with none, when none is.
+    assert_eq!(way(&row("B1", "decisions")), to("B5", &[]));
+    assert_eq!(way(&row("B5", "decisions")), to("B2", &["open_session"]));
+    assert_eq!(way(&row("B5", "changes")), to("B2", &["open_session"]));
+    assert_eq!(way(&row("B5", "none")), to("B4", &["settle_straight_hold"]));
+    assert_eq!(way(&row("B1", "review")), to("B2", &["open_session"]));
+    assert_eq!(way(&row("B1", "done")), to("B4", &["settle_straight_hold"]));
     let into = |cell: &str| -> Vec<&str> {
         g.cells
             .iter()
@@ -296,6 +306,10 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
     assert_eq!(into("N1"), ["Q2"]);
     assert_eq!(into("P2"), ["Q2"]);
     assert_eq!(into("P12"), ["Q2"]);
+    // Only the end of a batch goes to the recording of the decisions, and a batch's review comes from it, the end of the
+    // batch and the revision.
+    assert_eq!(into("B5"), ["B1"]);
+    assert_eq!(into("B2"), ["B1", "B5", "B3"]);
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     let ask = v["flows"][1]["nodes"]
         .as_array_mut()

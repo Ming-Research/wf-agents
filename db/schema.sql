@@ -195,8 +195,9 @@ CREATE TABLE owner_asks (
   -- What is asked, JSON: whom it asks, the work and item, and what the asking cell handed in. Copied from what that
   -- round was given, which never changes.
   body TEXT NOT NULL CHECK (json_valid(body)),
-  -- The owner's answer, JSON: who answered and when, and the text; for an ask of the architect, the rest of the
-  -- architect's reply too. NULL while it waits. Read by: the engine; cell `R1`.
+  -- The owner's answer, JSON: who answered and when, and the text, and who the caller declared to speak (`speaker`,
+  -- owner or delegate; none for an answer kept before it was declared); for an ask of the architect, the rest of the
+  -- architect's reply too. NULL while it waits. Read by: the engine; cells `R1` and `L2`.
   answer TEXT CHECK (answer IS NULL OR json_valid(answer)),
   FOREIGN KEY (work, round) REFERENCES rounds (work, n)
 ) STRICT;
@@ -673,9 +674,11 @@ CREATE TABLE architect_matters (
   -- What it is, in one sentence, as the engine wrote it.
   what TEXT NOT NULL,
   -- Its material, JSON: what the asking cell handed in, the side report, a report's what to do next with its paths and
-  -- the commit merged, the design card, the tool that failed, the owner's words, the message, the place to set
-  -- straight; for a fault forwarded, who forwarded it (by: owner, or setting for the owner's setting), the fault
-  -- itself being read from its notice when the matter is handled. Read by: the engine, for the matter's material.
+  -- the commit merged, the design card, the tool that failed, the owner's words (with where they were said, and who
+  -- the caller declared to speak: `speaker`, owner or delegate; none for words kept before it was declared), the
+  -- message, the place to set straight; for a fault forwarded, who forwarded it (by: owner, or setting for the owner's
+  -- setting), the fault itself being read from its notice when the matter is handled. Read by: the engine, for the
+  -- matter's material.
   body TEXT NOT NULL CHECK (json_valid(body)),
   -- The item it concerns; NULL when it concerns none.
   item INTEGER REFERENCES items(id),
@@ -1161,10 +1164,35 @@ CREATE VIEW work_design_cards AS
 
 CREATE VIEW work_open_questions AS
   -- Each work's open questions as its design handed them in, each a matter of the project's architect, with the answer
-  -- that came. Read by: cells `D1`, `D2` and `L2`; the engine, at cell `M1`.
+  -- that came, which is the architect's reply: its own judgment, or the owner's answer it carried. Read by: cells `D1`,
+  -- `D2` and `L2`; the engine, at cell `M1`.
   SELECT m.work, m.id AS matter, m.what AS question, json_extract(m.body, '$.answer') AS answer
   FROM architect_matters m
   WHERE m.kind = 'open_question';
+
+CREATE VIEW work_owner_words AS
+  -- What the owner said that concerns a work, one row for each record that holds it: the words said in the work's
+  -- group to its project's architect (a matter of the kind owner_words), the words said to its engineer alone (an
+  -- interjection no matter holds) and the owner's answers to the work's asks. A decision cites a row by its source and
+  -- its id and quotes its words; the engine reads the words from the record again, and tells who said them from what
+  -- the record kept. speaker is what the record kept of who was declared to speak, owner or delegate; none for a record
+  -- kept before it was declared, and for an interjection, which keeps none. Read by: cell `L2`.
+  SELECT json_extract(m.body, '$.work') AS work, 'matter' AS source, m.id AS id,
+    json_extract(m.body, '$.speaker') AS speaker,
+    coalesce(json_extract(m.body, '$.text'), json_extract(m.body, '$.answer')) AS words, m.at AS at
+  FROM architect_matters m
+  WHERE m.kind = 'owner_words' AND json_extract(m.body, '$.where') = 'work'
+  UNION ALL
+  SELECT j.work, 'interjection', j.id, NULL, j.text,
+    coalesce((SELECT min(c.at) FROM changes c
+              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)), 0)
+  FROM interjections j
+  WHERE j.speaker = 'owner' AND j.matter IS NULL AND j.cancelled_item IS NULL
+  UNION ALL
+  SELECT a.work, 'ask', a.id, json_extract(a.answer, '$.speaker'), json_extract(a.answer, '$.text'),
+    coalesce(json_extract(a.answer, '$.at'), 0)
+  FROM owner_asks a
+  WHERE json_extract(a.answer, '$.by') = 'owner';
 
 CREATE VIEW work_ci AS
   -- The CI on each work: the latest run of the fast CI (the tool ci), of the full CI on the draft and of the tests on

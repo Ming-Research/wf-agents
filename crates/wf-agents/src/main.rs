@@ -63,6 +63,9 @@ enum Command {
         /// The answer.
         #[arg(long)]
         text: String,
+        /// Who answers: `owner`, or `delegate` for a session that speaks for the owner.
+        #[arg(long)]
+        speaker: String,
         /// For what the architect is asked: why it was decided this way.
         #[arg(long)]
         why: Option<String>,
@@ -100,6 +103,9 @@ enum Command {
     Say {
         work: i64,
         text: String,
+        /// Who speaks: `owner`, or `delegate` for a session that speaks for the owner.
+        #[arg(long)]
+        speaker: String,
         /// engineer, architect or both.
         #[arg(long, default_value = "engineer")]
         to: String,
@@ -225,6 +231,10 @@ enum ArchitectCommand {
     /// when none runs and works go on.
     Say {
         text: String,
+        /// Who speaks: `owner`, or `delegate` for a session that speaks for the owner. The architect's record of a
+        /// decision says which was declared.
+        #[arg(long)]
+        speaker: String,
         /// The project whose architect it is for; it may be left out when the configuration has one project.
         #[arg(long)]
         project: Option<String>,
@@ -473,16 +483,34 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         }
         Command::Asks { all } => print(owner::asks(d, all)),
         Command::Ask { id } => print(owner::ask(d, id)),
-        Command::Answer { ask, text, why, reply } => {
+        Command::Answer {
+            ask,
+            text,
+            speaker,
+            why,
+            reply,
+        } => {
             let reply: Option<serde_json::Value> = match reply {
                 Some(r) => Some(serde_json::from_str(&r).map_err(|e| format!("--reply: {e}"))?),
                 None => None,
             };
-            print(owner::answer(d, owner::Answer { ask, text, why, reply }))
+            print(owner::answer(
+                d,
+                owner::Answer {
+                    ask,
+                    text,
+                    speaker,
+                    why,
+                    reply,
+                },
+            ))
         }
-        Command::Architect(ArchitectCommand::Say { text, project, item }) => {
-            print(owner::say_to_architect(d, project.as_deref(), item, &text))
-        }
+        Command::Architect(ArchitectCommand::Say {
+            text,
+            speaker,
+            project,
+            item,
+        }) => print(owner::say_to_architect(d, project.as_deref(), item, &text, &speaker)),
         Command::DesignCards { all } => print(owner::design_cards(d, all)),
         Command::DesignCard { id } => print(owner::design_card(d, id)),
         Command::Rule {
@@ -501,7 +529,12 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                 text,
             },
         )),
-        Command::Say { work, text, to } => print(owner::say(d, work, &to, &text)),
+        Command::Say {
+            work,
+            text,
+            speaker,
+            to,
+        } => print(owner::say(d, work, &to, &text, &speaker)),
         Command::Pause { work, why } => print(owner::pause(d, work, &why)),
         Command::Resume { work } => print(owner::resume(d, work)),
         Command::Status => print(owner::status(d)),

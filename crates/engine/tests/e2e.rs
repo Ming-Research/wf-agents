@@ -817,6 +817,21 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         "D11",
         Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "not_needed")], Vec::new())),
     );
+    // The owner's words of a batch settle nothing to record, a row for each of the matters it was given.
+    s.insert(
+        "B5",
+        Box::new(|r: &Request, _: usize| {
+            let given = given_value(&r.prompt, "·engine·batch_words").unwrap_or(json!({}));
+            let rows: Vec<Value> = given
+                .as_object()
+                .into_iter()
+                .flat_map(|o| o.keys())
+                .filter_map(|k| k.trim_start_matches('#').parse::<i64>().ok())
+                .map(|m| json!({ "matter": m, "verdict": "nothing", "why": "Nothing to record." }))
+                .collect();
+            (Vec::new(), vec![("outcome.looked", json!(rows))])
+        }),
+    );
     // Implementing: a work's first round changes the code and asks for ci; the next hands in the end. Which it is the
     // work's branch says, by the commit the first made, since several works may implement, each in its own worktree:
     // the feature, or, when main holds it already from another work, a part of its own.
@@ -1762,6 +1777,7 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
     assert_eq!(works[0].5, None);
     let answer = api::Answer {
         text: "Keep the old name.".into(),
+        speaker: "owner".into(),
         why: None,
         reply: None,
         to: None,
@@ -3847,6 +3863,7 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
         .unwrap();
     let answer = api::Answer {
         text: "Keep the old name.".into(),
+        speaker: "owner".into(),
         why: None,
         reply: None,
         to: None,
@@ -4149,7 +4166,7 @@ fn an_item(e: &mut Engine) -> i64 {
 
 /// The owner says something to project p's architect in their one-to-one.
 fn say(e: &mut Engine, text: &str) {
-    db::say_to_architect(&mut e.db, "p", None, None, text, &[]).unwrap();
+    db::say_to_architect(&mut e.db, "p", None, None, text, &[], db::Speaker::Owner).unwrap();
 }
 
 // The owner's words start a work of project p's architect, which goes once through the whole graph: it starts, finds
@@ -4195,7 +4212,16 @@ fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
-    db::say_to_architect(&mut e.db, "p", None, None, "Make the parser's item clearer.", &[]).unwrap();
+    db::say_to_architect(
+        &mut e.db,
+        "p",
+        None,
+        None,
+        "Make the parser's item clearer.",
+        &[],
+        db::Speaker::Owner,
+    )
+    .unwrap();
     let started = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
@@ -4214,7 +4240,8 @@ fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
     assert_eq!(
         path_of(&e, arch),
         [
-            "S1", "U1", "Q0", "Q2", "H8", "B1", "Q0", "Q2", "P1", "B1", "Q0", "Q2", "N1", "B1", "B2", "B4", "Q0", "E2"
+            "S1", "U1", "Q0", "Q2", "H8", "B1", "Q0", "Q2", "P1", "B1", "Q0", "Q2", "N1", "B1", "B5", "B2", "B4", "Q0",
+            "E2"
         ],
         "{log}"
     );
@@ -4230,8 +4257,11 @@ fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
         rows[10..13].iter().map(|r| r.as_deref()).collect::<Vec<_>>(),
         [Some("head"), Some("to_plan"), Some("fits")]
     );
-    assert_eq!(rows[13].as_deref(), Some("review"));
-    assert_eq!(rows[14].as_deref(), Some("ok"));
+    // The batch's end goes to the recording of the owner's decisions, which has none and sends the change collected to
+    // its review.
+    assert_eq!(rows[13].as_deref(), Some("decisions"));
+    assert_eq!(rows[14].as_deref(), Some("changes"));
+    assert_eq!(rows[15].as_deref(), Some("ok"));
     // Its reply is its message in the owner's one-to-one.
     let replied: String =
         e.db.conn()
@@ -4440,7 +4470,7 @@ fn a_resumed_session_goes_from_starting_to_the_queue() {
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, second),
-        ["S1", "Q0", "Q2", "H8", "B1", "B4", "Q0", "E2"],
+        ["S1", "Q0", "Q2", "H8", "B1", "B5", "B4", "Q0", "E2"],
         "{log}"
     );
     let sessions: Vec<(String, String)> = {
@@ -5443,8 +5473,8 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     );
     // The owner replies with the question ticked: the matter is back, an architect work starts, and the matter goes
     // back to the cell that asked.
-    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[]).unwrap();
-    assert!(api::reply_to_question(&mut e.db, "p", ask, "Again.", &[]).is_err());
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[], db::Speaker::Owner).unwrap();
+    assert!(api::reply_to_question(&mut e.db, "p", ask, "Again.", &[], db::Speaker::Owner).is_err());
     let again = e.step(None).unwrap().work.unwrap();
     assert_ne!(again, arch);
     assert!(
@@ -5522,6 +5552,7 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
     queue(&mut e, "Look at the queue.");
     let yes = api::Answer {
         text: "Yes, hold it.".into(),
+        speaker: "owner".into(),
         why: None,
         reply: None,
         to: None,
@@ -5615,7 +5646,7 @@ fn a_question_just_put_waits_at_the_queue_for_the_owner_s_reply() {
         ]
     );
     let ask = parked_by(&e, held);
-    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[], db::Speaker::Owner).unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
@@ -5710,7 +5741,7 @@ fn the_owner_s_words_end_the_wait_and_a_reply_to_a_closed_question_is_the_owner_
     })
     .unwrap();
     assert_eq!(pending(&e), 0);
-    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[], db::Speaker::Owner).unwrap();
     let words: (String, String) =
         e.db.conn()
             .query_row(
@@ -5852,7 +5883,7 @@ fn a_new_session_queues_the_check_and_the_plan_and_takes_them_after_the_wait() {
             ("make_plan".to_string(), false, vec![("U1".to_string(), understood)])
         ]
     );
-    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[], db::Speaker::Owner).unwrap();
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
         "{}",
@@ -6036,7 +6067,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
         said.lock().unwrap().join("\n")
     );
     let (research, _) = question_now(&e);
-    api::reply_to_question(&mut e.db, "p", research, "Yes, research it.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", research, "Yes, research it.", &[], db::Speaker::Owner).unwrap();
     assert!(
         steps_until(&mut e, 30, |e| waited(e) == 2 && waits_at_queue(e, arch)),
         "{}",
@@ -6053,7 +6084,15 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
             .unwrap();
     assert_eq!((&pinned["kind"], &pinned["cell"]), (&json!("question"), &json!("P2")));
     assert!(pinned.get("policy").is_none(), "{pinned}");
-    api::reply_to_question(&mut e.db, "p", approval, "Make the why shorter.", &[]).unwrap();
+    api::reply_to_question(
+        &mut e.db,
+        "p",
+        approval,
+        "Make the why shorter.",
+        &[],
+        db::Speaker::Owner,
+    )
+    .unwrap();
     assert!(
         steps_until(&mut e, 30, |e| waited(e) == 3 && waits_at_queue(e, arch)),
         "{}",
@@ -6080,7 +6119,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
         Ok(())
     })
     .unwrap();
-    api::reply_to_question(&mut e.db, "p", again, " approved ", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", again, " approved ", &[], db::Speaker::Owner).unwrap();
     assert!(
         steps_until(&mut e, 90, |e| architect_work_done(e, arch)),
         "{}",
@@ -6195,6 +6234,7 @@ fn the_reply_to_the_owner_s_words_in_a_work_s_group_is_in_that_group() {
         Some(work),
         "Do the tests run on every push?",
         &[],
+        db::Speaker::Owner,
     )
     .unwrap();
     let arch = e.step(None).unwrap().work.unwrap();
@@ -6359,7 +6399,7 @@ fn a_matter_at_the_head_asked_for_twice_is_queued_once_with_both_whys() {
         path_of(&e, arch),
         [
             "S1", "U1", "Q0", "Q2", "H8", "B1", "Q0", "Q2", "H8", "B1", "Q0", "Q2", "P1", "B1", "Q0", "Q2", "N1", "B1",
-            "B4", "Q0", "E2"
+            "B5", "B4", "Q0", "E2"
         ],
         "{log}"
     );
@@ -8370,6 +8410,7 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
             let mut db = engine::database::open(&data).unwrap();
             let said = api::WorkSaid {
                 text: "Look at these two.".into(),
+                speaker: "owner".into(),
                 to: None,
                 question: None,
                 design_card: None,
@@ -8485,7 +8526,16 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
     quiet(&mut e);
     an_item(&mut e);
     let images = api::images(&two_images()).unwrap();
-    db::say_to_architect(&mut e.db, "p", None, None, "Look at these two.", &images).unwrap();
+    db::say_to_architect(
+        &mut e.db,
+        "p",
+        None,
+        None,
+        "Look at these two.",
+        &images,
+        db::Speaker::Owner,
+    )
+    .unwrap();
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
@@ -8515,7 +8565,15 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
         media_type: "image/gif".into(),
         data: db::attachments::base64(b"GIF89a the left one"),
     }];
-    api::reply_to_question(&mut e.db, "p", ask, "The left one.", &api::images(&reply).unwrap()).unwrap();
+    api::reply_to_question(
+        &mut e.db,
+        "p",
+        ask,
+        "The left one.",
+        &api::images(&reply).unwrap(),
+        db::Speaker::Owner,
+    )
+    .unwrap();
     let again = e.step(None).unwrap().work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, again)),

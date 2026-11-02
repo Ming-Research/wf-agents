@@ -11,11 +11,13 @@
 //! with that code now. It was numbered once more when the design tree left the flow: D1 to D3 are again the three cells
 //! they were before the tree, its cells D5 to D7 are gone, and D8 to D15 became D4 to D11; a round of a version with the
 //! tree at D1 to D11 reads as the cell with that code now, and one at D12 to D15 as the cell that code became. The
-//! tree's review (T5) is gone too, and keeps its row, so that a round there still reads as itself.
+//! tree's review (T5) is gone too, and keeps its row, so that a round there still reads as itself. The architect's
+//! batch stage has a fifth cell, B5, which records the owner's decisions between B1 and B2; it was numbered after B4 so
+//! that no cell of a flow version before changes its code.
 
 /// Each cell, by its graph and its code, with the ids it had in the flow versions before: its number or first code,
 /// its name, and its name with its stage, where each was another.
-const BEFORE: [(&str, &str, &[&str]); 77] = [
+const BEFORE: [(&str, &str, &[&str]); 78] = [
     ("engineer", "S0", &["U0"]),
     ("engineer", "S1", &["0", "start", "S0"]),
     ("engineer", "G1", &[]),
@@ -88,6 +90,7 @@ const BEFORE: [(&str, &str, &[&str]); 77] = [
     ("architect", "B2", &["R1", "review", "batch.review"]),
     ("architect", "B3", &["X1", "revise", "batch.revise"]),
     ("architect", "B4", &["C1", "rethink", "batch.rethink"]),
+    ("architect", "B5", &[]),
     ("architect", "E1", &["wrap_up"]),
     ("architect", "E2", &["record"]),
     ("architect", "P2", &["P1", "study", "policy.study"]),

@@ -51,6 +51,10 @@ export async function getText(path: string): Promise<string> {
   return r.text();
 }
 
+/// Who speaks in every request that carries the owner's words or answers: this page is the owner's own, and a session
+/// that speaks for the owner declares `delegate` instead. The engine keeps it with the words; it cannot tell who spoke.
+export const SPEAKER = 'owner';
+
 /// What the owner asks of the engine: a POST that carries JSON, as the interface requires of every POST.
 export async function postJson(path: string, body: unknown): Promise<void> {
   const r = await fetch(path, {

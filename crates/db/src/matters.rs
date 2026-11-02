@@ -94,9 +94,55 @@ pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
     Ok(true)
 }
 
+/// Who says the words that come to an architect as the owner's, as the caller declares it: the owner at the page, or a
+/// session that speaks for the owner, a delegate. Every way in declares one. The engine cannot tell them apart, since
+/// both reach it through the same interface, so the declaration is the caller's own: a delegate that declares itself
+/// the owner is not caught. The architect's record of a decision says which was declared; words kept before the
+/// declaration was asked for have none, and are told as unrecorded, never as the owner's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Speaker {
+    Owner,
+    Delegate,
+}
+
+impl Speaker {
+    /// As the records keep it (`speaker` in the body of the owner's words, in the answer to an ask).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Speaker::Owner => "owner",
+            Speaker::Delegate => "delegate",
+        }
+    }
+
+    /// The speaker a request declares, as the page and the command line name it; an error for a name that is neither,
+    /// and for none.
+    pub fn parse(name: &str) -> std::result::Result<Speaker, String> {
+        match name.trim() {
+            "owner" => Ok(Speaker::Owner),
+            "delegate" => Ok(Speaker::Delegate),
+            other => Err(format!(
+                "the speaker, owner or delegate, says who speaks: {}",
+                if other.is_empty() {
+                    "none was given".to_string()
+                } else {
+                    format!("{other} is neither")
+                }
+            )),
+        }
+    }
+
+    /// `body`, an object, with the speaker recorded in it as `speaker`.
+    pub fn record(self, mut body: Value) -> Value {
+        if let Some(o) = body.as_object_mut() {
+            o.insert("speaker".into(), Value::String(self.as_str().into()));
+        }
+        body
+    }
+}
+
 /// Says something to a project's architect, as the owner: the words, and the images sent with them, come to its queue
 /// as a matter of the kind owner_words, which starts a work of it. Where it was said goes with it: in the conversation
-/// about a work, the work and its item; on an item's page, the item.
+/// about a work, the work and its item; on an item's page, the item. `speaker` is who the caller declares to say it.
 pub fn say_to_architect(
     db: &mut Db,
     project: &str,
@@ -104,6 +150,7 @@ pub fn say_to_architect(
     work: Option<i64>,
     text: &str,
     images: &[Image],
+    speaker: Speaker,
 ) -> std::result::Result<String, String> {
     let text = text.trim();
     if text.is_empty() && images.is_empty() {
@@ -113,16 +160,17 @@ pub fn say_to_architect(
         return Err("what is said to an architect names its project".into());
     }
     attachments::check(images)?;
+    let body = match (work, item) {
+        (Some(w), _) => serde_json::json!({ "text": text, "where": "work", "work": w }),
+        (None, Some(_)) => serde_json::json!({ "text": text, "where": "item" }),
+        (None, None) => serde_json::json!({ "text": text, "where": "page" }),
+    };
     let m = Matter {
         project: project.to_string(),
         kind: "owner_words".into(),
         detail: Some("said".into()),
         what: attachments::owner_says(text, images.len()),
-        body: match (work, item) {
-            (Some(w), _) => serde_json::json!({ "text": text, "where": "work", "work": w }),
-            (None, Some(_)) => serde_json::json!({ "text": text, "where": "item" }),
-            (None, None) => serde_json::json!({ "text": text, "where": "page" }),
-        },
+        body: speaker.record(body),
         item,
         ..Matter::default()
     };
@@ -315,8 +363,8 @@ mod tests {
     #[test]
     fn the_owner_s_words_come_to_the_architect_s_queue() {
         let mut db = Db::in_memory().unwrap();
-        assert!(say_to_architect(&mut db, "p", None, None, "  ", &[]).is_err());
-        assert!(say_to_architect(&mut db, "", None, None, "Go on.", &[]).is_err());
+        assert!(say_to_architect(&mut db, "p", None, None, "  ", &[], Speaker::Owner).is_err());
+        assert!(say_to_architect(&mut db, "", None, None, "Go on.", &[], Speaker::Owner).is_err());
         assert_eq!(
             say_to_architect(
                 &mut db,
@@ -324,7 +372,8 @@ mod tests {
                 None,
                 None,
                 "Put the parser first. It blocks the rest.",
-                &[]
+                &[],
+                Speaker::Owner
             )
             .unwrap(),
             "the architect of p has it as matter 1"
@@ -340,9 +389,41 @@ mod tests {
             .unwrap();
         assert_eq!((project.as_str(), kind.as_str()), ("p", "owner_words"));
         assert_eq!(what, "The owner says: Put the parser first.");
+        // The speaker the caller declared is kept with the words, whatever order the keys are written in.
         assert_eq!(
-            body,
-            r#"{"text":"Put the parser first. It blocks the rest.","where":"page"}"#
+            serde_json::from_str::<Value>(&body).unwrap(),
+            serde_json::json!({
+                "text": "Put the parser first. It blocks the rest.",
+                "where": "page",
+                "speaker": "owner",
+            })
         );
+    }
+
+    // The speaker a request declares goes into the owner's words as it was declared; a request that declares none, or a
+    // name that is neither the owner nor a delegate, is refused.
+    #[test]
+    fn the_speaker_a_request_declares_is_kept_with_the_words() {
+        assert_eq!(Speaker::parse("owner"), Ok(Speaker::Owner));
+        assert_eq!(Speaker::parse(" delegate "), Ok(Speaker::Delegate));
+        assert!(Speaker::parse("").unwrap_err().contains("none was given"));
+        assert!(
+            Speaker::parse("architect")
+                .unwrap_err()
+                .contains("architect is neither")
+        );
+        let mut db = Db::in_memory().unwrap();
+        for speaker in [Speaker::Owner, Speaker::Delegate] {
+            say_to_architect(&mut db, "p", None, Some(3), "Go on.", &[], speaker).unwrap();
+        }
+        let kept: Vec<Option<String>> = db
+            .conn()
+            .prepare("SELECT json_extract(body, '$.speaker') FROM architect_matters ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(kept, [Some("owner".into()), Some("delegate".into())]);
     }
 }

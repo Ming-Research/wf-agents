@@ -24,7 +24,7 @@ mod start_over;
 
 pub use cells::{cells_sql, code_of, is_cell};
 pub use matters::{
-    FAULT, Forwarder, Matter, fault_forwarding, forward_fault, forward_new_fault, lift_pause, one_sentence,
+    FAULT, Forwarder, Matter, Speaker, fault_forwarding, forward_fault, forward_new_fault, lift_pause, one_sentence,
     project_of_item, queue_matter, say_to_architect, set_fault_forwarding, without_final_terminal,
 };
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
@@ -102,6 +102,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0063.sql"),
     include_str!("../../../db/migrations/0064.sql"),
     include_str!("../../../db/migrations/0065.sql"),
+    include_str!("../../../db/migrations/0066.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1454,6 +1455,126 @@ mod tests {
             old.conn()
                 .execute("UPDATE architect_matters SET what = 'x' WHERE id = 3", [])
                 .is_err()
+        );
+    }
+
+    // Taken to version 66, the head `Owner's decisions:` of an item's approach is `Decisions:`, wherever the head
+    // stands (first line, middle or last), and every other byte of the text stays: a line that holds the words but is
+    // not the head, an indented one and an approach with no head are as they were, and an item with no approach has
+    // none; the view of what the owner said that concerns a work reads the words and who was declared to speak them.
+    #[test]
+    fn the_head_of_the_owner_s_decisions_is_renamed_and_nothing_else_changes() {
+        let mut old = at_version(65);
+        let texts: [Option<&str>; 6] = [
+            Some("Approach:\n- Do it.\nOwner's decisions:\nDecision (2026-11-02, owner): A.\n\nLearned:\nCommits: abc"),
+            Some("Owner's decisions:\nDecision (2026-11-02, owner): B."),
+            Some("Approach:\n- Do it.\nOwner's decisions:"),
+            Some("Approach:\nThe Owner's decisions: stay.\n  Owner's decisions:\nowner's decisions:\n"),
+            Some("Approach:\n- Do it.\nOwner's decisions:\n\n\nLearned:\n"),
+            None,
+        ];
+        old.write(Actor::Engine, |tx| {
+            for t in texts {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, approach, deliver, level)
+                     VALUES ('p', 't', 'x', 'y', ?1, 'change', '1')",
+                    [t],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let approaches: Vec<Option<String>> = old
+            .conn()
+            .prepare("SELECT approach FROM items ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        let renamed = |t: &str| t.replace("Owner's decisions:\n", "Decisions:\n");
+        assert_eq!(
+            approaches,
+            [
+                Some(renamed(texts[0].unwrap())),
+                Some(renamed(texts[1].unwrap())),
+                Some("Approach:\n- Do it.\nDecisions:".to_string()),
+                Some(texts[3].unwrap().to_string()),
+                Some(renamed(texts[4].unwrap())),
+                None,
+            ]
+        );
+        assert_eq!(
+            shape(old.conn()).unwrap(),
+            shape(Db::in_memory().unwrap().conn()).unwrap()
+        );
+    }
+
+    // The view of what the owner said that concerns a work gives the words said in the work's group, those said to its
+    // engineer alone and the answers to its asks, each with who was declared to speak it; the words of a matter that
+    // is no work's, an interjection a matter holds and the architect's own are left out.
+    #[test]
+    fn what_the_owner_said_that_concerns_a_work_is_read_from_its_records() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute("INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'A3')", [])?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'A3', '{}', 'c', 1)",
+                [],
+            )?;
+            for (body, at) in [
+                (r#"{"text":"In the group.","where":"work","work":1,"speaker":"delegate"}"#, 5),
+                (r#"{"text":"On the page.","where":"page","speaker":"owner"}"#, 6),
+                (r#"{"text":"Kept before speakers.","where":"work","work":1}"#, 7),
+            ] {
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, what, body, at) VALUES ('p', 'owner_words', 'w', ?1, ?2)",
+                    params![body, at],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO interjections (work, speaker, text, matter) VALUES (1, 'owner', 'Held by a matter.', 1)",
+                [],
+            )?;
+            tx.execute("INSERT INTO interjections (work, speaker, text) VALUES (1, 'owner', 'To the engineer.')", [])?;
+            tx.execute("INSERT INTO interjections (work, speaker, text) VALUES (1, 'architect', 'Not the owner.')", [])?;
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body, answer) VALUES
+                 (1, 1, '{}', '{\"by\":\"owner\",\"at\":9,\"text\":\"Yes.\",\"speaker\":\"owner\"}'),
+                 (1, 1, '{}', '{\"by\":\"engine\",\"at\":9,\"text\":\"Closed.\"}'),
+                 (1, 1, '{}', NULL)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let rows: Vec<(i64, String, i64, Option<String>, String)> = db
+            .conn()
+            .prepare("SELECT work, source, id, speaker, words FROM work_owner_words ORDER BY source, id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        let said = |source: &str, id: i64, speaker: Option<&str>, words: &str| {
+            (
+                1,
+                source.to_string(),
+                id,
+                speaker.map(str::to_string),
+                words.to_string(),
+            )
+        };
+        assert_eq!(
+            rows,
+            [
+                said("ask", 1, Some("owner"), "Yes."),
+                said("interjection", 2, None, "To the engineer."),
+                said("matter", 1, Some("delegate"), "In the group."),
+                said("matter", 3, None, "Kept before speakers."),
+            ]
         );
     }
 

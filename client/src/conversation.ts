@@ -23,6 +23,7 @@ import type {
 import type { CardAsked } from './answer';
 import { BACK_MARK, type Tone, WORK_MARK } from './components';
 import { ordinal } from './format';
+import { SPEAKER } from './http';
 import { isObj, words } from './labelled';
 import { type Key, t, tn } from './messages';
 import { joinedWords } from './voices';
@@ -278,8 +279,11 @@ export function replyingTo(
 
 /// What the box at the bottom of the one-to-one sends to the architect: the owner's words, and the question they reply
 /// to when it replies to one.
-export const toArchitect = (text: string, replyTo: number | null): { text: string; reply_to?: number } =>
-  replyTo === null ? { text } : { text, reply_to: replyTo };
+export const toArchitect = (
+  text: string,
+  replyTo: number | null,
+): { text: string; speaker: string; reply_to?: number } =>
+  replyTo === null ? { text, speaker: SPEAKER } : { text, speaker: SPEAKER, reply_to: replyTo };
 
 /// The time of the latest entry of a conversation, up to which opening it reads it.
 export function latestAt(d: ConversationDetail): number | null {

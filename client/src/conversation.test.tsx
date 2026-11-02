@@ -328,12 +328,16 @@ describe('answering an ask', () => {
     const a = ask(4, { ...choice, to: 'owner' });
     expect(handsBack(a)).toBe(true);
     expect(handsBack(ask(5, choice))).toBe(false);
-    expect(askAnswer('One table', ' Keep it small. ', false)).toEqual({ text: 'Chosen option: One table. Keep it small.' });
-    expect(askAnswer('One table', '', false)).toEqual({ text: 'Chosen option: One table.' });
-    expect(askAnswer('', 'Neither.', true)).toEqual({ text: 'Neither.', to: 'architect' });
+    // Every answer says who speaks: this page is the owner's own.
+    expect(askAnswer('One table', ' Keep it small. ', false)).toEqual({
+      text: 'Chosen option: One table. Keep it small.',
+      speaker: 'owner',
+    });
+    expect(askAnswer('One table', '', false)).toEqual({ text: 'Chosen option: One table.', speaker: 'owner' });
+    expect(askAnswer('', 'Neither.', true)).toEqual({ text: 'Neither.', speaker: 'owner', to: 'architect' });
     expect(askAnswer('', ' ', false)).toBeNull();
     // Images may answer alone.
-    expect(askAnswer('', ' ', false, true)).toEqual({ text: '' });
+    expect(askAnswer('', ' ', false, true)).toEqual({ text: '', speaker: 'owner' });
   });
 
   it('sends on Enter, and not on Shift with Enter or an Enter that ends a word of an input method', () => {
@@ -679,8 +683,8 @@ describe('the questions an architect put to the owner in its one-to-one', () => 
   });
 
   it('take the words as the reply to the question the strip names, and words with none as words to the architect', () => {
-    expect(toArchitect('approved', 6)).toEqual({ text: 'approved', reply_to: 6 });
-    expect(toArchitect('Look at #3 first.', null)).toEqual({ text: 'Look at #3 first.' });
+    expect(toArchitect('approved', 6)).toEqual({ text: 'approved', speaker: 'owner', reply_to: 6 });
+    expect(toArchitect('Look at #3 first.', null)).toEqual({ text: 'Look at #3 first.', speaker: 'owner' });
   });
 
   it('lead from the question whether the draft is approved, put by the round that wrote it, to the draft in the panel', () => {

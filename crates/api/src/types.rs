@@ -553,6 +553,8 @@ pub struct MarkRead {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct Answer {
     pub text: String,
+    /// Who the caller declares to answer, `owner` or `delegate`, as for the words said to one architect.
+    pub speaker: String,
     /// For what the architect is asked: why it was decided this way.
     #[serde(default)]
     #[ts(optional)]
@@ -1412,6 +1414,9 @@ pub struct ConversationDetail {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct WorkSaid {
     pub text: String,
+    /// Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect; kept with the
+    /// words that come to the architect, not with those that go to the engineer alone.
+    pub speaker: String,
     /// engineer (the default), architect (the default of a question about a decision card) or both.
     #[serde(default)]
     #[ts(optional)]
@@ -1435,6 +1440,8 @@ pub struct ProjectsSaid {
     /// The group, by its key.
     pub key: String,
     pub text: String,
+    /// Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect.
+    pub speaker: String,
     /// The project whose architect it is for; none for every architect of the group.
     #[serde(default)]
     #[ts(optional)]
@@ -1449,6 +1456,9 @@ pub struct ProjectsSaid {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct ArchitectSaid {
     pub text: String,
+    /// Who the caller declares to speak: `owner` at the page, `delegate` for a session that speaks for the owner. The
+    /// architect's record of a decision says which was declared; the engine cannot tell it from who speaks.
+    pub speaker: String,
     /// The item it is about, if any.
     #[serde(default)]
     #[ts(optional)]

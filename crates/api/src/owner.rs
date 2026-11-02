@@ -9,7 +9,7 @@
 
 use db::attachments::{self, Image, Words};
 use db::rusqlite::{Connection, OptionalExtension, params};
-use db::{Actor, Db, Matter, queue_matter};
+use db::{Actor, Db, Matter, Speaker, queue_matter};
 use serde_json::{Value, json};
 
 use crate::{Answer, ImageSent, ProjectsSaid, Ruling, WorkSaid};
@@ -118,6 +118,7 @@ const TOLD_TO_ARCHITECT: &str = "Said to the architect, for you to know";
 /// naming it; no ruling, the card waits on.
 pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, String> {
     let images = images(&said.images)?;
+    let speaker = Speaker::parse(&said.speaker)?;
     if let Some(m) = said.question {
         if said.design_card.is_some() {
             return Err("words answer an engineer's question or ask about a decision card, not both".into());
@@ -147,7 +148,7 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
     }
     live(db, work)?;
     let (item, project) = item_of(db, work)?;
-    let mut body = json!({ "text": text, "where": "work", "work": work });
+    let mut body = speaker.record(json!({ "text": text, "where": "work", "work": work }));
     let what = match card {
         Some(c) => {
             body["design_card"] = json!(c);
@@ -215,6 +216,7 @@ fn card_waits(db: &Db, work: i64, card: i64) -> Result<(), String> {
 /// them too, as its architect is given them with the words.
 pub fn say_to_projects(db: &mut Db, projects: &[String], said: &ProjectsSaid) -> Result<String, String> {
     let images = images(&said.images)?;
+    let speaker = Speaker::parse(&said.speaker)?;
     let text = said.text.trim();
     if says_nothing(text, &images) {
         return Err("what is said to the architects says something".into());
@@ -233,7 +235,7 @@ pub fn say_to_projects(db: &mut Db, projects: &[String], said: &ProjectsSaid) ->
                     kind: "owner_words".into(),
                     detail: Some("said".into()),
                     what: attachments::owner_says(text, images.len()),
-                    body: json!({ "text": text, "where": "projects", "group": said.key, "to": to }),
+                    body: speaker.record(json!({ "text": text, "where": "projects", "group": said.key, "to": to })),
                     ..Matter::default()
                 };
                 let id = queue_matter(tx, &m)?;
@@ -345,8 +347,16 @@ fn answer_question(db: &mut Db, work: i64, matter: i64, text: &str, images: &[Im
 /// that asked. A question whose matter is gone (handled, or withdrawn as its item was cancelled or its work taken over)
 /// is no longer pinned: the reply then comes to the architect's queue as the owner's words, with the question, and the
 /// architect tells the owner. Refused for a question of no architect of the project, or one replied to already. The
-/// images sent with the reply are kept with the answer, and go with it either way.
-pub fn reply_to_question(db: &mut Db, project: &str, ask: i64, text: &str, images: &[Image]) -> Result<String, String> {
+/// images sent with the reply are kept with the answer, and go with it either way. `speaker` is who the caller declares
+/// to reply, kept with the answer and with the words.
+pub fn reply_to_question(
+    db: &mut Db,
+    project: &str,
+    ask: i64,
+    text: &str,
+    images: &[Image],
+    speaker: Speaker,
+) -> Result<String, String> {
     let text = text.trim();
     if says_nothing(text, images) {
         return Err("a reply says something".into());
@@ -381,7 +391,7 @@ pub fn reply_to_question(db: &mut Db, project: &str, ask: i64, text: &str, image
         )
         .optional()
         .map_err(sql)?;
-    let answer = json!({ "by": "owner", "at": db::now(), "text": text });
+    let answer = speaker.record(json!({ "by": "owner", "at": db::now(), "text": text }));
     db.write(Actor::Owner, |tx| {
         tx.execute(
             "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
@@ -395,8 +405,10 @@ pub fn reply_to_question(db: &mut Db, project: &str, ask: i64, text: &str, image
                 kind: "owner_words".into(),
                 detail: Some("answer".into()),
                 what: replied(&format!("The owner replied to question {ask}"), text, images.len()),
-                body: json!({ "text": text, "where": "page", "question": question, "owner_ask": ask,
+                body: speaker.record(
+                    json!({ "text": text, "where": "page", "question": question, "owner_ask": ask,
                               "gone": "the matter the question parked is closed" }),
+                ),
                 ..Matter::default()
             };
             queue_matter(tx, &m)?;
@@ -438,6 +450,7 @@ fn holds_of(body: &Value) -> Vec<i64> {
 fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[Image]) -> Result<String, String> {
     let at = db::now();
     let text = a.text.trim();
+    let speaker = Speaker::parse(&a.speaker)?;
     let kind = body["kind"].as_str().unwrap_or_default();
     match kind {
         "changes" => {
@@ -450,7 +463,7 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[I
             if says_nothing(text, images) {
                 return Err("an answer says something".into());
             }
-            let answer = json!({ "by": "owner", "at": at, "text": text });
+            let answer = speaker.record(json!({ "by": "owner", "at": at, "text": text }));
             // An ask that held no work of the architect and no matter, as an earlier architect put open questions,
             // comes back to the queue as the owner's words.
             let open = kind == "open" && holds_of(body).is_empty();
@@ -478,7 +491,7 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[I
                             kind: "owner_words".into(),
                             detail: Some("answer".into()),
                             what: replied(&format!("The owner answered ask {ask}"), text, images.len()),
-                            body: json!({ "ask": asked, "answer": text, "owner_ask": ask }),
+                            body: speaker.record(json!({ "ask": asked, "answer": text, "owner_ask": ask })),
                             ..Matter::default()
                         };
                         queue_matter(tx, &m)?;
@@ -516,7 +529,8 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
     if says_nothing(&a.text, &images) {
         return Err("an answer says something".into());
     }
-    let mut answer = json!({ "by": "owner", "at": db::now(), "text": a.text });
+    let speaker = Speaker::parse(&a.speaker)?;
+    let mut answer = speaker.record(json!({ "by": "owner", "at": db::now(), "text": a.text }));
     // The owner may hand a question it holds back to the architect, with the answer as a decision to carry out.
     match a.to.as_deref() {
         None => {}
@@ -937,6 +951,7 @@ mod tests {
         let mut db = setup();
         let said = |to: &str, text: &str, images: Vec<ImageSent>| WorkSaid {
             text: text.into(),
+            speaker: "owner".into(),
             to: Some(to.into()),
             question: None,
             design_card: None,
@@ -976,6 +991,7 @@ mod tests {
         assert_eq!(interjections, 3);
         let a = Answer {
             text: String::new(),
+            speaker: "owner".into(),
             why: None,
             reply: None,
             to: None,
@@ -1009,6 +1025,7 @@ mod tests {
         .unwrap();
         let said = |question: i64, text: &str| WorkSaid {
             text: text.into(),
+            speaker: "owner".into(),
             to: None,
             question: Some(question),
             design_card: None,
@@ -1166,6 +1183,7 @@ mod tests {
         let mut db = setup();
         let a = Answer {
             text: "Chosen option: B. Keep it small.".into(),
+            speaker: "owner".into(),
             why: None,
             reply: None,
             to: None,
@@ -1262,6 +1280,7 @@ mod tests {
         let mut db = setup();
         let asks = |to: Option<&str>, text: &str, card: i64| WorkSaid {
             text: text.into(),
+            speaker: "owner".into(),
             to: to.map(str::to_string),
             question: None,
             design_card: Some(card),
@@ -1384,6 +1403,7 @@ mod tests {
     fn with_reply(text: &str) -> Answer {
         Answer {
             text: text.into(),
+            speaker: "owner".into(),
             why: None,
             reply: None,
             to: None,
@@ -1514,5 +1534,93 @@ mod tests {
             )
             .unwrap();
         assert_eq!(closed, ("owner".into(), "Not worth it.".into()));
+    }
+
+    // Every way the owner's words and answers come in keeps who the caller declared to speak: the words said in a work's
+    // group to the architect, those said to the architects of a group, the reply to the architect's question in the
+    // one-to-one, an answer to an ask of an engineer and to an ask of the architect that comes back as the owner's
+    // words. A request that declares none, or a name that is neither the owner nor a delegate, is refused, and nothing
+    // is kept.
+    #[test]
+    fn every_way_in_keeps_who_was_declared_to_speak() {
+        let mut db = setup();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'H8', 'p')", [])?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (2, 1, 'H8', '{}', 'c', 1)",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body) VALUES
+                 (2, 1, '{\"from\":\"architect\",\"project\":\"p\",\"kind\":\"question\",\"question\":\"Which?\"}'),
+                 (2, 1, '{\"from\":\"architect\",\"project\":\"p\",\"kind\":\"open\",\"choice\":\"Which?\"}')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let said = |speaker: &str| WorkSaid {
+            text: "Keep it.".into(),
+            speaker: speaker.into(),
+            to: Some("architect".into()),
+            question: None,
+            design_card: None,
+            images: Vec::new(),
+        };
+        let answer_by = |speaker: &str| Answer {
+            text: "Yes.".into(),
+            speaker: speaker.into(),
+            why: None,
+            reply: None,
+            to: None,
+            images: Vec::new(),
+        };
+        for bad in ["", "architect"] {
+            assert!(say_to_work(&mut db, 1, &said(bad)).is_err());
+            assert!(answer(&mut db, 1, &answer_by(bad)).is_err());
+        }
+        say_to_work(&mut db, 1, &said("delegate")).unwrap();
+        say_to_projects(
+            &mut db,
+            &["p".to_string()],
+            &ProjectsSaid {
+                key: "g".into(),
+                text: "Both of you.".into(),
+                speaker: "owner".into(),
+                to: None,
+                images: Vec::new(),
+            },
+        )
+        .unwrap();
+        // The first ask of the architect's is a question with no matter parked on it: its reply comes as the words.
+        reply_to_question(&mut db, "p", 2, "Neither.", &[], Speaker::Delegate).unwrap();
+        answer(&mut db, 1, &answer_by("delegate")).unwrap();
+        answer(&mut db, 3, &answer_by("owner")).unwrap();
+        let one = |sql: &str| -> Vec<Option<String>> {
+            db.conn()
+                .prepare(sql)
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(
+            one("SELECT json_extract(body, '$.speaker') FROM architect_matters ORDER BY id"),
+            [
+                Some("delegate".to_string()),
+                Some("owner".to_string()),
+                Some("delegate".to_string()),
+                Some("owner".to_string())
+            ]
+        );
+        assert_eq!(
+            one("SELECT json_extract(answer, '$.speaker') FROM owner_asks ORDER BY id"),
+            [
+                Some("delegate".to_string()),
+                Some("delegate".to_string()),
+                Some("owner".to_string())
+            ]
+        );
     }
 }

@@ -25,7 +25,7 @@ import type { DesignCard, JsonValue, OwnerAsk } from '../api';
 import { toneVariant } from '../components';
 import { DocList } from '../document';
 import { duration, time } from '../format';
-import { postJson } from '../http';
+import { postJson, SPEAKER } from '../http';
 import { OptionBoxes } from '../item/Shapes';
 import { isObj, label, Labelled, str, words, type Obj } from '../labelled';
 import { reread, useNow } from '../live';
@@ -481,7 +481,7 @@ function CardRule({ c, picked, recommended }: { c: DesignCard; picked: string; r
     if (question === '' || asked === null) return;
     setBusy(true);
     setError(null);
-    postJson(`/api/v1/works/${c.work}/say`, { text: question, to: asked, design_card: c.id }).then(() => {
+    postJson(`/api/v1/works/${c.work}/say`, { text: question, speaker: SPEAKER, to: asked, design_card: c.id }).then(() => {
       setBusy(false);
       setText('');
       reread('messages', 'architect', 'work:*');
