@@ -1642,11 +1642,13 @@ fn an_answer_fixed_again_with_no_new_commit_sends_the_review_back_to_the_finding
     );
 }
 
-// Whatever the fix answers to a row the review raised, and the code does not change, the review looks at it again: every
-// answer the flow gives is tried, so an answer added later cannot be left out. A row another cell raised, as a red check
-// of the full CI, sends the review nowhere. Adversarial testing, which the design did not choose, stays skipped.
+// Whatever the fix answers to a row a side raised, and the code does not change, that side looks at it again: every
+// answer the flow gives is tried, so an answer added later cannot be left out. The review looks at the rows it raised and
+// adversarial testing, which has run in this work, stays skipped; adversarial testing looks at the rows it raised, and
+// the review goes with it as it does when adversarial testing runs; a row another cell raised, as a red check of the full
+// CI, sends neither anywhere.
 #[test]
-fn every_answer_to_a_row_of_the_review_makes_the_review_look_again() {
+fn every_answer_to_a_row_a_side_raised_makes_that_side_look_again() {
     let s = setup("every-answer");
     let mut agents = scripts();
     agents.insert("T4", review_with_a_finding(Vec::new()));
@@ -1657,10 +1659,25 @@ fn every_answer_to_a_row_of_the_review_makes_the_review_look_again() {
         ]),
     );
     let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the fix taking the finding", |e| {
+        state(e, item).is_some_and(|(_, at, _)| at == "T6")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    // Adversarial testing has run on the change the review saw: a round of it, before the fix.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+             SELECT ?1, (SELECT max(n) + 1 FROM rounds WHERE work = ?1), 'T1',
+                    json_object('engine', json(json_extract(input, '$.engine'))), '{\"outcome\":{}}', 'done', 'c', 1, 2
+             FROM rounds WHERE work = ?1 AND cell = 'T4' ORDER BY n DESC LIMIT 1",
+            [work],
+        )?;
+        Ok(())
+    })
+    .unwrap();
     step_until(&mut e, item, &said, "the fix answering", |e| {
         transitions(e, item, "T6").iter().any(|t| t == "done")
     });
-    let (work, _, _) = state(&e, item).unwrap();
     let plan = |e: &mut Engine, rows: Value| -> (String, String) {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
@@ -1683,24 +1700,31 @@ fn every_answer_to_a_row_of_the_review_makes_the_review_look_again() {
     };
     let answers = fix_answers();
     assert!(answers.iter().any(|a| a == "fixed_outside_commit"), "{answers:?}");
-    for answer in &answers {
-        let got = plan(&mut e, json!([{ "answer": answer, "id": "F1" }]));
-        assert_eq!(got, ("disputes".to_string(), "skipped".to_string()), "{answer}");
-    }
-    // The same answers, the table's one row now a red check of the full CI.
-    e.db.write(Actor::Engine, |tx| {
-        tx.execute(
-            "UPDATE rounds SET input = json_set(input, '$.engine.table[0].from', 'T2·result[red]')
-             WHERE work = ?1 AND cell = 'T6'",
-            [work],
-        )?;
-        Ok(())
-    })
-    .unwrap();
-    for answer in &answers {
-        let got = plan(&mut e, json!([{ "answer": answer, "id": "F1" }]));
-        assert_eq!(got, ("none".to_string(), "skipped".to_string()), "{answer}");
-    }
+    let raised_by = |e: &mut Engine, cell: &str| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE rounds SET input = json_set(input, '$.engine.table[0].from', ?2)
+                 WHERE work = ?1 AND cell = 'T6'",
+                params![work, cell],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    };
+    let expect = |e: &mut Engine, review: &str, adversarial: &str| {
+        for answer in &answers {
+            let got = plan(e, json!([{ "answer": answer, "id": "F1" }]));
+            assert_eq!(got, (review.to_string(), adversarial.to_string()), "{answer}");
+        }
+    };
+    // The row is the review's finding.
+    expect(&mut e, "disputes", "skipped");
+    // The row is a test adversarial testing wrote that went wrong.
+    raised_by(&mut e, "T1·new_tests");
+    expect(&mut e, "changed", "disputes");
+    // The row is a red check of the full CI.
+    raised_by(&mut e, "T2·result[red]");
+    expect(&mut e, "none", "skipped");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
