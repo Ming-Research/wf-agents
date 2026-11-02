@@ -182,7 +182,7 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     assert_eq!(
         keep,
         [
-            "U1", "P1", "N1", "P2", "Q1", "H1", "H2", "H3", "H4", "H5", "H7", "H8", "H9", "H10", "H12", "B3", "B4"
+            "U1", "P1", "N1", "P2", "Q1", "H1", "H2", "H3", "H4", "H5", "H7", "H8", "H9", "H10", "H12", "B5", "B3", "B4"
         ]
     );
     for (cell, check) in [("U1", "understanding_written"), ("N1", "plan_written")] {

@@ -16818,6 +16818,46 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "What the project is now",
+              "what": "Your notebook's section on what the project is now, as the understanding last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_project_now"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The plan",
+              "what": "Your notebook's plan: what to do next and why, as you last wrote it; none before the first",
+              "from": [
+                {
+                  "engine": "notebook_plan"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "What is unclear",
+              "what": "Your notebook's section on what is unclear: the questions not settled yet; none when none",
+              "from": [
+                {
+                  "engine": "notebook_unclear"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Other notes",
+              "what": "Your notebook's other section: anything else you keep across sessions; none when empty",
+              "from": [
+                {
+                  "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -16856,6 +16896,9 @@
               },
               "optional": true,
               "min": 1
+            },
+            {
+              "$ref": "notebook"
             }
           ],
           "cases": [
@@ -16948,6 +16991,10 @@
             {
               "at": "observation_changes",
               "do": "change_observations"
+            },
+            {
+              "at": "notebook",
+              "do": "edit_notebook"
             }
           ],
           "checks": [
@@ -16962,6 +17009,10 @@
             {
               "at": "observation_changes",
               "check": "observation_changes_valid"
+            },
+            {
+              "at": "notebook",
+              "check": "notebook_fits"
             }
           ],
           "shown": [
