@@ -1388,7 +1388,16 @@ mod tests {
             "R5-9-2",
             "Rx-9",
         ] {
-            for after in ["", ":12-30", " (note)", "\u{b7}D2\u{b7}measure", ".", "/", ", more", ")"] {
+            for after in [
+                "",
+                ":12-30",
+                " (note)",
+                "\u{b7}D2\u{b7}measure",
+                ".",
+                "/",
+                ", more",
+                ")",
+            ] {
                 let entry = format!("{stem}{after}");
                 match cited(&entry) {
                     Cited::File(_) => {
@@ -1414,7 +1423,10 @@ mod tests {
             ("R246-18\u{b7}D11\u{b7}adversarial[needed].why", "R246-18"),
             ("R5-9 and R5-10", "R5-9"),
         ] {
-            assert!(matches!(cited(entry), Cited::Round(id) if id.to_string() == round), "{entry:?}");
+            assert!(
+                matches!(cited(entry), Cited::Round(id) if id.to_string() == round),
+                "{entry:?}"
+            );
         }
     }
 }

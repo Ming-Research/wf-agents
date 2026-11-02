@@ -297,9 +297,19 @@ mod tests {
         };
         let binaries = ["engine::e2e", "e2e", "engine", "wf-agents::bin/wf-agents"];
         let tests = ["a_test", "tools::tests::a_test", "a_test_not", "b"];
-        let mut names: Vec<String> = ["", " ", "a_tes", "tests::a_test", "::a_test", "a_test::", "b", "a::b", "x::b"]
-            .map(String::from)
-            .to_vec();
+        let mut names: Vec<String> = [
+            "",
+            " ",
+            "a_tes",
+            "tests::a_test",
+            "::a_test",
+            "a_test::",
+            "b",
+            "a::b",
+            "x::b",
+        ]
+        .map(String::from)
+        .to_vec();
         for binary in binaries {
             for test in tests {
                 for form in [
@@ -452,7 +462,10 @@ mod tests {
                 refused += 1;
             }
         }
-        assert!(let_through > 20 && refused > 20, "{let_through} let through, {refused} refused");
+        assert!(
+            let_through > 20 && refused > 20,
+            "{let_through} let through, {refused} refused"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
