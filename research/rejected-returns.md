@@ -26,8 +26,9 @@ interrupted + 6 error; 98 of them are returns sent back, 31 since version 33 [me
 with the two sent back since added].
 
 Snapshot. 31 rows: 24 check and 7 format; the last is R241-41. The earlier research count of 27 (R247-11) was taken
-before R241-28, R241-35, R241-40 and R241-41 were sent back; the table grew while this report was written, and more
-may have appeared since this snapshot. The one query that gives the table of section 4 (its row count is the 31):
+before R241-28, R241-35, R241-40 and R241-41 were sent back; the table grew while this report was written, and
+three more came after the snapshot (section 4b); more may have appeared since. The one query that gives the table of
+section 4 as it stood at the snapshot (its row count is the 31, and 34 at R247-40):
 
 ```sql
 -- Returns the engine sent back since flow version 33 was recorded.
@@ -121,6 +122,31 @@ Round address is `R<work>-<n>`. "Message" paraphrases what the engine said.
 | R242-15 | D3 | format | `better` has `considered`, not a field of `found` | b |
 
 Counts: a 10, b 7, c 10, d 2, e 2 = 31 [measured, this table is the query's rows].
+
+## 4b. Sent back after the snapshot (not in the totals of this report)
+
+By R247-40 the query of section 2 returned 34 rows; the three beyond the 31 above were read the same way. With them the
+classes are a 12, b 8, c 10, d 2, e 2. Their own cost is not added to section 8 [measured].
+
+| Round | Cell | Sent back by | Message | Class | Cost |
+|---|---|---|---|---|---|
+| R242-38 | D7 | `answers_match_speakers` (`redirect.answers.to`) | the architect did not interject in this round | a | $0.07, 19 s |
+| R246-29 | T3 | format | `tools[0].tool` is "query", must be "gh" | b | $0.45, 177 s |
+| R247-38 | I1 | `answers_match_speakers` (`answers.to`) | the architect did not interject in this round | a | $0.75, 157 s |
+
+- `answers_match_speakers` (`checks.rs:961-977`) accepts an answer only to a side that interjected in the same round
+  [read]. In R247-38 (this work) the architect's interjection ij:87 had been delivered in the round before, R247-36
+  (`interjections.delivered_round` is 36), and R247-38 was given none (its `engine.interjections` is empty); for
+  R242-38 the architect's ij:90 was delivered in R242-37 and R242-38 was given none [measured]. The interjection was shown to
+  R247-38 again as a hook note that said to answer it in that round's return [read, this work's prompt]. R247-36 had
+  ended in a request for tools, a form that holds no answers, so the interjection could not be answered there, and
+  the round that was told to answer it was refused for answering it. The model did what the text said and the check
+  looked at one round, so this is class a. That R242-38 saw the same note is inferred from its answer to the architect
+  [inferred; confirm by reading its stored message]. Fix: an interjection is answerable in the round that
+  was told to answer it, or is not shown again after its round; or the `tools` form can carry answers.
+- R246-29 repeats R227-26 (class b) in another work: T3 asked, with the `query` tool it does not have, for its work's CI
+  record and an item row [read, its stored return]. Twice since version 33, T3 reached for the CI results it is not
+  given. Giving T3 the CI results as an input removes the call and the lost round in both cases.
 
 ## 5. Classes
 
@@ -407,11 +433,14 @@ FROM rounds WHERE started_at >= 1793622870365 AND usage IS NOT NULL;
   class b), telling D2, T4, I1 and T6 what the engine does and keeps (c, 10).
 - The pause on every rejection (#198) will pause 31 times by this record; 27 of them would be cleared by a fix to the
   system, not by the model's answer. The structured key above would let the pause show the class's usual cause.
+- Two causes came back after the snapshot: T3 asking for CI results it is not given (R227-26, R246-29), and an
+  interjection that cannot be answered in either round it is shown in (R242-38, R247-38). Both are cheap to remove and
+  both recur, which a pause on every rejection would only repeat.
 
 ## 10. What is not confirmed
 
-- The model's reasons: c3 (why columns were skipped), c5 (that the cell lacked the count in its message). Confirm by
-  reading the stored messages in full, or by a trial.
+- The model's reasons: c3 (why columns were skipped), c5 (that the cell lacked the count in its message), section 4b
+  (that R242-38 saw the note that told it to answer). Confirm by reading the stored messages in full, or by a trial.
 - The test names of R234-23 and R234-26 beyond the `describe > it` form: only the form was checked, not whether every
   test exists on work 234's branch.
 - `test_results_match_runs` (R238-34, R241-41), what reads a repeated `stands` (R227-40), whether the command line takes a nested
