@@ -230,14 +230,32 @@ the page is, its words in the page's font at body medium, a box `--bgColor-accen
 `--borderColor-accent-emphasis`, a line `--fgColor-muted`, a group `--bgColor-muted` edged `--borderColor-default`, a
 note `--bgColor-attention-muted`, and the parts a diagram colours one by one (a mind map's branches, a timeline's
 periods, a pie's slices) in Primer's display colours filled in their emphasis with `--fgColor-onEmphasis` words, as a
-state's chip; at its own size, a diagram wider than the text scrolling inside its box and never widening the page, and a
-Gantt chart, which mermaid draws as wide as its box, no narrower than 600 px; its source as a code block while it is not
+state's chip; at its own size when its box is as wide as it, and scaled down to the width of its box when it is wider,
+never scrolling sideways and never widening the page, a Gantt chart, which mermaid draws as wide as its box,
+drawn no narrower than 600 px and then scaled to the box like any other; its source as a code block while it is not
 drawn yet and when it cannot be, then with a note under it in small `--fgColor-muted` text that it could not be drawn,
-never a blank space; and in its top right corner an invisible small `IconButton` with a `CodeIcon`, shown under the
-pointer or the keyboard's focus and always on a screen with no pointer, that shows the source in the diagram's place and
-the diagram again; instead of the fence shown as code, the page drawing diagrams itself, or the libraries in the page's
-first load, because the owner understands a design by its diagrams, of every kind and not only mermaid's, the two
-libraries draw every kind the agents are told to write, and a page that shows no diagram does not load them.
+never a blank space; and in its top right corner invisible small `IconButton`s, a `ScreenFullIcon` that enlarges it
+(only while it is scaled down) and a `CodeIcon` that shows the source in the diagram's place and the diagram again,
+shown under the pointer or the keyboard's focus and always on a screen with no pointer; instead of the fence shown as
+code, the page drawing diagrams itself, or the libraries in the page's first load, because the owner understands a
+design by its diagrams, of every kind and not only mermaid's, the two libraries draw every kind the agents are told to
+write, and a page that shows no diagram does not load them.
+
+A diagram scaled down to its box opens enlarged, by its `ScreenFullIcon` button or a click on the diagram (the zoom-in
+cursor over it), in a Primer `Dialog` titled "Diagram" that is as large as Primer lets it be (the window less its
+margin), closed by its cross, Escape or a click outside it. It holds the same drawing, the markup already drawn and
+sanitised, under an id of its own so that the two copies do not meet, and never a drawing made again from the source, in
+the viewer the flow charts are moved and zoomed in (Moving and zooming): shown whole when it opens, on
+`--bgColor-default`, the background the diagram is drawn for, with the gestures told in the dialog's footer in small
+`--fgColor-muted` text. A diagram that is not wider than its box has no such button. Instead of the diagram scrolling
+sideways in its box, because the owner read a diagram cut off at the edge as one cut off (a scroll bar that shows only
+once used does not say there is more), and a diagram is taken in whole before it is read closely; instead of only
+scaling it down, because a wide diagram's words come out too small to read and the owner must be able to read them;
+instead of a new tab, because the page itself draws the diagram, in its theme, and a tab takes the owner away from the
+words round it, which is not so of an image, a file the server holds; instead of opening it in place, because the dock
+is narrow and the diagram would stay narrow and push the messages under it away; instead of drawing the diagram again
+narrower or turned, because that changes what its author drew, holds for some kinds only, and still leaves no way to
+read a large one.
 
 ### An item named by its number
 
@@ -2137,12 +2155,12 @@ own handling of the wheel and the keys does not allow.
 
 ### Moving and zooming
 
-Every chart moves and zooms alike: two fingers or the wheel move it, Shift with two fingers or a pinch zooms at the
-pointer, dragging moves it, and Space shows the whole and goes back; the pointer is the pointing finger over what a
-click or hovering does something with (a cell, an arrow, its label and the wider band around it, a circle, a badge, the
-"?"), the plain arrow over empty space, and the grabbing hand only while the button is down, because one chart that
-behaves differently from the others makes every gesture a guess, and a hand everywhere said that nothing could be
-clicked.
+Every chart, and the enlarged view of a diagram (Diagrams), moves and zooms alike: two fingers or the wheel move it,
+Shift with two fingers or a pinch zooms at the pointer, dragging moves it, and Space shows the whole and goes back; the
+pointer is the pointing finger over what a click or hovering does something with (a cell, an arrow, its label and the
+wider band around it, a circle, a badge, the "?"), the plain arrow over empty space, and the grabbing hand only while
+the button is down, because one chart that behaves differently from the others makes every gesture a guess, and a hand
+everywhere said that nothing could be clicked.
 
 ### The map
 
