@@ -41,6 +41,9 @@ pub struct Ctx<'a> {
     /// The rows of the cell's numbered table as this round was given them, each with its number.
     pub table: &'a [Value],
     pub interjections: &'a [Value],
+    /// The commit of the project's main the round was pinned to, which its inputs that read the project's files were
+    /// read at; none for a round of a cell with none.
+    pub main: Option<&'a str>,
 }
 
 /// What a row a fix answered by its number in the table it was given is known by outside the table: a finding's

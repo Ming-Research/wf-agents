@@ -2051,11 +2051,15 @@ Instead of a look of its own, because like things look alike: a panel in tabs is
 
 ### The constitution in the Policy tab
 
-The panel beside the one-to-one with an architect shows the project's constitution, the file its configuration names in
-its checkout (`constitution`), whole, in its Policy tab under the policy in force, each a section, the constitution
-folded at first and saying which file it is, instead of on the Settings page, because the constitution is the project's
-own file, not a setting, and the architect judges the project by it with the policy, so the owner reads the two
-together; the settings name only its path.
+The panel beside the one-to-one with an architect shows the project's constitution, the file its configuration names
+(`constitution`), as the project's main has it, whole, in its Policy tab under the policy in force, each a section, the
+constitution folded at first and saying which file it is and at which commit of main it was read, the commit short and
+with when it was committed, so that the owner sees how new the text is, instead of on the Settings page, because the
+constitution is the project's own file, not a setting, and the architect judges the project by it with the policy, so
+the owner reads the two together; the settings name only its path. The commit is the one the engine last fetched: the
+page fetches nothing, so after main was pushed to with the engine idle the page shows the earlier commit, and its time,
+until the next round that reads main. A constitution that cannot be read is never an empty one: its section opens to
+say why, in a sentence that names the file and the commit, and the rest of the panel is shown as it is.
 
 ### Forwarding a fault
 
@@ -2617,8 +2621,9 @@ round happens, what is given, the task, what to work from by each input's number
 to hand in) with what each round fills in; the inputs in the order the message numbers them, a row each with its name,
 its addresses, where it comes from and "if any", each opening to what the agent is told it is and to what it holds as
 far as the page can know outside a round (the flow's own texts in full, a setting as each project's configuration has
-it, the project guide as each project's checkout has it now, what else the engine computes as the flow says it, a table
-or view as its definition describes it); and the rules and formats, a row each with its size, opening to their text.
+it, the project guide as each project's main has it now, at the commit named, short and with when it was committed, or
+in the place of both, why its main could not be read, what else the engine computes as the flow says it, a table or view as its definition describes
+it); and the rules and formats, a row each with its size, opening to their text.
 
 Out: the pattern of its return as JSON, in the sheet of what is sent to an agent, since the agent is sent it as its
 format: the forms it may hand in, its own answer first, one of them in the field that holds one, each its fields with

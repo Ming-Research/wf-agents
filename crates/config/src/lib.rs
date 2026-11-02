@@ -474,8 +474,9 @@ pub struct Project {
     /// flow's own rules; how agents work in every project is the flow's, and is not repeated here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<String>,
-    /// The project's constitution, the lasting values its decisions come from: a path in its checkout, such as
-    /// `constitution.md`; none when the project has none. The architect is given its text.
+    /// The project's constitution, the lasting values its decisions come from: a path in its repository, such as
+    /// `constitution.md`, spelled as the project's main has it; none when the project has none. Agents are given its
+    /// text as main has it, never as the checkout's files have it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constitution: Option<PathBuf>,
     /// The tags the project's observations may carry, each with what it covers: the architect tags an observation with
@@ -556,6 +557,12 @@ pub const SETTINGS: [&str; 7] = [
 ];
 
 impl Project {
+    /// The ref of the project's main in its checkout: the remote's, `origin/<main>`, which a fetch moves. The
+    /// checkout's own `<main>` branch and its files are never read for the project's text: nothing updates them.
+    pub fn main_ref(&self) -> String {
+        format!("origin/{}", self.main)
+    }
+
     /// The project's design paths: the directory of its records, with its trailing slash; none for a project that keeps
     /// no records.
     pub fn design_paths(&self) -> Vec<String> {
@@ -655,6 +662,12 @@ struct Commit<'a> {
 }
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+    let out = git_bytes(dir, args)?;
+    String::from_utf8(out).map_err(|e| format!("git {}: {e}", args.join(" ")))
+}
+
+/// What git writes to its standard output, as bytes; on failure, its command and what it says.
+fn git_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -668,7 +681,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
-    String::from_utf8(out.stdout).map_err(|e| format!("git {}: {e}", args.join(" ")))
+    Ok(out.stdout)
 }
 
 impl Files for Commit<'_> {
@@ -1224,18 +1237,58 @@ pub fn worktrees(dir: &Path) -> PathBuf {
     dir.join("worktrees")
 }
 
-/// What a project says of itself as the files of a checkout at `root` are now, which the owner's page shows: the
-/// project guide as [`project_guide_at`] gives it, read from the files on disk.
-pub fn project_guide(root: &Path, design: &[String], cites: &str) -> serde_json::Value {
-    let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap_or_default();
-    let mut nodes = Vec::new();
-    for d in design.iter().filter(|d| d.ends_with('/')) {
-        for f in files_under(&root.join(d)) {
-            let rel = f.strip_prefix(root).unwrap_or(&f).to_string_lossy().into_owned();
-            nodes.push((rel, std::fs::read_to_string(&f).unwrap_or_default()));
+/// The commit the project's main is at in its checkout, as the last fetch left it (`origin/<main>`); an error saying
+/// why when there is none: the checkout is missing, or main was never fetched into it. The checkout's own branch of
+/// that name is not a fallback: no step updates it.
+pub fn main_commit(p: &Project) -> Result<String, String> {
+    let main = p.main_ref();
+    let out = git_bytes(&p.checkout, &["rev-parse", "--verify", &format!("{main}^{{commit}}")])
+        .map_err(|x| format!("{main} is not in the checkout {}: {x}", p.checkout.display()))?;
+    Ok(String::from_utf8_lossy(&out).trim().to_string())
+}
+
+/// When a commit of the project's checkout was committed, in milliseconds since the epoch, which tells how old the text
+/// read at it is.
+pub fn committed_at(p: &Project, commit: &str) -> Result<i64, String> {
+    let out = git(&p.checkout, &["show", "-s", "--format=%ct", commit])?;
+    out.trim()
+        .parse::<i64>()
+        .map(|seconds| seconds * 1000)
+        .map_err(|_| format!("git show {commit}: no commit time in {:?}", out.trim()))
+}
+
+/// Brings the project's `origin/<main>` in its checkout to the remote's main now (`git fetch`). It moves that ref only:
+/// no file of the checkout changes.
+pub fn fetch_main(p: &Project) -> Result<(), String> {
+    git_bytes(&p.checkout, &["fetch", "-q", "origin", &p.main])
+        .map(|_| ())
+        .map_err(|x| {
+            format!(
+                "main of {} could not be fetched in {}: {x}",
+                p.repo,
+                p.checkout.display()
+            )
+        })
+}
+
+/// The text of a file of the project as one commit of its checkout has it, which `path` names from the repository's
+/// root. An error is one sentence that names the path and the commit and says why: the path is not in that commit, it
+/// is not a file, it is not UTF-8 text, git failed.
+pub fn read_at(p: &Project, commit: &str, path: &Path) -> Result<String, String> {
+    use std::path::Component;
+    let shown = path.display();
+    let mut parts = Vec::new();
+    for c in path.components() {
+        match c {
+            Component::Normal(x) => parts.push(x.to_string_lossy().into_owned()),
+            Component::CurDir => {}
+            _ => return Err(format!("{shown} at {commit} is not a path inside the repository")),
         }
     }
-    guide(agents, nodes, cites)
+    let spec = format!("{commit}:{}", parts.join("/"));
+    let bytes = git_bytes(&p.checkout, &["cat-file", "blob", &spec])
+        .map_err(|x| format!("{shown} cannot be read at {commit} in {}: {x}", p.checkout.display()))?;
+    String::from_utf8(bytes).map_err(|_| format!("{shown} at {commit} is not UTF-8 text"))
 }
 
 /// What a project says of itself as one commit has it, which agents are given as the project guide: its AGENTS.md,
@@ -1362,22 +1415,6 @@ fn blob_texts(repo: &Path, objects: &[&str]) -> Result<Vec<String>, String> {
         rest = rest.get(size + 1..).unwrap_or_default();
     }
     Ok(texts)
-}
-
-/// The Markdown files under a directory, in the order of their paths.
-fn files_under(dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let Ok(rd) = std::fs::read_dir(dir) else { return out };
-    let mut entries: Vec<_> = rd.filter_map(Result::ok).map(|e| e.path()).collect();
-    entries.sort();
-    for p in entries {
-        if p.is_dir() {
-            out.extend(files_under(&p));
-        } else if p.extension().is_some_and(|x| x == "md") {
-            out.push(p);
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -1820,7 +1857,6 @@ asks = 9
         run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "first"]);
         let first = run(&["rev-parse", "HEAD"]).trim().to_string();
         let design = ["design/".to_string()];
-        let on_disk = project_guide(&dir, &design, "it cites design/a/b.md");
         put("design/a/new.md", "Decision: new.\n");
         put("AGENTS.md", "Changed, not committed.\n");
         let g = project_guide_at(&dir, &first, &design, "it cites design/a/b.md").unwrap();
@@ -1830,8 +1866,6 @@ asks = 9
             serde_json::json!({ "design/a.md": "Decision: a.", "design/a/b.md": "Decision: b." })
         );
         assert_eq!(g["cited"], serde_json::json!({ "design/a/b.md": "Decision: b.\n" }));
-        // The files on disk gave the same guide for the same files, in the same order.
-        assert_eq!(on_disk.to_string(), g.to_string());
         run(&["rm", "-q", "design/a/b.md"]);
         run(&["add", "-A"]);
         run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "second"]);
@@ -1845,5 +1879,134 @@ asks = 9
         assert_eq!(later["cited"], serde_json::json!({}));
         assert!(project_guide_at(&dir, "0000000", &design, "").is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A project's text is read from the commit its `origin/<main>` is at in its checkout, never from the checkout's
+    // files or its own branch; a fetch moves that commit and no file; and a failure is an error that says what and where.
+    #[test]
+    fn a_project_s_text_is_read_from_its_fetched_main_and_a_failure_says_why() {
+        let root = std::env::temp_dir().join(format!("wf-agents-main-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let origin = root.join("origin.git");
+        let (checkout, other) = (root.join("checkout"), root.join("other"));
+        let run = |dir: &Path, args: &[&str]| git(dir, args).unwrap();
+        let commit = |dir: &Path, message: &str| {
+            run(dir, &["add", "-A"]);
+            run(
+                dir,
+                &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", message],
+            );
+            run(dir, &["rev-parse", "HEAD"]).trim().to_string()
+        };
+        let put = |dir: &Path, path: &str, text: &[u8]| {
+            let p = dir.join(path);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        run(&root, &["init", "-q", "--bare", &origin.to_string_lossy()]);
+        run(
+            &root,
+            &["clone", "-q", &origin.to_string_lossy(), &checkout.to_string_lossy()],
+        );
+        let project = |checkout: &Path| {
+            let mut c = read(&files(&[])).unwrap();
+            let mut p = c.projects.remove("p").unwrap();
+            p.checkout = checkout.to_path_buf();
+            p
+        };
+        let p = project(&checkout);
+        // A checkout that holds no main yet has no commit of it, and says which ref it looked for.
+        let none = main_commit(&p).unwrap_err();
+        assert!(none.contains("origin/main"), "{none}");
+        // A checkout that is not there is an error too.
+        assert!(main_commit(&project(&root.join("missing"))).is_err());
+
+        put(&checkout, "constitution.md", b"# Old\n");
+        let first = commit(&checkout, "first");
+        run(&checkout, &["push", "-q", "origin", "HEAD:main"]);
+        assert_eq!(main_commit(&p).unwrap(), first);
+        assert_eq!(read_at(&p, &first, Path::new("constitution.md")).unwrap(), "# Old\n");
+        // When a commit was committed, in milliseconds; a commit the checkout lacks has none.
+        let seconds: i64 = run(&checkout, &["show", "-s", "--format=%ct", &first])
+            .trim()
+            .parse()
+            .unwrap();
+        assert_eq!(committed_at(&p, &first).unwrap(), seconds * 1000);
+        assert!(committed_at(&p, "0000000000000000000000000000000000000000").is_err());
+        // A path may be written with a leading `./`; the same file.
+        assert_eq!(read_at(&p, &first, Path::new("./constitution.md")).unwrap(), "# Old\n");
+
+        // Main moves on the remote: nothing in the checkout moves until a fetch, and the fetch changes no file.
+        run(
+            &root,
+            &["clone", "-q", &origin.to_string_lossy(), &other.to_string_lossy()],
+        );
+        put(&other, "constitution.md", b"# New\n");
+        let second = commit(&other, "second");
+        run(&other, &["push", "-q", "origin", "HEAD:main"]);
+        assert_eq!(main_commit(&p).unwrap(), first);
+        fetch_main(&p).unwrap();
+        assert_eq!(main_commit(&p).unwrap(), second);
+        assert_eq!(read_at(&p, &second, Path::new("constitution.md")).unwrap(), "# New\n");
+        assert_eq!(
+            std::fs::read_to_string(checkout.join("constitution.md")).unwrap(),
+            "# Old\n"
+        );
+        // The commit read is the one asked for, whatever main is now.
+        assert_eq!(read_at(&p, &first, Path::new("constitution.md")).unwrap(), "# Old\n");
+
+        // What the checkout's files or its own branch hold is never read: the file there is changed, not committed,
+        // and its branch is a commit main does not have.
+        put(&checkout, "constitution.md", b"# Changed on disk\n");
+        put(&checkout, "only-here.md", b"here\n");
+        assert_eq!(read_at(&p, &second, Path::new("constitution.md")).unwrap(), "# New\n");
+        let e = read_at(&p, &second, Path::new("only-here.md")).unwrap_err();
+        assert!(e.contains("only-here.md") && e.contains(&second), "{e}");
+
+        // Each failure is an error that names the path and the commit.
+        put(&other, "bytes.md", &[0xff, 0xfe, 0x00]);
+        put(&other, "dir/file.md", b"x\n");
+        let third = commit(&other, "third");
+        run(&other, &["push", "-q", "origin", "HEAD:main"]);
+        fetch_main(&p).unwrap();
+        let e = read_at(&p, &third, Path::new("bytes.md")).unwrap_err();
+        assert!(
+            e.contains("bytes.md") && e.contains(&third) && e.contains("UTF-8"),
+            "{e}"
+        );
+        let e = read_at(&p, &third, Path::new("dir")).unwrap_err();
+        assert!(e.contains("dir") && e.contains(&third), "{e}");
+        let e = read_at(&p, &third, Path::new("../constitution.md")).unwrap_err();
+        assert!(
+            e.contains("../constitution.md") && e.contains("inside the repository"),
+            "{e}"
+        );
+        let e = read_at(&p, &third, Path::new("/etc/hosts")).unwrap_err();
+        assert!(e.contains("/etc/hosts"), "{e}");
+        let e = read_at(
+            &p,
+            "0000000000000000000000000000000000000000",
+            Path::new("constitution.md"),
+        )
+        .unwrap_err();
+        assert!(
+            e.contains("constitution.md") && e.contains("0000000000000000000000000000000000000000"),
+            "{e}"
+        );
+        // A fetch that cannot reach the remote is an error, and leaves main where it was.
+        let mut gone = project(&checkout);
+        std::fs::rename(&origin, root.join("moved.git")).unwrap();
+        let e = fetch_main(&gone).unwrap_err();
+        assert!(e.contains("could not be fetched"), "{e}");
+        assert_eq!(main_commit(&gone).unwrap(), third);
+        // The checkout's own branch is no fallback: with no `origin/main`, main has no commit, though a branch `main`
+        // is there.
+        run(&checkout, &["update-ref", "refs/heads/main", &first]);
+        run(&checkout, &["update-ref", "-d", "refs/remotes/origin/main"]);
+        assert!(main_commit(&gone).is_err());
+        gone.main = "master".into();
+        assert!(main_commit(&gone).unwrap_err().contains("origin/master"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

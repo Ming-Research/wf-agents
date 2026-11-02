@@ -534,14 +534,11 @@ async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result
     };
     let (project, c) = project_of(&app, &first)?;
     let projects: Vec<String> = c.projects.keys().cloned().collect();
-    // The project's constitution, the file its configuration names in its checkout, as the architect reads it.
-    let constitution = c.projects.get(&project).and_then(|p| {
-        p.constitution.as_ref().map(|path| api::NamedText {
-            name: path.display().to_string(),
-            text: std::fs::read_to_string(p.checkout.join(path)).unwrap_or_default(),
-        })
-    });
     read(&app, move |conn, a| {
+        // The project's constitution, the file its configuration names, as its main has it in its checkout as the
+        // engine last fetched it, as the architect reads it; a file that cannot be read says why in its own field and
+        // takes nothing else from the page.
+        let constitution = c.projects.get(&project).and_then(api::constitution_now);
         api::architect(conn, &a.flows, &project, projects, constitution)
     })
     .await

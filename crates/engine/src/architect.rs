@@ -71,6 +71,10 @@ pub const INPUTS: [&str; 30] = [
     "notebook_other",
 ];
 
+/// The engine's inputs that read the project's files on its main, each as one commit of it has them. A round whose cell
+/// has any of them is pinned to one commit of main (`inputs::pin_main`), which every one of them is read at.
+pub const MAIN_INPUTS: [&str; 3] = ["constitution", "guide", "cited_nodes"];
+
 /// The input that gives what the cell before this one on the matter's path answered of it, as that round's return:
 /// addressed as that return, so that a session that holds it is only referred to it.
 pub const BEFORE: &str = "before";
@@ -1317,14 +1321,14 @@ pub fn ask_owner(
         let Some(answer) = answer else {
             return Ok(Advance::Waits(format!("ask {id} waits for the owner")));
         };
-        let gathered = inputs::gather(e, w, g, cell, None)?;
+        let gathered = inputs::gather(e, w, g, cell, None, None)?;
         let given = values::given(e, w, g, cell, None, &gathered)?;
         let images = attachments::of(e.db.conn(), Words::Ask(id)).map_err(sql)?;
         let output = answered_as(&answer, &images);
         let row = g.take(&cell.id, &output, &given)?.clone();
         return finish(e, w, g, cell, r.id, output, &row, Ended::default(), &[], None, &given);
     }
-    let gathered = inputs::gather(e, w, g, cell, None)?;
+    let gathered = inputs::gather(e, w, g, cell, None, None)?;
     let given = values::given(e, w, g, cell, None, &gathered)?;
     let project = project_of(w)?.to_string();
     let commit = e.config.commit.clone();
@@ -1439,7 +1443,7 @@ pub fn ask_architect(
     let b = crate::blockers::open(conn, w.id)?
         .ok_or_else(|| format!("work {} waits for an architect, but holds no blocker", w.id))?;
     if let Some(r) = open.filter(|r| r.cell.as_deref() == Some(cell.id.as_str())) {
-        let gathered = inputs::gather(e, w, g, cell, Some(item))?;
+        let gathered = inputs::gather(e, w, g, cell, Some(item), None)?;
         let given = values::given(e, w, g, cell, Some(item), &gathered)?;
         let held = given
             .get("held")
@@ -1497,7 +1501,7 @@ pub fn ask_architect(
             .map_err(sql)?,
         None => None,
     };
-    let gathered = inputs::gather(e, w, g, cell, Some(item))?;
+    let gathered = inputs::gather(e, w, g, cell, Some(item), None)?;
     let input = json!({ "inputs": recorded(&gathered) });
     let commit = e.config.commit.clone();
     if let Some(m) = live {
@@ -2538,11 +2542,19 @@ fn queue_head(ctx: &Ctx, tx: &Transaction<'_>, kind: &str, why: Option<&Value>) 
     }
     let mut body = json!({ "asked_by": [asker] });
     let what = if kind == CHECK {
-        let constitution = ctx
-            .projects
-            .get(&project)
-            .and_then(constitution_text)
-            .map(|t| db::content_hash(&t));
+        // The constitution as the commit of main the round was pinned to has it, the one its agent was given; a round
+        // pinned to none, as one the engine took itself with no agent, reads main as the checkout has it now.
+        let pinned: Option<String> = tx
+            .query_row(
+                "SELECT json_extract(input, '$.engine.main') FROM rounds WHERE work = ?1 AND n = ?2",
+                params![ctx.round.work, ctx.round.n],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(sql)?
+            .flatten();
+        let constitution =
+            constitution_of(&project, ctx.projects.get(&project), pinned.as_deref())?.map(|t| db::content_hash(&t));
         if own.is_none() && same_as_last_check(tx, &project, constitution.as_deref())? {
             return Ok(());
         }
@@ -2900,16 +2912,19 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
 
 // The architect's checks.
 
-/// The articles of a project's constitution, in its order: its level-two headings that start with "Article".
-fn articles(e: &Engine, project: &str) -> Vec<String> {
-    let Some(text) = constitution(e, project) else {
-        return Vec::new();
+/// The articles of a project's constitution, in its order: its level-two headings that start with "Article". They are
+/// counted in the constitution at the commit of main the round was pinned to (`main`), the one its agent was given, so
+/// that the count is of the articles the agent read.
+fn articles(e: &Engine, project: &str, main: Option<&str>) -> Result<Vec<String>, String> {
+    let Some(text) = constitution(e, project, main)? else {
+        return Ok(Vec::new());
     };
-    text.lines()
+    Ok(text
+        .lines()
         .filter_map(|line| line.strip_prefix("## "))
         .filter(|h| h.trim_start().to_lowercase().starts_with("article"))
         .map(|h| h.trim().to_string())
-        .collect()
+        .collect())
 }
 
 /// Whether a row names an article: by its number, as "Article 2", or by its title.
@@ -3281,7 +3296,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
     let conn = c.e.db.conn();
     match name {
         "constitution_covered" => {
-            let articles = articles(c.e, project_of(c.w)?);
+            let articles = articles(c.e, project_of(c.w)?, c.main)?;
             let rows = items(v);
             if rows.len() != articles.len() {
                 return Err(format!(
@@ -3610,13 +3625,14 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
 
 // The architect's inputs.
 
-/// What the engine computes for an input of the architect's cells; none when there is nothing.
-pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Option<Value>, String> {
+/// What the engine computes for an input of the architect's cells; none when there is nothing. `main` is the commit of
+/// the project's main the round is pinned to, for the inputs that read it ([`MAIN_INPUTS`]).
+pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str, main: Option<&str>) -> Result<Option<Value>, String> {
     let project = project_of(w)?;
     match name {
-        "constitution" => Ok(constitution(e, project).map(Value::String)),
-        "guide" => guide(e, project).map(Some),
-        "cited_nodes" => cited_nodes(e, w, project),
+        "constitution" => Ok(constitution(e, project, main)?.map(Value::String)),
+        "guide" => guide(e, project, main).map(Some),
+        "cited_nodes" => cited_nodes(e, w, project, main),
         "since_last_work" => since_last_work(e, w, project).map(Some),
         "board" => board(e, project).map(Some),
         "numbers" => numbers(e, w, project).map(Some),
@@ -3662,10 +3678,17 @@ pub const KNOWLEDGE: [&str; 6] = [
 ];
 
 /// What a cell of an engineer's work on an item (`item`) of a project is given of the architect's knowledge
-/// ([`KNOWLEDGE`]); none when there is nothing.
-pub fn knowledge(e: &Engine, project: &str, item: i64, name: &str) -> Result<Option<Value>, String> {
+/// ([`KNOWLEDGE`]); none when there is nothing. `main` is the commit of the project's main the round is pinned to, for
+/// the constitution.
+pub fn knowledge(
+    e: &Engine,
+    project: &str,
+    item: i64,
+    name: &str,
+    main: Option<&str>,
+) -> Result<Option<Value>, String> {
     match name {
-        "constitution" => Ok(constitution(e, project).map(Value::String)),
+        "constitution" => Ok(constitution(e, project, main)?.map(Value::String)),
         "board" => board(e, project).map(Some),
         "items_decided" => items_decided(e.db.conn(), project, item),
         "policy" => policy(e, project),
@@ -3726,38 +3749,49 @@ fn engineer_graph(f: Option<&Compiled>) -> Option<&CompiledGraph> {
     f?.graph(ENGINEER)
 }
 
-/// A project's constitution, as its configuration names it; none when it names none.
-fn constitution(e: &Engine, project: &str) -> Option<String> {
-    constitution_text(e.config.config.projects.get(project)?)
-}
-
-/// The text of a project's constitution, as its checkout has it; none when the project names none, or it cannot be
-/// read.
-fn constitution_text(p: &config::Project) -> Option<String> {
-    let path = p.constitution.as_ref()?;
-    std::fs::read_to_string(p.checkout.join(path)).ok()
-}
-
-/// The ref of a project's main its checkout has: the remote's, when it was fetched, or else its own.
-fn main_ref(p: &config::Project) -> String {
-    let remote = format!("origin/{}", p.main);
-    if git::git(&p.checkout, &["rev-parse", "--verify", "-q", &remote]).is_ok() {
-        remote
-    } else {
-        p.main.clone()
+/// The commit of a project's main its files are read at: the one a round was pinned to (`main`), or, outside a round,
+/// the commit `origin/<main>` is at in its checkout now. An error names the project.
+fn main_at(project: &str, p: &config::Project, main: Option<&str>) -> Result<String, String> {
+    match main {
+        Some(commit) => Ok(commit.to_string()),
+        None => config::main_commit(p).map_err(|x| format!("project {project}: {x}")),
     }
 }
 
-/// A project's guide as its main has it: its design goal, its AGENTS.md and the index of its records.
-fn guide(e: &Engine, project: &str) -> Result<Value, String> {
+/// A project's constitution as its main has it, at the commit `main` pins or else the commit `origin/<main>` is at
+/// now; none only when the project names none. A constitution the project names and its main does not have, or that
+/// cannot be read, is an error that says which file, at which commit.
+fn constitution(e: &Engine, project: &str, main: Option<&str>) -> Result<Option<String>, String> {
+    constitution_of(project, e.config.config.projects.get(project), main)
+}
+
+/// [`constitution`] of a project's configuration: none for a project that is not configured or names no constitution.
+fn constitution_of(project: &str, p: Option<&config::Project>, main: Option<&str>) -> Result<Option<String>, String> {
+    let Some(p) = p else { return Ok(None) };
+    let Some(path) = &p.constitution else { return Ok(None) };
+    let commit = main_at(project, p, main)?;
+    config::read_at(p, &commit, path).map(Some).map_err(|x| {
+        format!(
+            "project {project}: constitution: {x}. Until it can be read no agent of the project can judge, so every \
+             work of the project stops at its next round: change the constitution's path in the project's \
+             configuration to one main has (spelled exactly, in the same case), or put the file back on main, then \
+             press Start."
+        )
+    })
+}
+
+/// A project's guide as its main has it, at the commit `main` pins or else the commit `origin/<main>` is at now: its
+/// design goal, its AGENTS.md and the index of its records.
+fn guide(e: &Engine, project: &str, main: Option<&str>) -> Result<Value, String> {
     let p = e
         .config
         .config
         .projects
         .get(project)
         .ok_or_else(|| format!("no project {project} in the configuration"))?;
-    let g = config::project_guide_at(&p.checkout, &main_ref(p), &p.design_paths(), "")
-        .unwrap_or_else(|_| config::project_guide(&p.checkout, &p.design_paths(), ""));
+    let commit = main_at(project, p, main)?;
+    let g = config::project_guide_at(&p.checkout, &commit, &p.design_paths(), "")
+        .map_err(|x| format!("project {project}: its guide at {commit}: {x}"))?;
     Ok(json!({
         "design_goal": p.design_goal,
         "agents_md": g["agents_md"],
@@ -3775,14 +3809,16 @@ fn matter_text(e: &Engine, w: &Work) -> Result<String, String> {
     Ok(row.first().map(Value::to_string).unwrap_or_default())
 }
 
-/// The records the matter picked names, in full, as the project's main has them; none when it names none.
-fn cited_nodes(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
+/// The records the matter picked names, in full, as the project's main has them at the commit `main` pins or else the
+/// commit `origin/<main>` is at now; none when it names none.
+fn cited_nodes(e: &Engine, w: &Work, project: &str, main: Option<&str>) -> Result<Option<Value>, String> {
     let Some(p) = e.config.config.projects.get(project) else {
         return Ok(None);
     };
     let cites = matter_text(e, w)?;
-    let g = config::project_guide_at(&p.checkout, &main_ref(p), &p.design_paths(), &cites)
-        .unwrap_or_else(|_| config::project_guide(&p.checkout, &p.design_paths(), &cites));
+    let commit = main_at(project, p, main)?;
+    let g = config::project_guide_at(&p.checkout, &commit, &p.design_paths(), &cites)
+        .map_err(|x| format!("project {project}: its records at {commit}: {x}"))?;
     let nodes = g["cited"].clone();
     Ok((!empty(&nodes)).then_some(nodes))
 }
@@ -4190,7 +4226,7 @@ fn since_last_work(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
         let after = format!("--since=@{}", since / 1000);
         git::git(
             &p.checkout,
-            &["log", "--format=%h %cs %s", after.as_str(), main_ref(p).as_str()],
+            &["log", "--format=%h %cs %s", after.as_str(), p.main_ref().as_str()],
         )
         .map_or(Value::Null, |log| commits(&log, &from))
     });
@@ -4298,7 +4334,7 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         }));
     }
     let size = e.config.config.projects.get(project).map(|p| {
-        let main = main_ref(p);
+        let main = p.main_ref();
         let at = |rev: &str| -> Value {
             let lines = |paths: &[&str]| -> Option<(usize, usize)> {
                 let mut args = vec!["ls-tree", "-r", "-l", rev, "--"];

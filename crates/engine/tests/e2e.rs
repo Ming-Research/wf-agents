@@ -1174,6 +1174,87 @@ fn main_moves_on(root: &Path, files: &[(&str, &str)], message: &str) {
     git(&dir, &["push", "-q", "origin", "HEAD:main"]);
 }
 
+/// Takes files off main, as another pull request merged meanwhile would.
+fn main_drops(root: &Path, files: &[&str], message: &str) {
+    let dir = root.join("elsewhere");
+    if !dir.exists() {
+        let origin = root.join("origin.git");
+        git(
+            root,
+            &["clone", "-q", &origin.to_string_lossy(), &dir.to_string_lossy()],
+        );
+    }
+    git(&dir, &["fetch", "-q", "origin", "main"]);
+    git(&dir, &["reset", "-q", "--hard", "origin/main"]);
+    for f in files {
+        git(&dir, &["rm", "-q", "--", f]);
+    }
+    git(&dir, &["commit", "-q", "-m", message]);
+    git(&dir, &["push", "-q", "origin", "HEAD:main"]);
+}
+
+/// Names `CONSTITUTION.md` as project p's constitution in its configuration.
+fn names_a_constitution(s: &Setup) {
+    let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    write(
+        &s.data,
+        "projects/p.toml",
+        &project.replace(
+            "rules = [\"ground\"]\n",
+            "rules = [\"ground\"]\nconstitution = \"CONSTITUTION.md\"\n",
+        ),
+    );
+    git(&s.data, &["commit", "-q", "-am", "a constitution"]);
+}
+
+/// What a fetch must leave as it is in a project's checkout: the files it tracks and their state, the commit it stands
+/// on and its branch.
+fn checkout_state(s: &Setup) -> String {
+    let dir = s.root.join("checkout");
+    let files = git(&dir, &["ls-files", "-s"]);
+    let status = git(&dir, &["status", "--porcelain", "--untracked-files=all"]);
+    let head = git(&dir, &["rev-parse", "HEAD"]);
+    let branch = git(&dir, &["branch", "--show-current"]);
+    let lib = std::fs::read_to_string(dir.join("src/lib.txt")).unwrap_or_default();
+    format!("{files}\n--\n{status}\n--\n{head}\n{branch}\n{lib}")
+}
+
+/// The commit of main the latest round of `work` at `cell` was pinned to, as its record keeps it.
+fn pinned_main(e: &Engine, work: i64, cell: &str) -> Option<String> {
+    e.db.conn()
+        .query_row(
+            "SELECT json_extract(input, '$.engine.main') FROM rounds WHERE work = ?1 AND cell = ?2
+             ORDER BY n DESC LIMIT 1",
+            params![work, cell],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// What a script hands in: the choices it makes and the fields it sets.
+type Handed = (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>);
+
+/// Scripts that keep the prompt of each round of the cells named, each with its cell, and then hand in what `then`
+/// does.
+fn keeps_prompts(
+    agents: &mut BTreeMap<&'static str, Script>,
+    cells: &[&'static str],
+    then: impl Fn(&Request, usize) -> Handed + Send + Sync + Clone + 'static,
+) -> Arc<Mutex<Vec<(String, String)>>> {
+    let kept = Arc::new(Mutex::new(Vec::new()));
+    for &cell in cells {
+        let (kept, then) = (kept.clone(), then.clone());
+        agents.insert(
+            cell,
+            Box::new(move |r: &Request, n: usize| {
+                kept.lock().unwrap().push((r.cell.clone(), r.prompt.clone()));
+                then(r, n)
+            }),
+        );
+    }
+    kept
+}
+
 /// Merges main as it now is into a worktree's branch.
 fn merge_main(wt: &Path) {
     git(wt, &["fetch", "-q", "origin", "main"]);
@@ -5907,17 +5988,9 @@ fn a_new_session_queues_the_check_and_the_plan_and_takes_them_after_the_wait() {
 /// understands the project. Gives the matters at the head of the queue once it has.
 fn head_after_a_new_session(name: &str, kept: &str, now: &str, newer: bool) -> Vec<AtHead> {
     let s = setup(name);
-    let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
-    write(
-        &s.data,
-        "projects/p.toml",
-        &project.replace(
-            "rules = [\"ground\"]\n",
-            "rules = [\"ground\"]\nconstitution = \"CONSTITUTION.md\"\n",
-        ),
-    );
-    git(&s.data, &["commit", "-q", "-am", "a constitution"]);
-    write(&s.root.join("checkout"), "CONSTITUTION.md", now);
+    names_a_constitution(&s);
+    // The constitution is on main only: no file of the checkout holds it, and the checkout has not fetched main since.
+    main_moves_on(&s.root, &[("CONSTITUTION.md", now)], "The constitution");
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     let v = e.flow_now;
@@ -12750,5 +12823,339 @@ fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_
     );
     assert_eq!(rounds_at(&e), 1, "{log}");
     assert!(state(&e, second).unwrap().2.is_some(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A round of an engineer's work is given the project's constitution as the project's main has it when the round
+// starts, which the engine fetches for it, though main moved on the remote since the last fetch and meanwhile; nothing
+// in the project's checkout changes, no file and no commit, since the checkout is only where main is fetched into. The
+// round's record keeps the commit of main it was given.
+#[test]
+fn an_engineer_s_round_is_given_the_constitution_main_has_and_the_checkout_stays_as_it_is() {
+    let s = setup("main-engineer");
+    names_a_constitution(&s);
+    let small = "## Article 1. Small\n\nKeep it small.\n";
+    let smaller = "## Article 1. Small\n\nKeep it smaller, always.\n";
+    main_moves_on(&s.root, &[("CONSTITUTION.md", small)], "A constitution");
+    let first = git(&s.origin, &["rev-parse", "main"]);
+    let before = checkout_state(&s);
+    let (root, mut agents) = (s.root.clone(), scripts());
+    // Main moves on while the first round runs, after its message was made.
+    let seen = keeps_prompts(&mut agents, &["G1", "R1"], move |r: &Request, _: usize| {
+        if r.cell == "G1" {
+            main_moves_on(&root, &[("CONSTITUTION.md", smaller)], "A stricter constitution");
+        }
+        (Vec::new(), Vec::new())
+    });
+    let (mut e, said, item) = start(&s, agents);
+    for _ in 0..60 {
+        if seen.lock().unwrap().len() >= 2 {
+            break;
+        }
+        e.tick().unwrap();
+        if let Some((_, _, paused)) = state(&e, item) {
+            assert!(
+                paused.is_none(),
+                "paused: {paused:?}\n{}",
+                said.lock().unwrap().join("\n")
+            );
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let second = git(&s.origin, &["rev-parse", "main"]);
+    let seen = seen.lock().unwrap();
+    assert_eq!(
+        seen.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(),
+        ["G1", "R1"],
+        "{log}"
+    );
+    assert!(seen[0].1.contains("Keep it small."), "{}", seen[0].1);
+    assert!(seen[1].1.contains("Keep it smaller, always."), "{}", seen[1].1);
+    let work = state(&e, item).unwrap().0;
+    assert_eq!(pinned_main(&e, work, "G1").as_deref(), Some(first.as_str()), "{log}");
+    assert_eq!(pinned_main(&e, work, "R1").as_deref(), Some(second.as_str()), "{log}");
+    // The checkout fetched main, and nothing else of it changed: the constitution is in none of its files.
+    let checkout = s.root.join("checkout");
+    assert_eq!(git(&checkout, &["rev-parse", "origin/main"]), second);
+    assert_eq!(checkout_state(&s), before);
+    assert!(!checkout.join("CONSTITUTION.md").exists());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A round of a project's architect reads the project at one commit of main, fetched for it: its constitution and its
+// guide are of the same commit, though main moves on while it runs and another work's fetch brings that into the
+// checkout. What its return is checked against, the articles of the constitution it was given, and the hash of the
+// constitution a check of the policy it queues keeps, are of that commit too.
+#[test]
+fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
+    let s = setup("main-pinned");
+    no_reply_wait(&s);
+    names_a_constitution(&s);
+    let article = |n: usize, what: &str| format!("## Article {n}. {what}\n\nKeep it {}.\n", what.to_lowercase());
+    let two = format!("{}\n{}", article(1, "Small"), article(2, "Quick"));
+    let three = format!("{two}\n{}", article(3, "Plain"));
+    let four = format!("{three}\n{}", article(4, "Warm"));
+    main_moves_on(
+        &s.root,
+        &[
+            ("CONSTITUTION.md", two.as_str()),
+            ("AGENTS.md", "Work the second way.\n"),
+        ],
+        "Two articles",
+    );
+    let (first, checkout) = (git(&s.origin, &["rev-parse", "main"]), s.root.join("checkout"));
+    let (root, (to_three, to_four), mut agents) = (s.root.clone(), (three.clone(), four.clone()), scripts());
+    let seen = keeps_prompts(&mut agents, &["U1", "P1"], move |r: &Request, _: usize| {
+        // Main moves on while the round runs, and another work's fetch brings it into the checkout.
+        let (articles, rows) = if r.cell == "U1" { (&to_three, 0) } else { (&to_four, 3) };
+        main_moves_on(
+            &root,
+            &[
+                ("CONSTITUTION.md", articles.as_str()),
+                ("AGENTS.md", "Work the third way.\n"),
+            ],
+            "More articles",
+        );
+        git(&checkout, &["fetch", "-q", "origin", "main"]);
+        // The check of the policy was given the articles of the commit it read: three, then.
+        let against: Vec<Value> = ["Small", "Quick", "Plain"]
+            .iter()
+            .enumerate()
+            .take(rows)
+            .map(|(i, what)| {
+                json!({ "article": format!("Article {}. {what}", i + 1), "status": "kept", "where": "all", "grounds": "seen" })
+            })
+            .collect();
+        (
+            Vec::new(),
+            if rows == 0 {
+                Vec::new()
+            } else {
+                vec![("outcome.against", json!(against))]
+            },
+        )
+    });
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    for _ in 0..8 {
+        if seen.lock().unwrap().len() >= 2 {
+            break;
+        }
+        e.advance(arch).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    let second = git(&s.origin, &["rev-parse", "main~1"]);
+    let seen = seen.lock().unwrap();
+    assert_eq!(
+        seen.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(),
+        ["U1", "P1"],
+        "{log}"
+    );
+    // The constitution and the guide it was given are those of the commit it was pinned to, not of the later ones.
+    let (u1, p1) = (&seen[0].1, &seen[1].1);
+    assert!(
+        u1.contains("Keep it quick.") && u1.contains("Work the second way."),
+        "{u1}"
+    );
+    assert!(!u1.contains("Keep it plain.") && !u1.contains("third way"), "{u1}");
+    assert!(p1.contains("Keep it plain.") && !p1.contains("Keep it warm."), "{p1}");
+    assert_eq!(pinned_main(&e, arch, "U1").as_deref(), Some(first.as_str()), "{log}");
+    assert_eq!(pinned_main(&e, arch, "P1").as_deref(), Some(second.as_str()), "{log}");
+    // Its check of the policy was queued under the hash of the constitution of that commit.
+    let kept: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(body, '$.constitution') FROM architect_matters
+                 WHERE project = 'p' AND kind = 'check_policy' ORDER BY id LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(kept, Some(db::content_hash(&two)), "{log}");
+    // The articles the check counted are those of the commit its round read: three, though main has four by now.
+    assert_eq!(rows_at(&e, arch, "P1"), ["holds"], "{log}");
+    let sent_back: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'P1' AND rejected IS NOT NULL",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(sent_back, 0, "{log}");
+    assert_eq!(
+        git(&s.root.join("checkout"), &["rev-parse", "origin/main"]),
+        git(&s.origin, &["rev-parse", "main"])
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A constitution the configuration names that main does not have is no constitution to go without: no round of an
+// engineer's work or a project's architect starts, and the work is paused with which project, which file and which
+// commit, and how the owner puts it right.
+#[test]
+fn a_constitution_main_does_not_have_stops_the_rounds_and_says_how_to_put_it_right() {
+    let s = setup("main-missing");
+    names_a_constitution(&s);
+    let main = git(&s.origin, &["rev-parse", "main"]);
+    let mut agents = scripts();
+    let seen = keeps_prompts(&mut agents, &["G1", "U1"], |_: &Request, _: usize| {
+        (Vec::new(), Vec::new())
+    });
+    let (mut e, said, item) = start(&s, agents);
+    let arch = architect_work_at(&mut e, "U1");
+    for _ in 0..4 {
+        e.tick().unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(seen.lock().unwrap().is_empty(), "{log}");
+    let paused = |work: i64| -> Option<String> {
+        e.db.conn()
+            .query_row("SELECT paused FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap()
+    };
+    for (work, cell) in [(state(&e, item).unwrap().0, "G1"), (arch, "U1")] {
+        let why = paused(work).unwrap_or_else(|| panic!("work {work} is not paused\n{log}"));
+        assert!(
+            why.starts_with(&format!("cell {cell}: project p: constitution: ")),
+            "{why}"
+        );
+        assert!(why.contains("CONSTITUTION.md") && why.contains(&main), "{why}");
+        assert!(
+            why.contains("change the constitution's path") && why.contains("press Start"),
+            "{why}"
+        );
+    }
+    assert!(told(&s, "CONSTITUTION.md") >= 2);
+    // The rounds did not start: none of the cells has one.
+    let started: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM rounds WHERE cell IN ('G1', 'U1')", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(started, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Main is fetched for a round of a cell that reads it; where it cannot be, the round does not start: with the network
+// up the work is paused and says why, and with it down every work waits for it, and goes on from its cell once it is
+// back.
+#[test]
+fn a_round_does_not_start_when_main_cannot_be_fetched() {
+    for up in [true, false] {
+        let s = setup(&format!("main-fetch-{up}"));
+        let net = Arc::new(std::sync::atomic::AtomicBool::new(up));
+        let seen = net.clone();
+        let hooks = Hooks {
+            network: Some(Arc::new(move || seen.load(Ordering::SeqCst))),
+            ..Hooks::default()
+        };
+        let (mut e, said, item) = start_with(&s, scripts(), hooks);
+        // The work starts and stands at the cell that gathers the history; the remote is then away.
+        for _ in 0..6 {
+            if state(&e, item).is_some_and(|x| x.1 == "G1") {
+                break;
+            }
+            e.pass(&Go::default()).unwrap();
+        }
+        let log = said.lock().unwrap().join("\n");
+        assert_eq!(state(&e, item).map(|x| x.1).as_deref(), Some("G1"), "{log}");
+        let away = s.root.join("origin-away");
+        std::fs::rename(&s.origin, &away).unwrap();
+        e.pass(&Go::default()).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        let work = state(&e, item).unwrap().0;
+        let rounds_at_g1 = |e: &Engine| -> i64 {
+            e.db.conn()
+                .query_row(
+                    "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'G1'",
+                    [work],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(rounds_at_g1(&e), 0, "{log}");
+        let (_, _, paused) = state(&e, item).unwrap();
+        if up {
+            let why = paused.unwrap_or_else(|| panic!("not paused\n{log}"));
+            assert!(
+                why.starts_with("cell G1: project p: main of o/p could not be fetched"),
+                "{why}"
+            );
+        } else {
+            assert_eq!(paused, None, "{log}");
+            assert_eq!(e.halt().map(|h| h.kind).as_deref(), Some("offline"), "{log}");
+            // Back: the round starts from its cell.
+            std::fs::rename(&away, &s.origin).unwrap();
+            net.store(true, Ordering::SeqCst);
+            e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
+            e.pass(&Go::default()).unwrap();
+            let log = said.lock().unwrap().join("\n");
+            assert_eq!(rounds_at_g1(&e), 1, "{log}");
+            assert_eq!(state(&e, item).unwrap().2, None, "{log}");
+        }
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
+}
+
+// The message a work's next round would be sent is built with nothing run, recorded or fetched: it shows the project as
+// main is in the checkout now, and leaves the checkout's refs as they were. The round itself fetches.
+#[test]
+fn the_preview_of_a_message_fetches_nothing_and_the_round_does() {
+    let s = setup("main-preview");
+    no_reply_wait(&s);
+    names_a_constitution(&s);
+    let checkout = s.root.join("checkout");
+    main_moves_on(
+        &s.root,
+        &[("CONSTITUTION.md", "## Article 1. Small\n\nKeep it small.\n")],
+        "A constitution",
+    );
+    git(&checkout, &["fetch", "-q", "origin", "main"]);
+    let fetched = git(&checkout, &["rev-parse", "origin/main"]);
+    main_moves_on(
+        &s.root,
+        &[("CONSTITUTION.md", "## Article 1. Small\n\nKeep it smaller, always.\n")],
+        "A stricter constitution",
+    );
+    let mut agents = scripts();
+    let seen = keeps_prompts(&mut agents, &["U1"], |_: &Request, _: usize| (Vec::new(), Vec::new()));
+    let (mut e, _) = engine(&s, agents);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    let preview = engine::next_message(&mut e, arch).unwrap().text;
+    assert!(preview.contains("Keep it small."), "{preview}");
+    assert!(!preview.contains("Keep it smaller, always."), "{preview}");
+    assert_eq!(git(&checkout, &["rev-parse", "origin/main"]), fetched);
+    // The round fetches main, and is given what it has.
+    e.advance(arch).unwrap();
+    let prompt = seen.lock().unwrap()[0].1.clone();
+    assert!(prompt.contains("Keep it smaller, always."), "{prompt}");
+    assert_eq!(
+        git(&checkout, &["rev-parse", "origin/main"]),
+        git(&s.origin, &["rev-parse", "main"])
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Nothing of a project is read from its checkout's own branch or files: a checkout with no `origin/main` has no text to
+// give, though its branch and its files are there, and the message says which ref is missing.
+#[test]
+fn a_checkout_without_the_remote_s_main_gives_no_text_from_its_own_branch() {
+    let s = setup("main-no-remote");
+    no_reply_wait(&s);
+    let checkout = s.root.join("checkout");
+    git(&checkout, &["update-ref", "-d", "refs/remotes/origin/main"]);
+    assert!(checkout.join("AGENTS.md").exists());
+    let (mut e, _) = engine(&s, scripts());
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    let err = match engine::next_message(&mut e, arch) {
+        Ok(m) => panic!("a message was built from the checkout's own files: {}", m.text),
+        Err(err) => err,
+    };
+    assert!(err.contains("project p") && err.contains("origin/main"), "{err}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

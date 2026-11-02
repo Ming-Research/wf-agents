@@ -101,7 +101,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             return crate::architect::back_to_understanding(e, w, g, cell);
         };
         let commit = e.config.commit.clone();
-        let input = json!({ "engine": { "new_session": why } });
+        // The round is pinned to a commit of main as any round of the cell is: the check of the policy its row queues
+        // compares the constitution as that commit has it.
+        let main = inputs::pin_main(e, w, cell, None, true)?;
+        let input = json!({ "engine": { "new_session": why, "main": main } });
         let round =
             e.db.write(Actor::Engine, |tx| {
                 work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
@@ -127,10 +130,17 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         Some(_) => Some(e.project_of(w)?),
         None => None,
     };
+    // The commit of the project's main this step's round reads the project at, pinned once: main is fetched to find it,
+    // so that the inputs that read the project's files on main are the project as the remote has it now, and every one
+    // of them, with the checks of the return, is of that one commit. A cell with no such input neither fetches nor
+    // reads main.
+    let mut pinned: Option<Option<String>> = None;
     // A table the cell must answer that has no row leaves its round nothing to answer: no round runs, and the engine
     // takes the cell's row for it, recorded with why.
     if let Some(row) = crate::row(cell, flow::format::NOTHING_TO_ANSWER).cloned() {
-        let gathered = inputs::gather(e, w, g, cell, item.as_ref())?;
+        let main = inputs::pin_main(e, w, cell, item.as_ref(), true)?;
+        let gathered = inputs::gather(e, w, g, cell, item.as_ref(), main.as_deref())?;
+        pinned = Some(main);
         if inputs::table(&gathered).is_empty() {
             let why = format!(
                 "the table cell {} answers has no row, so its round could answer nothing",
@@ -181,6 +191,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
         return failed::pause(e, w, &why);
     }
+    let main = match pinned {
+        Some(main) => main,
+        None => inputs::pin_main(e, w, cell, item.as_ref(), true)?,
+    };
     // A round of a project's architect reads the project at the latest main: its graph's worktree is brought there
     // first. Where it cannot be, the work waits for the owner, with why; or, while the network is down, every work
     // waits for it.
@@ -209,7 +223,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         whole,
         system,
         starts_with,
-    } = compose(e, w, g, cell, item.as_ref())?;
+    } = compose(e, w, g, cell, item.as_ref(), main.as_deref())?;
     // A message that would give its session whole what the session already holds is the engine's fault: it is not
     // sent, and the work waits for the owner.
     if !msg.repeats.is_empty() {
@@ -352,7 +366,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         "call": call,
         "engine": {
             "head": head, "change": change, "columns": columns, "table": table, "interjections": ids,
-            "new_session": new_why,
+            "new_session": new_why, "main": main,
         },
     });
     // Where the owner's images were given, by their attachments, and those only referred to.
@@ -507,6 +521,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 columns: &columns,
                 table: &table,
                 interjections: &interjections,
+                main: main.as_deref(),
             };
             checks::run(&ctx)
         };
@@ -642,6 +657,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         columns: &columns,
         table: &table,
         interjections: &interjections,
+        main: main.as_deref(),
     };
     if let Err(why) = checks::run(&ctx) {
         return reject(
@@ -790,6 +806,7 @@ fn compose(
     g: &CompiledGraph,
     cell: &CompiledCell,
     item: Option<&Item>,
+    main: Option<&str>,
 ) -> Result<Composed, String> {
     let line = sessions::choose::line_of(cell);
     let (_, level, _) = level_of(e, g, cell, item)?;
@@ -827,7 +844,7 @@ fn compose(
     let mut known: Vec<Round> = line_rounds.iter().filter(|r| r.id.work != w.id).cloned().collect();
     known.extend(work_rounds.iter().cloned());
     let registry = message::registry(&known);
-    let gathered = inputs::gather(e, w, g, cell, item)?;
+    let gathered = inputs::gather(e, w, g, cell, item, main)?;
     let given = values::given(e, w, g, cell, item, &gathered)?;
     // The interjections waiting for the cell's line, when the cell takes them.
     let speaks_to = crate::line_of(g, cell);
@@ -891,7 +908,8 @@ fn compose(
 }
 
 /// The message the work's next round would be sent, when the work is at an agent's cell: built as its round builds
-/// it, with nothing run or recorded.
+/// it, with nothing run or recorded, and so with no fetch: the project is read at the commit `origin/<main>` is at in
+/// its checkout now.
 pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, String> {
     let w = e.work(work)?;
     let g = e.graph_of(&w)?;
@@ -901,7 +919,8 @@ pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, Strin
         .cloned()
         .ok_or_else(|| format!("work {work} is at cell {}, which is not an agent's", w.pos.at))?;
     let item = e.subject(&w)?;
-    Ok(compose(e, &w, &g, &cell, item.as_ref())?.msg)
+    let main = inputs::pin_main(e, &w, &cell, item.as_ref(), false)?;
+    Ok(compose(e, &w, &g, &cell, item.as_ref(), main.as_deref())?.msg)
 }
 
 fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Advance, String> {
@@ -1159,7 +1178,7 @@ pub fn engine(
     let gathered = if starts {
         Vec::new()
     } else {
-        inputs::gather(e, w, g, cell, item.as_ref())?
+        inputs::gather(e, w, g, cell, item.as_ref(), None)?
     };
     let given = values::given(e, w, g, cell, item.as_ref(), &gathered)?;
     let commit = e.config.commit.clone();
@@ -1490,7 +1509,7 @@ fn ask(
             // What was said to the work before the owner answered takes it on to choose the way on: the ask needs no
             // answer then.
             if let Some(row) = crate::row(cell, "interjection").cloned() {
-                let gathered = inputs::gather(e, w, g, cell, Some(item))?;
+                let gathered = inputs::gather(e, w, g, cell, Some(item), None)?;
                 let given = values::given(e, w, g, cell, Some(item), &gathered)?;
                 if given.get("interjection").and_then(Value::as_str) == Some("yes") {
                     if no_slot(e, w, g, &row, slotted)? {
@@ -1537,7 +1556,7 @@ fn ask(
                 }
             }
         };
-        let gathered = inputs::gather(e, w, g, cell, Some(item))?;
+        let gathered = inputs::gather(e, w, g, cell, Some(item), None)?;
         let mut given = values::given(e, w, g, cell, Some(item), &gathered)?;
         // The owner's answer came: what was said to the work meanwhile reaches it at its next round.
         if given.contains_key("interjection") {
@@ -1555,7 +1574,7 @@ fn ask(
             cell.id
         ));
     }
-    let gathered = inputs::gather(e, w, g, cell, Some(item))?;
+    let gathered = inputs::gather(e, w, g, cell, Some(item), None)?;
     // The ask holds what the cells handed in: the question, how far the cell got, what failed. The history and the
     // other tables the cell reads are in the database for the owner to look at.
     let mut asked: Vec<Value> = gathered
