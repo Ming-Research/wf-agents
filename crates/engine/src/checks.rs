@@ -19,8 +19,8 @@ use flow::{CompiledCell, CompiledGraph};
 use serde_json::Value;
 
 use crate::inputs::{answered, at_path, last_return};
-use crate::work::{self, Item, Round, Work};
-use crate::{Engine, form_of, git, values};
+use crate::work::{self, Item, Round, RoundId, Work};
+use crate::{Engine, form_of, git, test_name, values};
 use sessions::worktree::Unfit;
 
 pub use db::DESIGN_CARD_RULING;
@@ -523,10 +523,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let wt = c.wt()?;
             for r in rows.iter().filter(|r| r["how"] == "tested") {
                 for t in strs(r.get("tests")) {
-                    let word = t.rsplit([':', '/', '.']).next().unwrap_or(&t).trim().to_string();
-                    if !word.is_empty() && git::git(wt, &["grep", "-q", "-F", "-w", &word, "HEAD"]).is_err() {
-                        return fail(format!("the test {t} is not on the branch"));
-                    }
+                    test_name::on_branch(wt, &t)?;
                 }
             }
             Ok(())
@@ -750,29 +747,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             }
             Ok(())
         }
-        "evidence_holds" => {
-            let wt = c.wt()?;
-            for ev in items(v) {
-                for f in strs(ev.get("files")) {
-                    let p = path_in(&f);
-                    let looks = (p.contains('/') || p.contains('.')) && !p.starts_with('/');
-                    if looks && !wt.join(p).exists() {
-                        return fail(format!("{p} is not in the worktree"));
-                    }
-                }
-                // A node is named by its path, which a note may follow, as a file is.
-                for n in strs(ev.get("nodes")) {
-                    let p = path_in(&n).trim_end_matches('/');
-                    if p.is_empty() || p.starts_with('/') || !wt.join(p).exists() {
-                        return fail(format!(
-                            "the node {n} is not in the worktree: name a node by its path from the repository's \
-                             root, such as design/flow.md, as the head under review has it"
-                        ));
-                    }
-                }
-            }
-            Ok(())
-        }
+        "evidence_holds" => cited_evidence_exists(c.e.db.conn(), c.wt()?, v),
         "previous_findings_answered" => {
             let Some(last) = c.accepted("T4")?.into_iter().next() else {
                 return Ok(());
@@ -979,8 +954,64 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
     }
 }
 
-/// The path a cited file or node begins with, before the lines or a note that may follow it, as in
-/// `crates/x.rs:12-30` or `design/flow.md (the index entry)`.
+/// What an entry of a review's evidence cites, read by the characters it begins with.
+enum Cited<'a> {
+    /// A round of any work, by its name `R<work>-<n>`.
+    Round(RoundId),
+    /// A file, by its path from the repository's root.
+    File(&'a str),
+    /// Anything else a review reads (a pull request's description, what an answer says): nothing to look up.
+    Text,
+}
+
+/// What an entry of the evidence cites, a round or a file or text: the same for `files` and for `nodes`, since a
+/// review puts what it read in either.
+fn cited(entry: &str) -> Cited<'_> {
+    let p = path_in(entry).trim_end_matches('/');
+    // The engine's one reading of a round's name, in any project.
+    if let Some(round) = RoundId::parse(p) {
+        Cited::Round(round)
+    } else if (p.contains('/') || p.contains('.')) && !p.starts_with('/') {
+        Cited::File(p)
+    } else {
+        Cited::Text
+    }
+}
+
+/// Whether what the evidence cites is there: a round in the database, which may be of another work, as a review
+/// reads the rounds that came before; a file named by a path from the repository's root, in the worktree. A citation
+/// that is neither (a pull request, a note on an answer) names nothing to look up and is not looked up.
+fn cited_evidence_exists(conn: &db::rusqlite::Connection, wt: &Path, evidence: Option<&Value>) -> Result<(), String> {
+    for ev in items(evidence) {
+        for entry in strs(ev.get("files")).into_iter().chain(strs(ev.get("nodes"))) {
+            match cited(&entry) {
+                Cited::Round(id) => {
+                    let found: i64 = conn
+                        .query_row(
+                            "SELECT count(*) FROM rounds WHERE work = ?1 AND n = ?2",
+                            db::rusqlite::params![id.work, id.n],
+                            |r| r.get(0),
+                        )
+                        .map_err(|e| e.to_string())?;
+                    if found == 0 {
+                        return fail(format!("the round {id} does not exist"));
+                    }
+                }
+                Cited::File(p) if !wt.join(p).exists() => {
+                    return fail(format!(
+                        "{p} is not in the worktree: name a file by its path from the repository's root, or a round \
+                         as R<work>-<n>"
+                    ));
+                }
+                Cited::File(_) | Cited::Text => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The path a cited file or round begins with, before the lines or a note that may follow it, as in
+/// `crates/x.rs:12-30` or `flow/flow.json (the node's description)`.
 fn path_in(cited: &str) -> &str {
     cited
         .trim()
@@ -1184,16 +1215,218 @@ mod tests {
         assert!(asked_the_advisor(base.conn(), work).unwrap());
     }
 
-    // A cited file or node is its path, whatever follows it: lines, or a note, as in the sixth trial a review cited
-    // `design/engine/session-manager.md (read through the index entry …)`, which the check took whole and refused.
+    // A cited file or round is its path or name, whatever follows it: lines, or a note, as in the sixth trial a review
+    // cited a file with `(read through the index entry …)` after it, which the check took whole and refused.
     #[test]
     fn a_cited_path_is_read_before_what_follows_it() {
         assert_eq!(path_in("crates/x.rs:12-30"), "crates/x.rs");
         assert_eq!(
-            path_in("design/engine/session-manager.md (read through the index entry …)"),
-            "design/engine/session-manager.md"
+            path_in("crates/engine/src/checks.rs (read through the index entry …)"),
+            "crates/engine/src/checks.rs"
         );
-        assert_eq!(path_in(" design/flow.md."), "design/flow.md");
+        assert_eq!(path_in(" flow/flow.json."), "flow/flow.json");
+        assert_eq!(path_in("R234-12 measure: not_measured"), "R234-12");
+        assert_eq!(path_in("R227-10·D2·measure"), "R227-10");
         assert_eq!(path_in("(nothing)"), "");
+    }
+
+    // An entry of the evidence is a round when it begins with a round's name, a file when it begins with a path, and
+    // otherwise text: reviews wrote `R234-12 measure: not_measured` and `PR 17 description (read through gh)` in
+    // `nodes`, which the check took for files and refused.
+    #[test]
+    fn an_entry_of_the_evidence_is_a_round_a_file_or_text() {
+        let round = |e: &str| match cited(e) {
+            Cited::Round(id) => Some(id.to_string()),
+            _ => None,
+        };
+        let file = |e: &str| match cited(e) {
+            Cited::File(p) => Some(p.to_string()),
+            _ => None,
+        };
+        for (entry, named) in [
+            ("R234-12", "R234-12"),
+            ("R234-12 measure: not_measured", "R234-12"),
+            ("R227-10·D2·measure", "R227-10"),
+            ("R5-9.", "R5-9"),
+            (" R5-9 (the round)", "R5-9"),
+        ] {
+            assert_eq!(round(entry).as_deref(), Some(named), "{entry}");
+        }
+        for (entry, path) in [
+            ("crates/x.rs:12-30", "crates/x.rs"),
+            ("crates/engine/", "crates/engine"),
+            ("flow/flow.json (the node's description)", "flow/flow.json"),
+            ("README.md", "README.md"),
+            ("R5-9/notes.md", "R5-9/notes.md"),
+        ] {
+            assert_eq!(file(entry).as_deref(), Some(path), "{entry}");
+        }
+        for entry in [
+            "PR 17 description (read through gh)",
+            "the answer to D5 says not_measured",
+            "R5",
+            "R5-",
+            "R-9",
+            "Rx-9",
+            "/etc/passwd",
+            "",
+        ] {
+            assert!(matches!(cited(entry), Cited::Text), "{entry:?}");
+        }
+    }
+
+    /// The evidence check on what a review put in `files` and in `nodes`, with a database whose work 1 has rounds 1
+    /// and 12, and a worktree with `crates/x.rs` in it.
+    fn evidence_checked(files: &[&str], nodes: &[&str]) -> Result<(), String> {
+        let mut base = db::Db::in_memory().unwrap();
+        let work = base
+            .write(db::Actor::Engine, |tx| {
+                tx.execute(
+                    "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', 'l')",
+                    [],
+                )?;
+                let item = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', 'T4')",
+                    [item],
+                )?;
+                let work = tx.last_insert_rowid();
+                for n in [1, 12] {
+                    tx.execute(
+                        "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, 'T4', '{}', 'c', 1)",
+                        db::rusqlite::params![work, n],
+                    )?;
+                }
+                Ok(work)
+            })
+            .unwrap();
+        assert_eq!(work, 1, "the first work of a new database");
+        // Each call has a directory of its own: the tests run side by side.
+        static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let wt = std::env::temp_dir().join(format!("wf-agents-evidence-{}-{call}", std::process::id()));
+        std::fs::create_dir_all(wt.join("crates")).unwrap();
+        std::fs::write(wt.join("crates/x.rs"), "fn x() {}\n").unwrap();
+        let checked = cited_evidence_exists(base.conn(), &wt, Some(&json!([{ "files": files, "nodes": nodes }])));
+        let _ = std::fs::remove_dir_all(&wt);
+        checked
+    }
+
+    // A round cited in `files` or in `nodes`, of this work or another, must be in the database; the refusal names it.
+    #[test]
+    fn a_round_cited_in_the_evidence_must_exist() {
+        assert!(evidence_checked(&[], &["R1-12 measure: not_measured", "R1-1·D2·measure"]).is_ok());
+        assert!(evidence_checked(&["R1-12"], &[]).is_ok());
+        // A number of the work that has no round, in each field, and a round of a work the database does not have.
+        assert_eq!(
+            evidence_checked(&[], &["R1-2 measure: not_measured"]).unwrap_err(),
+            "the round R1-2 does not exist"
+        );
+        assert_eq!(
+            evidence_checked(&["R1-3"], &[]).unwrap_err(),
+            "the round R1-3 does not exist"
+        );
+        assert_eq!(
+            evidence_checked(&[], &["R9999-1"]).unwrap_err(),
+            "the round R9999-1 does not exist"
+        );
+    }
+
+    // A path-shaped entry in `files` or in `nodes` must be a file in the worktree, and the refusal says how to name
+    // one, without the directory the design tree had; text is not looked up.
+    #[test]
+    fn a_file_cited_in_the_evidence_must_exist_and_text_is_not_looked_up() {
+        assert!(evidence_checked(&["crates/x.rs:1-3", "crates/x.rs (a note)"], &["crates/x.rs"]).is_ok());
+        assert!(
+            evidence_checked(
+                &[],
+                &["PR 17 description (read through gh)", "the answer says not_measured"]
+            )
+            .is_ok()
+        );
+        for (files, nodes) in [
+            (&["crates/nope.rs"][..], &[][..]),
+            (&[][..], &["crates/nope.rs (a note)"][..]),
+        ] {
+            let why = evidence_checked(files, nodes).unwrap_err();
+            assert!(
+                why.starts_with("crates/nope.rs is not in the worktree: name a file by its path"),
+                "{why}"
+            );
+            assert!(why.contains("R<work>-<n>") && !why.contains("design/"), "{why}");
+        }
+    }
+
+    // An entry that does not begin with a round's name is a file exactly when the rule before this change said so
+    // (a path with a `/` or a `.` in it that does not start at the root), whatever follows it; one that begins with a
+    // round's name is that round, with a mark or a field or a note after it.
+    #[test]
+    fn an_entry_is_a_file_as_before_unless_it_begins_with_a_rounds_name() {
+        let before = |entry: &str| {
+            let p = path_in(entry).trim_end_matches('/');
+            (p.contains('/') || p.contains('.')) && !p.starts_with('/')
+        };
+        let (mut files, mut texts) = (0, 0);
+        for stem in [
+            "crates/x.rs",
+            "README.md",
+            "4.357s",
+            "D5/D6",
+            "PR",
+            "design",
+            "a b",
+            "/abs/x.rs",
+            "../up.rs",
+            "",
+            "R5",
+            "R5-9x",
+            "R5-9.md",
+            "R5-9-2",
+            "Rx-9",
+        ] {
+            for after in [
+                "",
+                ":12-30",
+                " (note)",
+                "\u{b7}D2\u{b7}measure",
+                ".",
+                "/",
+                ", more",
+                ")",
+            ] {
+                let entry = format!("{stem}{after}");
+                match cited(&entry) {
+                    Cited::File(_) => {
+                        assert!(before(&entry), "{entry:?} was not a file before");
+                        files += 1;
+                    }
+                    Cited::Text => {
+                        assert!(!before(&entry), "{entry:?} was a file before");
+                        texts += 1;
+                    }
+                    Cited::Round(id) => panic!("{entry:?} read as the round {id}"),
+                }
+            }
+        }
+        assert!(files > 10 && texts > 10, "{files} files, {texts} texts");
+        for (entry, round) in [
+            ("R5-9,", "R5-9"),
+            ("R5-9)", "R5-9"),
+            ("R5-9;", "R5-9"),
+            ("R5-9:", "R5-9"),
+            ("R5-9/", "R5-9"),
+            ("R5-9\u{b7}I1\u{b7}test_changes[added]", "R5-9"),
+            ("R246-18\u{b7}D11\u{b7}adversarial[needed].why", "R246-18"),
+            ("R5-9 and R5-10", "R5-9"),
+        ] {
+            assert!(
+                matches!(cited(entry), Cited::Round(id) if id.to_string() == round),
+                "{entry:?}"
+            );
+        }
     }
 }

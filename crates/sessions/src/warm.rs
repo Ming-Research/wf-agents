@@ -16,7 +16,7 @@ use flow::CompiledCell;
 use serde_json::{Value, json};
 
 use crate::choose::{self, Plan};
-use crate::cli::{Agents, Request};
+use crate::cli::{Agents, Next, Request};
 use crate::cost;
 use crate::round::Round;
 
@@ -304,7 +304,7 @@ pub fn ping(
         })
         .map_err(|e| e.to_string())?;
     let began = db::now();
-    let reply = agents.run(&req, &|_| {});
+    let reply = agents.run(&req, &|_| Next::Go);
     let ended = now + (db::now() - began);
     let before = cost::spent(db.conn(), &due.cli_session, &due.rounds)?;
     let usage = reply

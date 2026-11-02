@@ -11,7 +11,7 @@ use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered, at_path};
 use crate::message;
 use crate::work::{self, Ended, Item, Round, RoundId, Work};
-use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values};
+use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values, watch};
 use sessions::{Held, Plan};
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -360,13 +360,25 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     }
     // The level the round runs at, which the configuration maps to its model: the owner reads the round by it.
     call["level"] = Value::String(level_name.clone());
+    // How the guard will judge the round, from the rounds kept as it starts, which its record keeps.
+    let started = watch::Start {
+        graph: &g.name,
+        cell: &cell.id,
+        section: &section,
+        at_cell: &at_cell,
+        resumed,
+        model: &level.model,
+        message: &msg.text,
+        session: &line_rounds,
+    }
+    .run(e);
     let mut input = json!({
         "message": msg.stored,
         "conditional": msg.record(),
         "call": call,
         "engine": {
             "head": head, "change": change, "columns": columns, "table": table, "interjections": ids,
-            "new_session": new_why,
+            "new_session": new_why, "guard": started.lines().record(),
         },
     });
     // Where the owner's images were given, by their attachments, and those only referred to.
@@ -391,9 +403,9 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         })
         .map_err(sql)?;
     e.say(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
-    let reply = e
-        .sessions()
-        .run(&req, &|what: &str| e.activity(round.work, round.n, what));
+    let watching = watch::Watch::begin(e, round, started);
+    let reply = e.sessions().run(&req, &|seen| watching.see(seen));
+    let watched = watching.end();
     let _ = std::fs::remove_file(&given_again);
     if reply.session != new_session && !reply.session.is_empty() {
         let s = reply.session.clone();
@@ -427,13 +439,29 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     }
     // What the session had cost before, its keep-warm pings included, so that the round's own cost is what it grew by.
     let before = sessions::cost::spent(e.db.conn(), &new_session, &line_rounds)?;
+    // A run stopped never reached the command line's report of what it used: its calls tell it.
+    let usage = match &reply.stopped {
+        Some(_) => watched.totals().usage(reply.usage.clone()),
+        None => sessions::cost::own_cost(reply.usage.clone(), before),
+    };
     let ended = Ended {
-        usage: Some(sessions::cost::own_cost(reply.usage.clone(), before)).filter(|u| !u.is_null()),
+        usage: Some(usage).filter(|u| !u.is_null()),
         model: reply.model.clone(),
         compactions: reply.compactions,
         command: (!reply.command.is_empty()).then(|| reply.command.clone()),
         ..Ended::default()
     };
+    // What the round came to joins the rounds later ones are judged by, unless it went past a signal that stops a round.
+    let spent = ended.usage.as_ref().and_then(|u| u["cost_usd"].as_f64());
+    if let Some(sample) = watched.sample(&cell.id, reply.model.as_deref(), spent) {
+        let kept = e.db.write(Actor::Engine, |tx| {
+            sessions::guard::keep_sample(tx, round, &g.name, &sample)?;
+            Ok(())
+        });
+        if let Err(x) = kept {
+            e.say(&format!("{round}: what it came to could not be kept: {x}"));
+        }
+    }
     // A work that ended while its round ran, as when the owner cancelled its item meanwhile, had the round cut off as
     // it ended (`ending::end`): what the round hands in is not taken, and what it cost is kept on it. So for a work
     // asked to be started over meanwhile, whose round stays open for the takeover to cut off: the loop starts the work
@@ -504,6 +532,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .any(|k| k.name == crate::unparsed::KIND && k.handle == flow::format::Handle::Repair);
     if reply.output.is_none()
         && repairs
+        && reply.stopped.is_none()
         && agent::failure_kind(reply.error.as_deref().unwrap_or_default()) == crate::unparsed::KIND
     {
         // A repair is checked as the return it gives would be taken.
@@ -606,6 +635,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             cell,
             round,
             section: &section,
+            guard: watched.stop_record(),
         };
         return f.handle(e, ended, &reply);
     };
@@ -1677,8 +1707,27 @@ fn readable_dirs(e: &Engine) -> Vec<std::path::PathBuf> {
     out
 }
 
+/// Whether a round of the fix answered a row that the cell `side` raised: a row of the table that round was given
+/// names the cell it came from. A round's rows are numbered anew, so its answers are read against its own table; a
+/// round given no table (the engine runs none then) answered nothing.
+fn answers_a_row_of(fix: &Round, within: &str, side: &str) -> bool {
+    let table = fix.input["engine"]["table"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let answers = fix.output.as_ref().and_then(|o| o[within]["rows"].as_array());
+    answers.is_some_and(|rows| {
+        rows.iter().any(|row| {
+            table
+                .iter()
+                .any(|t| t["row"] == row["id"] && t["from"].as_str().and_then(|f| f.split('·').next()) == Some(side))
+        })
+    })
+}
+
 /// Cell `T7`: what runs next, from what the design chose, what the review accepted, whether the change
-/// changed since each side last looked, and what the fix answered.
+/// changed since each side last looked, and what the fix answered: a side that raised a row the fix answered looks at
+/// it again, whatever the answer was.
 fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let reviews = inputs::answered(e, w, g, "T4")?;
@@ -1698,22 +1747,19 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
         rs.first()
             .is_some_and(|r| r.input["engine"]["change"].as_str() != now.as_deref())
     };
-    let answers_after = |rs: &[Round], kinds: &[&str]| -> bool {
+    // Whether the fix answered, with any answer, a row that `side` raised since `side` last returned.
+    let answered_since = |rs: &[Round], side: &str| -> bool {
         let since = rs.first().map(|r| r.id);
-        fixes.iter().filter(|f| since.is_none_or(|s| f.id > s)).any(|f| {
-            f.output
-                .as_ref()
-                .and_then(|o| o[&g.within]["rows"].as_array().cloned())
-                .unwrap_or_default()
-                .iter()
-                .any(|row| row["answer"].as_str().is_some_and(|a| kinds.contains(&a)))
-        })
+        fixes
+            .iter()
+            .filter(|f| since.is_none_or(|s| f.id > s))
+            .any(|f| answers_a_row_of(f, &g.within, side))
     };
     let adv = if (chose || not_accepted) && adversarial.is_empty() {
         "all"
     } else if !adversarial.is_empty() && changed_since(&adversarial) {
         "changed"
-    } else if !adversarial.is_empty() && answers_after(&adversarial, &["test_wrong"]) {
+    } else if !adversarial.is_empty() && answered_since(&adversarial, "T1") {
         "disputes"
     } else {
         "skipped"
@@ -1722,10 +1768,9 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
         "all"
     } else if changed_since(&reviews) {
         "changed"
-    } else if answers_after(&reviews, &["disagree", "cannot_verify"])
-        || !crate::message::unverified_last(e, w, g).is_empty()
-    {
-        // The findings disputed, and the columns the last review could not verify, which it decides again.
+    } else if answered_since(&reviews, "T4") || !crate::message::unverified_last(e, w, g).is_empty() {
+        // The rows the fix answered, whatever the answer and whether or not it changed the code, and the columns the
+        // last review could not verify: the side that raised them decides them again.
         "disputes"
     } else {
         "none"
@@ -1750,5 +1795,88 @@ mod tests {
         let before = vec![json!({ "value": { "points": [{ "kind": "blocked_by_permission", "what": "Run it." }] } })];
         assert_eq!(what_is_asked(&before), ": Run it.");
         assert_eq!(what_is_asked(&[]), "");
+    }
+
+    // The numbered table of a fix, made as the engine makes it: F1 a finding of the table review, F2 a test of
+    // adversarial testing that went wrong, F3 a red check of the full CI.
+    fn fix_table() -> Value {
+        let place = |cell: &str, path: &str, value: Value| inputs::Part {
+            origin: inputs::Origin::Place {
+                round: crate::work::RoundId::new(1, 9),
+                first: crate::work::RoundId::new(1, 9),
+                cell: cell.into(),
+                path: path.into(),
+            },
+            value,
+        };
+        let finding = json!({ "fid": "R1", "where": "w", "what": "x", "fix": "y" });
+        let gathered = inputs::Gathered {
+            input: flow::CompiledInput {
+                id: None,
+                name: None,
+                common: false,
+                numbered: Some("F".into()),
+                what: "The table to answer".into(),
+                from: Vec::new(),
+                maybe: true,
+                newest: false,
+                unanswered: false,
+            },
+            parts: vec![
+                place(
+                    "T4",
+                    "columns[findings]",
+                    json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding] }]),
+                ),
+                place(
+                    "T1",
+                    "new_tests",
+                    json!([{ "name": "red_test", "on_head": "red", "on_base": "red" }]),
+                ),
+                place(
+                    "T2",
+                    "result[red]",
+                    json!({ "kind": "red", "checks": [{ "name": "lint", "result": "red", "run": "u" }] }),
+                ),
+            ],
+            value: None,
+        };
+        Value::Array(inputs::table(&[gathered]))
+    }
+
+    fn fix_round(table: Option<&Value>, answer: &str, id: &str) -> Round {
+        Round {
+            id: crate::work::RoundId::new(1, 9),
+            cell: Some("T6".into()),
+            session: None,
+            input: json!({ "engine": { "table": table } }),
+            output: Some(json!({ "outcome": { "rows": [{ "answer": answer, "id": id }] } })),
+            transition: Some("done".into()),
+            rejected: None,
+            compactions: 0,
+            started_at: 0,
+            ended_at: None,
+            usage: None,
+        }
+    }
+
+    // A fix answered a row the cell `side` raised when its answer names a row of the table it was given that came from
+    // that cell, whatever the answer is. Every answer the flow gives is tried, so one added later cannot be left out;
+    // a row of another cell, a number the table does not have and a round given no table answer no one's.
+    #[test]
+    fn any_answer_to_a_row_a_side_raised_is_an_answer_to_that_side() {
+        let table = fix_table();
+        let answers = flow::answers("T6", "rows").unwrap();
+        assert!(answers.iter().any(|a| a == "fixed_outside_commit"), "{answers:?}");
+        for a in &answers {
+            let answered = |id: &str, side: &str| answers_a_row_of(&fix_round(Some(&table), a, id), "outcome", side);
+            assert!(answered("F1", "T4"), "{a}");
+            assert!(!answered("F1", "T1"), "{a}");
+            assert!(answered("F2", "T1"), "{a}");
+            assert!(!answered("F2", "T4"), "{a}");
+            assert!(!answered("F3", "T4") && !answered("F3", "T1"), "{a}");
+            assert!(!answered("F9", "T4") && !answered("F9", "T1"), "{a}");
+            assert!(!answers_a_row_of(&fix_round(None, a, "F1"), "outcome", "T4"), "{a}");
+        }
     }
 }

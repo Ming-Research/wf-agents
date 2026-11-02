@@ -1,7 +1,7 @@
-// The bar on every view: the views (the works, the architect, the items, the observations, the flow, and the owner's
-// conversations with how many things in them wait for the owner, red, and how many entries are unread, grey, in the
-// conversations the list's buttons of a work's states show, the browser's notifications telling of what newly waits in
-// them), and how the engine stands: running, paused (saying which works the owner started run meanwhile), pausing while
+// The bar on every view: the views (the works with each project's architect, the items, the observations, the flow, and
+// the owner's conversations with how many things in them wait for the owner, red, and how many entries are unread, grey,
+// in the conversations the list's buttons of a work's states show, the browser's notifications telling of what newly
+// waits in them), and how the engine stands: running, paused (saying which works the owner started run meanwhile), pausing while
 // the last round finishes, or waiting for what stops every work, with the switch that pauses every work or starts them
 // all, the switch that keeps waiting sessions warm while every work is paused, and the slots in use. The engine starts
 // with every work paused. Drawn as the UI spec's bar: the views an UnderlineNav, the engine's state a dot and words,
@@ -226,21 +226,25 @@ function Engine({ works }: { works: WorkSummary[] | undefined }) {
 }
 
 /// A view of the bar: its place, the pages that are it, and its name.
-type View = { to: string; pages: Route['page'][]; name: Key };
+export type View = { to: string; pages: Route['page'][]; name: Key };
 
-/// The views in the bar's order, as the owner asked: Messages first, the place the owner works from, then the
-/// architect; the observations right after the items, a view of their own rather than a part of the items view, since a
-/// project's observations, the step before an item, far outnumber its items and would crowd them.
-const VIEWS: View[] = [
+/// The views in the bar's order, as the owner asked: Messages first, the place the owner works from, then the works;
+/// the architect of each project is the first row of its works, so a work's page and an architect's page are both the
+/// works view and have no tab of their own. The observations come right after the items, a view of their own rather than
+/// a part of the items view, since a project's observations, the step before an item, far outnumber its items and would
+/// crowd them.
+export const VIEWS: View[] = [
   { to: '/messages', pages: ['messages'], name: 'nav_messages' },
-  { to: '/architect', pages: ['architect'], name: 'nav_architect' },
-  { to: '/works', pages: ['works', 'work'], name: 'nav_works' },
+  { to: '/works', pages: ['works', 'work', 'architect'], name: 'nav_works' },
   { to: '/items', pages: ['items', 'item'], name: 'nav_items' },
   { to: '/observations', pages: ['observations'], name: 'nav_observations' },
   { to: '/flow', pages: ['flow'], name: 'nav_flow' },
   { to: '/system', pages: ['system'], name: 'nav_system' },
   { to: '/settings', pages: ['settings'], name: 'nav_settings' },
 ];
+
+/// The view of the bar a page is one of, by its place; none for a page that no view holds.
+export const viewOf = (page: Route['page']): string | null => VIEWS.find((v) => v.pages.includes(page))?.to ?? null;
 
 /// Moves to a view within the page; a click with a modifier key opens it as the browser would.
 const go = (to: string) => (e: MouseEvent<HTMLAnchorElement> | KeyboardEvent<HTMLAnchorElement>) => {
@@ -272,7 +276,7 @@ export function TopBar({ route }: { route: Route }) {
             key={v.to}
             href={v.to}
             onSelect={go(v.to)}
-            aria-current={v.pages.includes(route.page) ? 'page' : undefined}
+            aria-current={viewOf(route.page) === v.to ? 'page' : undefined}
           >
             {t(v.name)}
             {v.to === '/messages' && waiting > 0 ? (

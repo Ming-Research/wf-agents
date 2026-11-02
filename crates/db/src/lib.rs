@@ -103,17 +103,21 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0064.sql"),
     include_str!("../../../db/migrations/0065.sql"),
     include_str!("../../../db/migrations/0066.sql"),
+    include_str!("../../../db/migrations/0067.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 8] = [
+const UNTRACKED: [&str; 11] = [
     "rounds",
     "tool_runs",
     "pings",
     "cache_misses",
+    "round_calls",
+    "round_measures",
+    "guard_events",
     "changes",
     "outbox",
     "contents",
@@ -1458,12 +1462,12 @@ mod tests {
         );
     }
 
-    // Taken to version 66, a database keeps its sessions as they were, with the rows that point to them, takes a session
+    // Taken to version 67, a database keeps its sessions as they were, with the rows that point to them, takes a session
     // that started because the cache expired and none that started for a reason made up, has the view of the
     // conversations shown, and comes out as a new one.
     #[test]
-    fn a_database_taken_to_version_66_keeps_its_sessions_and_takes_the_expired_reason() {
-        let mut old = at_version(65);
+    fn a_database_taken_to_version_67_keeps_its_sessions_and_takes_the_expired_reason() {
+        let mut old = at_version(66);
         old.write(Actor::Engine, |tx| {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             tx.execute(
@@ -2009,6 +2013,137 @@ mod tests {
         wrong.migrate(&["ALTER TABLE things ADD COLUMN size INTEGER;"]).unwrap();
         assert_ne!(shape(wrong.conn()).unwrap(), shape(new.conn()).unwrap());
         assert_eq!(VERSION, 1 + MIGRATIONS.len() as i64);
+    }
+
+    // Rounds from before the ledger enter what the run guard's lines are computed from with what their records tell,
+    // marked so: the first prompt and the last, the turns, the jump from the session's round before and what was given,
+    // across a session its row carried on and over a run that made no call. Nothing is kept of a step no agent ran.
+    #[test]
+    fn rounds_from_before_the_ledger_are_measured_from_their_records() {
+        let usage = |first: i64, last: i64| {
+            let prompt = |p: i64| serde_json::json!({ "input_tokens": 2, "cache_read_input_tokens": p - 2 });
+            serde_json::json!({
+                "first_call": prompt(first), "usage": { "iterations": [prompt(1), prompt(last)] },
+                "turns": 3, "cost_usd": 1.5,
+            })
+            .to_string()
+        };
+        let mut old = at_version(65);
+        old.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute("INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'I1')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B1', 'p')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO sessions (id, work, line, cli, cli_session, ended) VALUES
+                 (1, 1, 'engineer', 'c', 's', NULL), (2, 2, 'architect', 'c', 'carried', 1),
+                 (3, 2, 'architect', 'c', 'carried', NULL)",
+                [],
+            )?;
+            tx.execute("INSERT INTO contents (hash, text) VALUES ('h', ?1)", ["x".repeat(3000)])?;
+            let round = |work: i64, n: i64, session: Option<i64>, input: &str, output: Option<&str>, usage: Option<&str>| {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, session, input, output, model, config_commit, usage, compactions,
+                                         started_at)
+                     VALUES (?1, ?2, 'I1', ?3, ?4, ?5, 'm', 'c', ?6, 1, ?2)",
+                    params![work, n, session, input, output, usage],
+                )
+            };
+            round(1, 1, None, "{}", None, None)?;
+            round(1, 2, Some(1), r#"{"message":"abcd"}"#, Some(r#"{"a":1}"#), Some(&usage(100, 300)))?;
+            round(1, 3, Some(1), r#"{"message":"failed"}"#, None, Some(r#"{"started":true}"#))?;
+            let parts = r#"{"message":{"parts":["ab",{"content":"h"}]}}"#;
+            round(1, 4, Some(1), parts, None, Some(&usage(1000, 1200)))?;
+            round(2, 1, Some(2), r#"{"message":"ab"}"#, None, Some(&usage(100, 500)))?;
+            round(2, 2, Some(3), r#"{"message":"ab"}"#, None, Some(&usage(450, 450)))?;
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let mut st = old
+            .conn()
+            .prepare(
+                "SELECT work, round, graph, cell, calls, added, jump, given, repeats, compactions, cost_usd, ledger
+                 FROM round_measures ORDER BY work, round",
+            )
+            .unwrap();
+        type Row = (
+            i64,
+            i64,
+            String,
+            String,
+            i64,
+            i64,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            i64,
+            f64,
+            i64,
+        );
+        let rows: Vec<Row> = st
+            .query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
+                    r.get(10)?,
+                    r.get(11)?,
+                ))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        let engineer = |n, added, jump, given| {
+            (
+                1,
+                n,
+                "engineer".to_string(),
+                "I1".to_string(),
+                3,
+                added,
+                jump,
+                given,
+                None,
+                1,
+                1.5,
+                0,
+            )
+        };
+        let architect = |n, added, jump, given| {
+            (
+                2,
+                n,
+                "architect".to_string(),
+                "I1".to_string(),
+                3,
+                added,
+                jump,
+                given,
+                None,
+                1,
+                1.5,
+                0,
+            )
+        };
+        assert_eq!(
+            rows,
+            [
+                engineer(2, 200, None, Some(4)),
+                engineer(4, 200, Some(700), Some(3009)),
+                architect(1, 400, None, Some(2)),
+                architect(2, 0, Some(0), Some(2)),
+            ]
+        );
     }
 
     // A design card an earlier engine left open beside a newer card of its work is replaced by the next one; the

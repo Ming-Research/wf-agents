@@ -317,6 +317,22 @@ pub struct Rounds {
     /// shared row of each one's name for it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub engine: Vec<EngineCase>,
+    /// How a running round is judged; none in a flow version from before the guard, whose rounds are only recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guard: Option<Guard>,
+}
+
+/// The kind of failed run a round the guard stopped is.
+pub const GUARDED: &str = "guarded";
+
+/// The run guard's rule: how a running round is compared with the rounds before it. The lines themselves are not here:
+/// they are computed from those rounds.
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct Guard {
+    pub desc: String,
+    /// How many rounds a distribution needs before it gives a line.
+    pub samples: u32,
 }
 
 /// A way a round ends that is the engine's, not the agent's: a round cut off, a step it cannot take, a message it does
