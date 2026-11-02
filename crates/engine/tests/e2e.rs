@@ -13344,3 +13344,109 @@ fn the_talk_is_cut_at_the_first_round_of_a_session_across_the_works_it_ran_in() 
     assert!(talk_recorded(&second).expect(&log).1, "{second}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// With no previous session there is no lower bound, at any round of the project's first understanding: the round after
+// tools, which runs when the session's own row exists, is told the very talk the first round was, the owner's words
+// from before the session began included, and refers to it. The reference is the design: no answered understanding of
+// the project, no cut.
+#[test]
+fn the_first_understanding_is_told_the_same_talk_at_every_round_with_no_lower_bound() {
+    let (s, e, said, works) = architect_works_in(
+        "owner-talk-first-rounds",
+        understanding_asks_for_tools_once(),
+        &[(0, "Alpha talk. ALPHAEND")],
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rounds = rounds_numbered(&e, works[0], "U1");
+    assert_eq!(rounds.len(), 2, "tools, then the answer: {rounds:?}\n{log}");
+    let (first, second) = (
+        input_numbered(&e, works[0], rounds[0]),
+        input_numbered(&e, works[0], rounds[1]),
+    );
+    let m = first["message"].as_str().unwrap();
+    assert!(m.contains("ALPHAEND"), "said before the session began, and told: {m}");
+    let (before, after) = (talk_recorded(&first).expect(&log), talk_recorded(&second).expect(&log));
+    assert_eq!(
+        (before.1, after.1),
+        (true, false),
+        "given once, then referred to: {first}\n{second}"
+    );
+    assert_eq!(before.0, after.0, "the same talk at both rounds");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Every kind of entry of the one-to-one is told from the first round of the session before on, and none from before it:
+// the owner's interjection with its images counted, and an entry of a talk, which the page shows in the conversation.
+// The reference is the owner's page, which shows these entries in the conversation `architect:p`, and the design: at or
+// after the session before began.
+#[test]
+fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session_before_began() {
+    let s = setup("owner-talk-kinds");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Alpha talk. ALPHAEND");
+    // Said clearly before the work's first round.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE architect_matters SET at = at - 5000", [])?;
+        Ok(())
+    })
+    .unwrap();
+    let one = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, one)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    age_architect(&mut e, 90 * 60_000);
+    // The session began with the first round of the work, whatever it was.
+    let cut: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT min(started_at) FROM rounds WHERE work = ?1 AND session IS NOT NULL",
+                [one],
+                |r| r.get(0),
+            )
+            .unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        let matter: i64 = tx.query_row("SELECT min(id) FROM architect_matters", [], |r| r.get(0))?;
+        for (text, at) in [("TALKOLD", cut - 1_000), ("TALKNEW", cut + 1_000)] {
+            tx.execute(
+                "INSERT INTO talk_entries (matter, text, at) VALUES (?1, ?2, ?3)",
+                params![matter, text, at],
+            )?;
+        }
+        tx.execute(
+            "INSERT INTO interjections (work, line, speaker, text, delivered_round)
+             VALUES (?1, 'architect', 'owner', 'INTERJECTEND', 1)",
+            [one],
+        )?;
+        let id = tx.last_insert_rowid();
+        for position in 1..=3 {
+            tx.execute(
+                "INSERT INTO attachments (interjection, position, media_type, size, hash, bytes)
+                 VALUES (?1, ?2, 'image/png', 4, 'h', zeroblob(4))",
+                params![id, position],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Beta talk. BETAEND");
+    let two = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "U1")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let u1 = input_at(&e, two, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap();
+    assert!(!m.contains("TALKOLD"), "said before the session before began: {m}");
+    assert!(!m.contains("ALPHAEND"), "{m}");
+    for told in ["TALKNEW", "INTERJECTEND", "BETAEND"] {
+        assert!(m.contains(told), "{told} is told: {m}");
+    }
+    assert!(m.contains("3 images attached"), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
