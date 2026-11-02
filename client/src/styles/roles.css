@@ -69,6 +69,14 @@
   --role-text: var(--display-lime-fgColor);
 }
 
+.role-olive {
+  --role-edge: var(--display-olive-borderColor-emphasis);
+  --role-fill: var(--display-olive-bgColor-muted);
+  --role-line: var(--display-olive-borderColor-muted);
+  --role-mark: var(--display-olive-bgColor-emphasis);
+  --role-text: var(--display-olive-fgColor);
+}
+
 .role-none {
   --role-edge: var(--borderColor-neutral-emphasis);
   --role-fill: var(--bgColor-neutral-muted);

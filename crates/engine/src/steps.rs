@@ -1669,7 +1669,7 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
     let reviews = inputs::answered(e, w, g, "T4")?;
     let adversarial = inputs::answered(e, w, g, "T1")?;
     let fixes = inputs::answered(e, w, g, "T6")?;
-    let chose = inputs::last_return(e, w, g, "D15", "adversarial")?
+    let chose = inputs::last_return(e, w, g, "D11", "adversarial")?
         .and_then(|r| at_path(&r, "adversarial.verdict"))
         .is_some_and(|v| v == "needed");
     let not_accepted = inputs::last_return(e, w, g, "T4", "no_adversarial")?

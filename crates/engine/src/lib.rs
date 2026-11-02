@@ -35,6 +35,7 @@ mod failed;
 mod faults;
 mod inputs;
 pub mod message;
+mod open_questions;
 mod reasoning;
 mod reminders;
 pub mod schedule;

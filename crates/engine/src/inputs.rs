@@ -19,7 +19,7 @@ const ROWS: usize = 200;
 const FIX: &str = "T6";
 
 /// The engineer's cell that writes the design, whose returns are the design's versions.
-const DESIGN: &str = "D4";
+const DESIGN: &str = "D2";
 
 /// The input that gives a check after design what the design changed since it last answered.
 const DESIGN_CHANGE: &str = "design_change";
@@ -680,6 +680,10 @@ pub fn engine_input(
         };
         return crate::reasoning::input(e, project, name);
     }
+    if name == HISTORY_SOURCES {
+        let named = item.map(|i| i.project.as_str()).or(w.project.as_deref());
+        return Ok(Some(history_sources(e, named)));
+    }
     if name == "free_slots" {
         let hosts = &e.config.config.install.machines.hosts;
         return Ok(Some(
@@ -823,6 +827,25 @@ fn existing_work(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item, main: &st
         ));
     }
     Ok(Some(out.join("\n")))
+}
+
+/// The input that says where the history a gatherer reads is.
+const HISTORY_SOURCES: &str = "history_sources";
+
+/// Where the history is, for the agents that gather it: the database's address, with the command that reads it, and the
+/// project's checkout, for git. The database is live, in WAL mode, and the engine holds it open while a round runs: a
+/// plain read-only open sees what its write-ahead log holds, where an immutable open would miss it, and needs the log's
+/// files that the engine's connection keeps there.
+fn history_sources(e: &Engine, project: Option<&str>) -> Value {
+    let database = config::database(&e.data);
+    let checkout = project
+        .and_then(|p| e.config.config.projects.get(p))
+        .map(|p| p.checkout.display().to_string());
+    json!({
+        "database": database.display().to_string(),
+        "read": format!("sqlite3 -safe -readonly '{}' \"<query>\"", database.display()),
+        "checkout": checkout,
+    })
 }
 
 /// The branch of the project the flow calls main.

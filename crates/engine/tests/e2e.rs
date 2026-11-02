@@ -20,7 +20,9 @@ use serde_json::{Value, json};
 /// The engine's loop as these tests take it: each call is one pass of it ([`Engine::pass`]), which dispatches what the
 /// owner lets go on, each step on a thread of its own, and waits for every job to end, as `wf-agents run --once` does.
 trait Passes {
-    /// One pass while every work goes on: what its first step that moved came to.
+    /// One pass while every work goes on: what its first step that moved came to. A work it leaves gathering the
+    /// history (`G1`, `G2`) has that round taken too, in passes of their own: these tests are about the cells either
+    /// side of it, and those about gathering look at its rounds.
     fn step(&mut self, after: Option<i64>) -> Result<Stepped, String>;
     /// One pass while every work goes on: whether a step moved or a work started.
     fn tick(&mut self) -> Result<bool, String>;
@@ -64,7 +66,23 @@ fn asked_in(p: &Passed, ask: &Ask) -> Stepped {
 
 impl Passes for Engine {
     fn step(&mut self, _after: Option<i64>) -> Result<Stepped, String> {
-        Ok(first_moved(&self.pass(&Go::default())?))
+        let moved = first_moved(&self.pass(&Go::default())?);
+        let gathering = |e: &Engine| -> i64 {
+            e.db.conn()
+                .query_row(
+                    "SELECT count(*) FROM works WHERE at IN ('G1', 'G2') AND ended IS NULL AND paused IS NULL",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        for _ in 0..3 {
+            if gathering(self) == 0 {
+                break;
+            }
+            self.pass(&Go::default())?;
+        }
+        Ok(moved)
     }
 
     fn tick(&mut self) -> Result<bool, String> {
@@ -771,13 +789,10 @@ merge_checks = ["check"]
 fn scripts() -> BTreeMap<&'static str, Script> {
     let mut s: BTreeMap<&'static str, Script> = BTreeMap::new();
     s.insert(
-        "D4",
+        "D2",
         Box::new(|_: &Request, _: usize| {
             (
-                vec![
-                    ("outcome.design_tree", "unchanged"),
-                    ("outcome.measure", "not_measured"),
-                ],
+                vec![("outcome.measure", "not_measured")],
                 vec![(
                     "outcome.acceptance",
                     json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
@@ -786,7 +801,11 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         }),
     );
     s.insert(
-        "D15",
+        "D3",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.better", "present_best")], Vec::new())),
+    );
+    s.insert(
+        "D11",
         Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "not_needed")], Vec::new())),
     );
     // Implementing: a work's first round changes the code and asks for ci; the next hands in the end. Which it is the
@@ -820,10 +839,8 @@ fn scripts() -> BTreeMap<&'static str, Script> {
             )
         }),
     );
-    // The table review answers every column of its table; in a project that keeps records, so does the check of the
-    // code against the records, which the table review leads to.
+    // The table review answers every column of its table.
     s.insert("T4", answers_columns(vec![("outcome.no_adversarial", "stands")]));
-    s.insert("T5", answers_columns(Vec::new()));
     s
 }
 
@@ -1128,67 +1145,6 @@ fn building_a_message_writes_nothing() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A cell that may not change the design paths is sent back for a change an earlier attempt of it made and left on the
-// branch, with a reason that names that commit and says to revert it; once reverted, the cell's return is taken.
-#[test]
-fn an_earlier_attempts_design_change_is_named_and_reverted() {
-    let s = setup_records("earlier-attempt");
-    let mut agents = scripts();
-    agents.insert(
-        "D1",
-        Box::new(|r: &Request, n: usize| {
-            let wt = &r.worktree;
-            if n == 1 {
-                write(wt, "design/sneaked.md", "Decision: not here.\n");
-                git(wt, &["add", "-A"]);
-                git(wt, &["commit", "-q", "-m", "Sneak a decision in"]);
-            }
-            if n == 3 {
-                let sha = git(wt, &["log", "--format=%H", "--grep", "Sneak a decision in"]);
-                git(wt, &["revert", "--no-edit", sha.trim()]);
-            }
-            (Vec::new(), Vec::new())
-        }),
-    );
-    let (mut e, said, item) = start(&s, agents);
-    let rethinks = |e: &Engine| -> Vec<(Option<String>, Option<String>)> {
-        let mut st =
-            e.db.conn()
-                .prepare(
-                    "SELECT r.transition, r.rejected FROM rounds r JOIN works w ON w.id = r.work
-                     WHERE w.item = ?1 AND r.cell = 'D1' AND r.ended_at IS NOT NULL ORDER BY r.work, r.n",
-                )
-                .unwrap();
-        st.query_map([item], |r| Ok((r.get(0)?, r.get(1)?)))
-            .unwrap()
-            .map(|x| x.unwrap())
-            .collect()
-    };
-    for _ in 0..40 {
-        if rethinks(&e).iter().any(|(t, _)| t.is_some()) {
-            break;
-        }
-        e.step(None).unwrap();
-    }
-    let log = said.lock().unwrap().join("\n");
-    let rounds = rethinks(&e);
-    assert_eq!(rounds.len(), 3, "{rounds:?}\n{log}");
-    let first = rounds[0].1.clone().unwrap_or_default();
-    assert!(
-        first.contains("this round changed the design paths: design/sneaked.md"),
-        "{first}"
-    );
-    let second = rounds[1].1.clone().unwrap_or_default();
-    assert!(
-        second.contains("an earlier attempt of this cell") && second.contains("Sneak a decision in"),
-        "{second}"
-    );
-    assert!(second.contains("revert them"), "{second}");
-    assert!(!second.contains("this round changed"), "{second}");
-    assert!(rounds[2].0.is_some(), "{rounds:?}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 /// Puts a commit on main that writes the files given, as another pull request merged meanwhile would.
 fn main_moves_on(root: &Path, files: &[(&str, &str)], message: &str) {
     let dir = root.join("elsewhere");
@@ -1262,195 +1218,6 @@ fn worktree_of(e: &Engine, work: i64) -> PathBuf {
             .query_row("SELECT worktree FROM works WHERE id = ?1", [work], |r| r.get(0))
             .unwrap();
     PathBuf::from(wt)
-}
-
-/// Implementing as `scripts` has it, except that the first round, after committing the feature with the files in
-/// `own`, merges main moved on by the files in `main` before it asks for ci on the merge.
-fn implementing_over_a_merge(
-    root: PathBuf,
-    own: &'static [(&'static str, &'static str)],
-    main: &'static [(&'static str, &'static str)],
-) -> Script {
-    Box::new(move |r: &Request, n: usize| {
-        let wt = &r.worktree;
-        if n == 1 {
-            write(wt, "src/lib.txt", "old\nfeature\n");
-            for (f, text) in own {
-                write(wt, f, text);
-            }
-            git(wt, &["add", "-A"]);
-            git(wt, &["commit", "-q", "-m", "Add the feature"]);
-            main_moves_on(&root, main, "Main moves on");
-            merge_main(wt);
-            let head = git(wt, &["rev-parse", "HEAD"]);
-            let tools = json!([{ "tool": "ci", "head": head, "tests": ["feature"], "pr": { "title": "Add the feature", "body": "It adds it." } }]);
-            return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
-        }
-        let head = git(wt, &["rev-parse", "HEAD"]);
-        (
-            Vec::new(),
-            vec![
-                ("outcome.head", json!(head)),
-                (
-                    "outcome.conditions",
-                    json!([{ "how": "tested", "id": "A1", "tests": ["feature"] }]),
-                ),
-            ],
-        )
-    })
-}
-
-// What a merge of main brings in is not the work's own change: a cell that may not change the records takes a return
-// whose round merged main with changes to them, and implementing, which changes none after the design, takes one whose
-// round merged main's changes to them.
-#[test]
-fn a_merge_of_main_is_not_the_works_own_design_change() {
-    let s = setup_records("merge-main");
-    let mut agents = scripts();
-    let root = s.root.clone();
-    agents.insert(
-        "D1",
-        Box::new(move |r: &Request, n: usize| {
-            if n == 1 {
-                main_moves_on(&root, &[("design/main.md", "Decision: main's.\n")], "Main's decision");
-                merge_main(&r.worktree);
-            }
-            (Vec::new(), Vec::new())
-        }),
-    );
-    agents.insert(
-        "I1",
-        implementing_over_a_merge(
-            s.root.clone(),
-            &[],
-            &[("design/later.md", "Decision: main's later one.\n")],
-        ),
-    );
-    let (mut e, said, item) = start(&s, agents);
-    step_to(&mut e, item, "I1");
-    let derived = ended_at(&e, item, "D1");
-    assert_eq!(derived.len(), 1, "{derived:?}\n{}", said.lock().unwrap().join("\n"));
-    assert!(derived[0].0.is_some(), "{derived:?}");
-    for _ in 0..10 {
-        if ended_at(&e, item, "I1")
-            .iter()
-            .any(|(t, why)| t.as_deref() == Some("done") || why.is_some())
-        {
-            break;
-        }
-        e.step(None).unwrap();
-    }
-    let log = said.lock().unwrap().join("\n");
-    let implemented = ended_at(&e, item, "I1");
-    assert!(
-        implemented.iter().all(|(_, why)| why.is_none()),
-        "{implemented:?}\n{log}"
-    );
-    assert!(
-        implemented.iter().any(|(t, _)| t.as_deref() == Some("done")),
-        "{implemented:?}\n{log}"
-    );
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// A cell's own change to the design paths is still sent back when its round also merged main, and the reason names
-// only its own: the files it changed, and the commits an earlier attempt of it left, never main's.
-#[test]
-fn a_cells_own_design_change_counts_beside_a_merge_of_main() {
-    let s = setup_records("own-beside-merge");
-    let mut agents = scripts();
-    let root = s.root.clone();
-    agents.insert(
-        "D1",
-        Box::new(move |r: &Request, n: usize| {
-            let wt = &r.worktree;
-            if n == 1 {
-                write(wt, "design/sneaked.md", "Decision: not here.\n");
-                git(wt, &["add", "-A"]);
-                git(wt, &["commit", "-q", "-m", "Sneak a decision in"]);
-                main_moves_on(&root, &[("design/main.md", "Decision: main's.\n")], "Main's decision");
-                merge_main(wt);
-            }
-            if n == 3 {
-                let sha = git(wt, &["log", "--format=%H", "--grep", "Sneak a decision in"]);
-                git(wt, &["revert", "--no-edit", sha.trim()]);
-            }
-            (Vec::new(), Vec::new())
-        }),
-    );
-    let (mut e, said, item) = start(&s, agents);
-    for _ in 0..40 {
-        if ended_at(&e, item, "D1").iter().any(|(t, _)| t.is_some()) {
-            break;
-        }
-        e.step(None).unwrap();
-    }
-    let log = said.lock().unwrap().join("\n");
-    let rounds = ended_at(&e, item, "D1");
-    assert_eq!(rounds.len(), 3, "{rounds:?}\n{log}");
-    let first = rounds[0].1.clone().unwrap_or_default();
-    assert!(
-        first.contains("this round changed the design paths: design/sneaked.md"),
-        "{first}"
-    );
-    assert!(!first.contains("design/main.md"), "{first}");
-    let second = rounds[1].1.clone().unwrap_or_default();
-    assert!(
-        second.contains("an earlier attempt of this cell") && second.contains("Sneak a decision in"),
-        "{second}"
-    );
-    assert!(!second.contains("Main's decision"), "{second}");
-    assert!(!second.contains("design/main.md"), "{second}");
-    assert!(rounds[2].0.is_some(), "{rounds:?}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// Implementing changes none of the records after the design, in any of its rounds, one that ran tools too: a change
-// to them goes back to derive again. A record it changed that main changed too and a merge brought in is its own; one
-// only main changed is not.
-#[test]
-fn implementing_is_sent_back_for_its_own_change_to_the_records() {
-    let s = setup_records("both-changed");
-    let mut agents = scripts();
-    agents.insert(
-        "I1",
-        implementing_over_a_merge(
-            s.root.clone(),
-            &[("design/own.md", "Decision: the work's own.\n")],
-            &[
-                ("design/overview.md", "# The overview\nThe design.\n"),
-                ("design/main.md", "Decision: main's.\n"),
-            ],
-        ),
-    );
-    let (mut e, said, item) = start(&s, agents);
-    step_to(&mut e, item, "I1");
-    let (work, _, _) = state(&e, item).unwrap();
-    let wt = worktree_of(&e, work);
-    write(
-        &wt,
-        "design/overview.md",
-        "# Overview\nThe design.\nThe work's decision.\n",
-    );
-    git(&wt, &["add", "-A"]);
-    git(&wt, &["commit", "-q", "-m", "The work's decision"]);
-    for _ in 0..10 {
-        if ended_at(&e, item, "I1").iter().any(|(_, why)| why.is_some()) {
-            break;
-        }
-        e.step(None).unwrap();
-    }
-    let log = said.lock().unwrap().join("\n");
-    let why = ended_at(&e, item, "I1")
-        .into_iter()
-        .find_map(|(_, why)| why)
-        .unwrap_or_default();
-    assert!(
-        why.contains("the records changed since the design (design/overview.md, design/own.md)"),
-        "{why}\n{log}"
-    );
-    assert!(!why.contains("design/main.md"), "{why}");
-    let _ = std::fs::remove_dir_all(&s.root);
 }
 
 // The advisor is the engineer with a higher model: an item's advisor round runs on the level one above the item's,
@@ -2191,24 +1958,23 @@ fn a_query_runs_in_the_tool_cell_and_its_return_fits_the_flow() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Which way the design stage goes is the engine's cells' rows, never a switch hidden in a gate: a project that keeps no
-// records goes from the derivation straight to the design (`D2` `no_records`) and past the check of the records (`D5`
-// `unchanged`), and one with nothing under test and no other project past those gates (`D8` `no`, `D12` `no`), each a
-// round of the engine's own; the cells on the ways not taken never run.
+// Which way the design stage goes is the engine's cells' rows, never a switch hidden in a gate: a project with nothing
+// under test and no other project goes past those gates (`D4` `no`, `D8` `no`), each a round of the engine's own; the
+// cells on the ways not taken never run.
 #[test]
 fn the_design_stage_goes_its_way_by_the_engines_rows() {
     let s = setup("design-way");
     let (mut e, said, item) = start(&s, scripts());
     step_to(&mut e, item, "I1");
     let log = said.lock().unwrap().join("\n");
-    for (cell, row) in [("D2", "no_records"), ("D5", "unchanged"), ("D8", "no"), ("D12", "no")] {
+    for (cell, row) in [("D4", "no"), ("D8", "no")] {
         assert_eq!(
             ended_at(&e, item, cell),
             [(Some(row.to_string()), None)],
             "{cell}\n{log}"
         );
     }
-    for cell in ["D3", "D6", "D7", "D9", "D13"] {
+    for cell in ["D5", "D9"] {
         assert!(ended_at(&e, item, cell).is_empty(), "{cell}\n{log}");
     }
     let _ = std::fs::remove_dir_all(&s.root);
@@ -2247,101 +2013,6 @@ fn setup_records(name: &str) -> Setup {
         &["commit", "-q", "-am", "records kept by the reasoning system"],
     );
     s
-}
-
-// A project that keeps records derives its design from them: a trade-off they leave open is challenged in a session of
-// its own (`D3`), the design writes the records, and their check, the installation's copy of the reasoning system run
-// on the branch against its fork point (`D6`), sends a red back to the design by a row, with what it printed, not as a
-// return sent back; once green, the coherence review runs in a session of its own (`D7`). The cells that work on the
-// records are given the reasoning system's rules.
-#[test]
-fn a_project_that_keeps_records_checks_and_reviews_them() {
-    let s = setup_records("records");
-    let mut agents = scripts();
-    agents.insert(
-        "D1",
-        Box::new(|_: &Request, _: usize| (vec![("outcome.finding", "trade_off")], Vec::new())),
-    );
-    agents.insert(
-        "D4",
-        Box::new(|r: &Request, n: usize| {
-            let wt = &r.worktree;
-            // The first design revises a record and writes no log; the second, back from the check, writes the log.
-            if n == 1 {
-                write(wt, "design/derivations/one.md", "Decision one: One, because two.\n");
-            } else {
-                write(wt, "design/log.md", "# Log\n");
-            }
-            git(wt, &["add", "-A"]);
-            git(wt, &["commit", "-q", "-m", "Revise the records"]);
-            let card = json!({
-                "key": "one",
-                "question": "Which one?",
-                "options": [
-                    { "name": "One", "does": "a", "cost": "c", "risks": "r" },
-                    { "name": "Two", "does": "b", "cost": "c", "risks": "r" }
-                ],
-                "not_workable": [],
-                "recommended": "One",
-                "confidence": { "level": "4", "why": "w", "overturn": "o" },
-                "revises": ["D:one"]
-            });
-            (
-                vec![("outcome.design_tree", "change"), ("outcome.measure", "not_measured")],
-                vec![
-                    (
-                        "outcome.acceptance",
-                        json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
-                    ),
-                    ("outcome.design.solution", json!("Why one.\n\n[[card:one]]\n")),
-                    ("outcome.design_tree.cards", json!([card])),
-                ],
-            )
-        }),
-    );
-    let (mut e, said, item) = start(&s, agents);
-    step_to(&mut e, item, "D8");
-    let log = said.lock().unwrap().join("\n");
-    assert_eq!(ended_at(&e, item, "D2"), [(Some("full".to_string()), None)], "{log}");
-    let designs = ended_at(&e, item, "D4");
-    assert_eq!(designs.len(), 2, "{designs:?}\n{log}");
-    assert!(
-        designs.iter().all(|(t, why)| t.is_some() && why.is_none()),
-        "{designs:?}"
-    );
-    let checks = ended_at(&e, item, "D6");
-    let rows: Vec<Option<String>> = checks.into_iter().map(|(t, _)| t).collect();
-    assert_eq!(rows, [Some("red".to_string()), Some("green".to_string())], "{log}");
-    let (work, _, _) = state(&e, item).unwrap();
-    let printed: String =
-        e.db.conn()
-            .query_row(
-                "SELECT json_extract(output, '$.check.printed') FROM rounds WHERE work = ?1 AND cell = 'D6' ORDER BY n",
-                [work],
-                |r| r.get(0),
-            )
-            .unwrap();
-    assert!(printed.starts_with("given: --root design --ascii --base "), "{printed}");
-    assert!(printed.contains("--ready"), "{printed}");
-    assert_eq!(ended_at(&e, item, "D7"), [(Some("none".to_string()), None)], "{log}");
-    // The challenge and the coherence review each started the review line's session afresh.
-    let review = line_sessions(&e, work, "review");
-    let cells: Vec<&str> = review.iter().map(|x| x.2.as_str()).collect();
-    assert_eq!(cells, ["D3", "D7"], "{review:?}");
-    // The derivation was given the rules of reading the records and of keeping the work in line with them.
-    let given: String =
-        e.db.conn()
-            .query_row(
-                "SELECT input FROM rounds WHERE work = ?1 AND cell = 'D1'",
-                [work],
-                |r| r.get(0),
-            )
-            .unwrap();
-    assert!(
-        given.contains("engine·reasoning_reading") && given.contains("engine·reasoning_work"),
-        "{given}"
-    );
-    let _ = std::fs::remove_dir_all(&s.root);
 }
 
 /// The owner's word to the work's engineer, waiting to be delivered.
@@ -2441,7 +2112,7 @@ fn a_check_after_a_redesign_is_given_what_the_design_changed() {
     let s = setup("gates-change");
     let mut agents = scripts();
     agents.insert(
-        "D4",
+        "D2",
         Box::new(|_: &Request, n: usize| {
             let solution = if n == 1 {
                 "Read the input. Parse it into tokens."
@@ -2449,10 +2120,7 @@ fn a_check_after_a_redesign_is_given_what_the_design_changed() {
                 "Read the input. Parse it into tokens. Keep the tokens' positions."
             };
             (
-                vec![
-                    ("outcome.design_tree", "unchanged"),
-                    ("outcome.measure", "not_measured"),
-                ],
+                vec![("outcome.measure", "not_measured")],
                 vec![
                     (
                         "outcome.acceptance",
@@ -2476,16 +2144,16 @@ fn a_check_after_a_redesign_is_given_what_the_design_changed() {
     let (work, _, _) = state(&e, item).unwrap();
     owner_says(&mut e, work, "Keep the tokens' positions too.");
     for _ in 0..30 {
-        if ended_at(&e, item, "D10").len() == 2 {
+        if ended_at(&e, item, "D6").len() == 2 {
             break;
         }
         e.step(None).unwrap();
     }
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(ended_at(&e, item, "D10").len(), 2, "{log}");
-    let first = message_at(&e, work, "D10", false);
+    assert_eq!(ended_at(&e, item, "D6").len(), 2, "{log}");
+    let first = message_at(&e, work, "D6", false);
     assert!(!first.contains("engine·design_change"), "{first}");
-    let again = message_at(&e, work, "D10", true);
+    let again = message_at(&e, work, "D6", true);
     assert!(again.contains("+Keep the tokens' positions."), "{again}");
     assert!(again.contains("your_last_answer"), "{again}");
     assert!(!again.contains("-Read the input."), "{again}");
@@ -2717,7 +2385,7 @@ fn agent_rounds(e: &Engine, item: i64) -> Vec<(String, String, Value)> {
     engine::query_json(
         e.db.conn(),
         "SELECT 'R' || r.work || '-' || r.n AS name, r.cell, r.input FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.item = ?1 AND r.session IS NOT NULL ORDER BY r.work, r.n",
+         WHERE w.item = ?1 AND r.session IS NOT NULL AND r.cell NOT IN ('G1', 'G2') ORDER BY r.work, r.n",
         &[&item],
         1000,
     )
@@ -2863,9 +2531,9 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
     );
     assert!(formats.contains("- items (id, project, title, "), "{formats}");
     assert!(!formats.contains("CREATE TABLE"), "{formats}");
-    let design = &rounds.iter().rev().find(|r| r.1 == "D4").unwrap().0;
-    let acceptance = format!("{design}·D4·acceptance");
-    assert_eq!(given(&at("D15"), &acceptance), Some(false), "{}", at("D15"));
+    let design = &rounds.iter().rev().find(|r| r.1 == "D2").unwrap().0;
+    let acceptance = format!("{design}·D2·acceptance");
+    assert_eq!(given(&at("D11"), &acceptance), Some(false), "{}", at("D11"));
     // Implementing starts a new session, which holds nothing: the acceptance is given whole again.
     assert_eq!(given(&at("I1"), &acceptance), Some(true), "{}", at("I1"));
     assert_eq!(given(&at("T3"), &acceptance), Some(true), "{}", at("T3"));
@@ -2897,15 +2565,15 @@ fn a_message_gives_each_conditional_input_once_in_a_session() {
         "{call}"
     );
     // The record keeps each large text once: the shared formats and the structured-output schema of each line (the
-    // engineer's and the review's) are in contents once, however many rounds and sessions were given them, and a
-    // round's record refers to them.
+    // engineer's, the reader of the history's and the review's) are in contents once, however many rounds and sessions
+    // were given them, and a round's record refers to them.
     let kept = |like: &str| -> i64 {
         e.db.conn()
             .query_row("SELECT count(*) FROM contents WHERE text LIKE ?1", [like], |r| r.get(0))
             .unwrap()
     };
-    assert_eq!(kept("The forms every agent's return shares.%"), 2);
-    assert_eq!(kept("{\"type\":\"object\"%"), 2);
+    assert_eq!(kept("The forms every agent's return shares.%"), 3);
+    assert_eq!(kept("{\"type\":\"object\"%"), 3);
     let raw: String =
         e.db.conn()
             .query_row(
@@ -5084,18 +4752,17 @@ fn an_action_only_the_owner_can_do_pauses_the_work_until_the_owner_starts_it() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A choice only the owner can make about a work, accepting a measured slowdown, the architect puts on the work's
-// decision card: its reply has the engineer record it there as a decision, with the options and the one it recommends,
-// and go on with that option, the owner ruling on it before the merge. Nothing is asked of the owner, and the work is
-// not paused: it takes the reply at once.
+// A choice only the owner can make about a work, accepting a measured slowdown, the architect has put as an open
+// question of the work's design: its reply has the engineer say so there, with the options and the one it recommends,
+// and go on with that option, the merge waiting for the answer. Nothing is asked of the owner yet, and the work is not
+// paused: it takes the reply at once.
 #[test]
-fn a_choice_only_the_owner_can_make_goes_on_the_design_card_and_the_work_goes_on() {
+fn a_choice_only_the_owner_can_make_is_an_open_question_and_the_work_goes_on() {
     let s = setup("owner-choice");
     let ways: Script = Box::new(|_: &Request, _: usize| {
         let reply = json!({
-            "text": "Only the owner can accept the slowdown: put it to the owner as a decision card of your design, with the \
-                     options and the one you recommend, and go on with that option; the owner rules on it before the \
-                     merge.",
+            "text": "Only the owner can accept the slowdown: put it to the owner as an open question of your design, with \
+                     the options and the one you recommend, and go on with that option; the merge waits for the answer.",
             "why": "Accepting a slowdown is the owner's choice.",
         });
         (Vec::new(), vec![("outcome.reply", reply)])
@@ -5112,7 +4779,7 @@ fn a_choice_only_the_owner_can_make_goes_on_the_design_card_and_the_work_goes_on
     assert_eq!(asks, 0, "{log}");
     let ways = message_at(&e, arch, "H3", false);
     assert!(
-        ways.contains("put to the owner as a decision card of its design"),
+        ways.contains("put to the owner as an open question of its design"),
         "{ways}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
@@ -7286,169 +6953,297 @@ fn a_project_with_flow_feedback_off_is_not_asked_for_it() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// Two records and a log entry a design revises, and the design handing in a decision card for each, standing in its
-/// text at its anchor.
-fn designs_with_cards() -> Script {
-    Box::new(move |r: &Request, _: usize| {
-        let wt = &r.worktree;
-        write(
-            wt,
-            "design/derivations/runs.md",
-            "# Runs\n\nDecision red-run: Run every test to the end, because each leaves a line.\n",
-        );
-        write(
-            wt,
-            "design/facts/ci.md",
-            "# CI\n\nFact cancelled: A cancelled test leaves no line.\n",
-        );
-        write(wt, "design/log.md", "# Log\n");
-        git(wt, &["add", "-A"]);
-        git(wt, &["commit", "-q", "-m", "Revise the records"]);
-        let card = |key: &str, revises: &[&str]| {
-            json!({
-                "key": key,
-                "question": format!("Which way for {key}?"),
-                "options": [
-                    { "name": "A", "does": "a", "cost": "c", "risks": "r" },
-                    { "name": "B", "does": "b", "cost": "c", "risks": "r" }
-                ],
-                "not_workable": [{ "name": "C", "why": "It breaks." }],
-                "recommended": "A",
-                "confidence": { "level": "3", "why": "w", "overturn": "o" },
-                "revises": revises
-            })
-        };
+/// A design that is not sure of one thing: it hands in an open question, with the options and the one it recommends.
+fn designs_with_an_open_question() -> Script {
+    Box::new(|_: &Request, _: usize| {
         (
-            vec![("outcome.design_tree", "change"), ("outcome.measure", "not_measured")],
+            vec![("outcome.measure", "not_measured")],
             vec![
                 (
                     "outcome.acceptance",
                     json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
                 ),
                 (
-                    "outcome.design.solution",
-                    json!("Why the runs go on.\n\n[[card:red-run]]\n\nWhy the facts.\n\n[[card:cancelled]]\n"),
-                ),
-                (
-                    "outcome.design_tree.cards",
-                    json!([card("red-run", &["D:red-run"]), card("cancelled", &["F:cancelled"])]),
+                    "outcome.open_questions",
+                    json!([{ "question": "Which table?", "options": "One or two.", "recommended": "One." }]),
                 ),
             ],
         )
     })
 }
 
-/// The work's decision cards: each its id, key, status and the records it revises.
-fn cards_of(e: &Engine, work: i64) -> Vec<(i64, String, String, Value)> {
+/// The work's open questions, by the view the cells read: each with its answer.
+fn open_questions(e: &Engine, work: i64) -> Vec<(i64, String, Option<String>)> {
     let mut st =
         e.db.conn()
-            .prepare("SELECT id, key, status, revision FROM design_cards WHERE work = ?1 ORDER BY id")
+            .prepare("SELECT matter, question, answer FROM work_open_questions WHERE work = ?1 ORDER BY matter")
             .unwrap();
-    st.query_map([work], |r| {
-        Ok((
-            r.get(0)?,
-            r.get(1)?,
-            r.get(2)?,
-            serde_json::from_str(&r.get::<_, String>(3)?).unwrap(),
-        ))
-    })
-    .unwrap()
-    .map(|x| x.unwrap())
-    .collect()
+    st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
 }
 
-// A design that revises the records puts a decision card to the owner for each question, standing in its text at its
-// anchor; once the checks after design pass the engine posts them, each with the records it revises as the branch has
-// them, the owner's to rule, with no look of the architect's queued: the design's coherence review judged them. A branch
-// that does not change the flow gives its cards none.
-#[test]
-fn a_designs_decision_cards_are_posted_with_the_records_they_revise() {
-    let s = setup_records("posted-cards");
-    let mut agents = scripts();
-    agents.insert("D4", designs_with_cards());
-    let (mut e, said, item) = start(&s, agents);
-    let posted = |e: &mut Engine| -> bool {
-        e.db.conn()
-            .query_row("SELECT count(*) FROM design_cards", [], |r| r.get::<_, i64>(0))
-            .unwrap()
-            > 0
-    };
-    assert!(steps_until(&mut e, 30, posted), "{}", said.lock().unwrap().join("\n"));
-    let log = said.lock().unwrap().join("\n");
-    let (work, _, _) = state(&e, item).unwrap();
-    let cards = cards_of(&e, work);
-    let keys: Vec<(&str, &str)> = cards.iter().map(|c| (c.1.as_str(), c.2.as_str())).collect();
-    assert_eq!(keys, [("red-run", "open"), ("cancelled", "open")], "{log}");
-    assert_eq!(cards[0].3[0]["reference"], "D:red-run");
-    assert_eq!(cards[0].3[0]["change"], "added");
-    assert_eq!(
-        cards[0].3[0]["text"],
-        "Decision red-run: Run every test to the end, because each leaves a line."
-    );
-    assert_eq!(cards[1].3[0]["reference"], "F:cancelled");
-    let looks = matters(&e);
-    assert!(looks.iter().all(|m| m.0 != "design_card"), "{looks:?}\n{log}");
-    // The coherence review was given what the architect knows of the project, its board among it.
-    let given: String =
-        e.db.conn()
-            .query_row(
-                "SELECT input FROM rounds WHERE work = ?1 AND cell = 'D7' ORDER BY n DESC LIMIT 1",
-                [work],
-                |r| r.get(0),
-            )
-            .unwrap();
-    assert!(given.contains("·engine·board"), "{given}");
-    let flows: i64 =
-        e.db.conn()
-            .query_row(
-                "SELECT count(*) FROM design_cards WHERE flow_snapshot IS NOT NULL",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-    assert_eq!(flows, 0);
-    let _ = std::fs::remove_dir_all(&s.root);
+/// Takes the work's steps alone, every other work held, until `done` says so.
+fn advance_until(e: &mut Engine, work: i64, done: impl Fn(&Engine) -> bool) {
+    for _ in 0..80 {
+        if done(e) {
+            return;
+        }
+        e.advance(work).unwrap();
+    }
 }
 
-// The merge waits for the owner's ruling on every decision card of the work: it waits while one is open, and the owner
-// is told which hold it; once the owner confirmed each, it goes on.
+// An open question of the design goes to the project's architect as a matter of its own once the checks after design
+// pass, and the work goes on by what the design recommends, once and not again; the merge waits for its answer, and the
+// owner is told which question holds it. The architect answers by the path an engineer's question takes: the answer is
+// kept in the matter, reaches the engineer as an interjection, which takes a work standing at the merge's judge to
+// choose the way on, and the merge then goes on.
 #[test]
-fn the_merge_waits_for_a_ruling_on_every_decision_card() {
-    let s = setup_records("cards-gate");
+fn an_open_question_goes_to_the_architect_holds_the_merge_and_its_answer_reaches_the_engineer() {
+    let s = setup("open-question");
     let mut agents = scripts();
-    agents.insert("D4", designs_with_cards());
-    let (mut e, said, item) = start(&s, agents);
-    let waits = |e: &mut Engine| -> bool { !ended_at(e, item, "M1").is_empty() };
-    assert!(steps_until(&mut e, 300, waits), "{}", said.lock().unwrap().join("\n"));
-    let log = said.lock().unwrap().join("\n");
-    let (work, _, _) = state(&e, item).unwrap();
-    assert_eq!(
-        ended_at(&e, item, "M1").first().map(|x| x.0.clone()),
-        Some(Some("wait_ruling".to_string())),
-        "{log}"
+    agents.insert("D2", designs_with_an_open_question());
+    agents.insert(
+        "H3",
+        Box::new(|_: &Request, _: usize| {
+            let reply = json!({ "text": "One table.", "why": "The items are few." });
+            (Vec::new(), vec![("outcome.reply", reply)])
+        }),
     );
-    let cards = cards_of(&e, work);
-    assert_eq!(cards.len(), 2, "{log}");
-    // The owner is told which cards hold the merge, as the notifications log has it once the engine sent it.
-    let waiting = format!(
-        "is ready to merge, but decision cards {} and {} wait for your ruling.",
-        cards[0].0, cards[1].0
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let asked = open_questions(&e, work);
+    assert_eq!(asked.len(), 1, "{}", said.lock().unwrap().join("\n"));
+    let matter = asked[0].0;
+    assert_eq!((asked[0].1.as_str(), asked[0].2.as_deref()), ("Which table?", None));
+    let body: String =
+        e.db.conn()
+            .query_row("SELECT body FROM architect_matters WHERE id = ?1", [matter], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        (&body["options"], &body["recommended"]),
+        (&json!("One or two."), &json!("One."))
     );
     assert!(
-        told(&s, &waiting) > 0,
+        body["design_link"]
+            .as_str()
+            .is_some_and(|l| l.starts_with(&format!("/works/{work}?round=R{work}-"))),
+        "{body}"
+    );
+    // The work goes on, its architect held, to the merge's judge, which waits for the answer.
+    advance_until(&mut e, work, |e| !ended_at(e, item, "M1").is_empty());
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        ended_at(&e, item, "M1").first().map(|x| x.0.clone()),
+        Some(Some("wait_questions".to_string())),
+        "{log}"
+    );
+    let holding = format!("is ready to merge, but open question {matter} waits for its answer.");
+    e.tick().unwrap();
+    assert!(
+        told(&s, &holding) > 0,
         "{}",
         std::fs::read_to_string(s.data.join("notifications.log")).unwrap_or_default()
     );
-    let confirm = api::Ruling {
-        verdict: "confirm".into(),
-        option: None,
-        text: None,
-    };
-    for c in &cards {
-        api::rule(&mut e.db, c.0, &confirm).unwrap();
-    }
-    let cleared = |e: &mut Engine| -> bool { ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear")) };
-    assert!(steps_until(&mut e, 40, cleared), "{}", said.lock().unwrap().join("\n"));
+    // The architect's work takes the question by its crux and its ways, and the answer goes to the engineer.
+    let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
+    assert!(steps_until(&mut e, 60, answered), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(
+        open_questions(&e, work)[0].2.as_deref(),
+        Some("One table.\n\nThe items are few.")
+    );
+    let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
+    assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
+    let way_on = message_at(&e, work, "A4", true);
+    assert!(
+        way_on.contains("The answer to the open question of your design \"Which table?\": One table."),
+        "{way_on}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A design written again that hands the same open question in does not put it again.
+#[test]
+fn an_open_question_handed_in_again_is_put_once() {
+    let s = setup("open-question-again");
+    let mut agents = scripts();
+    agents.insert("D2", designs_with_an_open_question());
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "redesign")], Vec::new())),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "T7");
+    let (work, _, _) = state(&e, item).unwrap();
+    owner_says(&mut e, work, "Design it again.");
+    advance_until(&mut e, work, |e| ended_at(e, item, "D11").len() == 2);
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(ended_at(&e, item, "D11").len(), 2, "{log}");
+    assert_eq!(open_questions(&e, work).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// What the work learned goes into its item's approach once it merged, with the commit it merged, through the one write
+// path, so that the changes keep it.
+#[test]
+fn what_a_work_learned_goes_into_its_item_with_its_commits() {
+    let s = setup("learned");
+    let mut agents = scripts();
+    agents.insert(
+        "L2",
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![(
+                    "outcome.learned",
+                    json!("Fact (2026-11-02): One table is enough (R1-2)"),
+                )],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let done = |e: &mut Engine| !ended_at(e, item, "L2").is_empty();
+    assert!(steps_until(&mut e, 200, done), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    let approach: String =
+        e.db.conn()
+            .query_row("SELECT approach FROM items WHERE id = ?1", [item], |r| r.get(0))
+            .unwrap();
+    let merged: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(r.output, '$.result.merge_commit') FROM rounds r JOIN works w ON w.id = r.work
+                 WHERE w.item = ?1 AND r.cell = 'M2' AND r.transition = 'merged'",
+                [item],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(
+        approach,
+        format!("Learned:\nFact (2026-11-02): One table is enough (R1-2)\nCommits: {merged}"),
+        "{log}"
+    );
+    let kept: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM changes WHERE table_name = 'items' AND json_extract(new_row, '$.approach') = ?1",
+                [&approach],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(kept, 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The history is gathered before the research and before the design, each in a round of the reader's line at the lowest
+// level, and given to the cell after it; a look-up goes to the reader and back to the cell that asked, in the same
+// session, and is given to it.
+#[test]
+fn the_history_is_gathered_and_looked_up_by_the_reader_of_the_line_librarian() {
+    let s = setup("history");
+    let mut agents = scripts();
+    agents.insert(
+        "G1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("outcome.brief", json!("The problem's history."))])),
+    );
+    agents.insert(
+        "G2",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("outcome.brief", json!("The code's history."))])),
+    );
+    agents.insert(
+        "X5",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("outcome.brief", json!("What was looked up."))])),
+    );
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                (
+                    vec![("outcome", "history")],
+                    vec![("outcome.history", json!("Why is it so?"))],
+                )
+            } else {
+                (Vec::new(), Vec::new())
+            }
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "D1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(ended_at(&e, item, "X5").len(), 1, "{log}");
+    assert!(
+        message_at(&e, work, "R1", false).contains("The problem's history."),
+        "{log}"
+    );
+    assert!(
+        message_at(&e, work, "R1", true).contains("What was looked up."),
+        "{log}"
+    );
+    assert!(
+        message_at(&e, work, "D1", false).contains("The code's history."),
+        "{log}"
+    );
+    assert!(message_at(&e, work, "X5", false).contains("Why is it so?"), "{log}");
+    let session = |cell: &str| session_of(&e, work, cell);
+    assert_eq!(session("G1"), session("G2"));
+    assert_eq!(session("G1"), session("X5"));
+    assert_ne!(session("G1"), session("R1"));
+    let line: String =
+        e.db.conn()
+            .query_row("SELECT line FROM sessions WHERE id = ?1", [session("G1")], |r| r.get(0))
+            .unwrap();
+    assert_eq!(line, "librarian");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The gatherer reads the live database by the address it is given: the database is in WAL mode, with the engine's
+// connection open, and what was committed to its log and not yet to the file is read too.
+#[test]
+fn the_history_s_address_reads_the_live_database_in_wal_mode() {
+    let s = setup("history-wal");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "R1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let sources = given_value(&message_at(&e, work, "G1", false), "·engine·history_sources").expect(&log);
+    let database = sources["database"].as_str().unwrap().to_string();
+    assert_eq!(database, config::database(&s.data).display().to_string());
+    assert!(
+        sources["read"]
+            .as_str()
+            .unwrap()
+            .starts_with("sqlite3 -safe -readonly '"),
+        "{sources}"
+    );
+    assert!(sources["checkout"].is_string(), "{sources}");
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET title = 'Only in the log' WHERE id = ?1", [item])?;
+        Ok(())
+    })
+    .unwrap();
+    let wal = std::fs::metadata(format!("{database}-wal")).unwrap();
+    assert!(wal.len() > 0);
+    let out = Command::new("sqlite3")
+        .args([
+            "-safe",
+            "-readonly",
+            &database,
+            &format!("SELECT title FROM items WHERE id = {item}"),
+        ])
+        .output()
+        .expect("sqlite3 runs");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "Only in the log");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 // The architect pauses a work in its effects: the engine pauses it, with a reason that says the architect stopped it
@@ -8307,7 +8102,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
     let s = setup_priced("no-warm");
     let mut scripts = scripts();
     scripts.insert(
-        "D15",
+        "D11",
         Box::new(|_: &Request, _: usize| {
             (
                 vec![("outcome.adversarial", "not_needed")],
@@ -8322,7 +8117,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
     let from = last_call(&e, work);
     assert_eq!(warm_now(&mut e, from + 55 * 60_000 + 1_000, None).unwrap(), 0);
     // At a cell that goes on in the session, a round of the session that runs keeps the ping off.
-    move_to(&mut e, work, "D15");
+    move_to(&mut e, work, "D11");
     let session: i64 =
         e.db.conn()
             .query_row(
@@ -8336,7 +8131,7 @@ fn no_ping_before_a_new_session_or_beside_a_round() {
             let n = next_round(tx, work)?;
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
-                 VALUES (?1, ?2, 'D15', ?3, '{}', 'c', ?4)",
+                 VALUES (?1, ?2, 'D11', ?3, '{}', 'c', ?4)",
                 params![work, n, session, from],
             )?;
             Ok(n)

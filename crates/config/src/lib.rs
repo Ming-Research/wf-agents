@@ -166,6 +166,10 @@ pub struct Agents {
     /// none is named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observer: Option<String>,
+    /// The level the reading of a work's history runs at (the line `librarian`), by its name among the levels; the
+    /// lowest level when none is named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub librarian: Option<String>,
     /// The context, in tokens, past which a line's session is replaced by a new one at the line's next round: the
     /// prompt of the last call of the session's latest round, as recorded.
     #[serde(default = "context_limit")]
@@ -256,14 +260,21 @@ fn heavy() -> Vec<String> {
     .collect()
 }
 
-/// The review and the advisor, which look at a work's worktree, and every line of a project's architect, which reads
-/// the project in a worktree of its own at main: its work's, the setting of a new policy included, the review of its
-/// item changes and the search of observations.
+/// The review and the advisor, which look at a work's worktree, the reader of a work's history, and every line of a
+/// project's architect, which reads the project in a worktree of its own at main: its work's, the setting of a new
+/// policy included, the review of its item changes and the search of observations.
 fn read_only() -> Vec<String> {
-    ["review", "advisor", "architect", "architect_review", "observer"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
+    [
+        "review",
+        "advisor",
+        "librarian",
+        "architect",
+        "architect_review",
+        "observer",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
 }
 
 /// The tools that edit files, which a line that only reads is refused.
@@ -981,6 +992,11 @@ impl Config {
         {
             problems.push(format!("install.toml: agents.observer names no level: {o}"));
         }
+        if let Some(l) = &self.install.agents.librarian
+            && !self.install.agents.levels.contains_key(l)
+        {
+            problems.push(format!("install.toml: agents.librarian names no level: {l}"));
+        }
         if let Some(h) = &self.install.items.highest_level
             && !self.install.agents.levels.contains_key(h)
         {
@@ -1131,11 +1147,25 @@ impl Config {
         }
     }
 
-    /// The level a line's agents run at for an item of the given level: the advisor one level above the item's, every
-    /// other line at the item's.
+    /// The level the reading of a work's history runs at: the one the installation names, or else the lowest.
+    pub fn librarian_level(&self) -> String {
+        match &self.install.agents.librarian {
+            Some(l) => l.clone(),
+            None => self
+                .levels_in_order()
+                .first()
+                .map(|n| n.to_string())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The level a line's agents run at for an item of the given level: the advisor one level above the item's, the
+    /// reader of a work's history at its own level whatever the item's, every other line at the item's.
     pub fn level_of_line(&self, item_level: &str, line: &str) -> String {
         if line == "advisor" {
             self.level_above(item_level)
+        } else if line == "librarian" {
+            self.librarian_level()
         } else {
             item_level.to_string()
         }
@@ -1488,7 +1518,14 @@ asks = 9
     #[test]
     fn a_line_that_only_reads_edits_nothing_and_changes_no_repository() {
         let p = Permissions::default();
-        for line in ["architect", "architect_review", "observer", "review", "advisor"] {
+        for line in [
+            "architect",
+            "architect_review",
+            "observer",
+            "review",
+            "advisor",
+            "librarian",
+        ] {
             let refused = p.refused(line);
             for t in EDIT_TOOLS {
                 assert!(refused.iter().any(|r| r == t), "{line}: {t}");
@@ -1529,6 +1566,12 @@ asks = 9
         assert_eq!(c.observer_level(), "1");
         c.install.agents.observer = Some("2".into());
         assert_eq!(c.observer_level(), "2");
+        // The reader of a work's history runs at the lowest level whatever the item's, unless the installation names
+        // another.
+        assert_eq!(c.librarian_level(), "1");
+        assert_eq!(c.level_of_line("10", "librarian"), "1");
+        c.install.agents.librarian = Some("2".into());
+        assert_eq!(c.level_of_line("10", "librarian"), "2");
         // An item may be at any level unless the installation names the highest; its advisor may still run above it.
         assert_eq!(c.item_level("10"), Ok(()));
         c.install.items.highest_level = Some("2".into());
@@ -1709,10 +1752,11 @@ asks = 9
         let twice = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\nobservation_tags = [\
                      { name = \"perf\", desc = \"a\" }, { name = \"perf\", desc = \"b\" }]";
         let mut m = files(&[("projects/q.toml", twice)]);
-        let unnamed = format!("{INSTALL}\n[agents]\nobserver = \"9\"\n");
+        let unnamed = format!("{INSTALL}\n[agents]\nobserver = \"9\"\nlibrarian = \"8\"\n");
         m.0.insert("install.toml", Box::leak(unnamed.into_boxed_str()));
         let e = read(&m).unwrap_err().to_string();
         assert!(e.contains("agents.observer names no level: 9"), "{e}");
+        assert!(e.contains("agents.librarian names no level: 8"), "{e}");
         assert!(
             e.contains("projects/q.toml: observation_tags: a tag with no name"),
             "{e}"

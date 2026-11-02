@@ -723,7 +723,7 @@ fn holder_cell<'c>(ctx: &'c crate::actions::Ctx, cell: &str) -> Option<&'c flow:
 }
 
 /// Who holds a blocker at a cell where it is held: its one holder, or at a cell where the work waits for the items it
-/// depends on or the owner's ruling, the items while one is not merged and the owner once every one is.
+/// depends on or the answers to its open questions, the items while one is not merged and the owner once every one is.
 fn holder_now(
     ctx: &crate::actions::Ctx,
     tx: &Transaction<'_>,
@@ -774,7 +774,8 @@ fn speaker(ctx: &crate::actions::Ctx, b: &Blocker) -> String {
 
 /// `raise_blocker`: the task's blocker, raised at the cell where its problem arose and held by the holder of the cell
 /// the row leads to. A cell where the work waits for what it depends on raises it with its row that waits, and when
-/// what it waits for changed since it raised it, from the items to the owner's ruling, the blocker is handed on.
+/// what it waits for changed since it raised it, from the items to the answers to its open questions, the blocker is
+/// handed on.
 fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let target = ctx.to.at.clone();
     let h =
@@ -786,9 +787,7 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
             if b.holder != holder.holder {
                 let why = match holder.holder.as_str() {
                     "items" => "an item it depends on is not merged",
-                    _ => {
-                        "every item it depends on is merged, and the owner's ruling on its decision cards is still needed"
-                    }
+                    _ => "every item it depends on is merged, and the answers to its open questions are still needed",
                 };
                 hand_over(tx, b.id, &holder, why, "")?;
             }
@@ -822,7 +821,7 @@ fn raise_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Strin
             let items: Vec<String> = holder.items.iter().map(|(i, _)| format!("item {i}")).collect();
             format!("{about} waits for {} to deliver", items.join(", "))
         }
-        "ruling" => format!("{about} waits for the owner's ruling on its decision cards to merge"),
+        "ruling" => format!("{about} waits for the answers to its open questions to merge"),
         "tool_failure" => {
             let tools: Vec<String> = ctx.unwrapped["failed"]
                 .as_array()
@@ -905,7 +904,7 @@ fn resolve_at(ctx: &crate::actions::Ctx, tx: &Transaction<'_>) -> Result<(), Str
             "items": b.items.iter().map(|(i, p)| json!({ "item": i, "project": p })).collect::<Vec<_>>(),
         }),
         (None, _) if b.kind == "ruling" => json!({
-            "text": "The owner confirmed every decision card of it, and every item it depends on is merged"
+            "text": "Every open question of it has its answer, and every item it depends on is merged"
         }),
         (None, _) => json!({ "text": format!("Resolved at cell {}", ctx.cell.id) }),
     };

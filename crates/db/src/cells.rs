@@ -8,41 +8,38 @@
 //! cells were W0 and W1 while their stage was named wake; they took the letter of its name now, start. The engineer's
 //! design stage was numbered again in the order it runs, when the engine's choices of its way became cells of their
 //! own: its D2 and D4 to D9 were other cells before, and a round of those versions at one of them reads as the cell
-//! with that code now.
+//! with that code now. It was numbered once more when the design tree left the flow: D1 to D3 are again the three cells
+//! they were before the tree, its cells D5 to D7 are gone, and D8 to D15 became D4 to D11; a round of a version with the
+//! tree at D1 to D11 reads as the cell with that code now, and one at D12 to D15 as the cell that code became. The
+//! tree's review (T5) is gone too, and keeps its row, so that a round there still reads as itself.
 
 /// Each cell, by its graph and its code, with the ids it had in the flow versions before: its number or first code,
 /// its name, and its name with its stage, where each was another.
-const BEFORE: [(&str, &str, &[&str]); 76] = [
+const BEFORE: [(&str, &str, &[&str]); 77] = [
     ("engineer", "S0", &["U0"]),
     ("engineer", "S1", &["0", "start", "S0"]),
+    ("engineer", "G1", &[]),
     ("engineer", "R1", &["1", "research", "research.problem"]),
     ("engineer", "R2", &["1a", "stands", "research.stands"]),
+    ("engineer", "G2", &[]),
     ("engineer", "D1", &["2", "compare", "design.compare"]),
-    ("engineer", "D2", &[]),
+    ("engineer", "D2", &["2a", "choose", "design.choose"]),
     ("engineer", "D3", &["2b", "rethink_design", "design.rethink"]),
-    ("engineer", "D4", &["2a", "choose", "design.choose", "D2"]),
-    ("engineer", "D5", &[]),
-    ("engineer", "D6", &[]),
-    ("engineer", "D7", &[]),
-    ("engineer", "D8", &[]),
+    ("engineer", "D4", &[]),
+    ("engineer", "D5", &["3a", "gap_under_test", "design.gap_under_test"]),
+    ("engineer", "D6", &["3b", "sure", "design.sure"]),
+    ("engineer", "D7", &["3c", "cost", "design.cost"]),
+    ("engineer", "D8", &["D12"]),
     (
         "engineer",
         "D9",
-        &["3a", "gap_under_test", "design.gap_under_test", "D4"],
+        &["3d", "cross_project", "design.cross_project", "D13"],
     ),
-    ("engineer", "D10", &["3b", "sure", "design.sure", "D5"]),
-    ("engineer", "D11", &["3c", "cost", "design.cost", "D6"]),
-    ("engineer", "D12", &[]),
+    ("engineer", "D10", &["3e", "split", "design.split", "D14"]),
     (
         "engineer",
-        "D13",
-        &["3d", "cross_project", "design.cross_project", "D7"],
-    ),
-    ("engineer", "D14", &["3e", "split", "design.split", "D8"]),
-    (
-        "engineer",
-        "D15",
-        &["3f", "adversarial_needed", "design.adversarial_needed", "D9"],
+        "D11",
+        &["3f", "adversarial_needed", "design.adversarial_needed", "D15"],
     ),
     ("engineer", "I1", &["4", "implement"]),
     ("engineer", "T1", &["6", "adversarial", "test.adversarial"]),
@@ -55,6 +52,7 @@ const BEFORE: [(&str, &str, &[&str]); 76] = [
     ("engineer", "M1", &["19", "merge_gate", "merge.gate"]),
     ("engineer", "M2", &["9", "merge_queue", "merge.queue"]),
     ("engineer", "L1", &["10", "watch_main"]),
+    ("engineer", "L2", &[]),
     ("engineer", "A4", &["11", "way_on", "ask.way_on"]),
     ("engineer", "A5", &["11a", "back", "ask.back"]),
     ("engineer", "A6", &["11b", "wait_items", "ask.wait_items"]),
@@ -62,6 +60,7 @@ const BEFORE: [(&str, &str, &[&str]); 76] = [
     ("engineer", "A2", &["15", "to_architect", "ask.architect"]),
     ("engineer", "A3", &["16", "to_owner", "ask.owner"]),
     ("engineer", "X1", &["13", "tools"]),
+    ("engineer", "X5", &[]),
     ("engineer", "E1", &["20", "end"]),
     ("architect", "S0", &["W0", "wake", "wake.start"]),
     ("architect", "S1", &["W1", "understood", "wake.understood"]),
@@ -105,6 +104,7 @@ const BEFORE: [(&str, &str, &[&str]); 76] = [
     ("architect", "A3", &["ASK", "to_owner", "ask.owner"]),
     ("architect", "X1", &["TOOLS", "tools"]),
     ("architect", "X2", &["S1", "search"]),
+    ("architect", "X5", &[]),
 ];
 
 /// Whether `id` is the code of a cell of `graph` now.
@@ -199,12 +199,23 @@ mod tests {
         // The design stage numbered in the order it runs: an id that is another cell's code now reads as that cell, and
         // a cell's names before are its own.
         assert_eq!(code_of("engineer", "D4"), Some("D4"));
-        assert_eq!(code_of("engineer", "choose"), Some("D4"));
-        assert_eq!(code_of("engineer", "adversarial_needed"), Some("D15"));
+        assert_eq!(code_of("engineer", "choose"), Some("D2"));
+        assert_eq!(code_of("engineer", "adversarial_needed"), Some("D11"));
         assert_eq!(
-            cells_sql("engineer", &["D15"]),
-            "('D15', '3f', 'adversarial_needed', 'design.adversarial_needed')"
+            cells_sql("engineer", &["D11"]),
+            "('D11', '3f', 'adversarial_needed', 'design.adversarial_needed', 'D15')"
         );
-        assert_eq!(cells_sql("engineer", &["D2"]), "('D2')");
+        assert_eq!(
+            cells_sql("engineer", &["D2"]),
+            "('D2', '2a', 'choose', 'design.choose')"
+        );
+        // The stage numbered again when the tree left: the codes past its new end read as the cells they became.
+        assert_eq!(code_of("engineer", "D12"), Some("D8"));
+        assert_eq!(code_of("engineer", "D13"), Some("D9"));
+        assert_eq!(code_of("engineer", "D14"), Some("D10"));
+        assert_eq!(code_of("engineer", "D15"), Some("D11"));
+        assert_eq!(code_of("engineer", "T5"), Some("T5"));
+        assert_eq!(code_of("engineer", "G1"), Some("G1"));
+        assert_eq!(code_of("architect", "X5"), Some("X5"));
     }
 }

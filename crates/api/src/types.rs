@@ -1485,8 +1485,8 @@ pub struct ArchitectWork {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Matter {
     pub id: i64,
-    /// Its kind, which decides its path: set_straight, engineer_question, report, design_card, failure, owner_words,
-    /// other_architect or slots_free.
+    /// Its kind, which decides its path: set_straight, engineer_question, open_question, report, design_card, failure,
+    /// owner_words, other_architect or slots_free.
     pub kind: String,
     /// What more its kind says, such as a side report's kind; none for an engineer's question, which carries no kind.
     pub detail: Option<String>,

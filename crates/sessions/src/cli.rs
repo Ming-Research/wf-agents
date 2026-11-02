@@ -1459,7 +1459,7 @@ mod tests {
             json!(["tell_owner", "side_reports", "flow_feedback", "outcome"])
         );
         assert_eq!(s["properties"][&g.within]["additionalProperties"], false);
-        for line in ["review", "adversarial", "advisor"] {
+        for line in ["review", "adversarial", "advisor", "librarian"] {
             let h = envelope(g, Some(line));
             assert_eq!(
                 keys(&h),
@@ -1726,7 +1726,7 @@ mod tests {
         let f = compiled();
         let g = f.graph("engineer").unwrap();
         let s = envelope(g, Some("engineer"));
-        let schema = g.cell("D4").unwrap().schema.clone().unwrap();
+        let schema = g.cell("D2").unwrap().schema.clone().unwrap();
         let mut ret = json!({
             "tell_owner": [],
             "side_reports": [],
@@ -1742,7 +1742,8 @@ mod tests {
                     "excluded": "A second query",
                     "pitfalls": "The row limit must not cut the total",
                 },
-                "design_tree": { "verdict": "unchanged", "why": "No decision of the tree changes" },
+                "articles": "It touches no article",
+                "open_questions": [],
                 "acceptance": [{ "by": "test", "id": "A1", "condition": "The total row is shown past the limit" }],
                 "estimate": "One test file and one query",
             },

@@ -140,9 +140,10 @@ fn notebook_problems(conn: &Connection, project: &str, edits: &[Value]) -> Resul
 
 /// Each kind of matter with the first cell of its path and the cell that decides it, where the matter goes back to when
 /// the owner is asked about item changes of it the review dropped.
-pub const KINDS: [(&str, &str, &str); 10] = [
+pub const KINDS: [(&str, &str, &str); 11] = [
     ("set_straight", "H1", "H1"),
     ("engineer_question", "H2", "H3"),
+    (crate::open_questions::KIND, "H2", "H3"),
     ("report", "H4", "H5"),
     ("failure", "H7", "H7"),
     ("owner_words", "H8", "H8"),
@@ -228,7 +229,7 @@ const POLICY_CHECK: &str = "P1";
 const ENGINEER_END: &str = "E1";
 
 /// The cell of the engineer's graph that writes the design, which the look at a decision card reads it from.
-const DESIGN: &str = "D4";
+const DESIGN: &str = "D2";
 
 /// The most rows an input of the architect's gives of one list.
 const ROWS: usize = 200;
@@ -1921,6 +1922,10 @@ fn release_held_replies(
             continue;
         }
         let reply = numbered(reply, keys);
+        if crate::open_questions::is_one(tx, m)? {
+            crate::open_questions::answer(tx, m, &reply)?;
+            continue;
+        }
         tx.execute(
             "UPDATE architect_matters SET reply = ?2, reply_held = NULL WHERE id = ?1",
             params![m, reply.to_string()],
@@ -2803,6 +2808,11 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             };
             let m = matter_of(tx, w)?;
             let held = changes_items(ctx);
+            // An open question's answer waits for the batch's review as any reply does, and otherwise goes at once.
+            if !held && crate::open_questions::is_one(tx, m)? {
+                crate::open_questions::answer(tx, m, reply)?;
+                return Ok(true);
+            }
             let column = if held { "reply_held" } else { "reply" };
             tx.execute(
                 &format!("UPDATE architect_matters SET {column} = ?2 WHERE id = ?1"),
@@ -3639,10 +3649,11 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
 }
 
 /// What the architect knows of its project that a cell of an engineer's work is given, as the architect has it: the
-/// board of the project's items, the decision cards of the others, the policy in force, and two sections of its
-/// notebook, the plan (with the owner's lasting instructions) and what the project is now. The design's coherence
-/// review judges the work's decision cards by them.
-pub const KNOWLEDGE: [&str; 5] = [
+/// constitution, which every agent's cell is given, the board of the project's items, the decision cards of the others,
+/// the policy in force, and two sections of its notebook, the plan (with the owner's lasting instructions) and what the
+/// project is now.
+pub const KNOWLEDGE: [&str; 6] = [
+    "constitution",
     "board",
     "items_decided",
     "policy",
@@ -3654,6 +3665,7 @@ pub const KNOWLEDGE: [&str; 5] = [
 /// ([`KNOWLEDGE`]); none when there is nothing.
 pub fn knowledge(e: &Engine, project: &str, item: i64, name: &str) -> Result<Option<Value>, String> {
     match name {
+        "constitution" => Ok(constitution(e, project).map(Value::String)),
         "board" => board(e, project).map(Some),
         "items_decided" => items_decided(e.db.conn(), project, item),
         "policy" => policy(e, project),
@@ -4810,6 +4822,20 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
                         let diff = git::fork_point(wt, &p.main).and_then(|f| git::diff(wt, &f, "HEAD", &paths));
                         material.insert("records_diff".into(), json!(diff.unwrap_or_else(|x| x)));
                     }
+                }
+            }
+        }
+        // An open question: the design that hands it in, for the architect to answer it by.
+        crate::open_questions::KIND => {
+            if let Some(round) = matter["round"].as_i64() {
+                let design = query_json(
+                    conn,
+                    "SELECT json_extract(output, '$.outcome') AS design FROM rounds WHERE work = ?1 AND n = ?2",
+                    &[&matter["work"].as_i64().unwrap_or_default(), &round],
+                    1,
+                )?;
+                if let Some(d) = design.first().map(|r| r["design"].clone()).filter(|d| !d.is_null()) {
+                    material.insert("design".into(), d);
                 }
             }
         }

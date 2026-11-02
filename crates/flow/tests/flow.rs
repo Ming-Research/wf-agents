@@ -83,7 +83,7 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (29, 119, 157));
+    assert_eq!((s.cells, s.rows, s.states), (30, 128, 185));
     let g = c.graph("architect").unwrap();
     for gone in [
         "E1", "H6", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",
@@ -524,12 +524,12 @@ fn an_ask_carries_no_kind() {
             assert!(n.get("about").is_none(), "{}", n["id"]);
         }
     }
-    let gap = engineer.cell("D9").unwrap();
+    let gap = engineer.cell("D5").unwrap();
     assert!(gap.prompt[0].contains("give the code you want to write, the error it really gives"));
     // Only a project with something under test is asked it: the cell before chooses so by a row of its own.
-    let under_test = engineer.cell("D8").unwrap();
+    let under_test = engineer.cell("D4").unwrap();
     let yes = under_test.rows.iter().find(|r| r.name == "yes").unwrap();
-    assert_eq!(yes.to, "D9");
+    assert_eq!(yes.to, "D5");
     assert_eq!(
         serde_json::to_value(&yes.conditions).unwrap(),
         serde_json::json!([["inp", "under_test", ["yes"]]])
@@ -542,7 +542,7 @@ fn an_ask_carries_no_kind() {
 // engineer's graph has no owner's cell (`A3`), no row leads there, no cell holds a blocker for the owner but `M1`'s
 // ruling, and the architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on only to a
 // related project's architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the architect
-// at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's on a decision card of the work's design, and an
+// at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the work's design, and an
 // action only the owner can do to the owner by pausing the work.
 #[test]
 fn what_only_the_owner_can_settle_goes_through_the_architect() {
@@ -599,7 +599,7 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
     assert!(
         ways.prompt
             .iter()
-            .any(|t| t.contains("put to the owner as a decision card of its design"))
+            .any(|t| t.contains("put to the owner as an open question of its design"))
     );
     assert!(
         ways.prompt
@@ -1030,7 +1030,7 @@ fn every_sample_takes_its_row() {
             n += 1;
         }
     }
-    assert_eq!(n, 42);
+    assert_eq!(n, 38);
 }
 
 // A return with its form outside the field it sits in fits no schema; a recorded value changes the row taken.
@@ -1057,21 +1057,21 @@ fn a_return_that_does_not_fit_says_where() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let sample = &samples["D1"][1]["json"];
+    let sample = &samples["D3"][0]["json"];
     let refused = |edit: &dyn Fn(&mut Value)| {
         let mut x = sample.clone();
         edit(&mut x);
-        g.take("D1", &x, &Map::new()).unwrap_err()
+        g.take("D3", &x, &Map::new()).unwrap_err()
     };
-    let e = refused(&|x| x["outcome"]["finding"]["verdict"] = "maybe".into());
+    let e = refused(&|x| x["outcome"]["better"]["verdict"] = "maybe".into());
     assert!(
-        e.ends_with(r#"outcome.finding.verdict is "maybe", and must be one of "decided", "trade_off", "must_change""#),
+        e.ends_with(r#"outcome.better.verdict is "maybe", and must be one of "found", "present_best""#),
         "{e}"
     );
     let e = refused(&|x| {
-        x["outcome"]["finding"].as_object_mut().unwrap().remove("open");
+        x["outcome"]["better"].as_object_mut().unwrap().remove("considered");
     });
-    assert!(e.ends_with("outcome.finding has no open"), "{e}");
+    assert!(e.ends_with("outcome.better has no considered"), "{e}");
     let e = refused(&|x| x["outcome"] = Value::String(x["outcome"].to_string()));
     assert!(e.ends_with("outcome must be an object, and is a string"), "{e}");
 }
@@ -1097,8 +1097,9 @@ fn an_agent_schema_holds_its_forms_in_outcome() {
     );
 }
 
-// Only the engineer and the architect tell the owner: an agent's cell of a line that helps them (the review, adversarial
-// testing, the advisor, the review of the architect's batch and the search of observations) has no `tell_owner` in its
+// Only the engineer and the architect tell the owner: an agent's cell of a line that helps them (the reader of the
+// history, the review, adversarial testing, the advisor, the review of the architect's batch and the search of
+// observations) has no `tell_owner` in its
 // return, its description does not name one, and nothing is done with it or shown of it there. The helpers of a work
 // still hand in side reports, which the architect reads.
 #[test]
@@ -1125,7 +1126,7 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
             }
         }
     }
-    assert_eq!(helpers, ["D3", "D7", "T1", "T3", "T4", "T5", "A1", "B2", "X2"]);
+    assert_eq!(helpers, ["G1", "G2", "X5", "T1", "T3", "T4", "A1", "B2", "X2", "X5"]);
 }
 
 // The architect tells the owner what the engineer does and no more: what only the owner can do (starting a work the
@@ -1211,7 +1212,20 @@ fn a_work_moves_by_its_rows() {
     let p = take(&p, "ready");
     assert_eq!(p.at, "S1");
     let p = take(&p, "started");
-    assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("R1", "research"));
+    assert_eq!((p.at.as_str(), p.recorded["stage"].as_str()), ("G1", "research"));
+    let p = take(&p, "done");
+    assert_eq!(p.at, "R1");
+    // The look-up of the history goes to its reader, and back to the cell that asked.
+    let p = take(&p, "history");
+    assert_eq!(
+        (p.at.as_str(), p.callers.as_slice()),
+        ("X5", ["R1".to_string()].as_slice())
+    );
+    let p = take(&p, "found");
+    assert_eq!(
+        (p.at.as_str(), p.from.as_deref(), p.callers.len()),
+        ("R1", Some("X5"), 0)
+    );
     let p = take(&p, "tools");
     assert_eq!(
         (p.at.as_str(), p.callers.as_slice()),
@@ -1240,16 +1254,12 @@ fn a_work_moves_by_its_rows() {
     assert_eq!(p.at, "R2");
     let wrong = g.cell("A5").unwrap().rows.iter().find(|r| r.name == "back").unwrap();
     assert!(g.step(&p, wrong).is_err());
-    // A finding that the records must change, at any cell that can make it, goes back to derive again; in a project
-    // that keeps no records it comes back to the cell that found it.
-    let at = |cell: &str| flow::Position {
-        at: cell.to_string(),
-        ..flow::Position::default()
-    };
-    let p = take(&at("I1"), "records_must_change");
-    assert_eq!((p.at.as_str(), p.stopped.as_deref()), ("A8", Some("I1")));
-    let back = take(&take(&p, "none"), "back");
-    assert_eq!((back.at.as_str(), back.stopped.as_deref()), ("I1", None));
-    let again = take(&p, "keeps");
-    assert_eq!((again.at.as_str(), again.stopped.as_deref()), ("D1", None));
+    // The history of the code is gathered between the research and the design, and what the work learned after it
+    // merged, before its end.
+    assert_eq!(take(&p, "stands").at, "G2");
+    assert_eq!(g.cell("G2").unwrap().rows[0].to, "D1");
+    let l1 = g.cell("L1").unwrap().rows.iter().find(|r| r.name == "green").unwrap();
+    assert_eq!(l1.to, "L2");
+    let l2 = g.cell("L2").unwrap();
+    assert_eq!(l2.rows.iter().find(|r| r.name == "done").unwrap().to, "E1");
 }

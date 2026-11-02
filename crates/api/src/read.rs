@@ -3479,19 +3479,19 @@ mod tests {
                 (2, 2, "R1", Some(2), "done", said("Looked at the problem."), 110, 120),
                 (2, 3, "R2", Some(2), "stands", said("It stands."), 121, 130),
                 (2, 4, "D1", Some(2), "done", said("Compared two ways."), 131, 140),
-                (2, 5, "D4", Some(2), "done", said("Chose one table."), 141, 150),
-                (2, 6, "D15", Some(2), "needed", said("Adversarial testing is needed."), 151, 160),
+                (2, 5, "D2", Some(2), "first", said("Chose one table."), 141, 150),
+                (2, 6, "D11", Some(2), "needed", said("Adversarial testing is needed."), 151, 160),
                 (2, 7, "I1", Some(2), "done", said("Implemented it."), 161, 170),
                 (2, 8, "T7", None, "adversarial", json!({}), 171, 171),
                 (2, 9, "T1", Some(4), "for_engineer", said("Found one gap."), 172, 180),
                 (2, 10, "T6", Some(2), "done", said("Fixed the gap."), 181, 190),
-                (2, 11, "T4", Some(3), "records", found_two, 191, 200),
-                (2, 12, "T5", Some(3), "done", found_one, 201, 210),
+                (2, 11, "T3", Some(3), "done", found_one, 191, 200),
+                (2, 12, "T4", Some(3), "done", found_two, 201, 210),
                 (2, 13, "M1", None, "fix", json!({}), 211, 211),
                 (2, 14, "T6", Some(2), "done", said("Fixed R1 to R3."), 220, 230),
-                (2, 15, "T4", Some(3), "records", clean.clone(), 231, 240),
-                (2, 16, "T5", Some(3), "done", clean, 241, 250),
-                (2, 17, "M1", None, "wait_ruling", json!({}), 251, 252),
+                (2, 15, "T3", Some(3), "done", clean.clone(), 231, 240),
+                (2, 16, "T4", Some(3), "done", clean, 241, 250),
+                (2, 17, "M1", None, "wait_questions", json!({}), 251, 252),
                 (3, 1, "M1", None, "clear", json!({}), 300, 300),
                 (3, 2, "M2", None, "merged", json!({ "result": { "kind": "merged", "merge_commit": "abc123" } }), 301, 310),
                 (3, 3, "L1", None, "green", json!({}), 311, 320),
@@ -3567,14 +3567,14 @@ mod tests {
                 .iter()
                 .map(|f| (f.review.as_str(), f.round, f.findings))
                 .collect::<Vec<_>>(),
-            [("Table review", 11, 2), ("Check the code against the records", 12, 1)]
+            [("Blind review", 11, 1), ("Table review", 12, 2)]
         );
         assert_eq!(sent.why, None);
         assert_eq!(
             sent.notes
                 .last()
                 .map(|n| (n.round, n.line.as_deref(), n.text.as_deref())),
-            Some((12, Some("review"), Some("The tree has a gap.")))
+            Some((12, Some("review"), Some("Two findings.")))
         );
         // The decision card is in the bubble of the stage that handed it in.
         assert_eq!(stage(1).design_cards.iter().map(|c| c.round).collect::<Vec<_>>(), [6]);

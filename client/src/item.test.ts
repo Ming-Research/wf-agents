@@ -373,5 +373,13 @@ describe('the markdown agents write', () => {
     // A number no item has, or before the items are read, stays as written.
     expect(renderToStaticMarkup(createElement(Markdown, { text: 'See #12.' }))).toBe('<div class="md"><p class="prose">See #12.</p></div>');
   });
+
+  // An architect's question gives the owner the design it asks about by a link within the page; any other path an agent
+  // wrote is its words.
+  it('links a work on this page, and no other path', () => {
+    const html = (text: string) => renderToStaticMarkup(createElement(Markdown, { text }));
+    expect(html('[the design](/works/5?round=R5-9)')).toContain('href="/works/5?round=R5-9"');
+    expect(html('[the file](/src/lib.rs)')).not.toContain('href');
+  });
 });
 

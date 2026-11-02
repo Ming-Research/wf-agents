@@ -213,7 +213,7 @@ impl Ctx<'_> {
             .map_err(|e| e.to_string())?;
         match work::json_col(locked) {
             Some(Value::Array(xs)) => Ok(xs),
-            _ => Ok(items(self.last("D4", "acceptance")?.as_ref())),
+            _ => Ok(items(self.last("D2", "acceptance")?.as_ref())),
         }
     }
 
@@ -343,7 +343,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         // tools included; what main brought by a merge is main's.
         "records_unchanged_since_design" => {
             let designed = c
-                .accepted("D4")?
+                .accepted("D2")?
                 .first()
                 .and_then(|r| r.input["engine"]["head_after"].as_str().map(str::to_string));
             let base = match designed {
@@ -532,7 +532,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             Ok(())
         }
         "new_test_results" | "guard_test_results" => {
-            if c.last("D15", "adversarial")?.is_some_and(|a| a["verdict"] == "needed") {
+            if c.last("D11", "adversarial")?.is_some_and(|a| a["verdict"] == "needed") {
                 return Ok(());
             }
             let new = check == "new_test_results";
@@ -820,7 +820,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         }
         "no_adversarial_when_due" => {
             let first = c.accepted("T4")?.is_empty();
-            let chose = c.last("D15", "T1")?.is_some_and(|a| a["verdict"] == "needed");
+            let chose = c.last("D11", "T1")?.is_some_and(|a| a["verdict"] == "needed");
             let ran = !c.accepted("T1")?.is_empty();
             let kind = values::value(c.e, c.w, c.g, c.item, "work")?;
             let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran;

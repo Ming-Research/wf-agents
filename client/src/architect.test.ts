@@ -93,6 +93,7 @@ describe('a matter in words', () => {
     expect(matterKind('set_straight', 'dependencies')).toBe('Plan fix: dependencies');
     expect(holdWords('set_straight')).toBe('No new works start until the plan fixes are done');
     expect(matterKind('design_card', null)).toBe('Look at a decision card');
+    expect(matterKind('open_question', null)).toBe("Answer a design's open question");
     expect(matterKind('check_policy', null)).toBe('Check whether the policy still holds');
     expect(matterKind('make_plan', null)).toBe('Plan what to do next');
     expect(matterKind('group_talk', null)).toBe('Read what was said in the groups');

@@ -1465,6 +1465,7 @@ const messages = {
   observations_every: 'Every project',
   matter_kind_set_straight: 'Plan fix',
   matter_kind_engineer_question: 'Answer an engineer',
+  matter_kind_open_question: "Answer a design's open question",
   matter_kind_report: 'Go through side reports',
   matter_kind_fault: 'Look into a fault of wf-agents',
   matter_kind_design_card: 'Look at a decision card',

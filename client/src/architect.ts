@@ -33,6 +33,7 @@ export function queueParts(queue: Matter[]): { waiting: Matter[]; held: Matter[]
 const MATTER_KINDS: Record<string, Key> = {
   set_straight: 'matter_kind_set_straight',
   engineer_question: 'matter_kind_engineer_question',
+  open_question: 'matter_kind_open_question',
   report: 'matter_kind_report',
   design_card: 'matter_kind_design_card',
   failure: 'matter_kind_failure',

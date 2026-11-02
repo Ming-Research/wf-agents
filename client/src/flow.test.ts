@@ -325,7 +325,7 @@ describe('the flow as the engine stores it', () => {
     expect(Object.keys(MOST).every((name) => graphs.some(({ g }) => g.name === name))).toBe(true);
   }, 30_000);
 
-  it("draws a cell's rows back into itself through one node of their actions, naming the rows of one only some do", () => {
+  it("draws a cell's rows back into itself through one node of their actions", () => {
     const found = graphs.find((x) => x.g.name === 'engineer');
     if (found === undefined) throw new Error('no engineer graph');
     const c = chart(found.g, found.v, engine);
@@ -337,10 +337,10 @@ describe('the flow as the engine stores it', () => {
         c.edges.some((e) => e.source === n.id && e.target === m1),
     );
     expect(back).toHaveLength(1);
-    expect(back[0].actions).toEqual(['raise_blocker', 'notify_pending_approvers', 'post_flow_card']);
-    expect(back[0].only).toEqual({ post_flow_card: ['flow_redrawn'] });
-    expect(c.edges.find((e) => e.source === m1 && e.target === back[0].id)?.label).toBe('wait, flow_redrawn, wait_ruling');
-    expect(actionLine('post_flow_card', ['flow_redrawn'])).toBe('post flow card (on flow_redrawn)');
+    expect(back[0].actions).toEqual(['raise_blocker', 'notify_pending_approvers']);
+    expect(back[0].only).toBeUndefined();
+    expect(c.edges.find((e) => e.source === m1 && e.target === back[0].id)?.label).toBe('wait, wait_questions');
+    expect(actionLine('notify_pending_approvers', ['wait'])).toBe('notify pending approvers (on wait)');
     expect(actionLine('raise_blocker', undefined)).toBe('raise blocker');
   });
 

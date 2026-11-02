@@ -4,7 +4,7 @@
 //! anchors against the cards, and each card's revision and each edit against the records the branch changed
 //! ([`check`]), posts the cards for the owner, a card handed in again unchanged keeping its row and its ruling
 //! ([`post`]), and holds the merge until the owner confirmed every current card and the records to merge are the words
-//! the owner ruled on ([`waiting_for`]). In wf-agents' own repository, one card of a work whose branch changes the
+//! the owner ruled on. In wf-agents' own repository, one card of a work whose branch changes the
 //! flow carries the flow drawn from the branch, and a new version of it is posted when the flow changed since
 //! ([`carry_flow`]).
 
@@ -30,7 +30,6 @@ const ANCHOR: &str = "[[card:";
 pub struct Card {
     pub id: i64,
     pub key: String,
-    pub status: String,
     pub body: Value,
     pub revision: Value,
     pub rulings: Vec<Value>,
@@ -42,11 +41,6 @@ impl Card {
     /// The owner's latest ruling on the card, if any.
     pub fn owner_ruling(&self) -> Option<&Value> {
         self.rulings.iter().rev().find(|r| r["by"] == "owner")
-    }
-
-    /// Whether the owner's latest ruling confirms it.
-    pub fn confirmed(&self) -> bool {
-        self.status == "ruled" && self.owner_ruling().is_some_and(|r| db::ruling_confirms(r, 1))
     }
 }
 
@@ -69,7 +63,7 @@ fn list(v: Option<&Value>) -> Vec<Value> {
 pub fn current(conn: &Connection, work: i64) -> Result<Vec<Card>, String> {
     let mut st = conn
         .prepare(
-            "SELECT id, key, status, body, revision, rulings, flow_source FROM design_cards
+            "SELECT id, key, body, revision, rulings, flow_source FROM design_cards
              WHERE work = ?1 AND status IN ('open', 'ruled') ORDER BY id",
         )
         .map_err(sql)?;
@@ -81,11 +75,10 @@ pub fn current(conn: &Connection, work: i64) -> Result<Vec<Card>, String> {
             Ok(Card {
                 id: r.get(0)?,
                 key: r.get(1)?,
-                status: r.get(2)?,
-                body: json(3)?,
-                revision: json(4)?,
-                rulings: list(Some(&json(5)?)),
-                flow_source: r.get(6)?,
+                body: json(2)?,
+                revision: json(3)?,
+                rulings: list(Some(&json(4)?)),
+                flow_source: r.get(5)?,
             })
         })
         .map_err(sql)?;
@@ -452,88 +445,6 @@ pub fn chosen_elsewhere(conn: &Connection, item: i64, work: i64) -> Result<BTree
     Ok(out)
 }
 
-/// The records the work's latest design listed as edits, which change no decision and need no card.
-fn design_edits(conn: &Connection, work: i64) -> Result<BTreeSet<String>, String> {
-    let edits: Option<String> = conn
-        .query_row(
-            &format!(
-                "SELECT json_extract(output, '$.outcome.design_tree.edits') FROM rounds
-                 WHERE work = ?1 AND cell IN {} AND transition IS NOT NULL ORDER BY n DESC LIMIT 1",
-                db::cells_sql(crate::ENGINEER, &["D4"])
-            ),
-            [work],
-            |r| r.get(0),
-        )
-        .optional()
-        .map_err(sql)?
-        .flatten();
-    let edits: Value = edits.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
-    Ok(edited(&list(Some(&edits))))
-}
-
-/// What the merge waits for of the work's cards, in words; none when the branch revised no record, or when the owner
-/// confirmed every current card and the records to merge are what those cards say, word for word, or listed by the
-/// latest design as edits that change no decision; and, in wf-agents' own repository, when the card that carries the
-/// work's flow carries it as the branch has it (`own`).
-pub fn waiting_for(
-    conn: &Connection,
-    work: i64,
-    wt: &Path,
-    project: &config::Project,
-) -> Result<Option<String>, String> {
-    let fork = git::fork_point(wt, &project.main)?;
-    if own_repository(project)
-        && let Some((card, _)) = flow_due(conn, work, wt, &fork)?
-    {
-        return Ok(Some(format!(
-            "a new version of decision card {}, carrying the flow as the branch now has it",
-            card.id
-        )));
-    }
-    let Some(records) = &project.records else {
-        return Ok(None);
-    };
-    let revised = reasoning::revised(wt, &fork, "HEAD", &records.root)?;
-    if revised.is_empty() {
-        return Ok(None);
-    }
-    let cards = current(conn, work)?;
-    let edits = design_edits(conn, work)?;
-    if cards.is_empty() && revised.keys().any(|r| !edits.contains(r)) {
-        return Ok(Some("decision cards for the change to the records".to_string()));
-    }
-    let open: Vec<String> = cards
-        .iter()
-        .filter(|c| !c.confirmed())
-        .map(|c| c.id.to_string())
-        .collect();
-    if !open.is_empty() {
-        return Ok(Some(format!(
-            "your ruling on decision card{} {}",
-            if open.len() == 1 { "" } else { "s" },
-            and_list(&open)
-        )));
-    }
-    let mut named = BTreeSet::new();
-    for c in &cards {
-        for r in list(Some(&c.revision)) {
-            let reference = text(&r, "reference").to_string();
-            let now = revised.get(&reference);
-            if now.is_none_or(|x| x.change != text(&r, "change") || x.text != text(&r, "text")) {
-                return Ok(Some(format!(
-                    "a new design: {reference} on the branch is not as decision card {} put it to you",
-                    c.id
-                )));
-            }
-            named.insert(reference);
-        }
-    }
-    Ok(revised
-        .keys()
-        .find(|r| !named.contains(*r) && !edits.contains(*r))
-        .map(|r| format!("a new design: no decision card puts {r} to you")))
-}
-
 /// Numbers joined as a sentence lists them: "15", "15 and 16", "15, 16 and 17".
 pub fn and_list(xs: &[String]) -> String {
     match xs {
@@ -777,7 +688,6 @@ mod tests {
         let was = Card {
             id: 7,
             key: "k".into(),
-            status: "open".into(),
             body: before.clone(),
             revision: revision(&before, &r),
             rulings: Vec::new(),
@@ -817,7 +727,6 @@ mod tests {
         );
         assert_eq!(run(&[], &[json!({ "key": "k", "why": "Gone." })], &was), Ok(()));
         let chose = Card {
-            status: "ruled".into(),
             rulings: vec![json!({ "by": "owner", "verdict": "choose", "option": "B" })],
             ..was.clone()
         };
@@ -830,7 +739,6 @@ mod tests {
         follows["recommended"] = json!("B");
         assert_eq!(run(&[follows], &[], &chose), Ok(()));
         let disagreed = Card {
-            status: "ruled".into(),
             rulings: vec![json!({ "by": "owner", "verdict": "disagree", "text": "No." })],
             ..was.clone()
         };
@@ -1012,127 +920,6 @@ mod tests {
         )));
         assert!(!own_repository(&project("Ming-Research/whitefoot")));
         assert!(!own_repository(&project("o/p")));
-    }
-
-    // The merge waits while the branch revised records and a current card of the work is not confirmed by the owner,
-    // naming the cards, and while the records to merge are not word for word what the cards put to the owner; a branch
-    // that revised none waits for nothing.
-    #[test]
-    fn the_merge_waits_for_every_card_confirmed_and_the_records_as_ruled() {
-        use db::{Actor, Db};
-        let dir = std::env::temp_dir().join(format!("wf-agents-gate-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let put = |path: &str, text: &str| {
-            let p = dir.join(path);
-            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(p, text).unwrap();
-        };
-        let run = |args: &[&str]| -> String {
-            let mut all = vec!["-c", "user.name=t", "-c", "user.email=t@t"];
-            all.extend(args);
-            git::git(&dir, &all).unwrap().trim().to_string()
-        };
-        put("r/derivations/runs.md", "Decision kept: K.\n");
-        run(&["init", "-q", "-b", "main"]);
-        run(&["add", "-A"]);
-        run(&["commit", "-qm", "main"]);
-        // The fork point is main's head as the remote has it.
-        run(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
-        run(&["checkout", "-q", "-b", "work"]);
-        let project: config::Project = serde_json::from_value(json!({
-            "repo": "o/p", "checkout": dir, "design_goal": "simple", "test_paths": ["tests/"],
-            "ci": { "fast": "ci", "full": ["ci"], "merge_checks": ["check"] }, "records": { "root": "r" }
-        }))
-        .unwrap();
-        let mut db = Db::in_memory().unwrap();
-        db.write(Actor::Engine, |tx| {
-            tx.execute("INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')", [])?;
-            tx.execute(
-                "INSERT INTO works (id, item, flow_version, graph, at) VALUES (1, NULL, 1, 'engineer', 'M1')",
-                [],
-            )?;
-            tx.execute(
-                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'D4', '{}', 'c', 1)",
-                [],
-            )?;
-            Ok(())
-        })
-        .unwrap();
-        let waits = |db: &Db| waiting_for(db.conn(), 1, &dir, &project).unwrap();
-        assert_eq!(waits(&db), None);
-        put(
-            "r/derivations/runs.md",
-            "Decision kept: K.\n\nDecision red-run: Run every test.\n",
-        );
-        put("r/facts/ci.md", "Fact cancelled: A cancelled test leaves no line.\n");
-        run(&["add", "-A"]);
-        run(&["commit", "-qm", "revise"]);
-        assert_eq!(
-            waits(&db).as_deref(),
-            Some("decision cards for the change to the records")
-        );
-        let revised = reasoning::revised(&dir, "main", "HEAD", "r").unwrap();
-        let cards = [card("red-run", &["D:red-run"]), card("cancelled", &["F:cancelled"])];
-        db.write(Actor::Engine, |tx| {
-            let handed = Handed {
-                cards: &cards,
-                edits: &[],
-                withdrawn: &[],
-                solution: "",
-            };
-            post(tx, crate::work::RoundId::new(1, 1), &handed, &revised).map_err(db::Error::Abort)?;
-            Ok(())
-        })
-        .unwrap();
-        assert_eq!(waits(&db).as_deref(), Some("your ruling on decision cards 1 and 2"));
-        let confirm = |db: &mut Db, id: i64| {
-            db.write(Actor::Owner, |tx| {
-                tx.execute(
-                    "UPDATE design_cards SET status = 'ruled', rulings = '[{\"by\":\"owner\",\"verdict\":\"confirm\"}]'
-                     WHERE id = ?1",
-                    [id],
-                )?;
-                Ok(())
-            })
-            .unwrap();
-        };
-        confirm(&mut db, 1);
-        assert_eq!(waits(&db).as_deref(), Some("your ruling on decision card 2"));
-        confirm(&mut db, 2);
-        assert_eq!(waits(&db), None);
-        // A record reworded after the ruling is not what the owner ruled on.
-        put(
-            "r/facts/ci.md",
-            "Fact cancelled: A cancelled test leaves no line at all.\n",
-        );
-        run(&["commit", "-qam", "reword"]);
-        assert_eq!(
-            waits(&db).as_deref(),
-            Some("a new design: F:cancelled on the branch is not as decision card 2 put it to you")
-        );
-        // A record the design lists as an edit, changing no decision, needs no card.
-        run(&["checkout", "-q", "HEAD~1", "--", "r/facts/ci.md"]);
-        put(
-            "r/derivations/runs.md",
-            "Decision kept: K, worded better.\n\nDecision red-run: Run every test.\n",
-        );
-        run(&["commit", "-qam", "reword kept"]);
-        assert_eq!(
-            waits(&db).as_deref(),
-            Some("a new design: no decision card puts D:kept to you")
-        );
-        db.write(Actor::Engine, |tx| {
-            tx.execute(
-                "UPDATE rounds SET transition = 'done', output = json_object('outcome', json_object('design_tree',
-                   json_object('edits', json_array(json_object('records', json_array('D:kept'), 'why', 'Worded better.')))))
-                 WHERE work = 1 AND n = 1",
-                [],
-            )?;
-            Ok(())
-        })
-        .unwrap();
-        assert_eq!(waits(&db), None);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

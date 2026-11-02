@@ -5,7 +5,7 @@ use db::rusqlite::OptionalExtension;
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::{Map, Value};
 
-use crate::inputs::{Gathered, answered, at_path, last_return};
+use crate::inputs::{Gathered, answered, last_return};
 use crate::work::{Item, Work};
 use crate::{ENGINEER, Engine, git};
 
@@ -61,12 +61,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             if item.deliver == "report" {
                 return s("report");
             }
-            let tree = last_return(e, w, g, "D4", "design_tree")?.and_then(|r| at_path(&r, "design_tree.verdict"));
-            if tree.as_ref().and_then(Value::as_str) == Some("design_paths_only") {
-                s("design_paths_only")
-            } else {
-                s("implementation")
-            }
+            s("implementation")
         }
         "review_round" => {
             let reviewed = !answered(e, w, g, "T3")?.is_empty() || !answered(e, w, g, "T4")?.is_empty();
@@ -88,27 +83,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         } else {
             "yes"
         }),
-        // Whether the branch changed the project's records since its fork point from main, its own commits only.
-        "records_change" => {
-            let project = e.project_of(w)?;
-            let (Some(records), Some(wt)) = (&project.records, &w.worktree) else {
-                return s("unchanged");
-            };
-            let fork = git::fork_point(wt, &project.main)?;
-            let changed = git::own_changes(wt, &project.main, &fork, "HEAD")?;
-            s(
-                if changed
-                    .iter()
-                    .any(|f| git::under(f, std::slice::from_ref(&records.root)))
-                {
-                    "changed"
-                } else {
-                    "unchanged"
-                },
-            )
-        }
-        // What the merge gate waits for: the items it depends on while one is not merged; in wf-agents' own repository a
-        // card carrying the flow as the branch now has it; then the owner's ruling.
+        // What the merge gate waits for: the items it depends on while one is not merged, then the answers to the
+        // design's open questions.
         "gates" => s(match gates_waiting_for(e, w, item)? {
             None => "clear",
             Some(_)
@@ -118,8 +94,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             {
                 "items"
             }
-            Some(_) if flow_redrawn(e, w)? => "flow_redrawn",
-            Some(_) => "ruling",
+            Some(_) => "questions",
         }),
         "held" => crate::blockers::held(e, w),
         // The notice that an item the work's item depended on was cancelled, which the cells where the work waits take
@@ -297,38 +272,36 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
     Ok(n > 0)
 }
 
-/// Whether the owner chose another option on a current decision card of the work, or disagreed with one: the work
-/// designs again, and a card of the same key comes back following the ruling.
+/// Whether the owner chose another option on a current decision card of the work, or disagreed with one: a work that
+/// holds such a card from a flow version before open questions designs again. An answer to an open question is free
+/// text, which only the engineer can judge against the design: it turns the work as an interjection, and a redirect
+/// takes it back to design by the rows of cell `A4`.
 fn design_card_disputed(e: &Engine, w: &Work) -> Result<bool, String> {
     Ok(crate::cards::current(e.db.conn(), w.id)?
         .iter()
         .any(|c| c.owner_ruling().is_some_and(db::ruling_disagrees)))
 }
 
-/// Whether, in wf-agents' own repository, the work's flow is to be redrawn on a new version of the card that carries
-/// it: the branch's flow changed since that card was posted, or no card carries it yet.
-fn flow_redrawn(e: &Engine, w: &Work) -> Result<bool, String> {
-    let project = e.project_of(w)?;
-    let Some(wt) = &w.worktree else { return Ok(false) };
-    if !crate::cards::own_repository(&project) {
-        return Ok(false);
-    }
-    let fork = git::fork_point(wt, &project.main)?;
-    Ok(crate::cards::flow_due(e.db.conn(), w.id, wt, &fork)?.is_some())
-}
-
-/// What the merge gate waits for, in words; none when it is clear: every item depended on merged, and the records
-/// unchanged on the branch, or changed only as the decision cards the owner confirmed say, every current card
-/// confirmed and the records to merge word for word what the cards put to the owner.
+/// What the merge gate waits for, in words; none when it is clear: every item depended on merged, and every open
+/// question of the work answered.
 pub fn gates_waiting_for(e: &Engine, w: &Work, item: &Item) -> Result<Option<String>, String> {
     for d in dependencies(e, item.id)? {
         if !item_merged(e, d)? {
             return Ok(Some(format!("item {d}, which this item depends on, to be merged")));
         }
     }
-    let project = e.project_of(w)?;
-    let Some(wt) = &w.worktree else { return Ok(None) };
-    crate::cards::waiting_for(e.db.conn(), w.id, wt, &project)
+    let open: Vec<String> = crate::open_questions::unanswered(e.db.conn(), w.id)?
+        .iter()
+        .map(i64::to_string)
+        .collect();
+    Ok(match open.as_slice() {
+        [] => None,
+        [one] => Some(format!("the answer to open question {one}")),
+        more => Some(format!(
+            "the answers to open questions {}",
+            crate::cards::and_list(more)
+        )),
+    })
 }
 
 /// The head the last review started from; none before the first review.

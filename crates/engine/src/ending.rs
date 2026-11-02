@@ -29,9 +29,10 @@ pub enum End<'a> {
 /// The cell of the engineer's graph a work is done at, as the views read it.
 const DONE_AT: &str = "E1";
 
-/// The kinds of matter a work raises that wait on it: its questions to the architect, its failures, and its design
-/// cards for the architect to look at. A side report it handed in is about something beside it, and stays.
-const WAITING_ON_IT: &str = "('engineer_question', 'failure', 'design_card')";
+/// The kinds of matter a work raises that wait on it: its questions to the architect, the open questions of its design,
+/// its failures, and its design cards for the architect to look at. A side report it handed in is about something beside
+/// it, and stays.
+const WAITING_ON_IT: &str = "('engineer_question', 'open_question', 'failure', 'design_card')";
 
 /// Ends a work: the only place a work's end is written. Its matters that wait on it leave the architect's queue,
 /// withdrawn, saying why. A work stopped before its end records why; a round of it still open, a question that waits

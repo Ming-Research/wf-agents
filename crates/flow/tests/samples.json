@@ -14,6 +14,20 @@
    "given": {}
   }
  ],
+ "G1": [
+  {
+   "row": "done",
+   "json": {
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none",
+    "outcome": {
+     "brief": "outcome.brief"
+    }
+   },
+   "given": {}
+  }
+ ],
  "R1": [
   {
    "row": "done",
@@ -109,6 +123,20 @@
    "given": {}
   }
  ],
+ "G2": [
+  {
+   "row": "done",
+   "json": {
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none",
+    "outcome": {
+     "brief": "outcome.brief"
+    }
+   },
+   "given": {}
+  }
+ ],
  "D1": [
   {
    "row": "tools",
@@ -137,83 +165,39 @@
   {
    "row": "done",
    "json": {
-    "outcome": {
-     "derivations": [
-      {
-       "id": "D:schema-sql",
-       "chain": "outcome.derivations.chain"
-      }
-     ],
-     "solution": "outcome.solution",
-     "finding": {
-      "verdict": "trade_off",
-      "open": "outcome.finding.open",
-      "options": [
-       {
-        "name": "outcome.options.name",
-        "how": "outcome.options.how",
-        "good": "outcome.options.good",
-        "bad": "outcome.options.bad"
-       },
-       {
-        "name": "outcome.options.name",
-        "how": "outcome.options.how",
-        "good": "outcome.options.good",
-        "bad": "outcome.options.bad"
-       }
-      ]
-     }
-    },
     "side_reports": [],
     "progress": "progress",
     "flow_feedback": "none",
-    "tell_owner": []
+    "tell_owner": [],
+    "outcome": {
+     "options": [
+      {
+       "name": "outcome.options.name.1",
+       "how": "outcome.options.how",
+       "good": "outcome.options.good",
+       "bad": "outcome.options.bad"
+      },
+      {
+       "name": "outcome.options.name.2",
+       "how": "outcome.options.how",
+       "good": "outcome.options.good",
+       "bad": "outcome.options.bad"
+      },
+      {
+       "name": "outcome.options.name.3",
+       "how": "outcome.options.how",
+       "good": "outcome.options.good",
+       "bad": "outcome.options.bad"
+      }
+     ]
+    }
    },
    "given": {}
   }
  ],
  "D2": [
   {
-   "row": "full",
-   "json": {},
-   "given": {
-    "records": "keeps",
-    "@finding.verdict": "trade_off"
-   }
-  },
-  {
-   "row": "no_records",
-   "json": {},
-   "given": {
-    "records": "none",
-    "@finding.verdict": "decided"
-   }
-  }
- ],
- "D3": [
-  {
-   "row": "done",
-   "json": {
-    "outcome": {
-     "constraints": [
-      {
-       "verdict": "not_better",
-       "id": "D:schema-sql",
-       "without": "outcome.constraints.without",
-       "why": "outcome.constraints.why"
-      }
-     ]
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "D4": [
-  {
-   "row": "done",
+   "row": "first",
    "json": {
     "outcome": {
      "chosen": "outcome.chosen",
@@ -223,48 +207,10 @@
       "effect": "outcome.measure.effect"
      },
      "design": {
-      "solution": "outcome.design.solution\n\n[[card:match-kinds]]\n",
+      "solution": "outcome.design.solution",
       "where": "outcome.design.where",
       "excluded": "outcome.design.excluded",
       "pitfalls": "outcome.design.pitfalls"
-     },
-     "design_tree": {
-      "verdict": "change",
-      "cards": [
-       {
-        "key": "match-kinds",
-        "question": "outcome.design_tree.cards.question",
-        "options": [
-         {
-          "name": "outcome.design_tree.cards.options.name",
-          "does": "outcome.design_tree.cards.options.does",
-          "cost": "outcome.design_tree.cards.options.cost",
-          "risks": "outcome.design_tree.cards.options.risks"
-         },
-         {
-          "name": "outcome.design_tree.cards.options.name.2",
-          "does": "outcome.design_tree.cards.options.does",
-          "cost": "outcome.design_tree.cards.options.cost",
-          "risks": "outcome.design_tree.cards.options.risks"
-         }
-        ],
-        "not_workable": [
-         {
-          "name": "outcome.design_tree.cards.not_workable.name",
-          "why": "outcome.design_tree.cards.not_workable.why"
-         }
-        ],
-        "recommended": "outcome.design_tree.cards.options.name",
-        "confidence": {
-         "level": "4",
-         "why": "outcome.design_tree.cards.confidence.why",
-         "overturn": "outcome.design_tree.cards.confidence.overturn"
-        },
-        "revises": [
-         "D:match"
-        ]
-       }
-      ]
      },
      "acceptance": [
       {
@@ -284,14 +230,25 @@
        "criterion": "outcome.acceptance.criterion"
       }
      ],
-     "estimate": "outcome.estimate"
+     "estimate": "outcome.estimate",
+     "articles": "outcome.articles",
+     "open_questions": [
+      {
+       "question": "outcome.open_questions.question",
+       "options": "outcome.open_questions.options",
+       "recommended": "outcome.open_questions.recommended"
+      }
+     ]
     },
     "side_reports": [],
     "tell_owner": [],
     "progress": "progress",
     "flow_feedback": "none"
    },
-   "given": {}
+   "given": {
+    "rethought": "no",
+    "deliver": "change"
+   }
   },
   {
    "row": "ask_advisor",
@@ -314,51 +271,28 @@
    "given": {}
   }
  ],
- "D5": [
+ "D3": [
   {
-   "row": "changed",
-   "json": {},
-   "given": {
-    "records_change": "changed"
-   }
-  }
- ],
- "D6": [
-  {
-   "row": "red",
+   "row": "present_best",
    "json": {
-    "check": {
-     "verdict": "red",
-     "printed": "a fault"
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none",
+    "tell_owner": [],
+    "outcome": {
+     "better": {
+      "verdict": "present_best",
+      "considered": [
+       "outcome.better.considered"
+      ],
+      "why": "outcome.better.why"
+     }
     }
    },
    "given": {}
   }
  ],
- "D7": [
-  {
-   "row": "findings",
-   "json": {
-    "outcome": {
-     "review": {
-      "verdict": "findings",
-      "read": "outcome.review.read",
-      "findings": [
-       {
-        "what": "outcome.review.findings.what",
-        "resolve": "outcome.review.findings.resolve"
-       }
-      ]
-     }
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
-  }
- ],
- "D8": [
+ "D4": [
   {
    "row": "no",
    "json": {},
@@ -367,7 +301,7 @@
    }
   }
  ],
- "D9": [
+ "D5": [
   {
    "row": "no_gap",
    "json": {
@@ -385,7 +319,7 @@
    "given": {}
   }
  ],
- "D10": [
+ "D6": [
   {
    "row": "sure",
    "json": {
@@ -403,7 +337,7 @@
    "given": {}
   }
  ],
- "D11": [
+ "D7": [
   {
    "row": "worth_it",
    "json": {
@@ -421,7 +355,7 @@
    "given": {}
   }
  ],
- "D12": [
+ "D8": [
   {
    "row": "yes",
    "json": {},
@@ -430,7 +364,7 @@
    }
   }
  ],
- "D13": [
+ "D9": [
   {
    "row": "on_its_own",
    "json": {
@@ -448,7 +382,7 @@
    "given": {}
   }
  ],
- "D14": [
+ "D10": [
   {
    "row": "implementation",
    "json": {
@@ -464,12 +398,11 @@
     "flow_feedback": "none"
    },
    "given": {
-    "deliver": "change",
-    "@tree.verdict": "change"
+    "deliver": "change"
    }
   }
  ],
- "D15": [
+ "D11": [
   {
    "row": "needed",
    "json": {
@@ -560,22 +493,6 @@
     "tell_owner": [],
     "progress": "progress",
     "flow_feedback": "none"
-   },
-   "given": {}
-  },
-  {
-   "row": "records_must_change",
-   "json": {
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none",
-    "tell_owner": [],
-    "outcome": {
-     "records_must_change": {
-      "what": "outcome.records_must_change.what",
-      "why": "outcome.records_must_change.why"
-     }
-    }
    },
    "given": {}
   }
@@ -694,56 +611,6 @@
    "given": {
     "records": "none"
    }
-  }
- ],
- "T5": [
-  {
-   "row": "done",
-   "json": {
-    "outcome": {
-     "columns": [
-      {
-       "verdict": "pass",
-       "id": "outcome.columns.id",
-       "evidence": {
-        "files": [],
-        "ran": [],
-        "nodes": [
-         "design/match.md"
-        ]
-       }
-      },
-      {
-       "verdict": "findings",
-       "id": "outcome.columns.id",
-       "evidence": {
-        "files": [],
-        "ran": [],
-        "nodes": [
-         "design/match.md",
-         "design/lowering.md"
-        ]
-       },
-       "findings": [
-        {
-         "fid": "R4",
-         "where": "design/match.md",
-         "what": "outcome.columns.findings.what",
-         "fix": "outcome.columns.findings.fix"
-        }
-       ]
-      },
-      {
-       "verdict": "not_applicable",
-       "id": "to_check"
-      }
-     ]
-    },
-    "side_reports": [],
-    "progress": "progress",
-    "flow_feedback": "none"
-   },
-   "given": {}
   }
  ],
  "T1": [
@@ -1069,13 +936,33 @@
    "given": {}
   }
  ],
- "A8": [
+ "X5": [
   {
-   "row": "keeps",
-   "json": {},
-   "given": {
-    "records": "keeps"
-   }
+   "row": "found",
+   "json": {
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none",
+    "outcome": {
+     "brief": "outcome.brief"
+    }
+   },
+   "given": {}
+  }
+ ],
+ "L2": [
+  {
+   "row": "done",
+   "json": {
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none",
+    "tell_owner": [],
+    "outcome": {
+     "learned": "outcome.learned"
+    }
+   },
+   "given": {}
   }
  ]
 }

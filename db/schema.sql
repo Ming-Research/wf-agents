@@ -652,9 +652,11 @@ CREATE TABLE architect_matters (
   id INTEGER PRIMARY KEY,
   -- The project whose architect it is for.
   project TEXT NOT NULL,
-  -- Its kind, which decides the path it takes: set_straight, engineer_question, report, design_card, failure,
-  -- owner_words, other_architect, slots_free, or check_policy and make_plan, the check of the policy in force and the
-  -- plan of what to do next, which the architect's cells queue at the head of the queue, one of each open at a time. A
+  -- Its kind, which decides the path it takes: set_straight, engineer_question, open_question, report, design_card,
+  -- failure, owner_words, other_architect, slots_free, or check_policy and make_plan, the check of the policy in force
+  -- and the plan of what to do next, which the architect's cells queue at the head of the queue, one of each open at a
+  -- time. An open question is what an engineer's design could not settle: its body holds the question, the options, the
+  -- one recommended and, once it has come, the answer. A
   -- matter handled before these kinds keeps the kind it had then: set_policy for the setting of a new policy, which a
   -- flow version before ran as a stage of its own, and policy for a setting that ended, when the setting was a work of
   -- its own.
@@ -1156,6 +1158,13 @@ CREATE VIEW work_design_cards AS
       AS replaces
   FROM design_cards c
   WHERE c.status IN ('open', 'ruled');
+
+CREATE VIEW work_open_questions AS
+  -- Each work's open questions as its design handed them in, each a matter of the project's architect, with the answer
+  -- that came. Read by: cells `D1`, `D2` and `L2`; the engine, at cell `M1`.
+  SELECT m.work, m.id AS matter, m.what AS question, json_extract(m.body, '$.answer') AS answer
+  FROM architect_matters m
+  WHERE m.kind = 'open_question';
 
 CREATE VIEW work_ci AS
   -- The CI on each work: the latest run of the fast CI (the tool ci), of the full CI on the draft and of the tests on

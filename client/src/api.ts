@@ -1644,8 +1644,8 @@ export type ArchitectRounds = { rounds: Array<RoundSummary>, older: boolean, new
  */
 export type Matter = { id: number,
 /**
- * Its kind, which decides its path: set_straight, engineer_question, report, design_card, failure, owner_words,
- * other_architect or slots_free.
+ * Its kind, which decides its path: set_straight, engineer_question, open_question, report, design_card, failure,
+ * owner_words, other_architect or slots_free.
  */
 kind: string,
 /**
@@ -2406,7 +2406,7 @@ colour: Colour, };
  * those it keeps for other things: orange for the owner's cells, yellow for the tools', red for danger and grey for
  * the engine's own steps.
  */
-export type Colour = "blue" | "teal" | "auburn" | "pink" | "purple" | "indigo" | "lime";
+export type Colour = "blue" | "teal" | "auburn" | "pink" | "purple" | "indigo" | "lime" | "olive";
 
 export type Compiled = { format: string, engine: EngineNames, tools: Array<ToolUse>, graphs: Array<CompiledGraph>,
 /**

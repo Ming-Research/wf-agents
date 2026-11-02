@@ -48,6 +48,9 @@ pub struct Ctx {
     pub blockers: Option<flow::format::Blockers>,
 }
 
+/// The engineer's cell that writes the design, whose return holds its acceptance conditions.
+const DESIGN: &str = "D2";
+
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -71,7 +74,7 @@ pub fn notify(tx: &Transaction<'_>, work: Option<i64>, text: &str) -> Result<(),
 /// Writes to the notifications log alone, through the outbox, what the owner's page says in its own place and keeps no
 /// notice of: a decision card waiting, new or replacing another, which the card pinned in the work's group and the bubble
 /// of the stage that handed it in say, and a work ready to merge but held, which the group's head says.
-fn log_only(tx: &Transaction<'_>, work: i64, text: &str) -> Result<(), String> {
+pub(crate) fn log_only(tx: &Transaction<'_>, work: i64, text: &str) -> Result<(), String> {
     outbox(tx, Some(work), "notify", &json!({ "text": text }))
 }
 
@@ -134,7 +137,7 @@ impl Ctx {
         at_path(&self.unwrapped, path)
     }
 
-    fn about(&self) -> String {
+    pub(crate) fn about(&self) -> String {
         match &self.item {
             Some(i) => format!("work {} (item {}: {})", self.work.id, i.id, i.title),
             None => format!("work {} ({})", self.work.id, self.work.of_architect()),
@@ -148,14 +151,19 @@ impl Ctx {
             .ok_or_else(|| format!("work {} has no item", self.work.id))
     }
 
-    fn project(&self) -> Result<&config::Project, String> {
+    pub(crate) fn project(&self) -> Result<&config::Project, String> {
         self.project
             .as_ref()
             .ok_or_else(|| format!("work {}: its project is not in the configuration", self.work.id))
     }
 
     /// The last accepted return of a cell of this work that has a value at a path, with its round.
-    fn last(&self, tx: &Transaction<'_>, cell: &str, path: &str) -> Result<Option<(RoundId, Value)>, String> {
+    pub(crate) fn last(
+        &self,
+        tx: &Transaction<'_>,
+        cell: &str,
+        path: &str,
+    ) -> Result<Option<(RoundId, Value)>, String> {
         let p = format!("$.{path}");
         let work = self.work.id;
         tx.query_row(
@@ -189,7 +197,7 @@ fn sql_value(v: db::rusqlite::types::Value) -> Value {
 /// carries the flow drawn from the branch, beside the version the work runs on.
 fn post_cards(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let path = format!("{}.design_tree", ctx.within);
-    let Some((round, tree)) = ctx.last(tx, "D4", &path)? else {
+    let Some((round, tree)) = ctx.last(tx, DESIGN, &path)? else {
         return Ok(());
     };
     let project = ctx.project()?;
@@ -354,7 +362,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             .map_err(sql)?;
         }
         "lock_acceptance" => {
-            let Some((round, acceptance)) = ctx.last(tx, "D4", &format!("{}.acceptance", ctx.within))? else {
+            let Some((round, acceptance)) = ctx.last(tx, DESIGN, &format!("{}.acceptance", ctx.within))? else {
                 return Err("no design handed in acceptance conditions to lock".into());
             };
             let item = ctx.item_id()?;
@@ -385,17 +393,17 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
         }
         "post_design_card" => post_cards(ctx, tx)?,
         "post_flow_card" => carry_flow(ctx, tx, ctx.round, &[])?,
+        "post_open_questions" => crate::open_questions::post(ctx, tx)?,
+        "write_learned" => crate::open_questions::write_learned(ctx, tx)?,
         "notify_pending_approvers" => {
-            let open: Vec<String> = crate::cards::current(tx, w)?
+            let open: Vec<String> = crate::open_questions::unanswered(tx, w)?
                 .iter()
-                .filter(|c| !c.confirmed())
-                .map(|c| c.id.to_string())
+                .map(i64::to_string)
                 .collect();
             let why = match open.as_slice() {
-                [] => "it waits for the items it depends on to merge, or for a design that matches its decision cards"
-                    .to_string(),
-                [one] => format!("decision card {one} waits for your ruling"),
-                more => format!("decision cards {} wait for your ruling", crate::cards::and_list(more)),
+                [] => "it waits for the items it depends on to merge".to_string(),
+                [one] => format!("open question {one} waits for its answer"),
+                more => format!("open questions {} wait for their answers", crate::cards::and_list(more)),
             };
             log_only(tx, w, &format!("{} is ready to merge, but {why}.", ctx.about()))?;
         }

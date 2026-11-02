@@ -1173,6 +1173,7 @@ mod tests {
                 ("review", Colour::Teal),
                 ("adversarial", Colour::Auburn),
                 ("advisor", Colour::Pink),
+                ("librarian", Colour::Olive),
                 ("architect", Colour::Purple),
                 ("architect_review", Colour::Indigo),
                 ("observer", Colour::Lime),

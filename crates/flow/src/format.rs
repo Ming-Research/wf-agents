@@ -436,6 +436,7 @@ pub enum Colour {
     Purple,
     Indigo,
     Lime,
+    Olive,
 }
 
 impl std::fmt::Display for Colour {

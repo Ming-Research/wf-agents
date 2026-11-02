@@ -195,7 +195,7 @@ mod tests {
             .map(|c| c.id.as_str())
             .collect();
         assert!(
-            cells.contains(&"T3") && cells.contains(&"T5") && !cells.contains(&"I1"),
+            cells.contains(&"T3") && cells.contains(&"T4") && !cells.contains(&"I1"),
             "{cells:?}"
         );
     }

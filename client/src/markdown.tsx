@@ -225,9 +225,10 @@ export function inline(text: string, items = true): Inline[] {
   return out;
 }
 
-/// Only a link to the web leaves the page; any other target an agent wrote, such as a path in its repository, is
-/// shown as its words.
-const WEB = /^https?:\/\//;
+/// Only a link to the web leaves the page, and a link to a work on this page, as an architect's question gives the
+/// owner the design it asks about; any other target an agent wrote, such as a path in its repository, is shown as its
+/// words.
+const WEB = /^(https?:\/\/|\/works[/?])/;
 
 /// The items' titles by their numbers, worked out once for each read of the items.
 const titles = new WeakMap<ItemsData, Map<number, string>>();

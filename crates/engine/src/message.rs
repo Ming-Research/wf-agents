@@ -986,80 +986,79 @@ pub fn columns(
     let mut cols: Vec<String> = Vec::new();
     // At a re-review of disputes only, the columns the last table review could not verify.
     let mut only: Option<Vec<String>> = None;
-    match cell.id.as_str() {
-        "T4" => {
-            let review = crate::inputs::last_return(e, w, g, "T7", "plan")
-                .ok()
-                .flatten()
-                .and_then(|r| crate::inputs::at_path(&r, "plan.review"));
-            if review.as_ref().and_then(Value::as_str) == Some("disputes") {
-                only = Some(unverified_last(e, w, g));
+    if cell.id == "T4" {
+        let review = crate::inputs::last_return(e, w, g, "T7", "plan")
+            .ok()
+            .flatten()
+            .and_then(|r| crate::inputs::at_path(&r, "plan.review"));
+        if review.as_ref().and_then(Value::as_str) == Some("disputes") {
+            only = Some(unverified_last(e, w, g));
+        }
+        let project = e.config.config.projects.get(&item.project);
+        cols.extend(fixed_columns(&rule("review_table"), item.deliver == "report"));
+        if item.deliver != "report" {
+            for entry in project.map(|p| p.review_list.clone()).unwrap_or_default() {
+                cols.push(format!("From the review list in the project's configuration: {entry}"));
             }
-            let project = e.config.config.projects.get(&item.project);
-            cols.extend(fixed_columns(&rule("review_table"), item.deliver == "report"));
-            if item.deliver != "report" {
-                for entry in project.map(|p| p.review_list.clone()).unwrap_or_default() {
-                    cols.push(format!("From the review list in the project's configuration: {entry}"));
-                }
-            }
-            let acceptance = item.acceptance.clone().unwrap_or(Value::Null);
-            for a in acceptance.as_array().cloned().unwrap_or_default() {
-                cols.push(format!(
+        }
+        let acceptance = item.acceptance.clone().unwrap_or(Value::Null);
+        for a in acceptance.as_array().cloned().unwrap_or_default() {
+            cols.push(format!(
                     "Acceptance condition {}: {} Can it be checked; is the evidence there, does it come from the head to be merged, and does it hold?",
                     a["id"].as_str().unwrap_or("?"),
                     a["condition"].as_str().unwrap_or_default()
                 ));
+        }
+        if item.deliver != "report" {
+            cols.push("The research's judgment that the work stands: does its reason hold?".into());
+            for (c, what) in [
+                ("D5", "a gap in what is under test"),
+                ("D6", "unsure facts"),
+                ("D7", "architectural burden"),
+                ("D9", "cross-project dependency"),
+                ("D10", "splitting"),
+            ] {
+                // A check the work's way did not reach, as one a project with nothing under test is not asked, was
+                // not judged: no column.
+                let not_asked = crate::inputs::answered(e, w, g, c).map_or(true, |r| r.is_empty());
+                // The outcome the check went on by, as a gate names it; a flow version before gates named their
+                // outcomes answered no.
+                let on = g
+                    .cell(c)
+                    .and_then(|x| x.outcomes.first().cloned())
+                    .unwrap_or_else(|| "no".into());
+                if g.cell(c).is_some() && !not_asked {
+                    cols.push(format!(
+                        "The check of {what} answered \"{on}\" or not applicable: does its reason hold?"
+                    ));
+                }
             }
-            if item.deliver != "report" {
-                cols.push("The research's judgment that the work stands: does its reason hold?".into());
-                for (c, what) in [
-                    ("D9", "a gap in what is under test"),
-                    ("D10", "unsure facts"),
-                    ("D11", "architectural burden"),
-                    ("D13", "cross-project dependency"),
-                    ("D14", "splitting"),
-                ] {
-                    // A check the work's way did not reach, as one a project with nothing under test is not asked, was
-                    // not judged: no column.
-                    let not_asked = crate::inputs::answered(e, w, g, c).map_or(true, |r| r.is_empty());
-                    // The outcome the check went on by, as a gate names it; a flow version before gates named their
-                    // outcomes answered no.
-                    let on = g
-                        .cell(c)
-                        .and_then(|x| x.outcomes.first().cloned())
-                        .unwrap_or_else(|| "no".into());
-                    if g.cell(c).is_some() && !not_asked {
-                        cols.push(format!(
-                            "The check of {what} answered \"{on}\" or not applicable: does its reason hold?"
-                        ));
-                    }
+            let changes = crate::inputs::last_return(e, w, g, "I1", "deviations").ok().flatten();
+            for d in changes
+                .and_then(|r| r["deviations"].as_array().cloned())
+                .unwrap_or_default()
+            {
+                if d["kind"] != "surprise" {
+                    cols.push(format!(
+                        "The {} \"{}\": does its reason hold, and did the design change with it?",
+                        d["kind"].as_str().unwrap_or_default().replace('_', " "),
+                        d["what"].as_str().unwrap_or_default()
+                    ));
                 }
-                let changes = crate::inputs::last_return(e, w, g, "I1", "deviations").ok().flatten();
-                for d in changes
-                    .and_then(|r| r["deviations"].as_array().cloned())
-                    .unwrap_or_default()
-                {
-                    if d["kind"] != "surprise" {
-                        cols.push(format!(
-                            "The {} \"{}\": does its reason hold, and did the design change with it?",
-                            d["kind"].as_str().unwrap_or_default().replace('_', " "),
-                            d["what"].as_str().unwrap_or_default()
-                        ));
-                    }
-                }
-                // A return of a flow version before the answer was flat holds the test changes under end.
-                let done = crate::inputs::last_return(e, w, g, "I1", "test_changes").ok().flatten();
-                for t in done
-                    .and_then(|r| {
-                        r.get("test_changes")
-                            .or_else(|| r["end"].get("test_changes"))
-                            .and_then(Value::as_array)
-                            .cloned()
-                    })
-                    .unwrap_or_default()
-                {
-                    let name = t["test"].as_str().unwrap_or_default();
-                    match t["change"].as_str() {
+            }
+            // A return of a flow version before the answer was flat holds the test changes under end.
+            let done = crate::inputs::last_return(e, w, g, "I1", "test_changes").ok().flatten();
+            for t in done
+                .and_then(|r| {
+                    r.get("test_changes")
+                        .or_else(|| r["end"].get("test_changes"))
+                        .and_then(Value::as_array)
+                        .cloned()
+                })
+                .unwrap_or_default()
+            {
+                let name = t["test"].as_str().unwrap_or_default();
+                match t["change"].as_str() {
                         Some("added") => cols.push(format!(
                             "The new test {name}: take the other side on its running time. Do other tests already catch what it catches, could it be smaller or faster, could it be folded into another test?"
                         )),
@@ -1068,12 +1067,8 @@ pub fn columns(
                         )),
                         None => {}
                     }
-                }
             }
         }
-        // The check of the code against the records: the columns its rule lists after the table review's.
-        "T5" => cols.extend(records_columns(&rule("review_table"))),
-        _ => {}
     }
     cols.into_iter()
         .enumerate()
@@ -1099,17 +1094,6 @@ fn fixed_columns(table: &[String], report: bool) -> Vec<String> {
         .position(|l| l.starts_with("The review list in the project's configuration"))
         .unwrap_or(table.len());
     table.iter().take(list).skip(2).cloned().collect()
-}
-
-/// The columns of the check of the code against the records, which the review table's rule lists after the line that
-/// opens them, found by its words.
-fn records_columns(table: &[String]) -> Vec<String> {
-    table
-        .iter()
-        .skip_while(|l| !l.starts_with("A work in a project that keeps records has"))
-        .skip(1)
-        .cloned()
-        .collect()
 }
 
 /// The numbers of the columns the last table review that handed in a table could not verify.
@@ -1163,11 +1147,6 @@ mod tests {
             "{}",
             change[6]
         );
-        // The check of the code against the records has its own columns, after the table review's.
-        let records = records_columns(&table);
-        assert_eq!(records.len(), 5, "{records:?}");
-        assert!(records[0].starts_with("Choices governed"), "{}", records[0]);
-        assert!(records[4].starts_with("The chain challenged"), "{}", records[4]);
         let report = fixed_columns(&table, true);
         assert_eq!(report.len(), 1);
         assert!(report[0].starts_with("A work that delivers a report"), "{}", report[0]);
