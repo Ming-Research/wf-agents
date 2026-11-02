@@ -1305,7 +1305,9 @@ fn blob_object(repo: &Path, commit: &str, path: &str) -> Result<String, String> 
     let mut at = path.to_string();
     for _ in 0..=MAX_LINKS {
         if at.is_empty() {
-            return Err(format!("{path} leads to the repository's root, which is not a file at {commit}"));
+            return Err(format!(
+                "{path} leads to the repository's root, which is not a file at {commit}"
+            ));
         }
         let listed = git(repo, &["ls-tree", "-z", commit, "--", &at])?;
         let entry = listed
@@ -1341,7 +1343,9 @@ fn blob_object(repo: &Path, commit: &str, path: &str) -> Result<String, String> 
             return Err(format!("{at} is not a file at {commit}"));
         }
     }
-    Err(format!("{path} is a link that leads through more than {MAX_LINKS} links at {commit}"))
+    Err(format!(
+        "{path} is a link that leads through more than {MAX_LINKS} links at {commit}"
+    ))
 }
 
 /// What a project says of itself as one commit has it, which agents are given as the project guide: its AGENTS.md,
