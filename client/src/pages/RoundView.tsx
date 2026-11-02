@@ -374,17 +374,11 @@ function tookWords(r: RoundSummary): string {
 }
 
 /// Why a return was sent back: the engine gives one line for each problem its checks found, and each is shown on a line
-/// of its own, the first after the label, since a text in a `Flash` runs its lines together.
+/// of its own, the first after the label (the `reason` class, which the item page's list of rounds uses too).
 function SentBack({ why }: { why: string }) {
-  const [first, ...rest] = why.split('\n');
   return (
     <Flash variant="warning">
-      <div>{t('rp_sent_back', { why: first })}</div>
-      {rest
-        .filter((line) => line !== '')
-        .map((line, i) => (
-          <div key={i}>{line}</div>
-        ))}
+      <div className="reason">{t('rp_sent_back', { why })}</div>
     </Flash>
   );
 }

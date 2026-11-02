@@ -12,6 +12,7 @@ import { type Lights, LightsContext } from './flow/lights';
 import { Json, ReturnPattern } from './flow/Returns';
 import { FromTable, ToTable } from './flow/Rows';
 import type { Side } from './flow/Sides';
+import { Note } from './item/Progress';
 import { RoundView } from './pages/RoundView';
 
 // What the interface gives, by its path: set by each test, read synchronously as the page draws.
@@ -224,8 +225,9 @@ describe("a round's panel", () => {
     expect(html).not.toContain('Where the batch stands');
   });
 
-  // Item #216: a return is sent back with one line for each problem its checks found; a Flash runs the lines of a
-  // text together, so each is shown on a line of its own, the first after the label.
+  // Item #216: a return is sent back with one line for each problem its checks found; a Flash or a span runs the lines
+  // of a text together, so the reason has the `reason` class (white-space: pre-line) in each place it is shown whole:
+  // the round's page and the item page's list of rounds.
   it('shows the reason a return was sent back one problem to a line', () => {
     served.clear();
     const why = [
@@ -237,14 +239,18 @@ describe("a round's panel", () => {
     served.set('/api/v1/flows/3', before.compiled);
     served.set('/api/v1/flows/3/view', before.view);
     const html = renderToStaticMarkup(<RoundView work={7} n={2} rounds={rounds} open={tables} />);
-    expect(html).toContain('<div>Sent back: columns_answered (columns.id): columns 4, 5 are not answered</div>');
-    expect(html).toContain('<div>table_answered (rows.id): r1 is answered twice</div>');
+    // The lines are in the text, as the engine wrote them, and the text keeps its line breaks.
+    expect(html).toContain(`<div class="reason">Sent back: ${why}</div>`);
     // A reason of one line is shown as it was.
     const one = { ...sentBack, round: { ...sentBack.round, why: 'columns_answered (columns.id): column 4 is not answered' } };
     served.set('/api/v1/works/7/rounds/2', one);
     const single = renderToStaticMarkup(<RoundView work={7} n={2} rounds={rounds} open={tables} />);
-    expect(single).toContain('<div>Sent back: columns_answered (columns.id): column 4 is not answered</div>');
-    expect(single).not.toContain('<div>table_answered');
+    expect(single).toContain('<div class="reason">Sent back: columns_answered (columns.id): column 4 is not answered</div>');
+    expect(single).not.toContain('table_answered');
+    // The item page's list of rounds shows the same reason the same way; a round that was not sent back has no such text.
+    const note = renderToStaticMarkup(<Note r={{ ...rounds[1], outcome: 'sent_back', why }} work={7} />);
+    expect(note).toContain(`<span class="muted reason">${why}</span>`);
+    expect(renderToStaticMarkup(<Note r={{ ...rounds[1], outcome: 'took', progress: 'Done.' }} work={7} />)).not.toContain('reason');
   });
 
   it('says where it came from and went over a table none of whose rows is the one', () => {

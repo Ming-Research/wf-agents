@@ -707,30 +707,14 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         "conditions_cover_acceptance" => {
             let Some(rows) = v else { return Ok(()) };
             let rows = items(Some(rows));
-            let ids: Vec<String> = rows
-                .iter()
-                .filter_map(|r| r["id"].as_str().map(str::to_string))
-                .collect();
             let wanted: Vec<String> = c
                 .acceptance()?
                 .iter()
                 .filter_map(|a| a["id"].as_str().map(str::to_string))
                 .collect();
             let recheck = c.cell.id == "T1" && !c.accepted("T1")?.is_empty();
-            let mut problems = cover_problems(&wanted, &ids, recheck);
-            // With no condition in force, the rows are no rows of any condition: their tests are not looked for.
-            if wanted.is_empty() && !ids.is_empty() {
-                return problems.into_result();
-            }
             let wt = c.wt()?;
-            for r in rows.iter().filter(|r| r["how"] == "tested") {
-                for t in strs(r.get("tests")) {
-                    if let Err(why) = test_name::on_branch(wt, &t) {
-                        problems.push(why);
-                    }
-                }
-            }
-            problems.into_result()
+            conditions_problems(&wanted, &rows, recheck, |t| test_name::on_branch(wt, t)).into_result()
         }
         "new_test_results" | "guard_test_results" => {
             if c.last("D11", "adversarial")?.is_some_and(|a| a["verdict"] == "needed") {
@@ -1197,6 +1181,34 @@ fn cover_problems(wanted: &[String], ids: &[String], recheck: bool) -> Problems 
             |x| format!("no row for acceptance condition {x}"),
             |xs| format!("no row for acceptance conditions {xs}"),
         );
+    }
+    problems
+}
+
+/// What is wrong with a table of condition rows (`rows`) against the acceptance conditions in force (`wanted`): what
+/// [`cover_problems`] says about their ids, and each test a row of kind tested names that is not on the branch
+/// (`on_branch` says, with the reason when not). With no condition in force the rows are no rows of any condition, so
+/// their tests are not looked for.
+fn conditions_problems(
+    wanted: &[String],
+    rows: &[Value],
+    recheck: bool,
+    on_branch: impl Fn(&str) -> Result<(), String>,
+) -> Problems {
+    let ids: Vec<String> = rows
+        .iter()
+        .filter_map(|r| r["id"].as_str().map(str::to_string))
+        .collect();
+    let mut problems = cover_problems(wanted, &ids, recheck);
+    if wanted.is_empty() && !ids.is_empty() {
+        return problems;
+    }
+    for r in rows.iter().filter(|r| r["how"] == "tested") {
+        for t in strs(r.get("tests")) {
+            if let Err(why) = on_branch(&t) {
+                problems.push(why);
+            }
+        }
     }
     problems
 }
@@ -1937,6 +1949,41 @@ mod tests {
         );
         assert!(cover_problems(&wanted, &ids(&["A1", "A1", "A2", "A3", "A4"]), false).is_empty());
         assert!(cover_problems(&[], &[], false).is_empty());
+    }
+
+    // The tests a table names that are not on the branch are each said, with the ids that are no condition and the
+    // conditions with no row, in one call; a row that is not of kind tested names no test to look for.
+    #[test]
+    fn every_test_a_table_of_conditions_names_that_is_not_on_the_branch_is_said_with_its_ids() {
+        let wanted = ids(&["A1", "A2", "A3"]);
+        let rows = [
+            json!({ "id": "A1", "how": "tested", "tests": ["on_branch", "gone_one", "gone_two"] }),
+            json!({ "id": "X9", "how": "tested", "tests": ["on_branch"] }),
+            json!({ "id": "A2", "how": "report_answer", "where": "gone_three" }),
+        ];
+        let on_branch = |t: &str| {
+            if t.starts_with("gone") {
+                Err(format!("the test {t} is not on the branch"))
+            } else {
+                Ok(())
+            }
+        };
+        assert_eq!(
+            said(conditions_problems(&wanted, &rows, false, on_branch)),
+            [
+                "X9 is not an acceptance condition",
+                "no row for acceptance condition A3",
+                "the test gone_one is not on the branch",
+                "the test gone_two is not on the branch"
+            ]
+        );
+        // With no condition in force, only that is said: their tests are not looked for.
+        assert_eq!(
+            said(conditions_problems(&[], &rows, false, on_branch)),
+            [
+                "the item has no acceptance conditions in force; ask the advisor for them with the kind acceptance_change"
+            ]
+        );
     }
 
     // Rows that name conditions where none is in force are no rows of any condition, so that nothing else is said of
