@@ -7628,7 +7628,10 @@ fn the_owner_s_words_about_dropped_changes_are_no_answer_to_a_pinned_open_questi
             .unwrap();
         (
             Vec::new(),
-            vec![("outcome.changes", json!([{ "matter": matter, "change": change.clone() }]))],
+            vec![(
+                "outcome.changes",
+                json!([{ "matter": matter, "change": change.clone() }]),
+            )],
         )
     });
     let (mut e, said, item, work, matter, first) = pinned(&s, ways, vec![("B2", review), ("B3", revise)]);
@@ -7640,7 +7643,11 @@ fn the_owner_s_words_about_dropped_changes_are_no_answer_to_a_pinned_open_questi
     assert_eq!(open_questions(&e, work)[0].2, None);
     api::reply_to_question(&mut e.db, "p", second, "Leave them out.", &[]).unwrap();
     let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
-    assert!(steps_until(&mut e, 120, answered), "{}", said.lock().unwrap().join("\n"));
+    assert!(
+        steps_until(&mut e, 120, answered),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
     let log = said.lock().unwrap().join("\n");
     let words = "Take one table.\n\nGo on with one table.\n\nThe owner decided it.";
     let body = matter_body(&e, matter);
