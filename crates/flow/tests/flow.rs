@@ -29,6 +29,19 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
+// The answers of a cell's list of forms are read from the flow built into the program: the fix has the answer made for
+// a fix in no commit, a field that is no list of forms and a cell the flow lacks give none.
+#[test]
+fn the_answers_of_a_list_of_forms_are_read_from_the_flow() {
+    let answers = flow::answers("T6", "rows").unwrap();
+    for a in ["fixed", "fixed_outside_commit", "disagree"] {
+        assert!(answers.iter().any(|x| x == a), "{answers:?}");
+    }
+    assert_eq!(flow::answers("T6", "head"), None);
+    assert_eq!(flow::answers("T6", "no such field"), None);
+    assert_eq!(flow::answers("no such cell", "rows"), None);
+}
+
 /// The fix's numbered table.
 fn t6_table(c: &flow::Compiled) -> flow::CompiledInput {
     let g = c.graph("engineer").unwrap();

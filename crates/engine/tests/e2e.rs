@@ -1485,34 +1485,6 @@ fn fix_answering(rows: Vec<Value>) -> Script {
     })
 }
 
-/// The answers the fix cell can give, by the names the flow gives them.
-fn fix_answers() -> Vec<String> {
-    fn agent<'a>(v: &'a Value, id: &str) -> Option<&'a Value> {
-        match v {
-            Value::Object(o) if o.get("id").is_some_and(|x| x == id) && o.get("kind").is_some_and(|k| k == "agent") => {
-                Some(v)
-            }
-            Value::Object(o) => o.values().find_map(|x| agent(x, id)),
-            Value::Array(a) => a.iter().find_map(|x| agent(x, id)),
-            _ => None,
-        }
-    }
-    let flow: Value = serde_json::from_str(flow::FLOW).unwrap();
-    let rows = agent(&flow, "T6").unwrap()["out"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|f| f["name"] == "rows")
-        .unwrap()
-        .clone();
-    rows["item"]["branches"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|b| b["value"].as_str().unwrap().to_string())
-        .collect()
-}
-
 // A fix that is in no commit, such as the pull request's description, answers the review's finding fixed_outside_commit,
 // and the review then looks at that finding again, and only it. In the fourth trial a work whose description lacked two
 // files turned from the merge judgment to the fix, which had no row to answer, to choosing what runs next, which
@@ -1698,7 +1670,7 @@ fn every_answer_to_a_row_a_side_raised_makes_that_side_look_again() {
             )
             .unwrap()
     };
-    let answers = fix_answers();
+    let answers = flow::answers("T6", "rows").unwrap();
     assert!(answers.iter().any(|a| a == "fixed_outside_commit"), "{answers:?}");
     let raised_by = |e: &mut Engine, cell: &str| {
         e.db.write(Actor::Engine, |tx| {
@@ -1725,6 +1697,18 @@ fn every_answer_to_a_row_a_side_raised_makes_that_side_look_again() {
     // The row is a red check of the full CI.
     raised_by(&mut e, "T2·result[red]");
     expect(&mut e, "none", "skipped");
+    // Adversarial testing, sent back to a row it raised, is given the fix's table with that row and the answer to it,
+    // whatever the answer was: the row's number alone would say nothing of which test it is.
+    raised_by(&mut e, "T1·new_tests");
+    let where_it_is = "Only in the pull request description, pushed with ci.";
+    let fixed = json!([{ "answer": "fixed_outside_commit", "id": "F1", "where": where_it_is }]);
+    assert_eq!(plan(&mut e, fixed).1, "disputes");
+    e.step_work(work).unwrap();
+    let m = message_at(&e, work, "T1", true);
+    assert!(
+        m.contains("It says too little.") && m.contains("fixed_outside_commit") && m.contains(where_it_is),
+        "{m}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

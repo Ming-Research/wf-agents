@@ -1752,36 +1752,6 @@ mod tests {
         assert_eq!(what_is_asked(&[]), "");
     }
 
-    /// The answers the fix cell can give, by the names the flow gives them.
-    fn fix_answers() -> Vec<String> {
-        fn agent<'a>(v: &'a Value, id: &str) -> Option<&'a Value> {
-            match v {
-                Value::Object(o)
-                    if o.get("id").is_some_and(|x| x == id) && o.get("kind").is_some_and(|k| k == "agent") =>
-                {
-                    Some(v)
-                }
-                Value::Object(o) => o.values().find_map(|x| agent(x, id)),
-                Value::Array(a) => a.iter().find_map(|x| agent(x, id)),
-                _ => None,
-            }
-        }
-        let flow: Value = serde_json::from_str(flow::FLOW).unwrap();
-        let rows = agent(&flow, "T6").unwrap()["out"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|f| f["name"] == "rows")
-            .unwrap()
-            .clone();
-        rows["item"]["branches"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|b| b["value"].as_str().unwrap().to_string())
-            .collect()
-    }
-
     // The numbered table of a fix, made as the engine makes it: F1 a finding of the table review, F2 a test of
     // adversarial testing that went wrong, F3 a red check of the full CI.
     fn fix_table() -> Value {
@@ -1851,7 +1821,7 @@ mod tests {
     #[test]
     fn any_answer_to_a_row_a_side_raised_is_an_answer_to_that_side() {
         let table = fix_table();
-        let answers = fix_answers();
+        let answers = flow::answers("T6", "rows").unwrap();
         assert!(answers.iter().any(|a| a == "fixed_outside_commit"), "{answers:?}");
         for a in &answers {
             let answered = |id: &str, side: &str| answers_a_row_of(&fix_round(Some(&table), a, id), "outcome", side);
