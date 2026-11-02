@@ -804,6 +804,26 @@ mod tests {
         assert_eq!(r.stop_record().unwrap()["signal"], "growth");
     }
 
+    // What a stopped round's record keeps for the round after it: why, and its last tools, the oldest dropped.
+    #[test]
+    fn a_stopped_rounds_record_keeps_its_last_tools() {
+        let mut r = run();
+        for i in 0..(LAST_TOOLS as u64 + 2) {
+            r.see(&Seen::Tool {
+                name: format!("t{i}"),
+                on: Some("x".into()),
+                digest: i,
+            });
+        }
+        r.see(&call("a", 10_000));
+        r.see(&call("b", 12_000));
+        let record = r.stop_record().unwrap();
+        let tools = record["last_tools"].as_array().unwrap();
+        assert_eq!(tools.len(), LAST_TOOLS);
+        assert_eq!(tools[0], json!({ "tool": "t2", "on": "x" }));
+        assert_eq!(record["also"], json!({ "value": 2000.0, "line": 100.0 }));
+    }
+
     // A round that adds much but no faster than its cell's rounds is a long round: it is not stopped.
     #[test]
     fn growth_past_one_line_only_does_not_stop_the_round() {

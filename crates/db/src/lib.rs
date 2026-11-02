@@ -1974,8 +1974,9 @@ mod tests {
                 [],
             )?;
             tx.execute(
-                "INSERT INTO sessions (id, work, line, cli, cli_session) VALUES (1, 1, 'engineer', 'c', 's'),
-                 (2, 2, 'architect', 'c', 'carried'), (3, 2, 'architect', 'c', 'carried')",
+                "INSERT INTO sessions (id, work, line, cli, cli_session, ended) VALUES
+                 (1, 1, 'engineer', 'c', 's', NULL), (2, 2, 'architect', 'c', 'carried', 1),
+                 (3, 2, 'architect', 'c', 'carried', NULL)",
                 [],
             )?;
             tx.execute("INSERT INTO contents (hash, text) VALUES ('h', ?1)", ["x".repeat(3000)])?;

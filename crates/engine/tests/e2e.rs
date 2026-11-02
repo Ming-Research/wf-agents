@@ -12907,17 +12907,17 @@ fn a_round_past_both_lines_is_stopped_and_runs_again_in_a_new_session() {
     assert!(sessions[0].1.is_some(), "{sessions:?}");
     // Told why, with the signal, its value and its line, and to look at the worktree first.
     let again = input_at(&e, work, "R1", true);
-    let told = again["message"].to_string();
+    let told = again["message"].as_str().unwrap_or_default();
     assert!(
         told.contains("The run guard stopped") && told.contains("look at the worktree"),
         "{told}"
     );
-    let why = number(
-        &e,
-        "SELECT count(*) FROM contents WHERE text LIKE '%\"signal\":\"growth\"%' AND text LIKE '%20000%'
-         AND text LIKE '%2800%' AND text LIKE '%last_tools%'",
+    assert!(
+        told.contains(r#""signal":"growth""#)
+            && told.contains(r#""value":20000.0"#)
+            && told.contains(r#""line":2800.0"#),
+        "{told}"
     );
-    assert_eq!(why, 1, "{told}");
     // The owner is told the first time too.
     let notices = number(
         &e,
