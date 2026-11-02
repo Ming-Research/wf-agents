@@ -437,6 +437,17 @@ impl Context<'_> {
                         "{} was cut off when the engine stopped: do its work again.",
                         r.id
                     ));
+                } else if let Some(guard) = rej["failed"].get("guard") {
+                    // Why the guard stopped the run, which the engine wrote and which quotes nothing of the run's
+                    // return: the new session is to do the work differently, not to run into the same line.
+                    let a = m.add(format!("{}·engine·guard", r.id), guard.clone());
+                    out.push(format!(
+                        "The run guard stopped {}, and this round runs in a new session: {a} says which signal passed \
+                         which line, its value and the last tools that round used. First look at the worktree as it is \
+                         now (files changed, commits made), then do its work again, in a way that does not repeat what \
+                         stopped it.",
+                        r.id
+                    ));
                 } else if let Some(f) = rej.get("failed") {
                     // Only the kind: what the command line reported may quote the run's own return, which a new
                     // session, such as a reader that must see only the text, is never shown.

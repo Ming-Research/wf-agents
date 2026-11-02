@@ -11,7 +11,7 @@ use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered, at_path};
 use crate::message;
 use crate::work::{self, Ended, Item, Round, RoundId, Work};
-use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values};
+use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values, watch};
 use sessions::{Held, Plan};
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -346,13 +346,25 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     }
     // The level the round runs at, which the configuration maps to its model: the owner reads the round by it.
     call["level"] = Value::String(level_name.clone());
+    // How the guard will judge the round, from the rounds kept as it starts, which its record keeps.
+    let started = watch::Start {
+        graph: &g.name,
+        cell: &cell.id,
+        section: &section,
+        at_cell: &at_cell,
+        resumed,
+        model: &level.model,
+        message: &msg.text,
+        session: &line_rounds,
+    }
+    .run(e);
     let mut input = json!({
         "message": msg.stored,
         "conditional": msg.record(),
         "call": call,
         "engine": {
             "head": head, "change": change, "columns": columns, "table": table, "interjections": ids,
-            "new_session": new_why,
+            "new_session": new_why, "guard": started.lines().record(),
         },
     });
     // Where the owner's images were given, by their attachments, and those only referred to.
@@ -377,9 +389,9 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         })
         .map_err(sql)?;
     e.say(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
-    let reply = e
-        .sessions()
-        .run(&req, &|what: &str| e.activity(round.work, round.n, what));
+    let watching = watch::Watch::begin(e, round, started);
+    let reply = e.sessions().run(&req, &|seen| watching.see(seen));
+    let watched = watching.end();
     let _ = std::fs::remove_file(&given_again);
     if reply.session != new_session && !reply.session.is_empty() {
         let s = reply.session.clone();
@@ -413,13 +425,32 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     }
     // What the session had cost before, its keep-warm pings included, so that the round's own cost is what it grew by.
     let before = sessions::cost::spent(e.db.conn(), &new_session, &line_rounds)?;
+    // A run stopped never reached the command line's report of what it used: its calls tell it.
+    let usage = match &reply.stopped {
+        Some(_) => watched.totals().usage(reply.usage.clone()),
+        None => sessions::cost::own_cost(reply.usage.clone(), before),
+    };
     let ended = Ended {
-        usage: Some(sessions::cost::own_cost(reply.usage.clone(), before)).filter(|u| !u.is_null()),
+        usage: Some(usage).filter(|u| !u.is_null()),
         model: reply.model.clone(),
         compactions: reply.compactions,
         command: (!reply.command.is_empty()).then(|| reply.command.clone()),
         ..Ended::default()
     };
+    // What the round came to joins the rounds later ones are judged by, unless it was stopped, so that an anomaly never
+    // becomes its own baseline.
+    let spent = ended.usage.as_ref().and_then(|u| u["cost_usd"].as_f64());
+    if reply.stopped.is_none()
+        && let Some(sample) = watched.sample(&cell.id, reply.model.as_deref(), spent)
+    {
+        let kept = e.db.write(Actor::Engine, |tx| {
+            sessions::guard::keep_sample(tx, round, &g.name, &sample)?;
+            Ok(())
+        });
+        if let Err(x) = kept {
+            e.say(&format!("{round}: what it came to could not be kept: {x}"));
+        }
+    }
     // A work that ended while its round ran, as when the owner cancelled its item meanwhile, had the round cut off as
     // it ended (`ending::end`): what the round hands in is not taken, and what it cost is kept on it. So for a work
     // asked to be started over meanwhile, whose round stays open for the takeover to cut off: the loop starts the work
@@ -488,6 +519,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .any(|k| k.name == crate::unparsed::KIND && k.handle == flow::format::Handle::Repair);
     if reply.output.is_none()
         && repairs
+        && reply.stopped.is_none()
         && agent::failure_kind(reply.error.as_deref().unwrap_or_default()) == crate::unparsed::KIND
     {
         // A repair is checked as the return it gives would be taken.
@@ -590,6 +622,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             cell,
             round,
             section: &section,
+            guard: watched.stop_record(),
         };
         return f.handle(e, ended, &reply);
     };

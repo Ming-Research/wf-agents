@@ -13,7 +13,7 @@ use crate::check::Analysis;
 use crate::field::{Field, segment};
 use crate::format::{
     Always, Atom, BlockerCell, Blockers, Check, Choice, Counter, Do, EngineNames, EnumText, FRESH_SESSION, Form,
-    Handle, Kind, NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src,
+    GUARDED, Handle, Kind, NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src,
 };
 use crate::graph::{Cell, CellKind, Graph, ensure};
 
@@ -1059,6 +1059,21 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
 /// The rounds section as written, once every agent's cell can have a shared row of each kind's name.
 fn rounds(r: &Rounds, cells: &[CompiledCell]) -> Result<Rounds, String> {
     ensure!(r.sent_back.pause_after > 1, "rounds.sentBack.pauseAfter is less than 2");
+    // A round the guard stops takes this kind's row, which runs it again in a new session; a stop with no row would be
+    // a step off the chart.
+    let guarded = r.failed.kinds.iter().find(|k| k.name == GUARDED);
+    ensure!(
+        r.guard.is_none() || guarded.is_some_and(|k| k.handle == Handle::Fresh),
+        "rounds.guard needs a kind of failed run named {GUARDED}, handled fresh"
+    );
+    ensure!(
+        guarded.is_none() || r.guard.is_some(),
+        "the kind of failed run {GUARDED} has no rounds.guard to say when it comes"
+    );
+    ensure!(
+        r.guard.as_ref().is_none_or(|g| g.samples > 1),
+        "rounds.guard.samples is less than 2"
+    );
     for c in cells {
         let mut seen = std::collections::BTreeSet::new();
         for row in &c.rows {

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use db::Actor;
 use db::rusqlite::params;
-use engine::agent::{Agents, Reply, Request};
+use engine::agent::{Agents, Call, Next, Reply, Request, Seen};
 use engine::hub::{CheckRun, Failure, GitHub};
 use engine::{Advance, Ask, Engine, GlobalPause, Go, Hooks, Passed, Stepped};
 use serde_json::{Value, json};
@@ -262,8 +262,9 @@ fn example(s: &Value, path: &str, pick: &BTreeMap<String, String>, set: &BTreeMa
 
 /// What the scripted agent hands in at a cell, and does in the worktree before. Under `@error` it hands in nothing,
 /// as a run that failed with that report; under `@compactions`, the session was compacted that many times; under
-/// `@usage`, what the CLI reports the round used. The script `@ping` answers a keep-warm ping, its `@usage` what the
-/// ping used.
+/// `@usage`, what the CLI reports the round used; under `@stream`, what the run's stream tells on the way ([`seen`]),
+/// each thing told to the round's watcher, which may stop the run there. The script `@ping` answers a keep-warm ping,
+/// its `@usage` what the ping used.
 type Script =
     Box<dyn Fn(&Request, usize) -> (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>) + Send + Sync>;
 
@@ -272,8 +273,31 @@ struct Scripted {
     rounds: Mutex<BTreeMap<String, usize>>,
 }
 
+/// What one entry of a script's `@stream` tells: a call by `call` and `prompt`, with `output` and `subagent` when the
+/// script says; a tool use by `tool` and `digest`; or a compaction.
+fn seen(entry: &Value, model: &str) -> Seen {
+    if let Some(id) = entry["call"].as_str() {
+        return Seen::Call(Call {
+            id: id.to_string(),
+            model: Some(model.to_string()),
+            read: entry["prompt"].as_i64().unwrap_or(0),
+            output: entry["output"].as_i64().unwrap_or(0),
+            subagent: entry["subagent"] == true,
+            ..Call::default()
+        });
+    }
+    match entry["tool"].as_str() {
+        Some(name) => Seen::Tool {
+            name: name.to_string(),
+            on: entry["on"].as_str().map(str::to_string),
+            digest: entry["digest"].as_u64().unwrap_or(0),
+        },
+        None => Seen::Compacted,
+    }
+}
+
 impl Agents for Scripted {
-    fn run(&self, r: &Request, _activity: &dyn Fn(&str)) -> Reply {
+    fn run(&self, r: &Request, watch: &dyn Fn(Seen) -> Next) -> Reply {
         if r.replay.is_some() {
             return self.ping(r);
         }
@@ -313,6 +337,21 @@ impl Agents for Scripted {
             set.entry("outcome.notebook".into()).or_insert(json!(edits));
         }
         let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
+        let stream = set
+            .remove("@stream")
+            .and_then(|s| s.as_array().cloned())
+            .unwrap_or_default();
+        for entry in &stream {
+            if let Next::Stop(why) = watch(seen(entry, &r.model)) {
+                return Reply {
+                    session,
+                    usage: json!({ "started": true }),
+                    error: Some(why.clone()),
+                    stopped: Some(why),
+                    ..Reply::default()
+                };
+            }
+        }
         if let Some(e) = set.get("@error") {
             return Reply {
                 session,
@@ -12750,5 +12789,331 @@ fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_
     );
     assert_eq!(rounds_at(&e), 1, "{log}");
     assert!(state(&e, second).unwrap().2.is_some(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Rounds of a cell as if they had run and ended, in a work of their own that is over, that a cell's lines are computed
+/// from: for the round `i` of `n`, from 1, its tokens added, its calls, and its jump for `given` characters.
+fn history(e: &mut Engine, cell: &str, n: i64, of: &dyn Fn(i64) -> (i64, i64, i64, i64)) {
+    e.db.write(Actor::Engine, |tx| {
+        let version: i64 = tx.query_row("SELECT max(id) FROM flow_versions", [], |r| r.get(0))?;
+        tx.execute(
+            "INSERT INTO works (flow_version, graph, at, ended) VALUES (?1, 'engineer', 'E1', 'history')",
+            [version],
+        )?;
+        let work = tx.last_insert_rowid();
+        for i in 1..=n {
+            let (added, calls, jump, given) = of(i);
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, ended_at)
+                 VALUES (?1, ?2, ?3, '{}', 'c', 1, 2)",
+                params![work, i, cell],
+            )?;
+            tx.execute(
+                "INSERT INTO round_measures (work, round, graph, cell, calls, added, jump, given, repeats, compactions,
+                                             ledger)
+                 VALUES (?1, ?2, 'engineer', ?3, ?4, ?5, ?6, ?7, 0, 0, 1)",
+                params![work, i, cell, calls, added, jump, given],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// The usual shape of a cell's rounds: their line of tokens added is 2,800, of tokens a call 280, and of calls 11; of a
+/// jump 2,800 and of a jump for each character 2.8.
+fn usual(i: i64) -> (i64, i64, i64, i64) {
+    (i * 100, 11, i * 100, 1000)
+}
+
+/// A stream of calls, each with its prompt.
+fn calls_of(prompts: &[i64]) -> Value {
+    let entries: Vec<Value> = prompts
+        .iter()
+        .enumerate()
+        .map(|(i, p)| json!({ "call": format!("m{i}"), "prompt": p }))
+        .collect();
+    Value::Array(entries)
+}
+
+/// One number the database gives.
+fn number(e: &Engine, sql: &str) -> i64 {
+    e.db.conn().query_row(sql, [], |r| r.get(0)).unwrap()
+}
+
+/// What the run guard recorded, in order: each signal with what came of it.
+fn guard_events(e: &Engine) -> Vec<(String, String)> {
+    let conn = e.db.conn();
+    let mut st = conn
+        .prepare("SELECT signal, action FROM guard_events ORDER BY id")
+        .unwrap();
+    st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// An item whose `R1` goes past both lines of growth in its first `times` rounds, then runs as usual.
+fn growing(name: &str, times: usize) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64) {
+    let s = setup(name);
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            let stream = vec![("@stream", calls_of(&[10_000, 30_000]))];
+            (Vec::new(), if n <= times { stream } else { Vec::new() })
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    (s, e, said, item)
+}
+
+// A round whose context grows past both of its cell's lines is stopped at the call that passes them: it is the kind
+// `guarded`, and not a run that merely failed; the line's session ends, the cell runs again in a new one told why, and
+// the owner hears of it. What the calls cost stands for the report the run never reached, and the round stopped joins
+// no history.
+#[test]
+fn a_round_past_both_lines_is_stopped_and_runs_again_in_a_new_session() {
+    let (s, mut e, said, item) = growing("guard-once", 1);
+    for _ in 0..8 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert_ne!(at, "R1", "{log}");
+    assert_eq!(failed_kinds(&e), ["guarded"], "{log}");
+    assert_eq!(guard_events(&e), [("growth".to_string(), "stopped".to_string())]);
+    let sessions: Vec<(i64, Option<i64>)> = {
+        let conn = e.db.conn();
+        let mut st = conn
+            .prepare(
+                "SELECT r.session, s.ended FROM rounds r JOIN sessions s ON s.id = r.session
+                 WHERE r.work = ?1 AND r.cell = 'R1' ORDER BY r.n",
+            )
+            .unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    assert_eq!(sessions.len(), 2, "{sessions:?}");
+    assert_ne!(sessions[0].0, sessions[1].0, "{sessions:?}");
+    assert!(sessions[0].1.is_some(), "{sessions:?}");
+    // Told why, with the signal, its value and its line, and to look at the worktree first.
+    let again = input_at(&e, work, "R1", true);
+    let told = again["message"].to_string();
+    assert!(
+        told.contains("The run guard stopped") && told.contains("look at the worktree"),
+        "{told}"
+    );
+    let why = number(
+        &e,
+        "SELECT count(*) FROM contents WHERE text LIKE '%\"signal\":\"growth\"%' AND text LIKE '%20000%'
+         AND text LIKE '%2800%' AND text LIKE '%last_tools%'",
+    );
+    assert_eq!(why, 1, "{told}");
+    // The owner is told the first time too.
+    let notices = number(
+        &e,
+        "SELECT count(*) FROM engine_notices WHERE text LIKE '%the run guard stopped%'",
+    );
+    assert_eq!(notices, 1, "{log}");
+    // Its usage comes from its calls, marked so; it is in no history, and the round after it is.
+    let (first, estimated): (i64, bool) =
+        e.db.conn()
+            .query_row(
+                "SELECT n, json_extract(usage, '$.estimated') FROM rounds
+                 WHERE work = ?1 AND json_extract(rejected, '$.failed.kind') = 'guarded'",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert!(estimated);
+    let kept = number(
+        &e,
+        &format!("SELECT count(*) FROM round_measures WHERE work = {work} AND round = {first}"),
+    );
+    assert_eq!(kept, 0);
+    let calls = number(
+        &e,
+        &format!("SELECT count(*) FROM round_calls WHERE work = {work} AND round = {first}"),
+    );
+    assert_eq!(calls, 2);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Stopped again in its new session, the work pauses and the owner is told; once the owner lets it go on, the next round
+// is recorded past its line and not stopped, since the owner's Start comes first.
+#[test]
+fn a_round_stopped_twice_pauses_and_the_owners_start_lets_the_next_run() {
+    let (s, mut e, said, item) = growing("guard-twice", 3);
+    for _ in 0..8 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "R1", "{log}");
+    let why = paused.unwrap_or_default();
+    assert!(why.contains("the run guard stopped the agent's run in"), "{why}\n{log}");
+    assert_eq!(failed_kinds(&e), ["guarded", "guarded"], "{log}");
+    api::resume(&mut e.db, work).unwrap();
+    for _ in 0..4 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert_ne!(at, "R1", "{log}");
+    assert_eq!(failed_kinds(&e), ["guarded", "guarded"], "{log}");
+    let actions: Vec<String> = guard_events(&e).into_iter().map(|(_, a)| a).collect();
+    assert_eq!(actions, ["stopped", "stopped", "waived"]);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A round that adds much at the pace of its cell's rounds is a long round, as the longest that ever ran was: it runs to
+// its return, and what it came to joins the history.
+#[test]
+fn a_long_round_at_the_usual_pace_is_not_stopped() {
+    let s = setup("guard-long");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| {
+            let prompts: Vec<i64> = (0..12).map(|i| 10_000 + i * 270).collect();
+            (Vec::new(), vec![("@stream", calls_of(&prompts))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &|i| (i * 100, 11, 0, 1000));
+    for _ in 0..4 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(failed_kinds(&e).is_empty(), "{log}");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_ne!(at, "R1", "{log}");
+    let (added, calls): (i64, i64) =
+        e.db.conn()
+            .query_row(
+                "SELECT added, calls FROM round_measures WHERE work = ?1 AND cell = 'R1' AND ledger = 1",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!((added, calls), (2970, 12), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The first prompt of a round past the session's last, by more than its cell's line and by more for each character the
+// engine gave, stops the round at its first call; what a failed round left in the session between them counts, since
+// the ledger keeps every call.
+#[test]
+fn a_jump_nothing_given_explains_stops_the_round_at_its_first_call() {
+    let s = setup("guard-jump");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@stream", calls_of(&[10_000]))])),
+    );
+    scripts.insert(
+        "R2",
+        Box::new(|_: &Request, n: usize| {
+            let failing = vec![("@error", json!("API Error: 529 Overloaded"))];
+            let jumping = vec![("@stream", calls_of(&[9_000_000, 9_000_100]))];
+            (
+                Vec::new(),
+                match n {
+                    1 => failing,
+                    2 => jumping,
+                    _ => Vec::new(),
+                },
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R2", 19, &usual);
+    for _ in 0..12 {
+        e.tick().unwrap();
+        if !guard_events(&e).is_empty() {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed_kinds(&e), ["transient", "guarded"], "{log}");
+    let (work, _, _) = state(&e, item).unwrap();
+    let calls = number(
+        &e,
+        &format!(
+            "SELECT count(*) FROM round_calls c JOIN rounds r ON r.work = c.work AND r.n = c.round
+             WHERE c.work = {work} AND json_extract(r.rejected, '$.failed.kind') = 'guarded'"
+        ),
+    );
+    assert_eq!(calls, 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A signal only recorded goes on the record and leaves the round to run to its return: each once, however far past.
+#[test]
+fn a_signal_only_noted_leaves_the_round_to_its_end() {
+    let s = setup("guard-noted");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| {
+            let prompts: Vec<i64> = (0..14).map(|i| 10_000 + i).collect();
+            (Vec::new(), vec![("@stream", calls_of(&prompts))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    for _ in 0..4 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(failed_kinds(&e).is_empty(), "{log}");
+    assert_eq!(guard_events(&e), [("calls".to_string(), "noted".to_string())], "{log}");
+    assert_ne!(state(&e, item).unwrap().1, "R1", "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// With too few rounds behind it there is no line, and nothing a round does stops it.
+#[test]
+fn with_too_few_rounds_nothing_is_judged() {
+    let s = setup("guard-few");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@stream", calls_of(&[10_000, 900_000]))])),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 18, &usual);
+    for _ in 0..4 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(guard_events(&e).is_empty(), "{log}");
+    assert!(failed_kinds(&e).is_empty(), "{log}");
+    assert_ne!(state(&e, item).unwrap().1, "R1", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

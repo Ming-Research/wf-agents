@@ -11355,7 +11355,7 @@
           "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work at that cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
         },
         "failed": {
-          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer. The command line writes the round's message into the session before it calls the service, so a round run again in the same session is given only what the session lacks, not its message once more.",
+          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports, but for `guarded`, the one it stopped itself. None of them asks the owner for a written answer. The command line writes the round's message into the session before it calls the service, so a round run again in the same session is given only what the session lacks, not its message once more.",
           "kinds": [
             {
               "name": "usage_limit",
@@ -11382,6 +11382,12 @@
               "desc": "Running again in the same session would give the classifier the same context: the engine ends the line's session and runs the round once more in a new one; when that is stopped too, it pauses the work and tells the owner, naming the rounds, since what the agent is given needs a look."
             },
             {
+              "name": "guarded",
+              "when": "The run guard stopped the run: its context grew, or jumped at its first call, past what its cell's history and what the engine gave it explain",
+              "handle": "fresh",
+              "desc": "The same session would give the next round the same context: the engine tells the owner, ends the line's session and runs the round once more in a new one, whose message gives the cell's whole input with which signal passed which line, its value and the last tools the round used, and asks it to look at the worktree as it is first. When that is stopped too, it pauses the work and tells the owner, naming the rounds. Once the owner lets the work go on, the cell's next round is only recorded and not stopped, whatever it comes to, since the owner's Start comes first; the rounds after it are judged as ever."
+            },
+            {
               "name": "cannot_run",
               "when": "The login has expired, or the command line cannot be found",
               "handle": "wait",
@@ -11401,13 +11407,19 @@
             }
           ]
         },
+        "guard": {
+          "desc": "While an agent's round runs, the engine reads each call to the model from the command line's stream, keeps it in a ledger, and compares the round with lines the rounds before it give, so that no line is a number anyone set. A line is 2 × the largest value of a distribution − its median: past the largest by as much as the largest is past the middle. A cell's own line needs at least 19 of its rounds kept call by call, and a median above 0, since a distribution with no scale gives no line; otherwise the line comes from every round of the graph, those from before the ledger included; and with fewer than 19 there too, nothing is judged and the round is only recorded. A round is stopped on two signals, each of two conditions: growth, when the tokens its context added and those it added per call are both past their lines, which a long round at the usual pace is not; and jump, when the rise of its first prompt over the session's last and that rise for each character the engine gave are both past their lines, which a large message is not. The engine then stops the round's whole process group, and the round takes the row `guarded`. Cost, calls, tool uses repeated exactly and compactions past their lines are recorded and shown on the System page, and the round goes on: they do not tell a long round that is normal from one that is not. A round stopped does not enter the history the lines are computed from.",
+          "samples": 19
+        },
         "record": [
           "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing.",
-          "A round whose return the command line could not parse keeps the whole text of each of its attempts, rebuilt from the stream, and how it was repaired or handed in again, with what that cost, which the round's cost includes."
+          "A round whose return the command line could not parse keeps the whole text of each of its attempts, rebuilt from the stream, and how it was repaired or handed in again, with what that cost, which the round's cost includes.",
+          "Each round records the lines the run guard judged it by, and the ledger keeps every call it made; a round stopped keeps what those calls cost at the prices the engine knows, marked as an estimate, since it never reached the command line's report of its cost."
         ],
         "environment": [
           "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration.",
-          "Every agent's command line streams each tool input whole, not in pieces, so that the service checks its JSON; tries a return three times, not five, since each attempt writes the whole return again; and gives the stream's partial messages, from which each attempt at a return is rebuilt whole."
+          "Every agent's command line streams each tool input whole, not in pieces, so that the service checks its JSON; tries a return three times, not five, since each attempt writes the whole return again; and gives the stream's partial messages, from which each attempt at a return is rebuilt whole.",
+          "Every agent's command line runs in a process group of its own, so that stopping a round stops everything it started."
         ],
         "engine": [
           {
@@ -17515,7 +17527,7 @@
           "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work at that cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
         },
         "failed": {
-          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer. The command line writes the round's message into the session before it calls the service, so a round run again in the same session is given only what the session lacks, not its message once more.",
+          "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports, but for `guarded`, the one it stopped itself. None of them asks the owner for a written answer. The command line writes the round's message into the session before it calls the service, so a round run again in the same session is given only what the session lacks, not its message once more.",
           "kinds": [
             {
               "name": "usage_limit",
@@ -17542,6 +17554,12 @@
               "desc": "Running again in the same session would give the classifier the same context: the engine ends the line's session and runs the round once more in a new one; when that is stopped too, it pauses the work and tells the owner, naming the rounds, since what the agent is given needs a look."
             },
             {
+              "name": "guarded",
+              "when": "The run guard stopped the run: its context grew, or jumped at its first call, past what its cell's history and what the engine gave it explain",
+              "handle": "fresh",
+              "desc": "The same session would give the next round the same context: the engine tells the owner, ends the line's session and runs the round once more in a new one, whose message gives the cell's whole input with which signal passed which line, its value and the last tools the round used, and asks it to look at the worktree as it is first. When that is stopped too, it pauses the work and tells the owner, naming the rounds. Once the owner lets the work go on, the cell's next round is only recorded and not stopped, whatever it comes to, since the owner's Start comes first; the rounds after it are judged as ever."
+            },
+            {
               "name": "cannot_run",
               "when": "The login has expired, or the command line cannot be found",
               "handle": "wait",
@@ -17561,13 +17579,19 @@
             }
           ]
         },
+        "guard": {
+          "desc": "While an agent's round runs, the engine reads each call to the model from the command line's stream, keeps it in a ledger, and compares the round with lines the rounds before it give, so that no line is a number anyone set. A line is 2 × the largest value of a distribution − its median: past the largest by as much as the largest is past the middle. A cell's own line needs at least 19 of its rounds kept call by call, and a median above 0, since a distribution with no scale gives no line; otherwise the line comes from every round of the graph, those from before the ledger included; and with fewer than 19 there too, nothing is judged and the round is only recorded. A round is stopped on two signals, each of two conditions: growth, when the tokens its context added and those it added per call are both past their lines, which a long round at the usual pace is not; and jump, when the rise of its first prompt over the session's last and that rise for each character the engine gave are both past their lines, which a large message is not. The engine then stops the round's whole process group, and the round takes the row `guarded`. Cost, calls, tool uses repeated exactly and compactions past their lines are recorded and shown on the System page, and the round goes on: they do not tell a long round that is normal from one that is not. A round stopped does not enter the history the lines are computed from.",
+          "samples": 19
+        },
         "record": [
           "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing.",
-          "A round whose return the command line could not parse keeps the whole text of each of its attempts, rebuilt from the stream, and how it was repaired or handed in again, with what that cost, which the round's cost includes."
+          "A round whose return the command line could not parse keeps the whole text of each of its attempts, rebuilt from the stream, and how it was repaired or handed in again, with what that cost, which the round's cost includes.",
+          "Each round records the lines the run guard judged it by, and the ledger keeps every call it made; a round stopped keeps what those calls cost at the prices the engine knows, marked as an estimate, since it never reached the command line's report of its cost."
         ],
         "environment": [
           "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration.",
-          "Every agent's command line streams each tool input whole, not in pieces, so that the service checks its JSON; tries a return three times, not five, since each attempt writes the whole return again; and gives the stream's partial messages, from which each attempt at a return is rebuilt whole."
+          "Every agent's command line streams each tool input whole, not in pieces, so that the service checks its JSON; tries a return three times, not five, since each attempt writes the whole return again; and gives the stream's partial messages, from which each attempt at a return is rebuilt whole.",
+          "Every agent's command line runs in a process group of its own, so that stopping a round stops everything it started."
         ],
         "engine": [
           {

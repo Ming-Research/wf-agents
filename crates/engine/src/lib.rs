@@ -45,6 +45,7 @@ mod unparsed;
 mod values;
 mod versions;
 mod warm;
+mod watch;
 mod work;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -105,6 +106,10 @@ pub enum Advance {
 /// what it does.
 pub type Activity = dyn Fn(i64, i64, &str) + Send + Sync;
 
+/// Where the engine tells how a running round stands: the round's work, its number in the work, and what its calls to
+/// the model come to so far.
+pub type Measured = dyn Fn(i64, i64, sessions::guard::Live) + Send + Sync;
+
 /// Where the loop tells which works it is taking a step of, in the order of their ids.
 pub type Busy = dyn Fn(&[i64]) + Send + Sync;
 
@@ -115,6 +120,8 @@ pub struct Hooks {
     pub say: Arc<dyn Fn(&str) + Send + Sync>,
     /// What the agent of a running round is doing, by its work and round, as its command line reports it.
     pub activity: Arc<Activity>,
+    /// How a running round stands, by its work and round, after each of its calls to the model.
+    pub measure: Arc<Measured>,
     /// Where the loop says which works it is taking a step of, in the order of their ids, each time it dispatches a
     /// step or reaps one: the owner's page shows those works' rounds as running, and what stops once each ends.
     pub busy: Arc<Busy>,
@@ -135,6 +142,7 @@ impl Default for Hooks {
         Hooks {
             say: Arc::new(|s: &str| eprintln!("{s}")),
             activity: Arc::new(|_: i64, _: i64, _: &str| {}),
+            measure: Arc::new(|_: i64, _: i64, _: sessions::guard::Live| {}),
             busy: Arc::new(|_: &[i64]| {}),
             ended: Arc::new(|| {}),
             commit: None,
