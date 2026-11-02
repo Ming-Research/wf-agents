@@ -722,6 +722,11 @@
        "id": "F3",
        "reason": "outcome.rows.reason",
        "evidence": "outcome.rows.evidence"
+      },
+      {
+       "answer": "fixed_outside_commit",
+       "id": "F4",
+       "where": "outcome.rows.where"
       }
      ],
      "head": "9d2c7aa",

@@ -303,6 +303,6 @@ describe('the head of the one-to-one with an architect', () => {
     const html = renderToStaticMarkup(<ArchitectHead c={one} a={held} onSide={null} />);
     expect(html).toMatch(/class="talk-head-hold"[^>]*>[\s\S]*The plan is being set straight\./);
     // Its name leads to the architect's page, the way to each project's architect.
-    expect(html).toMatch(/<a [^>]*href="\/architect\?project=p"[^>]*>/);
+    expect(html).toMatch(/<a [^>]*href="\/works\/architect\?project=p"[^>]*>/);
   });
 });

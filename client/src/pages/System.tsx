@@ -9,10 +9,12 @@ import { Flash } from '@primer/react';
 
 import type {
   Anomaly,
+  AnomalyKind,
   ArchitectNow,
   ItemAt,
   Status,
   System as SystemData,
+  WatchedRound,
   Week,
   WorkCount,
   WorkSummary,
@@ -21,7 +23,7 @@ import { Columns, share, Tile, useTip } from '../charts';
 import { course, heldWords } from '../components';
 import { runningWords, waitsWords } from '../course';
 import { cost, day, duration, roundName, time } from '../format';
-import { useResource, useStatus } from '../live';
+import { measureKey, useMeasures, useResource, useStatus } from '../live';
 import { HeadingLevel, ItemRef, PeriodSwitch, PrLink, RoundLink, Section } from '../parts';
 import { architectHref, href, Link, type Period, PERIODS, roundAt, workHref } from '../route';
 import { tokenCount, tokens } from '../round';
@@ -127,6 +129,7 @@ function Now({ s, works, status }: { s: SystemData; works: WorkSummary[]; status
         ))}
       </div>
       <Architects list={n.architects} at={s.at} />
+      <RoundsRunning list={n.running} />
       {groups
         .filter((g) => g.works.length > 0)
         .map((g) => (
@@ -140,6 +143,56 @@ function Now({ s, works, status }: { s: SystemData; works: WorkSummary[]; status
           </Section>
         ))}
     </>
+  );
+}
+
+/// The rounds running now, as the run guard sees them: how large each context is, and what each added and spent against
+/// the line that would stop or mark it. The event stream brings each number as it comes; a line is the round's own,
+/// from when it started. Nothing is drawn while no round runs.
+function RoundsRunning({ list }: { list: WatchedRound[] }) {
+  const measures = useMeasures();
+  const against = (value: string, line: string | null) => (line !== null ? t('sys_of_line', { value, line }) : value);
+  return (
+    <Section id="sys-running" title={t('sys_running')} n={list.length} open>
+      <table className="list us-table sys-table">
+        <thead>
+          <tr>
+            <th>{t('sys_col_where')}</th>
+            <th>{t('sys_col_item')}</th>
+            <th>{t('sys_col_context')}</th>
+            <th>{t('sys_col_added')}</th>
+            <th>{t('sys_col_spent')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((r) => {
+            const m = measures.get(measureKey(r.work, r.round)) ?? r;
+            return (
+              <tr key={measureKey(r.work, r.round)}>
+                <td>
+                  {r.graph === 'architect' ? (
+                    <Link
+                      to={architectHref({ project: r.project, round: roundAt(r.work, r.round) })}
+                      className="round-link"
+                    >
+                      {roundName(r.work, r.round)}
+                    </Link>
+                  ) : (
+                    <RoundLink work={r.work} round={r.round} />
+                  )}
+                </td>
+                <td>
+                  {r.item !== null ? <ItemRef id={r.item} title={r.title} /> : t('sys_architect_of', { project: r.project ?? '' })}
+                </td>
+                <td>{tokens(m.context)}</td>
+                <td>{against(tokens(m.added), r.added_line !== null ? tokens(Math.round(r.added_line)) : null)}</td>
+                <td>{against(cost(m.cost_usd), r.cost_line !== null ? cost(r.cost_line) : null)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </Section>
   );
 }
 
@@ -680,10 +733,45 @@ function Anomalies({ s }: { s: SystemData }) {
   );
 }
 
+/// A signal past its line, in words: tokens, dollars or a count, as the signal is.
+function guardWords(w: Extract<AnomalyKind, { kind: 'guard' }>): string {
+  const count = (v: number) => String(Math.round(v));
+  const both = { also: count(w.also ?? 0), also_line: count(w.also_line ?? 0) };
+  const what = () => {
+    switch (w.signal) {
+      case 'growth':
+        return t('sys_guard_growth', { value: tokens(w.value), line: tokens(Math.round(w.line)), ...both });
+      case 'jump':
+        return t('sys_guard_jump', {
+          value: tokens(w.value),
+          line: tokens(Math.round(w.line)),
+          also: (w.also ?? 0).toFixed(1),
+          also_line: (w.also_line ?? 0).toFixed(1),
+        });
+      case 'cost':
+        return t('sys_guard_cost', { value: cost(w.value), line: cost(w.line) });
+      case 'calls':
+        return t('sys_guard_calls', { value: count(w.value), line: count(w.line) });
+      case 'repeats':
+        return t('sys_guard_repeats', { value: count(w.value), line: count(w.line) });
+      case 'compactions':
+        return t('sys_guard_compactions', { value: count(w.value), line: count(w.line) });
+      default:
+        return w.signal;
+    }
+  };
+  const action =
+    w.action === 'stopped' ? t('sys_guard_stopped') : w.action === 'waived' ? t('sys_guard_waived') : t('sys_guard_noted');
+  const scope = w.scope === 'cell' ? t('sys_guard_cell') : t('sys_guard_graph');
+  return t('sys_guard_said', { what: what(), action, samples: w.samples, scope });
+}
+
 /// What went wrong, in words.
 function anomalyWords(a: Anomaly): string {
   const w = a.what;
   switch (w.kind) {
+    case 'guard':
+      return guardWords(w);
     case 'flow_anomaly':
       return t('sys_what_flow_anomaly', { row: w.row.replaceAll('_', ' ') });
     case 'counter':

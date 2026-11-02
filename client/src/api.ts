@@ -129,11 +129,11 @@ until: number,
 why: string, };
 
 /**
- * What changed, as the event stream gives it. An event names what to read again and never carries that state,
- * except the engine's status, which lives only in the engine. The stream gives each event an id; a client that
- * reconnects with the last id it saw is given what it missed.
+ * What changed, as the event stream gives it. An event names what to read again and never carries that state, except
+ * what comes too often to read again or lives only in the engine: its status, and what a running round does and has
+ * come to. The stream gives each event an id; a client that reconnects with the last id it saw is given what it missed.
  */
-export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "design_card", design_card: number, work: number | null, } | { "kind": "ask", ask: number, work: number | null, } | { "kind": "owner_message", message: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, } | { "kind": "architect" } | { "kind": "observations" } | { "kind": "activity", work: number, round: number, what: string, at: number, };
+export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "design_card", design_card: number, work: number | null, } | { "kind": "ask", ask: number, work: number | null, } | { "kind": "owner_message", message: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, } | { "kind": "architect" } | { "kind": "observations" } | { "kind": "activity", work: number, round: number, what: string, at: number, } | { "kind": "measure", work: number, round: number, context: number, added: number, cost_usd: number, };
 
 /**
  * Where a work stands.
@@ -1634,6 +1634,30 @@ handling: number | null,
 listens: boolean, };
 
 /**
+ * How a project's architect stands, and nothing more: what the page needs to draw its row in the works view and its
+ * mark in the list of conversations, which is its works, its queue and whether a question of its own waits for the
+ * owner's reply. It is read for every project at once, without the notebook, the policy, the matters handled, the item
+ * changes and the constitution that the architect's own page shows (`Architect`).
+ */
+export type ArchitectStanding = {
+/**
+ * The project whose architect it is.
+ */
+project: string,
+/**
+ * Its works, newest first, as `Architect` has them.
+ */
+works: Array<ArchitectWork>,
+/**
+ * The matters it has not handled, as `Architect` has them.
+ */
+queue: Array<Matter>,
+/**
+ * Whether an ask of any of its works waits for the owner's reply.
+ */
+asking: boolean, };
+
+/**
  * A window of a project's architect's rounds, across its works, in the order they started, oldest first; and whether
  * rounds older than its first and newer than its last are there to read.
  */
@@ -1908,7 +1932,29 @@ export type SystemNow = { architects: Array<ArchitectNow>,
 /**
  * The asks of the owner not answered, the decision cards not ruled on and the faults of wf-agents not read.
  */
-asks: Waiting, design_cards: Waiting, faults: Waiting, };
+asks: Waiting, design_cards: Waiting, faults: Waiting,
+/**
+ * The agents' rounds running now, the oldest first.
+ */
+running: Array<WatchedRound>, };
+
+/**
+ * An agent's round running now, as the run guard sees it: how large its context is, what it added and what it cost so
+ * far, and the lines it is judged by, each none while too few rounds give one.
+ */
+export type WatchedRound = { work: number, round: number, graph: string, cell: string | null, item: number | null, title: string | null, project: string | null,
+/**
+ * The tokens of its last prompt.
+ */
+context: number,
+/**
+ * The tokens its context grew by in this round, and the line of that.
+ */
+added: number, added_line: number | null,
+/**
+ * What it cost so far, estimated from its calls, and the line of that.
+ */
+cost_usd: number, cost_line: number | null, };
 
 /**
  * A project's architect now.
@@ -2093,7 +2139,7 @@ round: number | null, at: number, what: AnomalyKind, };
 /**
  * What went wrong, each kind of its own.
  */
-export type AnomalyKind = { "kind": "flow_anomaly", row: string, } | { "kind": "counter", counter: string, limit: number, } | { "kind": "stopped", why: string, } | { "kind": "tool_failed", cell: string, } | { "kind": "main_red", how: string, checks: Array<string>, };
+export type AnomalyKind = { "kind": "flow_anomaly", row: string, } | { "kind": "counter", counter: string, limit: number, } | { "kind": "stopped", why: string, } | { "kind": "tool_failed", cell: string, } | { "kind": "main_red", how: string, checks: Array<string>, } | { "kind": "guard", signal: string, value: number, line: number, also: number | null, also_line: number | null, samples: number, scope: string, action: string, };
 
 /**
  * Why a request failed.
@@ -2614,7 +2660,11 @@ environment: Array<string>,
  * The other ways a round ends in no return the cell takes, each the engine's own: every agent's cell has a
  * shared row of each one's name for it.
  */
-engine?: Array<EngineCase>, };
+engine?: Array<EngineCase>,
+/**
+ * How a running round is judged; none in a flow version from before the guard, whose rounds are only recorded.
+ */
+guard?: Guard | null, };
 
 /**
  * What a task of a graph waits on when it stops: a blocker, raised at the cell where its problem arose and held by
@@ -2674,6 +2724,16 @@ export type EngineCase = { name: string, when: string, desc: string,
  * The work pauses, and the owner is told: a blocker the owner holds at the cell.
  */
 pauses?: boolean, };
+
+/**
+ * The run guard's rule: how a running round is compared with the rounds before it. The lines themselves are not here:
+ * they are computed from those rounds.
+ */
+export type Guard = { desc: string,
+/**
+ * How many rounds a distribution needs before it gives a line.
+ */
+samples: number, };
 
 export type CompiledCell = { id: string,
 /**

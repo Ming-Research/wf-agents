@@ -43,6 +43,7 @@ pub fn events(conn: &Connection, rows: &[Changed]) -> Vec<Event> {
         let event = match c.table.as_str() {
             "rounds" => round(conn, "SELECT work, n FROM rounds WHERE rowid = ?1", id),
             "tool_runs" => round(conn, "SELECT work, round FROM tool_runs WHERE id = ?1", id),
+            "guard_events" => round(conn, "SELECT work, round FROM guard_events WHERE id = ?1", id),
             "works" => Some(Event::Work { work: id }),
             "interjections" => {
                 one(conn, "SELECT work FROM interjections WHERE id = ?1", id).map(|work| Event::Work { work })
