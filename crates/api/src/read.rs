@@ -4403,12 +4403,16 @@ mod tests {
         let mut s = architect_setup("standing");
         let cache = Flows::default();
         let projects = || vec!["p".to_string(), "q".to_string(), "r".to_string()];
+        // How long a matter has waited is read from the clock at each read, so the two reads differ by it.
+        let unclocked = |queue: Vec<Matter>| -> Vec<Matter> {
+            queue.into_iter().map(|m| Matter { waited_ms: None, ..m }).collect()
+        };
         let same = |s: &Setup, project: &str| -> bool {
             let page = architect(s.db.conn(), &cache, project, projects(), None).unwrap();
             let now = architect_standing(s.db.conn(), &cache, project).unwrap();
             assert_eq!(now.project, project);
             assert_eq!(now.works, page.works, "{project}");
-            assert_eq!(now.queue, page.queue, "{project}");
+            assert_eq!(unclocked(now.queue), unclocked(page.queue), "{project}");
             assert_eq!(now.asking, page.asks.iter().any(|a| a.answer.is_none()), "{project}");
             now.asking
         };

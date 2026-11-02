@@ -207,7 +207,16 @@ describe("the architect's page", () => {
     expect(standing(page())).toEqual({ project: 'p', works: [], queue: [], asking: false });
     // Waiting for the owner's next words, held back with a queue and every work paused, asking: the three states the
     // mark in the list of conversations and the architect's row in the works both say, one function.
-    const status = { paused: false, running: [], architects_started: [] } as unknown as Status;
+    const status = {
+      paused: false,
+      running: [],
+      started: [],
+      releasing: [],
+      waiting_for_slot: [],
+      stepping: [],
+      architects_started: [],
+      flow_version: 2,
+    } as unknown as Status;
     const listening = { ...architectWork(10, { state: 'waiting', at: 'Q0' }), listens: true };
     expect(architectMark(standing(page({ works: [listening] })), status)).toEqual({
       state: 'waiting',
