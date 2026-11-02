@@ -1,7 +1,9 @@
 // What keeps the page current: the interface's event stream. The page reads a view once, and reads it again only
 // when an event names something it shows; the stream's ids let a reconnect miss nothing, and when events were lost
 // the interface says to read everything again. An event only says that a read is out of date: the reads themselves, one
-// at a time for each path and no oftener than `MIN_GAP_MS` (`reader.ts`), are what the hooks here give the parts.
+// at a time for each path (`reader.ts`), are what the hooks here give the parts. How often events cause reads is
+// `coalesced`'s: once in `FLUSH_MS`, never while the tab is hidden; what the page changes itself (`reread`) and
+// everything read again after lost events are read at once.
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
@@ -39,6 +41,41 @@ function subscribe(l: () => void): () => void {
   listeners.add(l);
   return () => listeners.delete(l);
 }
+
+/// How long what events name waits before it is read again. A busy engine sends several events a second, and a view
+/// can take half a second to read and more to draw: read at each event, the reads pile up behind one another until the
+/// owner's page and the machine stop.
+export const FLUSH_MS = 3000;
+
+/// Gathers what is given to it and hands it to `run` at most once in `FLUSH_MS`, each key once, and not while `hidden`
+/// says so: a tab the owner is not looking at reads nothing until it is looked at.
+export function coalesced(run: (keys: string[]) => void, hidden: () => boolean): (keys: string[]) => void {
+  const pending = new Set<string>();
+  let waiting = false;
+  const flush = () => {
+    if (hidden()) {
+      setTimeout(flush, FLUSH_MS);
+      return;
+    }
+    waiting = false;
+    const keys = [...pending];
+    pending.clear();
+    run(keys);
+  };
+  return (keys) => {
+    for (const k of keys) pending.add(k);
+    if (waiting) return;
+    waiting = true;
+    setTimeout(flush, FLUSH_MS);
+  };
+}
+
+/// What events name, handed to the reader (`reader.ts`) once in `FLUSH_MS`, never while the tab is hidden. What the
+/// reader is given is read at once, one read at a time for each path; the pace of what events cause is this one's alone.
+const bumpSoon = coalesced(
+  (keys) => bump(keys),
+  () => typeof document !== 'undefined' && document.hidden,
+);
 
 /// The things an event names, as the keys views read them by. The System view sums up the works, the items, the
 /// architects and what waits for the owner, so every event about one of them names it. A round names the observations
@@ -141,7 +178,7 @@ export function connect(): void {
       ready = true;
       staleAll();
     } else {
-      bump(named(e));
+      bumpSoon(named(e));
     }
   };
 }

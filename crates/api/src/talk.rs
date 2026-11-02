@@ -27,18 +27,6 @@ pub const CONVERSATION_WINDOW: usize = 100;
 /// The most of a conversation's latest entries it gives, whatever the request names.
 pub const CONVERSATION_WINDOW_MOST: usize = 1000;
 
-/// What a work's group and the one-to-one with an architect leave out of what `conversation_entries` gathers for them,
-/// as a condition on the view's columns: the engine's notices, which the bubble of the stage the work was at, the
-/// bubble of the matter the architect has in hand and their heads say instead; in a work's group, the side reports a
-/// work's lines handed in, which are the architect's to read in its queue; and in both, what a helper told the owner
-/// before only the engineer and the architect could, a helper of the work (the review, the adversarial testing, the
-/// advisor) or of the architect (the review of its batch, the search of its observations), whose words go to the one
-/// it helps: a work's round's progress note in the stage's bubble says it, and the architect reads the rest.
-const LEFT_OUT: &str = "NOT ((conversation LIKE 'work:%' OR conversation LIKE 'architect:%') AND source = 'notice')
-    AND NOT (conversation LIKE 'work:%' AND source = 'report')
-    AND NOT ((conversation LIKE 'work:%' OR conversation LIKE 'architect:%') AND source = 'message'
-      AND sender NOT IN ('engineer', 'architect', 'policy'))";
-
 /// What the conversations need of the configuration: its projects, in order, the groups of two projects or more it
 /// connects through each project's `other_projects`, and how long, in milliseconds, an architect waits for the owner's
 /// reply to the question it put last (`agents.owner_reply_wait`).
@@ -136,11 +124,11 @@ pub fn conversations(conn: &Connection, t: &Talks) -> Result<Vec<Conversation>> 
     let mut tally: HashMap<String, Tally> = HashMap::new();
     // An ask the owner answered is read: the owner answered it where it was asked. Only what is said to the owner is
     // unread until the owner reads it: what the members say to each other is no news the owner must come to.
-    let mut st = conn.prepare(&format!(
+    let mut st = conn.prepare(
         "SELECT conversation, at, sender, waiting, fault IS NOT NULL,
                 source = 'ask' AND id IN (SELECT id FROM owner_asks WHERE answer IS NOT NULL), recipient = 'owner'
-         FROM conversation_entries WHERE {LEFT_OUT}"
-    ))?;
+         FROM conversation_shown",
+    )?;
     let rows = st.query_map([], |r| {
         Ok((
             r.get::<_, String>(0)?,
@@ -266,11 +254,11 @@ pub fn conversation(
     let limit = limit.clamp(1, CONVERSATION_WINDOW_MOST);
     let select = "SELECT conversation, source, id, sender, recipient, text, at, work, round, ask, design_card, matter,
                     read_at, waiting, pending, undelivered, answerable, fault
-                  FROM conversation_entries";
+                  FROM conversation_shown";
     let (sql, arg) = if key.starts_with("projects:") {
         (format!("{select} WHERE conversation LIKE 'architects:%'"), None)
     } else {
-        (format!("{select} WHERE conversation = ?1 AND {LEFT_OUT}"), Some(key))
+        (format!("{select} WHERE conversation = ?1"), Some(key))
     };
     let mut st = conn.prepare(&sql)?;
     let map = |r: &db::rusqlite::Row<'_>| {

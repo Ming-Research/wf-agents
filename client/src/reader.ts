@@ -1,14 +1,12 @@
 // What the page reads from the interface, and when. An event only says that something a part shows is out of date; the
 // read itself is made here, one for each path some part of the page shows, whatever the number of parts that show it
-// and of events that name it: one read at a time for a path, one more when events named it while it was under way, at
-// least `MIN_GAP_MS` between the starts of two, and an answer that is the text of the last one changes nothing. What
-// the page no longer shows is not read: the read under way ends with its last part. Nothing here depends on React;
-// `live.ts` makes the hooks that parts read through.
+// and of events that name it: one read at a time for a path, one more when it was named while that was under way, and an
+// answer that is the text of the last one changes nothing. How often events cause reads is not decided here: what the
+// reader is told (`bump`) it reads at once, and `live.ts` tells it what events name once in `FLUSH_MS`. What the page no
+// longer shows is not read: the read under way ends with its last part. Nothing here depends on React; `live.ts` makes
+// the hooks that parts read through.
 
 import { getBody } from './http';
-
-/// The least time between the starts of two reads of one path.
-export const MIN_GAP_MS = 1000;
 
 /// What a path holds as last read: the data (undefined until it is first read) and why the last read failed, if it did.
 /// A new object each time either changes, so that a part that reads it draws again only then.
@@ -32,10 +30,6 @@ type Slot = {
   /// Named by an event since the read under way, or the last, began.
   dirty: boolean;
   running: AbortController | null;
-  /// When the last read began.
-  startedAt: number;
-  /// Waits for the gap since `startedAt` to pass, to read again.
-  timer: ReturnType<typeof setTimeout> | null;
 };
 
 const slots = new Map<string, Slot>();
@@ -87,8 +81,6 @@ export function hold(path: string, key: string | null): () => void {
       revision: ++revisions,
       dirty: false,
       running: null,
-      startedAt: Number.NEGATIVE_INFINITY,
-      timer: null,
     };
     slots.set(path, slot);
   }
@@ -101,8 +93,6 @@ export function hold(path: string, key: string | null): () => void {
     if (!mine.readers.delete(reader) || mine.readers.size > 0) return;
     mine.running?.abort();
     mine.running = null;
-    if (mine.timer !== null) clearTimeout(mine.timer);
-    mine.timer = null;
     if (slots.get(path) === mine) slots.delete(path);
   };
 }
@@ -124,8 +114,8 @@ function names(bumped: readonly string[], key: string | null): boolean {
   return bumped.includes(key) || bumped.includes(`${key.split(':')[0]}:*`);
 }
 
-/// Says that what `keys` name changed: every path some part shows by one of them is read again, once, as soon as the
-/// read under way and the gap since it allow.
+/// Says that what `keys` name changed: every path some part shows by one of them is read again at once, or, when a read
+/// of it is under way, once when that ends, however many times it is named meanwhile.
 export function bump(keys: readonly string[]): void {
   for (const [path, slot] of [...slots]) {
     if ([...slot.readers].some((r) => names(keys, r.key))) stale(path, slot);
@@ -142,24 +132,14 @@ function stale(path: string, slot: Slot): void {
   schedule(path, slot);
 }
 
-/// Begins the read of a path named by an event now, when none is under way and the gap since the last began is over;
-/// else when the one under way ends (`finish`) or the gap is, whichever is later, however many events came meanwhile.
+/// Begins the read of a path that is out of date now, when none is under way; else `finish` does when the one under way
+/// ends. There is no timer: nothing here paces reads, only the one at a time.
 function schedule(path: string, slot: Slot): void {
-  if (!slot.dirty || slot.running !== null || slot.timer !== null) return;
-  const wait = slot.startedAt + MIN_GAP_MS - Date.now();
-  if (wait <= 0) {
-    begin(path, slot);
-    return;
-  }
-  slot.timer = setTimeout(() => {
-    slot.timer = null;
-    schedule(path, slot);
-  }, wait);
+  if (slot.dirty && slot.running === null) begin(path, slot);
 }
 
 function begin(path: string, slot: Slot): void {
   slot.dirty = false;
-  slot.startedAt = Date.now();
   const mine = new AbortController();
   slot.running = mine;
   getBody(path, mine.signal).then(

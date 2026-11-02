@@ -3470,6 +3470,91 @@ mod tests {
         assert!(work.entries.iter().any(|e| e.stage.is_some()), "{said:?}");
     }
 
+    // A conversation of 355 entries gives its latest 100 and every older entry something waits on, and says where it
+    // left the rest out; what waits for the owner, and how far the owner read, are of the whole conversation, whatever
+    // the window; and the window is much lighter. The older entries are the heavier here, as the cards and plans of a
+    // long conversation are: a window of 100 of 355 entries of one size could not be a quarter of the whole.
+    #[test]
+    fn a_conversation_gives_its_latest_entries_and_whatever_waits_for_the_owner() {
+        let mut s = architect_setup("window");
+        let t = crate::Talks {
+            projects: vec!["p".into(), "q".into()],
+            sets: Vec::new(),
+            ..crate::Talks::default()
+        };
+        let read = |s: &Setup, limit: usize| {
+            crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p", limit).unwrap()
+        };
+        let base = read(&s, crate::CONVERSATION_WINDOW_MOST).entries.len();
+        let more = 355usize.saturating_sub(base) as i64;
+        s.db.write(Actor::Engine, |tx| {
+            for i in 0..more {
+                // Words the architect handled, long until the last hundred or so, which are short.
+                let text = format!("{i:03} {}", "w".repeat(if i + 110 < more { 1200 } else { 80 }));
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, detail, what, body, at, handled_work, handled_round)
+                     VALUES ('p', 'owner_words', 'said', 'The owner said', json_object('text', ?1), ?2, 2, 8)",
+                    db::rusqlite::params![text, 1000 + i],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let full = read(&s, crate::CONVERSATION_WINDOW_MOST);
+        assert!(full.entries.len() >= 355, "{}", full.entries.len());
+        assert!(full.gaps.is_empty());
+        let window = read(&s, crate::CONVERSATION_WINDOW);
+        let waits = |e: &crate::ConversationEntry| e.waiting || e.pending || e.undelivered;
+        // The latest 100, and those before them something waits on, in the same order.
+        let before = full.entries.len() - crate::CONVERSATION_WINDOW;
+        let kept: Vec<_> = full.entries[..before].iter().filter(|e| waits(e)).collect();
+        assert!(!kept.is_empty() && kept.len() <= 5, "{}", kept.len());
+        let key = |e: &crate::ConversationEntry| (e.source.clone(), e.id);
+        let expected: Vec<_> = kept.iter().copied().chain(&full.entries[before..]).map(key).collect();
+        assert_eq!(window.entries.iter().map(key).collect::<Vec<_>>(), expected);
+        // The earliest ask that waits is given, though it is outside the latest 100.
+        let ask = full
+            .entries
+            .iter()
+            .position(|e| e.source == "ask" && e.waiting)
+            .unwrap();
+        assert!(ask < before);
+        assert!(
+            window
+                .entries
+                .iter()
+                .any(|e| e.source == "ask" && e.id == full.entries[ask].id)
+        );
+        // The runs left out add up to the entries left out, and each is before an entry given.
+        assert_eq!(
+            window.gaps.iter().map(|g| g.count).sum::<i64>() as usize,
+            full.entries.len() - window.entries.len()
+        );
+        assert!(
+            window
+                .gaps
+                .iter()
+                .all(|g| window.entries.iter().any(|e| e.source == g.source && e.id == g.id))
+        );
+        // What waits, and how far the owner read, are the whole conversation's.
+        assert_eq!(window.asks, full.asks);
+        assert_eq!(window.design_cards, full.design_cards);
+        assert_eq!(window.questions, full.questions);
+        assert_eq!(window.waits_on, full.waits_on);
+        assert_eq!(window.read_to, full.read_to);
+        let bytes = |d: &crate::ConversationDetail| serde_json::to_string(d).unwrap().len();
+        assert!(
+            bytes(&window) * 4 <= bytes(&full),
+            "{} of {}",
+            bytes(&window),
+            bytes(&full)
+        );
+        // The window is at least one entry, and at most `CONVERSATION_WINDOW_MOST`, whatever is asked.
+        let one = read(&s, 0);
+        assert_eq!(one.entries.last().map(key), full.entries.last().map(key));
+        assert_eq!(read(&s, usize::MAX).entries.len(), full.entries.len());
+    }
+
     // A work's group is a chat: what its members said, and the work's own bubble for each stage it entered, posted when
     // it came in, in time order. It holds no notice of the engine's, no side report, no decision card of its own and
     // nothing a helper told the owner. A stage the work came back to is a bubble of its own, counted; the merge's judge

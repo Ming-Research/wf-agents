@@ -61,13 +61,23 @@ pub fn anew(r: &CompiledRow) -> bool {
 }
 
 /// Why a round's session starts afresh, in words, for the round's record and the owner's page.
-pub fn new_session_why(why: sessions::Start, cell: &CompiledCell, limit: u64, model: &str) -> String {
+pub fn new_session_why(
+    why: sessions::Start,
+    cell: &CompiledCell,
+    limit: u64,
+    model: &str,
+    cache: Option<i64>,
+) -> String {
     match why {
         sessions::Start::Line => "no session of its line going on yet".into(),
         sessions::Start::Cell => format!("cell {} opens one, at its first round", cell.id),
         sessions::Start::Limit => format!("context past the limit ({}K)", limit / 1000),
         sessions::Start::Model => format!("the model changed to {model}"),
         sessions::Start::Account => "the agents' login account changed".into(),
+        sessions::Start::Expired => format!(
+            "the prompt cache expired (the session's last call was {} minutes or more ago)",
+            cache.unwrap_or_default() / 60_000
+        ),
         sessions::Start::Carried => "the architect goes on in the session it had".into(),
         sessions::Start::Owner => "the owner asked for one".into(),
     }
@@ -93,10 +103,13 @@ fn needed<'i>(item: &'i Option<Item>, w: &Work) -> Result<&'i Item, String> {
 
 pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Advance, String> {
     close_interrupted(e, w)?;
+    // The time the round's session is chosen at, one for the check below and the message's own, so that a session
+    // whose cache expires between them is not told apart by them.
+    let now = db::now();
     // A new session of the architect's line in the middle of an architect work understands the project first: the
     // cell's row for that, recorded with why the session would start afresh; a flow version without the row goes back
     // unrecorded.
-    if let Some(why) = crate::architect::understand_first(e, w, g, cell)? {
+    if let Some(why) = crate::architect::understand_first(e, w, g, cell, now)? {
         let Some(row) = cell.rows.iter().find(|r| anew(r)).cloned() else {
             return crate::architect::back_to_understanding(e, w, g, cell);
         };
@@ -209,7 +222,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         whole,
         system,
         starts_with,
-    } = compose(e, w, g, cell, item.as_ref())?;
+    } = compose(e, w, g, cell, item.as_ref(), now)?;
     // A message that would give its session whole what the session already holds is the engine's fault: it is not
     // sent, and the work waits for the owner.
     if !msg.repeats.is_empty() {
@@ -242,6 +255,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             cell,
             e.config.config.install.agents.context_limit,
             &level.model,
+            e.runs_on(&level).on().cache,
         )),
         Plan::Going { .. } => None,
     };
@@ -479,6 +493,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // session's messages changed since its round before, which the miss is kept for, as its cost, with no notice.
     if req.resume.is_some()
         && let Some(usage) = &ended.usage
+        && let Some(life) = req.cli.kind.cache_lifetime()
         && let Some(miss) = sessions::miss::missed(
             e.db.conn(),
             &new_session,
@@ -487,6 +502,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             &input["call"],
             usage,
             ended.model.as_deref(),
+            life,
         )?
     {
         crate::faults::cache_miss(e, w, round, &cell.id, &line, &miss)?;
@@ -820,17 +836,16 @@ fn compose(
     g: &CompiledGraph,
     cell: &CompiledCell,
     item: Option<&Item>,
+    now: i64,
 ) -> Result<Composed, String> {
     let line = sessions::choose::line_of(cell);
     let (_, level, _) = level_of(e, g, cell, item)?;
-    let home = e.cli_dir(&level.cli);
-    let on = sessions::On {
-        model: &level.model,
-        home: home.as_deref(),
-    };
+    let runs = e.runs_on(&level);
     let limit = e.config.config.install.agents.context_limit;
     let architect = w.project.as_deref().filter(|_| g.name == ARCHITECT);
-    let mut plan = e.sessions().plan(e.db.conn(), w.id, architect, cell, limit, on)?;
+    let mut plan = e
+        .sessions()
+        .plan(e.db.conn(), w.id, architect, cell, limit, runs.on(), now)?;
     let work_rounds = work::rounds(e.db.conn(), w.id)?;
     let number = work::next_round(e.db.conn(), w.id)?;
     let (line_rounds, held) = match &mut plan {
@@ -931,7 +946,7 @@ pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, Strin
         .cloned()
         .ok_or_else(|| format!("work {work} is at cell {}, which is not an agent's", w.pos.at))?;
     let item = e.subject(&w)?;
-    Ok(compose(e, &w, &g, &cell, item.as_ref())?.msg)
+    Ok(compose(e, &w, &g, &cell, item.as_ref(), db::now())?.msg)
 }
 
 fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Advance, String> {

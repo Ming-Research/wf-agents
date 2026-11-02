@@ -111,11 +111,13 @@ fn tools_taken(value: &Option<String>) -> BTreeSet<&str> {
         .collect()
 }
 
-/// Whether a round that resumed a CLI session missed its prompt cache: it started within the cache's lifetime since the
-/// session's last call, and its first call read from the cache less than half of what the session held. `before` are
+/// Whether a round that resumed a CLI session missed its prompt cache: it started within the cache's lifetime (`life`,
+/// in milliseconds, as [`config::CliKind::cache_lifetime`] gives it) since the session's last call
+/// ([`warm::last_call`]), and its first call read from the cache less than half of what the session held. `before` are
 /// the session's rounds before it, oldest first, `call` is its call as its record keeps it, `usage` its usage record
 /// and `model` the model it ran on, whose prices the miss's cost is at. None when the record cannot tell: no round
 /// before recorded its calls or its command line, or the round's record does not say what its first call read.
+#[allow(clippy::too_many_arguments)]
 pub fn missed(
     conn: &Connection,
     cli_session: &str,
@@ -124,6 +126,7 @@ pub fn missed(
     call: &Value,
     usage: &Value,
     model: Option<&str>,
+    life: i64,
 ) -> Result<Option<Miss>, String> {
     let Some(prev) = before.iter().rev().find(|r| r.input["call"]["command"].is_array()) else {
         return Ok(None);
@@ -131,7 +134,7 @@ pub fn missed(
     let Some(held) = choose::context(before).filter(|h| *h > 0) else {
         return Ok(None);
     };
-    let Some(last) = last_call(conn, cli_session, before)? else {
+    let Some(last) = warm::last_call(conn, cli_session, before)? else {
         return Ok(None);
     };
     let started: Option<i64> = conn
@@ -146,7 +149,7 @@ pub fn missed(
         return Ok(None);
     };
     let after_ms = (started - last).max(0);
-    if after_ms >= warm::CACHE_MS {
+    if after_ms >= life {
         return Ok(None);
     }
     let Some(read) = usage[FIRST_CALL]["cache_read_input_tokens"].as_i64() else {
@@ -165,25 +168,6 @@ pub fn missed(
         cost_usd: model.and_then(|m| cost::rewritten(m, usage, written)),
         differs: differs(&prev.input["call"], call),
     }))
-}
-
-/// When a session's last call ended: its latest round that ran the command line, or its latest keep-warm ping that
-/// reached the CLI, whichever came last.
-fn last_call(conn: &Connection, cli_session: &str, rounds: &[Round]) -> Result<Option<i64>, String> {
-    let round = rounds
-        .iter()
-        .filter(|r| r.usage.is_some())
-        .filter_map(|r| r.ended_at)
-        .max();
-    let ping: Option<i64> = conn
-        .query_row(
-            "SELECT max(p.ended_at) FROM pings p JOIN sessions s ON s.id = p.session
-             WHERE s.cli_session = ?1 AND p.usage IS NOT NULL",
-            [cli_session],
-            |r| r.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    Ok(round.max(ping))
 }
 
 /// The parts of a call's command line and of its environment that differ from those of the call before, in the order
@@ -390,6 +374,9 @@ mod tests {
 
     const SONNET: Option<&str> = Some("claude-sonnet-5-5");
 
+    /// How long `claude` keeps a session's prompt in its cache after a call.
+    const LIFE: i64 = 60 * 60_000;
+
     /// What the CLI reports a round used: what its first call read from the cache and wrote to it, and the run's whole,
     /// whose last call read what the first wrote and wrote a little more.
     fn used(read: i64, written: i64) -> Value {
@@ -454,6 +441,7 @@ mod tests {
             &now,
             &used(6_492, 410_000),
             SONNET,
+            LIFE,
         )
         .unwrap()
         .unwrap();
@@ -477,6 +465,7 @@ mod tests {
                 &now,
                 &used(read, written),
                 SONNET,
+                LIFE,
             )
             .unwrap();
             assert_eq!(hit, None, "{read} read, {written} written");
@@ -485,11 +474,21 @@ mod tests {
         let mut untold = used(6_492, 410_000);
         untold.as_object_mut().unwrap().remove(FIRST_CALL);
         assert_eq!(
-            missed(db.conn(), "s1", &before, RoundId::new(1, 2), &now, &untold, SONNET).unwrap(),
+            missed(
+                db.conn(),
+                "s1",
+                &before,
+                RoundId::new(1, 2),
+                &now,
+                &untold,
+                SONNET,
+                LIFE
+            )
+            .unwrap(),
             None
         );
         let mut late = Db::in_memory().unwrap();
-        started(&mut late, 2, 1_000_000 + warm::CACHE_MS);
+        started(&mut late, 2, 1_000_000 + LIFE);
         let expired = missed(
             late.conn(),
             "s1",
@@ -498,8 +497,28 @@ mod tests {
             &now,
             &used(6_492, 410_000),
             SONNET,
+            LIFE,
         )
         .unwrap();
         assert_eq!(expired, None);
+        // The same round, one millisecond within the lifetime of a CLI that keeps a session's prompt that long, is a miss;
+        // a CLI whose cache lives a shorter time lets it go before.
+        let mut within = Db::in_memory().unwrap();
+        started(&mut within, 2, 1_000_000 + LIFE - 1);
+        let args = |db: &Db, life| {
+            missed(
+                db.conn(),
+                "s1",
+                &before,
+                RoundId::new(1, 2),
+                &now,
+                &used(6_492, 410_000),
+                SONNET,
+                life,
+            )
+            .unwrap()
+        };
+        assert!(args(&within, LIFE).is_some());
+        assert_eq!(args(&within, LIFE - 1), None);
     }
 }

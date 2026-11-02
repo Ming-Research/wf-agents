@@ -301,6 +301,34 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
             "the panel holds {panel_only}: {panel}"
         );
     }
+    // Together the two reads hold exactly the fields the architect had before it was split, each in one of them.
+    let object = |text: &str| -> serde_json::Map<String, serde_json::Value> {
+        let (_, body) = text.split_once("\r\n\r\n").expect("a body");
+        serde_json::from_str::<serde_json::Value>(body)
+            .expect("JSON")
+            .as_object()
+            .expect("an object")
+            .clone()
+    };
+    let mut every: Vec<String> = object(&tab).keys().chain(object(&panel).keys()).cloned().collect();
+    every.sort();
+    assert_eq!(
+        every,
+        [
+            "asks",
+            "changes",
+            "constitution",
+            "draft",
+            "handled",
+            "holds",
+            "notebook",
+            "policy",
+            "project",
+            "projects",
+            "queue",
+            "works"
+        ]
+    );
     // Its rounds are read in windows across its works: none yet; a window is named by a round's name, and a round of
     // another work is not the architect's.
     let (status, rounds) = get(s.port, "/api/v1/architect/rounds?project=p", &here, "");
