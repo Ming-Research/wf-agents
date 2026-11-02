@@ -12918,6 +12918,9 @@ fn a_round_past_both_lines_is_stopped_and_runs_again_in_a_new_session() {
             && told.contains(r#""line":2800.0"#),
         "{told}"
     );
+    // The round's record keeps the lines it was judged by, where the owner's page reads them.
+    let judged = input_at(&e, work, "R1", false);
+    assert_eq!(judged["engine"]["guard"]["added"]["value"], 2800.0, "{judged}");
     // The owner is told the first time too.
     let notices = number(
         &e,

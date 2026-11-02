@@ -1298,4 +1298,127 @@ mod tests {
             }
         );
     }
+
+    // A running round stands by its calls, a subagent's counted in what it cost and not in its context, against the
+    // lines its record keeps; one started with no lines has none, and a step waiting for someone is no run. What the
+    // guard did shows for the period asked for.
+    #[test]
+    fn the_system_view_shows_rounds_running_against_their_lines_and_what_the_guard_did() {
+        let line = |value: f64, scope: guard::Scope| {
+            Some(guard::Line {
+                value,
+                samples: 19,
+                scope,
+            })
+        };
+        let lines = guard::Lines {
+            added: line(5000.0, guard::Scope::Cell),
+            cost: line(2.5, guard::Scope::Graph),
+            ..guard::Lines::default()
+        };
+        let judged = json!({ "engine": { "guard": lines.record() } }).to_string();
+        let now = db::now();
+        let before_the_period = week_of(now, 0) - 1;
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
+            run("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", &[])?;
+            for title in ["Guard it", "Start it", "Wait for it"] {
+                run(
+                    "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', ?1, 'x', 'y', 'change', '1')",
+                    &[&title],
+                )?;
+            }
+            for item in [1, 2, 3] {
+                run(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', 'I1')",
+                    &[&item],
+                )?;
+            }
+            for work in [1, 2] {
+                run(
+                    "INSERT INTO sessions (work, line, cli, cli_session) VALUES (?1, 'engineer', 'claude', 's')",
+                    &[&work],
+                )?;
+            }
+            run(
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
+                 VALUES (1, 1, 'I1', 1, ?1, 'c', ?2)",
+                &[&judged, &now],
+            )?;
+            run(
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
+                 VALUES (2, 1, 'I1', 2, '{}', 'c', ?1)",
+                &[&(now + 1)],
+            )?;
+            run(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (3, 1, 'M2', '{}', 'c', ?1)",
+                &[&now],
+            )?;
+            run(
+                "INSERT INTO round_calls (work, round, seq, message, model, input, read, written_5m, written_1h, output,
+                                          subagent, at)
+                 VALUES (1, 1, 1, 'a', 'claude-opus-5-5', 0, 10000, 0, 0, 0, 0, ?1),
+                        (1, 1, 2, 's', 'claude-opus-5-5', 0, 900000, 0, 0, 0, 1, ?1),
+                        (1, 1, 3, 'b', 'claude-opus-5-5', 0, 12500, 0, 0, 1000, 0, ?1)",
+                &[&now],
+            )?;
+            run(
+                "INSERT INTO guard_events (work, round, signal, value, line, also, also_line, samples, scope, action, at)
+                 VALUES (1, 1, 'growth', 6000, 5000, 3000, 100, 19, 'cell', 'waived', ?1),
+                        (1, 1, 'cost', 3, 2.5, NULL, NULL, 19, 'graph', 'noted', ?2)",
+                &[&now, &before_the_period],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let limits = BTreeMap::new();
+        let ask = SystemAsk {
+            weeks: Some(1),
+            tz: 0,
+            projects: &[],
+            limits: &limits,
+            now,
+        };
+        let s = system(db.conn(), &Flows::default(), &ask).unwrap();
+
+        let stands: Vec<_> = s
+            .now
+            .running
+            .iter()
+            .map(|r| (r.work, r.context, r.added, r.added_line, r.cost_line))
+            .collect();
+        assert_eq!(
+            stands,
+            [(1, 12_500, 2_500, Some(5000.0), Some(2.5)), (2, 0, 0, None, None)]
+        );
+        let r = &s.now.running[0];
+        assert_eq!(
+            (r.graph.as_str(), r.cell.as_deref(), r.item, r.title.as_deref()),
+            (ENGINEER, Some("I1"), Some(1), Some("Guard it"))
+        );
+        // 922,500 tokens read at $0.20 a million, and 1,000 written at $20 a million.
+        assert!((r.cost_usd - 0.2045).abs() < 1e-9, "{}", r.cost_usd);
+
+        let done: Vec<&AnomalyKind> = s
+            .anomalies
+            .iter()
+            .filter(|a| matches!(a.what, AnomalyKind::Guard { .. }))
+            .map(|a| &a.what)
+            .collect();
+        assert_eq!(
+            done,
+            [&AnomalyKind::Guard {
+                signal: "growth".into(),
+                value: 6000.0,
+                line: 5000.0,
+                also: Some(3000.0),
+                also_line: Some(100.0),
+                samples: 19,
+                scope: "cell".into(),
+                action: "waived".into(),
+            }]
+        );
+    }
 }
