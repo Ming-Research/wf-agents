@@ -206,7 +206,10 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
 /// round run again, and is passed over.
 fn refused_before(e: &Engine, round: RoundId, cell: &str, kind: &str) -> Result<Option<RoundId>, String> {
     let at_cell = work::rounds_at(e.db.conn(), round.work, cell)?;
-    let before = at_cell.iter().filter(|r| r.id.n < round.n).find(|r| !cut_short(r, kind));
+    let before = at_cell
+        .iter()
+        .filter(|r| r.id.n < round.n)
+        .find(|r| !cut_short(r, kind));
     Ok(before.filter(|r| failed_as(r) == Some(kind)).map(|r| r.id))
 }
 
