@@ -219,7 +219,7 @@ describe('a round picked beside a chart', () => {
       panelFirst: true,
     });
     // Its policy and what to do next are no tabs of its own: they are in the panel beside the one-to-one.
-    const tabs = [...html.matchAll(/<a [^>]*href="\/architect\?([^"]*)"/g)].map((m) => /tab=(\w+)/.exec(m[1])?.[1] ?? 'rounds');
+    const tabs = [...html.matchAll(/<a [^>]*href="\/works\/architect\?([^"]*)"/g)].map((m) => /tab=(\w+)/.exec(m[1])?.[1] ?? 'rounds');
     expect(tabs).toEqual(['rounds', 'changes', 'usage']);
   });
 

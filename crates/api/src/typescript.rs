@@ -102,6 +102,7 @@ pub fn typescript() -> String {
         decl::<NewLevel>(&cfg),
         decl::<Architect>(&cfg),
         decl::<ArchitectWork>(&cfg),
+        decl::<ArchitectStanding>(&cfg),
         decl::<ArchitectRounds>(&cfg),
         decl::<Matter>(&cfg),
         decl::<MatterCard>(&cfg),

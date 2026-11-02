@@ -1634,6 +1634,30 @@ handling: number | null,
 listens: boolean, };
 
 /**
+ * How a project's architect stands, and nothing more: what the page needs to draw its row in the works view and its
+ * mark in the list of conversations, which is its works, its queue and whether a question of its own waits for the
+ * owner's reply. It is read for every project at once, without the notebook, the policy, the matters handled, the item
+ * changes and the constitution that the architect's own page shows (`Architect`).
+ */
+export type ArchitectStanding = {
+/**
+ * The project whose architect it is.
+ */
+project: string,
+/**
+ * Its works, newest first, as `Architect` has them.
+ */
+works: Array<ArchitectWork>,
+/**
+ * The matters it has not handled, as `Architect` has them.
+ */
+queue: Array<Matter>,
+/**
+ * Whether an ask of any of its works waits for the owner's reply.
+ */
+asking: boolean, };
+
+/**
  * A window of a project's architect's rounds, across its works, in the order they started, oldest first; and whether
  * rounds older than its first and newer than its last are there to read.
  */

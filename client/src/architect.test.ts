@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import type {
+  Architect,
+  ArchitectStanding,
   ArchitectWork,
   CompiledGraph,
   FlowDiff,
@@ -9,10 +11,14 @@ import type {
   MadeThing,
   Matter,
   MatterProgress,
+  OwnerAsk,
+  Status,
   WorkSummary,
 } from './api';
 import {
+  architectMark,
   architectState,
+  architectTotals,
   cardWords,
   holdWords,
   matterKind,
@@ -20,13 +26,15 @@ import {
   matterSentence,
   matterSteps,
   queueParts,
+  standing,
 } from './architect';
 import { inGraph, subjectKey } from './flow/context';
 import { graphOfCell, withGraph } from './flow/FlowScreen';
 import { besides, BESIDE_GRAPHS, GRAPH_TITLE } from './graph/flowLayout';
 import { named } from './live';
 import { diffMarks } from './pages/Flow';
-import { href, parse, type Route } from './route';
+import { href, moved, parse, type Route } from './route';
+import { VIEWS, viewOf } from './TopBar';
 
 const work = (id: number, extra: Partial<WorkSummary> = {}): WorkSummary => ({
   id,
@@ -162,6 +170,68 @@ describe("the architect's page", () => {
     expect(architectState([architectWork(10, { state: 'running', at: 'Q0' })], [])).toMatchObject({ handling: null, waiting: 0 });
   });
 
+  it('adds up the rounds, run time and cost of all its works, and takes the latest activity and the cell of the one that goes on', () => {
+    const stand = (works: ArchitectWork[], queue: Matter[] = []): ArchitectStanding => ({
+      project: 'p',
+      works,
+      queue,
+      asking: false,
+    });
+    const newest = architectWork(9, { rounds: 4, ran_ms: 1_000, cost_usd: 1.5, last_at: 950, at: 'E2' });
+    const older = architectWork(7, { rounds: 6, ran_ms: 2_000, cost_usd: 0.25, last_at: 750, at: 'E1' });
+    // Sums over all its works, and the latest activity of them; none going on, the newest work's cell.
+    expect(architectTotals(stand([newest, older]))).toMatchObject({ rounds: 10, ran_ms: 3_000, cost_usd: 1.75, last_at: 950 });
+    expect(architectTotals(stand([newest, older])).work?.at).toBe('E2');
+    // The latest activity is the greatest, in whatever order the works come, and a work with none lowers nothing.
+    const late = architectWork(5, { last_at: 5_000 });
+    const quiet = architectWork(4, { last_at: null });
+    expect(architectTotals(stand([newest, late, quiet])).last_at).toBe(5_000);
+    expect(architectTotals(stand([quiet])).last_at).toBeNull();
+    // A work that goes on is where the architect is, the newest or not.
+    const going = architectWork(8, { state: 'running', at: 'H3', rounds: 1, ran_ms: 10, cost_usd: 0.5, last_at: 800 });
+    const t = architectTotals(stand([newest, going, older]));
+    expect(t).toMatchObject({ rounds: 11, ran_ms: 3_010, cost_usd: 2.25, last_at: 950 });
+    expect(t.work?.id).toBe(8);
+    expect(t.work?.at).toBe('H3');
+    // It never worked: nothing to add and nowhere it is.
+    expect(architectTotals(stand([]))).toEqual({ rounds: 0, ran_ms: 0, cost_usd: 0, last_at: null, work: null });
+  });
+
+  it('is worked out from the lean read of every architect or from its page alike, a question of its own waiting included', () => {
+    const page = (extra: Partial<Architect> = {}): Architect =>
+      ({ project: 'p', projects: ['p'], works: [], queue: [], asks: [], ...extra }) as unknown as Architect;
+    const ask = (answer: unknown): OwnerAsk => ({ id: 1, answer }) as unknown as OwnerAsk;
+    // An ask of any of its works that is not answered is a question waiting; the lean read says it as a flag.
+    expect(standing(page({ asks: [ask(null), ask({ text: 'yes' })] })).asking).toBe(true);
+    expect(standing(page({ asks: [ask({ text: 'yes' })] })).asking).toBe(false);
+    expect(standing(page())).toEqual({ project: 'p', works: [], queue: [], asking: false });
+    // Waiting for the owner's next words, held back with a queue and every work paused, asking: the three states the
+    // mark in the list of conversations and the architect's row in the works both say, one function.
+    const status = {
+      paused: false,
+      running: [],
+      started: [],
+      releasing: [],
+      waiting_for_slot: [],
+      stepping: [],
+      architects_started: [],
+      flow_version: 2,
+    } as unknown as Status;
+    const listening = { ...architectWork(10, { state: 'waiting', at: 'Q0' }), listens: true };
+    expect(architectMark(standing(page({ works: [listening] })), status)).toEqual({
+      state: 'waiting',
+      words: 'waiting for your next words',
+    });
+    expect(architectMark(standing(page({ queue: [matter(1)] })), { ...status, paused: true } as Status)).toEqual({
+      state: 'paused',
+      words: 'held back: every work is paused',
+    });
+    expect(architectMark(standing(page({ works: [listening], asks: [ask(null)] })), status)).toEqual({
+      state: 'asking',
+      words: 'asking',
+    });
+  });
+
   it('has an address that names the project, the tab, the round of any of its works and the cell', () => {
     const architect = {
       page: 'architect' as const,
@@ -185,24 +255,66 @@ describe("the architect's page", () => {
       const i = at.indexOf('?');
       expect(i < 0 ? parse(at, '') : parse(at.slice(0, i), at.slice(i))).toEqual(r);
     }
-    expect(href({ ...architect, round: { work: 12, n: 3 } })).toBe('/architect?round=R12-3');
-    expect(href(architect)).toBe('/architect');
-    expect(href({ ...architect, project: 'p', round: { work: 12, n: 3 } })).toBe('/architect?project=p&round=R12-3');
+    // The page is under the works.
+    expect(href({ ...architect, round: { work: 12, n: 3 } })).toBe('/works/architect?round=R12-3');
+    expect(href(architect)).toBe('/works/architect');
+    expect(href({ ...architect, project: 'p', round: { work: 12, n: 3 } })).toBe('/works/architect?project=p&round=R12-3');
     // A round of another work, or one with no work named, opens none; a tab the page does not know, such as the asks, the
     // conversation and the queue it had before, is its rounds, which the page opens on.
-    expect(parse('/architect', '?tab=asks')).toEqual(architect);
-    expect(parse('/architect', '?tab=conversation')).toEqual(architect);
+    expect(parse('/works/architect', '?tab=asks')).toEqual(architect);
+    expect(parse('/works/architect', '?tab=conversation')).toEqual(architect);
     // The policy and what to do next, which were its tabs, are in the panel beside the one-to-one.
-    expect(parse('/architect', '?tab=policy')).toEqual(architect);
-    expect(parse('/architect', '?tab=next')).toEqual(architect);
-    expect(parse('/architect', '?tab=queue')).toEqual(architect);
+    expect(parse('/works/architect', '?tab=policy')).toEqual(architect);
+    expect(parse('/works/architect', '?tab=next')).toEqual(architect);
+    expect(parse('/works/architect', '?tab=queue')).toEqual(architect);
     // The observations, which were its tab, are a view of their own.
-    expect(parse('/architect', '?tab=observations')).toEqual(architect);
+    expect(parse('/works/architect', '?tab=observations')).toEqual(architect);
     // A stretch of its work, which an address named before its rounds were one list, is no longer chosen, and an
     // address that names no round opens none.
-    expect(parse('/architect', '?work=12&round=R11-3&tab=x')).toEqual({ ...architect, round: { work: 11, n: 3 } });
-    expect(parse('/architect', '?work=12&only=failed')).toEqual(architect);
-    expect(parse('/architect', '?round=11-3')).toEqual(architect);
+    expect(parse('/works/architect', '?work=12&round=R11-3&tab=x')).toEqual({ ...architect, round: { work: 11, n: 3 } });
+    expect(parse('/works/architect', '?work=12&only=failed')).toEqual(architect);
+    expect(parse('/works/architect', '?round=11-3')).toEqual(architect);
+  });
+
+  it("reads its old address as the new one with every parameter, and a work's page and the works as they were", () => {
+    const every = '?project=p&tab=usage&span=30d&round=R12-3&cell=H3';
+    expect(parse('/architect', every)).toEqual(parse('/works/architect', every));
+    expect(parse('/architect', every)).toEqual({
+      page: 'architect',
+      project: 'p',
+      tab: 'usage',
+      span: '30d',
+      round: { work: 12, n: 3 },
+      cell: 'H3',
+    });
+    expect(parse('/works/12', '')).toMatchObject({ page: 'work', id: 12 });
+    expect(parse('/works', '')).toEqual({ page: 'works' });
+    expect(parse('/works/architect/x', '')).toEqual({ page: 'missing' });
+  });
+
+  it("moves an old address to where its view is now, with every parameter, and no other", () => {
+    const at = (path: string, search = '') => moved(path, parse(path, search));
+    // The architect's old address keeps the project, the tab, the span, the round and the cell.
+    const every = '?project=p&tab=usage&span=30d&round=R12-3&cell=H3';
+    expect(at('/architect', every)).toBe('/works/architect?project=p&tab=usage&span=30d&round=R12-3&cell=H3');
+    expect(at('/architect')).toBe('/works/architect');
+    expect(at('/architect/')).toBe('/works/architect');
+    // The Spend view's goes to the System view.
+    expect(at('/spend')).toBe('/system');
+    expect(at('/spend', '?period=4w')).toBe('/system?period=4w');
+    // Any other address is left where it is: the root, the works with a trailing slash, the new address and the system.
+    for (const path of ['/', '/works/', '/works', '/works/architect', '/works/12', '/system', '/messages']) {
+      expect(at(path), path).toBeNull();
+    }
+  });
+
+  it("has no tab of its own in the bar: the works, a work's page and the architect's page are the one view", () => {
+    expect(VIEWS.map((v) => v.to)).not.toContain('/architect');
+    for (const page of ['works', 'work', 'architect'] as const) {
+      expect(viewOf(page), page).toBe('/works');
+    }
+    expect(viewOf('messages')).toBe('/messages');
+    expect(viewOf('missing')).toBeNull();
   });
 
   it('is read again when what it shows changed', () => {

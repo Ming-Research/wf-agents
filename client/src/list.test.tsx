@@ -1,7 +1,8 @@
-// The list of conversations: wf-agents' own, then a group for each project, by name, headed by the buttons that show
-// or hide its works in each state, the very part the items' tree shows or hides its items with, the done and the ended
-// hidden at first and the conversation open kept whatever its state; then the groups of connected projects. What the
-// buttons hide counts nowhere: not in the bar, nor on the row of the conversation open.
+// The list of conversations: wf-agents' own, then a group for each project, by name, headed by its name and, at the
+// right end of the same row, the buttons that show or hide its works in each state, the very part the items' tree shows
+// or hides its items with, the done and the ended hidden at first and the conversation open kept whatever its state;
+// then the groups of connected projects. What the buttons hide counts nowhere: not in the bar, nor on the row of the
+// conversation open.
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -57,7 +58,7 @@ const works = [work(9, 'running'), work(8, 'done'), work(7, 'ended'), work(6, 'w
 
 /// The names of the rows and the headings of the list, in their order.
 function read(html: string): string[] {
-  return [...html.matchAll(/<h3[^>]*>([^<]+)<\/h3>|class="talks-title" title="([^"]+)"/g)].map((m) => m[1] ?? m[2]);
+  return [...html.matchAll(/<h2[^>]*>([^<]+)<\/h2>|class="talks-title" title="([^"]+)"/g)].map((m) => m[1] ?? m[2]);
 }
 
 describe('the list of conversations', () => {

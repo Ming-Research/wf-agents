@@ -155,16 +155,16 @@ describe('the Observations view', () => {
     }));
   /// The part of the view that is a project's: from its name to the next project's.
   const of = (html: string, project: string) => {
-    const name = `>${project}</h3>`;
+    const name = `>${project}</h2>`;
     const at = html.indexOf(name);
-    const next = html.indexOf('</h3>', at + name.length);
+    const next = html.indexOf('</h2>', at + name.length);
     return html.slice(at, next < 0 ? undefined : next);
   };
 
   it('fills the view with every observation of every project while nothing is picked, the handled muted', () => {
     const html = view(null, null);
     expect(html).toContain('list-split list-split-whole');
-    expect([...html.matchAll(/<h3[^>]*>([^<]+)<\/h3>/g)].map((m) => m[1])).toEqual(['p', 'q']);
+    expect([...html.matchAll(/<h2[^>]*>([^<]+)<\/h2>/g)].map((m) => m[1])).toEqual(['p', 'q']);
     // A row leads with its title, and one with none with the words its text starts with.
     expect(rows(html)).toEqual([
       'Stale slot count',
