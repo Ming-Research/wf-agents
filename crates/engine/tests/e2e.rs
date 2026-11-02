@@ -13345,10 +13345,7 @@ fn the_engineer_s_decisions_are_written_under_their_head_with_who_decided_from_t
             };
             (
                 Vec::new(),
-                vec![
-                    ("outcome.learned", json!(learned)),
-                    ("outcome.decisions", decisions),
-                ],
+                vec![("outcome.learned", json!(learned)), ("outcome.decisions", decisions)],
             )
         }),
     );

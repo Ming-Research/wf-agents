@@ -1074,6 +1074,11 @@ mod tests {
         assert!(say_to_work(&mut db, 1, &said(1, "Again.")).is_err());
         // The reply keeps who the caller declared: a delegate's answer is not told as the owner's.
         db.write(Actor::Engine, |tx| {
+            // A work waits on one question at a time: the first one is over.
+            tx.execute(
+                "UPDATE blockers SET ended = 'resolved', outcome = '{}', ended_at = 6 WHERE matter = 1",
+                [],
+            )?;
             tx.execute(
                 "INSERT INTO blockers (work, cell, round, kind, what, holder, project, matter, at, since)
                  VALUES (1, 'I1', 1, 'question', 'Split it again?', 'architect', 'p', 2, 6, 6)",

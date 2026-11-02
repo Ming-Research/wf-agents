@@ -1487,8 +1487,14 @@ mod tests {
         // An interjection, and two open questions of which one was answered by a later change.
         old.write(Actor::Engine, |tx| {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
-            tx.execute("INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'A3')", [])?;
-            tx.execute("INSERT INTO interjections (work, speaker, text) VALUES (1, 'owner', 'Said.')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'A3')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO interjections (work, speaker, text) VALUES (1, 'owner', 'Said.')",
+                [],
+            )?;
             tx.execute(
                 "INSERT INTO architect_matters (project, kind, what, body, at) VALUES
                  ('p', 'open_question', 'Which?', '{\"question\":\"Which?\"}', 5),
@@ -1532,7 +1538,9 @@ mod tests {
         assert_eq!(answered(2), None);
         let said: (String, Option<String>) = old
             .conn()
-            .query_row("SELECT text, declared FROM interjections", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row("SELECT text, declared FROM interjections", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .unwrap();
         assert_eq!(said, ("Said.".to_string(), None));
         let approaches: Vec<Option<String>> = old

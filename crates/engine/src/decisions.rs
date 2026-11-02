@@ -93,9 +93,7 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                 return Err(format!("matter {id} is of {of}, and the decision is of {project}"));
             }
             let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
-            let reply: Value = reply
-                .and_then(|r| serde_json::from_str(&r).ok())
-                .unwrap_or(Value::Null);
+            let reply: Value = reply.and_then(|r| serde_json::from_str(&r).ok()).unwrap_or(Value::Null);
             match (kind.as_str(), detail.as_deref()) {
                 ("owner_words", Some("release")) => Err(format!(
                     "matter {id} is the engine's note that the owner started a work, not words the owner said"
@@ -504,12 +502,7 @@ pub fn new_decision_lines(before: &str, after: &str) -> Vec<String> {
 /// out, the head `Decisions:` when it drops it, and the order of the lines when it moves them. The lines the item has
 /// stand letter for letter, in the order they were recorded; an empty list when it keeps them all.
 pub fn unkept(before: &str, after: &str) -> Vec<String> {
-    let lines = |t: &str| -> Vec<String> {
-        t.lines()
-            .filter(|l| l.starts_with(LINE))
-            .map(str::to_string)
-            .collect()
-    };
+    let lines = |t: &str| -> Vec<String> { t.lines().filter(|l| l.starts_with(LINE)).map(str::to_string).collect() };
     let (had, now) = (lines(before), lines(after));
     let mut out: Vec<String> = had
         .iter()
@@ -518,7 +511,9 @@ pub fn unkept(before: &str, after: &str) -> Vec<String> {
         .collect();
     let head = |t: &str| t.lines().any(|l| l.trim_end() == HEAD);
     if !had.is_empty() && head(before) && !head(after) {
-        out.push(format!("it leaves out the head {HEAD} the item's decisions stand under"));
+        out.push(format!(
+            "it leaves out the head {HEAD} the item's decisions stand under"
+        ));
     }
     // The lines it keeps, in the order the item has them.
     let kept: Vec<&String> = had.iter().filter(|l| now.contains(l)).collect();
@@ -664,9 +659,15 @@ mod tests {
         assert!(refused("matter", 8).contains("has no answer of the owner's"));
         assert!(refused("matter", 9).contains("has no answer of the owner's"));
         // The answer is dated by when the owner gave it, not by when the engineer asked.
-        let line = resolve(db.conn(), "p", &decision(&[("matter", 7, "Split it")]), "architect", None)
-            .unwrap()
-            .line;
+        let line = resolve(
+            db.conn(),
+            "p",
+            &decision(&[("matter", 7, "Split it")]),
+            "architect",
+            None,
+        )
+        .unwrap()
+        .line;
         assert!(line.starts_with("Decision (2026-11-03, delegate)"), "{line}");
     }
 
@@ -675,9 +676,15 @@ mod tests {
     #[test]
     fn a_decision_is_dated_by_its_words_and_a_record_with_no_time_is_refused() {
         let db = records();
-        let line = resolve(db.conn(), "p", &decision(&[("matter", 4, "skip the check")]), "architect", None)
-            .unwrap()
-            .line;
+        let line = resolve(
+            db.conn(),
+            "p",
+            &decision(&[("matter", 4, "skip the check")]),
+            "architect",
+            None,
+        )
+        .unwrap()
+        .line;
         assert!(line.starts_with("Decision (2026-11-04, architect)"), "{line}");
         assert!(line.ends_with("(matter 4, 2026-11-04)"), "{line}");
         let refused = |from: &str, id: i64, quote: &str| {
@@ -697,7 +704,13 @@ mod tests {
             .unwrap();
             db
         };
-        let none = resolve(db.conn(), "p", &decision(&[("interjection", 1, "to the engineer")]), "architect", None);
+        let none = resolve(
+            db.conn(),
+            "p",
+            &decision(&[("interjection", 1, "to the engineer")]),
+            "architect",
+            None,
+        );
         assert!(none.unwrap_err().join("\n").contains("has no recorded time"));
     }
 
@@ -913,12 +926,16 @@ mod tests {
     // or adds to it, keeps them.
     #[test]
     fn a_text_that_replaces_an_item_s_keeps_the_decisions_it_has() {
-        let before = "Approach:\n- Do it.\nDecisions:\nDecision (2026-11-01, owner): A.\nDecision (2026-11-02, owner): B.\n";
+        let before =
+            "Approach:\n- Do it.\nDecisions:\nDecision (2026-11-01, owner): A.\nDecision (2026-11-02, owner): B.\n";
         assert!(unkept(before, before).is_empty());
         assert!(unkept("", "Approach:\n- New.").is_empty());
         assert!(unkept(before, &before.replace("- Do it.", "- Do it first.\n- Then more.")).is_empty());
         // A line left out.
-        let dropped = unkept(before, "Approach:\n- Do it.\nDecisions:\nDecision (2026-11-02, owner): B.\n");
+        let dropped = unkept(
+            before,
+            "Approach:\n- Do it.\nDecisions:\nDecision (2026-11-02, owner): B.\n",
+        );
         assert_eq!(dropped.len(), 1, "{dropped:?}");
         assert!(dropped[0].contains("Decision (2026-11-01, owner): A."), "{dropped:?}");
         // A line changed by a letter is a line left out, and a line new by hand is not this check's.
