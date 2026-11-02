@@ -13557,10 +13557,15 @@ fn a_cancel_during_the_first_ci_waits_for_the_step_and_closes_its_pull_request()
     let ended_at_once = ended_why(&e, work);
     let round_cut_off = tool_round_open(&e, work).is_none();
     s.ci.open();
-    let closed = turns_until(&mut e, &Go::default(), |_| pr_states(&s) == [PrState::Closed]);
+    // Until it closes, or the step has ended and the outbox holds nothing that could close it.
+    let settled = turns_until(&mut e, &Go::default(), |e| {
+        pr_states(&s) == [PrState::Closed]
+            || (e.in_flight().is_empty() && number(e, "SELECT count(*) FROM outbox") == 0)
+    });
     e.drain().unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert!(closed, "{:?}\n{log}", pr_states(&s));
+    assert!(settled, "{log}");
+    assert_eq!(pr_states(&s), [PrState::Closed], "{log}");
     assert_eq!(ended_at_once, None, "{log}");
     assert!(!round_cut_off, "{log}");
     assert_eq!(cancelled_why(&e, item).as_deref(), Some("no longer needed"), "{log}");
@@ -14420,13 +14425,17 @@ fn the_work_behind_waits_while_a_cancel_of_the_merge_step_is_asked() {
             Ok(tx.last_insert_rowid())
         })
         .unwrap();
+    let came = s.ci.came();
     cancel(&mut e, item, "owner");
-    // A round of a row that waits is written open and then ended, by two writes of the step on its own thread.
+    // A round of a row that waits is written open and then ended, by two writes of the step on its own thread. A work
+    // behind that began its merge instead comes to the full CI, or pauses on a pull request GitHub does not have.
     let waits = turns_until(&mut e, &Go::default(), |e| {
         transitions_at(e, behind, "M2").iter().any(Option::is_some)
+            || s.ci.came() > came
+            || paused_by(e, behind).is_some()
     });
     let log = said.lock().unwrap().join("\n");
-    assert!(waits, "{:?}\n{log}", transitions_at(&e, behind, "M2"));
+    assert!(waits, "{log}");
     assert_eq!(transitions_at(&e, behind, "M2"), [Some("behind".to_string())], "{log}");
     assert_eq!(ended_why(&e, work), None, "{log}");
     assert_eq!(s.merging.came(), 0, "{log}");
