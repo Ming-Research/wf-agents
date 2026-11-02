@@ -1,4 +1,4 @@
-/* A flow's chart, drawn as the UI spec says a chart is: its layout, shapes and lines as the page's decisions draw them,
+/* A flow's chart, drawn as the UI spec says a chart is: its layout, shapes and lines as the spec's rules draw them,
    its look in Primer's tokens. Text, boxes and fills take the functional tokens. Only the cells, every place a work can
    stand at (an agent's a box, every other rounded), have colours, each named once by what it marks: an agent's round
    its role's, the colour the flow gives its line, through the one lookup every place that shows a role draws it by

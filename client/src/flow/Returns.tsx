@@ -1,4 +1,4 @@
-// What comes out of a cell, in the one JSON look both panels draw it in (ui-spec.md). On a round, the return as it was
+// What comes out of a cell, in the one JSON look both panels draw it in (the UI spec). On a round, the return as it was
 // handed back, pretty-printed: its keys, its texts and its other values each in their syntax colour, a text's line
 // breaks kept and a text over 1,000 characters folded to its first lines, each object and list folding at its opening
 // line, and a key saying on hovering what the flow says of its place. On a cell, the pattern of what it hands back, in

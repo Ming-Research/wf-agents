@@ -1,4 +1,4 @@
-// The three voices a panel's texts are in, each in one look wherever the page shows it (ui-spec.md): the page's own
+// The three voices a panel's texts are in, each in one look wherever the page shows it (the UI spec): the page's own
 // words, plain; what is sent to an agent, a sheet, filled, with a thick edge at its left; what an agent handed back, a
 // box with a thin border. Inside a sheet or a box the page adds only names, numbers and controls: a name small and
 // muted, what each round fills in as a dashed placeholder, and the control that opens a text over 1,000 characters,

@@ -3,8 +3,7 @@
 wf-agents runs coding agents through a defined flow. Each piece of work goes through research, design,
 implementation, testing, review and merge, and the flow fixes what every step is given, what it hands back and where
 the work goes next. wf-agents belongs to no project: everything about a project lives in that project's
-configuration, outside this repository. [reasoning/constitution.md](reasoning/constitution.md) holds the values its
-decisions come from.
+configuration, outside this repository. [constitution.md](constitution.md) holds the values its decisions come from.
 
 ## Layout
 
@@ -19,11 +18,11 @@ decisions come from.
   them), the reads that fill them, the bus its live events go through, and what the owner asks of the running engine.
 - `crates/web`: the interface as `wf-agents run` serves it on the loopback address: HTTP and JSON under `/api/v1`, the
   event stream, and the page built into the binary.
-- `client/`: the owner's page, in TypeScript with React and Vite; `client/src/api.ts` is generated, not written.
+- `client/`: the owner's page, in TypeScript with React and Vite; `client/src/api.ts` is generated, not written, and
+  `client/ui-spec.md` is its UI spec.
 - `flow/flow.json`: the flow every piece of work goes through.
 - `db/schema.sql`: the only definition of the database's tables and views.
-- `reasoning/`: the project's records, kept by the reasoning system's rules: its constitution, the facts its decisions
-  take as given, the decisions derived from them, and the log of every revision.
+- `constitution.md`: the lasting values designs are judged by, which the owner sets.
 - `.github/workflows/ci.yml`: the checks every pushed commit runs; `.config/nextest.toml`: how they run the tests;
   `.config/english-exempt.txt`: the files the check that the repository is in English leaves out.
 
@@ -31,13 +30,9 @@ decisions come from.
 
 Every commit pushed to any branch runs `ci`: rustfmt, clippy with warnings as errors, and the tests, on the toolchain
 `rust-toolchain.toml` pins, the tests run by cargo-nextest split across three jobs, each test stopped at 60 s; the page's type check, lint, check against its UI spec (`npm run check:ui`), tests and
-build, which come before any cargo step that compiles `crates/web`; that `client/src/api.ts` is what the Rust types generate
+build, which come before any cargo step that compiles `crates/web`; and that `client/src/api.ts` is what the Rust types generate
 (`WF_AGENTS_GENERATE=1 cargo test -p api --test typescript` writes it, and with it `client/src/stored-flow.json`, the
-flow as the engine stores it, which the page's tests read and git leaves out); and the project's records, by the
-reasoning system's check (its `check.py`, taken at the commit `ci.yml` names, run as `python3 -B check.py --root
-reasoning --ascii`), which on a push also
-compares them with the branch's tip before it (`--base` and `--ready`), so that every change to them is named in a new
-entry at the top of their log. Its job `check` is red whenever another
+flow as the engine stores it, which the page's tests read and git leaves out). Its job `check` is red whenever another
 of its jobs is. One of the tests, `crates/wf-agents/tests/english.rs`, holds the repository to English: it fails on a
 tracked file that holds a letter that is not ASCII, written as itself or as an escape, but for the files
 `.config/english-exempt.txt` names, such as a document made as a translation.
@@ -83,7 +78,7 @@ in the directory it ran in.
 Each project has an architect of its own. It runs at the level `install.toml` names under `[agents]` as `architect`
 (such as `architect = "4"`), the top level when it names none; its search of observations runs at the level named as
 `observer`, `1` when none is named. Each project's file names its constitution, a path in the project's checkout, such
-as `constitution = "reasoning/constitution.md"`, which its architect checks the project against article by article (the
+as `constitution = "constitution.md"`, which its architect checks the project against article by article (the
 level-two headings that start with "Article"), and the tags its observations may carry, each with what it covers:
 `observation_tags = [{ name = "ui", desc = "What the owner sees on the page" }]`.
 

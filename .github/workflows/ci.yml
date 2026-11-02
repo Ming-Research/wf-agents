@@ -35,11 +35,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
-      # With the whole history, so that the branch's tip before the push, which the records are compared with, is
-      # there.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
       # Installs the toolchain rust-toolchain.toml pins, with its components.
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -51,33 +47,6 @@ jobs:
       # Formatting first: it needs no build, so a misformatted push fails in seconds.
       - name: Format
         run: cargo fmt --all --check
-      # The project's records (reasoning/), by the reasoning system's check, check.py, taken from the reasoning system
-      # (github.com/Ming-Research/reasoning-system) at the commit named here: the project holds only its records. It
-      # also holds every change to them since a base to a new entry at the top of their log: on the line works merge
-      # into (`MAIN_LINE`, the project's `main`), the tip before the push; on a work's branch, where it forks from that
-      # line, so that what a merge of the line brought in is not the branch's own change and the branch's entries stay
-      # on top, as merging it into the line needs. A run with neither, or whose tip before held no records yet, checks
-      # the records as they are.
-      - name: Check the reasoning records
-        env:
-          BEFORE: ${{ github.event.before }}
-          BRANCH: ${{ github.ref_name }}
-          MAIN_LINE: main
-          REASONING_SYSTEM: 6d87fd0bbca321bacdd9fa7fe60d2b2cedf1c0bf
-        run: |
-          check="$RUNNER_TEMP/check.py"
-          curl -fsSL --retry 3 -o "$check" \
-            "https://raw.githubusercontent.com/Ming-Research/reasoning-system/$REASONING_SYSTEM/check.py"
-          base=""
-          if [ "$BRANCH" != "$MAIN_LINE" ] && git rev-parse -q --verify "origin/$MAIN_LINE" >/dev/null; then
-            base=$(git merge-base HEAD "origin/$MAIN_LINE")
-          elif [ -n "$BEFORE" ] && git cat-file -e "$BEFORE:reasoning/log.md" 2>/dev/null; then
-            base=$BEFORE
-          fi
-          if [ -n "$base" ]; then
-            exec python3 -B "$check" --root reasoning --ascii --base "$base" --ready
-          fi
-          exec python3 -B "$check" --root reasoning --ascii
       # The page's TypeScript types are generated from the Rust types; the page is checked against what they generate
       # now, and the last step fails when that differs from the committed file. The same run writes the flow as the
       # engine stores it, which the page's tests read.
@@ -92,8 +61,8 @@ jobs:
       - name: Lint the page
         working-directory: client
         run: npm run lint
-      # Every colour, size and spacing in the page's styles is a token, as its UI spec says
-      # (reasoning/derivations/harness/owner-interface/ui-spec.md); the tests of the next step leave this to it.
+      # Every colour, size and spacing in the page's styles is a token, as its UI spec says (client/ui-spec.md); the
+      # tests of the next step leave this to it.
       - name: Check the page against its UI spec
         working-directory: client
         run: npm run check:ui
