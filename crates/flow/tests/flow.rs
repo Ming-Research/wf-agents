@@ -802,11 +802,13 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
             "offline",
             "transient",
             "flagged",
+            "guarded",
             "cannot_run",
             "prompt_too_long",
             "unparsed"
         ]
     );
+    assert_eq!(r.guard.as_ref().map(|x| x.samples), Some(19));
     for cell in &g.cells {
         // The fix's own row for a table with no row is an engine's case too, but of that cell alone.
         let shared: Vec<&flow::CompiledRow> = cell
@@ -829,6 +831,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "offline",
                 "transient",
                 "flagged",
+                "guarded",
                 "cannot_run",
                 "prompt_too_long",
                 "unparsed",
@@ -851,6 +854,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
             [
                 "sent_back_too_often",
                 "flagged",
+                "guarded",
                 "prompt_too_long",
                 "unparsed",
                 "cannot_step",
@@ -1327,4 +1331,52 @@ fn a_work_moves_by_its_rows() {
     assert_eq!(l1.to, "L2");
     let l2 = g.cell("L2").unwrap();
     assert_eq!(l2.rows.iter().find(|r| r.name == "done").unwrap().to, "E1");
+}
+
+// The architect's line says its session expires with the CLI's prompt cache, so that every cell on it carries that, and
+// no cell of any other line does. A flow version stored before lines could say so has no such field in its cells, and
+// reads back with it false.
+#[test]
+fn only_the_architects_line_expires_with_the_cache() {
+    let c = compiled();
+    let mut expiring = Vec::new();
+    for g in &c.graphs {
+        for x in &g.cells {
+            if x.cache_expiry {
+                assert_eq!(x.line.as_deref(), Some("architect"), "{} {}", g.name, x.id);
+                expiring.push((g.name.as_str(), x.id.as_str()));
+            }
+        }
+    }
+    let architect = c.graph("architect").unwrap();
+    let on_line: Vec<&str> = architect
+        .cells
+        .iter()
+        .filter(|x| x.line.as_deref() == Some("architect"))
+        .map(|x| x.id.as_str())
+        .collect();
+    assert!(on_line.contains(&"U1") && on_line.contains(&"N1"), "{on_line:?}");
+    assert!(
+        on_line.iter().all(|id| expiring.contains(&("architect", *id))),
+        "{on_line:?} against {expiring:?}"
+    );
+    // The architect's other lines (its batch's review, its search) and the engineer's lines go on as they did.
+    assert!(!architect.cell("X2").unwrap().cache_expiry);
+    assert!(c.graph("engineer").unwrap().cells.iter().all(|x| !x.cache_expiry));
+
+    // What is stored of a flow version from before holds the field for no cell; it reads back false for each.
+    let mut stored: Value = serde_json::from_str(&c.json()).unwrap();
+    fn strip(v: &mut Value) {
+        match v {
+            Value::Object(m) => {
+                m.remove("cache_expiry");
+                m.values_mut().for_each(strip);
+            }
+            Value::Array(xs) => xs.iter_mut().for_each(strip),
+            _ => {}
+        }
+    }
+    strip(&mut stored);
+    let old: flow::Compiled = serde_json::from_value(stored).unwrap();
+    assert!(old.graphs.iter().all(|g| g.cells.iter().all(|x| !x.cache_expiry)));
 }

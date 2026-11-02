@@ -11,7 +11,7 @@ use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered, at_path};
 use crate::message;
 use crate::work::{self, Ended, Item, Round, RoundId, Work};
-use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values};
+use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values, watch};
 use sessions::{Held, Plan};
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -61,13 +61,23 @@ pub fn anew(r: &CompiledRow) -> bool {
 }
 
 /// Why a round's session starts afresh, in words, for the round's record and the owner's page.
-pub fn new_session_why(why: sessions::Start, cell: &CompiledCell, limit: u64, model: &str) -> String {
+pub fn new_session_why(
+    why: sessions::Start,
+    cell: &CompiledCell,
+    limit: u64,
+    model: &str,
+    cache: Option<i64>,
+) -> String {
     match why {
         sessions::Start::Line => "no session of its line going on yet".into(),
         sessions::Start::Cell => format!("cell {} opens one, at its first round", cell.id),
         sessions::Start::Limit => format!("context past the limit ({}K)", limit / 1000),
         sessions::Start::Model => format!("the model changed to {model}"),
         sessions::Start::Account => "the agents' login account changed".into(),
+        sessions::Start::Expired => format!(
+            "the prompt cache expired (the session's last call was {} minutes or more ago)",
+            cache.unwrap_or_default() / 60_000
+        ),
         sessions::Start::Carried => "the architect goes on in the session it had".into(),
         sessions::Start::Owner => "the owner asked for one".into(),
     }
@@ -93,10 +103,13 @@ fn needed<'i>(item: &'i Option<Item>, w: &Work) -> Result<&'i Item, String> {
 
 pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Advance, String> {
     close_interrupted(e, w)?;
+    // The time the round's session is chosen at, one for the check below and the message's own, so that a session
+    // whose cache expires between them is not told apart by them.
+    let now = db::now();
     // A new session of the architect's line in the middle of an architect work understands the project first: the
     // cell's row for that, recorded with why the session would start afresh; a flow version without the row goes back
     // unrecorded.
-    if let Some(why) = crate::architect::understand_first(e, w, g, cell)? {
+    if let Some(why) = crate::architect::understand_first(e, w, g, cell, now)? {
         let Some(row) = cell.rows.iter().find(|r| anew(r)).cloned() else {
             return crate::architect::back_to_understanding(e, w, g, cell);
         };
@@ -209,7 +222,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         whole,
         system,
         starts_with,
-    } = compose(e, w, g, cell, item.as_ref())?;
+    } = compose(e, w, g, cell, item.as_ref(), now)?;
     // A message that would give its session whole what the session already holds is the engine's fault: it is not
     // sent, and the work waits for the owner.
     if !msg.repeats.is_empty() {
@@ -242,6 +255,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             cell,
             e.config.config.install.agents.context_limit,
             &level.model,
+            e.runs_on(&level).on().cache,
         )),
         Plan::Going { .. } => None,
     };
@@ -346,13 +360,25 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     }
     // The level the round runs at, which the configuration maps to its model: the owner reads the round by it.
     call["level"] = Value::String(level_name.clone());
+    // How the guard will judge the round, from the rounds kept as it starts, which its record keeps.
+    let started = watch::Start {
+        graph: &g.name,
+        cell: &cell.id,
+        section: &section,
+        at_cell: &at_cell,
+        resumed,
+        model: &level.model,
+        message: &msg.text,
+        session: &line_rounds,
+    }
+    .run(e);
     let mut input = json!({
         "message": msg.stored,
         "conditional": msg.record(),
         "call": call,
         "engine": {
             "head": head, "change": change, "columns": columns, "table": table, "interjections": ids,
-            "new_session": new_why,
+            "new_session": new_why, "guard": started.lines().record(),
         },
     });
     // Where the owner's images were given, by their attachments, and those only referred to.
@@ -377,9 +403,9 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         })
         .map_err(sql)?;
     e.say(&format!("work {} cell {}: {round} of the {line}", w.id, cell.id));
-    let reply = e
-        .sessions()
-        .run(&req, &|what: &str| e.activity(round.work, round.n, what));
+    let watching = watch::Watch::begin(e, round, started);
+    let reply = e.sessions().run(&req, &|seen| watching.see(seen));
+    let watched = watching.end();
     let _ = std::fs::remove_file(&given_again);
     if reply.session != new_session && !reply.session.is_empty() {
         let s = reply.session.clone();
@@ -413,13 +439,29 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     }
     // What the session had cost before, its keep-warm pings included, so that the round's own cost is what it grew by.
     let before = sessions::cost::spent(e.db.conn(), &new_session, &line_rounds)?;
+    // A run stopped never reached the command line's report of what it used: its calls tell it.
+    let usage = match &reply.stopped {
+        Some(_) => watched.totals().usage(reply.usage.clone()),
+        None => sessions::cost::own_cost(reply.usage.clone(), before),
+    };
     let ended = Ended {
-        usage: Some(sessions::cost::own_cost(reply.usage.clone(), before)).filter(|u| !u.is_null()),
+        usage: Some(usage).filter(|u| !u.is_null()),
         model: reply.model.clone(),
         compactions: reply.compactions,
         command: (!reply.command.is_empty()).then(|| reply.command.clone()),
         ..Ended::default()
     };
+    // What the round came to joins the rounds later ones are judged by, unless it went past a signal that stops a round.
+    let spent = ended.usage.as_ref().and_then(|u| u["cost_usd"].as_f64());
+    if let Some(sample) = watched.sample(&cell.id, reply.model.as_deref(), spent) {
+        let kept = e.db.write(Actor::Engine, |tx| {
+            sessions::guard::keep_sample(tx, round, &g.name, &sample)?;
+            Ok(())
+        });
+        if let Err(x) = kept {
+            e.say(&format!("{round}: what it came to could not be kept: {x}"));
+        }
+    }
     // A work that ended while its round ran, as when the owner cancelled its item meanwhile, had the round cut off as
     // it ended (`ending::end`): what the round hands in is not taken, and what it cost is kept on it. So for a work
     // asked to be started over meanwhile, whose round stays open for the takeover to cut off: the loop starts the work
@@ -451,6 +493,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // session's messages changed since its round before, which the miss is kept for, as its cost, with no notice.
     if req.resume.is_some()
         && let Some(usage) = &ended.usage
+        && let Some(life) = req.cli.kind.cache_lifetime()
         && let Some(miss) = sessions::miss::missed(
             e.db.conn(),
             &new_session,
@@ -459,6 +502,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             &input["call"],
             usage,
             ended.model.as_deref(),
+            life,
         )?
     {
         crate::faults::cache_miss(e, w, round, &cell.id, &line, &miss)?;
@@ -488,6 +532,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         .any(|k| k.name == crate::unparsed::KIND && k.handle == flow::format::Handle::Repair);
     if reply.output.is_none()
         && repairs
+        && reply.stopped.is_none()
         && agent::failure_kind(reply.error.as_deref().unwrap_or_default()) == crate::unparsed::KIND
     {
         // A repair is checked as the return it gives would be taken.
@@ -590,6 +635,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             cell,
             round,
             section: &section,
+            guard: watched.stop_record(),
         };
         return f.handle(e, ended, &reply);
     };
@@ -790,17 +836,16 @@ fn compose(
     g: &CompiledGraph,
     cell: &CompiledCell,
     item: Option<&Item>,
+    now: i64,
 ) -> Result<Composed, String> {
     let line = sessions::choose::line_of(cell);
     let (_, level, _) = level_of(e, g, cell, item)?;
-    let home = e.cli_dir(&level.cli);
-    let on = sessions::On {
-        model: &level.model,
-        home: home.as_deref(),
-    };
+    let runs = e.runs_on(&level);
     let limit = e.config.config.install.agents.context_limit;
     let architect = w.project.as_deref().filter(|_| g.name == ARCHITECT);
-    let mut plan = e.sessions().plan(e.db.conn(), w.id, architect, cell, limit, on)?;
+    let mut plan = e
+        .sessions()
+        .plan(e.db.conn(), w.id, architect, cell, limit, runs.on(), now)?;
     let work_rounds = work::rounds(e.db.conn(), w.id)?;
     let number = work::next_round(e.db.conn(), w.id)?;
     let (line_rounds, held) = match &mut plan {
@@ -901,7 +946,7 @@ pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, Strin
         .cloned()
         .ok_or_else(|| format!("work {work} is at cell {}, which is not an agent's", w.pos.at))?;
     let item = e.subject(&w)?;
-    Ok(compose(e, &w, &g, &cell, item.as_ref())?.msg)
+    Ok(compose(e, &w, &g, &cell, item.as_ref(), db::now())?.msg)
 }
 
 fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Advance, String> {

@@ -13,7 +13,7 @@ use crate::check::Analysis;
 use crate::field::{Field, segment};
 use crate::format::{
     Always, Atom, BlockerCell, Blockers, Check, Choice, Counter, Do, EngineNames, EnumText, FRESH_SESSION, Form,
-    Handle, Kind, NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src,
+    GUARDED, Handle, Kind, NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src,
 };
 use crate::graph::{Cell, CellKind, Graph, ensure};
 
@@ -185,6 +185,10 @@ pub struct CompiledCell {
     /// its line each time the work comes by one of them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fresh_session: Vec<String>,
+    /// The cell's line says its session expires with the CLI's prompt cache: the cell starts a new session when its
+    /// line's session was last called a cache lifetime or more ago. False in a flow version stored before lines said so.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub cache_expiry: bool,
     /// The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
     /// declared one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -931,6 +935,10 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             } else {
                 Vec::new()
             },
+            cache_expiry: c
+                .line
+                .as_ref()
+                .is_some_and(|line| g.flow.sessions.lines.iter().any(|l| &l.name == line && l.cache_expiry)),
             effort: c.effort.clone(),
             stage: g.stage.get(&ci).cloned(),
             tools: c.tools.clone(),
@@ -1059,6 +1067,21 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
 /// The rounds section as written, once every agent's cell can have a shared row of each kind's name.
 fn rounds(r: &Rounds, cells: &[CompiledCell]) -> Result<Rounds, String> {
     ensure!(r.sent_back.pause_after > 1, "rounds.sentBack.pauseAfter is less than 2");
+    // A round the guard stops takes this kind's row, which runs it again in a new session; a stop with no row would be
+    // a step off the chart.
+    let guarded = r.failed.kinds.iter().find(|k| k.name == GUARDED);
+    ensure!(
+        r.guard.is_none() || guarded.is_some_and(|k| k.handle == Handle::Fresh),
+        "rounds.guard needs a kind of failed run named {GUARDED}, handled fresh"
+    );
+    ensure!(
+        guarded.is_none() || r.guard.is_some(),
+        "the kind of failed run {GUARDED} has no rounds.guard to say when it comes"
+    );
+    ensure!(
+        r.guard.as_ref().is_none_or(|g| g.samples > 1),
+        "rounds.guard.samples is less than 2"
+    );
     for c in cells {
         let mut seen = std::collections::BTreeSet::new();
         for row in &c.rows {
@@ -1177,4 +1200,39 @@ fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
 fn stored_rounds<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Rounds>, D::Error> {
     let v = Option::<Value>::deserialize(d)?;
     Ok(v.and_then(|v| serde_json::from_value(v).ok()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What `rounds` refuses in the flow's rounds section once `change` changed it.
+    fn refused(change: impl FnOnce(&mut Value)) -> String {
+        let flow: Value = serde_json::from_str(crate::FLOW).unwrap();
+        let mut section = flow["flows"][0]["rounds"].clone();
+        change(&mut section);
+        let r: Rounds = serde_json::from_value(section).unwrap();
+        rounds(&r, &[]).unwrap_err()
+    }
+
+    // A stop with no row to take, or a row no stop leads to, would not be what the chart says; the rule's rounds are the
+    // flow's, and a round is not its own distribution.
+    #[test]
+    fn a_stop_and_its_row_come_together_and_a_rule_needs_two_rounds() {
+        let no_row = refused(|s| {
+            let kinds = s["failed"]["kinds"].as_array_mut().unwrap();
+            kinds.retain(|k| k["name"] != GUARDED);
+        });
+        assert!(
+            no_row.contains("rounds.guard needs a kind of failed run named guarded"),
+            "{no_row}"
+        );
+        let no_rule = refused(|s| s["guard"] = Value::Null);
+        assert!(
+            no_rule.contains("the kind of failed run guarded has no rounds.guard"),
+            "{no_rule}"
+        );
+        let one = refused(|s| s["guard"]["samples"] = 1.into());
+        assert!(one.contains("rounds.guard.samples is less than 2"), "{one}");
+    }
 }

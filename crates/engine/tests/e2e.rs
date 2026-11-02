@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use db::Actor;
 use db::rusqlite::params;
-use engine::agent::{Agents, Reply, Request};
+use engine::agent::{Agents, Call, Next, Reply, Request, Seen};
 use engine::hub::{CheckRun, Failure, GitHub};
 use engine::{Advance, Ask, Engine, GlobalPause, Go, Hooks, Passed, Stepped};
 use serde_json::{Value, json};
@@ -262,8 +262,9 @@ fn example(s: &Value, path: &str, pick: &BTreeMap<String, String>, set: &BTreeMa
 
 /// What the scripted agent hands in at a cell, and does in the worktree before. Under `@error` it hands in nothing,
 /// as a run that failed with that report; under `@compactions`, the session was compacted that many times; under
-/// `@usage`, what the CLI reports the round used. The script `@ping` answers a keep-warm ping, its `@usage` what the
-/// ping used.
+/// `@usage`, what the CLI reports the round used; under `@stream`, what the run's stream tells on the way ([`seen`]),
+/// each thing told to the round's watcher, which may stop the run there. The script `@ping` answers a keep-warm ping,
+/// its `@usage` what the ping used.
 type Script =
     Box<dyn Fn(&Request, usize) -> (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>) + Send + Sync>;
 
@@ -272,8 +273,31 @@ struct Scripted {
     rounds: Mutex<BTreeMap<String, usize>>,
 }
 
+/// What one entry of a script's `@stream` tells: a call by `call` and `prompt`, with `output` and `subagent` when the
+/// script says; a tool use by `tool` and `digest`; or a compaction.
+fn seen(entry: &Value, model: &str) -> Seen {
+    if let Some(id) = entry["call"].as_str() {
+        return Seen::Call(Call {
+            id: id.to_string(),
+            model: Some(model.to_string()),
+            read: entry["prompt"].as_i64().unwrap_or(0),
+            output: entry["output"].as_i64().unwrap_or(0),
+            subagent: entry["subagent"] == true,
+            ..Call::default()
+        });
+    }
+    match entry["tool"].as_str() {
+        Some(name) => Seen::Tool {
+            name: name.to_string(),
+            on: entry["on"].as_str().map(str::to_string),
+            digest: entry["digest"].as_u64().unwrap_or(0),
+        },
+        None => Seen::Compacted,
+    }
+}
+
 impl Agents for Scripted {
-    fn run(&self, r: &Request, _activity: &dyn Fn(&str)) -> Reply {
+    fn run(&self, r: &Request, watch: &dyn Fn(Seen) -> Next) -> Reply {
         if r.replay.is_some() {
             return self.ping(r);
         }
@@ -313,6 +337,21 @@ impl Agents for Scripted {
             set.entry("outcome.notebook".into()).or_insert(json!(edits));
         }
         let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
+        let stream = set
+            .remove("@stream")
+            .and_then(|s| s.as_array().cloned())
+            .unwrap_or_default();
+        for entry in &stream {
+            if let Next::Stop(why) = watch(seen(entry, &r.model)) {
+                return Reply {
+                    session,
+                    usage: json!({ "started": true }),
+                    error: Some(why.clone()),
+                    stopped: Some(why),
+                    ..Reply::default()
+                };
+            }
+        }
         if let Some(e) = set.get("@error") {
             return Reply {
                 session,
@@ -5151,6 +5190,277 @@ fn a_resumed_session_goes_from_starting_to_the_queue() {
     assert_eq!(sessions.len(), 2, "{sessions:?}");
     assert_eq!(sessions[1].0, "carried");
     assert_eq!(sessions[0].1, sessions[1].1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Moves everything the project's architect did and was told back in time by `ms`, as if it had happened that long
+/// before: its rounds, and the matters it was given. What the cache of its session holds is as old as its last call.
+fn age_architect(e: &mut Engine, ms: i64) {
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET started_at = started_at - ?1, ended_at = ended_at - ?1",
+            [ms],
+        )?;
+        tx.execute("UPDATE architect_matters SET at = at - ?1", [ms])?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// The CLI sessions of the architect's line in two works, oldest first: why each started and its CLI session.
+fn architect_sessions(e: &Engine, first: i64, second: i64) -> Vec<(String, String)> {
+    let mut st = e
+        .db
+        .conn()
+        .prepare("SELECT started, cli_session FROM sessions WHERE line = 'architect' AND work IN (?1, ?2) ORDER BY id")
+        .unwrap();
+    st.query_map([first, second], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// Works of project p's architect run one after the other under `agents`: each of `talks` is the owner's words that
+/// start a work, said `age` milliseconds after the work before it ended (that work and what it was told made that much
+/// older; the first has none before it). The first words are said five seconds before the first work starts, so that
+/// no round of it begins in the millisecond they were said in. Gives the works' ids, oldest first.
+fn architect_works_in(
+    name: &str,
+    agents: BTreeMap<&'static str, Script>,
+    talks: &[(i64, &str)],
+) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, Vec<i64>) {
+    let s = setup(name);
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    let mut works = Vec::new();
+    for (i, (age, words)) in talks.iter().enumerate() {
+        if i > 0 {
+            age_architect(&mut e, *age);
+        }
+        say(&mut e, words);
+        if i == 0 {
+            e.db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE architect_matters SET at = at - 5000
+                     WHERE id = (SELECT max(id) FROM architect_matters)",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        }
+        let work = e.step(None).unwrap().work.unwrap();
+        assert!(
+            steps_until(&mut e, 60, |e| architect_work_done(e, work)),
+            "{}",
+            said.lock().unwrap().join("\n")
+        );
+        works.push(work);
+    }
+    (s, e, said, works)
+}
+
+/// Two works of project p's architect, the owner's `first` words starting the first and `second` words the second,
+/// said `age` milliseconds after the first work ended (the first work and what it was told made that much older).
+fn two_architect_works(
+    name: &str,
+    age: i64,
+    first: &str,
+    second: &str,
+) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64, i64) {
+    let (s, e, said, works) = architect_works_in(name, scripts(), &[(0, first), (age, second)]);
+    (s, e, said, works[0], works[1])
+}
+
+/// The scripts of a test of the understanding's rounds: the project's first understanding answers at once; its second
+/// round of the understanding in the test, the first round of a later session's, asks for tools, and the round after
+/// it answers.
+fn understanding_asks_for_tools_once() -> BTreeMap<&'static str, Script> {
+    let mut agents = scripts();
+    agents.insert(
+        "U1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 2 {
+                let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    agents
+}
+
+/// The hash and whether it was given of the talk (`owner_talk`) a round's input records, if it records one.
+fn talk_recorded(input: &Value) -> Option<(String, bool)> {
+    input["conditional"]
+        .as_array()?
+        .iter()
+        .find(|m| m["address"].as_str().is_some_and(|a| a.ends_with("·engine·owner_talk")))
+        .map(|m| {
+            (
+                m["hash"].as_str().unwrap_or_default().to_string(),
+                m["given"].as_bool().unwrap_or(false),
+            )
+        })
+}
+
+/// The number of each round of a work at a cell, oldest first.
+fn rounds_numbered(e: &Engine, work: i64, cell: &str) -> Vec<i64> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT n FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n")
+            .unwrap();
+    st.query_map(params![work, cell], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// The input a work's round of a given number was sent.
+fn input_numbered(e: &Engine, work: i64, n: i64) -> Value {
+    let input: String =
+        e.db.conn()
+            .query_row(
+                "SELECT input FROM rounds WHERE work = ?1 AND n = ?2",
+                params![work, n],
+                |r| r.get(0),
+            )
+            .unwrap();
+    db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap())
+}
+
+// A work of the architect whose project's previous architect work ended 90 minutes ago, a session whose last call the
+// CLI's cache has let go, understands the project in a new session, started as expired, and is told what was said
+// since the session before began and not what was said before; the same work 30 minutes after the other goes on in
+// the session it had, as before.
+#[test]
+fn a_work_after_the_cache_expired_understands_the_project_in_a_new_session() {
+    // The end of each of the words is its own, which the first sentence a matter is named by does not carry.
+    let (s, e, said, first, second) = two_architect_works(
+        "expired-between",
+        90 * 60_000,
+        "Alpha talk. ALPHAEND",
+        "Beta talk. BETAEND",
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, second);
+    assert_eq!(&path[..2], ["S1", "U1"], "{path:?}\n{log}");
+    let sessions = architect_sessions(&e, first, second);
+    assert_eq!(sessions.len(), 2, "{sessions:?}\n{log}");
+    assert_eq!(sessions[1].0, "expired", "{sessions:?}");
+    assert_ne!(sessions[0].1, sessions[1].1);
+    // The new session is told the talk since the session before began: the second words, not the first, which were
+    // said before it began.
+    let u1 = input_at(&e, second, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap();
+    assert!(m.contains("BETAEND"), "{m}");
+    assert!(!m.contains("ALPHAEND"), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+
+    let (s, e, said, first, second) = two_architect_works(
+        "fresh-between",
+        30 * 60_000,
+        "Alpha talk. ALPHAEND",
+        "Beta talk. BETAEND",
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, second);
+    assert_eq!(&path[..2], ["S1", "Q0"], "{path:?}\n{log}");
+    let sessions = architect_sessions(&e, first, second);
+    assert_eq!(sessions[1].0, "carried", "{sessions:?}");
+    assert_eq!(sessions[0].1, sessions[1].1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The first understanding of a project, with no earlier session to cut the talk at, is given the latest
+// entries of the one-to-one; over the size limit it is given the latest whole entries and one line saying how many
+// earlier ones there are.
+#[test]
+fn the_first_understanding_is_given_the_latest_whole_entries_of_the_talk() {
+    let s = setup("owner-talk-limit");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    // The end of each long entry is its own, which the first sentence a matter is named by does not carry.
+    say(&mut e, "Alpha talk.");
+    say(&mut e, &format!("{} GAMMAEND", "g".repeat(35_000)));
+    say(&mut e, &format!("{} DELTAEND", "d".repeat(35_000)));
+    say(&mut e, "Epsilon talk. EPSILONEND");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| path_of(e, arch).iter().any(|c| c == "U1")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let u1 = input_at(&e, arch, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap();
+    assert!(
+        m.contains("DELTAEND") && m.contains("EPSILONEND"),
+        "the latest entries, whole"
+    );
+    assert!(!m.contains("GAMMAEND"), "an entry that does not fit is left out whole");
+    assert!(
+        m.contains("and 2 earlier entries before these"),
+        "{}",
+        &m[m.len().saturating_sub(3_000)..]
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The cache of the architect's session expiring in the middle of a work, with no keep-warm ping to hold it, has the
+// next round take the row for a new session, naming the expired cache: the matter in hand goes back to the queue and
+// the work understands the project in a new session, started as expired, before it takes the matter again.
+#[test]
+fn the_cache_expiring_in_the_middle_of_an_architect_work_starts_a_new_session() {
+    let s = setup("expired-midway");
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "One.");
+    say(&mut e, "Two.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 20, |e| e.work(arch).unwrap().pos.at == "H8"),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    age_architect(&mut e, 90 * 60_000);
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, arch);
+    let back = path.iter().rposition(|c| c == "S1").expect(&log);
+    assert_eq!(&path[back - 1..back + 3], ["H8", "S1", "U1", "Q0"], "{path:?}\n{log}");
+    let why: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(input, '$.engine.new_session') FROM rounds
+                 WHERE work = ?1 AND transition = 'session_anew'",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(why.contains("prompt cache expired"), "{why}");
+    let lines = line_sessions(&e, arch, "architect");
+    assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
+    assert_eq!(lines[1].0, "expired", "{lines:?}");
+    assert!(lines[1].2.starts_with("U1,"), "{lines:?}");
+    assert_eq!(
+        matters(&e),
+        [
+            ("owner_words".to_string(), false, true),
+            ("owner_words".to_string(), false, true)
+        ],
+        "{log}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -14019,5 +14329,960 @@ fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_
     );
     assert_eq!(rounds_at(&e), 1, "{log}");
     assert!(state(&e, second).unwrap().2.is_some(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The message the first round of the understanding of project p's architect was sent, when the owner had said each of
+/// `texts` to it, oldest first, and the project's notebook holds nothing yet.
+fn first_understanding_after(name: &str, texts: &[String]) -> String {
+    let s = setup(name);
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    for t in texts {
+        say(&mut e, t);
+    }
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| path_of(e, arch).iter().any(|c| c == "U1")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let u1 = input_at(&e, arch, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap().to_string();
+    let _ = std::fs::remove_dir_all(&s.root);
+    m
+}
+
+/// `n` characters of `fill` ending in `end`.
+fn long_words(n: usize, fill: char, end: &str) -> String {
+    format!("{}{end}", fill.to_string().repeat(n - end.len()))
+}
+
+/// The tail of a message, for a failure to show.
+fn tail(m: &str) -> &str {
+    &m[m.len().saturating_sub(2_000)..]
+}
+
+// The talk given to a new session is cut to the character: entries that together make 60,000 characters are all given,
+// one character more and the earlier of them is left out whole, and an entry that is alone longer than that is given
+// whole. The reference is the limit the design states (60,000 characters, whole entries, latest first, a line after
+// them saying how many earlier ones there are).
+#[test]
+fn the_talk_given_is_cut_at_exactly_the_limit_and_never_inside_an_entry() {
+    // Exactly the limit: both long entries are given, the short one before them is the one earlier entry.
+    let m = first_understanding_after(
+        "owner-talk-exact",
+        &[
+            "Alpha talk. ALPHAEND".to_string(),
+            long_words(30_000, 'g', "GAMMAEND"),
+            long_words(30_000, 'd', "DELTAEND"),
+        ],
+    );
+    assert!(
+        m.contains("GAMMAEND") && m.contains("DELTAEND"),
+        "both fit the limit exactly: {}",
+        tail(&m)
+    );
+    assert!(!m.contains("ALPHAEND"));
+    assert!(m.contains("and 1 earlier entry before these"), "{}", tail(&m));
+
+    // One character over: the earlier long entry is left out whole, with the short one.
+    let m = first_understanding_after(
+        "owner-talk-over",
+        &[
+            "Alpha talk. ALPHAEND".to_string(),
+            long_words(30_001, 'g', "GAMMAEND"),
+            long_words(30_000, 'd', "DELTAEND"),
+        ],
+    );
+    assert!(m.contains("DELTAEND"), "{}", tail(&m));
+    assert!(
+        !m.contains("GAMMAEND") && !m.contains("ALPHAEND"),
+        "an entry is left out whole"
+    );
+    assert!(m.contains("and 2 earlier entries before these"), "{}", tail(&m));
+
+    // The very latest entry is given whole though it alone is over the limit.
+    let m = first_understanding_after(
+        "owner-talk-alone",
+        &[
+            "Alpha talk. ALPHAEND".to_string(),
+            long_words(70_000, 'e', "EPSILONEND"),
+        ],
+    );
+    assert!(m.contains("EPSILONEND"), "the latest entry is given whole");
+    assert!(m.contains("and 1 earlier entry before these"), "{}", tail(&m));
+    assert!(!m.contains("ALPHAEND"));
+}
+
+/// The owner says words to project p's architect with one image.
+fn say_with_an_image(e: &mut Engine, text: &str) {
+    say(e, text);
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO attachments (matter, position, media_type, size, hash, bytes)
+             VALUES ((SELECT max(id) FROM architect_matters), 1, 'image/png', 4, 'h', zeroblob(4))",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+// A new session is told the talk of the one-to-one from the first round of the session before it, the one the project's
+// latest answered understanding ran in, on: the moment itself counts, and what was said before it is not told. The
+// owner's asks are told as the page shows them: an ask asked before that moment and answered at or after it with its
+// question and answer, one asked at it, one asked and answered after it, one asked and answered before it not at all,
+// one asked after it and not yet answered with its question; and how many images came with words or with an answer,
+// not the images. The reference is the owner's page: the entries of the conversation `architect:p` from that moment.
+#[test]
+fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_asks_and_images() {
+    let s = setup("owner-talk-window");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Alpha talk. ALPHAEND");
+    let one = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, one)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // The work's session began 100 minutes ago: its first round, the understanding's, started at `t - 30 seconds`, the
+    // later rounds after it, and what was said before that earlier still. The notebook the work wrote plays no part.
+    let t = db::now() - 100 * 60_000;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET started_at = ?1 - 30000,
+                    ended_at = ?1 - CASE WHEN cell = 'U1' THEN 20000 ELSE 0 END WHERE work = ?2",
+            params![t, one],
+        )?;
+        tx.execute("UPDATE architect_matters SET at = ?1 - 100000", [t])?;
+        Ok(())
+    })
+    .unwrap();
+    let ask = |e: &mut Engine, question: &str, asked: i64, answer: Option<(&str, i64)>, images: i64| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body, answer) VALUES (?1, 1, ?2, ?3)",
+                params![
+                    one,
+                    json!({ "question": question }).to_string(),
+                    answer.map(|(text, at)| json!({ "by": "owner", "text": text, "at": at }).to_string())
+                ],
+            )?;
+            let id = tx.last_insert_rowid();
+            // An ask is asked when its notice says so.
+            tx.execute(
+                "INSERT INTO engine_notices (work, text, at, ask) VALUES (?1, 'An ask.', ?2, ?3)",
+                params![one, asked, id],
+            )?;
+            for position in 1..=images {
+                tx.execute(
+                    "INSERT INTO attachments (ask, position, media_type, size, hash, bytes)
+                     VALUES (?1, ?2, 'image/png', 4, 'h', zeroblob(4))",
+                    params![id, position],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    };
+    // The cut is `t - 30 seconds`. Asked and answered before it: said before the session began. One answered at it, and
+    // one asked at it and not answered: the moment itself counts. One asked before it and answered after it, and one
+    // asked and answered after it, the answer with two images, and one asked after it and not answered.
+    ask(&mut e, "QOLD?", t - 50_000, Some(("AOLD", t - 40_000)), 0);
+    ask(&mut e, "QATCUT?", t - 30_000, None, 0);
+    ask(&mut e, "QEDGE?", t - 31_000, Some(("AEDGE", t - 30_000)), 0);
+    ask(&mut e, "QMID?", t - 15_000, Some(("AMID", t - 12_000)), 0);
+    ask(&mut e, "QSTRADDLE?", t - 35_000, Some(("ASTRADDLE", t + 3_000)), 0);
+    ask(&mut e, "QOPEN?", t + 5_000, None, 0);
+    ask(&mut e, "QNEW?", t + 4_000, Some(("ANEW", t + 6_000)), 2);
+    // The owner's words now, with one image.
+    say_with_an_image(&mut e, "Beta talk. BETAEND");
+    let two = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "U1")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sessions = architect_sessions(&e, one, two);
+    assert_eq!(sessions[1].0, "expired", "{sessions:?}\n{log}");
+    let u1 = input_at(&e, two, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap();
+    for gone in ["ALPHAEND", "QOLD", "AOLD"] {
+        assert!(
+            !m.contains(gone),
+            "{gone} was said before the session before began: {m}"
+        );
+    }
+    for told in [
+        "QATCUT",
+        "QEDGE",
+        "AEDGE",
+        "QMID",
+        "AMID",
+        "QSTRADDLE",
+        "ASTRADDLE",
+        "QOPEN",
+        "QNEW",
+        "ANEW",
+        "BETAEND",
+    ] {
+        assert!(m.contains(told), "{told} is told: {m}");
+    }
+    assert!(m.contains("2 images attached"), "{m}");
+    assert!(m.contains("1 image attached"), "{m}");
+    // In the order of the times an entry was made, an ask when it was answered if it was: the two at the cut, the one
+    // answered 18 seconds after it, the one answered 33 seconds after it, the one asked at 35, the one answered at 36,
+    // then the owner's words, which came now.
+    let at = |x: &str| m.find(x).unwrap();
+    let order = ["QATCUT", "QEDGE", "QMID", "QSTRADDLE", "QOPEN", "QNEW", "BETAEND"];
+    assert!(order.windows(2).all(|w| at(w[0]) < at(w[1])), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Every round of a new session's understanding is told the same talk. The understanding that asks for tools first is
+// given its inputs again at its next round, after the first round has begun the session and its row exists: the cut
+// must not move to the session's own first round, which would leave that round with almost nothing and the talk it was
+// first given held in a session that no longer matches it. The reference is the talk of the first round: the second
+// round records the same content (the same hash) and refers to it, not gives it again, and the first is told the
+// second words, not the first.
+#[test]
+fn the_rounds_of_a_new_sessions_understanding_are_all_told_the_same_talk() {
+    let (s, e, said, works) = architect_works_in(
+        "owner-talk-rounds",
+        understanding_asks_for_tools_once(),
+        &[(0, "Alpha talk. ALPHAEND"), (90 * 60_000, "Beta talk. BETAEND")],
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rounds = rounds_numbered(&e, works[1], "U1");
+    assert_eq!(rounds.len(), 2, "tools, then the answer: {rounds:?}\n{log}");
+    let (first, second) = (
+        input_numbered(&e, works[1], rounds[0]),
+        input_numbered(&e, works[1], rounds[1]),
+    );
+    let m = first["message"].as_str().unwrap();
+    assert!(m.contains("BETAEND") && !m.contains("ALPHAEND"), "{m}");
+    let (before, after) = (talk_recorded(&first).expect(&log), talk_recorded(&second).expect(&log));
+    assert_eq!(
+        (before.1, after.1),
+        (true, false),
+        "given once, then referred to: {first}\n{second}"
+    );
+    assert_eq!(before.0, after.0, "the same talk at both rounds");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A session counts from its first round across the works it ran in, and a session replaced before its understanding
+// answered is no session before: a session first began in the first of three works (the later two carried it on), the
+// next work's session was replaced at the understanding's second round for its cache (an hour and a half later), and
+// that round's session is told the talk from the start of the first, not of the third work, and not from the start of
+// the replaced session; its first round, in the replaced session, was told the same.
+#[test]
+fn the_talk_is_cut_at_the_first_round_of_a_session_across_the_works_it_ran_in() {
+    let (s, mut e, said, _) = architect_works_in(
+        "owner-talk-carried",
+        understanding_asks_for_tools_once(),
+        &[
+            (0, "Alpha talk. ALPHAEND"),
+            (30 * 60_000, "Beta talk. BETAEND"),
+            (30 * 60_000, "Gamma talk. GAMMAEND"),
+        ],
+    );
+    let log = said.lock().unwrap().join("\n");
+    let started: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT started FROM sessions WHERE line = 'architect' ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    assert_eq!(started, ["line", "carried", "carried"], "{started:?}\n{log}");
+    // The fourth work begins in a new session an hour and a half after, asks for tools, and the cache of that session
+    // is let go before its next round.
+    age_architect(&mut e, 90 * 60_000);
+    say(&mut e, "Delta talk. DELTAEND");
+    let four = e.step(None).unwrap().work.unwrap();
+    let took_tools = |e: &mut Engine| {
+        cells_of(e, four)
+            .iter()
+            .any(|c| c.0 == "U1" && c.1.as_deref() == Some("tools"))
+    };
+    assert!(
+        steps_until(&mut e, 20, took_tools),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    age_architect(&mut e, 90 * 60_000);
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, four)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let started: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT started FROM sessions WHERE line = 'architect' AND work = ?1 ORDER BY id")
+                .unwrap();
+        st.query_map([four], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(started, ["expired", "expired"], "{started:?}\n{log}");
+    let rounds = rounds_numbered(&e, four, "U1");
+    assert_eq!(rounds.len(), 2, "{rounds:?}\n{log}");
+    let (first, second) = (input_numbered(&e, four, rounds[0]), input_numbered(&e, four, rounds[1]));
+    // From the start of the first work on: the words of the later two works, which the first session ran in too, and
+    // the fourth's, are told, and the first work's own words, said before its first round, are not.
+    for round in [&first, &second] {
+        let m = round["message"].as_str().unwrap();
+        for told in ["BETAEND", "GAMMAEND", "DELTAEND"] {
+            assert!(m.contains(told), "{told} is told: {m}");
+        }
+        assert!(!m.contains("ALPHAEND"), "{m}");
+    }
+    // The session the second round began is given the talk whole.
+    assert!(talk_recorded(&second).expect(&log).1, "{second}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// With no previous session there is no lower bound, at any round of the project's first understanding: the round after
+// tools, which runs when the session's own row exists, is told the very talk the first round was, the owner's words
+// from before the session began included, and refers to it. The reference is the design: no answered understanding of
+// the project, no cut.
+#[test]
+fn the_first_understanding_is_told_the_same_talk_at_every_round_with_no_lower_bound() {
+    // The first round of the understanding, the project's first, asks for tools; the round after answers.
+    let mut agents = scripts();
+    agents.insert(
+        "U1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (s, e, said, works) = architect_works_in("owner-talk-first-rounds", agents, &[(0, "Alpha talk. ALPHAEND")]);
+    let log = said.lock().unwrap().join("\n");
+    let rounds = rounds_numbered(&e, works[0], "U1");
+    assert_eq!(rounds.len(), 2, "tools, then the answer: {rounds:?}\n{log}");
+    let (first, second) = (
+        input_numbered(&e, works[0], rounds[0]),
+        input_numbered(&e, works[0], rounds[1]),
+    );
+    let m = first["message"].as_str().unwrap();
+    assert!(m.contains("ALPHAEND"), "said before the session began, and told: {m}");
+    let (before, after) = (talk_recorded(&first).expect(&log), talk_recorded(&second).expect(&log));
+    assert_eq!(
+        (before.1, after.1),
+        (true, false),
+        "given once, then referred to: {first}\n{second}"
+    );
+    assert_eq!(before.0, after.0, "the same talk at both rounds");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Every kind of entry of the one-to-one is told from the first round of the session before on, and none from before it:
+// the owner's interjection with its images counted, and an entry of a talk, which the page shows in the conversation.
+// The reference is the owner's page, which shows these entries in the conversation `architect:p`, and the design: at or
+// after the session before began.
+#[test]
+fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session_before_began() {
+    let s = setup("owner-talk-kinds");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Alpha talk. ALPHAEND");
+    // Said clearly before the work's first round.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute("UPDATE architect_matters SET at = at - 5000", [])?;
+        Ok(())
+    })
+    .unwrap();
+    let one = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, one)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    age_architect(&mut e, 90 * 60_000);
+    // The session began with the first round of the work, whatever it was.
+    let cut: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT min(started_at) FROM rounds WHERE work = ?1 AND session IS NOT NULL",
+                [one],
+                |r| r.get(0),
+            )
+            .unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        let matter: i64 = tx.query_row("SELECT min(id) FROM architect_matters", [], |r| r.get(0))?;
+        for (text, at) in [("TALKOLD", cut - 1_000), ("TALKNEW", cut + 1_000)] {
+            tx.execute(
+                "INSERT INTO talk_entries (matter, text, at) VALUES (?1, ?2, ?3)",
+                params![matter, text, at],
+            )?;
+        }
+        tx.execute(
+            "INSERT INTO interjections (work, line, speaker, text, delivered_round)
+             VALUES (?1, 'architect', 'owner', 'INTERJECTEND', 1)",
+            [one],
+        )?;
+        let id = tx.last_insert_rowid();
+        for position in 1..=3 {
+            tx.execute(
+                "INSERT INTO attachments (interjection, position, media_type, size, hash, bytes)
+                 VALUES (?1, ?2, 'image/png', 4, 'h', zeroblob(4))",
+                params![id, position],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Beta talk. BETAEND");
+    let two = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "U1")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let u1 = input_at(&e, two, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap();
+    assert!(!m.contains("TALKOLD"), "said before the session before began: {m}");
+    assert!(!m.contains("ALPHAEND"), "{m}");
+    for told in ["TALKNEW", "INTERJECTEND", "BETAEND"] {
+        assert!(m.contains(told), "{told} is told: {m}");
+    }
+    assert!(m.contains("3 images attached"), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Rounds of a cell as if they had run and ended, in a work of their own that is over, that a cell's lines are computed
+/// from: for the round `i` of `n`, from 1, its tokens added, its calls, and its jump for `given` characters.
+fn history(e: &mut Engine, cell: &str, n: i64, of: &dyn Fn(i64) -> (i64, i64, i64, i64)) {
+    e.db.write(Actor::Engine, |tx| {
+        let version: i64 = tx.query_row("SELECT max(id) FROM flow_versions", [], |r| r.get(0))?;
+        tx.execute(
+            "INSERT INTO works (flow_version, graph, at, ended) VALUES (?1, 'engineer', 'E1', 'history')",
+            [version],
+        )?;
+        let work = tx.last_insert_rowid();
+        for i in 1..=n {
+            let (added, calls, jump, given) = of(i);
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, ended_at)
+                 VALUES (?1, ?2, ?3, '{}', 'c', 1, 2)",
+                params![work, i, cell],
+            )?;
+            tx.execute(
+                "INSERT INTO round_measures (work, round, graph, cell, calls, added, jump, given, repeats, compactions,
+                                             ledger)
+                 VALUES (?1, ?2, 'engineer', ?3, ?4, ?5, ?6, ?7, 0, 0, 1)",
+                params![work, i, cell, calls, added, jump, given],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// The usual shape of a cell's rounds: their line of tokens added is 2,800, of tokens a call 280, and of calls 11; of a
+/// jump 2,800 and of a jump for each character 2.8.
+fn usual(i: i64) -> (i64, i64, i64, i64) {
+    (i * 100, 11, i * 100, 1000)
+}
+
+/// A stream of calls, each with its prompt.
+fn calls_of(prompts: &[i64]) -> Value {
+    let entries: Vec<Value> = prompts
+        .iter()
+        .enumerate()
+        .map(|(i, p)| json!({ "call": format!("m{i}"), "prompt": p }))
+        .collect();
+    Value::Array(entries)
+}
+
+/// One number the database gives.
+fn number(e: &Engine, sql: &str) -> i64 {
+    e.db.conn().query_row(sql, [], |r| r.get(0)).unwrap()
+}
+
+/// What the run guard recorded, in order: each signal with what came of it.
+fn guard_events(e: &Engine) -> Vec<(String, String)> {
+    let conn = e.db.conn();
+    let mut st = conn
+        .prepare("SELECT signal, action FROM guard_events ORDER BY id")
+        .unwrap();
+    st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// An item whose `R1` goes past both lines of growth in its first `times` rounds, then runs as usual.
+fn growing(name: &str, times: usize) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64) {
+    let s = setup(name);
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            let stream = vec![("@stream", calls_of(&[10_000, 30_000]))];
+            (Vec::new(), if n <= times { stream } else { Vec::new() })
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    (s, e, said, item)
+}
+
+// A round whose context grows past both of its cell's lines is stopped at the call that passes them: it is the kind
+// `guarded`, and not a run that merely failed; the line's session ends, the cell runs again in a new one told why, and
+// the owner hears of it. What the calls cost stands for the report the run never reached, and the round stopped joins
+// no history.
+#[test]
+fn a_round_past_both_lines_is_stopped_and_runs_again_in_a_new_session() {
+    let (s, mut e, said, item) = growing("guard-once", 1);
+    for _ in 0..8 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert_ne!(at, "R1", "{log}");
+    assert_eq!(failed_kinds(&e), ["guarded"], "{log}");
+    assert_eq!(guard_events(&e), [("growth".to_string(), "stopped".to_string())]);
+    let sessions: Vec<(i64, Option<i64>)> = {
+        let conn = e.db.conn();
+        let mut st = conn
+            .prepare(
+                "SELECT r.session, s.ended FROM rounds r JOIN sessions s ON s.id = r.session
+                 WHERE r.work = ?1 AND r.cell = 'R1' ORDER BY r.n",
+            )
+            .unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    assert_eq!(sessions.len(), 2, "{sessions:?}");
+    assert_ne!(sessions[0].0, sessions[1].0, "{sessions:?}");
+    assert!(sessions[0].1.is_some(), "{sessions:?}");
+    // Told why, with the signal, its value and its line, and to look at the worktree first.
+    let again = input_at(&e, work, "R1", true);
+    let told = again["message"].as_str().unwrap_or_default();
+    assert!(
+        told.contains("The run guard stopped") && told.contains("look at the worktree"),
+        "{told}"
+    );
+    assert!(
+        told.contains(r#""signal":"growth""#)
+            && told.contains(r#""value":20000.0"#)
+            && told.contains(r#""line":2800.0"#),
+        "{told}"
+    );
+    // The round's record keeps the lines it was judged by, where the owner's page reads them.
+    let judged = input_at(&e, work, "R1", false);
+    assert_eq!(judged["engine"]["guard"]["added"]["value"], 2800.0, "{judged}");
+    // The owner is told the first time too.
+    let notices = number(
+        &e,
+        "SELECT count(*) FROM engine_notices WHERE text LIKE '%the run guard stopped%'",
+    );
+    assert_eq!(notices, 1, "{log}");
+    // Its usage comes from its calls, marked so; it is in no history, and the round after it is.
+    let (first, estimated): (i64, bool) =
+        e.db.conn()
+            .query_row(
+                "SELECT n, json_extract(usage, '$.estimated') FROM rounds
+                 WHERE work = ?1 AND json_extract(rejected, '$.failed.kind') = 'guarded'",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert!(estimated);
+    let kept = number(
+        &e,
+        &format!("SELECT count(*) FROM round_measures WHERE work = {work} AND round = {first}"),
+    );
+    assert_eq!(kept, 0);
+    let calls = number(
+        &e,
+        &format!("SELECT count(*) FROM round_calls WHERE work = {work} AND round = {first}"),
+    );
+    assert_eq!(calls, 2);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A round that adds much at the pace of its cell's rounds is a long round, as the longest that ever ran was: it runs to
+// its return, and what it came to joins the history. Its calls go past their line, which is only recorded, once.
+#[test]
+fn a_long_round_at_the_usual_pace_is_not_stopped() {
+    let s = setup("guard-long");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| {
+            let prompts: Vec<i64> = (0..12).map(|i| 10_000 + i * 270).collect();
+            (Vec::new(), vec![("@stream", calls_of(&prompts))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &|i| (i * 100, 11, 0, 1000));
+    for _ in 0..4 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(failed_kinds(&e).is_empty(), "{log}");
+    assert_eq!(guard_events(&e), [("calls".to_string(), "noted".to_string())], "{log}");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_ne!(at, "R1", "{log}");
+    let (added, calls): (i64, i64) =
+        e.db.conn()
+            .query_row(
+                "SELECT added, calls FROM round_measures WHERE work = ?1 AND cell = 'R1' AND ledger = 1",
+                [work],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!((added, calls), (2970, 12), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The first prompt of a round past the session's last, by more than its cell's line and by more for each character the
+// engine gave, stops the round at its first call; what a failed round left in the session between them counts, since
+// the ledger keeps every call.
+#[test]
+fn a_jump_nothing_given_explains_stops_the_round_at_its_first_call() {
+    let s = setup("guard-jump");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@stream", calls_of(&[10_000]))])),
+    );
+    scripts.insert(
+        "R2",
+        Box::new(|_: &Request, n: usize| {
+            let failing = vec![("@error", json!("API Error: 529 Overloaded"))];
+            let jumping = vec![("@stream", calls_of(&[9_000_000, 9_000_100]))];
+            (
+                Vec::new(),
+                match n {
+                    1 => failing,
+                    2 => jumping,
+                    _ => Vec::new(),
+                },
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R2", 19, &usual);
+    for _ in 0..12 {
+        e.tick().unwrap();
+        if !guard_events(&e).is_empty() {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed_kinds(&e), ["transient", "guarded"], "{log}");
+    let (work, _, _) = state(&e, item).unwrap();
+    let calls = number(
+        &e,
+        &format!(
+            "SELECT count(*) FROM round_calls c JOIN rounds r ON r.work = c.work AND r.n = c.round
+             WHERE c.work = {work} AND json_extract(r.rejected, '$.failed.kind') = 'guarded'"
+        ),
+    );
+    assert_eq!(calls, 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// With too few rounds behind it there is no line, and nothing a round does stops it.
+#[test]
+fn with_too_few_rounds_nothing_is_judged() {
+    let s = setup("guard-few");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@stream", calls_of(&[10_000, 900_000]))])),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 18, &usual);
+    for _ in 0..4 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(guard_events(&e).is_empty(), "{log}");
+    assert!(failed_kinds(&e).is_empty(), "{log}");
+    assert_ne!(state(&e, item).unwrap().1, "R1", "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The round run again is given its cell's whole input besides why, and why names the last tools the stopped round used,
+// oldest first, with what each was used on, and the second condition of the signal.
+#[test]
+fn a_round_run_again_is_given_its_cell_whole_and_the_last_tools_of_the_one_stopped() {
+    let s = setup("guard-tools");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            let stream = json!([
+                { "tool": "Bash", "on": "cargo build", "digest": 1 },
+                { "tool": "Read", "on": "src/a.rs", "digest": 2 },
+                { "call": "a", "prompt": 10_000 },
+                { "call": "b", "prompt": 30_000 },
+            ]);
+            (Vec::new(), if n == 1 { vec![("@stream", stream)] } else { Vec::new() })
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    for _ in 0..8 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed_kinds(&e), ["guarded"], "{log}");
+    let (work, _, _) = state(&e, item).unwrap();
+    let again = input_at(&e, work, "R1", true);
+    let told = again["message"].as_str().unwrap_or_default();
+    assert!(
+        told.contains(r#""last_tools":[{"tool":"Bash","on":"cargo build"},{"tool":"Read","on":"src/a.rs"}]"#),
+        "{told}"
+    );
+    assert!(told.contains(r#""also":{"value":20000.0,"line":280.0}"#), "{told}");
+    let first = input_at(&e, work, "R1", false);
+    let task = first["message"]
+        .as_str()
+        .and_then(|m| m.split("## Task\n").nth(1))
+        .and_then(|m| m.split("## Work from").next())
+        .unwrap_or_default();
+    assert!(!task.trim().is_empty(), "{first}");
+    assert!(told.contains(task), "{told}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Acceptance: a round run again after a stop that is stopped again pauses the work. A failure that passes between the
+// two is a retry of that same round, as the owner's waiver reads it too: it must not start the count again.
+#[test]
+fn a_round_run_again_and_stopped_after_a_passing_failure_still_pauses_the_work() {
+    let s = setup("guard-retry");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            (
+                Vec::new(),
+                match n {
+                    1 | 3 => vec![("@stream", calls_of(&[10_000, 30_000]))],
+                    2 => vec![("@error", json!("API Error: 529 Overloaded"))],
+                    _ => Vec::new(),
+                },
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    for _ in 0..12 {
+        e.tick().unwrap();
+        let (_, at, paused) = state(&e, item).unwrap();
+        if paused.is_some() || at != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed_kinds(&e), ["guarded", "transient", "guarded"], "{log}");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "R1", "{log}");
+    let why = paused.unwrap_or_default();
+    assert!(why.contains("the run guard stopped"), "{why}\n{log}");
+    let told = number(&e, "SELECT count(*) FROM engine_notices WHERE text LIKE '%is paused%'");
+    assert_eq!(told, 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Acceptance: the owner's Start lets the cell's round run past its line, however many times a passing failure makes it
+// run, and the rounds after it are judged as ever: the next cell's round past its own line is stopped, so the Start did
+// not turn the guard off for the work.
+#[test]
+fn after_the_round_the_owner_let_go_on_the_next_is_judged_as_ever() {
+    let s = setup("guard-after");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            let past = || ("@stream", calls_of(&[10_000, 30_000]));
+            (
+                Vec::new(),
+                match n {
+                    1 | 2 => vec![past()],
+                    3 => vec![past(), ("@error", json!("API Error: 529 Overloaded"))],
+                    // The round let go on joined no history, so the same growth is past the same lines again.
+                    4 => vec![past()],
+                    _ => Vec::new(),
+                },
+            )
+        }),
+    );
+    scripts.insert(
+        "R2",
+        Box::new(|_: &Request, n: usize| {
+            let past = vec![("@stream", calls_of(&[10_000, 30_000]))];
+            (Vec::new(), if n == 1 { past } else { Vec::new() })
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    history(&mut e, "R2", 19, &usual);
+    for _ in 0..8 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let (work, _, paused) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let why = paused.unwrap_or_default();
+    assert!(why.contains("the run guard stopped the agent's run in"), "{why}\n{log}");
+    api::resume(&mut e.db, work).unwrap();
+    for _ in 0..12 {
+        e.tick().unwrap();
+        if guard_events(&e).len() >= 5 {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let actions: Vec<String> = guard_events(&e)
+        .into_iter()
+        .filter(|(signal, _)| signal == "growth")
+        .map(|(_, a)| a)
+        .collect();
+    assert_eq!(actions, ["stopped", "stopped", "waived", "waived", "stopped"], "{log}");
+    // R1 stopped twice, its failure in passing, and R2's stop: no third stop of R1 after the Start.
+    let kinds = ["guarded", "guarded", "transient", "guarded"];
+    assert_eq!(failed_kinds(&e), kinds, "{log}");
+    assert_eq!(state(&e, item).unwrap().2, None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// What the hook handed in during a round the guard stopped went with the session that ended: the round will never
+// answer it, so it waits again, and the new session's whole message gives it.
+#[test]
+fn what_was_said_during_a_stopped_round_reaches_the_round_run_again() {
+    let s = setup("guard-said");
+    let mut scripts = scripts();
+    let path = config::database(&s.data);
+    scripts.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let mut db = db::Db::open(&path).unwrap();
+            let (work, round): (i64, i64) = db
+                .conn()
+                .query_row(
+                    "SELECT work, n FROM rounds WHERE cell = 'R1' AND ended_at IS NULL",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap();
+            db.write(Actor::Owner, |tx| {
+                tx.execute(
+                    "INSERT INTO interjections (work, line, speaker, text)
+                     VALUES (?1, 'engineer', 'owner', 'Look at the log.')",
+                    [work],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            sessions::interject::deliver(&mut db, work, round, "engineer")
+                .unwrap()
+                .unwrap();
+            (Vec::new(), vec![("@stream", calls_of(&[10_000, 30_000]))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    for _ in 0..8 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed_kinds(&e), ["guarded"], "{log}");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_ne!(at, "R1", "{log}");
+    let again = input_at(&e, work, "R1", true);
+    let told = again["message"].as_str().unwrap_or_default();
+    assert!(told.contains("Look at the log."), "{told}");
+    let stopped = input_at(&e, work, "R1", false);
+    assert_eq!(stopped["engine"]["interjections"], json!([]), "{stopped}");
+    let taken: i64 = number(&e, "SELECT count(*) FROM interjections WHERE delivered_round IS NULL");
+    assert_eq!(taken, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A login that expired right after a stop writes nothing in the session, so the round after it is the first the new
+// session is told anything by, and it is still told why the round before was stopped.
+#[test]
+fn a_run_that_never_wrote_its_message_leaves_the_guards_reason_to_the_next() {
+    let s = setup("guard-login");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            (
+                Vec::new(),
+                match n {
+                    1 => vec![("@stream", calls_of(&[10_000, 30_000]))],
+                    2 => vec![("@error", json!("Not logged in · Please run /login"))],
+                    _ => Vec::new(),
+                },
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    for _ in 0..8 {
+        e.tick().unwrap();
+        if let Some(h) = e.halt() {
+            e.set_halt(Some(engine::Halt { until: 0, ..h }));
+        }
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed_kinds(&e), ["guarded", "cannot_run"], "{log}");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_ne!(at, "R1", "{log}");
+    let again = input_at(&e, work, "R1", true);
+    let told = again["message"].as_str().unwrap_or_default();
+    assert!(told.contains("The run guard stopped"), "{told}");
+    assert!(told.contains(r#""also":{"value":20000.0,"line":280.0}"#), "{told}");
+    assert!(told.contains(r#""last_tools":"#), "{told}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

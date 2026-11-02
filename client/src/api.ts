@@ -129,11 +129,11 @@ until: number,
 why: string, };
 
 /**
- * What changed, as the event stream gives it. An event names what to read again and never carries that state,
- * except the engine's status, which lives only in the engine. The stream gives each event an id; a client that
- * reconnects with the last id it saw is given what it missed.
+ * What changed, as the event stream gives it. An event names what to read again and never carries that state, except
+ * what comes too often to read again or lives only in the engine: its status, and what a running round does and has
+ * come to. The stream gives each event an id; a client that reconnects with the last id it saw is given what it missed.
  */
-export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "design_card", design_card: number, work: number | null, } | { "kind": "ask", ask: number, work: number | null, } | { "kind": "owner_message", message: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, } | { "kind": "architect" } | { "kind": "observations" } | { "kind": "activity", work: number, round: number, what: string, at: number, };
+export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "status", status: Status, } | { "kind": "work", work: number, } | { "kind": "round", work: number, round: number, } | { "kind": "design_card", design_card: number, work: number | null, } | { "kind": "ask", ask: number, work: number | null, } | { "kind": "owner_message", message: number, work: number | null, } | { "kind": "item", item: number | null, } | { "kind": "flow", version: number, } | { "kind": "architect" } | { "kind": "observations" } | { "kind": "activity", work: number, round: number, what: string, at: number, } | { "kind": "measure", work: number, round: number, context: number, added: number, cost_usd: number, };
 
 /**
  * Where a work stands.
@@ -274,7 +274,8 @@ session: number | null,
  * When it started a new session: why, as the session manager recorded it: line, the line had none going on (its
  * first in the work, or a cell on no line, whose session is its own every round); cell, a cell the line starts a
  * new session at; limit, the line's session before was past the context limit; model or account, the model or the
- * login account its rounds run under changed; owner, the owner asked for one.
+ * login account its rounds run under changed; expired, the CLI's prompt cache let the line's session go (its last
+ * call a cache lifetime or more before), on a line the flow says expires with it; owner, the owner asked for one.
  */
 new_session: string | null, };
 
@@ -555,7 +556,7 @@ unread: number,
 last_at: number | null, };
 
 /**
- * One entry of a conversation of the owner's: what `conversation_entries` gives, or what the engine writes from the
+ * One entry of a conversation of the owner's: what `conversation_shown` gives, or what the engine writes from the
  * flow (a work's stage card, an architect's matter card, the policy taking effect).
  */
 export type ConversationEntry = {
@@ -1042,8 +1043,10 @@ export type Session = { line: string, cli: string, cli_session: string, };
  */
 export type WorkSession = { id: number, line: string,
 /**
- * Why it started: line, cell, limit, or carried (a work of the architect going on in the CLI session the project's
- * previous architect work left).
+ * Why it started: line, the line had none going on; cell, a cell the line starts a new session at; limit, the
+ * session before was past the context limit; model or account, the model or the login account its rounds run
+ * under changed; expired, the CLI's prompt cache let the session before go; owner, the owner asked for one; or
+ * carried (a work of the architect going on in the CLI session the project's previous architect work left).
  */
 started: string,
 /**
@@ -1932,7 +1935,29 @@ export type SystemNow = { architects: Array<ArchitectNow>,
 /**
  * The asks of the owner not answered, the decision cards not ruled on and the faults of wf-agents not read.
  */
-asks: Waiting, design_cards: Waiting, faults: Waiting, };
+asks: Waiting, design_cards: Waiting, faults: Waiting,
+/**
+ * The agents' rounds running now, the oldest first.
+ */
+running: Array<WatchedRound>, };
+
+/**
+ * An agent's round running now, as the run guard sees it: how large its context is, what it added and what it cost so
+ * far, and the lines it is judged by, each none while too few rounds give one.
+ */
+export type WatchedRound = { work: number, round: number, graph: string, cell: string | null, item: number | null, title: string | null, project: string | null,
+/**
+ * The tokens of its last prompt.
+ */
+context: number,
+/**
+ * The tokens its context grew by in this round, and the line of that.
+ */
+added: number, added_line: number | null,
+/**
+ * What it cost so far, estimated from its calls, and the line of that.
+ */
+cost_usd: number, cost_line: number | null, };
 
 /**
  * A project's architect now.
@@ -2117,7 +2142,7 @@ round: number | null, at: number, what: AnomalyKind, };
 /**
  * What went wrong, each kind of its own.
  */
-export type AnomalyKind = { "kind": "flow_anomaly", row: string, } | { "kind": "counter", counter: string, limit: number, } | { "kind": "stopped", why: string, } | { "kind": "tool_failed", cell: string, } | { "kind": "main_red", how: string, checks: Array<string>, };
+export type AnomalyKind = { "kind": "flow_anomaly", row: string, } | { "kind": "counter", counter: string, limit: number, } | { "kind": "stopped", why: string, } | { "kind": "tool_failed", cell: string, } | { "kind": "main_red", how: string, checks: Array<string>, } | { "kind": "guard", signal: string, value: number, line: number, also: number | null, also_line: number | null, samples: number, scope: string, action: string, };
 
 /**
  * Why a request failed.
@@ -2599,7 +2624,11 @@ environment: Array<string>,
  * The other ways a round ends in no return the cell takes, each the engine's own: every agent's cell has a
  * shared row of each one's name for it.
  */
-engine?: Array<EngineCase>, };
+engine?: Array<EngineCase>,
+/**
+ * How a running round is judged; none in a flow version from before the guard, whose rounds are only recorded.
+ */
+guard?: Guard | null, };
 
 /**
  * What a task of a graph waits on when it stops: a blocker, raised at the cell where its problem arose and held by
@@ -2660,6 +2689,16 @@ export type EngineCase = { name: string, when: string, desc: string,
  */
 pauses?: boolean, };
 
+/**
+ * The run guard's rule: how a running round is compared with the rounds before it. The lines themselves are not here:
+ * they are computed from those rounds.
+ */
+export type Guard = { desc: string,
+/**
+ * How many rounds a distribution needs before it gives a line.
+ */
+samples: number, };
+
 export type CompiledCell = { id: string,
 /**
  * engine, agent, tool or owner.
@@ -2679,6 +2718,11 @@ new_session?: boolean,
  * its line each time the work comes by one of them.
  */
 fresh_session?: Array<string>,
+/**
+ * The cell's line says its session expires with the CLI's prompt cache: the cell starts a new session when its
+ * line's session was last called a cache lifetime or more ago. False in a flow version stored before lines said so.
+ */
+cache_expiry?: boolean,
 /**
  * The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
  * declared one.

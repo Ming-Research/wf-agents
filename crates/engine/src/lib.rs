@@ -46,6 +46,7 @@ mod unparsed;
 mod values;
 mod versions;
 mod warm;
+mod watch;
 mod work;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -106,6 +107,10 @@ pub enum Advance {
 /// what it does.
 pub type Activity = dyn Fn(i64, i64, &str) + Send + Sync;
 
+/// Where the engine tells how a running round stands: the round's work, its number in the work, and what its calls to
+/// the model come to so far.
+pub type Measured = dyn Fn(i64, i64, sessions::guard::Live) + Send + Sync;
+
 /// Where the loop tells which works it is taking a step of, in the order of their ids.
 pub type Busy = dyn Fn(&[i64]) + Send + Sync;
 
@@ -116,6 +121,8 @@ pub struct Hooks {
     pub say: Arc<dyn Fn(&str) + Send + Sync>,
     /// What the agent of a running round is doing, by its work and round, as its command line reports it.
     pub activity: Arc<Activity>,
+    /// How a running round stands, by its work and round, after each of its calls to the model.
+    pub measure: Arc<Measured>,
     /// Where the loop says which works it is taking a step of, in the order of their ids, each time it dispatches a
     /// step or reaps one: the owner's page shows those works' rounds as running, and what stops once each ends.
     pub busy: Arc<Busy>,
@@ -136,6 +143,7 @@ impl Default for Hooks {
         Hooks {
             say: Arc::new(|s: &str| eprintln!("{s}")),
             activity: Arc::new(|_: i64, _: i64, _: &str| {}),
+            measure: Arc::new(|_: i64, _: i64, _: sessions::guard::Live| {}),
             busy: Arc::new(|_: &[i64]| {}),
             ended: Arc::new(|| {}),
             commit: None,
@@ -222,6 +230,24 @@ impl Shared {
             .unwrap_or_else(PoisonError::into_inner)
             .get(&version)
             .cloned()
+    }
+}
+
+/// What a level's rounds run on ([`Engine::runs_on`]), which [`RunsOn::on`] lends to the session manager.
+#[derive(Debug, Clone)]
+pub struct RunsOn {
+    model: String,
+    home: Option<PathBuf>,
+    cache: Option<i64>,
+}
+
+impl RunsOn {
+    pub fn on(&self) -> sessions::On<'_> {
+        sessions::On {
+            model: &self.model,
+            home: self.home.as_deref(),
+            cache: self.cache,
+        }
     }
 }
 
@@ -641,11 +667,18 @@ impl Engine {
             .map_err(|e| e.to_string())
     }
 
-    /// The configuration directory a CLI runs agents with, as the configuration names it: the login account the
-    /// agents' calls are made under, which holds their sessions. [`Engine::cli_home`] makes it.
-    pub fn cli_dir(&self, name: &str) -> Option<PathBuf> {
-        let cli = self.config.config.install.agents.clis.get(name)?;
-        Some(cli.home(&self.data, name))
+    /// What a level's rounds run on, by which the session manager chooses their session: the level's model, the
+    /// configuration directory its CLI runs agents with, as the configuration names it (the login account the agents'
+    /// calls are made under, which holds their sessions; [`Engine::cli_home`] makes it), and how long the CLI's prompt
+    /// cache keeps a session's prompt after its last call. The one place the engine works this out, for a round, the
+    /// check before it, the keep-warm pings and the question whether a session understood the project.
+    pub fn runs_on(&self, level: &config::Level) -> RunsOn {
+        let cli = self.config.config.install.agents.clis.get(&level.cli);
+        RunsOn {
+            model: level.model.clone(),
+            home: cli.map(|c| c.home(&self.data, &level.cli)),
+            cache: cli.and_then(|c| c.kind.cache_lifetime()),
+        }
     }
 
     /// The configuration directory a CLI runs agents with, made when it is not there yet, and kept out of the data

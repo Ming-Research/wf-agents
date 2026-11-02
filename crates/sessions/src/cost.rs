@@ -5,7 +5,7 @@
 use db::rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 
-use crate::cli::FIRST_CALL;
+use crate::cli::{Call, FIRST_CALL};
 use crate::round::Round;
 
 /// What a million tokens of each kind cost a model, in US dollars: input not read from the cache, a read from the
@@ -97,6 +97,19 @@ pub fn prices(model: &str, prompt: i64) -> Option<Prices> {
         Some((tokens, above)) if prompt > tokens => above,
         _ => m.prices,
     })
+}
+
+/// What one call to the model cost, in US dollars, from its tokens at its model's prices for its prompt: the command
+/// line reports what a run cost only at the run's end, which a run stopped midway never reaches. None for a model with
+/// no prices here.
+pub fn of_call(model: &str, c: &Call) -> Option<f64> {
+    let p = prices(model, c.prompt())?;
+    let spent = c.input as f64 * p.input
+        + c.read as f64 * p.read
+        + c.written_5m as f64 * p.write_5m
+        + c.written_1h as f64 * p.write_1h
+        + c.output as f64 * p.output;
+    Some(spent / 1e6)
 }
 
 /// What each kind of token cost, in US dollars: input not read from the cache, reads from the cache, writes to it, and
