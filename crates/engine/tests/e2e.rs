@@ -8053,7 +8053,7 @@ fn an_open_question_pinned_for_the_owner_holds_the_merge_until_the_owner_has_ans
         ended_at(&e, item, "M1")
     );
     // The owner replies with the question ticked: the matter is back at the ways with the owner's reply.
-    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[], db::Speaker::Owner).unwrap();
     let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
     assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
     let log = said.lock().unwrap().join("\n");
@@ -8245,7 +8245,7 @@ fn an_open_question_pinned_twice_is_answered_by_the_owner_s_last_words_and_their
         asks_the_owner(&format!("{question} See [the design]({link})."))
     });
     let (mut e, said, item, work, matter, first) = pinned(&s, ways, Vec::new());
-    api::reply_to_question(&mut e.db, "p", first, "Take one table.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", first, "Take one table.", &[], db::Speaker::Owner).unwrap();
     // The ways ask again: the matter is parked by another ask, while the merge still has no answer.
     let again = |e: &mut Engine| parked_for(e, matter).is_some_and(|p| p.0 != first);
     assert!(steps_until(&mut e, 80, again), "{}", said.lock().unwrap().join("\n"));
@@ -8261,7 +8261,15 @@ fn an_open_question_pinned_twice_is_answered_by_the_owner_s_last_words_and_their
     };
     assert_eq!(pending(&e), [second]);
     let image = api::images(&two_images()[..1]).unwrap();
-    api::reply_to_question(&mut e.db, "p", second, "Two tables after all.", &image).unwrap();
+    api::reply_to_question(
+        &mut e.db,
+        "p",
+        second,
+        "Two tables after all.",
+        &image,
+        db::Speaker::Owner,
+    )
+    .unwrap();
     let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
     assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
     let log = said.lock().unwrap().join("\n");
@@ -8341,7 +8349,7 @@ fn a_question_pinned_for_a_work_that_ended_is_pending_no_more() {
     assert_eq!(pending, 0, "{log}");
     let now = db::now();
     assert_eq!(db::question_waited_on(e.db.conn(), "p", 300_000, now).unwrap(), None);
-    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[], db::Speaker::Owner).unwrap();
     assert_eq!(matter_body(&e, matter).get("answer"), None, "{log}");
     assert_eq!(matter_body(&e, matter).get("answered_by"), None, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
@@ -8376,7 +8384,7 @@ fn a_reply_held_for_the_batch_review_keeps_the_owner_s_words() {
         (Vec::new(), vec![("outcome.review", json!([ok]))])
     });
     let (mut e, said, item, work, matter, ask) = pinned(&s, ways, vec![("B2", review)]);
-    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[], db::Speaker::Owner).unwrap();
     let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
     assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
     let log = said.lock().unwrap().join("\n");
@@ -8466,13 +8474,13 @@ fn the_owner_s_words_about_dropped_changes_are_no_answer_to_a_pinned_open_questi
         )
     });
     let (mut e, said, item, work, matter, first) = pinned(&s, ways, vec![("B2", review), ("B3", revise)]);
-    api::reply_to_question(&mut e.db, "p", first, "Take one table.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", first, "Take one table.", &[], db::Speaker::Owner).unwrap();
     // The review drops the changes and asks the owner about them in another ask, which parks the matter.
     let dropped = |e: &mut Engine| parked_for(e, matter).is_some_and(|p| p.0 != first);
     assert!(steps_until(&mut e, 120, dropped), "{}", said.lock().unwrap().join("\n"));
     let second = parked_for(&e, matter).unwrap().0;
     assert_eq!(open_questions(&e, work)[0].2, None);
-    api::reply_to_question(&mut e.db, "p", second, "Leave them out.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", second, "Leave them out.", &[], db::Speaker::Owner).unwrap();
     let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
     assert!(
         steps_until(&mut e, 120, answered),
