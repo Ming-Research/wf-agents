@@ -678,8 +678,7 @@ pub fn pause(db: &mut Db, work: i64, why: Option<&str>) -> Result<String, String
             if !db::resume_asked(db.conn()).map_err(sql)?.contains(&work) {
                 return Err(format!("work {work} is paused already"));
             }
-            db.write(Actor::Owner, |tx| db::withdraw_resume(tx, work))
-                .map_err(sql)?;
+            db.write(Actor::Owner, |tx| db::withdraw_resume(tx, work)).map_err(sql)?;
             return Ok(format!("work {work} stays paused: the resume asked is withdrawn"));
         }
         Some((None, None)) => {}
@@ -1166,7 +1165,8 @@ mod tests {
         );
         assert!(pause(&mut db, 1, None).is_err());
         // A resume that still waits for a slot is withdrawn: the owner's Pause is the later word.
-        db.write(Actor::Owner, |tx| db::ask_resume(tx, 1, Actor::Owner)).unwrap();
+        db.write(Actor::Owner, |tx| db::ask_resume(tx, 1, Actor::Owner))
+            .unwrap();
         assert_eq!(
             pause(&mut db, 1, None).unwrap(),
             "work 1 stays paused: the resume asked is withdrawn"

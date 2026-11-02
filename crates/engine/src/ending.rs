@@ -794,7 +794,7 @@ mod tests {
         // No work goes on: the item waits at the head of the queue, and is cancelled at once.
         let (waits, taken) = db.write(Actor::Owner, |tx| a_work(tx, "Waits", "T3", 1)).unwrap();
         ended(&mut db, taken);
-        assert_eq!(closes(&db, taken), []);
+        assert!(closes(&db, taken).is_empty());
         assert_eq!(cancel(&mut db, waits), Cancelling::Cancelled);
         assert_eq!(closes(&db, taken), let_go(taken));
         // The same cancel again, which the command line does not refuse, finds them let go of.
@@ -808,7 +808,7 @@ mod tests {
         assert_eq!(cancel(&mut db, before), Cancelling::Asked);
         carry_out(&mut db, before);
         assert_eq!(closes(&db, taken), let_go(taken));
-        assert_eq!(closes(&db, new), []);
+        assert!(closes(&db, new).is_empty());
 
         // A new work took them up: only it lets go of them, once.
         let (took, taken) = db.write(Actor::Owner, |tx| a_work(tx, "Took", "T3", 3)).unwrap();
@@ -816,7 +816,7 @@ mod tests {
         let new = new_work(&mut db, took, Some(3));
         assert_eq!(cancel(&mut db, took), Cancelling::Asked);
         carry_out(&mut db, took);
-        assert_eq!(closes(&db, taken), []);
+        assert!(closes(&db, taken).is_empty());
         assert_eq!(closes(&db, new), let_go(new));
     }
 
