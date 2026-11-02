@@ -372,7 +372,8 @@ pub enum Then {
 #[serde(deny_unknown_fields)]
 pub struct SentBack {
     pub desc: String,
-    /// How many returns of one cell in a row may be sent back before the engine pauses the work.
+    /// How many returns in a row may be sent back before the engine pauses the work: the work's returns since it last
+    /// took a row from outside the engine, whichever cells they were at.
     #[serde(rename = "pauseAfter")]
     pub pause_after: u32,
     pub pause: String,

@@ -2633,7 +2633,8 @@ waits?: boolean, };
 
 export type SentBack = { desc: string,
 /**
- * How many returns of one cell in a row may be sent back before the engine pauses the work.
+ * How many returns in a row may be sent back before the engine pauses the work: the work's returns since it last
+ * took a row from outside the engine, whichever cells they were at.
  */
 pauseAfter: number, pause: string,
 /**

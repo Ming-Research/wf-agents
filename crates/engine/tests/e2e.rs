@@ -2552,7 +2552,7 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     }
     let log = said.lock().unwrap().join("\n");
     let (id, why) = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
-    assert!(why.starts_with("3 returns of cell R1 in a row were sent back"), "{why}");
+    assert!(why.starts_with("3 returns in a row were sent back, the last at cell R1"), "{why}");
     assert!(why.contains("outcome must be an object, and is a string"), "{why}");
     api::resume(&mut e.db, id).unwrap();
     for _ in 0..3 {
@@ -3022,7 +3022,7 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     assert!(
         paused
             .as_deref()
-            .is_some_and(|p| p.starts_with("2 returns of cell R1 in a row were sent back")),
+            .is_some_and(|p| p.starts_with("2 returns in a row were sent back, the last at cell R1")),
         "{paused:?}\n{log}"
     );
     // Each return sent back is counted, and none is a retry.
@@ -12970,6 +12970,67 @@ fn architect_with_remote(s: &Setup, url: &str) -> (Engine, Arc<Mutex<Vec<String>
 /// A remote that refuses every connection, as a network that fails in passing does.
 const REFUSED: &str = "http://127.0.0.1:1/p.git";
 
+/// Limits the project sets on counters of the flow, committed to the configuration.
+fn limit_on(s: &Setup, limits: &[(&str, u64)]) {
+    let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    let limits: String = limits.iter().map(|(c, n)| format!("{c} = {n}\n")).collect();
+    write(&s.data, "projects/p.toml", &format!("{project}\n[limits]\n{limits}"));
+    git(&s.data, &["commit", "-q", "-am", "limits on counters"]);
+}
+
+// The rows the engine itself takes for a round or a step that failed in passing count `retries`, and a return sent back
+// counts `sent_back`: a project's limit on either is told to the owner once, as the count passes it, and the work goes
+// on. Here a failed step of the architect's work passes a limit of 1 on its second time.
+#[test]
+fn a_step_taken_again_past_its_projects_limit_tells_the_owner_once() {
+    let s = setup("limit-step");
+    limit_on(&s, &[("retries", 1)]);
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    for _ in 0..3 {
+        e.advance(arch).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(counted(&e, arch, "retries"), 3, "{log}");
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(told(&s, "passed the limit its project sets on retries"), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The same for the agent's rounds: two runs that end in passing failures pass a limit of 1 on `retries` at the second,
+// and two returns sent back pass a limit of 1 on `sent_back` at the second; each is told once.
+#[test]
+fn a_round_run_again_or_sent_back_past_its_projects_limit_tells_the_owner_once() {
+    let s = setup("limit-round");
+    limit_on(&s, &[("retries", 1), ("sent_back", 1)]);
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| match n {
+            1 | 2 => (Vec::new(), vec![("@error", json!("API Error: 529 Overloaded"))]),
+            3 | 4 => (Vec::new(), vec![("outcome", json!("not an object"))]),
+            _ => (Vec::new(), Vec::new()),
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    for _ in 0..12 {
+        e.tick().unwrap();
+        let work = state(&e, item).unwrap().0;
+        if counted(&e, work, "retries") >= 2 && counted(&e, work, "sent_back") >= 2 {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let work = state(&e, item).unwrap().0;
+    assert_eq!(
+        (counted(&e, work, "retries"), counted(&e, work, "sent_back")),
+        (2, 2),
+        "{log}"
+    );
+    assert_eq!(told(&s, "passed the limit its project sets on retries"), 1, "{log}");
+    assert_eq!(told(&s, "passed the limit its project sets on sent_back"), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A step of the engine's before the architect's round that fails the way the network does by itself does not pause the
 // work: the failure is recorded on the cell with its text, counted as a retry, and the step is taken again, after which
 // the round runs as if nothing had happened, and is told nothing of the failed step.
@@ -12979,12 +13040,14 @@ fn a_step_that_fails_like_the_network_is_taken_again() {
     let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
     e.advance(arch).unwrap();
     let log = said.lock().unwrap().join("\n");
+    // First, that the work did not pause: this is what the code before the change fails, where there is no view
+    // `round_rows` to read the rows from yet.
+    assert_eq!(paused_by(&e, arch), None, "{log}");
     assert_eq!(
         rows_taken(&e, arch),
         [("U1".to_string(), Some("step_network".to_string()))],
         "{log}"
     );
-    assert_eq!(paused_by(&e, arch), None, "{log}");
     assert_eq!(counted(&e, arch, "retries"), 1, "{log}");
     let (input, rejected): (String, String) =
         e.db.conn()
@@ -13050,13 +13113,18 @@ fn a_step_that_fails_for_another_cause_pauses_the_work_at_once() {
 fn a_step_that_keeps_failing_like_the_network_pauses_the_work_past_its_bound() {
     let s = setup("step-bound");
     let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    let mut advances = 0;
     for _ in 0..12 {
         e.advance(arch).unwrap();
+        advances += 1;
         if paused_by(&e, arch).is_some() {
             break;
         }
     }
     let log = said.lock().unwrap().join("\n");
+    // Five failures are taken again and the sixth pauses; the code before the change pauses at the first. This comes
+    // before any read of the view `round_rows`, which the code before the change does not have.
+    assert_eq!(advances, 6, "{log}");
     let rows: Vec<Option<String>> = rows_taken(&e, arch).into_iter().map(|r| r.1).collect();
     let mut want = vec![Some("step_network".to_string()); 5];
     want.push(Some("step_network_too_often".to_string()));
@@ -13107,43 +13175,32 @@ fn a_passing_failure_pauses_the_work_past_its_bound() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Failures are in a row only until a row of an agent is taken: five at one cell, its return, and five at the next are
-// ten failures, and neither run of them is past the bound.
+// Failures are in a row only until a row of an agent is taken: eight failures, a return, and one more failure are not
+// nine in a row, and the ninth is not past the bound.
 #[test]
 fn failures_with_a_return_between_are_not_in_a_row() {
     let s = setup("far-apart");
+    no_reply_wait(&s);
     let mut scripts = scripts();
-    let fail = || vec![("@error", json!("API Error: 529 Overloaded"))];
     scripts.insert(
-        "R1",
-        Box::new(move |_: &Request, n: usize| (Vec::new(), if n <= 5 { fail() } else { Vec::new() })),
+        "U1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@error", json!("API Error: 529 Overloaded"))])),
     );
-    let d2 = scripts.remove("D2").unwrap();
-    scripts.insert(
-        "D2",
-        Box::new(move |r: &Request, n: usize| {
-            if n <= 5 {
-                (Vec::new(), vec![("@error", json!("API Error: 529 Overloaded"))])
-            } else {
-                d2(r, n - 5)
-            }
-        }),
-    );
-    let (mut e, said, item) = start(&s, scripts);
-    for _ in 0..60 {
-        e.tick().unwrap();
-        if failed_kinds(&e).len() >= 10 || state(&e, item).unwrap().2.is_some() {
-            break;
-        }
-    }
-    for _ in 0..3 {
-        e.tick().unwrap();
-    }
+    let (mut e, said) = engine(&s, scripts);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    // Eight failures, as many as the flow runs again, and a return of an agent after them.
+    let transient = Some(json!({ "failed": { "kind": "transient", "what": "529 Overloaded" } }));
+    let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..8).map(|_| ("U1", None, transient.clone())).collect();
+    past.push(("H9", Some("done"), None));
+    history(&mut e, arch, &past);
+    // The next failure is the first in its row: it is run again, not paused (it would be past the bound if the eight
+    // before the return were counted).
+    e.advance(arch).unwrap();
     let log = said.lock().unwrap().join("\n");
-    let (work, _, paused) = state(&e, item).unwrap();
-    assert_eq!(paused, None, "{log}");
-    assert_eq!(failed_kinds(&e), vec!["transient"; 10], "{log}");
-    assert_eq!(counted(&e, work, "retries"), 10, "{log}");
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(rows_after(&e, arch, past.len()), [Some("transient".to_string())], "{log}");
+    assert_eq!(counted(&e, arch, "retries"), 9, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -13243,6 +13300,38 @@ fn step_failures_with_only_rows_of_the_engine_between_are_in_a_row() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A record of a step that failed before the cell's round is no run of the cell: a service that refused the agent's run,
+// then a step that failed like the network, then refused it again, has refused it twice in a row, and the work pauses
+// (a reading that took the step's record for the round before would run it once more).
+#[test]
+fn a_step_that_failed_between_two_refusals_is_not_a_run_of_the_cell() {
+    let s = setup("refused-across-step");
+    no_reply_wait(&s);
+    let mut scripts = scripts();
+    scripts.insert(
+        "U1",
+        Box::new(|_: &Request, _: usize| {
+            let flagged = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup)";
+            (Vec::new(), vec![("@error", json!(flagged))])
+        }),
+    );
+    let (mut e, said) = engine(&s, scripts);
+    quiet(&mut e);
+    e.backoff_unit = Duration::ZERO;
+    let arch = architect_work_at(&mut e, "U1");
+    let flagged = Some(json!({ "failed": { "kind": "flagged", "what": "flagged" } }));
+    history(&mut e, arch, &[("U1", None, flagged), ("U1", None, step_failed())]);
+    advance_to_pause(&mut e, arch, 4);
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    let why: String =
+        e.db.conn()
+            .query_row("SELECT paused FROM works WHERE id = ?1", [arch], |r| r.get(0))
+            .unwrap();
+    assert!(why.contains("refused the agent's run in"), "{why}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A step that failed waits as long as the flow's backoff says for the time it failed (5, 15, then 45 of its seconds, a
 // second here being an hour), and not for a shorter or a longer one: the round that runs it again is not begun before
 // the wait is over, and is begun once it is.
@@ -13331,7 +13420,7 @@ fn three_returns_sent_back_in_a_row_pause_the_work() {
     assert!(
         paused
             .as_deref()
-            .is_some_and(|p| p.starts_with("3 returns of cell R1 in a row were sent back")),
+            .is_some_and(|p| p.starts_with("3 returns in a row were sent back, the last at cell R1")),
         "{paused:?}\n{log}"
     );
     assert_eq!(sent_back(&e), 3, "{log}");

@@ -121,17 +121,20 @@ pub struct Took {
 
 /// Whether a round took a row from outside the engine: a row taken because an agent returned, a tool ran or the owner
 /// answered, at a cell of one of those. The engine's own rows (the shared ones of a round that ended in no return, a
-/// line's new session, a table with no row) and every row of a cell of the engine's are not.
+/// line's new session, a table with no row), every row of a cell of the engine's, and a row that waits (the engine
+/// chose it without running the cell, and the work did not move) are not. A round of a cell or a row the work's graph
+/// no longer has, as when a flow edit renamed or removed it, is not known to be the engine's, so it ends the count.
 fn from_outside(g: &CompiledGraph, t: &Took) -> bool {
-    let (Some(row), Some(cell)) = (t.row.as_deref(), g.cell(&t.cell)) else {
+    let Some(row) = t.row.as_deref() else {
         return false;
     };
-    cell.kind != "engine"
-        && cell
-            .rows
-            .iter()
-            .find(|r| r.name == row)
-            .is_some_and(|r| !r.conditions.iter().any(Atom::about_no_return))
+    let Some(cell) = g.cell(&t.cell) else {
+        return true;
+    };
+    let Some(r) = cell.rows.iter().find(|r| r.name == row) else {
+        return true;
+    };
+    cell.kind != "engine" && !r.waits && !r.conditions.iter().any(Atom::about_no_return)
 }
 
 /// The rounds of a work since it last took a row from outside the engine ([`from_outside`]), newest first; a round
@@ -283,12 +286,9 @@ pub fn networked(
     if e.network_down() {
         return e.wait_offline(w.id, &why).map(Some);
     }
-    let bound = section
-        .engine
-        .iter()
-        .find(|c| c.name == STEP_NETWORK)
-        .and_then(|c| c.in_row)
-        .filter(|_| network_failure(&why));
+    let case = section.engine.iter().find(|c| c.name == STEP_NETWORK);
+    let counter = case.and_then(|c| c.counts.clone());
+    let bound = case.and_then(|c| c.in_row).filter(|_| network_failure(&why));
     let Some(bound) = bound else {
         return pause(e, w, &why).map(Some);
     };
@@ -312,6 +312,9 @@ pub fn networked(
         })
         .map_err(sql)?;
     e.say(&format!("{round} could not take its step ({STEP_NETWORK}): {why}"));
+    if !over && let Some(counter) = counter {
+        crate::limits::tell_past(e, w, &counter)?;
+    }
     if over {
         let why = format!(
             "{why}; the step failed {} times in a row, and running it again has not helped",
@@ -341,13 +344,15 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
 }
 
 /// The cell's round before `round` in its work, when its run ended as the same kind of failed run too: none when the
-/// round before at the cell did anything else.
+/// round before at the cell did anything else. A record of a step before the cell's round ([`was_step`]) is no run of
+/// the cell, and is passed over.
 fn refused_before(e: &Engine, round: RoundId, cell: &str, kind: &str) -> Result<Option<RoundId>, String> {
     let before: Option<(i64, Option<String>)> =
         e.db.conn()
             .query_row(
-                "SELECT n, rejected FROM rounds WHERE work = ?1 AND n < ?2 AND cell = ?3 ORDER BY n DESC LIMIT 1",
-                params![round.work, round.n, cell],
+                "SELECT n, rejected FROM rounds WHERE work = ?1 AND n < ?2 AND cell = ?3
+                   AND coalesce(json_extract(rejected, '$.failed.kind'), '') <> ?4 ORDER BY n DESC LIMIT 1",
+                params![round.work, round.n, cell, STEP_NETWORK],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
@@ -453,7 +458,12 @@ impl Failed<'_> {
             }
             // The cell runs again once its wait is over, until it passes or its bound is passed.
             Handle::Retry => match past {
-                None => Ok(Advance::Moved),
+                None => {
+                    if let Some(counter) = &kind.counts {
+                        crate::limits::tell_past(e, self.w, counter)?;
+                    }
+                    Ok(Advance::Moved)
+                }
                 Some(bound) => {
                     let why = format!(
                         "cell {}: the agent's run ended without a return ({}) once more after {bound} times in a row, and running it again has not helped: {what}",
@@ -512,12 +522,20 @@ mod tests {
         assert_eq!(utc(951_782_400_000), "2000-02-29 00:00 UTC");
     }
 
+    /// The engineer's graph of the flow built into the engine, compiled once for every test here.
+    fn engineer() -> &'static CompiledGraph {
+        static GRAPH: std::sync::OnceLock<CompiledGraph> = std::sync::OnceLock::new();
+        GRAPH.get_or_init(|| {
+            let relations = db::relations(db::SCHEMA).unwrap();
+            let tables = db::index_of(db::SCHEMA).unwrap();
+            let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
+            f.graph(crate::ENGINEER).unwrap().clone()
+        })
+    }
+
     /// The rounds section of the flow built into the engine.
     fn section() -> Rounds {
-        let relations = db::relations(db::SCHEMA).unwrap();
-        let tables = db::index_of(db::SCHEMA).unwrap();
-        let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
-        f.graph(crate::ENGINEER).unwrap().rounds.clone().unwrap()
+        engineer().rounds.clone().unwrap()
     }
 
     /// `n` rounds newest first that took `row`, all ended at `ended`.
@@ -533,9 +551,11 @@ mod tests {
             .collect()
     }
 
-    // Each time a passing failure runs again it waits twice as long, up to five minutes.
+    // Each time a failed run runs again it waits twice as long, up to five minutes; a step that failed waits as many
+    // seconds as the flow's backoff says for the time it failed, the last for every time after (a unit of a minute
+    // tells 5, 15, 45 minutes, 2 and 5 hours apart); a round that took any other row, and none, wait for nothing.
     #[test]
-    fn a_passing_failure_waits_longer_each_time_up_to_five_minutes() {
+    fn a_row_that_runs_again_waits_as_the_flow_says() {
         let (section, ended) = (section(), db::now());
         let due = |n: i64| {
             waiting(
@@ -549,23 +569,56 @@ mod tests {
         assert!(due(1).ends_with(&utc(ended + 10_000)));
         assert!(due(2).ends_with(&utc(ended + 20_000)));
         assert!(due(9).ends_with(&utc(ended + 300_000)));
-    }
-
-    // A step that failed waits as many seconds as the flow's backoff says for the time it failed, the last for every
-    // time after: a unit of a minute tells 5, 15, 45 minutes, 2 and 5 hours apart.
-    #[test]
-    fn a_step_that_failed_waits_as_the_backoff_says() {
-        let (section, ended) = (section(), db::now());
         let minute = Duration::from_secs(60);
         let due = |n: i64| waiting(Duration::from_secs(10), minute, &took(STEP_NETWORK, n, ended), &section).unwrap();
         for (n, minutes) in [(1, 5), (2, 15), (3, 45), (4, 120), (5, 300), (6, 300)] {
             assert!(due(n).ends_with(&utc(ended + minutes * 60_000)), "{n}: {}", due(n));
         }
-        // Waiting is for a round that ran again only: a round that took any other row waits for nothing, and none
-        // does, with no round to wait after.
         let sent_back = took("sent_back", 3, ended);
         assert_eq!(waiting(Duration::from_secs(10), minute, &sent_back, &section), None);
         assert_eq!(waiting(Duration::from_secs(10), minute, &[], &section), None);
+    }
+
+    // Only a row taken from outside the engine ends the rows in a row: a return of an agent does; a shared row of a
+    // round that ended in no return, a row that waits, and a round still open do not; a round of a cell or a row the
+    // graph does not have, as after a flow edit, is not known to be the engine's and does.
+    #[test]
+    fn only_a_row_from_outside_the_engine_ends_the_rows_in_a_row() {
+        let g = engineer();
+        let at = |cell: &str, row: Option<&str>| Took {
+            round: RoundId::new(1, 1),
+            cell: cell.into(),
+            row: row.map(str::to_string),
+            started_at: 0,
+            ended_at: Some(0),
+        };
+        let returned = g
+            .cell("R1")
+            .unwrap()
+            .rows
+            .iter()
+            .find(|r| !r.waits && !r.conditions.iter().any(Atom::about_no_return))
+            .unwrap();
+        assert!(from_outside(g, &at("R1", Some(&returned.name))));
+        for shared in ["sent_back", "transient", "transient_too_often", STEP_NETWORK, "step_network_too_often"] {
+            assert!(!from_outside(g, &at("R1", Some(shared))), "{shared}");
+        }
+        assert!(!from_outside(g, &at("R1", None)));
+        assert!(from_outside(g, &at("ZZ", Some("gone"))));
+        assert!(from_outside(g, &at("R1", Some("no_such_row"))));
+        // A row that waits at a cell that is not the engine's: the engine took it without the cell running.
+        let (cell, waits) = g
+            .cells
+            .iter()
+            .filter(|c| c.kind != "engine")
+            .find_map(|c| {
+                c.rows
+                    .iter()
+                    .find(|r| r.waits && !r.conditions.iter().any(Atom::about_no_return))
+                    .map(|r| (c.id.clone(), r.name.clone()))
+            })
+            .unwrap();
+        assert!(!from_outside(g, &at(&cell, Some(&waits))), "{cell} {waits}");
     }
 
     // The cause of the step of work 243 that paused is the network's; a missing permission, an unknown branch, a

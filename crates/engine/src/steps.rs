@@ -177,7 +177,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             .map(|t| failed::sent_back_reason(e, t.round))
             .unwrap_or_default();
         let why = format!(
-            "{} returns of cell {} in a row were sent back; the last: {reason}",
+            "{} returns in a row were sent back, the last at cell {}: {reason}",
             sent_back.len(),
             cell.id
         );
@@ -619,6 +619,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         Err(why) => {
             return reject(
                 e,
+                w,
+                &section,
                 round,
                 Ended {
                     output: Some(output),
@@ -646,6 +648,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     if let Err(why) = checks::run(&ctx) {
         return reject(
             e,
+            w,
+            &section,
             round,
             Ended {
                 output: Some(output),
@@ -908,7 +912,16 @@ pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, Strin
     Ok(compose(e, &w, &g, &cell, item.as_ref())?.msg)
 }
 
-fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Advance, String> {
+/// Ends a round whose return is sent back, and tells the owner once if the work passes the limit its project sets on
+/// the counter that counts the returns sent back.
+fn reject(
+    e: &mut Engine,
+    w: &Work,
+    section: &flow::format::Rounds,
+    round: RoundId,
+    ended: Ended,
+    why: Value,
+) -> Result<Advance, String> {
     e.say(&format!("{round} sent back: {why}"));
     let ended = Ended {
         rejected: Some(why),
@@ -919,6 +932,9 @@ fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Ad
         work::finish_round(tx, round, &ended).map_err(db::Error::Abort)
     })
     .map_err(sql)?;
+    if let Some(counter) = &section.sent_back.counts {
+        crate::limits::tell_past(e, w, counter)?;
+    }
     Ok(Advance::Moved)
 }
 
