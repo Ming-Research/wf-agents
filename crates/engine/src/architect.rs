@@ -280,6 +280,14 @@ fn text(v: &Value) -> &str {
     v.as_str().unwrap_or_default()
 }
 
+/// The addresses of the markdown links in a text, each whole: what stands between `](` and the next `)`.
+fn markdown_link_targets(s: &str) -> Vec<&str> {
+    s.split("](")
+        .skip(1)
+        .filter_map(|rest| rest.find(')').map(|end| rest[..end].trim()))
+        .collect()
+}
+
 /// A time to the minute, in UTC, as `2026-10-28 14:03 UTC`.
 fn utc_minute(ms: i64) -> String {
     crate::utc(ms)
@@ -3601,8 +3609,10 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                 ));
             }
             // The owner reads the question in their one-to-one, away from the design it is about: it links to it.
+            // The whole address of a markdown link: one that only begins with the design's (another round of the same
+            // work) leads somewhere else.
             if let Some(link) = row["link"].as_str().filter(|l| !l.is_empty())
-                && !text(&ask["question"]).contains(link)
+                && !markdown_link_targets(&text(&ask["question"])).contains(&link)
             {
                 return Err(format!(
                     "the question is pinned in the owner's one-to-one, away from the design it is about: link to the \
