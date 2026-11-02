@@ -13246,3 +13246,128 @@ fn a_checkout_without_the_remote_s_main_gives_no_text_from_its_own_branch() {
     assert!(err.contains("project p") && err.contains("origin/main"), "{err}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+/// Project p of a setup as its configuration has it, whose checkout is the setup's.
+fn project_of(s: &Setup) -> config::Project {
+    config::working(&s.data).unwrap().projects.remove("p").unwrap()
+}
+
+// A file of main that is a link (an AGENTS.md that points to another file is common) is never given as the path it
+// points to, which is what git stores for the link: the text is the file's, as a read of the checkout's files followed
+// the link, or else an error that names the path. Reference: `std::fs::read_to_string`, which followed links when the
+// checkout's files were read before main was read with git.
+#[cfg(unix)]
+#[test]
+fn a_link_on_main_is_never_read_as_the_path_it_points_to() {
+    let s = setup("main-links");
+    let checkout = s.root.join("checkout");
+    write(&checkout, "CLAUDE.md", "How to work.\n");
+    write(&checkout, "docs/real.md", "The real constitution.\n");
+    write(&checkout, "design/real.md", "Decision: real.\n");
+    std::fs::remove_file(checkout.join("AGENTS.md")).unwrap();
+    std::os::unix::fs::symlink("CLAUDE.md", checkout.join("AGENTS.md")).unwrap();
+    std::os::unix::fs::symlink("docs/real.md", checkout.join("constitution.md")).unwrap();
+    std::os::unix::fs::symlink("real.md", checkout.join("design/link.md")).unwrap();
+    git(&checkout, &["add", "-A"]);
+    git(&checkout, &["commit", "-q", "-m", "links"]);
+    git(&checkout, &["push", "-q", "origin", "HEAD:main"]);
+    let p = project_of(&s);
+    let commit = config::main_commit(&p).unwrap();
+    match config::read_at(&p, &commit, Path::new("constitution.md")) {
+        Ok(text) => assert_eq!(text, "The real constitution.\n"),
+        Err(why) => assert!(why.contains("constitution.md"), "{why}"),
+    }
+    let design = ["design/".to_string()];
+    match config::project_guide_at(&checkout, &commit, &design, "") {
+        Ok(g) => {
+            assert_ne!(g["agents_md"], "CLAUDE.md", "the guide is the path the link holds");
+            assert_eq!(g["agents_md"], "How to work.\n");
+            assert_eq!(g["records"]["design/link.md"], "Decision: real.");
+        }
+        Err(why) => assert!(why.contains("AGENTS.md") || why.contains("link.md"), "{why}"),
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The checkout's `origin/<main>` is what the remote's main is after a fetch, whatever happened to it: a main that was
+// rewritten and force-pushed, and a main whose name has a slash; a main the remote does not have is an error.
+// Reference: the commit ids the other clone pushed, which is what `git ls-remote origin <main>` would give.
+#[test]
+fn a_rewritten_main_and_a_main_with_a_slash_in_its_name_are_what_the_remote_has_after_a_fetch() {
+    let s = setup("main-rewritten");
+    let other = s.root.join("other");
+    git(
+        &s.root,
+        &["clone", "-q", &s.origin.to_string_lossy(), &other.to_string_lossy()],
+    );
+    let mut p = project_of(&s);
+    let first = config::main_commit(&p).unwrap();
+
+    // The remote's main is rewritten: its commit is replaced by another one, which is not its child.
+    write(&other, "constitution.md", "# Rewritten\n");
+    git(&other, &["add", "-A"]);
+    git(&other, &["commit", "-q", "--amend", "-m", "start, rewritten"]);
+    let rewritten = git(&other, &["rev-parse", "HEAD"]);
+    assert_ne!(rewritten, first);
+    git(&other, &["push", "-q", "--force", "origin", "HEAD:main"]);
+    config::fetch_main(&p).unwrap();
+    assert_eq!(config::main_commit(&p).unwrap(), rewritten);
+    assert_eq!(
+        config::read_at(&p, &rewritten, Path::new("constitution.md")).unwrap(),
+        "# Rewritten\n"
+    );
+
+    // A main named with a slash is `origin/release/1` in the checkout, and a fetch brings it.
+    write(&other, "constitution.md", "# Release\n");
+    git(&other, &["add", "-A"]);
+    git(&other, &["commit", "-q", "-m", "release"]);
+    let release = git(&other, &["rev-parse", "HEAD"]);
+    git(&other, &["push", "-q", "origin", "HEAD:refs/heads/release/1"]);
+    p.main = "release/1".into();
+    assert_eq!(p.main_ref(), "origin/release/1");
+    assert!(config::main_commit(&p).is_err());
+    config::fetch_main(&p).unwrap();
+    assert_eq!(config::main_commit(&p).unwrap(), release);
+    assert_eq!(
+        config::read_at(&p, &release, Path::new("constitution.md")).unwrap(),
+        "# Release\n"
+    );
+
+    // A main the remote has not got cannot be fetched, and the error says which.
+    p.main = "no-such-branch".into();
+    let e = config::fetch_main(&p).unwrap_err();
+    assert!(e.contains("could not be fetched"), "{e}");
+    assert!(config::main_commit(&p).is_err());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Fetches of main that overlap in one checkout all succeed: the works of the engine take their steps at the same time,
+// and every round of a cell that reads main fetches it, so a fetch must not be turned down because another moved the
+// same ref a moment before ("cannot lock ref ... is at X but expected Y"). Reference: the same fetches one after
+// another, which all succeed.
+#[test]
+fn fetches_of_main_that_overlap_in_one_checkout_all_succeed() {
+    let s = setup("main-overlap");
+    let other = s.root.join("other");
+    git(
+        &s.root,
+        &["clone", "-q", &s.origin.to_string_lossy(), &other.to_string_lossy()],
+    );
+    let p = project_of(&s);
+    for round in 1..=15 {
+        write(&other, "f.md", &format!("{round}\n"));
+        git(&other, &["add", "-A"]);
+        git(&other, &["commit", "-q", "-m", "next"]);
+        git(&other, &["push", "-q", "origin", "HEAD:main"]);
+        let pushed = git(&other, &["rev-parse", "HEAD"]);
+        let results: Vec<Result<(), String>> = std::thread::scope(|scope| {
+            let fetches: Vec<_> = (0..8).map(|_| scope.spawn(|| config::fetch_main(&p))).collect();
+            fetches.into_iter().map(|f| f.join().unwrap()).collect()
+        });
+        for result in &results {
+            assert!(result.is_ok(), "round {round}: {result:?}");
+        }
+        assert_eq!(config::main_commit(&p).unwrap(), pushed);
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
