@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use db::Actor;
-use db::rusqlite::{OptionalExtension, params};
+use db::rusqlite::params;
 use flow::format::{Failure, GUARDED, Handle, Rounds};
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::json;
@@ -143,7 +143,7 @@ fn retried<'r>(at_cell: &'r [Round], resumed: Option<i64>, s: &Rounds) -> Vec<&'
 /// Start comes first, so the guard only records that round. It holds for one round: rounds that never ran to an end
 /// are passed over, from the newest, and the first that did must be the one stopped, stopped before the owner's Start.
 pub fn waived(at_cell: &[Round], resumed: Option<i64>) -> bool {
-    match (at_cell.iter().find(|r| !cut_short(r)), resumed) {
+    match (at_cell.iter().find(|r| !cut_short(r, GUARDED)), resumed) {
         (Some(r), Some(t)) => failed_as(r) == Some(GUARDED) && t > r.ended_at.unwrap_or(r.started_at),
         _ => false,
     }
@@ -154,11 +154,11 @@ fn failed_as(r: &Round) -> Option<&str> {
     r.rejected.as_ref()?["failed"]["kind"].as_str()
 }
 
-/// Whether a round did not run to an end of its own: the engine cut it off, or it failed otherwise than by being
-/// stopped.
-fn cut_short(r: &Round) -> bool {
+/// Whether a round did not run to an end of its own: the engine cut it off, or it failed as another kind than `kind`,
+/// the one that is looked for.
+fn cut_short(r: &Round, kind: &str) -> bool {
     let cut = |x: &serde_json::Value| x.get("interrupted").is_some() || x.get("error").is_some();
-    r.rejected.as_ref().is_some_and(cut) || failed_as(r).is_some_and(|k| k != GUARDED)
+    r.rejected.as_ref().is_some_and(cut) || failed_as(r).is_some_and(|k| k != kind)
 }
 
 /// While the cell's last run, which failed, waits to run again, why; none when the cell's round may run now. Each
@@ -202,21 +202,12 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
 }
 
 /// The cell's round before `round` in its work, when its run ended as the same kind of failed run too: none when the
-/// round before at the cell did anything else.
+/// round before at the cell did anything else. A run that failed in passing or was cut off between the two is that same
+/// round run again, and is passed over.
 fn refused_before(e: &Engine, round: RoundId, cell: &str, kind: &str) -> Result<Option<RoundId>, String> {
-    let before: Option<(i64, Option<String>)> =
-        e.db.conn()
-            .query_row(
-                "SELECT n, rejected FROM rounds WHERE work = ?1 AND n < ?2 AND cell = ?3 ORDER BY n DESC LIMIT 1",
-                params![round.work, round.n, cell],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-            .map_err(sql)?;
-    Ok(before.and_then(|(n, rejected)| {
-        let v: serde_json::Value = serde_json::from_str(rejected.as_deref()?).ok()?;
-        (v["failed"]["kind"] == kind).then(|| RoundId::new(round.work, n))
-    }))
+    let at_cell = work::rounds_at(e.db.conn(), round.work, cell)?;
+    let before = at_cell.iter().filter(|r| r.id.n < round.n).find(|r| !cut_short(r, kind));
+    Ok(before.filter(|r| failed_as(r) == Some(kind)).map(|r| r.id))
 }
 
 /// What a round whose run ended without a return was, and what came of it.
@@ -311,8 +302,8 @@ impl Failed<'_> {
             // The cell runs again once its wait is over, until it passes.
             Handle::Retry => Ok(Advance::Moved),
             // The same session would give the same context again: the line's session ends, whatever comes next, and the
-            // first time the cell runs again in a new one; when the cell's round before ended the same way, the work
-            // pauses.
+            // first time the cell runs again in a new one; when the cell's round before ended the same way, passing
+            // failures aside, the work pauses.
             Handle::Fresh => {
                 let before = refused_before(e, round, &self.cell.id, &kind.name)?;
                 e.db.write(Actor::Engine, |tx| {
