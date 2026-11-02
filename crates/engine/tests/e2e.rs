@@ -12964,7 +12964,7 @@ fn architect_with_remote(s: &Setup, url: &str) -> (Engine, Arc<Mutex<Vec<String>
     no_reply_wait(s);
     let (mut e, said) = engine(s, scripts());
     quiet(&mut e);
-    // (the code before the change has no backoff unit)
+    e.backoff_unit = Duration::ZERO;
     let arch = architect_work_at(&mut e, "U1");
     git(&s.root.join("checkout"), &["remote", "set-url", "origin", url]);
     (e, said, arch)
@@ -13324,7 +13324,7 @@ fn a_step_that_failed_between_two_refusals_is_not_a_run_of_the_cell() {
     );
     let (mut e, said) = engine(&s, scripts);
     quiet(&mut e);
-    // (the code before the change has no backoff unit)
+    e.backoff_unit = Duration::ZERO;
     let arch = architect_work_at(&mut e, "U1");
     let flagged = Some(json!({ "failed": { "kind": "flagged", "what": "flagged" } }));
     history(&mut e, arch, &[("U1", None, flagged), ("U1", None, step_failed())]);
@@ -13339,6 +13339,33 @@ fn a_step_that_failed_between_two_refusals_is_not_a_run_of_the_cell() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The same, at the first run after the step's record and not after several: the work pauses at once, since the run
+// before the step's record was refused too. (A run of the cell that is refused again after a reading that took the
+// step's record for the round before would be the first of its kind, and would not pause the work yet.)
+#[test]
+fn a_run_refused_after_a_step_that_failed_pauses_the_work_at_once() {
+    let s = setup("refused-at-once");
+    no_reply_wait(&s);
+    let mut scripts = scripts();
+    scripts.insert(
+        "U1",
+        Box::new(|_: &Request, _: usize| {
+            let flagged = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup)";
+            (Vec::new(), vec![("@error", json!(flagged))])
+        }),
+    );
+    let (mut e, said) = engine(&s, scripts);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    let flagged = Some(json!({ "failed": { "kind": "flagged", "what": "flagged" } }));
+    history(&mut e, arch, &[("U1", None, flagged), ("U1", None, step_failed())]);
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    assert_eq!(rows_after(&e, arch, 2).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A step that failed waits as long as the flow's backoff says for the time it failed (5, 15, then 45 of its seconds, a
 // second here being an hour), and not for a shorter or a longer one: the round that runs it again is not begun before
 // the wait is over, and is begun once it is.
@@ -13346,7 +13373,7 @@ fn a_step_that_failed_between_two_refusals_is_not_a_run_of_the_cell() {
 fn a_step_that_failed_is_taken_again_only_after_the_waits_the_flow_gives() {
     let s = setup("step-backoff");
     let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
-    // (the code before the change has no backoff unit)
+    e.backoff_unit = Duration::from_secs(3600);
     let hour = 3_600_000;
     // The round that failed ended `ago` ago.
     let ended_ago = |e: &Engine, round: i64, ago: i64| {
