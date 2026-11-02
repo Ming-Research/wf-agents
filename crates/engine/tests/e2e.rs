@@ -1466,6 +1466,104 @@ fn a_re_review_in_the_same_session_is_told_every_column_to_answer() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Item #216, acceptance A1, A2 and A3 through the engine, not through the functions the check is made of: a table
+// review that answers a column that is none of them, one column twice and leaves two out is sent back once, with a
+// line for each of the three kinds and every column of a kind in its line; one that then leaves out a single column is
+// sent back with the one line it always had, and the third return is taken. The reference is the item's own example
+// (R246-46/47: columns 4 and 5 left out, said at once) and the text of the single miss before the change.
+#[test]
+fn a_review_with_columns_unknown_twice_and_left_out_is_sent_back_once_saying_all_of_them() {
+    let s = setup("columns-misses");
+    let mut scripts = scripts();
+    let listed: Arc<Mutex<Vec<String>>> = Arc::default();
+    let kept = listed.clone();
+    scripts.insert(
+        "T4",
+        Box::new(move |r: &Request, n: usize| {
+            let mut all = kept.lock().unwrap();
+            if all.is_empty() {
+                *all = columns(&r.prompt);
+            }
+            let ids: Vec<String> = match n {
+                // An unknown column, the first column twice, and the last two columns left out.
+                1 => {
+                    let mut v = all[..all.len() - 2].to_vec();
+                    v.push("99".to_string());
+                    v.push(all[0].clone());
+                    v
+                }
+                // Only the last column left out.
+                2 => all[..all.len() - 1].to_vec(),
+                _ => all.clone(),
+            };
+            let cols: Vec<Value> = ids
+                .iter()
+                .map(|id| json!({ "id": id, "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } }))
+                .collect();
+            (
+                vec![("outcome.no_adversarial", "stands")],
+                vec![("outcome.columns", json!(cols))],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    let taken = |e: &mut Engine| -> bool {
+        state(e, item).is_some_and(|(work, _, _)| {
+            e.db.conn()
+                .query_row(
+                    "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'T4' AND transition IS NOT NULL",
+                    [work],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap()
+                > 0
+        })
+    };
+    assert!(steps_until(&mut e, 80, taken), "{}", said.lock().unwrap().join("\n"));
+    let (work, _, _) = state(&e, item).unwrap();
+    let all = listed.lock().unwrap().clone();
+    assert!(all.len() >= 3, "{all:?}");
+    let why = why_sent_back(&e, work, "T4");
+    assert_eq!(why.len(), 2, "{why:?}\n{}", said.lock().unwrap().join("\n"));
+    let lines = |text: &str| text.matches("columns_answered (columns.id): ").count();
+    // The first return: one line for each kind, and nothing else said.
+    assert_eq!(lines(&why[0]), 3, "{}", why[0]);
+    assert!(
+        why[0].contains("columns_answered (columns.id): there is no column 99"),
+        "{}",
+        why[0]
+    );
+    assert!(
+        why[0].contains(&format!(
+            "columns_answered (columns.id): column {} is answered twice",
+            all[0]
+        )),
+        "{}",
+        why[0]
+    );
+    let n = all.len();
+    assert!(
+        why[0].contains(&format!(
+            "columns_answered (columns.id): columns {}, {} are not answered",
+            all[n - 2],
+            all[n - 1]
+        )),
+        "{}",
+        why[0]
+    );
+    // The second return left out one column: the line of a single miss, as before the change.
+    assert_eq!(lines(&why[1]), 1, "{}", why[1]);
+    assert!(
+        why[1].contains(&format!(
+            "columns_answered (columns.id): column {} is not answered",
+            all[n - 1]
+        )),
+        "{}",
+        why[1]
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The judgment whether a work may enter the merge queue reads the newest review, as the fix table does: a column the
 // first review could not verify sends the work to the fix; the re-review that looks only at disputes is given that
 // column again, and only it; and once it hands in no table, the first review's column no longer sends the work to a
