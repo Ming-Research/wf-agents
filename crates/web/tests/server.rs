@@ -267,7 +267,8 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         post(s.port, "/api/v1/architect/start?project=q", "{}", "application/json").0,
         404
     );
-    // The architect's tab names its project and every project, and no constitution for a project that names none.
+    // The architect names its project and every project; the rest of its page is read apart, with no constitution for a
+    // project that names none.
     let here = format!("127.0.0.1:{}", s.port);
     let (status, tab) = get(s.port, "/api/v1/architect", &here, "");
     assert_eq!(status, 200, "{tab}");
@@ -275,7 +276,9 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         tab.contains(r#""project":"p""#) && tab.contains(r#""projects":["p"]"#),
         "{tab}"
     );
-    assert!(tab.contains(r#""constitution":null"#), "{tab}");
+    let (status, panel) = get(s.port, "/api/v1/architect/panel", &here, "");
+    assert_eq!(status, 200, "{panel}");
+    assert!(panel.contains(r#""constitution":null"#), "{panel}");
     // How every project's architect stands is read at once, one entry for each project of the configuration, with its
     // works, its queue and whether a question of its own waits, and none of the rest of the architect's page.
     let (status, standing) = get(s.port, "/api/v1/architects", &here, "");
@@ -284,14 +287,18 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         standing.ends_with(r#"[{"project":"p","works":[],"queue":[],"asking":false}]"#),
         "{standing}"
     );
-    for page_only in ["notebook", "policy", "handled", "changes", "constitution"] {
+    for panel_only in ["notebook", "policy", "handled", "changes", "constitution"] {
         assert!(
-            !standing.contains(page_only),
-            "{page_only} is read for the page alone: {standing}"
+            !standing.contains(panel_only),
+            "{panel_only} is read for the panel alone: {standing}"
         );
         assert!(
-            tab.contains(&format!(r#""{page_only}""#)),
-            "the page holds {page_only}: {tab}"
+            !tab.contains(&format!(r#""{panel_only}""#)),
+            "the architect read for the one-to-one leaves {panel_only} to the panel: {tab}"
+        );
+        assert!(
+            panel.contains(&format!(r#""{panel_only}""#)),
+            "the panel holds {panel_only}: {panel}"
         );
     }
     // Its rounds are read in windows across its works: none yet; a window is named by a round's name, and a round of

@@ -50,9 +50,12 @@ import {
 } from '@primer/react';
 import {
   type Dispatch,
+  Fragment,
+  memo,
   type MouseEvent,
   type ReactNode,
   type SetStateAction,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -103,11 +106,14 @@ import {
   asksApproval,
   cardTalk,
   closedWhy,
+  CONVERSATION_WINDOW,
+  CONVERSATION_WINDOW_MOST,
   conversationTitle,
   DRAFT_APPROVED,
   type ForwardChoice,
   forwardMenu,
   forwardParts,
+  gapsInStream,
   isQuestion,
   latestAt,
   listParts,
@@ -730,45 +736,82 @@ function Fault({ e, forwarding }: { e: ConversationEntry; forwarding: Forwarding
   );
 }
 
-/// One entry of the stream, in its voice; a question with the owner's answer to it (`replies`, by its matter); the
-/// question whether the draft of a new policy that waits (`draft`) is approved leading to the draft, and while it waits
-/// approved by one button; an architect's question that waits for the owner's reply (`questions`) with the button that
-/// sets the box to reply to it (`replyTo`); the bubble of the matter the architect has in hand with how its work goes
-/// on (`architect`).
-function Entry({ e, c, w, architect, replies, forwarding, draft, questions, replyTo }: {
+/// What one entry of the stream is drawn from, and nothing else, so that an entry whose own values did not change is
+/// not drawn again when the stream is (`Entry` is a `memo`): the values that change on every read of the conversation
+/// are given only to the entries that draw them, and `null` to the others.
+type EntryProps = {
   e: ConversationEntry;
-  c: Conversation;
-  w: WorkSummary | null;
-  architect: WorkSummary | null;
-  replies: ReadonlyMap<number, ConversationEntry>;
+  /// What kind of conversation it is in, and its project.
+  kind: Conversation['kind'];
+  project: string | null;
+  /// How the work of the stage the bubble is of goes on (the stage bubble of the work now at it); none for any other.
+  stageWork: WorkSummary | null;
+  /// How the architect's work goes on, for the bubble of the matter it has in hand; none for any other.
+  matterWork: WorkSummary | null;
+  /// Where a fault of wf-agents can go, for the fault; none for any other.
   forwarding: Forwarding | null;
-  draft: PolicyDraft | null;
-  questions: ReadonlySet<number>;
+  /// Whether it is the question whether the draft of a new policy that waits is approved.
+  approval: boolean;
+  /// The owner's answer to the question of an engineer's it is, once given; none for any other.
+  reply: ConversationEntry | null;
+  /// Whether it is an architect's question that waits for the owner's reply.
+  waits: boolean;
+  /// What sets the box to reply to a question of the architect's; one function for the whole stream.
   replyTo: ((question: number) => void) | null;
-}) {
+};
+
+/// One entry of the stream, in its voice; a question with the owner's answer to it (`reply`); the question whether the
+/// draft of a new policy that waits is approved (`approval`) leading to the draft, and while it waits approved by one
+/// button; an architect's question that waits for the owner's reply (`waits`) with the button that sets the box to
+/// reply to it (`replyTo`); the bubble of the matter the architect has in hand with how its work goes on
+/// (`matterWork`).
+const Entry = memo(function Entry({
+  e,
+  kind,
+  project,
+  stageWork,
+  matterWork,
+  forwarding,
+  approval,
+  reply,
+  waits,
+  replyTo,
+}: EntryProps) {
   const voice = voiceOf(e);
   if (voice === 'live') {
-    const project = c.project ?? '';
-    if (e.stage !== null) return <StageBubble e={e} s={e.stage} w={w} project={c.project} />;
-    if (e.matter_card !== null) return <MatterBubble m={e.matter_card} project={project} architect={architect} />;
-    if (e.policy !== null) return <PolicyBubble p={e.policy} project={project} />;
-    if (e.plan !== null) return <PlanBubble e={e} p={e.plan} project={project} />;
+    if (e.stage !== null) return <StageBubble e={e} s={e.stage} w={stageWork} project={project} />;
+    if (e.matter_card !== null) return <MatterBubble m={e.matter_card} project={project ?? ''} architect={matterWork} />;
+    if (e.policy !== null) return <PolicyBubble p={e.policy} project={project ?? ''} />;
+    if (e.plan !== null) return <PlanBubble e={e} p={e.plan} project={project ?? ''} />;
     return null;
   }
   if (voice === 'system') return <SystemLine e={e} />;
   if (voice === 'fault') return <Fault e={e} forwarding={forwarding} />;
   if (voice === 'none') return null;
-  const reply = e.matter !== null && isQuestion(e) ? (replies.get(e.matter) ?? null) : null;
-  const waits = e.source === 'ask' && questions.has(e.id);
   return (
     <Message
       e={e}
-      to={mentions(e, c.kind) ? mention(e, c.kind) : null}
+      to={mentions(e, kind) ? mention(e, kind) : null}
       reply={reply}
-      draft={c.project !== null && asksApproval(e, draft) ? sideHref(c.project, 'policy') : null}
+      draft={project !== null && approval ? sideHref(project, 'policy') : null}
       onReply={waits && replyTo !== null ? () => replyTo(e.id) : null}
-      approve={waits && c.project !== null && asksApproval(e, draft) ? c.project : null}
+      approve={waits && project !== null && approval ? project : null}
     />
+  );
+});
+
+/// The line where the interface left entries of the conversation out: how many, and, while it can give more, the button
+/// that asks for the ones before.
+function GapLine({ count, more }: { count: number; more: (() => void) | null }) {
+  return (
+    <div className="talk-gap">
+      <span>{tn('conv_gap', count)}</span>
+      {more !== null ? (
+        <Button size="small" variant="invisible" onClick={more}>
+          {t('conv_gap_more')}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -1101,14 +1144,17 @@ export function Composer({ c, w, reply = null, onSent }: {
 /// architect (`architect`), the question whether its draft of a new policy that waits (`draft`) is approved leads to
 /// the draft, and the bubble of the matter it has in hand says what holds it. In a work's group, the owner's question
 /// about a decision card and its answer each name the card over their words, and the card links to them (`CardTalk`).
-/// Scrolled up away from the newest, a round button at its bottom right goes back to it, as a chat app's does.
-export function Stream({ d, c, w, draft = null, architect = null, replyTo = null }: {
+/// Scrolled up away from the newest, a round button at its bottom right goes back to it, as a chat app's does. The
+/// interface gives the latest entries and those something waits on (`ConversationDetail.gaps` says where it left the
+/// others out): a line where it did says how many, with the button (`more`) that asks for the ones before.
+export function Stream({ d, c, w, draft = null, architect = null, replyTo = null, more = null }: {
   d: ConversationDetail;
   c: Conversation;
   w: WorkSummary | null;
   draft?: PolicyDraft | null;
   architect?: Architect | null;
   replyTo?: ((question: number) => void) | null;
+  more?: (() => void) | null;
 }) {
   const replies = useMemo(() => ownerReplies(d.entries), [d]);
   const questions = useMemo(() => new Set(d.questions.map((q) => q.id)), [d]);
@@ -1117,14 +1163,16 @@ export function Stream({ d, c, w, draft = null, architect = null, replyTo = null
     [d],
   );
   const stream = streamOf(d);
+  const { before, end } = gapsInStream(d, stream);
   const going = architect !== null ? architectState(architect.works, architect.queue) : null;
   const aw = going !== null && going.kind === 'working' ? going.work : null;
   const list = useRef<HTMLDivElement>(null);
-  const shown = stream.length;
+  // Scrolled to the newest when a newer entry comes, never when older ones join the stream above.
+  const newest = stream.length > 0 ? `${stream[stream.length - 1].source}-${stream[stream.length - 1].id}` : '';
   useEffect(() => {
     const el = list.current;
     if (el !== null) el.scrollTop = el.scrollHeight;
-  }, [c.key, shown]);
+  }, [c.key, newest]);
   // Whether the owner scrolled up away from the newest, which the button back to it says.
   const [away, setAway] = useState(false);
   useEffect(() => {
@@ -1135,14 +1183,16 @@ export function Stream({ d, c, w, draft = null, architect = null, replyTo = null
     el.addEventListener('scroll', check, { passive: true });
     return () => el.removeEventListener('scroll', check);
   }, []);
-  // Cards run in a Timeline of their own between the messages: each run of cards and lines is one Timeline.
-  const runs: Array<{ cards: boolean; entries: ConversationEntry[] }> = [];
+  // Cards run in a Timeline of their own between the messages: each run of cards and lines is one Timeline. Where
+  // entries were left out (`gap`, how many) a run begins, under the line that says so.
+  const runs: Array<{ cards: boolean; entries: ConversationEntry[]; gap: number }> = [];
   for (const e of stream) {
     const v = voiceOf(e);
     const cards = v === 'system';
     const last = runs[runs.length - 1];
-    if (last !== undefined && last.cards === cards) last.entries.push(e);
-    else runs.push({ cards, entries: [e] });
+    const gap = before.get(e) ?? 0;
+    if (last !== undefined && last.cards === cards && gap === 0) last.entries.push(e);
+    else runs.push({ cards, entries: [e], gap });
   }
   // Words added to the queue or to a talk wait their turn; those interjected say on themselves that they are not taken
   // up yet.
@@ -1158,26 +1208,31 @@ export function Stream({ d, c, w, draft = null, architect = null, replyTo = null
               <Entry
                 key={`${e.source}-${e.id}-${e.at}`}
                 e={e}
-                c={c}
-                w={w}
-                architect={aw}
-                replies={replies}
-                forwarding={d.forwarding}
-                draft={draft}
-                questions={questions}
+                kind={c.kind}
+                project={c.project}
+                stageWork={e.stage !== null && e.stage.current ? w : null}
+                matterWork={e.matter_card !== null && e.matter_card.state === 'working' ? aw : null}
+                forwarding={voiceOf(e) === 'fault' ? d.forwarding : null}
+                approval={asksApproval(e, draft)}
+                reply={e.matter !== null && isQuestion(e) ? (replies.get(e.matter) ?? null) : null}
+                waits={e.source === 'ask' && questions.has(e.id)}
                 replyTo={replyTo}
               />
             ));
-            return run.cards ? (
-              <Timeline key={key} clipSidebar className="talk-cards">
-                {items}
-              </Timeline>
-            ) : (
-              <div key={key} className="talk-messages">
-                {items}
-              </div>
+            return (
+              <Fragment key={key}>
+                {run.gap > 0 ? <GapLine count={run.gap} more={more} /> : null}
+                {run.cards ? (
+                  <Timeline clipSidebar className="talk-cards">
+                    {items}
+                  </Timeline>
+                ) : (
+                  <div className="talk-messages">{items}</div>
+                )}
+              </Fragment>
             );
           })}
+          {end > 0 ? <GapLine count={end} more={more} /> : null}
           {pending ? <p className="talk-none">{t('conv_words_wait')}</p> : null}
         </div>
         {away ? (
@@ -1203,8 +1258,20 @@ const AWAY = 160;
 /// is open, on the tab the address names (`side`), else on the notebook. Reading it marks it read up to its latest
 /// entry.
 function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | undefined; side: SideTab | null }) {
-  const r = useResource<ConversationDetail>('messages', `/api/v1/conversation?key=${encodeURIComponent(c.key)}`);
+  // How many of its latest entries are read: more each time the owner asks for the ones before. The conversation read
+  // with the window before stays on the page until the larger one is read, so the stream does not flash.
+  const [limit, setLimit] = useState(CONVERSATION_WINDOW);
+  const r = useResource<ConversationDetail>(
+    'messages',
+    `/api/v1/conversation?key=${encodeURIComponent(c.key)}&limit=${limit}`,
+    { staleOk: true },
+  );
+  // What was read is this conversation's, whichever window it is of.
   const d = r.data !== undefined && r.data.key === c.key ? r.data : null;
+  const more =
+    d !== null && d.gaps.length > 0 && limit < CONVERSATION_WINDOW_MOST
+      ? () => setLimit((n) => Math.min(n + CONVERSATION_WINDOW, CONVERSATION_WINDOW_MOST))
+      : null;
   const w = c.work !== null ? ((works ?? []).find((x) => x.id === c.work) ?? null) : null;
   const project = c.kind === 'architect' ? (c.project ?? '') : null;
   const ar = useResource<Architect>(
@@ -1222,10 +1289,11 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
   const [chosen, setChosen] = useState<number | null | undefined>(undefined);
   const to = replyingTo(d !== null ? pinnedQuestions(d) : [], chosen, d?.waits_on ?? null);
   const reply: Reply | null = to !== null ? { question: to.id, words: to.text, clear: () => setChosen(null) } : null;
-  const replyTo = (question: number) => {
+  // One function for as long as the conversation is open, so that the entries that hold it are not drawn again for it.
+  const replyTo = useCallback((question: number) => {
     setChosen(question);
     document.querySelector<HTMLTextAreaElement>('.talk-say textarea')?.focus();
-  };
+  }, []);
   const latest = d !== null ? latestAt(d) : null;
   const readTo = d?.read_to ?? null;
   useEffect(() => {
@@ -1270,6 +1338,7 @@ function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | unde
               draft={a?.draft ?? null}
               architect={a}
               replyTo={c.kind === 'architect' ? replyTo : null}
+              more={more}
             />
           </>
         )}

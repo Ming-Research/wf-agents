@@ -1805,16 +1805,9 @@ pub(crate) fn shown_where(conn: &Connection, flows: &Flows, filter: &str, args: 
     Ok(out)
 }
 
-/// A project's architect, as its page and the panel beside its one-to-one show it: `projects` are every project of the
-/// configuration, and `constitution` the project's constitution as its checkout has it. Its cells are named as the
-/// views over its rounds name them.
-pub fn architect(
-    conn: &Connection,
-    flows: &Flows,
-    project: &str,
-    projects: Vec<String>,
-    constitution: Option<NamedText>,
-) -> Result<Architect> {
+/// A project's architect, as the head of its one-to-one and its page show it: `projects` are every project of the
+/// configuration. What the panel beside the one-to-one adds is `architect_panel`.
+pub fn architect(conn: &Connection, flows: &Flows, project: &str, projects: Vec<String>) -> Result<Architect> {
     let (mine, works) = architect_works(conn, flows, project)?;
     let mut asks = asks(conn, "WHERE w.graph IN ('architect', 'policy')", &[])?;
     asks.retain(|a| mine.contains(&a.work));
@@ -1825,10 +1818,18 @@ pub fn architect(
         queue: queue(conn, project)?,
         holds: holds(conn, project)?,
         asks,
+        draft: draft(conn, project)?,
+    })
+}
+
+/// What a project's architect has besides `architect`, for the panel beside its one-to-one and its page's tab of item
+/// changes: `constitution` is the project's constitution as its checkout has it. Its cells are named as the views over
+/// its rounds name them.
+pub fn architect_panel(conn: &Connection, project: &str, constitution: Option<NamedText>) -> Result<ArchitectPanel> {
+    Ok(ArchitectPanel {
         handled: matters_handled(conn, project)?,
         changes: item_changes(conn, project)?,
         policy: policy(conn, project)?,
-        draft: draft(conn, project)?,
         notebook: notebook(conn, project)?,
         constitution,
     })
@@ -3403,7 +3404,14 @@ mod tests {
             ("work", Some(1), Some(1), Some("First"), false)
         );
         assert!(w.unread > 0, "{w:?}");
-        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let d = crate::conversation(
+            s.db.conn(),
+            &Flows::default(),
+            &t,
+            "architect:p",
+            crate::CONVERSATION_WINDOW,
+        )
+        .unwrap();
         type Seen<'a> = (&'a str, &'a str, &'a str, i64, bool, bool);
         let seen: Vec<Seen> = d
             .entries
@@ -3446,7 +3454,8 @@ mod tests {
             })
             .collect();
         assert_eq!(cards, [(1, "done", Some(1), 208), (3, "held", Some(1), 208)]);
-        let work = crate::conversation(s.db.conn(), &Flows::default(), &t, "work:1").unwrap();
+        let work =
+            crate::conversation(s.db.conn(), &Flows::default(), &t, "work:1", crate::CONVERSATION_WINDOW).unwrap();
         let said: Vec<(&str, &str, &str)> = work
             .entries
             .iter()
@@ -3558,7 +3567,16 @@ mod tests {
             ..crate::Talks::default()
         };
         let flows = Flows::default();
-        let group = |work: i64| crate::conversation(s.db.conn(), &flows, &t, &format!("work:{work}")).unwrap();
+        let group = |work: i64| {
+            crate::conversation(
+                s.db.conn(),
+                &flows,
+                &t,
+                &format!("work:{work}"),
+                crate::CONVERSATION_WINDOW,
+            )
+            .unwrap()
+        };
         let d = group(2);
         let seen: Vec<(&str, i64, String)> = d
             .entries
@@ -3683,7 +3701,14 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             ..crate::Talks::default()
         };
-        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let d = crate::conversation(
+            s.db.conn(),
+            &Flows::default(),
+            &t,
+            "architect:p",
+            crate::CONVERSATION_WINDOW,
+        )
+        .unwrap();
         let said: Vec<(&str, &str)> = d
             .entries
             .iter()
@@ -3737,7 +3762,14 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             ..crate::Talks::default()
         };
-        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let d = crate::conversation(
+            s.db.conn(),
+            &Flows::default(),
+            &t,
+            "architect:p",
+            crate::CONVERSATION_WINDOW,
+        )
+        .unwrap();
         assert!(d.entries.iter().all(|e| e.source != "notice"), "{:?}", d.entries);
         let matters: Vec<i64> = d
             .entries
@@ -3852,7 +3884,14 @@ mod tests {
             sets: Vec::new(),
             ..crate::Talks::default()
         };
-        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let d = crate::conversation(
+            s.db.conn(),
+            &Flows::default(),
+            &t,
+            "architect:p",
+            crate::CONVERSATION_WINDOW,
+        )
+        .unwrap();
         // Each stands where it last changed, its head saying when the architect took it up.
         let cards: Vec<(i64, &str, i64, i64)> = d
             .entries
@@ -3885,7 +3924,7 @@ mod tests {
     type WordsLine = (String, i64, Option<String>, Option<(i64, i64, String)>, bool);
 
     fn words_lines(s: &Setup, t: &crate::Talks, key: &str) -> (Vec<WordsLine>, Vec<String>) {
-        let d = crate::conversation(s.db.conn(), &Flows::default(), t, key).unwrap();
+        let d = crate::conversation(s.db.conn(), &Flows::default(), t, key, crate::CONVERSATION_WINDOW).unwrap();
         assert!(
             d.entries
                 .iter()
@@ -4109,7 +4148,14 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let d = crate::conversation(
+            s.db.conn(),
+            &Flows::default(),
+            &t,
+            "architect:p",
+            crate::CONVERSATION_WINDOW,
+        )
+        .unwrap();
         let of_ask: Vec<&str> = d
             .entries
             .iter()
@@ -4344,7 +4390,8 @@ mod tests {
     #[test]
     fn the_architect_says_its_works_queue_log_policy_and_understanding() {
         let s = architect_setup("architect");
-        let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into(), "q".into()], None).unwrap();
+        let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into(), "q".into()]).unwrap();
+        let panel = architect_panel(s.db.conn(), "p", None).unwrap();
         assert_eq!((a.project.as_str(), a.projects.len()), ("p", 2));
         assert_eq!(a.works.iter().map(|w| w.work.id).collect::<Vec<_>>(), [3, 2]);
         let (now, last) = (&a.works[0], &a.works[1]);
@@ -4381,16 +4428,16 @@ mod tests {
         assert_eq!(a.asks.iter().map(|x| x.id).collect::<Vec<_>>(), [1, 2]);
 
         // The matter handled, by the round that closed it, with the item change it collected, which the batch made.
-        let h = a.handled.iter().find(|h| h.matter == 1).unwrap();
+        let h = panel.handled.iter().find(|h| h.matter == 1).unwrap();
         assert_eq!(
             (h.kind.as_str(), h.work, h.round, h.made, h.dropped),
             ("engineer_question", 2, 8, 1, 0)
         );
         assert!(h.why.is_none(), "{h:?}");
-        assert_eq!(a.changes.len(), 1);
-        assert_eq!(a.changes[0].change["kind"], "hold");
+        assert_eq!(panel.changes.len(), 1);
+        assert_eq!(panel.changes[0].change["kind"], "hold");
 
-        assert_eq!(a.policy, None);
+        assert_eq!(panel.policy, None);
         // A study a setting of a flow version before wrote, in a work of its own, is no draft of a new policy.
         assert_eq!(a.draft, None);
     }
@@ -4408,7 +4455,7 @@ mod tests {
             queue.into_iter().map(|m| Matter { waited_ms: None, ..m }).collect()
         };
         let same = |s: &Setup, project: &str| -> bool {
-            let page = architect(s.db.conn(), &cache, project, projects(), None).unwrap();
+            let page = architect(s.db.conn(), &cache, project, projects()).unwrap();
             let now = architect_standing(s.db.conn(), &cache, project).unwrap();
             assert_eq!(now.project, project);
             assert_eq!(now.works, page.works, "{project}");
@@ -4492,7 +4539,8 @@ mod tests {
         let out = |v: Value| json!({ "outcome": v, "progress": "p" }).to_string();
         let first = json!({ "direction": "d1", "why": "w", "principles": [{ "no": 1, "text": "t" }], "signals": [] });
         let second = json!({ "direction": "d2", "why": "w", "principles": [{ "no": 1, "text": "t" }], "signals": [] });
-        let read = |s: &Setup| architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()], None).unwrap();
+        let read = |s: &Setup| architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()]).unwrap();
+        let in_force = |s: &Setup| architect_panel(s.db.conn(), "p", None).unwrap().policy;
         let round = |s: &mut Setup, work: i64, n: i64, cell: &str, output: String, transition: &str| {
             s.db.write(Actor::Engine, |tx| {
                 tx.execute(
@@ -4534,9 +4582,8 @@ mod tests {
         let d = read(&s).draft.unwrap();
         assert_eq!((d.work, d.round, d.policy), (5, 2, first.clone()));
         round(&mut s, 6, 1, "P12", "{}".into(), "next");
-        let a = read(&s);
-        assert_eq!(a.draft, None);
-        assert_eq!(a.policy.map(|p| (p.work, p.round, p.policy)), Some((6, 1, first)));
+        assert_eq!(read(&s).draft, None);
+        assert_eq!(in_force(&s).map(|p| (p.work, p.round, p.policy)), Some((6, 1, first)));
         round(
             &mut s,
             6,
@@ -4566,7 +4613,7 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()], None).unwrap();
+        let a = architect_panel(s.db.conn(), "p", None).unwrap();
         let version = |text: &str, round: i64, cell: &str| NotebookVersion {
             text: text.into(),
             work: 2,

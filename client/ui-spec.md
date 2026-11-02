@@ -1958,6 +1958,17 @@ head's Start does; while the engine halted the architect's work, its trouble, th
 with the pin in `--fgColor-danger`. Scrolled up away from the newest, a round `IconButton` with an `ArrowDownIcon` at
 the stream's bottom right, `--shadow-floating-small`, goes back to it.
 
+The stream holds the latest 100 entries of the conversation and, whatever their age, every entry something waits on (an
+ask or a question that waits, the bubble of the stage that holds a decision card to rule on, words not taken up yet), so
+that nothing the bar pins is left out; the bar, the counts and the box that replies are worked out from the whole
+conversation. Where older entries are left out, a line of `--fgColor-muted` small text in the stream says "N earlier
+entries are folded away", with a small invisible `Button`, Show earlier, that reads 100 more of the latest, the line
+closing up as the entries reach the next one that stayed; the stream stays as it is while they are read, and is not
+scrolled to the newest when they join it above. A bubble that links to an entry left out has no link. At the most the
+interface gives (1000), the line has no button. It is a line and not a scroll that reads on its own, because the owner
+goes back that far now and then, and a read that follows the scroll would make the page read as often as a long
+conversation is scrolled.
+
 Instead of a band holding the cards, asks and questions themselves, under the head and over the box, with a firm edge
 the owner dragged, a cap of 45% to 85% of the conversation and a fade where it held more, because the owner found the
 band at the top and the bottom odd in a conversation where everything else is a bubble, and what a chat app pins is a
@@ -2095,7 +2106,9 @@ wrote it yet, its earlier versions folded under it, newest first, each under the
 Policy, the draft that waits for the owner's approval on top while one does, headed as such, then the policy in force
 with the project's constitution folded under it; and Queue, counting the matters left, how many are left, how long the
 oldest waited and how many were handled today over the list of the matters, the one in hand marked, then those handled
-with nothing to do, which leave the one-to-one once done, each with why folded.
+with nothing to do, which leave the one-to-one once done, each with why folded. The panel reads the notebook, the policy,
+the constitution and the matters handled itself (`/api/v1/architect/panel`), while it is open, and not with the
+architect the one-to-one reads at every event; until they are read, its tabs say "Loading…" where they would show them.
 
 The question whether to approve a draft does not carry the draft: its bubble leads to the panel's Policy tab.
 

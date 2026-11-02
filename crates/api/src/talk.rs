@@ -8,18 +8,24 @@
 //! the work is an entry of its own there.
 
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use db::rusqlite::{Connection, OptionalExtension};
 use serde_json::Value;
 
 use crate::read::{self, Error, Flows};
 use crate::{
-    Conversation, ConversationDetail, ConversationEntry, Forwarded, Forwarding, Handled, MadeThing, MatterProgress,
-    Misses, PlanChange, ReviewFindings, StageCard, StageNote, WordsState,
+    Conversation, ConversationDetail, ConversationEntry, Forwarded, Forwarding, Gap, Handled, MadeThing,
+    MatterProgress, Misses, PlanChange, ReviewFindings, StageCard, StageNote, WordsState,
 };
 
 type Result<T> = std::result::Result<T, Error>;
+
+/// How many of a conversation's latest entries it gives when the request names no number.
+pub const CONVERSATION_WINDOW: usize = 100;
+
+/// The most of a conversation's latest entries it gives, whatever the request names.
+pub const CONVERSATION_WINDOW_MOST: usize = 1000;
 
 /// What a work's group and the one-to-one with an architect leave out of what `conversation_entries` gathers for them,
 /// as a condition on the view's columns: the engine's notices, which the bubble of the stage the work was at, the
@@ -245,7 +251,19 @@ pub fn conversations(conn: &Connection, t: &Talks) -> Result<Vec<Conversation>> 
 /// of its asks), and where the owner's words in it stand with the architect; the open blockers the owner holds in it,
 /// with their forms; in the one-to-one with an architect, the questions it pinned for the owner's reply and the one it
 /// waits on now; and how far the owner has read it.
-pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> Result<ConversationDetail> {
+///
+/// Its entries are the latest `limit` (at least one, at most `CONVERSATION_WINDOW_MOST`) and every older one something
+/// waits on, so that nothing that waits for the owner is left out; `gaps` says where the others were left out. What
+/// waits for the owner (`asks`, `design_cards`, `questions`, `waits_on`) and how far it is read are of the whole
+/// conversation, whatever the window.
+pub fn conversation(
+    conn: &Connection,
+    flows: &Flows,
+    t: &Talks,
+    key: &str,
+    limit: usize,
+) -> Result<ConversationDetail> {
+    let limit = limit.clamp(1, CONVERSATION_WINDOW_MOST);
     let select = "SELECT conversation, source, id, sender, recipient, text, at, work, round, ask, design_card, matter,
                     read_at, waiting, pending, undelivered, answerable, fault
                   FROM conversation_entries";
@@ -382,6 +400,20 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
             |r| r.get(0),
         )
         .optional()?;
+    // What the bar over the stream leads to, and what is not taken up, stays whatever its age: the entries of the asks
+    // and questions that wait, the bubbles of the stages that hold a decision card waiting for the owner's ruling, and
+    // the entries that wait for the owner or whose words are not taken in.
+    let pinned: HashSet<i64> = waiting.iter().chain(&questions).map(|a| a.id).collect();
+    let cards: HashSet<i64> = design_cards.iter().map(|c| c.id).collect();
+    let (entries, gaps) = windowed(entries, limit, |e| {
+        e.waiting
+            || e.pending
+            || e.undelivered
+            || (e.source == "ask" && pinned.contains(&e.id))
+            || e.stage
+                .as_ref()
+                .is_some_and(|s| s.design_cards.iter().any(|c| cards.contains(&c.id)))
+    });
     Ok(ConversationDetail {
         key: key.to_string(),
         entries,
@@ -398,7 +430,38 @@ pub fn conversation(conn: &Connection, flows: &Flows, t: &Talks, key: &str) -> R
         } else {
             None
         },
+        gaps,
     })
+}
+
+/// The latest `limit` of `entries`, which are in time order, and every older one that `stays`; and where the others
+/// were left out, a run of them by the entry given after it. The latest entry is always given, so no run is left
+/// without one after it.
+fn windowed(
+    entries: Vec<ConversationEntry>,
+    limit: usize,
+    stays: impl Fn(&ConversationEntry) -> bool,
+) -> (Vec<ConversationEntry>, Vec<Gap>) {
+    let from = entries.len().saturating_sub(limit);
+    let mut given = Vec::new();
+    let mut gaps = Vec::new();
+    let mut left: i64 = 0;
+    for (i, e) in entries.into_iter().enumerate() {
+        if i < from && !stays(&e) {
+            left += 1;
+            continue;
+        }
+        if left > 0 {
+            gaps.push(Gap {
+                source: e.source.clone(),
+                id: e.id,
+                count: left,
+            });
+            left = 0;
+        }
+        given.push(e);
+    }
+    (given, gaps)
 }
 
 /// What a project's architect does now with the owner's words: the matter its work going on has in hand, with that
@@ -1354,6 +1417,32 @@ fn plans(conn: &Connection, project: &str) -> Result<Vec<ConversationEntry>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A conversation gives its latest entries and every older one something waits on, and says where it left the others
+    // out, each run by the entry given after it, so that the runs add up to all that was left out.
+    #[test]
+    fn a_window_gives_the_latest_entries_and_what_waits_and_says_where_the_rest_was_left_out() {
+        let all: Vec<ConversationEntry> = (1..=10)
+            .map(|id| ConversationEntry {
+                source: "message".into(),
+                id,
+                waiting: id == 2 || id == 3,
+                ..blank()
+            })
+            .collect();
+        let (given, gaps) = windowed(all.clone(), 3, |e| e.waiting);
+        assert_eq!(given.iter().map(|e| e.id).collect::<Vec<_>>(), [2, 3, 8, 9, 10]);
+        let told: Vec<(&str, i64, i64)> = gaps.iter().map(|g| (g.source.as_str(), g.id, g.count)).collect();
+        assert_eq!(told, [("message", 2, 1), ("message", 8, 4)]);
+        assert_eq!(
+            gaps.iter().map(|g| g.count).sum::<i64>() as usize,
+            all.len() - given.len()
+        );
+        // Every entry given when the window holds them all; none given, none left out.
+        let (every, none) = windowed(all, 10, |_| false);
+        assert_eq!((every.len(), none.len()), (10, 0));
+        assert_eq!(windowed(Vec::new(), 3, |_| false).1, Vec::new());
+    }
 
     // In the bubble of the stage a work was at, a notice of the engine's does not name the work, which the engine names
     // for its notifications log: the sentence starts at the word after the name, and a name inside it is "this work".

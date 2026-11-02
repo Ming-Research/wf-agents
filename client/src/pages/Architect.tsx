@@ -17,6 +17,7 @@ import { useEffect, useMemo } from 'react';
 
 import type {
   Architect as ArchitectRead,
+  ArchitectPanel,
   Compiled,
   CompiledGraph,
   FlowView,
@@ -108,10 +109,12 @@ function ArchitectUsage({ route, a, compiled }: { route: ArchitectRoute; a: Arch
 type Rounds = ReturnType<typeof useRoundsWindow>;
 
 /// The architect's panel, on top of the window floating over the right of its chart, in tabs, each saying how many of its
-/// things there are: its rounds across all its works, its item changes and its usage.
-function Panel({ route, a, rounds, g, compiled, go, onRound }: {
+/// things there are: its rounds across all its works, its item changes (`changes`, none while they are not read yet) and
+/// its usage.
+function Panel({ route, a, changes, rounds, g, compiled, go, onRound }: {
   route: ArchitectRoute;
   a: ArchitectRead;
+  changes: ItemChange[] | undefined;
   rounds: Rounds;
   g: CompiledGraph;
   compiled: Compiled;
@@ -128,11 +131,13 @@ function Panel({ route, a, rounds, g, compiled, go, onRound }: {
       onTab={(x) => go({ tab: x })}
       tabs={[
         { tab: 'rounds', label: t('rounds'), href: tab('rounds'), n: total },
-        { tab: 'changes', label: t('arch_tab_changes'), href: tab('changes'), n: a.changes.length },
+        { tab: 'changes', label: t('arch_tab_changes'), href: tab('changes'), n: changes?.length ?? null },
         { tab: 'usage', label: t('us_tab'), href: tab('usage'), n: null },
       ]}
     >
-      {route.tab === 'changes' ? <Changes changes={a.changes} onRound={onRound} /> : null}
+      {route.tab === 'changes' ? (
+        changes !== undefined ? <Changes changes={changes} onRound={onRound} /> : <p className="muted">{t('loading')}</p>
+      ) : null}
       {route.tab === 'usage' ? <ArchitectUsage route={route} a={a} compiled={compiled} /> : null}
       {route.tab === 'rounds' ? (
         <>
@@ -164,9 +169,11 @@ const NO_ROUNDS: RoundSummary[] = [];
 
 /// The architect's graph filling the window, with the rounds its list holds placed on it and the cell its latest work is
 /// at, and the window floating over its right side: the panel on top, what is open on the chart under it.
-export function Chart({ route, a, latest, rounds, compiled, view, go }: {
+export function Chart({ route, a, changes, latest, rounds, compiled, view, go }: {
   route: ArchitectRoute;
   a: ArchitectRead;
+  /// The item changes its batches made, none while they are not read yet.
+  changes: ItemChange[] | undefined;
   /// Its latest work, the one going on, else the one that ended last; none before its first.
   latest: WorkSummary | null;
   rounds: Rounds;
@@ -187,12 +194,14 @@ export function Chart({ route, a, latest, rounds, compiled, view, go }: {
       round={route.round}
       onCell={(cell) => go({ cell, round: null })}
       onRound={(x) => go({ round: x, cell: null })}
-      panel={(g) => <Panel route={route} a={a} rounds={rounds} g={g} compiled={compiled} go={go} onRound={onRound} />}
+      panel={(g) => (
+        <Panel route={route} a={a} changes={changes} rounds={rounds} g={g} compiled={compiled} go={go} onRound={onRound} />
+      )}
     />
   );
 }
 
-function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
+function Body({ route, a, changes }: { route: ArchitectRoute; a: ArchitectRead; changes: ItemChange[] | undefined }) {
   const status = useStatus();
   // Its latest work: the one going on, else the one that ended last (its works are newest first).
   const latest = (a.works.find((x) => !overWork(x.work)) ?? a.works[0])?.work ?? null;
@@ -219,7 +228,9 @@ function Body({ route, a }: { route: ArchitectRoute; a: ArchitectRead }) {
           <Loaded r={compiled}>
             {(c) => (
               <Loaded r={view}>
-                {(v) => <Chart route={route} a={a} latest={latest} rounds={rounds} compiled={c} view={v} go={go} />}
+                {(v) => (
+                  <Chart route={route} a={a} changes={changes} latest={latest} rounds={rounds} compiled={c} view={v} go={go} />
+                )}
               </Loaded>
             )}
           </Loaded>
@@ -236,6 +247,8 @@ const KEPT_BEFORE = ['wf-agents.arch-split', 'wf-agents.arch-talk-folded'];
 
 export function Architect({ route }: { route: ArchitectRoute }) {
   const a = useResource<ArchitectRead>('architect', forProject('/api/v1/architect', route.project));
+  // Its item changes are in the panel's read, which the one-to-one's head does not take with it.
+  const panel = useResource<ArchitectPanel>('architect', forProject('/api/v1/architect/panel', route.project));
   useEffect(() => {
     try {
       for (const key of KEPT_BEFORE) localStorage.removeItem(key);
@@ -245,7 +258,7 @@ export function Architect({ route }: { route: ArchitectRoute }) {
   }, []);
   return (
     <div className="works-screen">
-      <Loaded r={a}>{(data) => <Body route={route} a={data} />}</Loaded>
+      <Loaded r={a}>{(data) => <Body route={route} a={data} changes={panel.data?.changes} />}</Loaded>
     </div>
   );
 }
