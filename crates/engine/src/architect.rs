@@ -1096,13 +1096,43 @@ fn entry(e: &Engine, w: &Work) -> Result<String, String> {
         e.db.conn(),
         &format!(
             "SELECT count(*) FROM rounds r JOIN works x ON x.id = r.work
-             WHERE x.graph = 'architect' AND x.project = ?1 AND r.cell IN {} AND r.transition IS NOT NULL
-               AND r.transition NOT IN {NO_ANSWER}",
-            db::cells_sql(ARCHITECT, &[UNDERSTAND])
+             WHERE x.graph = 'architect' AND x.project = ?1 AND {}",
+            answered_understanding("r")
         ),
         &[&project],
     )?;
     Ok(if before == 0 { "first" } else { "new" }.into())
+}
+
+/// What makes a round of the rounds table (`alias`) an answer of the understanding question: it is a round of the
+/// understanding that took a row of its own, not one that asked for tools or a search, paused, asked the owner or
+/// answered what the owner said. [`entry`] and [`previous_session_start`] both read it.
+fn answered_understanding(alias: &str) -> String {
+    format!(
+        "{alias}.cell IN {} AND {alias}.transition IS NOT NULL AND {alias}.transition NOT IN {NO_ANSWER}",
+        db::cells_sql(ARCHITECT, &[UNDERSTAND])
+    )
+}
+
+/// When the project's previous architect session began: the first round of the session the project's latest answered
+/// understanding ran in (the understanding is the first round of a new session, so its session is that session's first
+/// row; the rows later works carried it on in hold other rounds). None before any understanding was answered. An
+/// understanding still running has not answered, so the session it runs in never counts, at any of its rounds: the
+/// first, which is given its inputs before its row exists, and those after tools or a return sent back. A session
+/// replaced before its understanding answered is no previous session either, and the cut is the one that session had.
+fn previous_session_start(conn: &Connection, project: &str) -> Result<Option<i64>, String> {
+    conn.query_row(
+        &format!(
+            "SELECT min(x.started_at) FROM rounds x WHERE x.session = (
+               SELECT r.session FROM rounds r JOIN works w ON w.id = r.work
+               WHERE w.graph = 'architect' AND w.project = ?1 AND {}
+               ORDER BY r.started_at DESC LIMIT 1)",
+            answered_understanding("r")
+        ),
+        [project],
+        |r| r.get(0),
+    )
+    .map_err(sql)
 }
 
 /// The detail of the matter picked.
@@ -1256,25 +1286,18 @@ fn told_owner(e: &Engine, project: &str) -> Result<Option<Value>, String> {
 /// The most characters [`owner_talk`] gives of the talk, the latest whole entries.
 const TALK_MOST: usize = 60_000;
 
-/// What was said in a project's one-to-one with the owner since its architect last rewrote its notebook (any section;
-/// the time is that of the round that wrote it), for a new session, which remembers nothing of it but what the notebook
-/// holds: every entry the page shows in the conversation (`conversation_shown`), oldest first and whole, each with when,
-/// who said it to whom and the words; an ask of the architect's with the owner's answer, counted as made when it was
-/// answered if that was after the rewrite; an entry with images only says how many came with it. At the project's first
-/// rewrite there is none to cut at, and the latest entries are given. Over [`TALK_MOST`] characters the latest whole
-/// entries are given (the very latest always), then one line saying how many earlier ones there are. None when nothing
-/// was said since.
+/// What was said in a project's one-to-one with the owner since its previous architect session began (its first round,
+/// [`previous_session_start`]), for a new session, which remembers nothing of it but what the notebook holds: every entry
+/// the page shows in the conversation (`conversation_shown`) made at or after that moment, oldest first and whole, each
+/// with when, who said it to whom and the words; an ask of the architect's with the owner's answer, counted as made when
+/// it was answered if that was at or after it; an entry with images only says how many came with it. Before the
+/// project's first session there is none to cut at: there is no lower bound. Over [`TALK_MOST`] characters the latest
+/// whole entries are given, oldest first (the very latest always), then one line saying how many earlier ones there are.
+/// None when nothing was said since.
 fn owner_talk(e: &Engine, project: &str) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
-    let rewrote: Option<i64> = conn
-        .query_row(
-            "SELECT max(coalesce(r.ended_at, r.started_at)) FROM notebook_edits n
-             JOIN rounds r ON r.work = n.work AND r.n = n.round WHERE n.project = ?1",
-            [project],
-            |r| r.get(0),
-        )
-        .map_err(sql)?;
-    let after = rewrote.unwrap_or(i64::MIN);
+    let since = previous_session_start(conn, project)?;
+    let after = since.unwrap_or(i64::MIN);
     let rows = query_json(
         conn,
         "SELECT c.at, c.sender, c.recipient, c.text,
@@ -1287,7 +1310,7 @@ fn owner_talk(e: &Engine, project: &str) -> Result<Option<Value>, String> {
                 json_extract(a.answer, '$.by') AS answered_by
          FROM conversation_shown c LEFT JOIN owner_asks a ON c.source = 'ask' AND a.id = c.id
          WHERE c.conversation = 'architect:' || ?1
-           AND max(c.at, coalesce(json_extract(a.answer, '$.at'), c.at)) > ?2
+           AND max(c.at, coalesce(json_extract(a.answer, '$.at'), c.at)) >= ?2
          ORDER BY max(c.at, coalesce(json_extract(a.answer, '$.at'), c.at)), c.source, c.id",
         &[&project, &after],
         usize::MAX,
@@ -1350,7 +1373,7 @@ fn owner_talk(e: &Engine, project: &str) -> Result<Option<Value>, String> {
         )));
     }
     let mut out = json!({ "said": said });
-    if let Some(t) = rewrote {
+    if let Some(t) = since {
         out["since"] = json!(utc_minute(t));
     }
     Ok(Some(out))

@@ -1589,7 +1589,7 @@ CREATE VIEW conversation_shown AS
   -- same entries.
   -- Hidden from agents.
   -- Read by: the owner's interface, which lists the conversations and shows each; the engine, which gives a new session
-  -- of an architect what was said in its one-to-one since it last rewrote its notebook.
+  -- of an architect what was said in its one-to-one since its previous session began.
   SELECT * FROM conversation_entries
   WHERE NOT ((conversation LIKE 'work:%' OR conversation LIKE 'architect:%') AND source = 'notice')
     AND NOT (conversation LIKE 'work:%' AND source = 'report')
