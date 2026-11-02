@@ -1172,7 +1172,7 @@ mod tests {
         assert_eq!(pause_architect(&mut db, "p").unwrap(), "work 2 pauses");
         assert_eq!(paused(&db, 2).1.as_deref(), Some("owner"));
         // The owner's words, when given, say why.
-        resume(&mut db, 1).unwrap();
+        db.write(Actor::Owner, |tx| db::lift_pause(tx, 1)).unwrap();
         pause(&mut db, 1, Some("Wait for the release.")).unwrap();
         assert_eq!(paused(&db, 1).0.as_deref(), Some("Wait for the release."));
     }
