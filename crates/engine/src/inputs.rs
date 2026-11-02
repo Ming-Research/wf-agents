@@ -349,38 +349,70 @@ pub fn reads_main(cell: &CompiledCell) -> bool {
         .any(|s| matches!(s, Src::Engine(n) if crate::architect::MAIN_INPUTS.contains(&n.as_str())))
 }
 
+/// What a round is pinned to: the commit of the project's main its inputs that read the project's files on main are
+/// read at, and why main could not be fetched for it when it could not, with the commit it is read at all the same.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Pin {
+    /// The commit; none for a cell with no input that reads main.
+    pub commit: Option<String>,
+    /// Why the fetch of main failed, when it did and the commit is the one the checkout had from an earlier fetch.
+    pub fetch_failed: Option<String>,
+}
+
+impl Pin {
+    /// Writes what the round's record keeps of it into its `engine` part: `main`, the commit, and, when the fetch
+    /// failed, `main_fetch_failed`, why.
+    pub fn record(&self, engine: &mut Value) {
+        engine["main"] = json!(self.commit);
+        if let Some(why) = &self.fetch_failed {
+            engine["main_fetch_failed"] = json!(why);
+        }
+    }
+}
+
 /// The commit of the project's main that a round of a cell reads the project at, which every input of the cell that
 /// reads the project's files on its main is read at ([`crate::architect::MAIN_INPUTS`]), so that the round is given
-/// one version of the project, and which the round's record keeps: with `fetch`, after bringing `origin/<main>` in the
-/// project's checkout to the remote's main now, and else as the checkout has it. None for a cell with no such input,
-/// which neither fetches nor reads main. An error, with the project named, when main cannot be fetched or has no
-/// commit: the inputs cannot be computed, and the step that asked is paused or, with the network down, waits.
-pub fn pin_main(
-    e: &Engine,
-    w: &Work,
-    cell: &CompiledCell,
-    item: Option<&Item>,
-    fetch: bool,
-) -> Result<Option<String>, String> {
+/// one version of the project, and which the round's record keeps ([`Pin::record`]): with `fetch`, after bringing
+/// `origin/<main>` in the project's checkout to the remote's main now, and else as the checkout has it. A fetch that
+/// fails does not stop the round while `origin/<main>` still has a commit from an earlier fetch: the round goes on at
+/// that commit, with why the fetch failed in the pin, and the engine says so. Nothing is retried. No commit of main is
+/// an error that names the project, the failed fetch first: the inputs cannot be computed, and the step that asked is
+/// paused or, with the network down, waits. A cell with no such input neither fetches nor reads main.
+pub fn pin_main(e: &Engine, w: &Work, cell: &CompiledCell, item: Option<&Item>, fetch: bool) -> Result<Pin, String> {
     if !reads_main(cell) {
-        return Ok(None);
+        return Ok(Pin::default());
     }
     let named = item.map(|i| i.project.as_str()).or(w.project.as_deref());
     let Some((name, p)) = named.and_then(|n| e.config.config.projects.get(n).map(|p| (n, p))) else {
-        return Ok(None);
+        return Ok(Pin::default());
     };
-    if fetch {
-        config::fetch_main(p).map_err(|x| format!("project {name}: {x}"))?;
+    let fetch_failed = if fetch {
+        config::fetch_main(p).err().map(|x| format!("project {name}: {x}"))
+    } else {
+        None
+    };
+    match (config::main_commit(p), fetch_failed) {
+        (Ok(commit), failed) => {
+            if let Some(why) = &failed {
+                e.say(&format!(
+                    "work {} cell {}: {why}; the round goes on at {commit}, which an earlier fetch left",
+                    w.id, cell.id
+                ));
+            }
+            Ok(Pin {
+                commit: Some(commit),
+                fetch_failed: failed,
+            })
+        }
+        (Err(x), Some(failed)) => Err(format!("{failed}; and then {x}")),
+        (Err(x), None) => Err(format!("project {name}: {x}")),
     }
-    config::main_commit(p)
-        .map(Some)
-        .map_err(|x| format!("project {name}: {x}"))
 }
 
 /// Gathers every input of a cell. A work of the architect is on no item but for a project, so an input read for the
 /// item has nothing for it, and one read for the project is its project's. `main` is the commit of the project's main
-/// the round is pinned to ([`pin_main`]), which the inputs that read the project's files on main are read at; a step
-/// that starts no round gives none, and they are then read at the commit `origin/<main>` is at now.
+/// the round is pinned to ([`Pin::commit`] of [`pin_main`]), which the inputs that read the project's files on main are
+/// read at; a step that starts no round gives none, and they are then read at the commit `origin/<main>` is at now.
 pub fn gather(
     e: &Engine,
     w: &Work,

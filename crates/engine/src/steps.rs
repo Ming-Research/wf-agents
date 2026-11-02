@@ -103,8 +103,9 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         let commit = e.config.commit.clone();
         // The round is pinned to a commit of main as any round of the cell is: the check of the policy its row queues
         // compares the constitution as that commit has it.
-        let main = inputs::pin_main(e, w, cell, None, true)?;
-        let input = json!({ "engine": { "new_session": why, "main": main } });
+        let pin = inputs::pin_main(e, w, cell, None, true)?;
+        let mut input = json!({ "engine": { "new_session": why } });
+        pin.record(&mut input["engine"]);
         let round =
             e.db.write(Actor::Engine, |tx| {
                 work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)
@@ -132,21 +133,23 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     };
     // The commit of the project's main this step's round reads the project at, pinned once: main is fetched to find it,
     // so that the inputs that read the project's files on main are the project as the remote has it now, and every one
-    // of them, with the checks of the return, is of that one commit. A cell with no such input neither fetches nor
-    // reads main.
-    let mut pinned: Option<Option<String>> = None;
+    // of them, with the checks of the return, is of that one commit. When the fetch fails, the round goes on at the
+    // commit an earlier fetch left, and its record says why. A cell with no such input neither fetches nor reads main.
+    let mut pinned: Option<inputs::Pin> = None;
     // A table the cell must answer that has no row leaves its round nothing to answer: no round runs, and the engine
     // takes the cell's row for it, recorded with why.
     if let Some(row) = crate::row(cell, flow::format::NOTHING_TO_ANSWER).cloned() {
-        let main = inputs::pin_main(e, w, cell, item.as_ref(), true)?;
-        let gathered = inputs::gather(e, w, g, cell, item.as_ref(), main.as_deref())?;
-        pinned = Some(main);
+        let pin = inputs::pin_main(e, w, cell, item.as_ref(), true)?;
+        let gathered = inputs::gather(e, w, g, cell, item.as_ref(), pin.commit.as_deref())?;
+        let kept = pin.clone();
+        pinned = Some(pin);
         if inputs::table(&gathered).is_empty() {
             let why = format!(
                 "the table cell {} answers has no row, so its round could answer nothing",
                 cell.id
             );
-            let input = json!({ "engine": { "nothing_to_answer": why }, "inputs": recorded_inputs(&gathered) });
+            let mut input = json!({ "engine": { "nothing_to_answer": why }, "inputs": recorded_inputs(&gathered) });
+            kept.record(&mut input["engine"]);
             let commit = e.config.commit.clone();
             let round =
                 e.db.write(Actor::Engine, |tx| {
@@ -191,10 +194,11 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
         return failed::pause(e, w, &why);
     }
-    let main = match pinned {
-        Some(main) => main,
+    let pin = match pinned {
+        Some(pin) => pin,
         None => inputs::pin_main(e, w, cell, item.as_ref(), true)?,
     };
+    let main = pin.commit.clone();
     // A round of a project's architect reads the project at the latest main: its graph's worktree is brought there
     // first. Where it cannot be, the work waits for the owner, with why; or, while the network is down, every work
     // waits for it.
@@ -366,9 +370,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         "call": call,
         "engine": {
             "head": head, "change": change, "columns": columns, "table": table, "interjections": ids,
-            "new_session": new_why, "main": main,
+            "new_session": new_why,
         },
     });
+    pin.record(&mut input["engine"]);
     // Where the owner's images were given, by their attachments, and those only referred to.
     if !msg.images.is_empty() {
         input["images"] = msg.record_images();
@@ -919,8 +924,8 @@ pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, Strin
         .cloned()
         .ok_or_else(|| format!("work {work} is at cell {}, which is not an agent's", w.pos.at))?;
     let item = e.subject(&w)?;
-    let main = inputs::pin_main(e, &w, &cell, item.as_ref(), false)?;
-    Ok(compose(e, &w, &g, &cell, item.as_ref(), main.as_deref())?.msg)
+    let pin = inputs::pin_main(e, &w, &cell, item.as_ref(), false)?;
+    Ok(compose(e, &w, &g, &cell, item.as_ref(), pin.commit.as_deref())?.msg)
 }
 
 fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Advance, String> {

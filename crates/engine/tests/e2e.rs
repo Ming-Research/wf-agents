@@ -13041,29 +13041,113 @@ fn a_constitution_main_does_not_have_stops_the_rounds_and_says_how_to_put_it_rig
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Main is fetched for a round of a cell that reads it; where it cannot be, the round does not start: with the network
-// up the work is paused and says why, and with it down every work waits for it, and goes on from its cell once it is
-// back.
+/// An engine whose network the test sets to up or down, over a setup with the scripts given, whose item's work stands at
+/// the cell that gathers the history, before any round of it. Gives the engine, what it says, the item and the network.
+fn stands_at_g1(
+    s: &Setup,
+    scripts: BTreeMap<&'static str, Script>,
+    up: bool,
+) -> (Engine, Arc<Mutex<Vec<String>>>, i64, Arc<std::sync::atomic::AtomicBool>) {
+    let net = Arc::new(std::sync::atomic::AtomicBool::new(up));
+    let seen = net.clone();
+    let hooks = Hooks {
+        network: Some(Arc::new(move || seen.load(Ordering::SeqCst))),
+        ..Hooks::default()
+    };
+    let (mut e, said, item) = start_with(s, scripts, hooks);
+    for _ in 0..6 {
+        if state(&e, item).is_some_and(|x| x.1 == "G1") {
+            break;
+        }
+        e.pass(&Go::default()).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(state(&e, item).map(|x| x.1).as_deref(), Some("G1"), "{log}");
+    (e, said, item, net)
+}
+
+/// What the latest round of `work` at `cell` recorded of why main could not be fetched for it.
+fn main_fetch_failed(e: &Engine, work: i64, cell: &str) -> Option<String> {
+    e.db.conn()
+        .query_row(
+            "SELECT json_extract(input, '$.engine.main_fetch_failed') FROM rounds WHERE work = ?1 AND cell = ?2
+             ORDER BY n DESC LIMIT 1",
+            params![work, cell],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// Main is fetched for a round of a cell that reads it. A fetch that fails does not stop the round while the checkout has
+// a commit of main from an earlier fetch, with the network up or down alike: the round goes on at that commit, is given
+// the text there, and its record names the commit and says why the fetch failed; no work is paused or waits. The next
+// round, with the remote back, is at the new commit and says nothing of a failure.
 #[test]
-fn a_round_does_not_start_when_main_cannot_be_fetched() {
+fn a_failed_fetch_of_main_goes_on_at_the_commit_the_checkout_has_and_says_so() {
     for up in [true, false] {
         let s = setup(&format!("main-fetch-{up}"));
-        let net = Arc::new(std::sync::atomic::AtomicBool::new(up));
-        let seen = net.clone();
-        let hooks = Hooks {
-            network: Some(Arc::new(move || seen.load(Ordering::SeqCst))),
-            ..Hooks::default()
-        };
-        let (mut e, said, item) = start_with(&s, scripts(), hooks);
-        // The work starts and stands at the cell that gathers the history; the remote is then away.
+        names_a_constitution(&s);
+        let old = "## Article 1. Small\n\nKeep it small.\n";
+        let new = "## Article 1. Small\n\nKeep it smaller, always.\n";
+        main_moves_on(&s.root, &[("CONSTITUTION.md", old)], "A constitution");
+        let mut agents = scripts();
+        let seen = keeps_prompts(&mut agents, &["G1", "R1"], |_: &Request, _: usize| {
+            (Vec::new(), Vec::new())
+        });
+        let (mut e, said, item, net) = stands_at_g1(&s, agents, up);
+        // The checkout has fetched the old constitution; main moves on, and the remote is then away.
+        let checkout = s.root.join("checkout");
+        let had = git(&checkout, &["rev-parse", "origin/main"]);
+        main_moves_on(&s.root, &[("CONSTITUTION.md", new)], "A stricter constitution");
+        let latest = git(&s.origin, &["rev-parse", "main"]);
+        let away = s.root.join("origin-away");
+        std::fs::rename(&s.origin, &away).unwrap();
+        e.pass(&Go::default()).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        let work = state(&e, item).unwrap().0;
+        {
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.len(), 1, "{log}");
+            assert!(seen[0].1.contains("Keep it small."), "{}", seen[0].1);
+            assert!(!seen[0].1.contains("Keep it smaller, always."), "{}", seen[0].1);
+        }
+        assert_eq!(pinned_main(&e, work, "G1").as_deref(), Some(had.as_str()), "{log}");
+        let why = main_fetch_failed(&e, work, "G1").unwrap_or_else(|| panic!("no failure recorded\n{log}"));
+        assert!(why.starts_with("project p: main of o/p could not be fetched"), "{why}");
+        assert!(log.contains(&format!("the round goes on at {had}")), "{log}");
+        assert_eq!(state(&e, item).unwrap().2, None, "{log}");
+        assert!(e.halt().is_none(), "{log}");
+        // The remote is back: the next round is at the new commit, with the new text, and records no failure.
+        std::fs::rename(&away, &s.origin).unwrap();
+        net.store(true, Ordering::SeqCst);
         for _ in 0..6 {
-            if state(&e, item).is_some_and(|x| x.1 == "G1") {
+            if seen.lock().unwrap().len() >= 2 {
                 break;
             }
             e.pass(&Go::default()).unwrap();
         }
         let log = said.lock().unwrap().join("\n");
-        assert_eq!(state(&e, item).map(|x| x.1).as_deref(), Some("G1"), "{log}");
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2, "{log}");
+        assert!(seen[1].1.contains("Keep it smaller, always."), "{}", seen[1].1);
+        assert_eq!(pinned_main(&e, work, "R1").as_deref(), Some(latest.as_str()), "{log}");
+        assert_eq!(main_fetch_failed(&e, work, "R1"), None, "{log}");
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
+}
+
+// Where main cannot be fetched and the checkout has no commit of main either, the round does not start: with the network
+// up the work is paused and says why, the failed fetch first, and with it down every work waits for it, and goes on
+// from its cell once it is back.
+#[test]
+fn a_round_does_not_start_when_main_cannot_be_fetched_and_the_checkout_has_none() {
+    for up in [true, false] {
+        let s = setup(&format!("main-gone-{up}"));
+        let (mut e, said, item, net) = stands_at_g1(&s, scripts(), up);
+        git(
+            &s.root.join("checkout"),
+            &["update-ref", "-d", "refs/remotes/origin/main"],
+        );
         let away = s.root.join("origin-away");
         std::fs::rename(&s.origin, &away).unwrap();
         e.pass(&Go::default()).unwrap();
@@ -13086,6 +13170,7 @@ fn a_round_does_not_start_when_main_cannot_be_fetched() {
                 why.starts_with("cell G1: project p: main of o/p could not be fetched"),
                 "{why}"
             );
+            assert!(why.contains("origin/main is not in the checkout"), "{why}");
         } else {
             assert_eq!(paused, None, "{log}");
             assert_eq!(e.halt().map(|h| h.kind).as_deref(), Some("offline"), "{log}");
