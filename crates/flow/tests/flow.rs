@@ -802,11 +802,13 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
             "offline",
             "transient",
             "flagged",
+            "guarded",
             "cannot_run",
             "prompt_too_long",
             "unparsed"
         ]
     );
+    assert_eq!(r.guard.as_ref().map(|x| x.samples), Some(19));
     for cell in &g.cells {
         // The fix's own row for a table with no row is an engine's case too, but of that cell alone.
         let shared: Vec<&flow::CompiledRow> = cell
@@ -829,6 +831,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "offline",
                 "transient",
                 "flagged",
+                "guarded",
                 "cannot_run",
                 "prompt_too_long",
                 "unparsed",
@@ -851,6 +854,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
             [
                 "sent_back_too_often",
                 "flagged",
+                "guarded",
                 "prompt_too_long",
                 "unparsed",
                 "cannot_step",
