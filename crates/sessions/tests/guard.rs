@@ -145,6 +145,58 @@ fn a_stop_after_the_run_left_by_itself_still_takes_what_it_started() {
     assert!(reply.usage.get("session_cost_usd").is_none(), "{reply:?}");
 }
 
+/// Where [`a_killed_engine_takes_its_run_with_it`] tells the process it kills to run.
+const ENGINE_DIR: &str = "WF_AGENTS_GUARD_ENGINE_DIR";
+
+// The process `a_killed_engine_takes_its_run_with_it` kills: it runs an agent's command line that writes down what it
+// started and then waits, as an engine does while a round runs.
+#[test]
+#[ignore = "run only by a_killed_engine_takes_its_run_with_it, as the engine it kills"]
+fn an_engine_for_the_test_to_kill() {
+    let dir = PathBuf::from(std::env::var(ENGINE_DIR).unwrap());
+    let script = format!(
+        "#!/bin/sh\nsleep 120 &\necho $! > {}\nwait\n",
+        dir.join("child").display()
+    );
+    stopped_at_its_first_call(&dir, &script, Duration::ZERO);
+}
+
+// The README: however the engine ends, the agents it was running are stopped with it. A process that holds a real run
+// is killed, with no chance to clean up, and what the run started goes too. The overseer's own test closes its pipe by
+// hand; this one has the end of a process close it, through the path a round takes.
+#[test]
+fn a_killed_engine_takes_its_run_with_it() {
+    let dir = scratch("killed");
+    let mut engine = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "an_engine_for_the_test_to_kill", "--ignored"])
+        .env(ENGINE_DIR, &dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let child = dir.join("child");
+    let started = (0..100).any(|_| {
+        let written = std::fs::read_to_string(&child).is_ok_and(|t| !t.trim().is_empty());
+        if !written {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        written
+    });
+    // The overseer starts just after the run does.
+    std::thread::sleep(Duration::from_millis(200));
+    engine.kill().unwrap();
+    engine.wait().unwrap();
+    let pid = std::fs::read_to_string(&child).unwrap_or_default().trim().to_string();
+    let went = gone(&pid);
+    let _ = Command::new("kill")
+        .args(["-s", "KILL", &pid])
+        .stderr(Stdio::null())
+        .status();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(started, "the run never started");
+    assert!(went, "process {pid} outlived the engine");
+}
+
 // A subagent writes while the agent does: the partial message that ends a call says its output for the call of whoever
 // wrote it, as `parent_tool_use_id` tells.
 #[test]
