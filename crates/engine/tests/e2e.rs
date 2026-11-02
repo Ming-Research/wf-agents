@@ -9077,7 +9077,8 @@ fn a_notebook_past_its_size_is_sent_back_saying_which_section() {
 // section is an input of its own of the architect's cells, so that the next cell's session is given a section that
 // changed whole and one that did not only by reference. The answer to the owner's words keeps something in the other
 // section, which the check of the policy after it is given whole while it is referred to what the project is now; the
-// plan, made again after a batch, is given the plan it made before.
+// plan, made again after a batch, is given the plan it made before, and the plan is given whole to the first cell of
+// the batch's end that reads it.
 #[test]
 fn the_notebook_is_written_where_it_is_learned_and_given_whole_once_changed() {
     let s = setup("notebook-given");
@@ -9168,15 +9169,18 @@ fn the_notebook_is_written_where_it_is_learned_and_given_whole_once_changed() {
             .contains("The owner looks at the parser first."),
         "{check}"
     );
-    // The plan made again is given the plan before, which the rethink after the batch was given whole.
+    // The plan made again is given the plan before, which the first cell after the batch's end that reads it, the
+    // recording of the decisions, was given whole, and the rethink after that only by reference.
     let (first, again) = (input_at(&e, arch, "N1", false), input_at(&e, arch, "N1", true));
     assert_eq!(given_ending(&first, "·engine·notebook_plan"), None, "{first}");
-    let rethink = input_at(&e, arch, "B4", false);
-    assert_eq!(given_ending(&rethink, "·engine·notebook_plan"), Some(true), "{rethink}");
+    let record = input_at(&e, arch, "B5", false);
+    assert_eq!(given_ending(&record, "·engine·notebook_plan"), Some(true), "{record}");
     assert!(
-        rethink["message"].as_str().unwrap().contains("The plan at round 1."),
-        "{rethink}"
+        record["message"].as_str().unwrap().contains("The plan at round 1."),
+        "{record}"
     );
+    let rethink = input_at(&e, arch, "B4", false);
+    assert_eq!(given_ending(&rethink, "·engine·notebook_plan"), Some(false), "{rethink}");
     assert_eq!(given_ending(&again, "·engine·notebook_plan"), Some(false), "{again}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
