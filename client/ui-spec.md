@@ -2781,17 +2781,20 @@ their arrows in sight while reading the chart.
 A view of its own, System, shows the state of the whole system in five parts, each saying on its title what the owner
 does with it: Now, whether the owner needs to step in (the asks to answer, the decision cards to rule on and the faults
 of wf-agents unread, each with how long the oldest has waited; the works by where they stand, each work in one place:
-running, ready, waiting for the owner, for the architect or for other items, paused, or halted by the engine; and each
+running, ready, waiting for the owner, for the architect or for other items, paused, or halted by the engine; each
 project's architect, working, paused or idle, never by its works, with the matters in its queue and how long the oldest
-has waited, leading to its one-to-one); Output, what got done (the items merged, made and cancelled, the pull requests
+has waited, leading to its one-to-one; and the rounds running now, each with how large its context is and what it added
+and spent, the last two against the line the run guard judges them by, the numbers kept current by the event stream, not
+read again, instead of tiles of totals, because whether a round needs a look shows only against its own line); Output, what got done (the items merged, made and cancelled, the pull requests
 open now, and how long a merged work took from its start, on average); Spend, where the money goes (the engineers' works
 and the architects' works apart, everything spent per item merged with what the merged works themselves cost beside it
 in the same tile, by line and model, by item, and the ten costliest cells); Waste and efficiency, where to save (the
 share of the agents' input read from the prompt cache and the rounds that missed it, the rounds sent back and those
 failed or cut off with what they cost, how long a usage limit, being offline or being unable to run halted every work,
 and what the keep-warm pings cost); and Anomalies, what went wrong (rows counting a flow anomaly, counters past their
-project's limit, works the engine stopped, tools that failed after the engine's retries, and checks red on main after a
-merge). Every part but Now counts over a period the owner picks, which the address keeps: the week under way, the last
+project's limit, works the engine stopped, tools that failed after the engine's retries, checks red on main after a
+merge, and each signal the run guard saw past its line, with its value, its line, how many rounds gave the line and what
+came of it, leading to its round). Every part but Now counts over a period the owner picks, which the address keeps: the week under way, the last
 four weeks, or all time, a week running from Monday at midnight in the owner's time zone. Each part sums up first, in
 tiles, and each number leads to the list it counts, folded under the tiles or on the view that holds it, a tile of
 nothing muted; over more than one week, what got done shows week by week, and the spend as columns, the engineers' and

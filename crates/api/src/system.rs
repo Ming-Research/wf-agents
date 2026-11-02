@@ -7,11 +7,13 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use db::rusqlite::{self, Connection};
+use sessions::RoundId;
+use sessions::guard;
 
 use crate::read::{Error, Flows, json, outcome, over, work_summaries};
 use crate::{
     Anomaly, AnomalyKind, ArchitectNow, CellSpend, HaltTime, ItemAt, ItemSpend, LineSpend, Merged, OpenPr,
-    RoundOutcome, System, SystemNow, SystemOutput, SystemSpend, SystemWaste, Waiting, Week, WorkCount,
+    RoundOutcome, System, SystemNow, SystemOutput, SystemSpend, SystemWaste, Waiting, WatchedRound, Week, WorkCount,
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -260,6 +262,7 @@ pub fn system(conn: &Connection, flows: &Flows, ask: &SystemAsk<'_>) -> Result<S
             .map(|s| anomaly(&works, s.work, None, s.at, AnomalyKind::Stopped { why: s.why.clone() })),
     );
     anomalies.extend(main_red(conn, &works, since)?);
+    anomalies.extend(guarded(conn, &works, since)?);
     anomalies.sort_by_key(|a| std::cmp::Reverse(a.at));
 
     Ok(System {
@@ -284,6 +287,7 @@ pub fn system(conn: &Connection, flows: &Flows, ask: &SystemAsk<'_>) -> Result<S
                 conn,
                 "SELECT count(*), min(at) FROM engine_notices WHERE fault IS NOT NULL AND read_at IS NULL",
             )?,
+            running: running(conn, &works)?,
         },
         weeks,
         output,
@@ -757,6 +761,79 @@ fn anomaly(works: &HashMap<i64, WorkOf>, work: i64, round: Option<i64>, at: i64,
         at,
         what,
     }
+}
+
+/// What the run guard saw go past its line in the period.
+fn guarded(conn: &Connection, works: &HashMap<i64, WorkOf>, since: i64) -> Result<Vec<Anomaly>> {
+    let mut st = conn.prepare(
+        "SELECT work, round, at, signal, value, line, also, also_line, samples, scope, action
+         FROM guard_events WHERE at >= ?1",
+    )?;
+    let rows = st.query_map([since], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, i64>(2)?,
+            AnomalyKind::Guard {
+                signal: r.get(3)?,
+                value: r.get(4)?,
+                line: r.get(5)?,
+                also: r.get(6)?,
+                also_line: r.get(7)?,
+                samples: r.get(8)?,
+                scope: r.get(9)?,
+                action: r.get(10)?,
+            },
+        ))
+    })?;
+    let rows = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows
+        .into_iter()
+        .map(|(work, round, at, what)| anomaly(works, work, Some(round), at, what))
+        .collect())
+}
+
+/// The agents' rounds running now, the oldest first, as far as the ledger has them, each with the lines its record
+/// says it is judged by. A round open with no session is a step waiting for someone, not a run.
+fn running(conn: &Connection, works: &HashMap<i64, WorkOf>) -> Result<Vec<WatchedRound>> {
+    let mut st = conn.prepare(
+        "SELECT work, n, cell, coalesce(model, ''), json_extract(input, '$.engine.guard.added.value'),
+                json_extract(input, '$.engine.guard.cost.value')
+         FROM rounds WHERE ended_at IS NULL AND session IS NOT NULL ORDER BY started_at, work, n",
+    )?;
+    let rows = st.query_map([], |r| {
+        Ok((
+            RoundId::new(r.get(0)?, r.get(1)?),
+            r.get::<_, Option<String>>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, Option<f64>>(4)?,
+            r.get::<_, Option<f64>>(5)?,
+        ))
+    })?;
+    let rows = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut out = Vec::new();
+    for (round, cell, model, added_line, cost_line) in rows {
+        let w = works.get(&round.work);
+        let mut totals = guard::Totals::default();
+        for c in guard::calls_of(conn, round).map_err(Error::Failed)? {
+            totals.take(&c, &model);
+        }
+        out.push(WatchedRound {
+            work: round.work,
+            round: round.n,
+            graph: w.map(|w| w.graph.clone()).unwrap_or_default(),
+            cell,
+            item: w.and_then(|w| w.item),
+            title: w.and_then(|w| w.title.clone()),
+            project: w.and_then(|w| w.project.clone()),
+            context: totals.context.unwrap_or(0),
+            added: totals.added,
+            added_line,
+            cost_usd: totals.cost,
+            cost_line,
+        });
+    }
+    Ok(out)
 }
 
 /// A row a round took, and when.

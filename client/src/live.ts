@@ -10,18 +10,23 @@ import { getJson } from './http';
 /// What a running agent did, as its command line reported it, with the round's number in its work.
 export type Activity = { round: number; what: string; at: number };
 
+/// How a running round stands after its last call to the model, as the event stream told it.
+export type Measure = { context: number; added: number; cost_usd: number };
+
 type State = {
   online: boolean;
   status: Status | null;
   /// The last things each work's running agent did, newest last, by work.
   activity: Map<number, Activity[]>;
+  /// How each running round stands, by `measureKey`.
+  measures: Map<string, Measure>;
   /// How many times each thing read was named by an event; a key `kind:*` stands for every `kind:<id>`.
   versions: Map<string, number>;
   /// Bumped when everything is to be read again.
   epoch: number;
 };
 
-let state: State = { online: false, status: null, activity: new Map(), versions: new Map(), epoch: 0 };
+let state: State = { online: false, status: null, activity: new Map(), measures: new Map(), versions: new Map(), epoch: 0 };
 
 /// How many of a work's latest activities are kept.
 const ACTIVITIES = 8;
@@ -132,6 +137,10 @@ export function connect(): void {
       const was = (activity.get(e.work) ?? []).filter((a) => a.round === e.round);
       activity.set(e.work, [...was, { round: e.round, what: e.what, at: e.at }].slice(-ACTIVITIES));
       set({ activity });
+    } else if (e.kind === 'measure') {
+      const measures = new Map(state.measures);
+      measures.set(measureKey(e.work, e.round), { context: e.context, added: e.added, cost_usd: e.cost_usd });
+      set({ measures });
     } else if (e.kind === 'resync' || (e.kind === 'ready' && ready)) {
       // What was read may be out of date: read everything again.
       set({ epoch: state.epoch + 1 });
@@ -151,6 +160,14 @@ export function reread(...keys: string[]): void {
 }
 
 /// What a work's running agent did last, newest last; empty when nothing was reported since the page opened.
+/// How the running rounds stand as the event stream last told it: what came since the page read them.
+export function useMeasures(): Map<string, Measure> {
+  return useSyncExternalStore(subscribe, () => state.measures);
+}
+
+/// What `useMeasures` keeps a round under.
+export const measureKey = (work: number, round: number): string => `${work}-${round}`;
+
 export function useActivity(work: number): Activity[] {
   return useSyncExternalStore(subscribe, () => state.activity.get(work) ?? NONE);
 }

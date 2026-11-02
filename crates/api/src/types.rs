@@ -96,9 +96,9 @@ pub struct Halt {
     pub why: String,
 }
 
-/// What changed, as the event stream gives it. An event names what to read again and never carries that state,
-/// except the engine's status, which lives only in the engine. The stream gives each event an id; a client that
-/// reconnects with the last id it saw is given what it missed.
+/// What changed, as the event stream gives it. An event names what to read again and never carries that state, except
+/// what comes too often to read again or lives only in the engine: its status, and what a running round does and has
+/// come to. The stream gives each event an id; a client that reconnects with the last id it saw is given what it missed.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Event {
@@ -135,6 +135,15 @@ pub enum Event {
         round: i64,
         what: String,
         at: i64,
+    },
+    /// How a running round, by its work and its number in the work, stands after a call to the model: the tokens of its
+    /// last prompt, those its context grew by, and what it cost so far, estimated from its calls.
+    Measure {
+        work: i64,
+        round: i64,
+        context: i64,
+        added: i64,
+        cost_usd: f64,
     },
 }
 
@@ -1728,6 +1737,29 @@ pub struct SystemNow {
     pub asks: Waiting,
     pub design_cards: Waiting,
     pub faults: Waiting,
+    /// The agents' rounds running now, the oldest first.
+    pub running: Vec<WatchedRound>,
+}
+
+/// An agent's round running now, as the run guard sees it: how large its context is, what it added and what it cost so
+/// far, and the lines it is judged by, each none while too few rounds give one.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct WatchedRound {
+    pub work: i64,
+    pub round: i64,
+    pub graph: String,
+    pub cell: Option<String>,
+    pub item: Option<i64>,
+    pub title: Option<String>,
+    pub project: Option<String>,
+    /// The tokens of its last prompt.
+    pub context: i64,
+    /// The tokens its context grew by in this round, and the line of that.
+    pub added: i64,
+    pub added_line: Option<f64>,
+    /// What it cost so far, estimated from its calls, and the line of that.
+    pub cost_usd: f64,
+    pub cost_line: Option<f64>,
 }
 
 /// A project's architect now.
@@ -1928,6 +1960,20 @@ pub enum AnomalyKind {
     /// Main went red after the work merged: how, as the watch of main tells it (`environment_changed`,
     /// `broken_by_merge` or `known_red`), and the checks red.
     MainRed { how: String, checks: Vec<String> },
+    /// A signal of a running round went past its line: which (`growth`, `jump`, `cost`, `calls`, `repeats` or
+    /// `compactions`), its value and line, for `growth` and `jump` the second condition's value and line too, how many
+    /// rounds gave the line, whether they were the cell's own or the graph's (`cell` or `graph`), and what came of it
+    /// (`noted`, `stopped` or `waived`).
+    Guard {
+        signal: String,
+        value: f64,
+        line: f64,
+        also: Option<f64>,
+        also_line: Option<f64>,
+        samples: i64,
+        scope: String,
+        action: String,
+    },
 }
 
 /// Why a request failed.

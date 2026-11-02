@@ -73,6 +73,15 @@ signed in as, shows the command that signs a new one in, and switches the agents
 `config_dir` and committing it, after which every line starts a new session at its next round, since a session is kept
 in the directory it ran in.
 
+## The run guard
+
+While an agent's round runs, the engine reads each of its calls to the model from the command line's stream, keeps it in
+the database, and judges the round against lines computed from the rounds before it, so that no line is a setting. The
+rule is the flow's (`guard` in the rounds section of `flow/flow.json`), and a round it stops takes the row `guarded` that
+every agent's cell has. The System view shows each running round against its lines under Now, and what the guard saw and
+did under Anomalies. Only the command line's adapter (`crates/sessions/src/cli.rs`) reads the stream's format: should a
+new version of the command line stop telling its calls there, rounds run unjudged, and a running round shows no calls.
+
 ## The architect
 
 Each project has an architect of its own. It runs at the level `install.toml` names under `[agents]` as `architect`
