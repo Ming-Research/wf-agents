@@ -13277,7 +13277,7 @@ fn the_rounds_of_a_new_sessions_understanding_are_all_told_the_same_talk() {
 // the replaced session; its first round, in the replaced session, was told the same.
 #[test]
 fn the_talk_is_cut_at_the_first_round_of_a_session_across_the_works_it_ran_in() {
-    let (s, mut e, said, works) = architect_works_in(
+    let (s, mut e, said, _) = architect_works_in(
         "owner-talk-carried",
         understanding_asks_for_tools_once(),
         &[
@@ -13341,6 +13341,6 @@ fn the_talk_is_cut_at_the_first_round_of_a_session_across_the_works_it_ran_in() 
         assert!(!m.contains("ALPHAEND"), "{m}");
     }
     // The session the second round began is given the talk whole.
-    assert_eq!(talk_recorded(&second).expect(&log).1, true, "{second}");
+    assert!(talk_recorded(&second).expect(&log).1, "{second}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
