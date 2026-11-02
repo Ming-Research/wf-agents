@@ -433,6 +433,12 @@ pub struct Line {
     /// shown (`crate::compile_shown`), has none.
     #[serde(default)]
     pub colour: Option<Colour>,
+    /// Whether the line's session expires with the CLI's prompt cache: a round of the line whose session's last call is
+    /// a cache lifetime or more ago starts a new session, instead of writing the whole session to the cache again. The
+    /// line's other new sessions are as they are without it. A line that does not say goes on in its session whatever
+    /// its age.
+    #[serde(default, rename = "cacheExpiry")]
+    pub cache_expiry: bool,
     /// Where the work goes when a new session of the line would start at one of its cells: a row every agent's cell
     /// of the line has, but those it names, which the engine takes itself in place of the cell's round.
     pub anew: Option<Anew>,

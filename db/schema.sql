@@ -353,10 +353,11 @@ CREATE TABLE sessions (
   -- which the session manager gives the cell's rules and inputs again; it starts a new session at a cell the flow says
   -- it starts one at, when its session's context is past the configuration's limit, when the model its rounds run on
   -- changed, whose prompt cache it would have to write again whole, when the agents' login account changed, whose
-  -- configuration directory of the CLI does not hold the session, and when the owner asks for one. Each project's
-  -- architect's line goes on in one CLI session across the works of the project's architect, the setting of a new
-  -- policy included: each has a row of its own with the same cli_session. A cell on no line has a session of its own
-  -- for each round, ended once the round has.
+  -- configuration directory of the CLI does not hold the session, when the CLI's prompt cache let it go (a line the
+  -- flow says expires with the cache, its session last called a cache lifetime or more ago), and when the owner asks
+  -- for one. Each project's architect's line goes on in one CLI session across the works of the project's architect,
+  -- the setting of a new policy included: each has a row of its own with the same cli_session. A cell on no line has a
+  -- session of its own for each round, ended once the round has.
   -- Hidden from agents.
   -- Read by: the session manager, to resume a line, to start a new session and to keep a waiting session warm; the
   -- owner's interface.
@@ -376,10 +377,12 @@ CREATE TABLE sessions (
   -- line's session before it was past the configuration's limit; model, the line's rounds run on another model than its
   -- session before; carried, a work of a project's architect going on in the CLI session the project's previous
   -- architect work left; account, the line's rounds run under another login account of the CLI than its session
-  -- before, in another configuration directory, which does not hold that session;
-  -- owner, the owner asked for a new session with the round's Start or Step on the page. Read by: the owner's
+  -- before, in another configuration directory, which does not hold that session; expired, the CLI's prompt cache
+  -- let the line's session go, its last call a cache lifetime or more before, on a line the flow says expires with
+  -- it; owner, the owner asked for a new session with the round's Start or Step on the page. Read by: the owner's
   -- interface.
-  started TEXT NOT NULL DEFAULT 'line' CHECK (started IN ('line', 'cell', 'limit', 'model', 'carried', 'account', 'owner'))
+  started TEXT NOT NULL DEFAULT 'line'
+    CHECK (started IN ('line', 'cell', 'limit', 'model', 'carried', 'account', 'expired', 'owner'))
 ) STRICT;
 
 CREATE TABLE pings (
@@ -1680,3 +1683,22 @@ CREATE VIEW conversation_entries AS
     m.at, json_extract(m.body, '$.work'), NULL, NULL, NULL, m.id, NULL, 0, 0, 0, 0, NULL
   FROM architect_matters m
   WHERE m.kind = 'other_architect' AND json_extract(m.body, '$.from') IS NOT NULL;
+
+CREATE VIEW conversation_shown AS
+  -- The entries of the owner's conversations that the owner's page shows and the architect is told of. They are
+  -- those of conversation_entries but the engine's notices in a work's group and in an architect's one-to-one, which
+  -- the bubble of the stage the work was at, the bubble of the matter the architect has in hand and their heads say
+  -- instead; the side reports a work's lines handed in, in a work's group, which are the architect's to read in its
+  -- queue; and what a helper of the work (the review, the adversarial testing, the advisor) or of the architect (the
+  -- review of its batch, the search of its observations) told the owner, whose words go to the one it helps: a work's
+  -- round's progress note in the stage's bubble says it, and the architect reads the rest. This is the one
+  -- definition, so that what the page shows of a conversation and what the architect is told of its one-to-one are the
+  -- same entries.
+  -- Hidden from agents.
+  -- Read by: the owner's interface, which lists the conversations and shows each; the engine, which gives a new session
+  -- of an architect what was said in its one-to-one since its previous session began.
+  SELECT * FROM conversation_entries
+  WHERE NOT ((conversation LIKE 'work:%' OR conversation LIKE 'architect:%') AND source = 'notice')
+    AND NOT (conversation LIKE 'work:%' AND source = 'report')
+    AND NOT ((conversation LIKE 'work:%' OR conversation LIKE 'architect:%') AND source = 'message'
+      AND sender NOT IN ('engineer', 'architect', 'policy'));
