@@ -242,8 +242,9 @@ design by its diagrams, of every kind and not only mermaid's, the two libraries 
 write, and a page that shows no diagram does not load them.
 
 A diagram scaled down to its box opens enlarged, by its `ScreenFullIcon` button or a click on the diagram (the zoom-in
-cursor over it), in a Primer `Dialog` titled "Diagram" that is as large as Primer lets it be (the window less its
-margin), closed by its cross, Escape or a click outside it. It holds the same drawing, the markup already drawn and
+cursor over it; a drag over the diagram does not open it, so that its text can be selected, and a press that moves
+further than the viewer lets a click move is a drag), in a Primer `Dialog` titled "Diagram" that is as large as Primer
+lets it be (the window less its margin), closed by its cross, Escape or a click outside it. It holds the same drawing, the markup already drawn and
 sanitised, under an id of its own so that the two copies do not meet, and never a drawing made again from the source, in
 the viewer the flow charts are moved and zoomed in (Moving and zooming): shown whole when it opens, on
 `--bgColor-default`, the background the diagram is drawn for, with the gestures told in the dialog's footer in small

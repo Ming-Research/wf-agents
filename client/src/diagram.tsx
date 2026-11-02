@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObj
 import type { MermaidConfig } from 'mermaid';
 import type { Viz } from '@viz-js/viz';
 
-import { Viewer, type Seen, type View, type ViewerHandle } from './graph/Viewer';
+import { DRAG_LIMIT, fitView, seenOf, Viewer, type ViewerHandle } from './graph/Viewer';
 import { t } from './text';
 
 export type DiagramKind = 'mermaid' | 'dot';
@@ -337,17 +337,10 @@ function useWidth(ref: RefObject<HTMLElement | null>): number {
   return width;
 }
 
-/// The view that shows the whole of a drawing in the middle of a box, with a margin round it and no more than 1.6
-/// times its size, as the viewer's own view of the whole does. It reads the box by its layout size: the window the
-/// enlarged view opens in grows from half its size, and the viewer measures what is drawn on the screen.
-export function wholeView(box: Seen, drawing: { width: number; height: number }): View {
-  const margin = 32;
-  const s = Math.min(
-    (box.width - margin) / Math.max(drawing.width, 1),
-    (box.height - margin) / Math.max(drawing.height, 1),
-    1.6,
-  );
-  return { s, x: (box.width - drawing.width * s) / 2, y: (box.height - drawing.height * s) / 2 };
+/// Whether a press at `down` and a release at `up` (client pixels) make a click on the drawing: the pointer moved no
+/// further than the viewer allows a click to, so that dragging across the diagram, to select its text, does not open it.
+export function isClick(down: { x: number; y: number }, up: { x: number; y: number }): boolean {
+  return Math.hypot(up.x - down.x, up.y - down.y) <= DRAG_LIMIT;
 }
 
 /// The buttons in a diagram's corner: one that shows its source in its place, and the diagram again, and, while the
@@ -407,7 +400,9 @@ export function Enlarged({ drawn, id }: { drawn: Drawn; id: string }) {
     const place = () => {
       if (placed || el.clientWidth === 0 || el.clientHeight === 0) return;
       placed = true;
-      viewer.current?.to(wholeView({ width: el.clientWidth, height: el.clientHeight }, drawn), false);
+      // By the layout size: the window grows from half its size as it opens, and the viewer measures the screen.
+      const layout = { width: el.clientWidth, height: el.clientHeight };
+      viewer.current?.to(fitView(seenOf(layout, 0), drawn), false);
     };
     place();
     if (typeof ResizeObserver === 'undefined') return;
@@ -439,6 +434,8 @@ export function Diagram({ kind, source }: { kind: DiagramKind; source: string })
   const [got, setGot] = useState<{ drawn: Drawn } | { failed: true } | null>(null);
   const [asCode, setAsCode] = useState(false);
   const [zoomed, setZoomed] = useState(false);
+  // Where the pointer last went down on the drawing, to tell a click from a drag.
+  const pressed = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     const el = box.current;
     if (!seen || el === null) return;
@@ -463,7 +460,17 @@ export function Diagram({ kind, source }: { kind: DiagramKind; source: string })
       {svg !== null && !asCode ? (
         <div
           className={scaled ? 'diagram-drawing diagram-drawing-scaled' : 'diagram-drawing'}
-          onClick={scaled ? () => setZoomed(true) : undefined}
+          onPointerDown={(e) => {
+            pressed.current = { x: e.clientX, y: e.clientY };
+          }}
+          onClick={
+            scaled
+              ? (e) => {
+                  const down = pressed.current;
+                  if (down !== null && isClick(down, { x: e.clientX, y: e.clientY })) setZoomed(true);
+                }
+              : undefined
+          }
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       ) : (

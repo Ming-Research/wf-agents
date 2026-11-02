@@ -8,7 +8,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import spec from '../ui-spec.md?raw';
-import { DiagramTools, Enlarged, isScaled, under, wholeView, type Drawn } from './diagram';
+import { DiagramTools, Enlarged, isClick, isScaled, under, type Drawn } from './diagram';
+import { DRAG_LIMIT, fitView, seenOf } from './graph/Viewer';
 import parts from './styles/parts.css?raw';
 import { t } from './text';
 
@@ -16,6 +17,8 @@ import { t } from './text';
 vi.mock('./graph/Viewer', async () => {
   const { createElement: element } = await import('react');
   return {
+    // Its pure functions and constants are the real ones; only the component is stood in for.
+    ...(await vi.importActual<typeof import('./graph/Viewer')>('./graph/Viewer')),
     Viewer: (p: { width: number; height: number; children: ReactNode }) =>
       element('div', { 'data-viewer': `${p.width}x${p.height}` }, p.children),
   };
@@ -99,7 +102,7 @@ describe('the enlarged view', () => {
 
   it('opens at the view that shows the whole drawing in the middle, no larger than 1.6 times', () => {
     const view = (box: [number, number], drawing: [number, number], want: [number, number, number]) => {
-      const v = wholeView({ width: box[0], height: box[1] }, { width: drawing[0], height: drawing[1] });
+      const v = fitView(seenOf({ width: box[0], height: box[1] }, 0), { width: drawing[0], height: drawing[1] });
       expect(v.s).toBeCloseTo(want[0], 6);
       expect(v.x).toBeCloseTo(want[1], 6);
       expect(v.y).toBeCloseTo(want[2], 6);
@@ -111,6 +114,31 @@ describe('the enlarged view', () => {
     // A small one is enlarged to 1.6 times and no more.
     view([1032, 532], [100, 50], [1.6, 436, 226]);
   });
+
+  it('centres the whole drawing in what the window over the viewer leaves, as the viewer does', () => {
+    // 232 of 1032 are covered, so 800 are seen; a drawing of 400 by 200 is bound by the width to 1.6 (capped), then
+    // centred in the 800.
+    const v = fitView(seenOf({ width: 1032, height: 532 }, 232), { width: 400, height: 200 });
+    expect(v.s).toBeCloseTo(1.6, 6);
+    expect(v.x).toBeCloseTo((800 - 640) / 2, 6);
+    expect(v.y).toBeCloseTo((532 - 320) / 2, 6);
+  });
+});
+
+describe('a click on the scaled drawing', () => {
+  const at = (x: number, y: number) => ({ x, y });
+
+  it('opens the enlarged view only when the pointer moved no further than the viewer lets a click move', () => {
+    // The limit is the viewer's own, not a second number.
+    expect(DRAG_LIMIT).toBe(6);
+    expect(isClick(at(100, 100), at(100, 100))).toBe(true);
+    // Exactly the limit is still a click.
+    expect(isClick(at(100, 100), at(100 + DRAG_LIMIT, 100))).toBe(true);
+    expect(isClick(at(100, 100), at(100, 100 - DRAG_LIMIT))).toBe(true);
+    // Just beyond it, along an axis and along a diagonal, is a drag: selecting text does not open the window.
+    expect(isClick(at(100, 100), at(100 + DRAG_LIMIT + 0.5, 100))).toBe(false);
+    expect(isClick(at(100, 100), at(105, 105))).toBe(false);
+  });
 });
 
 describe('the UI spec on diagrams', () => {
@@ -120,5 +148,6 @@ describe('the UI spec on diagrams', () => {
     expect(section).toContain('scaled down to the width of its box');
     expect(section).toContain('opens enlarged');
     expect(section).not.toMatch(/scrolling inside its box|scrolls inside its box/);
+    expect(section).toContain('a drag over the diagram does not open it');
   });
 });
