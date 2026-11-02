@@ -22,6 +22,8 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+pub mod shared_git;
+
 /// Everything wrong with a configuration.
 #[derive(Debug, Clone)]
 pub struct Error {
@@ -1258,9 +1260,10 @@ pub fn committed_at(p: &Project, commit: &str) -> Result<i64, String> {
 }
 
 /// Brings the project's `origin/<main>` in its checkout to the remote's main now (`git fetch`). It moves that ref only:
-/// no file of the checkout changes.
+/// no file of the checkout changes. Fetches in one checkout take turns ([`shared_git::git`]), so that works taking
+/// their steps at the same time all succeed, as git turns a fetch down that moves a ref another has just moved.
 pub fn fetch_main(p: &Project) -> Result<(), String> {
-    git_bytes(&p.checkout, &["fetch", "-q", "origin", &p.main])
+    shared_git::git(&p.checkout, &["fetch", "-q", "origin", &p.main])
         .map(|_| ())
         .map_err(|x| {
             format!(
@@ -1285,10 +1288,60 @@ pub fn read_at(p: &Project, commit: &str, path: &Path) -> Result<String, String>
             _ => return Err(format!("{shown} at {commit} is not a path inside the repository")),
         }
     }
-    let spec = format!("{commit}:{}", parts.join("/"));
-    let bytes = git_bytes(&p.checkout, &["cat-file", "blob", &spec])
+    let bytes = blob_object(&p.checkout, commit, &parts.join("/"))
+        .and_then(|object| git_bytes(&p.checkout, &["cat-file", "blob", &object]))
         .map_err(|x| format!("{shown} cannot be read at {commit} in {}: {x}", p.checkout.display()))?;
     String::from_utf8(bytes).map_err(|_| format!("{shown} at {commit} is not UTF-8 text"))
+}
+
+/// The most links one path is followed through: a loop of links ends in an error, not a hang.
+const MAX_LINKS: usize = 16;
+
+/// The git object of the file `path` names at `commit` of the repository at `repo`. Git stores a link as a file that
+/// holds the path it points to, and a read of the checkout's files followed it, so a link is followed here too: the
+/// object is the file's that the link points to, however many links lead to it. A target outside the repository, a
+/// loop, a path that is not there and a path that is no file are errors that say which.
+fn blob_object(repo: &Path, commit: &str, path: &str) -> Result<String, String> {
+    let mut at = path.to_string();
+    for _ in 0..=MAX_LINKS {
+        if at.is_empty() {
+            return Err(format!("{path} leads to the repository's root, which is not a file at {commit}"));
+        }
+        let listed = git(repo, &["ls-tree", "-z", commit, "--", &at])?;
+        let entry = listed
+            .split('\0')
+            .find(|e| !e.is_empty())
+            .ok_or_else(|| format!("path '{at}' does not exist in '{commit}'"))?;
+        // The entry is `<mode> <type> <object>\t<path>`.
+        let (meta, _) = entry
+            .split_once('\t')
+            .ok_or_else(|| format!("git ls-tree gave {entry:?} for {at}"))?;
+        let mut m = meta.split(' ');
+        let (mode, kind, object) = (m.next(), m.next(), m.next().unwrap_or_default());
+        if mode == Some("120000") {
+            let target = String::from_utf8(git_bytes(repo, &["cat-file", "blob", object])?)
+                .map_err(|_| format!("the link {at} does not hold a path"))?;
+            let mut parts: Vec<&str> = at.split('/').collect();
+            parts.pop();
+            if target.starts_with('/') {
+                return Err(format!("the link {at} points outside the repository, to {target}"));
+            }
+            for part in target.split('/') {
+                match part {
+                    "" | "." => {}
+                    ".." if parts.pop().is_some() => {}
+                    ".." => return Err(format!("the link {at} points outside the repository, to {target}")),
+                    name => parts.push(name),
+                }
+            }
+            at = parts.join("/");
+        } else if kind == Some("blob") {
+            return Ok(object.to_string());
+        } else {
+            return Err(format!("{at} is not a file at {commit}"));
+        }
+    }
+    Err(format!("{path} is a link that leads through more than {MAX_LINKS} links at {commit}"))
 }
 
 /// What a project says of itself as one commit has it, which agents are given as the project guide: its AGENTS.md,
@@ -1305,29 +1358,52 @@ pub fn project_guide_at(
     let mut args = vec!["ls-tree", "-r", "-z", commit, "--", "AGENTS.md"];
     args.extend(dirs.iter().copied());
     let listed = git(repo, &args)?;
-    // Each entry is `<mode> <type> <object>\t<path>`.
-    let blobs: Vec<(&str, &str)> = listed
-        .split('\0')
-        .filter_map(|entry| {
-            let (meta, path) = entry.split_once('\t')?;
-            let mut m = meta.split(' ').skip(1);
-            let (kind, object) = (m.next()?, m.next()?);
-            let node = path.ends_with(".md") && dirs.iter().any(|d| path.starts_with(d));
-            (kind == "blob" && (path == "AGENTS.md" || node)).then_some((path, object))
-        })
-        .collect();
-    let mut texts = blob_texts(repo, &blobs.iter().map(|b| b.1).collect::<Vec<_>>())?.into_iter();
+    let blobs = listed_blobs(repo, commit, &listed, |path| {
+        path == "AGENTS.md" || (path.ends_with(".md") && dirs.iter().any(|d| path.starts_with(d)))
+    })?;
+    let mut texts = blob_texts(repo, &blobs.iter().map(|b| b.1.as_str()).collect::<Vec<_>>())?.into_iter();
     let mut agents = String::new();
     let mut nodes = Vec::new();
     for (path, _) in &blobs {
         let text = texts.next().unwrap_or_default();
-        if *path == "AGENTS.md" {
+        if path == "AGENTS.md" {
             agents = text;
         } else {
-            nodes.push((path.to_string(), text));
+            nodes.push((path.clone(), text));
         }
     }
     Ok(guide(agents, nodes, cites))
+}
+
+/// The files of a listing of `git ls-tree -r -z`, each as its path and the git object that holds its text, for the
+/// paths `keep` accepts. A link is a file whose text is the file's it points to ([`blob_object`]); an entry that is
+/// neither a file nor a link, as a submodule, is left out.
+fn listed_blobs(
+    repo: &Path,
+    commit: &str,
+    listed: &str,
+    keep: impl Fn(&str) -> bool,
+) -> Result<Vec<(String, String)>, String> {
+    let mut out = Vec::new();
+    // Each entry is `<mode> <type> <object>\t<path>`.
+    for entry in listed.split('\0') {
+        let Some((meta, path)) = entry.split_once('\t') else {
+            continue;
+        };
+        let mut m = meta.split(' ');
+        let (mode, kind, object) = (m.next(), m.next(), m.next());
+        if kind != Some("blob") || !keep(path) {
+            continue;
+        }
+        let object = match (mode, object) {
+            (Some("120000"), _) => blob_object(repo, commit, path)
+                .map_err(|x| format!("{path} cannot be read at {commit} in {}: {x}", repo.display()))?,
+            (_, Some(object)) => object.to_string(),
+            _ => continue,
+        };
+        out.push((path.to_string(), object));
+    }
+    Ok(out)
 }
 
 /// The project guide of an AGENTS.md and the files of the records, each by its path: the index in the order of the
@@ -1356,17 +1432,9 @@ fn guide(agents: String, mut nodes: Vec<(String, String)>, cites: &str) -> serde
 pub fn files_at(repo: &Path, commit: &str, dir: &str) -> Result<Vec<(String, String)>, String> {
     let dir = format!("{}/", dir.trim_end_matches('/'));
     let listed = git(repo, &["ls-tree", "-r", "-z", commit, "--", &dir])?;
-    let blobs: Vec<(&str, &str)> = listed
-        .split('\0')
-        .filter_map(|entry| {
-            let (meta, path) = entry.split_once('\t')?;
-            let mut m = meta.split(' ').skip(1);
-            let (kind, object) = (m.next()?, m.next()?);
-            (kind == "blob" && path.ends_with(".md")).then_some((path, object))
-        })
-        .collect();
-    let texts = blob_texts(repo, &blobs.iter().map(|b| b.1).collect::<Vec<_>>())?;
-    Ok(blobs.iter().map(|b| b.0.to_string()).zip(texts).collect())
+    let blobs = listed_blobs(repo, commit, &listed, |path| path.ends_with(".md"))?;
+    let texts = blob_texts(repo, &blobs.iter().map(|b| b.1.as_str()).collect::<Vec<_>>())?;
+    Ok(blobs.into_iter().map(|b| b.0).zip(texts).collect())
 }
 
 /// The texts of git objects of a repository, in the order of their names, read by one run of git.
@@ -1878,6 +1946,47 @@ asks = 9
         );
         assert_eq!(later["cited"], serde_json::json!({}));
         assert!(project_guide_at(&dir, "0000000", &design, "").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A link is followed to the file it points to, through any number of links inside the repository; a link that
+    // leaves the repository, one in a loop and one to a directory are errors that name the path and the commit.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_is_followed_inside_the_repository_and_only_there() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        let run = |args: &[&str]| git(&dir, args).unwrap();
+        run(&["init", "-q"]);
+        std::fs::write(dir.join("real.md"), "real\n").unwrap();
+        for (link, target) in [
+            ("sub/up.md", "../real.md"),
+            ("chain.md", "sub/up.md"),
+            ("out.md", "../outside.md"),
+            ("abs.md", "/etc/hostname"),
+            ("loop-a.md", "loop-b.md"),
+            ("loop-b.md", "loop-a.md"),
+            ("dirlink.md", "sub"),
+        ] {
+            std::os::unix::fs::symlink(target, dir.join(link)).unwrap();
+        }
+        run(&["add", "-A"]);
+        run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "links"]);
+        let commit = run(&["rev-parse", "HEAD"]).trim().to_string();
+        let mut c = read(&files(&[])).unwrap();
+        let mut p = c.projects.remove("p").unwrap();
+        p.checkout = dir.clone();
+        assert_eq!(read_at(&p, &commit, Path::new("chain.md")).unwrap(), "real\n");
+        for (link, why) in [
+            ("out.md", "outside the repository"),
+            ("abs.md", "outside the repository"),
+            ("loop-a.md", "links"),
+            ("dirlink.md", "not a file"),
+        ] {
+            let e = read_at(&p, &commit, Path::new(link)).unwrap_err();
+            assert!(e.contains(link) && e.contains(&commit) && e.contains(why), "{e}");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
