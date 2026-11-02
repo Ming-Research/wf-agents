@@ -14,4 +14,5 @@ What an agent needs to know for this repository, beyond the rules every agent is
 - A change to the owner's page follows its UI spec, [client/ui-spec.md](client/ui-spec.md), and passes its check,
   `npm run check:ui` in `client/`.
 - `flow/flow.json` is the only definition of the flow. A change to it, to the views it reads or to the compiler
-  passes `wf-agents flow check`; the flow crate's tests run the same check.
+  passes `wf-agents flow check`; the flow crate's tests run the same check. Such a change is an open question of its
+  design, put to the owner with a link to the flow page's comparison, and the merge waits for the answer.

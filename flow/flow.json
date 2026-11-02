@@ -8110,7 +8110,8 @@
           "prompt": [
             "This round is the table review: by the review table listed in the question, one row per column, none left out; for each column say what your judgment rests on: passed, findings, cannot be verified or not applicable; no evidence is no pass. Review only this change: do not rerun tests already green, and add no new style demands; where the change merges main, review how the PR's own change changed, not what main brought. If there was a blind review first, bring each of its findings along unchanged into the column it belongs to, keeping its number; those you withdraw after seeing the design and the reasons go in withdrawn. A measured slowdown is always a finding, never accepted, however small: only the owner can accept a slowdown. When nothing was measured, judge that column by the design's reason that no measurement was needed: pass when it holds for the change as made, a finding asking for the measurement when it does not; never cannot_verify for want of a measurement. When you dispute a fact with the engineer and insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result. At a re-review, answer one row for each of your findings last time; a column you could not verify last time is listed again by its number, and you answer it in the table, judging what the engineer answered: when the engineer could not verify it either, decide it, a pass on what the work shows or a finding that says what evidence is needed, and not cannot_verify again; a finding the advisor, the architect or the owner ruled on is settled by the ruling: for one the engineer answered advisor_ruled, withdraw it and do not insist again. A reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding. If adversarial testing handed in suspects, go and look where they point. Where the fix answered a red check fixed, read its log: a fix that turns the check green without removing what turned it red is a finding. If you asked someone, carry on with this round's review when the reply comes.",
             "Hold the change against the constitution too: a change that breaks an article is a finding, however well it works.",
-            "The change follows the answer to each open question of the design: one it goes against is a finding."
+            "The change follows the answer to each open question of the design: one it goes against is a finding.",
+            "A change that goes against the project's AGENTS.md is a finding."
           ],
           "promptBy": {
             "by": "deliver",
@@ -11952,10 +11953,7 @@
             ],
             "to": "X5",
             "counts": "history_lookups",
-            "main": true,
-            "do": [
-              "open_session"
-            ]
+            "main": true
           },
           {
             "name": "search",

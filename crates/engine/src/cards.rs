@@ -4,23 +4,14 @@
 //! anchors against the cards, and each card's revision and each edit against the records the branch changed
 //! ([`check`]), posts the cards for the owner, a card handed in again unchanged keeping its row and its ruling
 //! ([`post`]), and holds the merge until the owner confirmed every current card and the records to merge are the words
-//! the owner ruled on. In wf-agents' own repository, one card of a work whose branch changes the
-//! flow carries the flow drawn from the branch, and a new version of it is posted when the flow changed since
-//! ([`carry_flow`]).
+//! the owner ruled on.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
-use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
+use db::rusqlite::{Connection, Transaction, params};
 use serde_json::{Value, json};
 
-use crate::git;
 use crate::reasoning::{self, Revised};
-
-/// The file of wf-agents' repository that defines its flow, and the database definition the flow is checked against:
-/// a branch that changes the flow is drawn from them.
-pub const FLOW_FILE: &str = "flow/flow.json";
-const SCHEMA_FILE: &str = "db/schema.sql";
 
 /// How a card stands in a design's text: a line of its own, `[[card:<key>]]`.
 const ANCHOR: &str = "[[card:";
@@ -33,8 +24,6 @@ pub struct Card {
     pub body: Value,
     pub revision: Value,
     pub rulings: Vec<Value>,
-    /// The git object of the flow file the card carries the flow of, when it carries one.
-    pub flow_source: Option<String>,
 }
 
 impl Card {
@@ -63,7 +52,7 @@ fn list(v: Option<&Value>) -> Vec<Value> {
 pub fn current(conn: &Connection, work: i64) -> Result<Vec<Card>, String> {
     let mut st = conn
         .prepare(
-            "SELECT id, key, body, revision, rulings, flow_source FROM design_cards
+            "SELECT id, key, body, revision, rulings FROM design_cards
              WHERE work = ?1 AND status IN ('open', 'ruled') ORDER BY id",
         )
         .map_err(sql)?;
@@ -78,7 +67,6 @@ pub fn current(conn: &Connection, work: i64) -> Result<Vec<Card>, String> {
                 body: json(2)?,
                 revision: json(3)?,
                 rulings: list(Some(&json(4)?)),
-                flow_source: r.get(5)?,
             })
         })
         .map_err(sql)?;
@@ -454,121 +442,6 @@ pub fn and_list(xs: &[String]) -> String {
     }
 }
 
-/// A repository's name as `owner/name`, whichever way it is written: a GitHub address or the name itself.
-fn repository_name(repo: &str) -> String {
-    let r = repo.trim().trim_end_matches('/');
-    let r = r.strip_suffix(".git").unwrap_or(r);
-    let r = [
-        "https://github.com/",
-        "http://github.com/",
-        "git@github.com:",
-        "github.com/",
-    ]
-    .iter()
-    .find_map(|p| r.strip_prefix(p))
-    .unwrap_or(r);
-    r.to_ascii_lowercase()
-}
-
-/// Whether a project's repository is wf-agents' own, the repository this program was built from: the only one whose
-/// flow file is the flow. A file at that path in another project's repository is that project's own.
-pub fn own_repository(project: &config::Project) -> bool {
-    repository_name(&project.repo) == repository_name(env!("CARGO_PKG_REPOSITORY"))
-}
-
-/// The card that carries a work's flow, and the git object of the flow file as the branch has it, when the branch
-/// changes the flow and that card does not carry it as it is now: the current card that carries a flow, else the
-/// work's first current card. None when the branch does not change the flow, the work has no card, or the card carries
-/// the flow as it is.
-pub fn flow_due(conn: &Connection, work: i64, wt: &Path, fork: &str) -> Result<Option<(Card, String)>, String> {
-    if !git::changed(wt, fork, "HEAD")?.iter().any(|f| f == FLOW_FILE) {
-        return Ok(None);
-    }
-    let cards = current(conn, work)?;
-    let carrier = cards
-        .iter()
-        .rev()
-        .find(|c| c.flow_source.is_some())
-        .or_else(|| cards.first());
-    let Some(card) = carrier else { return Ok(None) };
-    let source = git::git(wt, &["rev-parse", &format!("HEAD:{FLOW_FILE}")])?
-        .trim()
-        .to_string();
-    Ok((card.flow_source.as_deref() != Some(source.as_str())).then(|| (card.clone(), source)))
-}
-
-/// What the engine says on a card it posts again because the flow changed in implementation.
-pub const FLOW_CHANGED: &str = "The flow changed in implementation: this version carries the flow as the branch now has it; the rest is as before.";
-
-/// Has the card that carries a work's flow carry it as the branch has it now, `in_force` being the flow version in force:
-/// a card posted in this same round (`fresh`) takes it as it is posted; another is posted again under its key as a new
-/// version, saying the flow changed in implementation, which the owner rules before the merge. Gives the card that
-/// carries it and, when the flow does not compile, why, the card then carrying no drawing. Nothing when no card is due.
-pub fn carry_flow(
-    tx: &Transaction<'_>,
-    round: crate::work::RoundId,
-    wt: &Path,
-    fork: &str,
-    in_force: i64,
-    fresh: &[i64],
-) -> Result<Option<(i64, Option<String>)>, String> {
-    let Some((card, source)) = flow_due(tx, round.work, wt, fork)? else {
-        return Ok(None);
-    };
-    let (drawn, failed) = match snapshot(tx, wt, fork) {
-        Ok(s) => (s, None),
-        Err(why) => (None, Some(why)),
-    };
-    let id = if fresh.contains(&card.id) {
-        card.id
-    } else {
-        let mut body = card.body.clone();
-        body["changed"] = json!(FLOW_CHANGED);
-        new_version(
-            tx,
-            round,
-            &card.key,
-            &body,
-            &card.revision,
-            Some(FLOW_CHANGED),
-            Some(card.id),
-        )?
-    };
-    tx.execute(
-        "UPDATE design_cards SET flow_snapshot = ?2, flow_in_force = ?3, flow_source = ?4 WHERE id = ?1",
-        params![id, drawn, drawn.map(|_| in_force), source],
-    )
-    .map_err(sql)?;
-    Ok(Some((id, failed)))
-}
-
-/// The flow as the branch has it at its head, when the branch changed it against the fork point `fork`: compiled from
-/// its flow file against its database definition, as the flow page draws a flow at a ref, and stored once as a
-/// snapshot. Gives the snapshot; none when the branch does not change the flow; an error when its flow does not compile.
-pub fn snapshot(tx: &Transaction<'_>, wt: &Path, fork: &str) -> Result<Option<i64>, String> {
-    if !git::changed(wt, fork, "HEAD")?.iter().any(|f| f == FLOW_FILE) {
-        return Ok(None);
-    }
-    let text = git::git(wt, &["show", &format!("HEAD:{FLOW_FILE}")])?;
-    let schema = git::git(wt, &["show", &format!("HEAD:{SCHEMA_FILE}")])?;
-    let at = |e| format!("{SCHEMA_FILE} on the branch: {e}");
-    let relations = db::relations(&schema).map_err(at)?;
-    let tables = db::index_of(&schema).map_err(at)?;
-    let compiled = flow::compile_shown(&text, &flow::Context { relations, tables })
-        .map_err(|e| format!("{FLOW_FILE} on the branch does not compile:\n{e}"))?;
-    let digest = compiled.digest();
-    tx.execute(
-        "INSERT INTO flow_snapshots (digest, compiled) VALUES (?1, ?2) ON CONFLICT (digest) DO NOTHING",
-        params![digest, compiled.json()],
-    )
-    .map_err(sql)?;
-    tx.query_row("SELECT id FROM flow_snapshots WHERE digest = ?1", [&digest], |r| {
-        r.get(0)
-    })
-    .optional()
-    .map_err(sql)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -691,7 +564,6 @@ mod tests {
             body: before.clone(),
             revision: revision(&before, &r),
             rulings: Vec::new(),
-            flow_source: None,
         };
         let none = BTreeMap::new();
         let run = |cards: &[Value], withdrawn: &[Value], was: &Card| {
@@ -796,130 +668,6 @@ mod tests {
                 .unwrap_err()
                 .contains("no card or edit names: F:b (changed)")
         );
-    }
-
-    // In wf-agents' own repository, one card of a work whose branch changes the flow carries the flow as the branch had
-    // it, compiled and kept in the database beside the version in force, so that the owner's page draws it after the
-    // branch is gone; when the flow changed since, as in implementation, a new version of that card carries it as the
-    // branch now has it, saying so, and waits for the owner's ruling. A branch that does not change the flow gives none.
-    #[test]
-    fn the_card_that_carries_the_flow_is_posted_again_when_the_flow_changed() {
-        use db::{Actor, Db};
-        let dir = std::env::temp_dir().join(format!("wf-agents-snapshot-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let put = |path: &str, text: &str| {
-            let p = dir.join(path);
-            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(p, text).unwrap();
-        };
-        let run = |args: &[&str]| -> String {
-            let mut all = vec!["-c", "user.name=t", "-c", "user.email=t@t"];
-            all.extend(args);
-            git::git(&dir, &all).unwrap().trim().to_string()
-        };
-        put("README.md", "A project.\n");
-        run(&["init", "-q"]);
-        run(&["add", "-A"]);
-        run(&["commit", "-qm", "main"]);
-        let fork = run(&["rev-parse", "HEAD"]);
-        let mut db = Db::in_memory().unwrap();
-        let card = json!({ "key": "red-run", "question": "Which?", "options": [{ "name": "A" }, { "name": "B" }],
-                           "recommended": "A", "revises": [] });
-        let round = |n: i64| crate::work::RoundId::new(1, n);
-        let posted = db
-            .write(Actor::Engine, |tx| {
-                tx.execute("INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', '{}')", [])?;
-                tx.execute(
-                    "INSERT INTO works (id, item, flow_version, graph, at) VALUES (1, NULL, 1, 'engineer', 'D15')",
-                    [],
-                )?;
-                for n in [1, 2] {
-                    tx.execute(
-                        "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, ?1, 'D4', '{}', 'c', 1)",
-                        [n],
-                    )?;
-                }
-                let handed = Handed {
-                    cards: std::slice::from_ref(&card),
-                    edits: &[],
-                    withdrawn: &[],
-                    solution: "[[card:red-run]]",
-                };
-                post(tx, round(1), &handed, &BTreeMap::new()).map_err(db::Error::Abort)
-            })
-            .unwrap();
-        let fresh: Vec<i64> = posted.new.iter().map(|x| x.0).collect();
-        let carried = |db: &mut Db, n: i64, fresh: &[i64]| {
-            db.write(Actor::Engine, |tx| {
-                carry_flow(tx, round(n), &dir, &fork, 1, fresh).map_err(db::Error::Abort)
-            })
-            .unwrap()
-        };
-        // The branch does not change the flow: no card carries one.
-        assert_eq!(carried(&mut db, 1, &fresh), None);
-        // The branch renames the title of cell R1: the card just posted takes the flow as it is posted.
-        let renamed = |title: &str| {
-            let to = format!("\"title\": \"{title}\"");
-            let r = flow::FLOW.replacen("\"title\": \"Research the problem itself\"", &to, 1);
-            assert_ne!(r, flow::FLOW, "the flow has cell R1's title");
-            r
-        };
-        put(FLOW_FILE, &renamed("Research the problem, drawn"));
-        put(SCHEMA_FILE, db::SCHEMA);
-        run(&["add", "-A"]);
-        run(&["commit", "-qm", "the flow drawn"]);
-        assert_eq!(carried(&mut db, 1, &fresh), Some((fresh[0], None)));
-        assert!(flow_due(db.conn(), 1, &dir, &fork).unwrap().is_none());
-        // Implementation changes the flow again: the card is posted again under its key, saying so.
-        put(FLOW_FILE, &renamed("Research the problem, redrawn"));
-        run(&["commit", "-qam", "the flow changed in implementation"]);
-        assert_eq!(
-            flow_due(db.conn(), 1, &dir, &fork).unwrap().map(|x| x.0.id),
-            Some(fresh[0])
-        );
-        let (again, failed) = carried(&mut db, 2, &[]).unwrap();
-        assert_eq!(failed, None);
-        assert_ne!(again, fresh[0]);
-        let now = current(db.conn(), 1).unwrap();
-        assert_eq!((now.len(), now[0].id, now[0].key.as_str()), (1, again, "red-run"));
-        assert_eq!(now[0].body["changed"], FLOW_CHANGED);
-        assert!(flow_due(db.conn(), 1, &dir, &fork).unwrap().is_none());
-        // Both flows are drawn from the database once the branch is gone.
-        let _ = std::fs::remove_dir_all(&dir);
-        let drawn = |card: i64| -> String {
-            let (snapshot, in_force): (i64, i64) = db
-                .conn()
-                .query_row(
-                    "SELECT flow_snapshot, flow_in_force FROM design_cards WHERE id = ?1",
-                    [card],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )
-                .unwrap();
-            assert_eq!(in_force, 1);
-            let d = api::flow_snapshot(db.conn(), snapshot).unwrap();
-            d.compiled.graph("engineer").unwrap().cell("R1").unwrap().title.clone()
-        };
-        assert_eq!(drawn(fresh[0]), "Research the problem, drawn");
-        assert_eq!(drawn(again), "Research the problem, redrawn");
-    }
-
-    // The flow is wf-agents' own: only a project whose repository is the one this program was built from has its flow
-    // file drawn.
-    #[test]
-    fn only_wf_agents_own_repository_has_its_flow_drawn() {
-        let project = |repo: &str| -> config::Project {
-            serde_json::from_value(json!({
-                "repo": repo, "checkout": "/c", "design_goal": "simple", "test_paths": ["tests/"],
-                "ci": { "fast": "ci", "full": ["ci"], "merge_checks": ["check"] }
-            }))
-            .unwrap()
-        };
-        assert!(own_repository(&project("Ming-Research/wf-agents")));
-        assert!(own_repository(&project(
-            "https://github.com/Ming-Research/wf-agents.git"
-        )));
-        assert!(!own_repository(&project("Ming-Research/whitefoot")));
-        assert!(!own_repository(&project("o/p")));
     }
 
     #[test]

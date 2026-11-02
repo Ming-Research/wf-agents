@@ -193,8 +193,7 @@ fn sql_value(v: db::rusqlite::types::Value) -> Value {
 
 /// Posts the decision cards the work's latest design handed in, with the keys it withdrew, for the owner to rule on:
 /// each new card, or new version of a key, is queued for the architect to look at, and the owner is told what is new,
-/// what replaced a card the owner had ruled, and what was withdrawn. A card of a work whose branch changes the flow
-/// carries the flow drawn from the branch, beside the version the work runs on.
+/// what replaced a card the owner had ruled, and what was withdrawn.
 fn post_cards(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let path = format!("{}.design_tree", ctx.within);
     let Some((round, tree)) = ctx.last(tx, DESIGN, &path)? else {
@@ -270,46 +269,9 @@ fn post_cards(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     if !said.is_empty() {
         log_only(tx, ctx.work.id, &said.join(" "))?;
     }
-    carry_flow(ctx, tx, round, &new)
-}
-
-/// In wf-agents' own repository, has the card that carries the work's flow carry it as the branch has it now: a card
-/// posted in this round (`fresh`) takes it as posted; another is posted again as a new version, which the owner rules
-/// before the merge, and the owner is told. The new version changes the drawing alone: the flow's change in
-/// implementation went through the work's reviews, which hold it to the design and its cards. A flow that does not compile is said, the card
-/// carrying no drawing of it.
-fn carry_flow(ctx: &Ctx, tx: &Transaction<'_>, round: RoundId, fresh: &[i64]) -> Result<(), String> {
-    let project = ctx.project()?;
-    let Some(wt) = &ctx.work.worktree else { return Ok(()) };
-    if !crate::cards::own_repository(project) {
-        return Ok(());
-    }
-    let fork = git::fork_point(wt, &project.main)?;
-    let Some((card, failed)) = crate::cards::carry_flow(tx, round, wt, &fork, ctx.work.flow_version, fresh)? else {
-        return Ok(());
-    };
-    if let Some(why) = failed {
-        log_only(
-            tx,
-            ctx.work.id,
-            &format!(
-                "The flow on the branch of {} does not compile, so decision card {card} carries no drawing of it: {why}",
-                ctx.about()
-            ),
-        )?;
-    }
-    if !fresh.contains(&card) {
-        log_only(
-            tx,
-            ctx.work.id,
-            &format!(
-                "The flow of {} changed in implementation: decision card {card} carries it as the branch now has it and waits for your ruling before the merge.",
-                ctx.about()
-            ),
-        )?;
-    }
     Ok(())
 }
+
 /// Carries out one action.
 pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> Result<(), String> {
     let w = ctx.work.id;
@@ -392,7 +354,6 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
             .map_err(sql)?;
         }
         "post_design_card" => post_cards(ctx, tx)?,
-        "post_flow_card" => carry_flow(ctx, tx, ctx.round, &[])?,
         "post_open_questions" => crate::open_questions::post(ctx, tx)?,
         "write_learned" => crate::open_questions::write_learned(ctx, tx)?,
         "notify_pending_approvers" => {

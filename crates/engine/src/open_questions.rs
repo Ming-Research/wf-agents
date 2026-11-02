@@ -262,8 +262,8 @@ mod tests {
         let mut db = Db::in_memory().unwrap();
         let matter = |tx: &Transaction<'_>, body: &Value, withdrawn: Option<&str>| -> Result<i64, db::Error> {
             tx.execute(
-                "INSERT INTO architect_matters (project, kind, what, body, work, withdrawn, at)
-                 VALUES ('p', ?1, 'Which?', ?2, 1, ?3, 1)",
+                "INSERT INTO architect_matters (project, kind, what, body, work, round, withdrawn, at)
+                 VALUES ('p', ?1, 'Which?', ?2, 1, 1, ?3, 1)",
                 params![KIND, body.to_string(), withdrawn],
             )?;
             Ok(tx.last_insert_rowid())
@@ -276,6 +276,10 @@ mod tests {
                 )?;
                 tx.execute(
                     "INSERT INTO works (id, item, flow_version, graph, at) VALUES (1, NULL, 1, 'engineer', 'M1')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'D2', '{}', 'c', 1)",
                     [],
                 )?;
                 let open = matter(tx, &json!({}), None)?;
