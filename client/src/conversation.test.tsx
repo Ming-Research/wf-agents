@@ -31,7 +31,7 @@ import type {
   WorkState,
   WorkSummary,
 } from './api';
-import { architectMark } from './architect';
+import { architectMark as markOfStanding, standing } from './architect';
 import { course, StateMark } from './components';
 import {
   asksApproval,
@@ -53,6 +53,10 @@ import { Composer, PinBar, pinsShown, type Reply, Stream, workMark } from './pag
 import { SayBox } from './parts';
 import messagesCss from './styles/messages.css?raw';
 import { t } from './text';
+
+/// How an architect stands as its mark says it, from what its page read: the page's read turned into the lean one the
+/// mark is worked out from.
+const architectMark = (a: Architect, s: Status) => markOfStanding(standing(a), s);
 
 /// The flow's lines with their colours, as the interface serves them, which every bubble and avatar is drawn in.
 const LINES: GraphLines[] = [

@@ -148,6 +148,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/items", get(items))
         .route("/api/v1/items/{id}", get(item))
         .route("/api/v1/architect", get(architect))
+        .route("/api/v1/architects", get(architects))
         .route("/api/v1/architect/rounds", get(architect_rounds))
         .route("/api/v1/conversations", get(conversations))
         .route("/api/v1/conversation", get(conversation))
@@ -543,6 +544,27 @@ async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result
     });
     read(&app, move |conn, a| {
         api::architect(conn, &a.flows, &project, projects, constitution)
+    })
+    .await
+    .map(Json)
+}
+
+/// How every project's architect stands, one entry for each project of the configuration as committed, in the order of
+/// their names: what the works view's rows and the list of conversations' marks are drawn from, without the rest of
+/// what a project's architect page reads (`architect`).
+async fn architects(State(app): State<App>) -> Result<Json<Vec<api::ArchitectStanding>>, Fail> {
+    let projects: Vec<String> = config::committed(&app.data)
+        .map_err(|e| Fail::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .config
+        .projects
+        .keys()
+        .cloned()
+        .collect();
+    read(&app, move |conn, a| {
+        projects
+            .iter()
+            .map(|p| api::architect_standing(conn, &a.flows, p))
+            .collect::<Result<Vec<_>, _>>()
     })
     .await
     .map(Json)

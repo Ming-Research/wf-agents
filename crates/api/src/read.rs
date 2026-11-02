@@ -15,13 +15,13 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Architect, ArchitectRounds, ArchitectWork, CardFlow, DesignCard, DispatchHold, FlowSnapshot, FlowVersion, FlowView,
-    Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail, ItemLink, ItemState, ItemSummary, Items,
-    KeptFile, LevelChange, LinkedItem, Matter, MatterCard, NamedText, NotebookSection, NotebookVersion, Observation,
-    ObservationChange, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyDraft, PolicyInForce, ProjectNow,
-    ProjectObservations, Replacement, RoundConditional, RoundDetail, RoundImage, RoundInput, RoundOutcome,
-    RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts, ToolRun, Waits, WorkDetail, WorkSession,
-    WorkState, WorkSummary,
+    Architect, ArchitectRounds, ArchitectStanding, ArchitectWork, CardFlow, DesignCard, DispatchHold, FlowSnapshot,
+    FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail, ItemLink,
+    ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, Matter, MatterCard, NamedText, NotebookSection,
+    NotebookVersion, Observation, ObservationChange, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyDraft,
+    PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional, RoundDetail, RoundImage, RoundInput,
+    RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts, ToolRun, Waits, WorkDetail,
+    WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1815,34 +1815,13 @@ pub fn architect(
     projects: Vec<String>,
     constitution: Option<NamedText>,
 ) -> Result<Architect> {
-    // The works of the project's architect, and the settings of its policy a flow version before ran beside them as works
-    // of their own, by their numbers: the filter takes numbers only.
-    let mine: Vec<i64> = {
-        let mut st =
-            conn.prepare("SELECT id FROM works WHERE graph IN ('architect', 'policy') AND project = ?1 ORDER BY id")?;
-        st.query_map([project], |r| r.get(0))?
-            .collect::<rusqlite::Result<_>>()?
-    };
-    let listed: Vec<String> = mine.iter().map(i64::to_string).collect();
-    let mut architect_works = summaries(conn, flows, &format!("WHERE w.id IN ({})", listed.join(", ")), &[])?;
-    architect_works.reverse();
-    let mut out_works = Vec::new();
-    for (_, s) in architect_works {
-        let handling = if over(&s) { None } else { handling(conn, s.id)? };
-        // It waits by the row of the look at the queue that waits for the owner's next words.
-        let listens = matches!(&s.waits, Some(Waits::Row { cell, row }) if cell == "Q0" && row == "listens");
-        out_works.push(ArchitectWork {
-            handling,
-            listens,
-            work: s,
-        });
-    }
+    let (mine, works) = architect_works(conn, flows, project)?;
     let mut asks = asks(conn, "WHERE w.graph IN ('architect', 'policy')", &[])?;
     asks.retain(|a| mine.contains(&a.work));
     Ok(Architect {
         project: project.to_string(),
         projects,
-        works: out_works,
+        works,
         queue: queue(conn, project)?,
         holds: holds(conn, project)?,
         asks,
@@ -1852,6 +1831,58 @@ pub fn architect(
         draft: draft(conn, project)?,
         notebook: notebook(conn, project)?,
         constitution,
+    })
+}
+
+/// The works of a project's architect, and the settings of its policy a flow version before ran beside them as works of
+/// their own: their numbers, and the works newest first, each with the matter it handles and whether it waits for the
+/// owner's next words. What `architect` and `architect_standing` both read, so that the two cannot tell different
+/// stories of one architect.
+fn architect_works(conn: &Connection, flows: &Flows, project: &str) -> Result<(Vec<i64>, Vec<ArchitectWork>)> {
+    // The filter takes numbers only.
+    let mine: Vec<i64> = {
+        let mut st =
+            conn.prepare("SELECT id FROM works WHERE graph IN ('architect', 'policy') AND project = ?1 ORDER BY id")?;
+        st.query_map([project], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    let listed: Vec<String> = mine.iter().map(i64::to_string).collect();
+    let mut architect_works = summaries(conn, flows, &format!("WHERE w.id IN ({})", listed.join(", ")), &[])?;
+    architect_works.reverse();
+    let mut works = Vec::new();
+    for (_, s) in architect_works {
+        let handling = if over(&s) { None } else { handling(conn, s.id)? };
+        // It waits by the row of the look at the queue that waits for the owner's next words.
+        let listens = matches!(&s.waits, Some(Waits::Row { cell, row }) if cell == "Q0" && row == "listens");
+        works.push(ArchitectWork {
+            handling,
+            listens,
+            work: s,
+        });
+    }
+    Ok((mine, works))
+}
+
+/// How a project's architect stands: its works and its queue as `architect` has them, and whether an ask of any of its
+/// works waits for the owner, which is all the page draws its row and its mark from. It reads none of the rest of the
+/// architect's page: not the notebook, the policy, the matters handled, the item changes, the asks themselves or the
+/// project's constitution.
+pub fn architect_standing(conn: &Connection, flows: &Flows, project: &str) -> Result<ArchitectStanding> {
+    let (mine, works) = architect_works(conn, flows, project)?;
+    let listed: Vec<String> = mine.iter().map(i64::to_string).collect();
+    let asking = conn.query_row(
+        &format!(
+            "SELECT EXISTS (SELECT 1 FROM owner_asks WHERE work IN ({}) AND answer IS NULL)",
+            listed.join(", ")
+        ),
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(ArchitectStanding {
+        project: project.to_string(),
+        works,
+        queue: queue(conn, project)?,
+        asking,
     })
 }
 
@@ -4362,6 +4393,49 @@ mod tests {
         assert_eq!(a.policy, None);
         // A study a setting of a flow version before wrote, in a work of its own, is no draft of a new policy.
         assert_eq!(a.draft, None);
+    }
+
+    // How an architect stands, which the works view's row and the list of conversations' mark are drawn from, is the
+    // very works and queue its page has, and whether any ask of its works waits: for a project with works and asks, one
+    // with an ask answered and one with no work at all.
+    #[test]
+    fn the_architect_standing_is_the_works_and_queue_of_its_page_and_whether_an_ask_waits() {
+        let mut s = architect_setup("standing");
+        let cache = Flows::default();
+        let projects = || vec!["p".to_string(), "q".to_string(), "r".to_string()];
+        let same = |s: &Setup, project: &str| -> bool {
+            let page = architect(s.db.conn(), &cache, project, projects(), None).unwrap();
+            let now = architect_standing(s.db.conn(), &cache, project).unwrap();
+            assert_eq!(now.project, project);
+            assert_eq!(now.works, page.works, "{project}");
+            assert_eq!(now.queue, page.queue, "{project}");
+            assert_eq!(now.asking, page.asks.iter().any(|a| a.answer.is_none()), "{project}");
+            now.asking
+        };
+        // p has two asks waiting (the study the setting put and the question that holds a matter), q has none and r has
+        // no work.
+        assert!(same(&s, "p"));
+        assert!(!same(&s, "q"));
+        assert!(!same(&s, "r"));
+        let p = architect_standing(s.db.conn(), &cache, "p").unwrap();
+        assert_eq!(p.works.iter().map(|w| w.work.id).collect::<Vec<_>>(), [3, 2]);
+        assert_eq!(p.queue.iter().map(|m| m.id).collect::<Vec<_>>(), [2, 3]);
+        let r = architect_standing(s.db.conn(), &cache, "r").unwrap();
+        assert!(r.works.is_empty() && r.queue.is_empty());
+        // The owner answers the study: the question that holds the matter still waits.
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE owner_asks SET answer = '{\"text\":\"yes\"}' WHERE id = 1", [])?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(same(&s, "p"));
+        // And then that: nothing waits.
+        s.db.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE owner_asks SET answer = '{\"text\":\"yes\"}' WHERE id = 2", [])?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!same(&s, "p"));
     }
 
     // The observations of each project that has any, by the project's name, with the tags its configuration gives

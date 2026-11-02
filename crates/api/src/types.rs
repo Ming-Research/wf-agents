@@ -1481,6 +1481,22 @@ pub struct ArchitectWork {
     pub listens: bool,
 }
 
+/// How a project's architect stands, and nothing more: what the page needs to draw its row in the works view and its
+/// mark in the list of conversations, which is its works, its queue and whether a question of its own waits for the
+/// owner's reply. It is read for every project at once, without the notebook, the policy, the matters handled, the item
+/// changes and the constitution that the architect's own page shows (`Architect`).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ArchitectStanding {
+    /// The project whose architect it is.
+    pub project: String,
+    /// Its works, newest first, as `Architect` has them.
+    pub works: Vec<ArchitectWork>,
+    /// The matters it has not handled, as `Architect` has them.
+    pub queue: Vec<Matter>,
+    /// Whether an ask of any of its works waits for the owner's reply.
+    pub asking: bool,
+}
+
 /// A matter for an architect that it has not handled.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Matter {
