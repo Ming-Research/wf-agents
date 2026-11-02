@@ -2018,7 +2018,6 @@ asks = 9
     // link, or else an error that names the path. Reference: `std::fs::read_to_string`, which followed a link, as the
     // reads of the checkout's files did before main was read with git.
     #[cfg(unix)]
-    #[ignore = "held out of one CI run to see the tests after it"]
     #[test]
     fn a_link_on_main_is_never_read_as_the_path_it_points_to() {
         let root = std::env::temp_dir().join(format!("wf-agents-links-{}", std::process::id()));
@@ -2060,7 +2059,6 @@ asks = 9
     // and every round of a cell that reads main fetches it, so a fetch must not be turned down because another moved the
     // same ref a moment before ("cannot lock ref ... is at X but expected Y"). Reference: the same fetches one after
     // another, which all succeed.
-    #[ignore = "held out of one CI run to see the tests after it"]
     #[test]
     fn fetches_of_main_that_overlap_in_one_checkout_all_succeed() {
         let root = std::env::temp_dir().join(format!("wf-agents-overlap-{}", std::process::id()));
