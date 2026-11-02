@@ -13263,3 +13263,162 @@ fn a_work_paused_while_its_round_runs_keeps_its_slot_until_the_step_ends() {
     assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// Requests that meet: a request of the outbox against another one, against the owner's next word and against a pause
+// that replaces the one it was for.
+
+// A start over and then a cancel asked of one work wait in the outbox together. The loop carries them out in the order
+// they were asked, so the start over must not leave the cancel with nothing to close: a cancel closes the pull request
+// of a work that ends without merging, and a new work that has not taken the pull request over yet holds none, while
+// the work that held it left it to that new work.
+#[test]
+fn a_cancel_asked_after_a_start_over_still_closes_the_pull_request() {
+    let (s, mut e, said, item, work) = at_the_merge("start-over-then-cancel");
+    let worktree = worktree_of(&e, work);
+    held_at_full_ci(&mut e, &s, &said);
+    api::start_over(&mut e.db, work).unwrap();
+    assert_eq!(cancel(&mut e, item, "owner"), Cancelling::Asked);
+    s.ci.open();
+    let cancelled = turns_until(&mut e, &Go::default(), |e| cancelled_why(e, item).is_some());
+    e.drain().unwrap();
+    three_turns(&mut e);
+    e.drain().unwrap();
+    three_turns(&mut e);
+    let log = said.lock().unwrap().join("\n");
+    assert!(cancelled, "{log}");
+    assert_eq!(s.merging.came(), 0, "{log}");
+    let works = works_of(&e, item);
+    assert!(works.iter().all(|w| w.5.is_some()), "{works:?}\n{log}");
+    assert_eq!(pr_states(&s), [PrState::Closed], "{works:?}\n{log}");
+    assert!(!worktree.exists(), "{works:?}\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The other order of the two: once a cancel is asked the work is stopping, a start over is refused, and the cancel is
+// carried out with no new work on the item.
+#[test]
+fn a_start_over_is_refused_once_a_cancel_is_asked() {
+    let s = setup("cancel-then-start-over");
+    let (mut e, said, item) = start(&s, scripts());
+    let work = e.step(None).unwrap().work.unwrap();
+    assert_eq!(cancel(&mut e, item, "owner"), Cancelling::Asked);
+    assert_eq!(
+        api::start_over(&mut e.db, work),
+        Err(format!("work {work} is stopping already"))
+    );
+    e.dispatch(&Go::default()).unwrap();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(cancelled_why(&e, item).as_deref(), Some("no longer needed"), "{log}");
+    assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Pause after a resume that still waits for a slot is the owner's later word, and the later word wins, as it
+// does over the owner's Start: the page's Pause answers that the work stays paused. So the request must not lift the
+// pause once the slot is free.
+#[test]
+fn the_owner_s_pause_after_a_resume_keeps_the_work_paused() {
+    let s = setup("pause-after-resume");
+    let (hold, free) = (Gate::default(), Arc::new(AtomicI64::new(0)));
+    let (mut e, said, _) = start(&s, held_in_r1(&hold, &free));
+    let work = e.step(None).unwrap().work.unwrap();
+    free.store(work, Ordering::SeqCst);
+    api::pause(&mut e.db, work, None).unwrap();
+    let second = another_item(&mut e);
+    hold.shut();
+    let came = hold.came();
+    let held = turns_until(&mut e, &Go::default(), |_| hold.came() > came);
+    let log = said.lock().unwrap().join("\n");
+    assert!(held, "{log}");
+    let other = state(&e, second).unwrap().0;
+    let rounds = rounds_after(&e, work, 0).0;
+    api::resume(&mut e.db, work).unwrap();
+    three_turns(&mut e);
+    assert_eq!(e.waiting_for_slot().unwrap(), [work], "{log}");
+    // As the page's Pause sends it, for which a work paused already stays paused.
+    let _ = api::pause(&mut e.db, work, None);
+    api::pause(&mut e.db, other, None).unwrap();
+    hold.open();
+    e.drain().unwrap();
+    three_turns(&mut e);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    assert_eq!(rounds_after(&e, work, 0).0, rounds, "{log}");
+    assert_eq!(db::resume_asked(e.db.conn()).unwrap(), Vec::<i64>::new(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Two resumes on a machine with one slot free: each request reads the slots as the one before it left them, so that one
+// work goes on and the other waits, and a resume asked twice is one request.
+#[test]
+fn two_resumes_take_one_free_slot_one_at_a_time() {
+    let s = setup("two-resumes-one-slot");
+    let (mut e, said, _) = start(&s, scripts());
+    let first = e.step(None).unwrap().work.unwrap();
+    api::pause(&mut e.db, first, None).unwrap();
+    let item = another_item(&mut e);
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let second = state(&e, item).expect(&log).0;
+    api::pause(&mut e.db, second, None).unwrap();
+    api::resume(&mut e.db, first).unwrap();
+    api::resume(&mut e.db, first).unwrap();
+    api::resume(&mut e.db, second).unwrap();
+    let asked: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM outbox WHERE kind = 'resume_work'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(asked, 2, "{log}");
+    e.rouse();
+    e.dispatch(&Go::default()).unwrap();
+    assert_eq!(paused_by(&e, first), None, "{log}");
+    assert_eq!(paused_by(&e, second).as_deref(), Some("owner"), "{log}");
+    assert_eq!(e.free_slots().unwrap(), 0, "{log}");
+    assert_eq!(e.waiting_for_slot().unwrap(), [second], "{log}");
+    assert_eq!(resume_failures(&e), 0, "{log}");
+    e.drain().unwrap();
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work paused while its round runs, with a resume asked for that pause, whose round then fails in a way the owner must
+// look at: the engine's pause replaces the owner's, and the resume asked for the one before lifts nothing.
+#[test]
+fn a_pause_for_a_problem_is_not_lifted_by_a_resume_asked_before_it() {
+    let s = setup("problem-after-resume");
+    let hold = Gate::default();
+    let h = hold.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, _: usize| {
+            h.pass();
+            (Vec::new(), vec![("@error", json!("Prompt is too long"))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    hold.shut();
+    let came = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(came, "{log}");
+    let work = state(&e, item).unwrap().0;
+    api::pause(&mut e.db, work, None).unwrap();
+    api::resume(&mut e.db, work).unwrap();
+    three_turns(&mut e);
+    hold.open();
+    e.drain().unwrap();
+    three_turns(&mut e);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let paused = state(&e, item)
+        .unwrap()
+        .2
+        .unwrap_or_else(|| panic!("the work went on:\n{log}"));
+    assert!(paused.contains("prompt_too_long"), "{paused}\n{log}");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("engine"), "{log}");
+    assert_eq!(db::resume_asked(e.db.conn()).unwrap(), Vec::<i64>::new(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
