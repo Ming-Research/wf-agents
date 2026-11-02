@@ -448,6 +448,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // A quoted title is found whatever stands next to its quotes in the source: the quote is a mark, so the word
+    // boundary of `git grep -w` is the mark's neighbour, which a call, a table, a list, a line ending may all be.
+    #[test]
+    fn a_quoted_title_is_found_beside_each_mark_a_source_puts_next_to_it() {
+        let dir = repo_with_files(
+            "beside",
+            &[(
+                "client/src/b.test.ts",
+                concat!(
+                    "describe.skip('b0', () => {\r\n",
+                    "  it.skip('t1', () => {});\r\n",
+                    "  test.concurrent(\n    't2',\n    () => {});\n",
+                    "  const rows = [['t3', 1], { name:'t4' }, { name: \"t5\"}];\n",
+                    "  const s = new Set(['t6']); x = 't7'; y = `t8`;\n",
+                    "  it.each([1])('t9 %i', () => {});\n",
+                    "});\n",
+                ),
+            )],
+        );
+        for title in ["b0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"] {
+            let named = format!("client/src/b.test.ts > b0 > {title}");
+            assert!(on_branch(&dir, &named).is_ok(), "{named}");
+        }
+        // A title the table prints with its value is not in the source as printed.
+        assert!(on_branch(&dir, "b0 > t9 1").is_err());
+        // The word without its quotes is no title, nor is a quote of another kind around it.
+        assert!(on_branch(&dir, "b0 > t").is_err());
+        assert!(on_branch(&dir, "b0 > 't1").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // A name the branch lacks stays refused when it holds a blank line: a blank line is no word to look for, and
     // a blank pattern would match every line of every file.
     #[test]
