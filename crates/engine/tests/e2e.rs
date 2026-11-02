@@ -13441,3 +13441,47 @@ fn the_engineer_s_decisions_are_written_under_their_head_with_who_decided_from_t
     assert!(!approach.contains("Forged"), "{approach}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// The architect's answer to an open question keeps the time it came in the question's matter, which is what a decision
+// quoting the answer is dated by: the time is the answer's, set when the architect replied, not the time the question
+// was raised, and a question not answered has none.
+#[test]
+fn the_architect_s_answer_to_an_open_question_keeps_the_time_it_came() {
+    let s = setup("open-question-time");
+    let mut agents = scripts();
+    agents.insert("D2", designs_with_an_open_question());
+    agents.insert(
+        "H3",
+        Box::new(|_: &Request, _: usize| {
+            let reply = json!({ "text": "One table.", "why": "The items are few." });
+            (Vec::new(), vec![("outcome.reply", reply)])
+        }),
+    );
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let matter = open_questions(&e, work)[0].0;
+    let answered_at = |e: &Engine| -> Option<i64> {
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(body, '$.answered_at') FROM architect_matters WHERE id = ?1",
+                [matter],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(answered_at(&e), None);
+    let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
+    assert!(steps_until(&mut e, 60, answered), "{}", said.lock().unwrap().join("\n"));
+    let raised: i64 =
+        e.db.conn()
+            .query_row("SELECT at FROM architect_matters WHERE id = ?1", [matter], |r| r.get(0))
+            .unwrap();
+    let came = answered_at(&e).expect("the answer's time is kept");
+    assert!(came >= raised, "{came} {raised}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
