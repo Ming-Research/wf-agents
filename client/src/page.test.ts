@@ -71,7 +71,7 @@ import {
   ways,
 } from './graph/flowModel';
 import { layStores, storeLinks, storeUses } from './graph/stores';
-import { connect, named, REOPEN_MS } from './live';
+import { coalesced, connect, FLUSH_MS, named, REOPEN_MS } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { anchored } from './item/Shapes';
 import { askedTo, cardOfKey, cardRuling, currentCard, firstSentence } from './pages/Decide';
@@ -503,6 +503,36 @@ describe('events', () => {
       expect(opened.map((x) => x.url)).toEqual(['/api/v1/events', '/api/v1/events?after=7-3']);
     } finally {
       vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  // Read again at every event, the architect's one-to-one read 15 MB in eight seconds while six works ran, and the
+  // owner's page, the engine and the machine stopped.
+  it('are read again once for many events, and not at all while the tab is hidden', () => {
+    vi.useFakeTimers();
+    try {
+      const runs: string[][] = [];
+      let hidden = false;
+      const soon = coalesced((keys) => runs.push(keys), () => hidden);
+      soon(['works', 'items']);
+      soon(['works', 'messages']);
+      expect(runs).toEqual([]);
+      vi.advanceTimersByTime(FLUSH_MS);
+      expect(runs).toEqual([['works', 'items', 'messages']]);
+      // Nothing more came: nothing more is read.
+      vi.advanceTimersByTime(FLUSH_MS * 2);
+      expect(runs.length).toBe(1);
+      // A hidden tab gathers and reads nothing until it is looked at.
+      hidden = true;
+      soon(['works']);
+      vi.advanceTimersByTime(FLUSH_MS * 5);
+      soon(['items']);
+      expect(runs.length).toBe(1);
+      hidden = false;
+      vi.advanceTimersByTime(FLUSH_MS);
+      expect(runs[1]).toEqual(['works', 'items']);
+    } finally {
       vi.useRealTimers();
     }
   });
