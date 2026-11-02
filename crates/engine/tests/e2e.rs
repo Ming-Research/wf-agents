@@ -12786,7 +12786,7 @@ fn architect_with_remote(s: &Setup, url: &str) -> (Engine, Arc<Mutex<Vec<String>
     no_reply_wait(s);
     let (mut e, said) = engine(s, scripts());
     quiet(&mut e);
-    // (the code before the change has no backoff unit)
+    e.backoff_unit = Duration::ZERO;
     let arch = architect_work_at(&mut e, "U1");
     git(&s.root.join("checkout"), &["remote", "set-url", "origin", url]);
     (e, said, arch)
@@ -13075,7 +13075,7 @@ fn step_failures_with_only_rows_of_the_engine_between_are_in_a_row() {
 fn a_step_that_failed_is_taken_again_only_after_the_waits_the_flow_gives() {
     let s = setup("step-backoff");
     let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
-    // (the code before the change has no backoff unit)
+    e.backoff_unit = Duration::from_secs(3600);
     let hour = 3_600_000;
     // The round that failed ended `ago` ago.
     let ended_ago = |e: &Engine, round: i64, ago: i64| {
