@@ -13307,41 +13307,10 @@ fn step_failures_with_only_rows_of_the_engine_between_are_in_a_row() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A record of a step that failed before the cell's round is no run of the cell: a service that refused the agent's run,
-// then a step that failed like the network, then refused it again, has refused it twice in a row, and the work pauses
-// (a reading that took the step's record for the round before would run it once more).
-#[test]
-fn a_step_that_failed_between_two_refusals_is_not_a_run_of_the_cell() {
-    let s = setup("refused-across-step");
-    no_reply_wait(&s);
-    let mut scripts = scripts();
-    scripts.insert(
-        "U1",
-        Box::new(|_: &Request, _: usize| {
-            let flagged = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup)";
-            (Vec::new(), vec![("@error", json!(flagged))])
-        }),
-    );
-    let (mut e, said) = engine(&s, scripts);
-    quiet(&mut e);
-    e.backoff_unit = Duration::ZERO;
-    let arch = architect_work_at(&mut e, "U1");
-    let flagged = Some(json!({ "failed": { "kind": "flagged", "what": "flagged" } }));
-    history(&mut e, arch, &[("U1", None, flagged), ("U1", None, step_failed())]);
-    advance_to_pause(&mut e, arch, 4);
-    let log = said.lock().unwrap().join("\n");
-    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
-    let why: String =
-        e.db.conn()
-            .query_row("SELECT paused FROM works WHERE id = ?1", [arch], |r| r.get(0))
-            .unwrap();
-    assert!(why.contains("refused the agent's run in"), "{why}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// The same, at the first run after the step's record and not after several: the work pauses at once, since the run
-// before the step's record was refused too. (A run of the cell that is refused again after a reading that took the
-// step's record for the round before would be the first of its kind, and would not pause the work yet.)
+// A record of a step that failed before the cell's round is no run of the cell: after a run the service refused and a
+// step that failed like the network, a run refused again pauses the work at once, since the run before the step's
+// record was refused too. (A reading that took the step's record for the round before would find the first refusal
+// of its kind and not pause the work yet.)
 #[test]
 fn a_run_refused_after_a_step_that_failed_pauses_the_work_at_once() {
     let s = setup("refused-at-once");
