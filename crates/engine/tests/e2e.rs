@@ -12971,3 +12971,235 @@ fn failures_with_a_return_between_are_not_in_a_row() {
     assert_eq!(counted(&e, work, "retries"), 10, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+/// Rounds already in a work's history, oldest first, each as `(cell, row taken, rejected)`; they began an hour before
+/// now, so that an owner's Start after them ends the row they are in.
+fn history(e: &mut Engine, work: i64, rounds: &[(&str, Option<&str>, Option<Value>)]) {
+    let first = db::now() - 3_600_000;
+    e.db.write(Actor::Engine, |tx| {
+        for (i, (cell, row, rejected)) in rounds.iter().enumerate() {
+            let at = first + i as i64;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, rejected, config_commit, started_at, ended_at)
+                 VALUES (?1, ?2, ?3, '{}', ?4, ?5, ?6, 'c', ?7, ?7)",
+                params![
+                    work,
+                    i as i64 + 1,
+                    cell,
+                    row.map(|_| "{}"),
+                    row,
+                    rejected.as_ref().map(Value::to_string),
+                    at
+                ],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// The rejection a round has that a step of the engine's before it failed like the network.
+fn step_failed() -> Option<Value> {
+    Some(json!({ "failed": { "kind": "step_network", "what": "channel 0: open failed: administratively prohibited" } }))
+}
+
+/// The rows a work took after its first `skip` rounds.
+fn rows_after(e: &Engine, work: i64, skip: usize) -> Vec<Option<String>> {
+    rows_taken(e, work).into_iter().skip(skip).map(|r| r.1).collect()
+}
+
+/// Advances a work until it is paused, at most `most` times.
+fn advance_to_pause(e: &mut Engine, work: i64, most: usize) {
+    for _ in 0..most {
+        e.advance(work).unwrap();
+        if paused_by(e, work).is_some() {
+            break;
+        }
+    }
+}
+
+// Five failures of the step and then a return of an agent: the return is a row from outside the engine, so the
+// failures after it are counted afresh, and all five of them are run again before the sixth pauses (a count that kept
+// the five before the return would pause at the first).
+#[test]
+fn step_failures_before_a_return_of_an_agent_are_not_in_a_row_with_those_after_it() {
+    let s = setup("step-reset");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..5).map(|_| ("U1", None, step_failed())).collect();
+    past.push(("H9", Some("done"), None));
+    history(&mut e, arch, &past);
+    advance_to_pause(&mut e, arch, 12);
+    let log = said.lock().unwrap().join("\n");
+    let mut want = vec![Some("step_network".to_string()); 5];
+    want.push(Some("step_network_too_often".to_string()));
+    assert_eq!(rows_after(&e, arch, 6), want, "{log}");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Rows of the engine's between two failures of the step neither count nor start the count afresh: a failed run, a
+// round cut off and the engine's own cell between five failures leave the sixth past the bound.
+#[test]
+fn step_failures_with_only_rows_of_the_engine_between_are_in_a_row() {
+    let s = setup("step-engine-rows");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    let transient = Some(json!({ "failed": { "kind": "transient", "what": "529 Overloaded" } }));
+    let cut_off = Some(json!({ "interrupted": "the engine stopped before this round ended; it runs again" }));
+    let past: Vec<(&str, Option<&str>, Option<Value>)> = vec![
+        ("U1", None, step_failed()),
+        ("U1", None, step_failed()),
+        ("U1", None, step_failed()),
+        ("Q0", Some("waits"), None),
+        ("U1", None, transient),
+        ("U1", None, cut_off),
+        ("U1", None, step_failed()),
+        ("U1", None, step_failed()),
+    ];
+    history(&mut e, arch, &past);
+    advance_to_pause(&mut e, arch, 12);
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        rows_after(&e, arch, past.len()),
+        [Some("step_network_too_often".to_string())],
+        "{log}"
+    );
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    assert!(told(&s, "6 times in a row") > 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A step that failed waits as long as the flow's backoff says for the time it failed (5, 15, then 45 of its seconds, a
+// second here being an hour), and not for a shorter or a longer one: the round that runs it again is not begun before
+// the wait is over, and is begun once it is.
+#[test]
+fn a_step_that_failed_is_taken_again_only_after_the_waits_the_flow_gives() {
+    let s = setup("step-backoff");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    e.backoff_unit = Duration::from_secs(3600);
+    let hour = 3_600_000;
+    // The round that failed ended `ago` ago.
+    let ended_ago = |e: &Engine, round: i64, ago: i64| {
+        e.db.conn()
+            .execute(
+                "UPDATE rounds SET ended_at = ?3 WHERE work = ?1 AND n = ?2",
+                params![arch, round, db::now() - ago],
+            )
+            .unwrap();
+    };
+    for (round, hours) in [(1_i64, 5_i64), (2, 15), (3, 45)] {
+        e.advance(arch).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        assert_eq!(rows_taken(&e, arch).len() as i64, round, "{log}");
+        // A minute short of the wait: nothing runs.
+        ended_ago(&e, round, hours * hour - 60_000);
+        e.advance(arch).unwrap();
+        e.advance(arch).unwrap();
+        assert_eq!(rows_taken(&e, arch).len() as i64, round, "{round}: {log}");
+        assert_eq!(paused_by(&e, arch), None, "{log}");
+        // A minute past it: the step is taken again, and fails again.
+        ended_ago(&e, round, hours * hour + 60_000);
+    }
+    e.advance(arch).unwrap();
+    assert_eq!(rows_taken(&e, arch).len(), 4, "{}", said.lock().unwrap().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Start counts the failed runs of an agent afresh as it does the steps': once the work paused past the
+// bound is let go on, the next failure is run again, not paused.
+#[test]
+fn a_passing_failure_after_the_owner_s_start_is_run_again() {
+    let (s, mut e, said, item) = failing("transient-start", "API Error: 529 Overloaded".to_string(), 100);
+    for _ in 0..30 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let (work, _, paused) = state(&e, item).unwrap();
+    assert!(paused.is_some(), "{}", said.lock().unwrap().join("\n"));
+    let before = rows_taken(&e, work).len();
+    api::resume(&mut e.db, work).unwrap();
+    for _ in 0..2 {
+        e.tick().unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(state(&e, item).unwrap().2, None, "{log}");
+    let rows = rows_after(&e, work, before);
+    assert_eq!(rows.first(), Some(&Some("transient".to_string())), "{rows:?}\n{log}");
+    assert!(
+        rows.iter().all(|r| r.as_deref() == Some("transient")),
+        "{rows:?}\n{log}"
+    );
+    assert_eq!(counted(&e, work, "retries"), 8 + rows.len() as i64, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Returns sent back pause the work after the flow's own number, 3, and each is counted.
+#[test]
+fn three_returns_sent_back_in_a_row_pause_the_work() {
+    let s = setup("sent-back-three");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("outcome", json!("not an object"))])),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    for _ in 0..12 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "R1", "{log}");
+    assert!(
+        paused
+            .as_deref()
+            .is_some_and(|p| p.starts_with("3 returns of cell R1 in a row were sent back")),
+        "{paused:?}\n{log}"
+    );
+    assert_eq!(sent_back(&e), 3, "{log}");
+    assert_eq!(
+        (counted(&e, work, "sent_back"), counted(&e, work, "retries")),
+        (3, 0),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A return of an agent taken between two cells' returns sent back starts the count afresh: two sent back at one cell,
+// its return taken, and two at the next are four, and pause nothing (they would at three).
+#[test]
+fn returns_sent_back_either_side_of_a_return_taken_are_not_in_a_row() {
+    let s = setup("sent-back-apart");
+    let mut scripts = scripts();
+    for cell in ["R1", "R2"] {
+        scripts.insert(
+            cell,
+            Box::new(|_: &Request, n: usize| {
+                let bad = vec![("outcome", json!("not an object"))];
+                (Vec::new(), if n <= 2 { bad } else { Vec::new() })
+            }),
+        );
+    }
+    let (mut e, said, item) = start(&s, scripts);
+    for _ in 0..20 {
+        e.tick().unwrap();
+        let (_, at, paused) = state(&e, item).unwrap();
+        if paused.is_some() || !matches!(at.as_str(), "R1" | "R2") {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert!(!matches!(at.as_str(), "R1" | "R2"), "{at}\n{log}");
+    assert_eq!(sent_back(&e), 4, "{log}");
+    assert_eq!(
+        (counted(&e, work, "sent_back"), counted(&e, work, "retries")),
+        (4, 0),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}

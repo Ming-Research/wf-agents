@@ -910,3 +910,28 @@ case!(
         obj(&mut graph(v)["rounds"]["sentBack"]).remove("counts");
     }
 );
+
+// The step run again is bounded on every side of its case, not only on its backoff: with no pause to end in, or with a
+// bound of none, it is refused as a kind of failed run is; and a row of the rounds cannot count the time the engine
+// measures, which no row counts.
+case!(
+    a_step_run_again_with_no_pause,
+    "rounds.engine[step_network] runs again with no bound",
+    |v| {
+        obj(&mut graph(v)["rounds"]["engine"][2]).remove("then");
+    }
+);
+case!(
+    a_step_run_again_with_a_bound_of_none,
+    "rounds.engine[step_network] runs again with no bound",
+    |v| {
+        graph(v)["rounds"]["engine"][2]["inRow"] = json!(0);
+    }
+);
+case!(
+    a_row_of_the_rounds_that_counts_the_time_the_engine_measures,
+    "rounds section: no such counter, or one the engine measures: total_time",
+    |v| {
+        graph(v)["rounds"]["failed"]["kinds"][2]["counts"] = json!("total_time");
+    }
+);
