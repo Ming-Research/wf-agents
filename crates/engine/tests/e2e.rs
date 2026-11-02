@@ -13120,3 +13120,147 @@ fn with_too_few_rounds_nothing_is_judged() {
     assert_ne!(state(&e, item).unwrap().1, "R1", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// The round run again is given its cell's whole input besides why, and why names the last tools the stopped round used,
+// oldest first, with what each was used on, and the second condition of the signal.
+#[test]
+fn a_round_run_again_is_given_its_cell_whole_and_the_last_tools_of_the_one_stopped() {
+    let s = setup("guard-tools");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            let stream = json!([
+                { "tool": "Bash", "on": "cargo build", "digest": 1 },
+                { "tool": "Read", "on": "src/a.rs", "digest": 2 },
+                { "call": "a", "prompt": 10_000 },
+                { "call": "b", "prompt": 30_000 },
+            ]);
+            (Vec::new(), if n == 1 { vec![("@stream", stream)] } else { Vec::new() })
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    for _ in 0..8 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed_kinds(&e), ["guarded"], "{log}");
+    let (work, _, _) = state(&e, item).unwrap();
+    let again = input_at(&e, work, "R1", true);
+    let told = again["message"].as_str().unwrap_or_default();
+    assert!(
+        told.contains(r#""last_tools":[{"tool":"Bash","on":"cargo build"},{"tool":"Read","on":"src/a.rs"}]"#),
+        "{told}"
+    );
+    assert!(told.contains(r#""also":{"value":20000.0,"line":280.0}"#), "{told}");
+    let first = input_at(&e, work, "R1", false);
+    let task = first["message"]
+        .as_str()
+        .and_then(|m| m.split("## Task\n").nth(1))
+        .and_then(|m| m.split("## Work from").next())
+        .unwrap_or_default();
+    assert!(!task.trim().is_empty(), "{first}");
+    assert!(told.contains(task), "{told}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Acceptance: a round run again after a stop that is stopped again pauses the work. A failure that passes between the
+// two is a retry of that same round, as the owner's waiver reads it too: it must not start the count again.
+#[test]
+fn a_round_run_again_and_stopped_after_a_passing_failure_still_pauses_the_work() {
+    let s = setup("guard-retry");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            (
+                Vec::new(),
+                match n {
+                    1 | 3 => vec![("@stream", calls_of(&[10_000, 30_000]))],
+                    2 => vec![("@error", json!("API Error: 529 Overloaded"))],
+                    _ => Vec::new(),
+                },
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    for _ in 0..12 {
+        e.tick().unwrap();
+        let (_, at, paused) = state(&e, item).unwrap();
+        if paused.is_some() || at != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed_kinds(&e), ["guarded", "transient", "guarded"], "{log}");
+    let (_, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "R1", "{log}");
+    let why = paused.unwrap_or_default();
+    assert!(why.contains("the run guard stopped"), "{why}\n{log}");
+    let told = number(&e, "SELECT count(*) FROM engine_notices WHERE text LIKE '%is paused%'");
+    assert_eq!(told, 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Acceptance: the owner's Start lets the cell's round run past its line, however many times a passing failure makes it
+// run, and the rounds after it are judged as ever: the next cell's round past its own line is stopped, so the Start did
+// not turn the guard off for the work.
+#[test]
+fn after_the_round_the_owner_let_go_on_the_next_is_judged_as_ever() {
+    let s = setup("guard-after");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            let past = ("@stream", calls_of(&[10_000, 30_000]));
+            (
+                Vec::new(),
+                match n {
+                    1 | 2 | 4 => vec![past],
+                    3 => vec![past, ("@error", json!("API Error: 529 Overloaded"))],
+                    _ => Vec::new(),
+                },
+            )
+        }),
+    );
+    scripts.insert(
+        "R2",
+        Box::new(|_: &Request, n: usize| {
+            let past = vec![("@stream", calls_of(&[10_000, 30_000]))];
+            (Vec::new(), if n == 1 { past } else { Vec::new() })
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    history(&mut e, "R2", 19, &usual);
+    for _ in 0..8 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let (work, _, paused) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(paused.is_some(), "{log}");
+    api::resume(&mut e.db, work).unwrap();
+    for _ in 0..12 {
+        e.tick().unwrap();
+        if guard_events(&e).len() >= 5 {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let actions: Vec<String> = guard_events(&e)
+        .into_iter()
+        .filter(|(signal, _)| signal == "growth")
+        .map(|(_, a)| a)
+        .collect();
+    assert_eq!(actions, ["stopped", "stopped", "waived", "waived", "stopped"], "{log}");
+    assert_eq!(state(&e, item).unwrap().2, None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
