@@ -2056,6 +2056,60 @@ asks = 9
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    // Fetches of main that overlap in one checkout all succeed: the works of the engine take their steps at the same time,
+    // and every round of a cell that reads main fetches it, so a fetch must not be turned down because another moved the
+    // same ref a moment before ("cannot lock ref ... is at X but expected Y"). Reference: the same fetches one after
+    // another, which all succeed.
+    #[test]
+    fn fetches_of_main_that_overlap_in_one_checkout_all_succeed() {
+        let root = std::env::temp_dir().join(format!("wf-agents-overlap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let origin = root.join("origin.git");
+        let (checkout, other) = (root.join("checkout"), root.join("other"));
+        let run = |dir: &Path, args: &[&str]| git(dir, args).unwrap();
+        run(
+            &root,
+            &["init", "-q", "--bare", "-b", "main", &origin.to_string_lossy()],
+        );
+        run(
+            &root,
+            &["clone", "-q", &origin.to_string_lossy(), &other.to_string_lossy()],
+        );
+        std::fs::write(other.join("f.md"), "0\n").unwrap();
+        run(&other, &["add", "-A"]);
+        run(
+            &other,
+            &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "0"],
+        );
+        run(&other, &["push", "-q", "origin", "HEAD:main"]);
+        run(
+            &root,
+            &["clone", "-q", &origin.to_string_lossy(), &checkout.to_string_lossy()],
+        );
+        let mut p = read(&files(&[])).unwrap().projects.remove("p").unwrap();
+        p.checkout = checkout.clone();
+        for round in 1..=15 {
+            std::fs::write(other.join("f.md"), format!("{round}\n")).unwrap();
+            run(&other, &["add", "-A"]);
+            run(
+                &other,
+                &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "next"],
+            );
+            run(&other, &["push", "-q", "origin", "HEAD:main"]);
+            let pushed = run(&other, &["rev-parse", "HEAD"]).trim().to_string();
+            let results: Vec<Result<(), String>> = std::thread::scope(|s| {
+                let fetches: Vec<_> = (0..8).map(|_| s.spawn(|| fetch_main(&p))).collect();
+                fetches.into_iter().map(|f| f.join().unwrap()).collect()
+            });
+            for result in &results {
+                assert!(result.is_ok(), "round {round}: {result:?}");
+            }
+            assert_eq!(main_commit(&p).unwrap(), pushed);
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     // The checkout's `origin/<main>` is what the remote's main is after a fetch, whatever happened to it: a main that was
     // rewritten and force-pushed, and a main whose name has a slash; a main the remote does not have is an error.
     // Reference: `git ls-remote origin <main>`, the remote's own answer.
