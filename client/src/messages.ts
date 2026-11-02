@@ -494,8 +494,7 @@ const messages = {
   work_pr: 'PR #{n}',
   work_pr_hint: 'Open the pull request on GitHub',
   works_column_grip: 'Drag to set the width of the column; double-click for its own width',
-  works_active: 'Running and waiting',
-  works_ended: 'Ended',
+  works_architect: 'Architect',
   rounds_sent_back_title: 'Returns sent back: {n}. Click to see only those rounds.',
   rounds_failed_title: 'Rounds that failed or were cut off: {n}. Click to see only those rounds.',
   rounds_only_sent_back: 'Only the rounds whose return was sent back ({n}).',
@@ -1386,7 +1385,6 @@ const messages = {
   // The graphs side by side.
   chart_graph: "The {graph}'s graph",
   // The architect's page.
-  nav_architect: 'Architect',
   chart_no_graph: 'This flow version has no graph {graph}.',
   ask_waits: 'waits for your answer',
   ask_answer_by: 'Answered by {by}',

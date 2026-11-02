@@ -33,12 +33,16 @@ import { joinedWords } from './voices';
 /// projects, which belong to no project either.
 export type ListPart = { part: 'top' | 'project' | 'projects'; project: string | null; conversations: Conversation[] };
 
+/// The projects a list that groups its rows by project has a group for, in the order every such list has them, by name:
+/// the list of conversations, the works and the items' tree.
+export const sortedProjects = (names: Iterable<string>): string[] => [...new Set(names)].sort();
+
 export function listParts(list: Conversation[]): ListPart[] {
   const of = (kind: string, project?: string) =>
     list.filter((c) => c.kind === kind && (project === undefined || (c.project ?? '') === project));
-  const projects = [
-    ...new Set(list.filter((c) => c.kind === 'architect' || c.kind === 'work').map((c) => c.project ?? '')),
-  ].sort();
+  const projects = sortedProjects(
+    list.filter((c) => c.kind === 'architect' || c.kind === 'work').map((c) => c.project ?? ''),
+  );
   const parts: ListPart[] = [
     { part: 'top', project: null, conversations: of('wf_agents') },
     ...projects.map(

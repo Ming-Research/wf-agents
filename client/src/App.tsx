@@ -12,7 +12,7 @@ import { Settings } from './pages/Settings';
 import { System } from './pages/System';
 import { Works } from './pages/Works';
 import { readColours } from './roles';
-import { href, Link, navigate, useRoute } from './route';
+import { Link, moved, navigate, useRoute } from './route';
 import { t } from './text';
 import { TopBar } from './TopBar';
 
@@ -24,9 +24,11 @@ export function App() {
     connect();
     readColours();
   }, []);
-  // The Spend view's old address goes on to the System view that took its place.
+  // An address the page once had (the architect's page, the Spend view) goes on to where its view is now, with what the
+  // old address named.
   useEffect(() => {
-    if (route.page === 'system' && location.pathname === '/spend') navigate(href(route), true);
+    const to = moved(location.pathname, route);
+    if (to !== null) navigate(to, true);
   }, [route]);
   const work = route.page === 'work' ? route : null;
   // A view that fills the window and scrolls inside its parts; the items and the observations scroll the page, their

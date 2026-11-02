@@ -134,6 +134,19 @@ export function parse(pathname: string, search: string): Route {
   const parts = pathname.split('/').filter((p) => p !== '');
   const [first, second] = parts;
   if (parts.length === 0 || (first === 'works' && parts.length === 1)) return { page: 'works' };
+  // The architect's page is under the works, where every project's architect is the first row of its works; its old
+  // address, which the page moves on from (`moved`), reads the same.
+  if ((first === 'works' && second === 'architect' && parts.length === 2) || (first === 'architect' && parts.length === 1)) {
+    const tab = ARCHITECT_TABS.find((x) => x === q.get('tab')) ?? 'rounds';
+    return {
+      page: 'architect',
+      project: q.get('project'),
+      tab,
+      round: roundKey(q.get('round')),
+      cell: q.get('cell'),
+      span: SPANS.find((x) => x === q.get('span')) ?? '7d',
+    };
+  }
   if (first === 'works' && parts.length === 2) {
     const id = num(second);
     if (id !== null) {
@@ -148,17 +161,6 @@ export function parse(pathname: string, search: string): Route {
         only: only === 'sent_back' || only === 'failed' ? only : null,
       };
     }
-  }
-  if (first === 'architect' && parts.length === 1) {
-    const tab = ARCHITECT_TABS.find((x) => x === q.get('tab')) ?? 'rounds';
-    return {
-      page: 'architect',
-      project: q.get('project'),
-      tab,
-      round: roundKey(q.get('round')),
-      cell: q.get('cell'),
-      span: SPANS.find((x) => x === q.get('span')) ?? '7d',
-    };
   }
   if (first === 'items' && parts.length === 1) return { page: 'items' };
   if (first === 'observations' && parts.length <= 2) {
@@ -214,7 +216,7 @@ export function href(r: Route): string {
         ['cell', r.cell],
       ])}`;
     case 'architect':
-      return `/architect${query([
+      return `/works/architect${query([
         ['project', r.project],
         ['tab', r.tab === 'rounds' ? null : r.tab],
         ['span', r.span === '7d' ? null : r.span],
@@ -248,6 +250,17 @@ export function href(r: Route): string {
     case 'missing':
       return '/';
   }
+}
+
+/// Addresses the page once had, which go on to where their view is now: the architect's page, which is under the works,
+/// and the spend view, which is the system view.
+/// Removed when the first version's review has them: every browser of the owner has opened the new addresses by then.
+const OLD_ADDRESSES = ['/architect', '/spend'];
+
+/// The address a route is shown at when the browser holds an old one, with every parameter the old address had kept;
+/// none for any other address, a trailing slash aside.
+export function moved(pathname: string, route: Route): string | null {
+  return OLD_ADDRESSES.includes(pathname.replace(/\/+$/, '')) ? href(route) : null;
 }
 
 /// The address of a work's page: its rounds with nothing open, or what `more` names.
