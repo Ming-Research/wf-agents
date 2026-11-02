@@ -417,7 +417,9 @@ fn write_one(
     created: &mut Vec<Value>,
     projects: &BTreeMap<String, config::Project>,
 ) -> Result<(), String> {
-    let cancel = |item: i64, why: &str| crate::ending::cancel_item(tx, item, why, "architect", projects);
+    // What came of it reaches the architect by itself: an item whose merge came first is not cancelled, and a report
+    // says so; the rest of the batch stands either way, as its links moved before the cancel do.
+    let cancel = |item: i64, why: &str| crate::ending::cancel_item(tx, item, why, "architect", projects).map(|_| ());
     let reason = text(c, "reason");
     let json_of = |k: &str| c.get(k).cloned().unwrap_or(Value::Null).to_string();
     match text(c, "kind") {
@@ -739,11 +741,10 @@ mod tests {
         assert_eq!(links, 1);
     }
 
-    // The architect's cancellation of an item, and its merge of one item into another, end the work on each as every
-    // work ends: its session ends, and its worktree's removal and its pull request's closing are queued, saying why;
-    // the work on the item kept goes on.
+    // The architect's cancellation of an item, and its merge of one item into another, ask the engine's loop to cancel
+    // the item whose work goes on, which it does once the work has no step in flight; the work on the item kept goes on.
     #[test]
-    fn a_cancelled_or_merged_item_s_work_ends_as_every_work_ends() {
+    fn a_cancelled_or_merged_item_with_a_work_going_on_is_asked_of_the_loop() {
         let mut db = Db::in_memory().unwrap();
         let p: config::Project = serde_json::from_value(json!({
             "repo": "o/p", "checkout": "/checkout", "design_goal": "simple",
@@ -779,29 +780,28 @@ mod tests {
             Ok(())
         })
         .unwrap();
+        // Nothing has ended: the transaction of a batch cannot know what the loop has in flight.
         let going: Vec<i64> = query_json(db.conn(), "SELECT work FROM sessions WHERE ended IS NULL", &[], 10)
             .unwrap()
             .iter()
             .filter_map(|r| r["work"].as_i64())
             .collect();
-        assert_eq!(going, [1]);
+        assert_eq!(going, [1, 2, 3]);
         let actions: Vec<(String, Value)> = query_json(
             db.conn(),
-            "SELECT kind, json_extract(args, '$.comment') AS comment FROM outbox ORDER BY id",
+            "SELECT kind, json_extract(args, '$.item') AS item FROM outbox ORDER BY id",
             &[],
             10,
         )
         .unwrap()
         .iter()
-        .map(|r| (text(r, "kind").to_string(), r["comment"].clone()))
+        .map(|r| (text(r, "kind").to_string(), r["item"].clone()))
         .collect();
         assert_eq!(
             actions,
             [
-                ("remove_worktree".to_string(), Value::Null),
-                ("close_pr".to_string(), json!("Its work ended without merging.")),
-                ("remove_worktree".to_string(), Value::Null),
-                ("close_pr".to_string(), json!("Its work ended without merging.")),
+                (db::CANCEL_ITEM.to_string(), json!(2)),
+                (db::CANCEL_ITEM.to_string(), json!(3)),
             ]
         );
     }

@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use db::Actor;
 use db::rusqlite::params;
 use engine::agent::{Agents, Reply, Request};
+use engine::ending::Cancelling;
 use engine::hub::{CheckRun, Failure, GitHub};
 use engine::{Advance, Ask, Engine, GlobalPause, Go, Hooks, Passed, Stepped};
 use serde_json::{Value, json};
@@ -494,11 +495,20 @@ impl Scripted {
     }
 }
 
-/// A pull request on the fake GitHub: the branch it is from and the branch it merges into.
+/// How a pull request stands on the fake GitHub.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrState {
+    Open,
+    Merged,
+    Closed,
+}
+
+/// A pull request on the fake GitHub: the branch it is from, the branch it merges into, and how it stands.
 #[derive(Clone)]
 struct Pr {
     branch: String,
     base: String,
+    state: PrState,
 }
 
 /// The pull requests of the fake GitHub, by number, which a test can read and change as GitHub keeps them.
@@ -554,13 +564,14 @@ impl Gate {
 }
 
 /// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
-/// request keeps the base it was opened with until it is set, and a merge squashes the branch onto the pull request's
-/// base.
+/// request keeps the base it was opened with until it is set, a merge, once `merging` lets it through, squashes the
+/// branch onto the pull request's base, and closing a pull request that merged fails, as `gh pr close` does.
 struct FakeHub {
     origin: PathBuf,
     scratch: PathBuf,
     prs: Prs,
     ci: Gate,
+    merging: Gate,
 }
 
 impl GitHub for FakeHub {
@@ -585,6 +596,7 @@ impl GitHub for FakeHub {
             Pr {
                 branch: branch.to_string(),
                 base: base.to_string(),
+                state: PrState::Open,
             },
         );
         Ok(n)
@@ -622,7 +634,8 @@ impl GitHub for FakeHub {
     }
 
     fn merge(&self, _repo: &str, pr: i64) -> Result<String, Failure> {
-        let Pr { branch, base } = self
+        self.merging.pass();
+        let Pr { branch, base, .. } = self
             .prs
             .lock()
             .unwrap()
@@ -649,10 +662,19 @@ impl GitHub for FakeHub {
             &["commit", "-q", "--allow-empty", "-m", &format!("Merge PR {pr}")],
         );
         git(&dir, &["push", "-q", "origin", &format!("HEAD:{base}")]);
+        if let Some(p) = self.prs.lock().unwrap().get_mut(&pr) {
+            p.state = PrState::Merged;
+        }
         Ok(git(&dir, &["rev-parse", "HEAD"]))
     }
 
-    fn close(&self, _repo: &str, _pr: i64, _comment: &str) -> Result<(), Failure> {
+    fn close(&self, _repo: &str, pr: i64, _comment: &str) -> Result<(), Failure> {
+        let mut prs = self.prs.lock().unwrap();
+        let p = prs.get_mut(&pr).ok_or_else(|| Failure::other("no such PR"))?;
+        if p.state == PrState::Merged {
+            return Err(Failure::other("a merged pull request cannot be closed"));
+        }
+        p.state = PrState::Closed;
         Ok(())
     }
 
@@ -713,6 +735,8 @@ struct Setup {
     prs: Prs,
     /// Where the fake GitHub's checks wait while a test keeps CI from coming back.
     ci: Gate,
+    /// Where the fake GitHub's merges wait while a test keeps a merge from coming back; it counts the merge calls.
+    merging: Gate,
 }
 
 fn setup(name: &str) -> Setup {
@@ -792,6 +816,7 @@ merge_checks = ["check"]
         origin,
         prs: Prs::default(),
         ci: Gate::default(),
+        merging: Gate::default(),
     }
 }
 
@@ -939,6 +964,7 @@ fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks)
         scratch: s.root.clone(),
         prs: s.prs.clone(),
         ci: s.ci.clone(),
+        merging: s.merging.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let said = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -1144,6 +1170,7 @@ fn building_a_message_writes_nothing() {
         scratch: s.root.clone(),
         prs: s.prs.clone(),
         ci: s.ci.clone(),
+        merging: s.merging.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
@@ -2293,6 +2320,7 @@ fn a_pull_request_opened_against_another_branch_merges_into_main_only() {
     let elsewhere = Pr {
         branch: "outside/feature".into(),
         base: "first-version".into(),
+        state: PrState::Open,
     };
     s.prs.lock().unwrap().insert(9, elsewhere.clone());
     let (mut e, said, item) = start(&s, scripts());
@@ -7304,8 +7332,11 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     assert_eq!((rounds_count(&e), state(&e, item).unwrap().2), (n, Some(why)), "{log}");
     assert_eq!(
         api::resume(&mut e.db, work).unwrap(),
-        format!("work {work} goes on; the architect, which had stopped it, is told")
+        format!("work {work} goes on once its machine has a slot free; the architect, which had stopped it, is told")
     );
+    // The engine's next turn lifts the pause, as its machine has a slot free, and tells the architect.
+    e.dispatch(&Go::default()).unwrap();
+    e.drain().unwrap();
     let told: String =
         e.db.conn()
             .query_row(
@@ -12029,11 +12060,40 @@ fn a_halt_dispatches_no_step_and_lets_the_step_under_way_end() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The owner cancels a work's item while its CI runs: the cancel ends the work and cuts its round off at once. The step
-// under way, at its end, finds its round ended: its transaction rolls back, the work and its rounds stay as the cancel
-// left them, and the loop does not pause the work.
+/// Asks to cancel an item, as the owner's command line or an architect's batch does, and gives what came of it.
+fn cancel(e: &mut Engine, item: i64, by: &str) -> Cancelling {
+    let projects = e.config.config.projects.clone();
+    let actor = if by == "owner" { Actor::Owner } else { Actor::Architect };
+    e.db.write(actor, |tx| {
+        engine::ending::cancel_item(tx, item, "no longer needed", by, &projects).map_err(db::Error::Abort)
+    })
+    .unwrap()
+}
+
+/// Why an item was cancelled; none while it is not.
+fn cancelled_why(e: &Engine, item: i64) -> Option<String> {
+    e.db.conn()
+        .query_row("SELECT cancelled FROM items WHERE id = ?1", [item], |r| r.get(0))
+        .unwrap()
+}
+
+/// Why a work ended; none while it goes on.
+fn ended_why(e: &Engine, work: i64) -> Option<String> {
+    e.db.conn()
+        .query_row("SELECT ended FROM works WHERE id = ?1", [work], |r| r.get(0))
+        .unwrap()
+}
+
+/// How the pull requests on the fake GitHub stand, in the order of their numbers.
+fn pr_states(s: &Setup) -> Vec<PrState> {
+    s.prs.lock().unwrap().values().map(|p| p.state).collect()
+}
+
+// The owner cancels a work's item while its first CI runs, its pull request opened and not yet recorded: nothing ends
+// yet. The step goes on to its end and records the pull request; the loop then ends the work and closes it. A cancel
+// that ended the work at once found no pull request recorded and left it open with no one to close it.
 #[test]
-fn a_work_whose_item_is_cancelled_during_its_ci_stays_as_the_cancel_left_it() {
+fn a_cancel_during_the_first_ci_waits_for_the_step_and_closes_its_pull_request() {
     let s = setup("cancel-in-ci");
     s.ci.shut();
     let (mut e, said, item) = start(&s, scripts());
@@ -12042,37 +12102,28 @@ fn a_work_whose_item_is_cancelled_during_its_ci_stays_as_the_cancel_left_it() {
     assert!(ci, "{log}");
     let work = state(&e, item).unwrap().0;
     assert!(tool_round_open(&e, work).is_some(), "{log}");
-    let projects = e.config.config.projects.clone();
-    e.db.write(Actor::Owner, |tx| {
-        engine::ending::cancel_item(tx, item, "no longer needed", "owner", &projects).map_err(db::Error::Abort)
-    })
-    .unwrap();
-    let rows = |e: &Engine| -> Vec<Value> {
-        let mut out = engine::query_json(
-            e.db.conn(),
-            "SELECT at, ended, paused, paused_by FROM works WHERE id = ?1",
-            &[&work],
-            10,
-        )
-        .unwrap();
-        out.extend(
-            engine::query_json(
-                e.db.conn(),
-                "SELECT n, cell, ended_at, transition, rejected FROM rounds WHERE work = ?1 ORDER BY n",
-                &[&work],
-                1000,
-            )
-            .unwrap(),
-        );
-        out
-    };
-    let cancelled = rows(&e);
-    assert!(!cancelled[0]["ended"].is_null(), "{cancelled:?}");
-    assert!(tool_round_open(&e, work).is_none(), "{log}");
+    assert_eq!(pr_states(&s), [PrState::Open], "{log}");
+    assert_eq!(works_of(&e, item)[0].4, None, "{log}");
+    assert_eq!(cancel(&mut e, item, "owner"), Cancelling::Asked, "{log}");
+    assert_eq!(ended_why(&e, work), None, "{log}");
+    assert!(tool_round_open(&e, work).is_some(), "{log}");
     s.ci.open();
+    let closed = turns_until(&mut e, &Go::default(), |_| pr_states(&s) == [PrState::Closed]);
     e.drain().unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(rows(&e), cancelled, "{log}");
+    assert!(closed, "{log}");
+    assert_eq!(cancelled_why(&e, item).as_deref(), Some("no longer needed"), "{log}");
+    assert!(ended_why(&e, work).is_some(), "{log}");
+    assert_eq!(paused_by(&e, work), None, "{log}");
+    let took: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'X1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(took.as_deref(), Some("ran"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -12091,6 +12142,7 @@ fn a_start_over_asked_during_a_step_waits_until_the_step_ends() {
     e.dispatch(&Go::default()).unwrap();
     assert_eq!(works_of(&e, item).len(), 1, "{log}");
     assert!(tool_round_open(&e, work).is_some(), "{log}");
+    assert_eq!(db::stopping(e.db.conn()).unwrap(), [work], "{log}");
     s.ci.open();
     e.drain().unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -12109,6 +12161,7 @@ fn a_start_over_asked_during_a_step_waits_until_the_step_ends() {
     let works = works_of(&e, item);
     assert_eq!(works.len(), 2, "{works:?}\n{log}");
     assert!(works[0].5.is_some(), "{works:?}\n{log}");
+    assert_eq!(db::stopping(e.db.conn()).unwrap(), Vec::<i64>::new(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -12244,12 +12297,12 @@ fn the_owner_s_step_of_a_work_whose_step_runs_waits_until_that_step_ends() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The owner cancels a work's item while its agent's round runs: the cancel ends the work and cuts the round off at
-// once. The step under way, as the round's call returns, takes nothing of what it handed in and keeps only what it
-// cost on the round; the work and its rounds otherwise stay as the cancel left them, and the loop neither pauses the
-// work nor dispatches it again.
+// The owner cancels a work's item while its agent's round runs: nothing ends yet, and nobody is told, which a cancel
+// that ended the work at once would have got wrong had the merge come first. The owner's page says the work is stopping.
+// The round's call returns and what it handed in is not taken; the loop then ends the work, cuts the round off keeping
+// what it cost, and tells the item that depended on it; the page says stopping no more, and the work is not paused.
 #[test]
-fn a_work_whose_item_is_cancelled_during_its_agent_s_round_takes_nothing_of_the_round() {
+fn a_cancel_during_an_agent_s_round_takes_nothing_of_it_and_tells_no_one_until_the_step_ends() {
     let s = setup("cancel-in-a-round");
     let hold = Gate::default();
     let h = hold.clone();
@@ -12270,51 +12323,65 @@ fn a_work_whose_item_is_cancelled_during_its_agent_s_round_takes_nothing_of_the_
     assert!(came, "{log}");
     let work = state(&e, item).unwrap().0;
     assert_eq!(open_rounds(&e, work), 1, "{log}");
-    let projects = e.config.config.projects.clone();
-    e.db.write(Actor::Owner, |tx| {
-        engine::ending::cancel_item(tx, item, "no longer needed", "owner", &projects).map_err(db::Error::Abort)
-    })
-    .unwrap();
-    let rows = |e: &Engine| -> Vec<Value> {
-        let mut out = engine::query_json(
-            e.db.conn(),
-            "SELECT at, ended, paused, paused_by FROM works WHERE id = ?1",
-            &[&work],
-            10,
-        )
+    // An item that depends on it and has no work: its architect is told, by a matter to set straight.
+    let dependent =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'After it', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            let id = tx.last_insert_rowid();
+            db::add_dependency(tx, id, item, "its tokens", "blocking")?;
+            Ok(id)
+        })
         .unwrap();
-        out.extend(
-            engine::query_json(
-                e.db.conn(),
-                "SELECT n, cell, ended_at, output, transition, rejected FROM rounds WHERE work = ?1 ORDER BY n",
-                &[&work],
-                1000,
+    let told = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight' AND item = ?1",
+                [dependent],
+                |r| r.get(0),
             )
-            .unwrap(),
-        );
-        out
+            .unwrap()
     };
-    let cancelled = rows(&e);
-    assert!(!cancelled[0]["ended"].is_null(), "{cancelled:?}");
-    assert_eq!(open_rounds(&e, work), 0, "{log}");
+    assert_eq!(cancel(&mut e, item, "owner"), Cancelling::Asked, "{log}");
+    // The loop's turn with the step in flight leaves it all as it was.
+    e.dispatch(&Go::default()).unwrap();
+    assert_eq!(ended_why(&e, work), None, "{log}");
+    assert_eq!(open_rounds(&e, work), 1, "{log}");
+    assert_eq!(told(&e), 0, "{log}");
+    assert_eq!(db::stopping(e.db.conn()).unwrap(), [work], "{log}");
     hold.open();
     e.drain().unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(rows(&e), cancelled, "{log}");
-    // What the round cost is kept on it.
-    let cost: Option<String> =
+    assert_eq!(ended_why(&e, work), None, "{log}");
+    assert_eq!(told(&e), 0, "{log}");
+    e.dispatch(&Go::default()).unwrap();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(cancelled_why(&e, item).as_deref(), Some("no longer needed"), "{log}");
+    assert_eq!(
+        ended_why(&e, work).as_deref(),
+        Some("item cancelled: no longer needed"),
+        "{log}"
+    );
+    assert_eq!(told(&e), 1, "{log}");
+    assert_eq!(db::stopping(e.db.conn()).unwrap(), Vec::<i64>::new(), "{log}");
+    assert_eq!(paused_by(&e, work), None, "{log}");
+    assert_eq!(open_rounds(&e, work), 0, "{log}");
+    // Nothing of what the round handed in is taken; what it cost is kept on it.
+    let (output, transition, rejected, cost): (Option<String>, Option<String>, Option<String>, Option<String>) =
         e.db.conn()
             .query_row(
-                "SELECT usage FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                "SELECT output, transition, rejected, usage FROM rounds WHERE work = ?1 AND cell = 'R1'",
                 [work],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .unwrap();
+    assert_eq!((output, transition), (None, None), "{log}");
+    assert!(rejected.is_some_and(|r| r.contains("interrupted")), "{log}");
     assert!(cost.is_some(), "{log}");
-    e.dispatch(&Go::default()).unwrap();
-    assert!(!e.in_flight().contains(&work), "{log}");
-    e.drain().unwrap();
-    assert_eq!(rows(&e), cancelled, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -12750,5 +12817,449 @@ fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_
     );
     assert_eq!(rounds_at(&e), 1, "{log}");
     assert!(state(&e, second).unwrap().2.is_some(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// What is asked of a work from outside its step: a merge, which cannot be undone, against a stop asked around it, and
+// the slots against a pause lifted or a round that runs on.
+
+/// An engine over a setup whose one work stands at the merge step, which it has not begun, with its item and the work.
+fn at_the_merge(name: &str) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64, i64) {
+    let s = setup(name);
+    let (mut e, said, item) = start(&s, scripts());
+    let at = turns_until(&mut e, &Go::default(), |e| state(e, item).is_some_and(|w| w.1 == "M2"));
+    assert!(at, "{}", said.lock().unwrap().join("\n"));
+    let work = state(&e, item).unwrap().0;
+    (s, e, said, item, work)
+}
+
+/// Takes turns until the merge step waits for the full CI, which stays shut.
+fn held_at_full_ci(e: &mut Engine, s: &Setup, said: &Mutex<Vec<String>>) {
+    s.ci.shut();
+    let came = s.ci.came();
+    let held = turns_until(e, &Go::default(), |_| s.ci.came() > came);
+    assert!(held, "{}", said.lock().unwrap().join("\n"));
+}
+
+/// Takes turns until the merge step is in its merge call, which stays shut.
+fn held_at_the_merge_call(e: &mut Engine, s: &Setup, said: &Mutex<Vec<String>>) {
+    s.merging.shut();
+    let held = turns_until(e, &Go::default(), |_| s.merging.came() > 0);
+    assert!(held, "{}", said.lock().unwrap().join("\n"));
+}
+
+/// Takes turns until a work is done, and gives what was said.
+fn done_after_watching_main(e: &mut Engine, work: i64, said: &Mutex<Vec<String>>) -> String {
+    let done = turns_until(e, &Go::default(), |e| {
+        let w = e.work(work).unwrap();
+        e.done(&w).unwrap()
+    });
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(done, "{log}");
+    log
+}
+
+/// How many notices the owner has that say a word.
+fn notices(e: &Engine, word: &str) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT count(*) FROM engine_notices WHERE instr(text, ?1) > 0",
+            [word],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// A cancel that comes while the merge step waits for the full CI stops the merge: nothing reaches GitHub's merge, the
+// step takes the row `stopped`, and the loop then ends the work and closes its pull request. Without the check before
+// the merge call, the merge goes through under a cancel the owner was told of.
+#[test]
+fn a_cancel_during_the_merge_s_full_ci_stops_the_merge() {
+    let (s, mut e, said, item, work) = at_the_merge("cancel-before-merge");
+    held_at_full_ci(&mut e, &s, &said);
+    assert_eq!(cancel(&mut e, item, "owner"), Cancelling::Asked);
+    s.ci.open();
+    let closed = turns_until(&mut e, &Go::default(), |_| pr_states(&s) == [PrState::Closed]);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(closed, "{log}");
+    assert_eq!(s.merging.came(), 0, "{log}");
+    assert_eq!(transitions_at(&e, work, "M2"), [Some("stopped".to_string())], "{log}");
+    assert_eq!(cancelled_why(&e, item).as_deref(), Some("no longer needed"), "{log}");
+    assert!(ended_why(&e, work).is_some(), "{log}");
+    assert!(!db::merge_stands(e.db.conn(), item).unwrap(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A cancel asked by `by` while the merge call is under way: the merge came first, and stands.
+fn a_cancel_during_the_merge_call(name: &str, by: &str) -> (Setup, Engine, i64) {
+    let (s, mut e, said, item, work) = at_the_merge(name);
+    held_at_the_merge_call(&mut e, &s, &said);
+    assert_eq!(cancel(&mut e, item, by), Cancelling::Asked);
+    s.merging.open();
+    let log = done_after_watching_main(&mut e, work, &said);
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    assert_eq!(transitions_at(&e, work, "M2"), [Some("merged".to_string())], "{log}");
+    assert!(!transitions_at(&e, work, "L1").is_empty(), "{log}");
+    assert_eq!(cancelled_why(&e, item), None, "{log}");
+    assert_eq!(ended_why(&e, work), None, "{log}");
+    assert_eq!(notices(&e, "is not cancelled"), 1, "{log}");
+    let closing: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM outbox WHERE kind = 'close_pr'", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(closing, 0, "{log}");
+    (s, e, item)
+}
+
+/// The reports the architect has that say an item is not cancelled.
+fn reports_of_a_merge_first(e: &Engine, item: i64) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT count(*) FROM architect_matters
+             WHERE kind = 'report' AND item = ?1 AND instr(what, 'is not cancelled') > 0",
+            [item],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// A cancel that comes while the merge call is under way comes too late: the database says merged as GitHub does, the
+// merged pull request is not closed, nothing says the item cancelled, the work watches main as after any merge, and the
+// owner is told. The cancel's request stands in the outbox until the merge is known, so no one was told otherwise.
+#[test]
+fn a_merge_under_way_outruns_the_owner_s_cancel() {
+    let (s, e, item) = a_cancel_during_the_merge_call("owner-cancel-in-merge", "owner");
+    assert_eq!(reports_of_a_merge_first(&e, item), 0);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// So for a cancel of the architect's, which is told by a report as well.
+#[test]
+fn a_merge_under_way_outruns_the_architect_s_cancel_and_it_is_told() {
+    let (s, e, item) = a_cancel_during_the_merge_call("architect-cancel-in-merge", "architect");
+    assert_eq!(reports_of_a_merge_first(&e, item), 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A cancel asked of a work in the merge step keeps it at the head of the merge queue until the loop carries the cancel
+// out, so that the work behind it does not begin its merge beside that step. A cancel that ended the work at once
+// let the next work in while the first merge could still go through.
+#[test]
+fn the_work_behind_waits_while_a_cancel_of_the_merge_step_is_asked() {
+    let (s, mut e, said, item, work) = at_the_merge("cancel-keeps-queue");
+    held_at_full_ci(&mut e, &s, &said);
+    let v = e.flow_now;
+    let behind =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'Add another', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            let other = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, pr) VALUES (?1, ?2, 'engineer', 'M2', 9)",
+                params![other, v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    assert_eq!(cancel(&mut e, item, "owner"), Cancelling::Asked);
+    let waits = turns_until(&mut e, &Go::default(), |e| !transitions_at(e, behind, "M2").is_empty());
+    let log = said.lock().unwrap().join("\n");
+    assert!(waits, "{log}");
+    assert_eq!(transitions_at(&e, behind, "M2"), [Some("behind".to_string())], "{log}");
+    assert_eq!(ended_why(&e, work), None, "{log}");
+    assert_eq!(s.merging.came(), 0, "{log}");
+    s.ci.open();
+    e.drain().unwrap();
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A start over that comes while the merge step waits for the full CI stops the merge, and a new work takes the item
+// over, with its pull request still open.
+#[test]
+fn a_start_over_during_the_merge_s_full_ci_stops_the_merge() {
+    let (s, mut e, said, item, work) = at_the_merge("start-over-before-merge");
+    held_at_full_ci(&mut e, &s, &said);
+    api::start_over(&mut e.db, work).unwrap();
+    s.ci.open();
+    let over = turns_until(&mut e, &Go::default(), |e| works_of(e, item).len() == 2);
+    let log = said.lock().unwrap().join("\n");
+    assert!(over, "{log}");
+    assert_eq!(s.merging.came(), 0, "{log}");
+    assert_eq!(transitions_at(&e, work, "M2"), [Some("stopped".to_string())], "{log}");
+    assert_eq!(pr_states(&s), [PrState::Open], "{log}");
+    e.drain().unwrap();
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A start over that comes while the merge call is under way comes too late: no new work takes the item over, the work
+// watches main as after any merge, and whoever asked is told.
+#[test]
+fn a_merge_under_way_outruns_a_start_over() {
+    let (s, mut e, said, item, work) = at_the_merge("start-over-in-merge");
+    held_at_the_merge_call(&mut e, &s, &said);
+    api::start_over(&mut e.db, work).unwrap();
+    s.merging.open();
+    let log = done_after_watching_main(&mut e, work, &said);
+    assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    assert_eq!(notices(&e, "is not started over"), 1, "{log}");
+    assert!(!transitions_at(&e, work, "L1").is_empty(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Once its merge stands on main, an item is not cancelled nor its work started over, whether the work watches main or
+// is done; whoever asks is told, and nothing waits in the outbox.
+#[test]
+fn an_item_whose_merge_stands_on_main_is_not_cancelled() {
+    let (s, mut e, said, item, work) = at_the_merge("cancel-after-merge");
+    held_at_the_merge_call(&mut e, &s, &said);
+    s.ci.shut();
+    let came = s.ci.came();
+    s.merging.open();
+    let watching = turns_until(&mut e, &Go::default(), |_| s.ci.came() > came);
+    let log = said.lock().unwrap().join("\n");
+    assert!(watching, "{log}");
+    assert_eq!(state(&e, item).unwrap().1, "L1", "{log}");
+    assert_eq!(cancel(&mut e, item, "owner"), Cancelling::Merged, "{log}");
+    assert_eq!(db::stopping(e.db.conn()).unwrap(), Vec::<i64>::new(), "{log}");
+    assert_eq!(
+        api::start_over(&mut e.db, work),
+        Err(format!("work {work} has merged, and its merge stands on main")),
+        "{log}"
+    );
+    s.ci.open();
+    let log = done_after_watching_main(&mut e, work, &said);
+    assert_eq!(cancel(&mut e, item, "owner"), Cancelling::Merged, "{log}");
+    assert_eq!(cancelled_why(&e, item), None, "{log}");
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    assert_eq!(notices(&e, "is not cancelled"), 2, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// What was asked while the engine did not run, as the command line can, is carried out at its next start: nothing of it
+// is held anywhere but the database.
+#[test]
+fn a_cancel_and_a_resume_asked_with_no_engine_running_are_carried_out_at_its_next_start() {
+    let (s, mut e, said, first, second) = two_works_with("asked-with-no-engine", scripts(), Hooks::default());
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let (a, b) = (state(&e, first).expect(&log).0, state(&e, second).expect(&log).0);
+    api::pause(&mut e.db, b, None).unwrap();
+    drop(e);
+    let projects = config::committed(&s.data).unwrap().config.projects;
+    let mut base = db::Db::open(&config::database(&s.data)).unwrap();
+    let asked = base
+        .write(Actor::Owner, |tx| {
+            engine::ending::cancel_item(tx, first, "no longer needed", "owner", &projects).map_err(db::Error::Abort)
+        })
+        .unwrap();
+    assert_eq!(asked, Cancelling::Asked);
+    api::resume(&mut base, b).unwrap();
+    drop(base);
+    let (mut e, said) = engine(&s, scripts());
+    e.dispatch(&Go::default()).unwrap();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(cancelled_why(&e, first).as_deref(), Some("no longer needed"), "{log}");
+    assert!(ended_why(&e, a).is_some(), "{log}");
+    assert_eq!(paused_by(&e, b), None, "{log}");
+    let left: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM outbox WHERE kind IN ('cancel_item', 'resume_work')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(left, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Puts a second item in the queue of a setup.
+fn another_item(e: &mut Engine) -> i64 {
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level)
+             VALUES ('p', 'Add another', 'x', 'y', 'change', 'l')",
+            [],
+        )?;
+        let id = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)",
+            params![id],
+        )?;
+        Ok(id)
+    })
+    .unwrap()
+}
+
+/// Scripts whose round of `R1` waits at the gate, but for the work `free` names.
+fn held_in_r1(hold: &Gate, free: &Arc<AtomicI64>) -> BTreeMap<&'static str, Script> {
+    let (h, f) = (hold.clone(), free.clone());
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |r: &Request, _: usize| {
+            if r.work != f.load(Ordering::SeqCst) {
+                h.pass();
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    agents
+}
+
+/// Takes three turns of the loop, none of which may wait for the job in flight.
+fn three_turns(e: &mut Engine) {
+    for _ in 0..3 {
+        e.reap().unwrap();
+        e.rouse();
+        e.dispatch(&Go::default()).unwrap();
+    }
+}
+
+/// How many times the requests to lift a pause failed.
+fn resume_failures(e: &Engine) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT coalesce(sum(attempts), 0) FROM outbox WHERE kind = 'resume_work'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// `wf-agents resume` on a machine whose one slot is taken does not run a second work on it: the pause stays, the engine
+// names the work as waiting for a free slot, and waiting is no failure of the request. Once the slot is free the pause
+// is lifted and the work goes on. Lifting it at once ran two works on the one slot.
+#[test]
+fn the_owner_s_resume_waits_for_a_free_slot() {
+    let s = setup("owner-resume-slot");
+    let (hold, free) = (Gate::default(), Arc::new(AtomicI64::new(0)));
+    let (mut e, said, _) = start(&s, held_in_r1(&hold, &free));
+    let work = e.step(None).unwrap().work.unwrap();
+    free.store(work, Ordering::SeqCst);
+    api::pause(&mut e.db, work, None).unwrap();
+    let second = another_item(&mut e);
+    hold.shut();
+    let came = hold.came();
+    let held = turns_until(&mut e, &Go::default(), |_| hold.came() > came);
+    let log = said.lock().unwrap().join("\n");
+    assert!(held, "{log}");
+    let other = state(&e, second).unwrap().0;
+    let rounds = rounds_after(&e, work, 0).0;
+    api::resume(&mut e.db, work).unwrap();
+    three_turns(&mut e);
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    assert_eq!(rounds_after(&e, work, 0).0, rounds, "{log}");
+    assert_eq!(e.free_slots().unwrap(), 0, "{log}");
+    assert_eq!(e.waiting_for_slot().unwrap(), [work], "{log}");
+    assert_eq!(resume_failures(&e), 0, "{log}");
+    api::pause(&mut e.db, other, None).unwrap();
+    hold.open();
+    let goes_on = turns_until(&mut e, &Go::default(), |e| rounds_after(e, work, 0).0 > rounds);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(goes_on, "{log}");
+    assert_eq!(paused_by(&e, work), None, "{log}");
+    assert_eq!(e.waiting_for_slot().unwrap(), Vec::<i64>::new(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The architect's `resume_work` on a machine whose one slot is taken waits as the owner's does, and the loop lifts the
+// pause once the slot is free, with no word to the architect, which asked for it itself.
+#[test]
+fn the_architect_s_resume_waits_for_a_free_slot() {
+    let s = setup("architect-resume-slot");
+    let (hold, free) = (Gate::default(), Arc::new(AtomicI64::new(0)));
+    let resuming = Arc::new(AtomicI64::new(0));
+    let r = resuming.clone();
+    let mut agents = held_in_r1(&hold, &free);
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, n: usize| {
+            let kind = match (r.load(Ordering::SeqCst), n) {
+                (0, 1) => "pause_work",
+                (1, _) => "resume_work",
+                _ => return (Vec::new(), Vec::new()),
+            };
+            let action = json!({ "kind": kind, "item": 1, "reason": "It waits for the parser." });
+            (Vec::new(), vec![("outcome.effects", json!({ "actions": [action] }))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let work = e.step(None).unwrap().work.unwrap();
+    free.store(work, Ordering::SeqCst);
+    let second = another_item(&mut e);
+    hold.shut();
+    let came = hold.came();
+    say(&mut e, "Stop the feature until the parser is in.");
+    let stopped = turns_until(&mut e, &Go::default(), |e| {
+        paused_by(e, work).is_some() && hold.came() > came
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert!(stopped, "{log}");
+    assert_eq!(state(&e, item).unwrap().0, work, "{log}");
+    let other = state(&e, second).unwrap().0;
+    let rounds = rounds_after(&e, work, 0).0;
+    resuming.store(1, Ordering::SeqCst);
+    say(&mut e, "The parser is in: let the feature go on.");
+    let asked = turns_until(&mut e, &Go::default(), |e| {
+        db::resume_asked(e.db.conn()).unwrap() == [work]
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert!(asked, "{log}");
+    three_turns(&mut e);
+    assert_eq!(paused_by(&e, work).as_deref(), Some("engine"), "{log}");
+    assert_eq!(rounds_after(&e, work, 0).0, rounds, "{log}");
+    assert_eq!(e.free_slots().unwrap(), 0, "{log}");
+    assert_eq!(e.waiting_for_slot().unwrap(), [work], "{log}");
+    assert_eq!(resume_failures(&e), 0, "{log}");
+    api::pause(&mut e.db, other, None).unwrap();
+    hold.open();
+    let goes_on = turns_until(&mut e, &Go::default(), |e| rounds_after(e, work, 0).0 > rounds);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(goes_on, "{log}");
+    let released: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM architect_matters WHERE kind = 'owner_words' AND detail = 'release'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(released, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A pause takes effect when the round under way ends, and until the loop reaps that step the work keeps its slot: no new
+// work starts in it. Counting only the works not paused ran two works on the one slot until that round ended.
+#[test]
+fn a_work_paused_while_its_round_runs_keeps_its_slot_until_the_step_ends() {
+    let s = setup("pause-keeps-slot");
+    let (hold, free) = (Gate::default(), Arc::new(AtomicI64::new(0)));
+    let (mut e, said, item) = start(&s, held_in_r1(&hold, &free));
+    hold.shut();
+    let held = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(held, "{log}");
+    let work = state(&e, item).unwrap().0;
+    let second = another_item(&mut e);
+    api::pause(&mut e.db, work, None).unwrap();
+    three_turns(&mut e);
+    assert_eq!(e.free_slots().unwrap(), 0, "{log}");
+    assert!(state(&e, second).is_none(), "{log}");
+    hold.open();
+    let started = turns_until(&mut e, &Go::default(), |e| state(e, second).is_some());
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(started, "{log}");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

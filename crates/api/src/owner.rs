@@ -796,24 +796,28 @@ pub fn remove_dependency(db: &mut Db, item: i64, on: i64) -> Result<String, Stri
     Ok(format!("item {item} no longer depends on item {on}"))
 }
 
-/// Lifts a paused work's pause, as the owner: its cell runs again. The engine closes a round the pause left open, with
-/// the reason. A work the architect stopped is the owner's release of it, which the architect is told.
+/// Asks to lift a paused work's pause, as the owner: the engine lifts it once the work's machine has a slot free, as it
+/// does for the owner's Start, and its cell then runs again. The engine closes a round the pause left open, with the
+/// reason. A work the architect stopped is the owner's release of it, which the architect is told.
 pub fn resume(db: &mut Db, work: i64) -> Result<String, String> {
-    let paused: Option<Option<String>> = db
+    let paused: Option<(Option<String>, Option<String>)> = db
         .conn()
-        .query_row("SELECT paused FROM works WHERE id = ?1", [work], |r| r.get(0))
+        .query_row("SELECT paused, paused_by FROM works WHERE id = ?1", [work], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
         .optional()
         .map_err(sql)?;
-    match paused {
+    let stopped = match paused {
         None => return Err(format!("no work {work}")),
-        Some(None) => return Err(format!("work {work} is not paused")),
-        Some(Some(_)) => {}
-    }
-    let released = db.write(Actor::Owner, |tx| db::lift_pause(tx, work)).map_err(sql)?;
-    Ok(if released {
-        format!("work {work} goes on; the architect, which had stopped it, is told")
+        Some((None, _)) => return Err(format!("work {work} is not paused")),
+        Some((p, by)) => db::stopped_by_architect(p.as_deref(), by.as_deref()),
+    };
+    db.write(Actor::Owner, |tx| db::ask_resume(tx, work, Actor::Owner))
+        .map_err(sql)?;
+    Ok(if stopped {
+        format!("work {work} goes on once its machine has a slot free; the architect, which had stopped it, is told")
     } else {
-        format!("work {work} goes on")
+        format!("work {work} goes on once its machine has a slot free")
     })
 }
 
@@ -1054,14 +1058,26 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert_eq!(resume(&mut db, 1).unwrap(), "work 1 goes on");
-        let paused: (Option<String>, Option<String>) = db
-            .conn()
-            .query_row("SELECT paused, paused_by FROM works WHERE id = 1", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-            .unwrap();
-        assert_eq!(paused, (None, None));
+        assert_eq!(
+            resume(&mut db, 1).unwrap(),
+            "work 1 goes on once its machine has a slot free"
+        );
+        let paused = |db: &Db| -> (Option<String>, Option<String>) {
+            db.conn()
+                .query_row("SELECT paused, paused_by FROM works WHERE id = 1", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })
+                .unwrap()
+        };
+        // Asked, and not lifted: the engine lifts it once the work's machine has a slot free, and the request goes then.
+        assert_eq!(db::resume_asked(db.conn()).unwrap(), [1]);
+        assert_eq!(
+            paused(&db),
+            (Some("cell tools: no".to_string()), Some("engine".to_string()))
+        );
+        db.write(Actor::Owner, |tx| db::lift_pause(tx, 1)).unwrap();
+        assert_eq!(paused(&db), (None, None));
+        assert_eq!(db::resume_asked(db.conn()).unwrap(), Vec::<i64>::new());
         assert!(resume(&mut db, 9).is_err());
         // A work the architect stopped is the owner's release of it, which the architect is told as the owner's words.
         db.write(Actor::Engine, |tx| {
@@ -1074,8 +1090,9 @@ mod tests {
         .unwrap();
         assert_eq!(
             resume(&mut db, 1).unwrap(),
-            "work 1 goes on; the architect, which had stopped it, is told"
+            "work 1 goes on once its machine has a slot free; the architect, which had stopped it, is told"
         );
+        db.write(Actor::Owner, |tx| db::lift_pause(tx, 1)).unwrap();
         let told: (String, String, i64) = db
             .conn()
             .query_row("SELECT kind, body ->> 'text', item FROM architect_matters", [], |r| {

@@ -29,6 +29,35 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
+// A stop that comes before the merge is a row of the merge cell, drawn on the chart: it waits there for the engine's
+// loop to end the work, taken only at the work's turn in the queue. What depends on the order things happened in, and
+// not on a cell, no row can say, so the words the owner and the architect read say it: a cancel or a start over waits
+// for the step under way, a merge that came first stands, and a resume waits for a free slot.
+#[test]
+fn a_stop_before_the_merge_is_a_row_and_the_rest_is_said_in_words() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let row = g.cell("M2").unwrap().rows.iter().find(|r| r.name == "stopped").unwrap();
+    assert_eq!(row.to, "M2");
+    assert!(row.waits && row.counts.is_none());
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let stop = v["engine"]["steps"]["stop_work"].as_str().unwrap();
+    assert!(stop.contains("once the step it is in has ended"), "{stop}");
+    assert!(stop.contains("A merge that came first stands"), "{stop}");
+    assert!(stop.contains("waits for its next start"), "{stop}");
+    for (said, want) in [
+        ("Cancel an item; its work ends", "once the step it is in has ended"),
+        (
+            "Cancel an item; its work ends",
+            "whose merge comes first, is not cancelled",
+        ),
+        ("Let a work you paused go on", "once its machine has a slot free"),
+    ] {
+        let line = FLOW.lines().find(|l| l.contains(said)).unwrap();
+        assert!(line.contains(want), "{line}");
+    }
+}
+
 /// The fix's numbered table.
 fn t6_table(c: &flow::Compiled) -> flow::CompiledInput {
     let g = c.graph("engineer").unwrap();

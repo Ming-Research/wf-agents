@@ -108,9 +108,10 @@ function waitsFor(w: Waits): string {
 /// What happens to a work now, in a few words, as the live line of the bubble of the stage it is at says it, in step
 /// with its head and in the owner's words, with no cell's title or code, which its rounds' link leads to: who is at
 /// work while a round runs; what holds it, and what it waits for once it goes on; what it waits for; a free slot; or
-/// its next round due. At the merge stage what it waits for is what it must have before it can merge, and the line says
-/// so; at the others the stage the bubble names is where it waits.
+/// its next round due; a work stopping says so before any of these. At the merge stage what it waits for is what it must
+/// have before it can merge, and the line says so; at the others the stage the bubble names is where it waits.
 export function nowWords(c: Course, w: WorkSummary): string {
+  if (c.stopping) return t('state_stopping');
   if (c.running !== null && w.running !== null) return atWork(w.running);
   if (c.running !== null) return runningWords(c);
   const until = (now: string) => (w.stage === 'merge' ? t('now_before_merge', { now }) : now);

@@ -286,7 +286,9 @@ fn checks_json(cs: &[CheckRun]) -> Value {
     serde_json::to_value(cs).unwrap_or(Value::Null)
 }
 
-/// Records the head pushed and the PR as soon as they are on GitHub, so a crash cannot lose them.
+/// Records the head pushed and the PR once the tool that made them has come back, before its step ends, so that
+/// whatever ends the work afterwards knows the PR to close. A crash while the tool runs loses them; the next run finds
+/// a PR open from the branch ([`GitHub::pull_request`]).
 fn record_push(e: &mut Engine, w: &Work, head: Option<&str>, pr: Option<i64>) -> Result<(), String> {
     e.db.write(Actor::Engine, |tx| {
         if let Some(h) = head {
@@ -951,6 +953,11 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
         if !reds(&counted(&checks, &project, &known)).is_empty() {
             return Ok(json!({ "result": { "kind": "red", "checks": checks_json(&checks) } }));
         }
+    }
+    // A stop asked until here wins: the merge cannot be undone, and every wait above is behind it. One asked after this
+    // line loses: the loop finds the merge when it comes to carry the stop out, and drops it.
+    if db::stop_asked(e.db.conn(), w.id).map_err(sql)? {
+        return Ok(json!({ "result": { "kind": "stopped" } }));
     }
     // The pull request merges into the project's main, whatever base it was opened with, or does not merge.
     match attempts(e, round, "merge", &args, || {

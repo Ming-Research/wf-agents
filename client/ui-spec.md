@@ -635,11 +635,12 @@ states (`WORK_MARK`) is the one every place that shows a work's state as an icon
 draws round the running cell (`RunningMark`, the one mark of a state that moves) at an icon's size, a ring 13px across
 in the 16px of an Octicon, its arcs `--chart-halo-width-mark` wide so that it reads beside an Octicon's strokes; ready
 `CircleIcon`, the halo's ring at rest; asking `QuestionIcon`; waiting `ClockIcon`; waiting for a free slot
-`HourglassIcon`; paused `PauseIcon`; halted `AlertIcon`, GitHub's mark of an alert; done `CheckCircleIcon`; ended
-`StopIcon`, GitHub's mark of a run stopped before its end (and a bubble of a thing that runs and then ends takes these
-marks for how it stands, below); each other than running in the colour its state's chip is filled in
-(`--bgColor-neutral-emphasis` ready and ended; `--bgColor-attention-emphasis` asking, waiting, waiting for a free slot
-and paused; `--bgColor-danger-emphasis` halted; `--bgColor-success-emphasis` done), and each saying on hovering its
+`HourglassIcon`; paused `PauseIcon`; halted `AlertIcon`, GitHub's mark of an alert; stopping `NoEntryIcon`; done
+`CheckCircleIcon`; ended `StopIcon`, GitHub's mark of a run stopped before its end (and a bubble of a thing that runs
+and then ends takes these marks for how it stands, below); each other than running in the colour its state's chip is
+filled in (`--bgColor-neutral-emphasis` ready and ended; `--bgColor-attention-emphasis` asking, waiting, waiting for a
+free slot, paused and stopping; `--bgColor-danger-emphasis` halted; `--bgColor-success-emphasis` done), and each saying
+on hovering its
 chip's words; while nothing is known yet the mark's room stays empty, so that the rows stay in line.
 
 An architect takes the mark of a work in the state it stands in, as the head of its one-to-one works it out
@@ -678,7 +679,19 @@ of every work stays the bar's, since it is the engine's and lifts by itself.
 A work whose wait is over, the architect's answer come or what its row waited for, and that waits on, holding no slot,
 until its machine has a slot free, is waiting for a free slot, as the engine's status names it, and not ready, because
 the owner must see why a work whose answer came does not move; its chip says on hovering that it goes on once its
-machine has a slot free, before any new work starts.
+machine has a slot free, before any new work starts. So is a paused work whose pause was asked to be lifted, by the
+command line or the architect, while its machine has none free, because a resume that does not show looks as if it
+failed.
+
+### Stopping
+
+A work whose cancel or start over was asked and that the engine has not stopped yet is stopping, as the engine's status
+names it, in the attention tone with `NoEntryIcon`, in place of the state it reads, whatever that is (a round running,
+ready, waiting or paused), because it goes no further than the step it is in, and a work that looks as if it goes on
+after the owner cancelled it reads as a cancel that failed. Its chip says on hovering that it ends once the step it is in
+has ended, its round's timer is not shown, and it has no Start, Pause, Step or Start over, since none of them would
+change that. It is a state of its own and not a note beside the running chip, because the same word then stands for it
+on the left and in the head, and the list's buttons can show or hide it as any other state.
 
 ### A count
 

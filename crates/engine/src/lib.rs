@@ -578,11 +578,23 @@ impl Engine {
 
     /// Starts a work over, as the owner or its project's architect asked ([`db::start_over`]), by taking it over as a
     /// work on an older flow version is taken over ([`Engine::take_over`]), saying who started it over and, for the
-    /// architect, why. A work that can no longer be started over, as one that ended since it was asked, is left as it is.
+    /// architect, why. A work that can no longer be started over, as one that ended since it was asked, is left as it
+    /// is, and one whose merge came first goes on to watch main, whoever asked told.
     fn start_over(&mut self, id: i64, by: &str, why: Option<&str>) -> Result<(), String> {
         let w = self.work(id)?;
         if w.ended.is_some() || w.graph != ENGINEER || self.done(&w)? {
             self.say(&format!("work {id} is not started over: it is over"));
+            return Ok(());
+        }
+        if let Some(item) = w.item
+            && db::merge_stands(self.db.conn(), item).map_err(|e| e.to_string())?
+        {
+            self.db
+                .write(Actor::Engine, |tx| {
+                    ending::merge_came_first(tx, item, "started over", by).map_err(db::Error::Abort)
+                })
+                .map_err(|e| e.to_string())?;
+            self.say(&format!("work {id} is not started over: its merge came first"));
             return Ok(());
         }
         let who = if by == db::Actor::Architect.name() {
@@ -596,6 +608,53 @@ impl Engine {
         };
         self.take_over(&[(w, why)])?;
         Ok(())
+    }
+
+    /// Carries out a cancel of an item the outbox holds, as the loop does: not yet while a work on the item has a job in
+    /// flight, which may be a work that took the item over since the cancel was asked.
+    pub(crate) fn cancel_asked(&mut self, item: i64, why: &str, by: &str) -> Result<actions::Carried, String> {
+        let works = ending::not_ended(self.db.conn(), item)?;
+        if works.iter().any(|w| self.has_job(*w)) {
+            return Ok(actions::Carried::NotYet);
+        }
+        let projects = self.config.config.projects.clone();
+        self.db
+            .write(Actor::Engine, |tx| {
+                ending::cancel_asked(tx, item, why, by, &projects).map_err(db::Error::Abort)
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(actions::Carried::Done)
+    }
+
+    /// Lifts a work's pause as the outbox holds it asked by `by`, the owner or its project's architect, as the loop does:
+    /// not yet while a work on an item finds no slot free on its machine, the bar the owner's Start meets
+    /// ([`Engine::release_started`]). A work that ended or goes on since, or that the architect asked for once the pause
+    /// is no longer its own, is left as it is.
+    pub(crate) fn resume_asked(&mut self, id: i64, by: &str) -> Result<actions::Carried, String> {
+        let w = self.work(id)?;
+        let architect = by == db::Actor::Architect.name();
+        let gone = w.ended.is_some()
+            || w.paused.is_none()
+            || (architect && !db::stopped_by_architect(w.paused.as_deref(), w.paused_by.as_deref()));
+        if gone {
+            return Ok(actions::Carried::Done);
+        }
+        if w.graph == ENGINEER && !self.room_for(&w)? {
+            return Ok(actions::Carried::NotYet);
+        }
+        if architect {
+            // No word to the architect, which asked for it itself ([`db::lift_pause`] is the owner's).
+            self.db
+                .write(Actor::Architect, |tx| {
+                    tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [id])?;
+                    Ok(())
+                })
+                .map_err(|e| e.to_string())?;
+            self.say(&format!("work {id} goes on, as the architect let it"));
+        } else {
+            self.lift(id)?;
+        }
+        Ok(actions::Carried::Done)
     }
 
     /// The works taken over since the engine's loop last read them, each with the new work that took its item over.
@@ -926,15 +985,15 @@ impl Engine {
     }
 
     /// Takes a work one step further, as a job the loop dispatched ([`schedule`]): a paused work only when the owner
-    /// asked for its round. A work asked to be started over, or on an older flow version, takes no step: the loop
-    /// starts it over or brings it up once this job has ended, since it does what the engine does to a work from
-    /// outside its step only while the work has no job in flight.
+    /// asked for its round. A work asked to stop, or on an older flow version, takes no step: the loop stops it or
+    /// brings it up once this job has ended, since it does what the engine does to a work from outside its step only
+    /// while the work has no job in flight.
     fn take_step(&mut self, id: i64, asked: bool) -> Result<Advance, String> {
         let w = self.work(id)?;
         if w.ended.is_some() || (w.paused.is_some() && !asked) || self.done(&w)? {
             return Ok(Advance::Stopped);
         }
-        if w.flow_version != self.flow_now || db::start_over_asked(self.db.conn(), id).map_err(|e| e.to_string())? {
+        if w.flow_version != self.flow_now || db::stop_asked(self.db.conn(), id).map_err(|e| e.to_string())? {
             return Ok(Advance::Stopped);
         }
         let g = self.graph_of(&w)?;
@@ -953,15 +1012,6 @@ impl Engine {
         match result {
             Ok(a) => Ok(a),
             Err(e) => {
-                // A work ended from outside its step meanwhile, as when the owner cancelled its item, had its round
-                // cut off: the write that would have ended the round again failed, and nothing of the step is taken.
-                if let Some(ended) = self.ended(id)? {
-                    self.say(&format!(
-                        "work {id} ended while its step at cell {} ran ({ended}): the step is not taken: {e}",
-                        cell.id
-                    ));
-                    return Ok(Advance::Stopped);
-                }
                 let why = format!("cell {}: {e}", cell.id);
                 // A step that failed while the network is down failed for want of it: every work waits for it.
                 if self.network_down() {
@@ -1029,8 +1079,7 @@ impl Engine {
     }
 
     /// Pauses a work whose step cannot be taken: the round the step left open is closed with the reason, so it shows
-    /// as what it was and not as running, and the owner is told once. A question waiting for its answer stays open. The
-    /// round open is read in the pause's own transaction, since a work may be ended from outside its step meanwhile.
+    /// as what it was and not as running, and the owner is told once. A question waiting for its answer stays open.
     pub fn pause(&mut self, id: i64, why: &str) -> Result<(), String> {
         let w = self.work(id)?;
         let g = self.graph_of(&w)?;
@@ -1059,6 +1108,7 @@ impl Engine {
                     "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",
                     params![id, why],
                 )?;
+                db::withdraw_resume(tx, id)?;
                 actions::notify(tx, Some(id), &text).map_err(db::Error::Abort)?;
                 Ok(())
             })
@@ -1110,10 +1160,13 @@ impl Engine {
 
     /// Each machine's free slots, as the session manager reports them from the works holding one: a work of the
     /// architect holds none, and a work holds none while it waits, unless the loop granted its step one, which it holds
-    /// until the loop reaps that step.
+    /// until the loop reaps that step. A work paused or asked to stop whose step runs on holds its slot until the loop
+    /// reaps that step too, since a pause takes effect when the round under way ends.
     pub fn slots_by_machine(&mut self) -> Result<BTreeMap<String, i64>, String> {
+        let mut works: BTreeSet<i64> = self.active()?.into_iter().collect();
+        works.extend(self.stepping());
         let mut holding = Vec::new();
-        for id in self.active()? {
+        for id in works {
             let w = self.work(id)?;
             if w.graph == ENGINEER && (!self.waiting(&w)? || self.granted(id)) {
                 holding.push(w.machine.clone());
@@ -1127,19 +1180,26 @@ impl Engine {
 
     /// The works whose wait is over and that wait on, holding no slot, until their machine has a slot free, as the last
     /// step of each found and as each stands now: one since paused or ended, or whose machine has a slot free again,
-    /// which the loop grants its next step, is not among them. The owner's page shows them so, since a work whose answer
-    /// came and that does not move would otherwise look ready. It only reads: which works wait on for a slot changes
-    /// only as the loop reaps their steps and grants them slots.
+    /// which the loop grants its next step, is not among them. With them, the paused works whose pause is asked to be
+    /// lifted while their machine has none free. The owner's page shows them so, since a work whose answer came and
+    /// that does not move, or whose resume was asked and that stays paused, would otherwise look stuck. It only reads:
+    /// which works wait on for a slot changes only as the loop reaps their steps and grants them slots.
     pub fn waiting_for_slot(&mut self) -> Result<Vec<i64>, String> {
-        let mut out = Vec::new();
+        let mut out = BTreeSet::new();
         let held = lock(&self.shared.held_for_slot).clone();
         for id in held {
             let w = self.work(id)?;
             if w.ended.is_none() && w.paused.is_none() && self.waiting(&w)? && !self.room_for(&w)? {
-                out.push(id);
+                out.insert(id);
             }
         }
-        Ok(out)
+        for id in db::resume_asked(self.db.conn()).map_err(|e| e.to_string())? {
+            let w = self.work(id)?;
+            if w.graph == ENGINEER && w.ended.is_none() && w.paused.is_some() && !self.room_for(&w)? {
+                out.insert(id);
+            }
+        }
+        Ok(out.into_iter().collect())
     }
 
     /// Whether a work that holds no slot may take one: its machine has a slot free, or, before it has a machine, any

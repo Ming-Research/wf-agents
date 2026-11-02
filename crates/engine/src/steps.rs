@@ -420,16 +420,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         command: (!reply.command.is_empty()).then(|| reply.command.clone()),
         ..Ended::default()
     };
-    // A work that ended while its round ran, as when the owner cancelled its item meanwhile, had the round cut off as
-    // it ended (`ending::end`): what the round hands in is not taken, and what it cost is kept on it. So for a work
-    // asked to be started over meanwhile, whose round stays open for the takeover to cut off: the loop starts the work
-    // over once this step has ended, since only the loop does what the engine does to a work from outside its step.
-    let gone: Option<String> =
-        e.db.conn()
-            .query_row("SELECT ended FROM works WHERE id = ?1", [w.id], |r| r.get(0))
-            .map_err(sql)?;
-    let over = gone.is_none() && db::start_over_asked(e.db.conn(), w.id).map_err(sql)?;
-    if gone.is_some() || over {
+    // A work asked to stop while its round ran, to start over or by its item's cancel, hands in nothing: its round stays
+    // open, with what it cost kept on it, for the loop to cut off once this step has ended, since only the loop does what
+    // the engine does to a work from outside its step.
+    if db::stop_asked(e.db.conn(), w.id).map_err(sql)? {
         let usage = ended.usage.as_ref().map(Value::to_string);
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
@@ -439,9 +433,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             Ok(())
         })
         .map_err(sql)?;
-        let what = if over { "was asked to start over" } else { "ended" };
         e.say(&format!(
-            "work {} {what} while {round} ran: what it handed in is not taken",
+            "work {} was asked to stop while {round} ran: what it handed in is not taken",
             w.id
         ));
         return Ok(Advance::Stopped);

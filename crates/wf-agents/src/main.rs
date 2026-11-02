@@ -114,9 +114,10 @@ enum Command {
         #[arg(long)]
         why: String,
     },
-    /// Lifts a work's pause, as the owner, as its Start on the page does: one the architect stopped is the owner's
-    /// release of it, which the architect is told. It then goes on as every work does, which while every work is
-    /// paused on the page is only once the owner starts it there or lets every work go on.
+    /// Asks to lift a work's pause, as the owner, as its Start on the page does: the running engine lifts it once the
+    /// work's machine has a slot free, and one the architect stopped is the owner's release of it, which the architect
+    /// is told. It then goes on as every work does, which while every work is paused on the page is only once the
+    /// owner starts it there or lets every work go on.
     Resume { work: i64 },
     /// Where each work stands.
     Status,
@@ -454,7 +455,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::Item(ItemCommand::Depend { item, on, needs, kind }) => {
             owner::depend(d, item, &owner::Dependency { on, kind, needs })
         }
-        Command::Item(ItemCommand::Cancel { item, why }) => owner::cancel(d, item, &why),
+        Command::Item(ItemCommand::Cancel { item, why }) => print(owner::cancel(d, item, &why)),
         Command::Queue(QueueCommand::List) => print(owner::queue_list(d)),
         Command::Queue(QueueCommand::Put {
             item,
@@ -561,6 +562,7 @@ fn status(e: &mut engine::Engine, last: Option<&api::StepTaken>, started_at: i64
         started: Vec::new(),
         releasing: Vec::new(),
         waiting_for_slot: e.waiting_for_slot()?,
+        stopping: db::stopping(e.db.conn()).map_err(|x| x.to_string())?,
         architects_started: Vec::new(),
         running: Vec::new(),
         stepping: Vec::new(),

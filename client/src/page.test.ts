@@ -246,6 +246,7 @@ describe('how a work goes on', () => {
     started: [],
     releasing: [],
     waiting_for_slot: [],
+    stopping: [],
     architects_started: [],
     running: [],
     stepping: [],
@@ -340,7 +341,7 @@ describe('how a work goes on', () => {
     expect([forSlot.slot, forSlot.waits]).toEqual([true, null]);
     expect(waitOf(forSlot, work({}), status({}))).toEqual({
       tag: 'waiting for a free slot',
-      why: 'What it waited for came: it goes on once its machine has a slot free, before any new work starts.',
+      why: 'It goes on once its machine has a slot free, before any new work starts.',
     });
     expect(course(work({}), status({})).slot).toBe(false);
     const pausing = course(work({ paused: 'x', paused_by: 'owner' }), status({ running: [5] }));
