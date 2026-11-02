@@ -274,11 +274,13 @@ describe("the architect's page", () => {
     expect(parse('/works/architect', '?work=12&round=R11-3&tab=x')).toEqual({ ...architect, round: { work: 11, n: 3 } });
     expect(parse('/works/architect', '?work=12&only=failed')).toEqual(architect);
     expect(parse('/works/architect', '?round=11-3')).toEqual(architect);
-    // Its old address reads the same as the new one, with every parameter; a work's page and the works are as they were.
+  });
+
+  it("reads its old address as the new one with every parameter, and a work's page and the works as they were", () => {
     const every = '?project=p&tab=usage&span=30d&round=R12-3&cell=H3';
     expect(parse('/architect', every)).toEqual(parse('/works/architect', every));
     expect(parse('/architect', every)).toEqual({
-      ...architect,
+      page: 'architect',
       project: 'p',
       tab: 'usage',
       span: '30d',
