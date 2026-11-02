@@ -83,7 +83,7 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (30, 128, 185));
+    assert_eq!((s.cells, s.rows, s.states), (30, 129, 186));
     let g = c.graph("architect").unwrap();
     for gone in [
         "E1", "H6", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",

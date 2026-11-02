@@ -7128,27 +7128,24 @@ fn ways_work(e: &Engine, last: bool) -> i64 {
         .unwrap()
 }
 
-/// The link to the design that an open question's matter holds, as the message it was given in says it.
-fn design_link_in(message: &str) -> String {
-    let from = message
-        .find("design_link")
-        .expect("the matter holds the link to its design");
-    let at = from + message[from..].find("/works/").expect("the link is to a work");
-    message[at..]
-        .chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '?' | '=' | '-'))
-        .collect()
-}
-
 /// The ways for an open question only the owner can settle: they pin it in the owner's one-to-one, the question linking
-/// to the design, and reply once the owner's words are in the message, in words of their own.
-fn ways_pin_for_the_owner() -> Script {
-    Box::new(|r: &Request, _: usize| {
+/// to the design as the matter holds the link (the architect's session was given the matter at the crux already, so the
+/// message does not repeat it), and reply once the owner's words are in the message, in words of their own.
+fn ways_pin_for_the_owner(s: &Setup) -> Script {
+    let path = config::database(&s.data);
+    Box::new(move |r: &Request, _: usize| {
         if r.prompt.contains("Take one table.") {
             let reply = json!({ "text": "Go on with one table.", "why": "The owner decided it." });
             return (Vec::new(), vec![("outcome.reply", reply)]);
         }
-        let link = design_link_in(&r.prompt);
+        let c = db::open_read(&path).unwrap();
+        let link: String = c
+            .query_row(
+                "SELECT body ->> '$.design_link' FROM architect_matters WHERE kind = 'open_question' ORDER BY id LIMIT 1",
+                [],
+                |x| x.get(0),
+            )
+            .unwrap();
         asks_the_owner(&format!("Is one table enough? See [the design]({link})."))
     })
 }
@@ -7163,7 +7160,7 @@ fn an_open_question_pinned_for_the_owner_holds_the_merge_until_the_owner_has_ans
     let s = setup("open-question-pinned");
     let mut agents = scripts();
     agents.insert("D2", designs_with_an_open_question());
-    agents.insert("H3", ways_pin_for_the_owner());
+    agents.insert("H3", ways_pin_for_the_owner(&s));
     agents.insert(
         "A4",
         Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
