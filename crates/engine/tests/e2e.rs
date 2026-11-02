@@ -13217,12 +13217,15 @@ fn after_the_round_the_owner_let_go_on_the_next_is_judged_as_ever() {
     scripts.insert(
         "R1",
         Box::new(|_: &Request, n: usize| {
-            let past = ("@stream", calls_of(&[10_000, 30_000]));
+            let past = |to: i64| ("@stream", calls_of(&[10_000, to]));
             (
                 Vec::new(),
                 match n {
-                    1 | 2 | 4 => vec![past],
-                    3 => vec![past, ("@error", json!("API Error: 529 Overloaded"))],
+                    1 | 2 => vec![past(30_000)],
+                    3 => vec![past(30_000), ("@error", json!("API Error: 529 Overloaded"))],
+                    // The failed round before it joined the rounds the cell's lines come from: 20,000 tokens added
+                    // now give a line of 38,950 and of 39,895 a call, so this one goes past those.
+                    4 => vec![past(90_000)],
                     _ => Vec::new(),
                 },
             )
