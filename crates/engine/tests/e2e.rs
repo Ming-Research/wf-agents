@@ -12942,3 +12942,201 @@ fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_
     assert!(state(&e, second).unwrap().2.is_some(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+/// The message the first round of the understanding of project p's architect was sent, when the owner had said each of
+/// `texts` to it, oldest first, and the project's notebook holds nothing yet.
+fn first_understanding_after(name: &str, texts: &[String]) -> String {
+    let s = setup(name);
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    for t in texts {
+        say(&mut e, t);
+    }
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| path_of(e, arch).iter().any(|c| c == "U1")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let u1 = input_at(&e, arch, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap().to_string();
+    let _ = std::fs::remove_dir_all(&s.root);
+    m
+}
+
+/// `n` characters of `fill` ending in `end`.
+fn long_words(n: usize, fill: char, end: &str) -> String {
+    format!("{}{end}", fill.to_string().repeat(n - end.len()))
+}
+
+/// The tail of a message, for a failure to show.
+fn tail(m: &str) -> &str {
+    &m[m.len().saturating_sub(2_000)..]
+}
+
+// The talk given to a new session is cut to the character: entries that together make 60,000 characters are all given,
+// one character more and the earlier of them is left out whole, and an entry that is alone longer than that is given
+// whole. The reference is the limit the design states (60,000 characters, whole entries, latest first, a line after
+// them saying how many earlier ones there are).
+#[test]
+fn the_talk_given_is_cut_at_exactly_the_limit_and_never_inside_an_entry() {
+    // Exactly the limit: both long entries are given, the short one before them is the one earlier entry.
+    let m = first_understanding_after(
+        "owner-talk-exact",
+        &[
+            "Alpha talk. ALPHAEND".to_string(),
+            long_words(30_000, 'g', "GAMMAEND"),
+            long_words(30_000, 'd', "DELTAEND"),
+        ],
+    );
+    assert!(
+        m.contains("GAMMAEND") && m.contains("DELTAEND"),
+        "both fit the limit exactly: {}",
+        tail(&m)
+    );
+    assert!(!m.contains("ALPHAEND"));
+    assert!(m.contains("and 1 earlier entry before these"), "{}", tail(&m));
+
+    // One character over: the earlier long entry is left out whole, with the short one.
+    let m = first_understanding_after(
+        "owner-talk-over",
+        &[
+            "Alpha talk. ALPHAEND".to_string(),
+            long_words(30_001, 'g', "GAMMAEND"),
+            long_words(30_000, 'd', "DELTAEND"),
+        ],
+    );
+    assert!(m.contains("DELTAEND"), "{}", tail(&m));
+    assert!(
+        !m.contains("GAMMAEND") && !m.contains("ALPHAEND"),
+        "an entry is left out whole"
+    );
+    assert!(m.contains("and 2 earlier entries before these"), "{}", tail(&m));
+
+    // The very latest entry is given whole though it alone is over the limit.
+    let m = first_understanding_after(
+        "owner-talk-alone",
+        &[
+            "Alpha talk. ALPHAEND".to_string(),
+            long_words(70_000, 'e', "EPSILONEND"),
+        ],
+    );
+    assert!(m.contains("EPSILONEND"), "the latest entry is given whole");
+    assert!(m.contains("and 1 earlier entry before these"), "{}", tail(&m));
+    assert!(!m.contains("ALPHAEND"));
+}
+
+/// The owner says words to project p's architect with one image.
+fn say_with_an_image(e: &mut Engine, text: &str) {
+    say(e, text);
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO attachments (matter, position, media_type, size, hash, bytes)
+             VALUES ((SELECT max(id) FROM architect_matters), 1, 'image/png', 4, 'h', zeroblob(4))",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+// A new session is told the talk of the one-to-one after the notebook's latest rewrite of any section, which is the
+// time of the latest round that wrote one, not the earliest or the first section's: what was said between two sections'
+// rewrites is in the notebook already. The owner's asks are told as the page shows them: an ask asked before the
+// rewrite and answered after it with its question and answer, one asked and answered before it not at all, one asked
+// after it and not yet answered with its question; and how many images came with words or with an answer, not the
+// images. The reference is the owner's page: the entries of the conversation `architect:p` after the latest rewrite.
+#[test]
+fn a_new_session_is_told_the_talk_after_the_latest_rewrite_with_its_asks_and_images() {
+    let s = setup("owner-talk-window");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Alpha talk. ALPHAEND");
+    let one = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, one)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // The work's notebook was rewritten by the understanding (two sections) and the plan (one) in it. Say they ended
+    // 100 minutes ago, the understanding 20 seconds before the plan, and what was said before that earlier still.
+    let t = db::now() - 100 * 60_000;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET started_at = ?1 - 30000,
+                    ended_at = ?1 - CASE WHEN cell = 'U1' THEN 20000 ELSE 0 END WHERE work = ?2",
+            params![t, one],
+        )?;
+        tx.execute("UPDATE architect_matters SET at = ?1 - 100000", [t])?;
+        Ok(())
+    })
+    .unwrap();
+    let ask = |e: &mut Engine, question: &str, asked: i64, answer: Option<(&str, i64)>, images: i64| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body, answer) VALUES (?1, 1, ?2, ?3)",
+                params![
+                    one,
+                    json!({ "question": question }).to_string(),
+                    answer.map(|(text, at)| json!({ "by": "owner", "text": text, "at": at }).to_string())
+                ],
+            )?;
+            let id = tx.last_insert_rowid();
+            // An ask is asked when its notice says so.
+            tx.execute(
+                "INSERT INTO engine_notices (work, text, at, ask) VALUES (?1, 'An ask.', ?2, ?3)",
+                params![one, asked, id],
+            )?;
+            for position in 1..=images {
+                tx.execute(
+                    "INSERT INTO attachments (ask, position, media_type, size, hash, bytes)
+                     VALUES (?1, ?2, 'image/png', 4, 'h', zeroblob(4))",
+                    params![id, position],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    };
+    // Before the earliest rewrite, and between the two (the plan's is the latest): in the notebook already.
+    ask(&mut e, "QOLD?", t - 50_000, Some(("AOLD", t - 40_000)), 0);
+    ask(&mut e, "QMID?", t - 15_000, Some(("AMID", t - 12_000)), 0);
+    // Asked before the latest rewrite and answered after it; asked after it and not answered; asked and answered after
+    // it, the answer with two images.
+    ask(&mut e, "QSTRADDLE?", t - 5_000, Some(("ASTRADDLE", t + 3_000)), 0);
+    ask(&mut e, "QOPEN?", t + 5_000, None, 0);
+    ask(&mut e, "QNEW?", t + 4_000, Some(("ANEW", t + 6_000)), 2);
+    // The owner's words now, with one image.
+    say_with_an_image(&mut e, "Beta talk. BETAEND");
+    let two = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| path_of(e, two).iter().any(|c| c == "U1")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sessions = architect_sessions(&e, one, two);
+    assert_eq!(sessions[1].0, "expired", "{sessions:?}\n{log}");
+    let u1 = input_at(&e, two, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap();
+    for gone in ["ALPHAEND", "QOLD", "AOLD", "QMID", "AMID"] {
+        assert!(!m.contains(gone), "{gone} is in the notebook already: {m}");
+    }
+    for told in ["QSTRADDLE", "ASTRADDLE", "QOPEN", "QNEW", "ANEW", "BETAEND"] {
+        assert!(m.contains(told), "{told} is told: {m}");
+    }
+    assert!(m.contains("2 images attached"), "{m}");
+    assert!(m.contains("1 image attached"), "{m}");
+    // In the order of the times: the answer to the first ask (3 seconds after the rewrite), the ask asked next (5), the
+    // one answered last (6), then the owner's words, which came now.
+    let at = |x: &str| m.find(x).unwrap();
+    assert!(
+        at("QSTRADDLE") < at("QOPEN") && at("QOPEN") < at("QNEW") && at("QNEW") < at("BETAEND"),
+        "{m}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}

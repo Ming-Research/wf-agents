@@ -577,6 +577,88 @@ mod tests {
         assert_eq!(crate::warm::after_ms(HOUR), 55 * 60_000);
     }
 
+    // A return sent back is rewritten in the session that wrote it, whatever the age of the session's cache: the expiry
+    // takes effect at the round after the rewrite. A round that failed or was cut off is no return sent back, and its
+    // session is let go as any other.
+    #[test]
+    fn a_return_sent_back_is_rewritten_in_its_session_though_its_cache_let_go() {
+        let mut db = session_db();
+        session_round(&mut db, 1, 1_000_000, Some(RAN));
+        let cell = architect_cell(true);
+        let later = 1_000_000 + 3 * HOUR;
+        let rejected = |db: &mut db::Db, why: &str| {
+            let why = why.to_string();
+            db.write(db::Actor::Engine, |tx| {
+                tx.execute("UPDATE rounds SET rejected = ?1 WHERE work = 1 AND n = 1", [why])?;
+                Ok(())
+            })
+            .unwrap();
+        };
+        assert!(expired(&at(&db, &cell, Some(HOUR), later)));
+        rejected(&mut db, r#"{"unparsed": "the return is not an object"}"#);
+        assert!(goes_on(&at(&db, &cell, Some(HOUR), later)));
+        rejected(&mut db, r#"{"failed": "the CLI stopped"}"#);
+        assert!(expired(&at(&db, &cell, Some(HOUR), later)));
+    }
+
+    // A session is taken up by the project's next architect work with the cache of its last call, which may be a
+    // keep-warm ping made while the previous work was the session's: that work's rows and the next work's have the CLI
+    // session in common, and the call is the one on any of them.
+    #[test]
+    fn a_ping_made_in_the_previous_work_keeps_the_session_the_next_work_takes_up() {
+        let mut db = session_db();
+        session_round(&mut db, 1, 1_000_000, Some(RAN));
+        session_ping(&mut db, 1_000_000 + 50 * 60_000, Some(RAN));
+        db.write(db::Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'S1', 'p')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let cell = architect_cell(true);
+        let on = |life| On {
+            model: SONNET,
+            home: None,
+            cache: life,
+        };
+        let next = |now: i64| plan(db.conn(), 2, &cell, 500_000, on(Some(HOUR)), now).unwrap();
+        // 59 minutes 59.999 seconds after the ping, 109 after the round: the session is taken up.
+        assert!(matches!(
+            next(1_000_000 + 110 * 60_000 - 1),
+            Plan::Going { carried: true, .. }
+        ));
+        assert!(expired(&next(1_000_000 + 110 * 60_000)));
+    }
+
+    // A ping that read the cache moves the next ping and the cache's expiry a lifetime on from it: the next ping is
+    // due 55 minutes after it, and the session goes on until an hour after it.
+    #[test]
+    fn a_ping_that_read_the_cache_moves_the_next_ping_and_the_expiry_on_from_itself() {
+        let cell = architect_cell(true);
+        let mut db = session_db();
+        session_round(&mut db, 1, 1_000_000, Some(RAN));
+        let pinged = 1_000_000 + 56 * 60_000;
+        session_ping(&mut db, pinged, Some(RAN));
+        let on = || On {
+            model: SONNET,
+            home: None,
+            cache: Some(HOUR),
+        };
+        let due_at = |now: i64| {
+            crate::warm::due(db.conn(), 1, &[&cell], 500_000, on(), now)
+                .unwrap()
+                .map(|d| d.pings)
+        };
+        assert_eq!(due_at(pinged + 55 * 60_000 - 1), None);
+        assert_eq!(due_at(pinged + 55 * 60_000), Some(1));
+        assert_eq!(due_at(pinged + HOUR - 1), Some(1));
+        assert_eq!(due_at(pinged + HOUR), None);
+        assert!(goes_on(&at(&db, &cell, Some(HOUR), pinged + HOUR - 1)));
+        assert!(expired(&at(&db, &cell, Some(HOUR), pinged + HOUR)));
+    }
+
     // Only a return sent back is rewritten in its own session: a run that failed or was cut off is done again.
     #[test]
     fn only_a_return_sent_back_stays_for_its_rewrite() {
