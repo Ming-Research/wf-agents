@@ -1,11 +1,11 @@
 // The observations: what each project's architect recorded on the project's behalf, a problem, an idea or feedback
 // not yet worth an item, the project's pool of what is not an item yet. A view of its own beside the items, since a
-// project's observations far outnumber its items. On the left, each project's under its name, as the list of
-// conversations groups its rows, with the buttons that pick them by the project's tags and by state (open or
-// handled), nothing picked at first so that every observation shows, and the clear of every pick while something is
-// picked; then a row for each, which opens it; on the right, the one open, in full, where the owner closes it, saying
-// why. While none is open the list fills the view; the split is the one the items take (`ListSplit`), for one look and
-// one code.
+// project's observations far outnumber its items. On the left, each project's under its head, as the list of
+// conversations groups its rows: its name and, at the right end of the same row, the buttons that pick them by the
+// project's tags and by state (open or handled), nothing picked at first so that every observation shows, and the clear
+// of every pick while something is picked; then a row for each, which opens it; on the right, the one open, in full,
+// where the owner closes it, saying why. While none is open the list fills the view; the split is the one the items
+// take (`ListSplit`), for one look and one code.
 
 import { XIcon } from '@primer/octicons-react';
 import { IconButton, NavList, PageHeader } from '@primer/react';
@@ -28,7 +28,7 @@ import {
   rowLine,
   shownObservations,
 } from '../observations';
-import { Fold, HeadingLevel, ItemRef, ListSplit, SendForm, SubHeading } from '../parts';
+import { Fold, HeadingLevel, ItemRef, ListSplit, ProjectHead, SendForm, SubHeading } from '../parts';
 import { Link, navigate, observationsHref, type ObservationsRoute } from '../route';
 import { t, tn } from '../text';
 import { factsAfter, joinedWords } from '../voices';
@@ -116,10 +116,11 @@ type Picking = {
   onClear: () => void;
 };
 
-/// One project's observations: its name; the buttons that pick them by its tags, in its order, then by none of them,
-/// and by state, open or handled (`StateFilter` in its `pick` mode, the part the items' tree and the list of
-/// conversations show or hide their rows with), each with how many it would show under the picks of the other group,
-/// and while anything is picked the clear of every pick; then its rows, every one while nothing is picked.
+/// One project's observations: its head (`ProjectHead`), its name and, at the right end of the same row, the buttons
+/// that pick them by its tags, in its order, then by none of them, and by state, open or handled (`StateFilter` in its
+/// `pick` mode, the part the items' tree and the list of conversations show or hide their rows with), each with how many
+/// it would show under the picks of the other group, and while anything is picked the clear of every pick; then its
+/// rows, every one while nothing is picked.
 function Project({ p, project, open, picking }: {
   p: ProjectObservations;
   /// The project the address names, which the rows' addresses keep.
@@ -133,34 +134,39 @@ function Project({ p, project, open, picking }: {
   const f = filters(p.observations, tags, picks);
   const rows = shownObservations(p.observations, tags, picks, open);
   const picked = picks.tags.length + picks.states.length > 0;
+  const heading = `observations-project-${p.project}`;
   return (
-    <NavList.Group title={p.project}>
-      <li className="obs-filters">
-        <StateFilter
-          pick
-          order={f.tags.order}
-          states={f.tags.counts}
-          shown={picks.tags}
-          tone="neutral"
-          words={(x) => (x === NO_TAG ? t('observation_no_tag') : x)}
-          title={(x, n, on) => {
-            const said = x === NO_TAG ? tn('observations_untagged', n) : tn('observations_tagged', n, { tag: x });
-            const click = clickWords(on, picks.tags.some((y) => y !== x));
-            return [said, click, x !== NO_TAG ? (covers.get(x) ?? '') : ''].join(' ').trim();
-          }}
-          onShown={picking.onTag}
-        />
-        <StateFilter
-          pick
-          order={f.states.order}
-          states={f.states.counts}
-          shown={picks.states}
-          tone="neutral"
-          words={(x) => t(x === 'open' ? 'observation_open' : 'observation_handled')}
-          title={(x, n, on) => `${stateSaid(x, n)} ${clickWords(on, picks.states.some((y) => y !== x))}`}
-          onShown={picking.onState}
-        />
-        {picked ? <ClearPicks title={t('observations_clear')} onClear={picking.onClear} /> : null}
+    <NavList.Group aria-labelledby={heading}>
+      <li className="project-head-item">
+        <ProjectHead id={heading} name={p.project}>
+          <div className="obs-controls">
+            <StateFilter
+              pick
+              order={f.tags.order}
+              states={f.tags.counts}
+              shown={picks.tags}
+              tone="neutral"
+              words={(x) => (x === NO_TAG ? t('observation_no_tag') : x)}
+              title={(x, n, on) => {
+                const said = x === NO_TAG ? tn('observations_untagged', n) : tn('observations_tagged', n, { tag: x });
+                const click = clickWords(on, picks.tags.some((y) => y !== x));
+                return [said, click, x !== NO_TAG ? (covers.get(x) ?? '') : ''].join(' ').trim();
+              }}
+              onShown={picking.onTag}
+            />
+            <StateFilter
+              pick
+              order={f.states.order}
+              states={f.states.counts}
+              shown={picks.states}
+              tone="neutral"
+              words={(x) => t(x === 'open' ? 'observation_open' : 'observation_handled')}
+              title={(x, n, on) => `${stateSaid(x, n)} ${clickWords(on, picks.states.some((y) => y !== x))}`}
+              onShown={picking.onState}
+            />
+            {picked ? <ClearPicks title={t('observations_clear')} onClear={picking.onClear} /> : null}
+          </div>
+        </ProjectHead>
       </li>
       {rows.length === 0 ? <li className="obs-none muted">{t('observations_none_shown')}</li> : null}
       {rows.map((o) => (

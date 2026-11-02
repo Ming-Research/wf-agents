@@ -7,11 +7,13 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use db::rusqlite::{self, Connection};
+use sessions::RoundId;
+use sessions::guard;
 
 use crate::read::{Error, Flows, json, outcome, over, work_summaries};
 use crate::{
     Anomaly, AnomalyKind, ArchitectNow, CellSpend, HaltTime, ItemAt, ItemSpend, LineSpend, Merged, OpenPr,
-    RoundOutcome, System, SystemNow, SystemOutput, SystemSpend, SystemWaste, Waiting, Week, WorkCount,
+    RoundOutcome, System, SystemNow, SystemOutput, SystemSpend, SystemWaste, Waiting, WatchedRound, Week, WorkCount,
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -260,6 +262,7 @@ pub fn system(conn: &Connection, flows: &Flows, ask: &SystemAsk<'_>) -> Result<S
             .map(|s| anomaly(&works, s.work, None, s.at, AnomalyKind::Stopped { why: s.why.clone() })),
     );
     anomalies.extend(main_red(conn, &works, since)?);
+    anomalies.extend(guarded(conn, &works, since)?);
     anomalies.sort_by_key(|a| std::cmp::Reverse(a.at));
 
     Ok(System {
@@ -284,6 +287,7 @@ pub fn system(conn: &Connection, flows: &Flows, ask: &SystemAsk<'_>) -> Result<S
                 conn,
                 "SELECT count(*), min(at) FROM engine_notices WHERE fault IS NOT NULL AND read_at IS NULL",
             )?,
+            running: running(conn, &works)?,
         },
         weeks,
         output,
@@ -759,6 +763,79 @@ fn anomaly(works: &HashMap<i64, WorkOf>, work: i64, round: Option<i64>, at: i64,
     }
 }
 
+/// What the run guard saw go past its line in the period.
+fn guarded(conn: &Connection, works: &HashMap<i64, WorkOf>, since: i64) -> Result<Vec<Anomaly>> {
+    let mut st = conn.prepare(
+        "SELECT work, round, at, signal, value, line, also, also_line, samples, scope, action
+         FROM guard_events WHERE at >= ?1",
+    )?;
+    let rows = st.query_map([since], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, i64>(2)?,
+            AnomalyKind::Guard {
+                signal: r.get(3)?,
+                value: r.get(4)?,
+                line: r.get(5)?,
+                also: r.get(6)?,
+                also_line: r.get(7)?,
+                samples: r.get(8)?,
+                scope: r.get(9)?,
+                action: r.get(10)?,
+            },
+        ))
+    })?;
+    let rows = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows
+        .into_iter()
+        .map(|(work, round, at, what)| anomaly(works, work, Some(round), at, what))
+        .collect())
+}
+
+/// The agents' rounds running now, the oldest first, as far as the ledger has them, each with the lines its record
+/// says it is judged by. A round open with no session is a step waiting for someone, not a run.
+fn running(conn: &Connection, works: &HashMap<i64, WorkOf>) -> Result<Vec<WatchedRound>> {
+    let mut st = conn.prepare(
+        "SELECT work, n, cell, coalesce(model, ''), json_extract(input, '$.engine.guard.added.value'),
+                json_extract(input, '$.engine.guard.cost.value')
+         FROM rounds WHERE ended_at IS NULL AND session IS NOT NULL ORDER BY started_at, work, n",
+    )?;
+    let rows = st.query_map([], |r| {
+        Ok((
+            RoundId::new(r.get(0)?, r.get(1)?),
+            r.get::<_, Option<String>>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, Option<f64>>(4)?,
+            r.get::<_, Option<f64>>(5)?,
+        ))
+    })?;
+    let rows = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut out = Vec::new();
+    for (round, cell, model, added_line, cost_line) in rows {
+        let w = works.get(&round.work);
+        let mut totals = guard::Totals::default();
+        for c in guard::calls_of(conn, round).map_err(Error::Failed)? {
+            totals.take(&c, &model);
+        }
+        out.push(WatchedRound {
+            work: round.work,
+            round: round.n,
+            graph: w.map(|w| w.graph.clone()).unwrap_or_default(),
+            cell,
+            item: w.and_then(|w| w.item),
+            title: w.and_then(|w| w.title.clone()),
+            project: w.and_then(|w| w.project.clone()),
+            context: totals.context.unwrap_or(0),
+            added: totals.added,
+            added_line,
+            cost_usd: totals.cost,
+            cost_line,
+        });
+    }
+    Ok(out)
+}
+
 /// A row a round took, and when.
 struct Took {
     work: i64,
@@ -1219,6 +1296,129 @@ mod tests {
                 n: 1,
                 oldest: Some(at(4))
             }
+        );
+    }
+
+    // A running round stands by its calls, a subagent's counted in what it cost and not in its context, against the
+    // lines its record keeps; one started with no lines has none, and a step waiting for someone is no run. What the
+    // guard did shows for the period asked for.
+    #[test]
+    fn the_system_view_shows_rounds_running_against_their_lines_and_what_the_guard_did() {
+        let line = |value: f64, scope: guard::Scope| {
+            Some(guard::Line {
+                value,
+                samples: 19,
+                scope,
+            })
+        };
+        let lines = guard::Lines {
+            added: line(5000.0, guard::Scope::Cell),
+            cost: line(2.5, guard::Scope::Graph),
+            ..guard::Lines::default()
+        };
+        let judged = json!({ "engine": { "guard": lines.record() } }).to_string();
+        let now = db::now();
+        let before_the_period = week_of(now, 0) - 1;
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            let run = |sql: &str, args: &[&dyn db::rusqlite::ToSql]| tx.execute(sql, args).map(|_| ());
+            run("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", &[])?;
+            for title in ["Guard it", "Start it", "Wait for it"] {
+                run(
+                    "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', ?1, 'x', 'y', 'change', '1')",
+                    &[&title],
+                )?;
+            }
+            for item in [1, 2, 3] {
+                run(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', 'I1')",
+                    &[&item],
+                )?;
+            }
+            for work in [1, 2] {
+                run(
+                    "INSERT INTO sessions (work, line, cli, cli_session) VALUES (?1, 'engineer', 'claude', 's')",
+                    &[&work],
+                )?;
+            }
+            run(
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
+                 VALUES (1, 1, 'I1', 1, ?1, 'c', ?2)",
+                &[&judged, &now],
+            )?;
+            run(
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
+                 VALUES (2, 1, 'I1', 2, '{}', 'c', ?1)",
+                &[&(now + 1)],
+            )?;
+            run(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (3, 1, 'M2', '{}', 'c', ?1)",
+                &[&now],
+            )?;
+            run(
+                "INSERT INTO round_calls (work, round, seq, message, model, input, read, written_5m, written_1h, output,
+                                          subagent, at)
+                 VALUES (1, 1, 1, 'a', 'claude-opus-5-5', 0, 10000, 0, 0, 0, 0, ?1),
+                        (1, 1, 2, 's', 'claude-opus-5-5', 0, 900000, 0, 0, 0, 1, ?1),
+                        (1, 1, 3, 'b', 'claude-opus-5-5', 0, 12500, 0, 0, 1000, 0, ?1)",
+                &[&now],
+            )?;
+            run(
+                "INSERT INTO guard_events (work, round, signal, value, line, also, also_line, samples, scope, action, at)
+                 VALUES (1, 1, 'growth', 6000, 5000, 3000, 100, 19, 'cell', 'waived', ?1),
+                        (1, 1, 'cost', 3, 2.5, NULL, NULL, 19, 'graph', 'noted', ?2)",
+                &[&now, &before_the_period],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let limits = BTreeMap::new();
+        let ask = SystemAsk {
+            weeks: Some(1),
+            tz: 0,
+            projects: &[],
+            limits: &limits,
+            now,
+        };
+        let s = system(db.conn(), &Flows::default(), &ask).unwrap();
+
+        let stands: Vec<_> = s
+            .now
+            .running
+            .iter()
+            .map(|r| (r.work, r.context, r.added, r.added_line, r.cost_line))
+            .collect();
+        assert_eq!(
+            stands,
+            [(1, 12_500, 2_500, Some(5000.0), Some(2.5)), (2, 0, 0, None, None)]
+        );
+        let r = &s.now.running[0];
+        assert_eq!(
+            (r.graph.as_str(), r.cell.as_deref(), r.item, r.title.as_deref()),
+            (ENGINEER, Some("I1"), Some(1), Some("Guard it"))
+        );
+        // 922,500 tokens read at $0.20 a million, and 1,000 written at $20 a million.
+        assert!((r.cost_usd - 0.2045).abs() < 1e-9, "{}", r.cost_usd);
+
+        let done: Vec<&AnomalyKind> = s
+            .anomalies
+            .iter()
+            .filter(|a| matches!(a.what, AnomalyKind::Guard { .. }))
+            .map(|a| &a.what)
+            .collect();
+        assert_eq!(
+            done,
+            [&AnomalyKind::Guard {
+                signal: "growth".into(),
+                value: 6000.0,
+                line: 5000.0,
+                also: Some(3000.0),
+                also_line: Some(100.0),
+                samples: 19,
+                scope: "cell".into(),
+                action: "waived".into(),
+            }]
         );
     }
 }

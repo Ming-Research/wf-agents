@@ -54,6 +54,31 @@ pub const FORMAT: &str = "wf-agents flow 1";
 /// The flow the engine runs, as this repository's `flow/flow.json` has it.
 pub const FLOW: &str = include_str!("../../../flow/flow.json");
 
+/// The answers a cell's output field that is a list of one of several forms can give, each by its value, in the order
+/// the flow lists them: for the fix, `answers("T6", "rows")`. Read from the flow built into the program, so a test
+/// that tries every answer takes one added later too. `None` when the flow has no such agent or field, or the field
+/// is not a list of forms.
+pub fn answers(cell: &str, field: &str) -> Option<Vec<String>> {
+    use serde_json::Value;
+    fn agent<'a>(v: &'a Value, id: &str) -> Option<&'a Value> {
+        match v {
+            Value::Object(o) if o.get("id").is_some_and(|x| x == id) && o.get("kind").is_some_and(|k| k == "agent") => {
+                Some(v)
+            }
+            Value::Object(o) => o.values().find_map(|x| agent(x, id)),
+            Value::Array(a) => a.iter().find_map(|x| agent(x, id)),
+            _ => None,
+        }
+    }
+    let flow: Value = serde_json::from_str(FLOW).ok()?;
+    let out = agent(&flow, cell)?.get("out")?.as_array()?;
+    let branches = out.iter().find(|f| f["name"] == field)?["item"]["branches"].as_array()?;
+    branches
+        .iter()
+        .map(|b| b["value"].as_str().map(str::to_string))
+        .collect()
+}
+
 /// What the flow is checked against besides itself.
 #[derive(Debug, Clone, Default)]
 pub struct Context {

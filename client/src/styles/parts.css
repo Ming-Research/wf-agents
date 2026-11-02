@@ -624,3 +624,37 @@
     display: none;
   }
 }
+
+/* A project's head (ProjectHead), in the list of conversations, the works, the items' tree and the observations: its
+   name at the left and its controls at the right end of the same row. The name takes what the controls leave (at least
+   a few letters) and is cut with an ellipsis before anything wraps; the controls, which keep their width, wrap onto a
+   row of their own, at the right, only when they alone are wider than the row, the name staying on the first. */
+.project-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+  min-width: 0;
+}
+
+.project-head-name {
+  flex: 1 1 0;
+  min-width: var(--base-size-64);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-head-controls {
+  flex: none;
+  max-width: 100%;
+  margin-left: auto;
+}
+
+/* A project's head as the first row of a project's group in a list of rows (a NavList group: the list of conversations,
+   the observations), which the group is named by. */
+.project-head-item {
+  padding: var(--base-size-8) var(--base-size-8) var(--base-size-4);
+  list-style: none;
+}

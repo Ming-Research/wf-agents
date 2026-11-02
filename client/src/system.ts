@@ -71,6 +71,7 @@ export const ANOMALY_KINDS: ReadonlyArray<AnomalyKind['kind']> = [
   'stopped',
   'tool_failed',
   'main_red',
+  'guard',
 ];
 
 /// The anomalies by their kind, in the order of the kinds, each kind's as they came.
