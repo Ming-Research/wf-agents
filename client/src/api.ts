@@ -2176,8 +2176,8 @@ export type CellInputOf = { "kind": "input", input: number, source: number, } | 
 
 /**
  * What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
- * project's settings and rules, as its configuration has them, its project guide, as its main has it in its checkout
- * as the engine last fetched it, and what each table and view of the database holds.
+ * project's settings and rules, as its configuration has them, its guide, as its main has it in its checkout as the
+ * engine last fetched it, and what each table and view of the database holds.
  */
 export type InputsNow = { projects: Array<ProjectNow>,
 /**

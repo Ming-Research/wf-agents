@@ -1072,14 +1072,14 @@ mod tests {
                 .iter()
                 .any(|x| x.from.iter().any(|s| matches!(s, Src::Engine(n) if n.as_str() == name)))
         };
-        let mut declared = std::collections::BTreeSet::new();
+        let mut declared: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
         let mut agent = None;
         for g in &compiled.graphs {
             for c in &g.cells {
                 let has = main_inputs.iter().any(|n| declares(c, n));
                 assert_eq!(reads_main(c), has, "{} {}", g.name, c.id);
                 assert!(!has || c.kind == "agent", "{} {} is no agent's cell", g.name, c.id);
-                declared.extend(main_inputs.iter().filter(|n| declares(c, n)));
+                declared.extend(main_inputs.iter().copied().filter(|n| declares(c, n)));
                 if has && agent.is_none() {
                     agent = Some(c.clone());
                 }
