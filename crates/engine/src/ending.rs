@@ -204,18 +204,14 @@ fn remove_worktree(tx: &Transaction<'_>, work: i64, p: &config::Project, dir: &s
 /// with a comment that its work ended without merging. The comment does not say why: why is the owner's or the
 /// architect's words, in the owner's language, and everything in a pull request is in English.
 fn close_pr(tx: &Transaction<'_>, work: i64, item: Option<i64>, n: i64, p: &config::Project) -> Result<(), String> {
-    // A pull request that merged, here or in an earlier work on the item that had it, is not closed.
-    let merged: bool = tx
-        .query_row(
-            &format!(
-                "SELECT EXISTS (SELECT 1 FROM rounds r JOIN works x ON x.id = r.work
-                                    WHERE x.item = ?1 AND x.pr = ?2 AND r.cell IN {} AND r.transition = 'merged')",
-                db::cells_sql(crate::ENGINEER, &["M2"])
-            ),
-            params![item, n],
-            |r| r.get(0),
-        )
-        .map_err(sql)?;
+    // A pull request whose merge stands, here or in an earlier work on the item that had it, is not closed. Once that
+    // merge is reverted the work has let go of it (the action `revert_merge`), and the one it has now is the fix's,
+    // which never merged: a merge on its record says nothing of that one, though the work's rounds hold it.
+    let merged = item
+        .map(|i| db::merge_stands(tx, i))
+        .transpose()
+        .map_err(sql)?
+        .unwrap_or(false);
     if !merged {
         let comment = "Its work ended without merging.";
         outbox(
@@ -624,7 +620,8 @@ mod tests {
 
     // Cancelling an item with a work going on only asks, once however often it is asked; an item with no work going on
     // is cancelled at once. One whose merge stands is not cancelled, and whoever asked is told; once watching main has
-    // reverted that merge it can be cancelled, and its pull request, which merged, is not closed.
+    // reverted that merge it can be cancelled, and the pull request of its fix, which never merged, is closed, though
+    // the work's rounds hold the merge of the one before.
     #[test]
     fn what_cancelling_an_item_comes_to_goes_by_its_work_and_its_merge() {
         let mut db = Db::in_memory().unwrap();
@@ -672,6 +669,8 @@ mod tests {
                  VALUES (?1, 3, 'L1', '{}', '{}', 'broken_by_merge', 'c', 3, 3)",
                 [work],
             )?;
+            // The revert let go of the pull request that merged, and the fix opened another.
+            tx.execute("UPDATE works SET pr = 8 WHERE id = ?1", [work])?;
             Ok(())
         })
         .unwrap();
@@ -683,8 +682,14 @@ mod tests {
         .unwrap();
         let cancelled: String = one(&db, "SELECT cancelled FROM items");
         assert_eq!(cancelled, "a duplicate");
-        let kinds: Vec<String> = outbox(&db).into_iter().map(|x| x.1).collect();
-        assert_eq!(kinds, ["remove_worktree"]);
+        let closing: Vec<(String, Value)> = outbox(&db).into_iter().map(|x| (x.1, x.2["pr"].clone())).collect();
+        assert_eq!(
+            closing,
+            [
+                ("remove_worktree".to_string(), Value::Null),
+                ("close_pr".to_string(), json!(8))
+            ]
+        );
         // An item no work goes on on is cancelled at once.
         db.write(Actor::Owner, |tx| {
             tx.execute(
