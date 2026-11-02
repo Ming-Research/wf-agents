@@ -148,7 +148,10 @@ fn let_go_of_what_no_one_took_up(
         &[&item],
         1,
     )?;
-    let Some(left) = left.first().filter(|w| w["ended"].is_string() && w["cancelled"].is_null()) else {
+    let Some(left) = left
+        .first()
+        .filter(|w| w["ended"].is_string() && w["cancelled"].is_null())
+    else {
         return Ok(());
     };
     let Some(p) = left["project"].as_str().and_then(|p| projects.get(p)) else {

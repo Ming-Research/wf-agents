@@ -678,7 +678,8 @@ pub fn pause(db: &mut Db, work: i64, why: Option<&str>) -> Result<String, String
             if !db::resume_asked(db.conn()).map_err(sql)?.contains(&work) {
                 return Err(format!("work {work} is paused already"));
             }
-            db.write(Actor::Owner, |tx| db::withdraw_resume(tx, work)).map_err(sql)?;
+            db.write(Actor::Owner, |tx| db::withdraw_resume(tx, work))
+                .map_err(sql)?;
             return Ok(format!("work {work} stays paused: the resume asked is withdrawn"));
         }
         Some((None, None)) => {}
