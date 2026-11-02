@@ -117,7 +117,7 @@ impl Watch {
     pub fn see(&self, seen: Seen) -> Next {
         let RoundId { work, n } = self.round;
         if let Seen::Doing(what) = &seen {
-            (self.activity)(work, n, what);
+            (self.activity)(work, n, what.as_str());
             return Next::Go;
         }
         let (past, live) = {

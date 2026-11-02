@@ -2037,8 +2037,8 @@ mod tests {
                 ))
             })
             .unwrap()
-            .map(Result::unwrap)
-            .collect();
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
         let engineer = |n, added, jump, given| {
             (
                 1,
