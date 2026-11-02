@@ -142,6 +142,7 @@ describe('the System view', () => {
       ['stopped', 1],
       ['tool_failed', 0],
       ['main_red', 1],
+      ['guard', 0],
     ]);
   });
 });

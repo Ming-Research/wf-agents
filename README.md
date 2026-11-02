@@ -73,6 +73,15 @@ signed in as, shows the command that signs a new one in, and switches the agents
 `config_dir` and committing it, after which every line starts a new session at its next round, since a session is kept
 in the directory it ran in.
 
+## The run guard
+
+While an agent's round runs, the engine reads each of its calls to the model from the command line's stream, keeps it in
+the database, and judges the round against lines computed from the rounds before it, so that no line is a setting. The
+rule is the flow's (`guard` in the rounds section of `flow/flow.json`), and a round it stops takes the row `guarded` that
+every agent's cell has. The System view shows each running round against its lines under Now, and what the guard saw and
+did under Anomalies. Only the command line's adapter (`crates/sessions/src/cli.rs`) reads the stream's format: should a
+new version of the command line stop telling its calls there, rounds run unjudged, and a running round shows no calls.
+
 ## The architect
 
 Each project has an architect of its own. It runs at the level `install.toml` names under `[agents]` as `architect`
@@ -90,7 +99,8 @@ agents are then not asked for it.
 
 ## The owner's page
 
-`wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). The engine starts with
+`wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). However the engine ends,
+Ctrl-C and a closed terminal included, the agents it was running are stopped with it. The engine starts with
 every work paused, so nothing runs until the owner presses Start all in the page's bar, which is also how the page is
 looked at against a copy of the data; Pause all stops every work at the end of the round it is in, and beside it a
 switch keeps waiting sessions warm meanwhile. Each work has its own Start, Pause and Step in the head of its
@@ -113,9 +123,11 @@ The flow page shows a stored flow version, `flow/flow.json` as it is at a git re
 with git and compiled, nothing written), or the flow a decision card carries, kept in the database as the card's
 branch had it, its graphs side by side, and compares two of them, so that a change to the flow is reviewed there.
 
-The Architect view shows a project's architect, read only, with a switch to another project's when there are several:
-what it does now, its rounds on its graph, the item changes its batches made, what to do next and the policy in force,
-each a tab of the column at its right. Its conversation with the owner, its queue with a card for each matter, and its
-Start, Pause and Step are in its one-to-one in the Messages view. The Observations view shows each project's
+The Works view is one table with a group of rows for each project: the project's name and, at the right end of the same
+row, the buttons that show or hide its works by state, then its architect, then its works. The architect's row opens its
+architect's page, read only, with a switch to another project's when there are several: what it does now, its rounds on
+its graph, the item changes its batches made, what to do next and the policy in force, each a tab of the column at its
+right. Its conversation with the owner, its queue with a card for each matter, and its Start, Pause and Step are in its
+one-to-one in the Messages view. The Observations view shows each project's
 observations, what its architect recorded and no item does yet, filtered by their tags, those taken in by an item or
 closed shown when asked for; one opened shows whole beside them, where the owner closes it.

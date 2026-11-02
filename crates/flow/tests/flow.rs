@@ -58,6 +58,19 @@ fn a_stop_before_the_merge_is_a_row_and_the_rest_is_said_in_words() {
     }
 }
 
+// The answers of a cell's list of forms are read from the flow built into the program: the fix has the answer made for
+// a fix in no commit, a field that is no list of forms and a cell the flow lacks give none.
+#[test]
+fn the_answers_of_a_list_of_forms_are_read_from_the_flow() {
+    let answers = flow::answers("T6", "rows").unwrap();
+    for a in ["fixed", "fixed_outside_commit", "disagree"] {
+        assert!(answers.iter().any(|x| x == a), "{answers:?}");
+    }
+    assert_eq!(flow::answers("T6", "head"), None);
+    assert_eq!(flow::answers("T6", "no such field"), None);
+    assert_eq!(flow::answers("no such cell", "rows"), None);
+}
+
 /// The fix's numbered table.
 fn t6_table(c: &flow::Compiled) -> flow::CompiledInput {
     let g = c.graph("engineer").unwrap();
@@ -112,7 +125,7 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (30, 128, 185));
+    assert_eq!((s.cells, s.rows, s.states), (30, 129, 186));
     let g = c.graph("architect").unwrap();
     for gone in [
         "E1", "H6", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",
@@ -571,8 +584,9 @@ fn an_ask_carries_no_kind() {
 // engineer's graph has no owner's cell (`A3`), no row leads there, no cell holds a blocker for the owner but `M1`'s
 // ruling, and the architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on only to a
 // related project's architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the architect
-// at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the work's design, and an
-// action only the owner can do to the owner by pausing the work.
+// at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the work's
+// design, and an action only the owner can do to the owner by pausing the work. An open question left to the owner they
+// pin in the owner's one-to-one by an ask, and answer the engineer by the owner's reply.
 #[test]
 fn what_only_the_owner_can_settle_goes_through_the_architect() {
     let c = compiled();
@@ -635,6 +649,28 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
             .iter()
             .any(|t| t.contains("pause the work in effects, saying what the owner must do"))
     );
+    // What only the owner decides about an open question the ways pin in the owner's one-to-one, by an ask that only an
+    // open question may make; they are given the owner's reply when the matter comes back with it, and the questions
+    // already pinned, as every cell that may ask is. The crux (`H2`) asks nothing.
+    assert_eq!(ways.rows.iter().find(|r| r.name == "ask_owner").unwrap().to, "A3");
+    assert!(
+        ways.checks
+            .iter()
+            .any(|x| x.at.as_deref() == Some("ask") && x.check == "ask_only_on_open_question")
+    );
+    for input in ["owner_answer", "questions"] {
+        assert!(
+            ways.inputs.iter().any(|x| {
+                x.maybe
+                    && x.from
+                        .iter()
+                        .any(|s| matches!(s, flow::format::Src::Engine(n) if n == input))
+            }),
+            "{input}"
+        );
+    }
+    let crux = c.graph("architect").unwrap().cell("H2").unwrap();
+    assert!(crux.rows.iter().all(|r| r.name != "ask_owner"));
 }
 
 // A matter that comes again and again is not queued while the facts it would carry are those of the last one the
@@ -795,11 +831,13 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
             "offline",
             "transient",
             "flagged",
+            "guarded",
             "cannot_run",
             "prompt_too_long",
             "unparsed"
         ]
     );
+    assert_eq!(r.guard.as_ref().map(|x| x.samples), Some(19));
     for cell in &g.cells {
         // The fix's own row for a table with no row is an engine's case too, but of that cell alone.
         let shared: Vec<&flow::CompiledRow> = cell
@@ -822,6 +860,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "offline",
                 "transient",
                 "flagged",
+                "guarded",
                 "cannot_run",
                 "prompt_too_long",
                 "unparsed",
@@ -844,6 +883,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
             [
                 "sent_back_too_often",
                 "flagged",
+                "guarded",
                 "prompt_too_long",
                 "unparsed",
                 "cannot_step",
@@ -1107,6 +1147,32 @@ fn a_return_that_does_not_fit_says_where() {
     assert!(e.ends_with("outcome must be an object, and is a string"), "{e}");
 }
 
+// The fix has an answer for a row it fixed in no commit, which gives where the fix is and no commit; the ci tool takes a
+// pull request's title and description with no tests, and ci_before, which runs the tests it lists, still needs them.
+#[test]
+fn a_fix_in_no_commit_and_a_description_pushed_with_no_tests_are_taken() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let mut done = samples["T6"][0]["json"].clone();
+    done["outcome"]["rows"] = serde_json::json!([
+        { "answer": "fixed_outside_commit", "id": "F1", "where": "The pull request description." }
+    ]);
+    assert_eq!(g.take("T6", &done, &Map::new()).unwrap().name, "done");
+    done["outcome"]["rows"][0].as_object_mut().unwrap().remove("where");
+    let e = g.take("T6", &done, &Map::new()).unwrap_err();
+    assert!(e.contains("does not fit the schema"), "{e}");
+    let asks = |tool: Value| {
+        serde_json::json!({ "outcome": { "tools": [tool] }, "side_reports": [], "tell_owner": [],
+                            "progress": "p", "flow_feedback": "none" })
+    };
+    let ci = serde_json::json!({ "tool": "ci", "head": "3f9c2e1", "pr": { "title": "t", "body": "b" } });
+    assert_eq!(g.take("T6", &asks(ci), &Map::new()).unwrap().name, "tools");
+    let before = serde_json::json!({ "tool": "ci_before", "head": "3f9c2e1", "files": ["tests/a.rs"] });
+    let e = g.take("T6", &asks(before), &Map::new()).unwrap_err();
+    assert!(e.contains("does not fit the schema"), "{e}");
+}
+
 // An agent's return schema holds its forms one level down, and a field a form leaves out is not required.
 #[test]
 fn an_agent_schema_holds_its_forms_in_outcome() {
@@ -1294,4 +1360,52 @@ fn a_work_moves_by_its_rows() {
     assert_eq!(l1.to, "L2");
     let l2 = g.cell("L2").unwrap();
     assert_eq!(l2.rows.iter().find(|r| r.name == "done").unwrap().to, "E1");
+}
+
+// The architect's line says its session expires with the CLI's prompt cache, so that every cell on it carries that, and
+// no cell of any other line does. A flow version stored before lines could say so has no such field in its cells, and
+// reads back with it false.
+#[test]
+fn only_the_architects_line_expires_with_the_cache() {
+    let c = compiled();
+    let mut expiring = Vec::new();
+    for g in &c.graphs {
+        for x in &g.cells {
+            if x.cache_expiry {
+                assert_eq!(x.line.as_deref(), Some("architect"), "{} {}", g.name, x.id);
+                expiring.push((g.name.as_str(), x.id.as_str()));
+            }
+        }
+    }
+    let architect = c.graph("architect").unwrap();
+    let on_line: Vec<&str> = architect
+        .cells
+        .iter()
+        .filter(|x| x.line.as_deref() == Some("architect"))
+        .map(|x| x.id.as_str())
+        .collect();
+    assert!(on_line.contains(&"U1") && on_line.contains(&"N1"), "{on_line:?}");
+    assert!(
+        on_line.iter().all(|id| expiring.contains(&("architect", *id))),
+        "{on_line:?} against {expiring:?}"
+    );
+    // The architect's other lines (its batch's review, its search) and the engineer's lines go on as they did.
+    assert!(!architect.cell("X2").unwrap().cache_expiry);
+    assert!(c.graph("engineer").unwrap().cells.iter().all(|x| !x.cache_expiry));
+
+    // What is stored of a flow version from before holds the field for no cell; it reads back false for each.
+    let mut stored: Value = serde_json::from_str(&c.json()).unwrap();
+    fn strip(v: &mut Value) {
+        match v {
+            Value::Object(m) => {
+                m.remove("cache_expiry");
+                m.values_mut().for_each(strip);
+            }
+            Value::Array(xs) => xs.iter_mut().for_each(strip),
+            _ => {}
+        }
+    }
+    strip(&mut stored);
+    let old: flow::Compiled = serde_json::from_value(stored).unwrap();
+    assert!(old.graphs.iter().all(|g| g.cells.iter().all(|x| !x.cache_expiry)));
 }

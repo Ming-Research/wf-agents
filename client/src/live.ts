@@ -10,18 +10,23 @@ import { getJson } from './http';
 /// What a running agent did, as its command line reported it, with the round's number in its work.
 export type Activity = { round: number; what: string; at: number };
 
+/// How a running round stands after its last call to the model, as the event stream told it.
+export type Measure = { context: number; added: number; cost_usd: number };
+
 type State = {
   online: boolean;
   status: Status | null;
   /// The last things each work's running agent did, newest last, by work.
   activity: Map<number, Activity[]>;
+  /// How each running round stands, by `measureKey`.
+  measures: Map<string, Measure>;
   /// How many times each thing read was named by an event; a key `kind:*` stands for every `kind:<id>`.
   versions: Map<string, number>;
   /// Bumped when everything is to be read again.
   epoch: number;
 };
 
-let state: State = { online: false, status: null, activity: new Map(), versions: new Map(), epoch: 0 };
+let state: State = { online: false, status: null, activity: new Map(), measures: new Map(), versions: new Map(), epoch: 0 };
 
 /// How many of a work's latest activities are kept.
 const ACTIVITIES = 8;
@@ -36,6 +41,39 @@ function subscribe(l: () => void): () => void {
   listeners.add(l);
   return () => listeners.delete(l);
 }
+
+/// How long what events name waits before it is read again. A busy engine sends several events a second, and a view
+/// can take half a second to read and more to draw: read at each event, the reads pile up behind one another until the
+/// owner's page and the machine stop.
+export const FLUSH_MS = 3000;
+
+/// Gathers what is given to it and hands it to `run` at most once in `FLUSH_MS`, each key once, and not while `hidden`
+/// says so: a tab the owner is not looking at reads nothing until it is looked at.
+export function coalesced(run: (keys: string[]) => void, hidden: () => boolean): (keys: string[]) => void {
+  const pending = new Set<string>();
+  let waiting = false;
+  const flush = () => {
+    if (hidden()) {
+      setTimeout(flush, FLUSH_MS);
+      return;
+    }
+    waiting = false;
+    const keys = [...pending];
+    pending.clear();
+    run(keys);
+  };
+  return (keys) => {
+    for (const k of keys) pending.add(k);
+    if (waiting) return;
+    waiting = true;
+    setTimeout(flush, FLUSH_MS);
+  };
+}
+
+const bumpSoon = coalesced(
+  (keys) => bump(...keys),
+  () => typeof document !== 'undefined' && document.hidden,
+);
 
 function bump(...keys: string[]) {
   const versions = new Map(state.versions);
@@ -132,6 +170,10 @@ export function connect(): void {
       const was = (activity.get(e.work) ?? []).filter((a) => a.round === e.round);
       activity.set(e.work, [...was, { round: e.round, what: e.what, at: e.at }].slice(-ACTIVITIES));
       set({ activity });
+    } else if (e.kind === 'measure') {
+      const measures = new Map(state.measures);
+      measures.set(measureKey(e.work, e.round), { context: e.context, added: e.added, cost_usd: e.cost_usd });
+      set({ measures });
     } else if (e.kind === 'resync' || (e.kind === 'ready' && ready)) {
       // What was read may be out of date: read everything again.
       set({ epoch: state.epoch + 1 });
@@ -140,7 +182,7 @@ export function connect(): void {
       ready = true;
       set({ epoch: state.epoch + 1 });
     } else {
-      bump(...named(e));
+      bumpSoon(named(e));
     }
   };
 }
@@ -149,6 +191,14 @@ export function connect(): void {
 export function reread(...keys: string[]): void {
   bump(...keys);
 }
+
+/// How the running rounds stand as the event stream last told it: what came since the page read them.
+export function useMeasures(): Map<string, Measure> {
+  return useSyncExternalStore(subscribe, () => state.measures);
+}
+
+/// What `useMeasures` keeps a round under.
+export const measureKey = (work: number, round: number): string => `${work}-${round}`;
 
 /// What a work's running agent did last, newest last; empty when nothing was reported since the page opened.
 export function useActivity(work: number): Activity[] {

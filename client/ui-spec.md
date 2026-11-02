@@ -28,7 +28,11 @@ drifts with each change, as the page's own look did.
 What the check cannot see a reviewer checks against this spec: each thing on the page uses the part its line here maps
 it to; a heading is a heading element in the type step of its level; a box holds only what an agent gave; a new
 recurring thing gets its line here in the same change that first draws it, because which part a thing is, and whether a
-box holds an agent's words, is a judgment no pattern sees.
+box holds an agent's words, is a judgment no pattern sees. A project's head (`ProjectHead`) is looked at in a pane 320px
+wide, in one 220px wide (the narrowest the list of conversations drags to) and at a phone's width, with every state's
+button drawn: the name is cut with an ellipsis before anything wraps, and the buttons wrap onto a row of their own, at
+the right, only where they alone are wider than the row, the name staying on the first; a test in a layout-less DOM
+cannot measure this, so the reviewer does.
 
 ## What the page is
 
@@ -289,6 +293,20 @@ what is sent to an agent, an item's card in its state's colour); the page casts 
 Primer's `--shadow-floating-small`, because Primer's own components already draw with these, and the page's parts beside
 them must not look like another kit.
 
+### Spend the screen's space reasonably
+
+The owner's principle for every page, the charts being what takes most of the screen: use the screen's space as
+reasonably as possible. Every row a page spends has an answer to what the owner does with it. A control that belongs to
+a heading stands at the right end of the heading's own row (`ProjectHead`, the one head of every project's group), never
+on a row of its own under it. One kind of thing is one full-width table or list, its groups parted by their heads, never
+a permanent column beside it that takes room from the chart or the table on every view. What a row can open takes no tab
+of its own in the bar. A line, a heading or a count that repeats what the row under it says is not there.
+
+Instead of the buttons on a row under each project's name, a second folded table for the works that ended, a permanent
+column of groups beside the works, and a tab in the bar for the architect that the works view could open from a row,
+because the owner found each of them took room that the chart and the table needed, and asked that no screen be spent
+on what is not used.
+
 ### Reading width
 
 A reading page (an item, the settings) is one column at most `--breakpoint-large` wide (1012px, the width of Primer's
@@ -341,7 +359,10 @@ the slots kept their room.
 A view in the bar is an `UnderlineNav.Item`, the current one with `aria-current="page"` (Primer draws its text semibold
 and its underline); its counts are `CounterLabel`s, what waits for the owner `variant="primary"` and the rest secondary,
 because the views are the page's places, as a repository's tabs are on GitHub, and a count beside a view says what waits
-there before it is opened.
+there before it is opened. A view holds every page that is one of its uses: the works view is the list of works, a
+work's page and an architect's page (below), so the bar has no tab for the architect, instead of a tab for each, because
+a project's architect is a row of the works (below) and the owner asked that the screen not be spent on a tab for what a
+row opens.
 
 ### The engine's state
 
@@ -436,6 +457,20 @@ between sections, with room round it, says where one ends and the next begins, w
 A part inside a section that folds (the approaches compared, earlier versions, why this one and not the others) is the
 same `Details` one step down: its title a sub-heading (h3), no rule, its body indented by the chevron's width, because a
 fold inside a section is a smaller thing of the same kind.
+
+### A project's head
+
+Where a list or a table groups its rows by project (the list of conversations, the works, the items' tree, the
+observations), each project's group begins with its head (`ProjectHead`, parts.tsx, ours on Primer's `Heading`): the
+project's name, an `h2` in the small step, at the left, and the controls over the group's rows (the buttons that show
+or hide its rows by state or pick them, a pick's clear) at the right end of the same row, in a container of their own
+beside the name and not in the heading, so that the heading says the name alone. The name gives way first: it is cut
+with an ellipsis and keeps at least `--base-size-64`; the controls keep their width and wrap onto a row of their own, at
+the right, only where they alone are wider than the row, the name staying on the first. A group with no control, such as
+wf-agents' own and the groups of connected projects in the list of conversations, has the name alone or none. Every view
+that groups its rows by project draws its head with this part, which a test checks of the four, instead of a row of
+buttons under the name or a head of its own in each view, because the owner asked for the buttons at the right end of
+the name's row, with space between, and the same look wherever a project's rows are grouped.
 
 ### A labelled text
 
@@ -905,7 +940,8 @@ on the left says the state and the indent reads at a glance.
 Buttons, each in its state's colour, show or hide that state's items, the done and the cancelled hidden at first,
 because what is settled is not what the owner looks for; each button is its state's icon and its count with no word, the
 state and the count said on hovering, instead of the state's name, because the owner found the row of named buttons too
-long for one line.
+long for one line. They stand in the project's head (`ProjectHead`, above), at the right end of the row of the project's
+name, instead of on a row of their own under it, because the owner asked that no row be spent on them.
 
 ### The tree's cards
 
@@ -948,10 +984,12 @@ glance, the number a fixed-width number, and no chip of working or done needed a
 
 ### The buttons as one part
 
-The buttons are one part, ours (`StateFilter`, components.tsx), which the list of conversations shows or hides each
-project's works with too, and which the observations pick theirs by tag and by state with in the part's pick mode
-(below), each list's choice one for all its projects and kept in the browser (`useShownStates`), every part that reads a
-list's choice reading the same one, so that the bar's counts change with the list's buttons. The pick mode differs in
+The buttons are one part, ours (`StateFilter`, components.tsx), which the list of conversations and the works table
+show or hide each project's works with too (`WorkStateFilter`, the work's states in the one order, tones and marks),
+and which the observations pick theirs by tag and by state with in the part's pick mode (below), each list's choice one
+for all its projects and kept in the browser (`useShownStates`), every part that reads a list's choice reading the same
+one, so that the bar's counts change with the list's buttons, and the works table's with the conversations'. In every
+list they stand in the project's head, at the right end of the row of its name. The pick mode differs in
 what a button means and nothing in how it looks: a button on is one picked rather than a state shown, the list shows
 every row while nothing is picked and else only what the picks match, and every button stays drawn while picked though
 its count is 0, so that a pick can be taken back; the items' tree and the conversations keep their show-or-hide mode,
@@ -1013,17 +1051,17 @@ labelled text, never as a tree of JSON, because a tree of JSON is not read.
 
 The observations, what each project's architect recorded on the project's behalf (a problem, an idea, feedback not yet
 worth an item), are a view of their own in the bar, right after the items (ours on Primer's parts): each project's under
-its name as a `NavList.Group` of one `NavList`, as the list of conversations groups its rows; under the name the buttons
-that pick them (`StateFilter` in its pick mode, above), in two groups `--base-size-12` apart, their buttons
-`--base-size-4` apart: one for each of the project's tags that any of them carries, in the project's order, then one for
+its head (`ProjectHead`, above) as a `NavList.Group` of one `NavList`, as the list of conversations groups its rows; in
+the head, after the name and at the right end of the same row, the buttons that pick them (`StateFilter` in its pick
+mode, above), in two groups `--base-size-12` apart, their buttons `--base-size-4` apart: one for each of the project's tags that any of them carries, in the project's order, then one for
 those that carry none of its tags ("no tag"); and "open" and "handled" (taken in by an item or closed), each where any
 is so; each its name and its count, since a tag has no mark, filled in the neutral tone, which stands for no meaning of
 its own, what the tag covers said on hovering after the count and what a click does. Nothing is picked at first, and
 every observation of the project shows, the handled ones with the rest; once something is picked only what matches
 shows: within a group a row matches any pick, and across the groups it must match each; each count says how many a
 button would show under the picks of the other group, and a pick the project has nothing for keeps its button, with 0,
-to be taken back; while anything is picked a small invisible `Button` with an `XIcon`, "Clear filters", ends the line
-and takes every pick back.
+to be taken back; while anything is picked a small invisible `Button` with an `XIcon`, "Clear filters", ends the buttons
+and takes every pick back; the buttons wrap among themselves, to the right, where they alone are wider than the pane.
 
 The picks are one for every project and kept in the browser. Then a row for each, the open ones first, each newest
 first, one block parted from the next by a `--borderWidth-thin` `--borderColor-muted` line, `--base-size-8` above and
@@ -1233,24 +1271,34 @@ because the owner found one page changed and the other left behind, and asked th
 
 ### The works view
 
-The works view lists every work, with no area of its own that scrolls: those running or waiting, then those ended,
-folded at first; each row leads to its work's group in the messages view, where the owner acts on it; a work picked from
-either takes the whole window under the bar in the list's place, its chart under one line that goes back to the list,
+The works view is one table over the whole width, with no area of its own that scrolls, and a group of rows for each
+project, in the order the list of conversations has its projects: the project's head (`ProjectHead`: its name and, at
+the right end of the same row, the buttons that show or hide its works by state, below), then the project's architect,
+then its works, newest first by number. Each group is a `tbody` of the one table, parted from the one before by room
+above its head, which is on a `--bgColor-muted` ground, with no line across the table; the table is one so that the
+columns and their widths are one. Each work's row leads to its work's group in the messages view, where the owner acts
+on it; a work picked from the table takes the whole window under the bar in the table's place, its chart under one line
+that goes back to the table,
 says which work it is (its number, its item, and its project while there is more than one), how it goes on in the list's
 words, where it is (its cell and stage, and while it is on an older flow version a chip saying so, or once it moved to
 the version the engine runs a chip saying to which, since the owner wants to see a work that went on at its cell after
 an upgrade apart from one taken over), its rounds, cost and pull request, linked, and leads to its group, with no links
 to the other works, which the owner found of no use; the address names the work, and going back in the browser returns
-to the list as it was. The view has no heading of its own and its tables fill the width, and holds no control of a work,
-which is in its group's head.
+to the table as it was. The view has no heading above its table (the bar's tab says it) and the table fills the width, and
+holds no control of a work, which is in its group's head. Where the window is narrower than the table's columns, the
+table scrolls sideways and each project's head sticks to the left, as wide as the window, so that its buttons stay in
+sight (`position: sticky` in a block `100cqw` wide in a cell that does not clip, the scroll container being the
+size container).
 
-Instead of the list above a work's chart, each in an area that scrolls and whose height dragged, because the owner asked
-for every row at once and for the chart over the whole window, and a heading repeating the tab, or a table narrower than
-the window, spends room the works need.
+Instead of a section of the works running or waiting with its heading and count, and a folded section of those ended
+with a line over it, each its own table, an area of its own that scrolls whose height dragged, or a column of groups
+beside the works, because the owner asked for the works of each project in one list, those ended hidden by the buttons
+as in the list of conversations and not by a fold of their own, every row at once and the chart over the whole window,
+and a heading repeating the tab, a line across the table or a column beside it spends room the works need.
 
-### The two lists of works
+### The works table
 
-The two lists of works have the same columns at the same widths, which the owner drags at the right edge of each
+Every project's group has the same columns at the same widths, which the owner drags at the right edge of each
 column's header and the browser keeps, a double click giving a column its own width again, and every cell stays on one
 line, cut where its column ends and whole on hovering; a work's item opens from its row, and the stage and how the work
 goes on or why it ended are written in words in its row, the state on one line (a round running and how long it has run,
@@ -1260,10 +1308,22 @@ since the bar already says that nothing runs until Start all and "paused by you"
 paused that was not; what it waits for, linked to where the owner gives it; the decision cards and asks the owner has to
 do as small chips; the engine's reason after them), beside the cell it is at that it is on an older flow version, saying
 on hovering that it is taken over when it goes on, with the link to its group beside the state, where the owner acts on
-it (below), because the two lists are read as one table, a reason prefixed with the state its badge already shows says
-it twice, and a row that wraps makes the list slow to scan.
+it (below), because the groups are read as one table, a reason prefixed with the state its badge already shows says it
+twice, and a row that wraps makes the table slow to scan. A work's item is not followed by its project, which the group
+it is in says, instead of the project after each title, since it would say it twice.
 
-A work's time in the lists is how long its agents and its tools ran, the round running counted to now, its rounds of
+A project's architect is the first row of its group, in the same columns: its work "Architect", its item "Architect of"
+the project as a link to its page (which the row opens too), its state the chip the head of its one-to-one has and the
+mark in the list of conversations is (one worked-out state, `architectMark`, so that the two never differ), the link to
+its one-to-one, the cell of the work that goes on, or else the newest, its rounds, run time and cost summed over all its
+works and its last activity the latest, with no stage and no pull request. The buttons leave it alone: they count and
+hide works, as they do in the list of conversations, whose architect row they leave alone too. The row's state is read
+from the lean read of every architect that the list of conversations' marks use (`/api/v1/architects`), instead of from
+each architect's whole page, which also reads its notebook, policy, matters handled, item changes and constitution and
+is read again at every event, since the row needs its works, its queue and whether a question of its own waits, no
+more.
+
+A work's time in the table is how long its agents and its tools ran, the round running counted to now, its rounds of
 asks and of the engine's left out as waits, instead of when its first round started, because the owner judges from it
 whether a work ran too long, which when it started does not tell.
 
@@ -1332,13 +1392,17 @@ models and where, in charts.
 
 ### The architect's view
 
-Each project's architect has a view in the bar, laid out as a work's page, read only: its graph, on the flow version its
-latest work runs on, with the rounds its list holds placed on it and the cell it is at (the bare graph before its first
-work), and the window floating over the chart with its panel and what is open on it; with none named the view opens on
-the first project's, and another project's is reached from that project's one-to-one; the works it ran are not in the
-works list, instead of the architects' works in the works list, because an architect runs for a long time and belongs to
-no item, and the owner reads what it does as one thing. An address of a work of the architect's leads to its page, on
-the round it names, since such a work has no page of its own.
+Each project's architect has a page under the works, at `/works/architect`, laid out as a work's page, read only: its
+graph, on the flow version its latest work runs on, with the rounds its list holds placed on it and the cell it is at
+(the bare graph before its first work), and the window floating over the chart with its panel and what is open on it;
+the architect's row of its project's group in the works opens it, with none named the page opens on the first
+project's, and another project's is reached from that project's row or its one-to-one; the works it ran are not rows of
+the works table, the architect's row standing for all of them, instead of the architects' works as rows of the table
+or a tab of its own in the bar, because an architect runs for a long time and belongs to no item, the owner reads what
+it does as one thing, and a tab for what a row opens spends the bar's room. An address of a work of the architect's
+leads to its page, on the round it names, since such a work has no page of its own. The page's old address,
+`/architect`, goes on to `/works/architect` with every parameter it had (the project, the tab, the span, the round and
+the cell), as the spend view's old address goes on to the system view, and no other address is moved.
 
 ### No line over the architect's chart
 
@@ -1347,9 +1411,8 @@ architect does now is said where the owner acts on it, in the head of its one-to
 the owner are only how it is run: the matter it handles and the cell it is at, a round running or what holds it back,
 that it waits for the owner's next words, or that it is idle, takes up the matters waiting, or is held back while every
 work is paused; and at the head's end each hold on the project's new works with why; its matters left, its notebook and
-its policy are the panel beside the one-to-one (below); and another project's architect's page is reached from that
-project's one-to-one, whose head names the architect as a link to its page, while the bar's Architect opens the first
-project's.
+its policy are the panel beside the one-to-one (below); and an architect's page is reached from its row in the works
+and from its project's one-to-one, whose head names the architect as a link to its page.
 
 Instead of a line over the chart saying the same, a state chip and the matters left, with links to the panel's tabs (the
 notebook and the policy) and to the one-to-one, the switch to another project's architect and the switch between the
@@ -1418,8 +1481,8 @@ session began.
 ### The round that started a session
 
 A round records the session it ran in, and a session why it started (`sessions.started`: its line had none going on, a
-cell starts one, the one before was past the context limit, the model or the login account changed, the owner asked for
-one, or it goes on from the architect's work before); the first round of a session in its work is the round that started
+cell starts one, the one before was past the context limit, the model or the login account changed, the CLI's prompt
+cache let the one before go, the owner asked for one, or it goes on from the architect's work before); the first round of a session in its work is the round that started
 it, and the page marks it in the list of rounds of a work's page and the architect's, the engineer's lines and helpers
 and the architect's lines alike, saying why on hovering and in the round's panel, but not a round of a cell on no line,
 each of which starts a session of its own, as its cell's badge on the chart says. Every session the session manager
@@ -1508,7 +1571,9 @@ pick or wrap-up, what the owner says to the architect the engineer is given as a
 engineer and the architect say to each other the owner sees, and what the engineer tells the owner the architect is
 given too. The helpers (the advisor, the review, the adversarial testing) are in no group. The entries are gathered from
 the tables that hold them by one view, `conversation_entries`, hidden from agents so that the index of tables the flow
-gives them stays as it is, beside what the engine writes from the flow for the page (the bubble of each stage a work
+gives them stays as it is; the page, and the talk a new session of an architect is told, read the view built on it,
+`conversation_shown`, which leaves out what the page does not show (the engine's notices and the helpers' messages),
+beside what the engine writes from the flow for the page (the bubble of each stage a work
 entered, of each matter an architect took up and of each version of its plan, the policy as it took effect).
 
 The observations are no card in a conversation, which showed each a second time beside its place: what the owner must
@@ -1530,15 +1595,19 @@ tells the owner of what newly waits by the browser's notifications, asking once 
 it is refused, instead of putting first those where something waits, because a list that reorders moves under the
 owner's hand, and a mark says enough.
 
-### Buttons over each project
+### Buttons in each project's head
 
-Each project's group is headed by buttons, the same as over the items' tree, each a state's icon, the one its works'
-rows show, and the count of its works in that state, with no word, the state and the count said on hovering, that show
-or hide its works in that state, the done and the ended hidden at first, the owner's choice one for every project and
-kept in the browser; the conversation open stays in the list whatever its state, and a work whose state is not read yet
-shows once it is; instead of one group of every work, because the owner asked for the list grouped by project, so that
-it holds several projects later, and filtered as the items are, what is over hidden; and instead of each state's name on
-its button, because the owner found the row of buttons too long to fit on one line of the list.
+Each project's group is headed by its name and, at the right end of the same row, buttons (`ProjectHead`, ours, above),
+the same as in the items' tree, the works table and the observations, each a state's icon, the one its works' rows
+show, and the count of its works in that state, with no word, the state and the count said on hovering, that show or
+hide its works in that state, the done and the ended hidden at first, the owner's choice one for every project and kept
+in the browser, the same choice for the list of works, which counts and hides by the same state, as it is in effect, so
+that a button never counts what the rows do not show; the conversation open stays in the list whatever its state, and a
+work whose state is not read yet shows once it is; instead of one group of every work, because the owner asked for the
+list grouped by project, so that it holds several projects later, and filtered as the items are, what is over hidden;
+instead of each state's name on its button, because the owner found the row of buttons too long to fit on one line of
+the list; and instead of the buttons on a row under the project's name, because the owner asked that they stand at the
+right end of the name's row, as no screen is spent on a row for them.
 
 ### A hidden work counts nowhere
 
@@ -1559,9 +1628,10 @@ owner, and what waits pinned, raise the count and notify.
 ### The messages view
 
 The messages view is Primer's `PageLayout` (as the items' split), the conversations a `NavList` in its pane in groups
-(wf-agents' own; each project's, its `NavList.Group` title the project's name, under it the buttons that show or hide
-its works in each state, the items' tree's own part, `StateFilter` (above), one button for each state of its works, its
-mark and its count, then its rows; the connected projects), each with its mark as its leading visual (an architect's
+(wf-agents' own; each project's, a `NavList.Group` with no title of its own, named by the heading of its first row, its
+head (`ProjectHead`, above: the project's name and, at the right end of the same row, the buttons that show or hide its
+works in each state, the items' tree's own part, `StateFilter` (above), one button for each state of its works, its
+mark and its count), then its rows; the connected projects, each also headed by its name), each with its mark as its leading visual (an architect's
 one-to-one and a work's group the state's mark of that architect or that work, above; wf-agents' own `CpuIcon` and a
 group of projects `StackIcon`) and its counts as trailing `CounterLabel`s, what waits `variant="primary"` and what is
 unread secondary, a work's group over in `--fgColor-muted`, a row's name on one line, cut with an ellipsis before its
@@ -1968,8 +2038,11 @@ to it, a strip over the box naming it ("Reply to:" and the question), the owner'
 which the interface's say to the architect takes with `reply_to`, its matter coming back to the cell that asked with the
 reply; with the strip taken off, the words are the owner's words to the architect, which H8 answers. The strip names at
 first the question the architect waits on, as its look at the queue (`Q0`'s row `waits`) works it out from the same
-reading of the database (the newest question pending, put less than the installation's wait for the owner's reply ago,
-with nothing said by the owner since), which the interface gives the page with the questions; once the owner clicks
+reading of the database (the newest question pending that does not pin an open question of an engineer's design, put
+less than the installation's wait for the owner's reply ago, with nothing said by the owner since), which the interface
+gives the page with the questions; a question that pins an open question is never the one the strip names, because the
+architect does not wait for it, and the owner answers it with the Reply under it (words typed in the box with the strip
+taken off are the owner's words to the architect, not the answer to it, and the open question stays unanswered); once the owner clicks
 Reply on a question or takes the strip off, it stays so until the words are sent. Replied to, a question holds the reply
 in its bubble; one whose matter is gone, handled or withdrawn, is pinned no longer, with no Reply.
 
@@ -2795,17 +2868,20 @@ their arrows in sight while reading the chart.
 A view of its own, System, shows the state of the whole system in five parts, each saying on its title what the owner
 does with it: Now, whether the owner needs to step in (the asks to answer, the decision cards to rule on and the faults
 of wf-agents unread, each with how long the oldest has waited; the works by where they stand, each work in one place:
-running, ready, waiting for the owner, for the architect or for other items, paused, or halted by the engine; and each
+running, ready, waiting for the owner, for the architect or for other items, paused, or halted by the engine; each
 project's architect, working, paused or idle, never by its works, with the matters in its queue and how long the oldest
-has waited, leading to its one-to-one); Output, what got done (the items merged, made and cancelled, the pull requests
+has waited, leading to its one-to-one; and the rounds running now, each with how large its context is and what it added
+and spent, the last two against the line the run guard judges them by, the numbers kept current by the event stream, not
+read again, instead of tiles of totals, because whether a round needs a look shows only against its own line); Output, what got done (the items merged, made and cancelled, the pull requests
 open now, and how long a merged work took from its start, on average); Spend, where the money goes (the engineers' works
 and the architects' works apart, everything spent per item merged with what the merged works themselves cost beside it
 in the same tile, by line and model, by item, and the ten costliest cells); Waste and efficiency, where to save (the
 share of the agents' input read from the prompt cache and the rounds that missed it, the rounds sent back and those
 failed or cut off with what they cost, how long a usage limit, being offline or being unable to run halted every work,
 and what the keep-warm pings cost); and Anomalies, what went wrong (rows counting a flow anomaly, counters past their
-project's limit, works the engine stopped, tools that failed after the engine's retries, and checks red on main after a
-merge). Every part but Now counts over a period the owner picks, which the address keeps: the week under way, the last
+project's limit, works the engine stopped, tools that failed after the engine's retries, checks red on main after a
+merge, and each signal the run guard saw past its line, with its value, its line, how many rounds gave the line and what
+came of it, leading to its round). Every part but Now counts over a period the owner picks, which the address keeps: the week under way, the last
 four weeks, or all time, a week running from Monday at midnight in the owner's time zone. Each part sums up first, in
 tiles, and each number leads to the list it counts, folded under the tiles or on the view that holds it, a tile of
 nothing muted; over more than one week, what got done shows week by week, and the spend as columns, the engineers' and

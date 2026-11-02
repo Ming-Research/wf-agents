@@ -276,6 +276,24 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         "{tab}"
     );
     assert!(tab.contains(r#""constitution":null"#), "{tab}");
+    // How every project's architect stands is read at once, one entry for each project of the configuration, with its
+    // works, its queue and whether a question of its own waits, and none of the rest of the architect's page.
+    let (status, standing) = get(s.port, "/api/v1/architects", &here, "");
+    assert_eq!(status, 200, "{standing}");
+    assert!(
+        standing.ends_with(r#"[{"project":"p","works":[],"queue":[],"asking":false}]"#),
+        "{standing}"
+    );
+    for page_only in ["notebook", "policy", "handled", "changes", "constitution"] {
+        assert!(
+            !standing.contains(page_only),
+            "{page_only} is read for the page alone: {standing}"
+        );
+        assert!(
+            tab.contains(&format!(r#""{page_only}""#)),
+            "the page holds {page_only}: {tab}"
+        );
+    }
     // Its rounds are read in windows across its works: none yet; a window is named by a round's name, and a round of
     // another work is not the architect's.
     let (status, rounds) = get(s.port, "/api/v1/architect/rounds?project=p", &here, "");

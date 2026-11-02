@@ -231,6 +231,7 @@ describe('the list of rounds', () => {
     expect(sessionMarkWords(cellOpens)).toBe('A new session: cell U1 starts one');
     expect(sessionMarkWords(round(1, 1, 'H4', { new_session: 'model' }))).toBe("A new session: its line's model changed");
     expect(sessionMarkWords(round(1, 1, 'H4', { new_session: 'account' }))).toBe("A new session: the agents' login account changed");
+    expect(sessionMarkWords(round(1, 1, 'H4', { new_session: 'expired' }))).toBe("A new session: the session's prompt cache expired");
     // A reason the page does not know, as a round recorded before it said why, keeps the mark without why.
     expect(sessionMarkWords(unknown)).toBe('A new session');
     // The round's panel says the same among who ran it.

@@ -131,7 +131,14 @@ fn view(c: &config::Config, commit: &str, compiled: &flow::Compiled) -> Settings
         highest_level: install.items.highest_level.clone(),
         architect: c.architect_level(),
         context_limit: agents.context_limit as i64,
-        keep_warm_minutes: sessions::warm::AFTER_MS / 60_000,
+        // A session is pinged that long after its last call, five minutes before the shortest cache lifetime of the
+        // CLIs the installation names lets it go; 0 when none of them has a prompt cache to keep.
+        keep_warm_minutes: agents
+            .clis
+            .values()
+            .filter_map(|x| x.kind.cache_lifetime())
+            .min()
+            .map_or(0, |life| sessions::warm::after_ms(life) / 60_000),
         language: install.owner.language.clone(),
         hosts: install
             .machines

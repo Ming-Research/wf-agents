@@ -1,8 +1,9 @@
 // A project's architect's page, laid out as a work's page and drawn with the same parts (the chart, the panel, its
 // list of rounds and the usage), read only and with no line over its chart: what the architect does now, the holds on
 // the project's new works, its matters left, its notebook and its policy are in the head of its one-to-one and the
-// panel beside it in the messages view, where the owner speaks to it, answers it and starts, pauses and steps it; and
-// another project's architect is reached from that project's one-to-one, whose head links to its page. Its graph fills
+// panel beside it in the messages view, where the owner speaks to it, answers it and starts, pauses and steps it. It is
+// under the works view, which has no tab for it: each project's architect is the first row of that project's works,
+// and opens its page, and the head of its one-to-one links to it too. Its graph fills
 // the window under the bar, drawn on the flow version its latest work runs on, with the rounds its list holds placed on
 // it and the cell it is at, and the window floating over the chart's right side holds the architect's panel, with what
 // is open on the chart split under it, as on a work's page. The panel's tabs, on one line: its rounds, across all its

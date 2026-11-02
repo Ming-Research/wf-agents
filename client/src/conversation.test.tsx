@@ -31,7 +31,7 @@ import type {
   WorkState,
   WorkSummary,
 } from './api';
-import { architectMark } from './architect';
+import { architectMark as markOfStanding, standing } from './architect';
 import { course, StateMark } from './components';
 import {
   asksApproval,
@@ -53,6 +53,10 @@ import { Composer, PinBar, pinsShown, type Reply, Stream, workMark } from './pag
 import { SayBox } from './parts';
 import messagesCss from './styles/messages.css?raw';
 import { t } from './text';
+
+/// How an architect stands as its mark says it, from what its page read: the page's read turned into the lean one the
+/// mark is worked out from.
+const architectMark = (a: Architect, s: Status) => markOfStanding(standing(a), s);
 
 /// The flow's lines with their colours, as the interface serves them, which every bubble and avatar is drawn in.
 const LINES: GraphLines[] = [
@@ -562,7 +566,7 @@ describe("the owner's words in the one-to-one with an architect", () => {
     const r = row(drawnIn(said(state())), '>hi<');
     expect(r).toMatch(/^<div class="talk-row talk-row-owner">/);
     const { after } = bubble(r);
-    expect(after).toMatch(/^<p class="talk-line-more">the architect is replying \| <a [^>]*href="\/architect\?project=p&amp;round=R9-31[^"]*"[^>]*>On the chart<\/a><\/p>/);
+    expect(after).toMatch(/^<p class="talk-line-more">the architect is replying \| <a [^>]*href="\/works\/architect\?project=p&amp;round=R9-31[^"]*"[^>]*>On the chart<\/a><\/p>/);
     expect(after).toContain('cell=H8');
     expect(r).not.toContain('Your words');
     expect(r).not.toContain('not taken up yet');
@@ -597,7 +601,7 @@ describe("the owner's words in a work's group", () => {
     const r = row(drawn(detail([said(state())])), 'Why two parsers?');
     expect(r).toMatch(/^<div class="talk-row talk-row-owner">/);
     expect(bubble(r).after).toMatch(
-      /^<p class="talk-line-more">the architect is replying \| <a [^>]*href="\/architect\?project=p&amp;round=R9-31[^"]*"[^>]*>On the chart<\/a><\/p>/,
+      /^<p class="talk-line-more">the architect is replying \| <a [^>]*href="\/works\/architect\?project=p&amp;round=R9-31[^"]*"[^>]*>On the chart<\/a><\/p>/,
     );
     const replied = row(drawn(detail([said(state({ state: 'replied', architect_work: null, round: null, cell: null }))])), 'Why two parsers?');
     expect(bubble(replied).after).toMatch(/^<p class="talk-line-more">replied<\/p><\/div>/);

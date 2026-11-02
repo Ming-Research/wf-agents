@@ -676,6 +676,8 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
     let events = Arc::clone(&bus);
     // What a running agent is doing goes to the page as it happens.
     let told = Arc::clone(&bus);
+    // So does how far each running round has come.
+    let measured = Arc::clone(&bus);
     // So does which works' rounds run: the page shows them running, and what stops once each ends.
     let (shown, running) = (Arc::clone(&bus), Arc::clone(&control));
     // A job that ends wakes the loop, to reap it.
@@ -687,6 +689,15 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
                 round,
                 what: what.to_string(),
                 at: db::now(),
+            });
+        }),
+        measure: Arc::new(move |work: i64, round: i64, live: sessions::guard::Live| {
+            measured.publish(api::Event::Measure {
+                work,
+                round,
+                context: live.context,
+                added: live.added,
+                cost_usd: live.cost_usd,
             });
         }),
         busy: Arc::new(move |works: &[i64]| {

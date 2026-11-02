@@ -4,6 +4,7 @@
 
 import type {
   Architect,
+  ArchitectStanding,
   ArchitectWork,
   MadeThing,
   Matter,
@@ -149,12 +150,21 @@ export function architectState(works: ArchitectWork[], queue: Matter[]): Archite
 /// its chip says it in.
 export type Standing = { state: WorkState; words: string };
 
+/// What the architect's page read, as the lean read of every architect gives it (`ArchitectStanding`): the one shape
+/// the state of an architect is worked out from, wherever it is shown, so that it is worked out once.
+export const standing = (a: Architect): ArchitectStanding => ({
+  project: a.project,
+  works: a.works,
+  queue: a.queue,
+  asking: a.asks.some((x) => x.answer === null),
+});
+
 /// How an architect stands now, as the head of its one-to-one says it: a round of it running; held back while it works
 /// (paused by the owner, with every work or by itself, or stopped by the engine or by itself); waiting for the owner's
 /// next words, having answered the owner's words with the talk left open; between rounds; or, with no work of it
 /// running, held back by every work paused while matters wait for it, else idle with nothing in its queue or about to
 /// take up the matters waiting.
-export function architectNow(a: Architect, status: Status | null): Standing {
+export function architectNow(a: ArchitectStanding, status: Status | null): Standing {
   const state = architectState(a.works, a.queue);
   if (state.kind === 'working') {
     const c = course(state.work, status);
@@ -175,11 +185,34 @@ export function architectNow(a: Architect, status: Status | null): Standing {
 /// How an architect stands as its mark in the list of conversations shows it, a work's mark for the same state: as its
 /// head says, except that while it neither runs a round nor is held back, a question of its own pinned for the owner's
 /// reply marks it asking, as a work that asked is.
-export function architectMark(a: Architect, status: Status | null): Standing {
+export function architectMark(a: ArchitectStanding, status: Status | null): Standing {
   const now = architectNow(a, status);
   const free = now.state === 'ready' || now.state === 'waiting';
-  if (free && a.asks.some((x) => x.answer === null)) return { state: 'asking', words: t('state_asking') };
+  if (free && a.asking) return { state: 'asking', words: t('state_asking') };
   return now;
+}
+
+/// What an architect's row in the list of works says besides how it stands, taken over all its works: how many rounds
+/// they ran, for how long, at what cost, when the latest of them was last active, and the work whose cell it is at now,
+/// which is the one that goes on, or with none, the newest.
+export type ArchitectTotals = {
+  rounds: number;
+  ran_ms: number;
+  cost_usd: number;
+  last_at: number | null;
+  work: WorkSummary | null;
+};
+
+export function architectTotals(a: ArchitectStanding): ArchitectTotals {
+  const all = a.works.map((x) => x.work);
+  const state = architectState(a.works, a.queue);
+  return {
+    rounds: all.reduce((n, w) => n + w.rounds, 0),
+    ran_ms: all.reduce((n, w) => n + w.ran_ms, 0),
+    cost_usd: all.reduce((n, w) => n + w.cost_usd, 0),
+    last_at: all.reduce<number | null>((m, w) => (w.last_at !== null && (m === null || w.last_at > m) ? w.last_at : m), null),
+    work: state.kind === 'working' ? state.work : (all[0] ?? null),
+  };
 }
 
 /// One part of what came of a matter, as the summary on its bubble's line says it: its words, and where it leads, if

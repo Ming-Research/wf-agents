@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use crate::hub::{self, CheckRun, Failure};
 use crate::inputs::Gathered;
 use crate::work::{self, Item, RoundId, Work};
-use crate::{Engine, git};
+use crate::{Engine, git, test_name};
 use sessions::worktree::Unfit;
 
 /// How many times a tool is tried before it is given up.
@@ -360,8 +360,7 @@ fn timed(log: &str) -> Vec<Timed> {
 /// What became of each named test in a run, as the logs of its jobs tell, cargo-nextest writing a line as each test
 /// ends: passed, with its time; failed, with how it ended and its time; or not run, when no log shows it, as when its
 /// job stopped at an earlier red test or there is no such test, so that a test the run did not reach is never read
-/// as measured; and when no log could be read, unread, with why. A test is named by its name in its test binary, a
-/// path ending in that, or its binary and its name as nextest writes them.
+/// as measured; and when no log could be read, unread, with why. A test is named as [`test_name`] says.
 fn test_results(tests: &[String], logs: &[Result<String, String>]) -> Vec<Value> {
     let found: Vec<Timed> = logs
         .iter()
@@ -372,12 +371,7 @@ fn test_results(tests: &[String], logs: &[Result<String, String>]) -> Vec<Value>
         .iter()
         .filter_map(|l| l.as_ref().err().map(String::as_str))
         .collect();
-    let holds = |t: &Timed, named: &str| {
-        t.test == named
-            || format!("{} {}", t.binary, t.test) == named
-            || t.test.ends_with(&format!("::{named}"))
-            || named.ends_with(&format!("::{}", t.test))
-    };
+    let holds = |t: &Timed, named: &str| test_name::matches_run(named, &t.binary, &t.test);
     tests
         .iter()
         .map(|named| match found.iter().find(|t| holds(t, named)) {
