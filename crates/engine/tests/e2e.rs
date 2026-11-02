@@ -13181,7 +13181,7 @@ fn a_decision_the_records_do_not_bear_out_is_sent_back_and_a_revised_one_is_writ
         assert!(sent_back[1].contains(&part), "{part}\n{sent_back:?}");
     }
     let path_taken = path_of(&e, arch);
-    let at = path_taken.iter().position(|c| c == "B5").expect(&log);
+    let at = path_taken.iter().rposition(|c| c == "B5").expect(&log);
     assert_eq!(&path_taken[at..at + 5], ["B5", "B2", "B3", "B2", "B4"], "{log}");
     let da = day_of(&e, a);
     let approach: String =
