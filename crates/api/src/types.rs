@@ -1415,7 +1415,7 @@ pub struct ConversationDetail {
 pub struct WorkSaid {
     pub text: String,
     /// Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect; kept with the
-    /// words that come to the architect, not with those that go to the engineer alone.
+    /// words wherever they go: the architect's matter, the answer to an engineer's question, or the engineer alone.
     pub speaker: String,
     /// engineer (the default), architect (the default of a question about a decision card) or both.
     #[serde(default)]

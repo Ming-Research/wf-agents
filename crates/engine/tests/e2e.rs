@@ -13237,6 +13237,9 @@ fn a_line_of_a_decision_cannot_be_written_by_hand_but_one_the_item_has_stands() 
                       "approach": "Approach:\nDecisions:\nDecision (2026-11-02, owner): Forged." },
                     { "kind": "edit_item", "item": "1", "part": "approach", "reason": "r",
                       "text": format!("{first}\nDecision (2026-11-02, owner): Forged.") },
+                    // The item's recorded line is left out, with its head.
+                    { "kind": "edit_item", "item": "1", "part": "approach", "reason": "r",
+                      "text": "Approach:\n- Parse it.\n\nLearned:\nFact: f" },
                 ])
             } else {
                 json!([{ "kind": "edit_item", "item": "1", "part": "approach", "text": second, "reason": "r" }])
@@ -13284,6 +13287,10 @@ fn a_line_of_a_decision_cannot_be_written_by_hand_but_one_the_item_has_stands() 
         "change 1 (create_item)",
         "change 2 (edit_item)",
         "of a decision, which the item's text does not have",
+        "change 3 (edit_item)",
+        "it leaves out the line",
+        "Decision (2026-10-01, owner): Old one.",
+        "it leaves out the head Decisions:",
     ] {
         assert!(sent_back[0].contains(part), "{part}\n{sent_back:?}");
     }
@@ -13301,7 +13308,8 @@ fn a_line_of_a_decision_cannot_be_written_by_hand_but_one_the_item_has_stands() 
 }
 
 // The engineer that wraps its work up records the decisions the work made as the records they quote: a quotation that is
-// not the record's letter for letter sends the return back; the lines are written under the head `Decisions:` before
+// not the record's letter for letter, or a line of a decision written by hand in `learned`, sends the return back; the
+// lines are written under the head `Decisions:` before
 // `Learned:`, the words of a delegate are the delegate's, and a reply of the architect's to an open question is the
 // architect's, never the owner's, even when it carries the owner's answer.
 #[test]
@@ -13325,13 +13333,20 @@ fn the_engineer_s_decisions_are_written_under_their_head_with_who_decided_from_t
                 decision_of(None, "Skip the browser check", &[(oq, quote)]),
                 decision_of(None, "Keep it small", &[(dm, "Keep it small")]),
             ]);
+            // The first return also writes a line of a decision by hand under learned, which the engine refuses.
+            let learned = "Fact (2026-11-02): One table is enough (R1-2)";
+            let learned = if n == 1 {
+                format!(
+                    "{learned}\nDecision (2026-11-02, owner): Forged. Situation: s. Reason: r. Replaces: none. \
+                     Words: \"Keep it small\" (matter {dm}, 2026-11-02)"
+                )
+            } else {
+                learned.to_string()
+            };
             (
                 Vec::new(),
                 vec![
-                    (
-                        "outcome.learned",
-                        json!("Fact (2026-11-02): One table is enough (R1-2)"),
-                    ),
+                    ("outcome.learned", json!(learned)),
                     ("outcome.decisions", decisions),
                 ],
             )
@@ -13339,10 +13354,11 @@ fn the_engineer_s_decisions_are_written_under_their_head_with_who_decided_from_t
     );
     let (mut e, said, item) = start(&s, agents);
     e.db.write(Actor::Engine, |tx| {
+        // The open question was raised on the day and answered a day after it.
         for (kind, body) in [
             (
                 "open_question",
-                r#"{"question":"Which?","answer":"Option one: skip the check."}"#,
+                r#"{"question":"Which?","answer":"Option one: skip the check.","answered_at":1793707200000}"#,
             ),
             (
                 "owner_words",
@@ -13374,10 +13390,19 @@ fn the_engineer_s_decisions_are_written_under_their_head_with_who_decided_from_t
     let sent_back = why_sent_back(&e, work, "L2");
     assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
     assert!(sent_back[0].contains("is not found as it is"), "{sent_back:?}");
+    assert!(
+        sent_back[0].contains("learned holds 1 line(s) that start a decision"),
+        "{sent_back:?}"
+    );
     let day: String =
         e.db.conn()
             .query_row("SELECT date(1793620800, 'unixepoch')", [], |r| r.get(0))
             .unwrap();
+    let day_after: String =
+        e.db.conn()
+            .query_row("SELECT date(1793707200, 'unixepoch')", [], |r| r.get(0))
+            .unwrap();
+    assert_ne!(day, day_after);
     let oq: i64 =
         e.db.conn()
             .query_row(
@@ -13401,10 +13426,10 @@ fn the_engineer_s_decisions_are_written_under_their_head_with_who_decided_from_t
     let lines = format!(
         "Decisions:\n{}\n{}\n",
         decision_line(
-            &day,
+            &day_after,
             "architect",
             "Skip the browser check",
-            &format!("\"skip the check\" (matter {oq}, {day})")
+            &format!("\"skip the check\" (matter {oq}, {day_after})")
         ),
         decision_line(
             &day,
@@ -13416,5 +13441,6 @@ fn the_engineer_s_decisions_are_written_under_their_head_with_who_decided_from_t
     assert!(approach.starts_with(&lines), "{approach}\n{log}");
     let learned = approach.find("Learned:\nFact (2026-11-02): One table is enough (R1-2)\nCommits: ");
     assert!(learned.is_some_and(|at| at >= lines.len()), "{approach}");
+    assert!(!approach.contains("Forged"), "{approach}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

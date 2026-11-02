@@ -43,9 +43,16 @@ fn says_nothing(text: &str, images: &[Image]) -> bool {
 /// its next tool use, or at the top of its next round. The owner speaks to the engineer alone of a work's lines: its
 /// helpers (the advisor, the review, the adversarial testing) take nothing from the owner. A work at its end (`E1`) is
 /// told nothing more: its way on no longer changes. The images sent with the words are kept with them. Gives the
-/// interjection.
-pub fn interject(db: &mut Db, work: i64, line: &str, text: &str, images: &[Image]) -> Result<i64, String> {
-    interject_about(db, work, line, text, images, None)
+/// interjection, which keeps who the caller declared to speak (`speaker`).
+pub fn interject(
+    db: &mut Db,
+    work: i64,
+    line: &str,
+    text: &str,
+    images: &[Image],
+    speaker: Speaker,
+) -> Result<i64, String> {
+    interject_about(db, work, line, text, images, None, speaker)
 }
 
 /// [`interject`], the words asking about a decision card of the work (`card`) when they do.
@@ -56,6 +63,7 @@ fn interject_about(
     text: &str,
     images: &[Image],
     card: Option<i64>,
+    speaker: Speaker,
 ) -> Result<i64, String> {
     let text = text.trim();
     if says_nothing(text, images) {
@@ -70,8 +78,9 @@ fn interject_about(
     live(db, work)?;
     db.write(Actor::Owner, |tx| {
         tx.execute(
-            "INSERT INTO interjections (work, line, speaker, text, design_card) VALUES (?1, ?2, 'owner', ?3, ?4)",
-            params![work, line, text, card],
+            "INSERT INTO interjections (work, line, speaker, declared, text, design_card)
+             VALUES (?1, ?2, 'owner', ?3, ?4, ?5)",
+            params![work, line, speaker.as_str(), text, card],
         )?;
         let id = tx.last_insert_rowid();
         attachments::attach(tx, Words::Interjection(id), images)?;
@@ -123,7 +132,7 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
         if said.design_card.is_some() {
             return Err("words answer an engineer's question or ask about a decision card, not both".into());
         }
-        return answer_question(db, work, m, &said.text, &images);
+        return answer_question(db, work, m, &said.text, &images, speaker);
     }
     if let Some(card) = said.design_card {
         card_waits(db, work, card)?;
@@ -134,7 +143,7 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
         .as_deref()
         .unwrap_or(if card.is_some() { "architect" } else { "engineer" });
     if to == "engineer" {
-        let id = interject_about(db, work, to, &said.text, &images, card)?;
+        let id = interject_about(db, work, to, &said.text, &images, card, speaker)?;
         return Ok(format!("interjection {id} goes to the engineer of work {work}"));
     }
     if to != "architect" && to != "both" {
@@ -276,8 +285,15 @@ fn item_of(db: &Db, work: i64) -> Result<(Option<i64>, String), String> {
 /// the reply of the architect's matter, said by the owner, which the work takes as it takes an architect's reply, and
 /// the matter leaves the architect's queue, saying so; the architect is told what the owner answered at its next pick.
 /// A question the architect is handling now, or that is not open, is refused. The images sent with the answer are the
-/// matter's.
-fn answer_question(db: &mut Db, work: i64, matter: i64, text: &str, images: &[Image]) -> Result<String, String> {
+/// matter's. The reply keeps who the caller declared to speak (`speaker`), as the owner's words do.
+fn answer_question(
+    db: &mut Db,
+    work: i64,
+    matter: i64,
+    text: &str,
+    images: &[Image],
+    speaker: Speaker,
+) -> Result<String, String> {
     let text = text.trim();
     if says_nothing(text, images) {
         return Err("an answer says something".into());
@@ -318,12 +334,12 @@ fn answer_question(db: &mut Db, work: i64, matter: i64, text: &str, images: &[Im
             "the architect is answering matter {matter} now: say it to the architect instead"
         ));
     }
-    let reply = json!({
+    let reply = speaker.record(json!({
         "by": "owner",
         "at": db::now(),
         "text": text,
         "why": "The owner answered the question in the work's group.",
-    });
+    }));
     db.write(Actor::Owner, |tx| {
         tx.execute(
             "UPDATE architect_matters SET reply = ?2, withdrawn = ?3 WHERE id = ?1",
@@ -1043,8 +1059,8 @@ mod tests {
             .unwrap();
         let reply: Value = serde_json::from_str(&reply).unwrap();
         assert_eq!(
-            (reply["by"].as_str(), reply["text"].as_str()),
-            (Some("owner"), Some("Do not split it."))
+            (reply["by"].as_str(), reply["text"].as_str(), reply["speaker"].as_str()),
+            (Some("owner"), Some("Do not split it."), Some("owner"))
         );
         assert!(withdrawn.is_some_and(|w| w.contains("group of work 1")));
         let queued: i64 = db
@@ -1056,6 +1072,30 @@ mod tests {
         assert_eq!(queued, 0);
         // Answered, it is no longer open to answer.
         assert!(say_to_work(&mut db, 1, &said(1, "Again.")).is_err());
+        // The reply keeps who the caller declared: a delegate's answer is not told as the owner's.
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO blockers (work, cell, round, kind, what, holder, project, matter, at, since)
+                 VALUES (1, 'I1', 1, 'question', 'Split it again?', 'architect', 'p', 2, 6, 6)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let by_delegate = WorkSaid {
+            speaker: "delegate".into(),
+            ..said(2, "Split it.")
+        };
+        say_to_work(&mut db, 1, &by_delegate).unwrap();
+        let speaker: String = db
+            .conn()
+            .query_row(
+                "SELECT json_extract(reply, '$.speaker') FROM architect_matters WHERE id = 2",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(speaker, "delegate");
     }
 
     // The owner lets a paused work go on; one that is not paused is refused.
@@ -1580,6 +1620,13 @@ mod tests {
             assert!(answer(&mut db, 1, &answer_by(bad)).is_err());
         }
         say_to_work(&mut db, 1, &said("delegate")).unwrap();
+        // Said to the engineer alone, the words keep who was declared too.
+        let to_engineer = |speaker: &str| WorkSaid {
+            to: Some("engineer".into()),
+            ..said(speaker)
+        };
+        say_to_work(&mut db, 1, &to_engineer("delegate")).unwrap();
+        say_to_work(&mut db, 1, &to_engineer("owner")).unwrap();
         say_to_projects(
             &mut db,
             &["p".to_string()],
@@ -1613,6 +1660,10 @@ mod tests {
                 Some("delegate".to_string()),
                 Some("owner".to_string())
             ]
+        );
+        assert_eq!(
+            one("SELECT declared FROM interjections WHERE matter IS NULL ORDER BY id"),
+            [Some("delegate".to_string()), Some("owner".to_string())]
         );
         assert_eq!(
             one("SELECT json_extract(answer, '$.speaker') FROM owner_asks ORDER BY id"),

@@ -70,27 +70,32 @@ fn strings(vs: &[&Value]) -> Vec<String> {
         .collect()
 }
 
-/// The record a decision names, of a project: the owner's words or an answer to an open question (`matter`), the
-/// owner's answer to an ask (`ask`), or what the owner or the architect said to a work (`interjection`). An error says
-/// why it is none: there is no such record, it is another project's, or it holds no words a decision may quote.
+/// The record a decision names, of a project: the owner's words, the owner's answer to an engineer's question or an
+/// answer to an open question (`matter`), the owner's answer to an ask (`ask`), or what the owner or the architect said
+/// to a work (`interjection`). An error says why it is none: there is no such record, it is another project's, it holds
+/// no words a decision may quote, or it keeps no time to date the decision by.
 pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<Record, String> {
     match from {
         "matter" => {
-            let row: Option<(String, String, Option<String>, String, i64)> = conn
+            type Row = (String, String, Option<String>, String, i64, Option<String>);
+            let row: Option<Row> = conn
                 .query_row(
-                    "SELECT project, kind, detail, body, at FROM architect_matters WHERE id = ?1",
+                    "SELECT project, kind, detail, body, at, reply FROM architect_matters WHERE id = ?1",
                     [id],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
                 )
                 .optional()
                 .map_err(sql)?;
-            let Some((of, kind, detail, body, at)) = row else {
+            let Some((of, kind, detail, body, at, reply)) = row else {
                 return Err(format!("there is no matter {id}"));
             };
             if of != project {
                 return Err(format!("matter {id} is of {of}, and the decision is of {project}"));
             }
             let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+            let reply: Value = reply
+                .and_then(|r| serde_json::from_str(&r).ok())
+                .unwrap_or(Value::Null);
             match (kind.as_str(), detail.as_deref()) {
                 ("owner_words", Some("release")) => Err(format!(
                     "matter {id} is the engine's note that the owner started a work, not words the owner said"
@@ -105,15 +110,33 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                     if texts.is_empty() {
                         return Err(format!("open question {id} has no answer yet"));
                     }
+                    // The time of the answer, not of the question: a decision is dated by when its words were said.
+                    let Some(at) = body["answered_at"].as_i64() else {
+                        return Err(format!("open question {id} has no recorded time of its answer"));
+                    };
                     Ok(Record {
                         source: Source::Architect,
                         texts,
                         at,
                     })
                 }
+                // The owner's answer in the work's group to a question of the engineer's is the matter's reply.
+                ("engineer_question", _) if reply["by"] == "owner" => {
+                    let Some(at) = reply["at"].as_i64() else {
+                        return Err(format!("the owner's answer to question {id} has no recorded time"));
+                    };
+                    Ok(Record {
+                        source: Source::declared(reply["speaker"].as_str()),
+                        texts: strings(&[&reply["text"]]),
+                        at,
+                    })
+                }
+                ("engineer_question", _) => Err(format!(
+                    "question {id} has no answer of the owner's: only the owner's words hold the words of a decision"
+                )),
                 (other, _) => Err(format!(
-                    "matter {id} is of the kind {other}: only the owner's words and the answer to an open question \
-                     hold the words of a decision"
+                    "matter {id} is of the kind {other}: only the owner's words, the owner's answer to an engineer's \
+                     question and the answer to an open question hold the words of a decision"
                 )),
             }
         }
@@ -140,10 +163,13 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
             if answer["by"] != "owner" {
                 return Err(format!("ask {id} has no answer of the owner's"));
             }
+            let Some(at) = answer["at"].as_i64() else {
+                return Err(format!("the answer of ask {id} has no recorded time"));
+            };
             Ok(Record {
                 source: Source::declared(answer["speaker"].as_str()),
                 texts: strings(&[&answer["text"]]),
-                at: answer["at"].as_i64().unwrap_or_default(),
+                at,
             })
         }
         "interjection" => {
@@ -153,15 +179,17 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                 Option<i64>,
                 Option<String>,
                 Option<String>,
-                i64,
+                Option<i64>,
+                Option<String>,
                 Option<String>,
             );
             let row: Option<Row> = conn
                 .query_row(
                     "SELECT j.speaker, j.text, j.matter, w.project, i.project,
-                       coalesce((SELECT min(c.at) FROM changes c
-                                 WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)), 0),
-                       (SELECT json_extract(m.body, '$.speaker') FROM architect_matters m WHERE m.id = j.matter)
+                       (SELECT min(c.at) FROM changes c
+                        WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)),
+                       (SELECT json_extract(m.body, '$.speaker') FROM architect_matters m WHERE m.id = j.matter),
+                       j.declared
                      FROM interjections j JOIN works w ON w.id = j.work LEFT JOIN items i ON i.id = w.item
                      WHERE j.id = ?1",
                     [id],
@@ -174,13 +202,17 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                             r.get(4)?,
                             r.get(5)?,
                             r.get(6)?,
+                            r.get(7)?,
                         ))
                     },
                 )
                 .optional()
                 .map_err(sql)?;
-            let Some((speaker, text, matter, wp, ip, at, declared)) = row else {
+            let Some((speaker, text, matter, wp, ip, at, of_matter, declared)) = row else {
                 return Err(format!("there is no interjection {id}"));
+            };
+            let Some(at) = at else {
+                return Err(format!("interjection {id} has no recorded time"));
             };
             let of = wp.or(ip).unwrap_or_default();
             if of != project {
@@ -188,11 +220,11 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                     "interjection {id} is of {of}, and the decision is of {project}"
                 ));
             }
-            // What was said to the engineer alone keeps no speaker; words a matter holds say it as the matter does.
+            // Words a matter holds say who spoke as the matter does; those said to the engineer alone, as the row does.
             let source = match (speaker.as_str(), matter) {
                 ("architect", _) => Source::Architect,
-                (_, Some(_)) => Source::declared(declared.as_deref()),
-                _ => Source::Unrecorded,
+                (_, Some(_)) => Source::declared(of_matter.as_deref()),
+                _ => Source::declared(declared.as_deref()),
             };
             Ok(Record {
                 source,
@@ -468,6 +500,35 @@ pub fn new_decision_lines(before: &str, after: &str) -> Vec<String> {
         .collect()
 }
 
+/// What a text that replaces an item's does not keep of the decisions the item has: each line of a decision it leaves
+/// out, the head `Decisions:` when it drops it, and the order of the lines when it moves them. The lines the item has
+/// stand letter for letter, in the order they were recorded; an empty list when it keeps them all.
+pub fn unkept(before: &str, after: &str) -> Vec<String> {
+    let lines = |t: &str| -> Vec<String> {
+        t.lines()
+            .filter(|l| l.starts_with(LINE))
+            .map(str::to_string)
+            .collect()
+    };
+    let (had, now) = (lines(before), lines(after));
+    let mut out: Vec<String> = had
+        .iter()
+        .filter(|l| !now.contains(l))
+        .map(|l| format!("it leaves out the line \"{l}\" of a decision the item has"))
+        .collect();
+    let head = |t: &str| t.lines().any(|l| l.trim_end() == HEAD);
+    if !had.is_empty() && head(before) && !head(after) {
+        out.push(format!("it leaves out the head {HEAD} the item's decisions stand under"));
+    }
+    // The lines it keeps, in the order the item has them.
+    let kept: Vec<&String> = had.iter().filter(|l| now.contains(l)).collect();
+    let in_text: Vec<&String> = now.iter().filter(|l| had.contains(l)).collect();
+    if kept != in_text {
+        out.push("it moves the lines of the item's decisions out of the order they were recorded in".into());
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,7 +537,9 @@ mod tests {
 
     /// A database with a project's records a decision may quote: matter 1 the owner's words said at the page, 2 the same
     /// said by a delegate, 3 words kept before who speaks was declared, 4 the answer to an open question, 5 the words
-    /// of another project, 6 words of the engine's note, and ask 1 answered by the owner with an item's work.
+    /// of another project, 6 words of the engine's note, 7 to 10 questions of an engineer or an open question (see
+    /// below), ask 1 answered by the owner with an item's work, ask 2 answered with no time kept, and interjections 1
+    /// and 2 said to that work's engineer alone, by a delegate and with no speaker kept.
     fn records() -> Db {
         let mut db = Db::in_memory().unwrap();
         db.write(Actor::Engine, |tx| {
@@ -491,9 +554,24 @@ mod tests {
             matter("p", "owner_words", "said", r#"{"text":"No browser check. Keep it small.","where":"page","speaker":"owner"}"#, day)?;
             matter("p", "owner_words", "said", r#"{"text":"Yes, do that.","where":"page","speaker":"delegate"}"#, day)?;
             matter("p", "owner_words", "said", r#"{"text":"Old words.","where":"page"}"#, day + 86_400_000)?;
-            matter("p", "open_question", "", r#"{"question":"Which?","answer":"Option one: skip the check.\n\nIt is small."}"#, day)?;
+            // Raised on the day, answered two days after it.
+            matter("p", "open_question", "", &format!(r#"{{"question":"Which?","answer":"Option one: skip the check.\n\nIt is small.","answered_at":{}}}"#, day + 2 * 86_400_000), day)?;
             matter("q", "owner_words", "said", r#"{"text":"Elsewhere.","where":"page","speaker":"owner"}"#, day)?;
             matter("p", "owner_words", "release", r#"{"text":"I started work 3."}"#, day)?;
+            // 7: the owner's answer to an engineer's question, declared by a delegate, on the day after; 8: the architect's
+            // reply to one; 9: a question with no reply; 10: an open question answered before its time was kept.
+            for _ in 0..3 {
+                matter("p", "engineer_question", "split", "{}", day)?;
+            }
+            matter("p", "open_question", "", r#"{"question":"Which?","answer":"Yes."}"#, day)?;
+            tx.execute(
+                "UPDATE architect_matters SET reply = ?2 WHERE id = ?1",
+                params![7, format!(r#"{{"by":"owner","at":{},"text":"Split it in two.","speaker":"delegate"}}"#, day + 86_400_000)],
+            )?;
+            tx.execute(
+                "UPDATE architect_matters SET reply = ?2 WHERE id = ?1",
+                params![8, r#"{"by":"architect","at":1,"text":"No."}"#],
+            )?;
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
             tx.execute(
                 "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
@@ -507,6 +585,16 @@ mod tests {
             tx.execute(
                 "INSERT INTO owner_asks (work, round, body, answer) VALUES (1, 1, '{}', ?1)",
                 [format!(r#"{{"by":"owner","at":{day},"text":"Keep the old name.","speaker":"owner"}}"#)],
+            )?;
+            // Ask 2 has no time kept; interjection 1 was said by a delegate to the engineer alone, 2 with no speaker kept.
+            tx.execute(
+                "INSERT INTO owner_asks (work, round, body, answer) VALUES (1, 1, '{}', ?1)",
+                [r#"{"by":"owner","text":"No time.","speaker":"owner"}"#],
+            )?;
+            tx.execute(
+                "INSERT INTO interjections (work, speaker, declared, text) VALUES
+                 (1, 'owner', 'delegate', 'Say it to the engineer.'), (1, 'owner', NULL, 'Old words to the engineer.')",
+                [],
             )?;
             Ok(())
         })
@@ -556,6 +644,63 @@ mod tests {
         assert_eq!(who(&[("matter", 1, "No browser"), ("ask", 1, "Keep")]), "owner");
     }
 
+    // The owner's answer to an engineer's question and the words said to the engineer alone are records of their own,
+    // each telling who spoke as it was declared; the architect's reply to a question and a question with none are not
+    // the owner's words.
+    #[test]
+    fn answers_to_the_engineer_and_words_said_to_it_alone_tell_who_spoke_as_declared() {
+        let db = records();
+        let who = |from: &str, id: i64, quote: &str| {
+            resolve(db.conn(), "p", &decision(&[(from, id, quote)]), "architect", None).map(|r| r.source.as_str())
+        };
+        assert_eq!(who("matter", 7, "in two"), Ok("delegate"));
+        assert_eq!(who("interjection", 1, "to the engineer"), Ok("delegate"));
+        assert_eq!(who("interjection", 2, "Old words"), Ok("unrecorded"));
+        let refused = |from: &str, id: i64| {
+            resolve(db.conn(), "p", &decision(&[(from, id, "x")]), "architect", None)
+                .unwrap_err()
+                .join("\n")
+        };
+        assert!(refused("matter", 8).contains("has no answer of the owner's"));
+        assert!(refused("matter", 9).contains("has no answer of the owner's"));
+        // The answer is dated by when the owner gave it, not by when the engineer asked.
+        let line = resolve(db.conn(), "p", &decision(&[("matter", 7, "Split it")]), "architect", None)
+            .unwrap()
+            .line;
+        assert!(line.starts_with("Decision (2026-11-03, delegate)"), "{line}");
+    }
+
+    // A decision is dated by when its words were said. An open question's answer comes after the question, so the date
+    // is the answer's; a record with no time kept is refused, never dated to the epoch.
+    #[test]
+    fn a_decision_is_dated_by_its_words_and_a_record_with_no_time_is_refused() {
+        let db = records();
+        let line = resolve(db.conn(), "p", &decision(&[("matter", 4, "skip the check")]), "architect", None)
+            .unwrap()
+            .line;
+        assert!(line.starts_with("Decision (2026-11-04, architect)"), "{line}");
+        assert!(line.ends_with("(matter 4, 2026-11-04)"), "{line}");
+        let refused = |from: &str, id: i64, quote: &str| {
+            resolve(db.conn(), "p", &decision(&[(from, id, quote)]), "architect", None)
+                .unwrap_err()
+                .join("\n")
+        };
+        assert!(refused("matter", 10, "Yes.").contains("has no recorded time of its answer"));
+        assert!(refused("ask", 2, "No time.").contains("has no recorded time"));
+        // An interjection no change of the record of changes tells the time of has none.
+        let db = {
+            let mut db = records();
+            db.write(Actor::Engine, |tx| {
+                tx.execute("DELETE FROM changes WHERE table_name = 'interjections'", [])?;
+                Ok(())
+            })
+            .unwrap();
+            db
+        };
+        let none = resolve(db.conn(), "p", &decision(&[("interjection", 1, "to the engineer")]), "architect", None);
+        assert!(none.unwrap_err().join("\n").contains("has no recorded time"));
+    }
+
     // The words written are the record's, and the line is the engine's: the date is the latest of the words, each quote
     // carries its record and its date, and a reason the writer gave says who wrote it. The same decision gives the same
     // line whoever hands it in.
@@ -602,14 +747,14 @@ mod tests {
         assert!(refused(&[("matter", 1, "no browser check")]).contains("is not found"));
         assert!(refused(&[("matter", 1, "   ")]).contains("is empty"));
         assert!(refused(&[]).contains("quotes no words"));
-        assert!(refused(&[("matter", 9, "x")]).contains("there is no matter 9"));
+        assert!(refused(&[("matter", 99, "x")]).contains("there is no matter 99"));
         assert!(refused(&[("matter", 5, "Elsewhere.")]).contains("is of q"));
         assert!(refused(&[("matter", 6, "I started work 3.")]).contains("not words the owner said"));
-        assert!(refused(&[("ask", 2, "x")]).contains("there is no ask 2"));
+        assert!(refused(&[("ask", 3, "x")]).contains("there is no ask 3"));
         assert!(refused(&[("note", 1, "x")]).contains("not from note"));
         assert!(refused(&[("matter", 1, "Keep it small"), ("matter", 1, "Keep it small")]).contains("quoted twice"));
         // Several reasons come at once.
-        let mut d = decision(&[("matter", 9, "x")]);
+        let mut d = decision(&[("matter", 99, "x")]);
         d["situation"] = json!("");
         d["replaces"] = json!(" ");
         d["reason_by"] = json!("owner");
@@ -761,5 +906,35 @@ mod tests {
             new_decision_lines("", "Decision (2026-11-03, owner): B."),
             ["Decision (2026-11-03, owner): B."]
         );
+    }
+
+    // A text that replaces an item's keeps its decisions: the lines letter for letter, in order, under their head; one
+    // that drops a line, the head, or moves the lines is told which, and a text that only moves what is around them,
+    // or adds to it, keeps them.
+    #[test]
+    fn a_text_that_replaces_an_item_s_keeps_the_decisions_it_has() {
+        let before = "Approach:\n- Do it.\nDecisions:\nDecision (2026-11-01, owner): A.\nDecision (2026-11-02, owner): B.\n";
+        assert!(unkept(before, before).is_empty());
+        assert!(unkept("", "Approach:\n- New.").is_empty());
+        assert!(unkept(before, &before.replace("- Do it.", "- Do it first.\n- Then more.")).is_empty());
+        // A line left out.
+        let dropped = unkept(before, "Approach:\n- Do it.\nDecisions:\nDecision (2026-11-02, owner): B.\n");
+        assert_eq!(dropped.len(), 1, "{dropped:?}");
+        assert!(dropped[0].contains("Decision (2026-11-01, owner): A."), "{dropped:?}");
+        // A line changed by a letter is a line left out, and a line new by hand is not this check's.
+        assert_eq!(unkept(before, &before.replace("owner): B.", "owner): B!")).len(), 1);
+        // The head dropped, the lines kept.
+        let headless = unkept(before, &before.replace("Decisions:\n", ""));
+        assert_eq!(headless.len(), 1, "{headless:?}");
+        assert!(headless[0].contains("head Decisions:"), "{headless:?}");
+        // The lines swapped.
+        let moved = unkept(
+            before,
+            "Approach:\n- Do it.\nDecisions:\nDecision (2026-11-02, owner): B.\nDecision (2026-11-01, owner): A.\n",
+        );
+        assert_eq!(moved.len(), 1, "{moved:?}");
+        assert!(moved[0].contains("out of the order"), "{moved:?}");
+        // An item with no decisions needs no head.
+        assert!(unkept("Approach:\n- Do it.", "Approach:\n- Other.").is_empty());
     }
 }

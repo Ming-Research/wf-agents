@@ -1484,7 +1484,57 @@ mod tests {
             Ok(())
         })
         .unwrap();
+        // An interjection, and two open questions of which one was answered by a later change.
+        old.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute("INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'A3')", [])?;
+            tx.execute("INSERT INTO interjections (work, speaker, text) VALUES (1, 'owner', 'Said.')", [])?;
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, at) VALUES
+                 ('p', 'open_question', 'Which?', '{\"question\":\"Which?\"}', 5),
+                 ('p', 'open_question', 'Which?', '{\"question\":\"Which?\"}', 5)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        old.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE architect_matters SET body = json_set(body, '$.answer', 'One.') WHERE id = 1",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
         old.migrate(MIGRATIONS).unwrap();
+        // The interjection stays, with no declared speaker; the answered question has the time of the change that wrote
+        // its answer, not the time it was raised (5); the one with no answer has none.
+        let answered = |matter: i64| -> Option<i64> {
+            old.conn()
+                .query_row(
+                    "SELECT json_extract(body, '$.answered_at') FROM architect_matters WHERE id = ?1",
+                    [matter],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        let answer_change: i64 = old
+            .conn()
+            .query_row(
+                "SELECT max(at) FROM changes WHERE table_name = 'architect_matters'
+                   AND json_extract(row_key, '$.id') = 1 AND json_extract(new_row, '$.body.answer') = 'One.'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(answer_change > 5);
+        assert_eq!(answered(1), Some(answer_change));
+        assert_eq!(answered(2), None);
+        let said: (String, Option<String>) = old
+            .conn()
+            .query_row("SELECT text, declared FROM interjections", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!(said, ("Said.".to_string(), None));
         let approaches: Vec<Option<String>> = old
             .conn()
             .prepare("SELECT approach FROM items ORDER BY id")
@@ -1511,9 +1561,10 @@ mod tests {
         );
     }
 
-    // The view of what the owner said that concerns a work gives the words said in the work's group, those said to its
-    // engineer alone and the answers to its asks, each with who was declared to speak it; the words of a matter that
-    // is no work's, an interjection a matter holds and the architect's own are left out.
+    // The view of what the owner said that concerns a work gives the words said in the work's group, the owner's answers
+    // to its engineer's questions, those said to its engineer alone and the answers to its asks, each with who was
+    // declared to speak it; the words of a matter that is no work's, an interjection a matter holds and the
+    // architect's own are left out.
     #[test]
     fn what_the_owner_said_that_concerns_a_work_is_read_from_its_records() {
         let mut db = Db::in_memory().unwrap();
@@ -1538,7 +1589,18 @@ mod tests {
                 "INSERT INTO interjections (work, speaker, text, matter) VALUES (1, 'owner', 'Held by a matter.', 1)",
                 [],
             )?;
-            tx.execute("INSERT INTO interjections (work, speaker, text) VALUES (1, 'owner', 'To the engineer.')", [])?;
+            tx.execute(
+                "INSERT INTO interjections (work, speaker, declared, text) VALUES (1, 'owner', 'delegate', 'To the engineer.')",
+                [],
+            )?;
+            // The owner's answer to an engineer's question is the reply of its matter; the architect's reply is not.
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, work, round, at, reply) VALUES
+                 ('p', 'engineer_question', 'w', '{}', 1, 1, 8,
+                  '{\"by\":\"owner\",\"at\":9,\"text\":\"Split it.\",\"speaker\":\"owner\"}'),
+                 ('p', 'engineer_question', 'w', '{}', 1, 1, 8, '{\"by\":\"architect\",\"at\":9,\"text\":\"No.\"}')",
+                [],
+            )?;
             tx.execute("INSERT INTO interjections (work, speaker, text) VALUES (1, 'architect', 'Not the owner.')", [])?;
             tx.execute(
                 "INSERT INTO owner_asks (work, round, body, answer) VALUES
@@ -1571,9 +1633,10 @@ mod tests {
             rows,
             [
                 said("ask", 1, Some("owner"), "Yes."),
-                said("interjection", 2, None, "To the engineer."),
+                said("interjection", 2, Some("delegate"), "To the engineer."),
                 said("matter", 1, Some("delegate"), "In the group."),
                 said("matter", 3, None, "Kept before speakers."),
+                said("matter", 4, Some("owner"), "Split it."),
             ]
         );
     }

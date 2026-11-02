@@ -3632,6 +3632,22 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             Ok(())
         }
         "decision_words_hold" => decisions_hold(c, v),
+        "learned_holds_no_decision" => {
+            let text = v.and_then(Value::as_str).unwrap_or_default();
+            let lines: Vec<&str> = text
+                .lines()
+                .filter(|l| l.trim_start().starts_with(decisions::LINE))
+                .collect();
+            if lines.is_empty() {
+                return Ok(());
+            }
+            Err(format!(
+                "learned holds {} line(s) that start a decision, such as \"{}\": a decision goes in decisions, from the \
+                 records it quotes, and the engine makes its line; learned holds only Fact ( and Dropped ( lines",
+                lines.len(),
+                lines[0].trim()
+            ))
+        }
         "words_all_looked" => {
             let batch = words_of_batch(conn, c.w.id)?;
             let rows = items(v);

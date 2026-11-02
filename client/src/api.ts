@@ -863,7 +863,7 @@ forwarding: Forwarding | null, };
 export type WorkSaid = { text: string,
 /**
  * Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect; kept with the
- * words that come to the architect, not with those that go to the engineer alone.
+ * words wherever they go: the architect's matter, the answer to an engineer's question, or the engineer alone.
  */
 speaker: string,
 /**

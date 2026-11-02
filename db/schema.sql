@@ -561,6 +561,11 @@ CREATE TABLE interjections (
   line TEXT NOT NULL DEFAULT 'engineer',
   -- Who said it. When the owner and the architect disagree, the owner's word holds.
   speaker TEXT NOT NULL CHECK (speaker IN ('owner', 'architect')),
+  -- For what the owner said to the engineer alone: who the caller declared to speak, owner, or delegate for a session
+  -- that speaks for the owner; NULL for what the architect said, for what the engine wrote in the owner's name (a
+  -- ruling on a design card) and for words kept before it was declared. Read by: the engine, which tells who decided a
+  -- decision that quotes the words.
+  declared TEXT CHECK (declared IN ('owner', 'delegate')),
   -- Their words as said.
   text TEXT NOT NULL,
   -- The round of the work it was handed in, by its number in the work; NULL until then. Read by: the engine, to find
@@ -657,7 +662,7 @@ CREATE TABLE architect_matters (
   -- failure, owner_words, other_architect, slots_free, or check_policy and make_plan, the check of the policy in force
   -- and the plan of what to do next, which the architect's cells queue at the head of the queue, one of each open at a
   -- time. An open question is what an engineer's design could not settle: its body holds the question, the options, the
-  -- one recommended and, once it has come, the answer. A
+  -- one recommended and, once it has come, the answer and the time it came (`answered_at`, in milliseconds). A
   -- matter handled before these kinds keeps the kind it had then: set_policy for the setting of a new policy, which a
   -- flow version before ran as a stage of its own, and policy for a setting that ended, when the setting was a work of
   -- its own.
@@ -708,8 +713,9 @@ CREATE TABLE architect_matters (
   -- takes it again before any other matter but the owner's words, a reply and the waits; the engine, which routes it.
   goes_on_at TEXT,
   -- The architect's reply to an engineer's question or failure, JSON; NULL until it replied. The owner's answer in the
-  -- work's group to a question the architect holds is the reply too, said by the owner (by). Read by: the engine,
-  -- which takes it back unchanged to the work that asked.
+  -- work's group to a question the architect holds is the reply too, said by the owner (by), with who the caller
+  -- declared to speak (speaker, owner or delegate). Read by: the engine, which takes it back unchanged to the work that
+  -- asked.
   reply TEXT CHECK (reply IS NULL OR json_valid(reply)),
   -- A reply that waits for the item changes of its round to be made, JSON, as the round handed it in: it becomes the
   -- reply, with the numbers of the items they made, once the review of their batch lets them be made. NULL otherwise.
@@ -1172,18 +1178,24 @@ CREATE VIEW work_open_questions AS
 
 CREATE VIEW work_owner_words AS
   -- What the owner said that concerns a work, one row for each record that holds it: the words said in the work's
-  -- group to its project's architect (a matter of the kind owner_words), the words said to its engineer alone (an
+  -- group to its project's architect (a matter of the kind owner_words), the owner's answer in the group to a question
+  -- of its engineer's (the reply of a matter of the kind engineer_question), the words said to its engineer alone (an
   -- interjection no matter holds) and the owner's answers to the work's asks. A decision cites a row by its source and
   -- its id and quotes its words; the engine reads the words from the record again, and tells who said them from what
   -- the record kept. speaker is what the record kept of who was declared to speak, owner or delegate; none for a record
-  -- kept before it was declared, and for an interjection, which keeps none. Read by: cell `L2`.
+  -- kept before it was declared. Read by: cell `L2`.
   SELECT json_extract(m.body, '$.work') AS work, 'matter' AS source, m.id AS id,
     json_extract(m.body, '$.speaker') AS speaker,
     coalesce(json_extract(m.body, '$.text'), json_extract(m.body, '$.answer')) AS words, m.at AS at
   FROM architect_matters m
   WHERE m.kind = 'owner_words' AND json_extract(m.body, '$.where') = 'work'
   UNION ALL
-  SELECT j.work, 'interjection', j.id, NULL, j.text,
+  SELECT m.work, 'matter', m.id, json_extract(m.reply, '$.speaker'), json_extract(m.reply, '$.text'),
+    coalesce(json_extract(m.reply, '$.at'), 0)
+  FROM architect_matters m
+  WHERE m.kind = 'engineer_question' AND json_extract(m.reply, '$.by') = 'owner'
+  UNION ALL
+  SELECT j.work, 'interjection', j.id, j.declared, j.text,
     coalesce((SELECT min(c.at) FROM changes c
               WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)), 0)
   FROM interjections j

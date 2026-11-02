@@ -363,8 +363,16 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                                 .ok()
                         })
                         .flatten();
-                    for l in crate::decisions::new_decision_lines(now.as_deref().unwrap_or_default(), text(c, "text")) {
+                    let now = now.as_deref().unwrap_or_default();
+                    for l in crate::decisions::new_decision_lines(now, text(c, "text")) {
                         bad(hand_written(&l));
+                    }
+                    for why in crate::decisions::unkept(now, text(c, "text")) {
+                        bad(format!(
+                            "{why}: the lines of the item's decisions stand letter for letter, in their order, under \
+                             the head {}",
+                            crate::decisions::HEAD
+                        ));
                     }
                     if id.is_some_and(|id| decided.contains(&id)) {
                         bad(

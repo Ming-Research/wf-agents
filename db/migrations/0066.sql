@@ -2,7 +2,9 @@
 -- saying who decided it, so the head they stand under, `Owner's decisions:`, no longer says what is in it: a line may
 -- be the architect's decision or a delegate's. The head of every item's approach is renamed `Decisions:`, its lines
 -- left as they are. The owner's words and the owner's answers say, in their descriptions, who the caller declared to
--- speak, so the architects' matters and the owner's asks are made afresh with their rows. A new view gives the
+-- speak, so the architects' matters and the owner's asks are made afresh with their rows; an interjection keeps who was
+-- declared to speak when the owner said it to the engineer alone, so that table is made afresh too, and an open
+-- question answered keeps the time of its answer. A new view gives the
 -- engineer's last cell what the owner said that concerns a work, and the view of a work's open questions says in its
 -- description that their answers are the architect's. Each statement below that defines something is written exactly
 -- as db/schema.sql writes it.
@@ -71,7 +73,7 @@ CREATE TABLE architect_matters (
   -- failure, owner_words, other_architect, slots_free, or check_policy and make_plan, the check of the policy in force
   -- and the plan of what to do next, which the architect's cells queue at the head of the queue, one of each open at a
   -- time. An open question is what an engineer's design could not settle: its body holds the question, the options, the
-  -- one recommended and, once it has come, the answer. A
+  -- one recommended and, once it has come, the answer and the time it came (`answered_at`, in milliseconds). A
   -- matter handled before these kinds keeps the kind it had then: set_policy for the setting of a new policy, which a
   -- flow version before ran as a stage of its own, and policy for a setting that ended, when the setting was a work of
   -- its own.
@@ -122,8 +124,9 @@ CREATE TABLE architect_matters (
   -- takes it again before any other matter but the owner's words, a reply and the waits; the engine, which routes it.
   goes_on_at TEXT,
   -- The architect's reply to an engineer's question or failure, JSON; NULL until it replied. The owner's answer in the
-  -- work's group to a question the architect holds is the reply too, said by the owner (by). Read by: the engine,
-  -- which takes it back unchanged to the work that asked.
+  -- work's group to a question the architect holds is the reply too, said by the owner (by), with who the caller
+  -- declared to speak (speaker, owner or delegate). Read by: the engine, which takes it back unchanged to the work that
+  -- asked.
   reply TEXT CHECK (reply IS NULL OR json_valid(reply)),
   -- A reply that waits for the item changes of its round to be made, JSON, as the round handed it in: it becomes the
   -- reply, with the numbers of the items they made, once the review of their batch lets them be made. NULL otherwise.
@@ -152,6 +155,68 @@ DROP TABLE architect_matters_version_65;
 CREATE INDEX architect_matters_waiting ON architect_matters (project) WHERE handled_round IS NULL;
 CREATE UNIQUE INDEX architect_matters_by_notice ON architect_matters (notice, project) WHERE notice IS NOT NULL;
 
+-- An open question answered before the time of its answer was kept in its body gets the time the change that wrote the
+-- answer was made; one the record of changes does not hold keeps none, and a decision cannot quote it.
+UPDATE architect_matters SET body = json_set(body, '$.answered_at', t.at)
+FROM (
+  SELECT json_extract(c.row_key, '$.id') AS id, max(c.at) AS at
+  FROM changes c
+  WHERE c.table_name = 'architect_matters'
+    AND json_extract(c.new_row, '$.body.answer') IS NOT NULL
+    AND json_extract(c.old_row, '$.body.answer') IS NOT json_extract(c.new_row, '$.body.answer')
+  GROUP BY 1
+) t
+WHERE architect_matters.id = t.id AND architect_matters.kind = 'open_question'
+  AND json_extract(architect_matters.body, '$.answered_at') IS NULL;
+
+CREATE TABLE interjections_version_65 AS SELECT * FROM interjections;
+DROP TABLE interjections;
+
+CREATE TABLE interjections (
+  -- What the owner or the architect says to a running work. The engine hands each one to the line it is for: during a
+  -- round after the agent's next tool use, or at the front of the next round's input. Rulings on design cards arrive
+  -- this way too. Replies are in the output of the round that answered.
+  -- Read by: every agent cell; cells `T7`, `M1` and `E1` when the work stands at them.
+  id INTEGER PRIMARY KEY,
+  work INTEGER NOT NULL REFERENCES works(id),
+  -- The line it is for.
+  line TEXT NOT NULL DEFAULT 'engineer',
+  -- Who said it. When the owner and the architect disagree, the owner's word holds.
+  speaker TEXT NOT NULL CHECK (speaker IN ('owner', 'architect')),
+  -- For what the owner said to the engineer alone: who the caller declared to speak, owner, or delegate for a session
+  -- that speaks for the owner; NULL for what the architect said, for what the engine wrote in the owner's name (a
+  -- ruling on a design card) and for words kept before it was declared. Read by: the engine, which tells who decided a
+  -- decision that quotes the words.
+  declared TEXT CHECK (declared IN ('owner', 'delegate')),
+  -- Their words as said.
+  text TEXT NOT NULL,
+  -- The round of the work it was handed in, by its number in the work; NULL until then. Read by: the engine, to find
+  -- what is still to hand in.
+  delivered_round INTEGER,
+  -- For the notice that an item this work's item depended on was cancelled: that item; NULL for anything else said.
+  -- The cells where the work waits (`A2`, `A6`, `M1`) take such a notice to choose the way on by a row of their own,
+  -- as an item they waited for that will never deliver. Read by: the engine's value `cancelled`.
+  cancelled_item INTEGER REFERENCES items(id),
+  -- 1 for a word that needs no answer and changes no way on, as the owner confirming every decision of a design card:
+  -- the line's next round is given it, and a work standing at an engine step is not taken by it to choose the way on.
+  -- Read by: the engine's value `interjection`.
+  informs INTEGER NOT NULL DEFAULT 0 CHECK (informs IN (0, 1)),
+  -- For what the owner said in the work's group to its project's architect: that architect's matter, which holds the
+  -- words. Said to the architect alone, the engineer is given it as a word that needs no answer (informs); said to
+  -- both, as said to it. NULL for anything said to the engineer alone. Read by: the owner's interface, which shows the
+  -- words once, to whom they were said.
+  matter INTEGER REFERENCES architect_matters(id),
+  -- For the owner's question about a decision card, asked on the card in the work's group: that card, which the
+  -- engineer is given with the words, and the group shows them as a reply to. NULL for anything else said.
+  design_card INTEGER REFERENCES design_cards(id),
+  FOREIGN KEY (work, delivered_round) REFERENCES rounds (work, n)
+) STRICT;
+
+INSERT INTO interjections (id, work, line, speaker, text, delivered_round, cancelled_item, informs, matter, design_card)
+SELECT id, work, line, speaker, text, delivered_round, cancelled_item, informs, matter, design_card FROM interjections_version_65;
+DROP TABLE interjections_version_65;
+CREATE INDEX interjections_waiting ON interjections (work) WHERE delivered_round IS NULL;
+
 CREATE VIEW work_open_questions AS
   -- Each work's open questions as its design handed them in, each a matter of the project's architect, with the answer
   -- that came, which is the architect's reply: its own judgment, or the owner's answer it carried. Read by: cells `D1`,
@@ -162,18 +227,24 @@ CREATE VIEW work_open_questions AS
 
 CREATE VIEW work_owner_words AS
   -- What the owner said that concerns a work, one row for each record that holds it: the words said in the work's
-  -- group to its project's architect (a matter of the kind owner_words), the words said to its engineer alone (an
+  -- group to its project's architect (a matter of the kind owner_words), the owner's answer in the group to a question
+  -- of its engineer's (the reply of a matter of the kind engineer_question), the words said to its engineer alone (an
   -- interjection no matter holds) and the owner's answers to the work's asks. A decision cites a row by its source and
   -- its id and quotes its words; the engine reads the words from the record again, and tells who said them from what
   -- the record kept. speaker is what the record kept of who was declared to speak, owner or delegate; none for a record
-  -- kept before it was declared, and for an interjection, which keeps none. Read by: cell `L2`.
+  -- kept before it was declared. Read by: cell `L2`.
   SELECT json_extract(m.body, '$.work') AS work, 'matter' AS source, m.id AS id,
     json_extract(m.body, '$.speaker') AS speaker,
     coalesce(json_extract(m.body, '$.text'), json_extract(m.body, '$.answer')) AS words, m.at AS at
   FROM architect_matters m
   WHERE m.kind = 'owner_words' AND json_extract(m.body, '$.where') = 'work'
   UNION ALL
-  SELECT j.work, 'interjection', j.id, NULL, j.text,
+  SELECT m.work, 'matter', m.id, json_extract(m.reply, '$.speaker'), json_extract(m.reply, '$.text'),
+    coalesce(json_extract(m.reply, '$.at'), 0)
+  FROM architect_matters m
+  WHERE m.kind = 'engineer_question' AND json_extract(m.reply, '$.by') = 'owner'
+  UNION ALL
+  SELECT j.work, 'interjection', j.id, j.declared, j.text,
     coalesce((SELECT min(c.at) FROM changes c
               WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)), 0)
   FROM interjections j

@@ -115,7 +115,8 @@ pub fn is_one(tx: &Transaction<'_>, matter: i64) -> Result<bool, String> {
 }
 
 /// The architect's reply to an open question, by its own judgment or carrying the owner's answer: what it decided and
-/// why is the question's answer, kept in the matter's body, and is said to the engineer of the work that asked as an
+/// why is the question's answer, kept in the matter's body with the time it came (a decision that quotes it is dated by
+/// that time, not by the time the question was raised), and is said to the engineer of the work that asked as an
 /// interjection, which turns the work, unless nothing can be said to it any more. An answer that goes against the
 /// design can only be a redirect, which the engineer judges.
 pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), String> {
@@ -132,8 +133,9 @@ pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), St
         (said, why) => format!("{said}\n\n{why}"),
     };
     tx.execute(
-        "UPDATE architect_matters SET body = json_set(body, '$.answer', ?2), reply_held = NULL WHERE id = ?1",
-        params![matter, answer],
+        "UPDATE architect_matters SET body = json_set(body, '$.answer', ?2, '$.answered_at', ?3), reply_held = NULL
+         WHERE id = ?1",
+        params![matter, answer, db::now()],
     )
     .map_err(sql)?;
     let Some(work) = work else { return Ok(()) };
