@@ -13359,7 +13359,8 @@ fn the_engineer_s_decisions_are_written_under_their_head_with_who_decided_from_t
         Ok(())
     })
     .unwrap();
-    let done = |e: &mut Engine| !ended_at(e, item, "L2").is_empty();
+    // The return sent back is an ended round too: wait for the round that took a row.
+    let done = |e: &mut Engine| ended_at(e, item, "L2").iter().any(|x| x.0.is_some());
     assert!(steps_until(&mut e, 200, done), "{}", said.lock().unwrap().join("\n"));
     let log = said.lock().unwrap().join("\n");
     let work: i64 =
