@@ -160,19 +160,21 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         }
     }
     let section = failed::section(e, g)?;
-    let at_cell = work::rounds_at(e.db.conn(), w.id, &cell.id)?;
-    // A round the engine itself cut off and a run that ended without a return are not returns sent back, and a work
-    // the owner let go on after it paused counts afresh.
-    let resumed = work::resumed_at(e.db.conn(), w.id)?;
-    if let Some(why) = failed::waiting(e.retry_wait, &at_cell, resumed, &section) {
+    // What the work took since it last took a row from outside the engine, or since the owner last let it go on after
+    // it paused: every row that runs again is counted in these, and a run waits after the one before.
+    let took = failed::since_outside(e, w, g)?;
+    if let Some(why) = failed::waiting(e.retry_wait, e.backoff_unit, &took, &section) {
         return Ok(Advance::Waits(why));
     }
-    let sent_back = failed::sent_back(&at_cell, resumed);
+    let sent_back = took
+        .iter()
+        .filter(|t| t.row.as_deref() == Some("sent_back"))
+        .collect::<Vec<_>>();
     let pause_after = section.sent_back.pause_after as usize;
     if sent_back.len() >= pause_after {
         let reason = sent_back
             .first()
-            .map(|r| r.rejected.clone().unwrap_or_default().to_string())
+            .map(|t| failed::sent_back_reason(e, t.round))
             .unwrap_or_default();
         let why = format!(
             "{} returns of cell {} in a row were sent back; the last: {reason}",
@@ -182,16 +184,13 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return failed::pause(e, w, &why);
     }
     // A round of a project's architect reads the project at the latest main: its graph's worktree is brought there
-    // first. Where it cannot be, the work waits for the owner, with why; or, while the network is down, every work
-    // waits for it.
+    // first. A failure of the network that passes by itself is waited out and the step taken again, up to the bound
+    // of the flow's `step_network`; while the network is down, every work waits for it; any other failure waits for the
+    // owner, with why.
     if item.is_none()
-        && let Err(why) = architect::ready(e, w, g, cell)
+        && let Some(advance) = failed::networked(e, w, cell, &section, &took, |e| architect::ready(e, w, g, cell))?
     {
-        let why = format!("cell {}: {why}", cell.id);
-        if e.network_down() {
-            return e.wait_offline(w.id, &why);
-        }
-        return failed::pause(e, w, &why);
+        return Ok(advance);
     }
     let line_of_cell = crate::line_of(g, cell);
     let (level_name, level, _) = level_of(e, g, cell, item.as_ref()).map_err(|x| format!("work {}: {x}", w.id))?;
@@ -587,6 +586,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     let Some(output) = reply.output.clone() else {
         let f = Failed {
             w,
+            g,
             cell,
             round,
             section: &section,
@@ -801,7 +801,11 @@ fn compose(
     let limit = e.config.config.install.agents.context_limit;
     let architect = w.project.as_deref().filter(|_| g.name == ARCHITECT);
     let mut plan = e.sessions().plan(e.db.conn(), w.id, architect, cell, limit, on)?;
-    let work_rounds = work::rounds(e.db.conn(), w.id)?;
+    // The rounds the agent ran or was told of: a step of the engine's before one that failed in passing is neither.
+    let work_rounds: Vec<Round> = work::rounds(e.db.conn(), w.id)?
+        .into_iter()
+        .filter(|r| !failed::was_step(r))
+        .collect();
     let number = work::next_round(e.db.conn(), w.id)?;
     let (line_rounds, held) = match &mut plan {
         Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),

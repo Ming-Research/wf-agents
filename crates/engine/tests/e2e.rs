@@ -2850,6 +2850,8 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
             .is_some_and(|p| p.starts_with("2 returns of cell R1 in a row were sent back")),
         "{paused:?}\n{log}"
     );
+    // Each return sent back is counted, and none is a retry.
+    assert_eq!((counted(&e, work, "sent_back"), counted(&e, work, "retries")), (2, 0));
     // After a return sent back the message only says why, and that the return is to be rewritten.
     let rounds = agent_rounds(&e, item);
     let (id, _, again) = &rounds[1];
@@ -3153,6 +3155,8 @@ fn a_passing_failure_runs_again_until_it_passes() {
     // The round after a failed run is told its kind only, never what the command line reported, which may quote the
     // run's own return. The report is looked for whole: the test's directory holds its process id, which may hold 529.
     let (work, _, _) = state(&e, item).unwrap();
+    // Each run again is a retry; none is a return sent back.
+    assert_eq!((counted(&e, work, "retries"), counted(&e, work, "sent_back")), (3, 0));
     let again = message_at(&e, work, "R1", true);
     assert!(
         again.contains("ended without a return (transient)") && !again.contains("529 Overloaded"),
@@ -12750,5 +12754,220 @@ fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_
     );
     assert_eq!(rounds_at(&e), 1, "{log}");
     assert!(state(&e, second).unwrap().2.is_some(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// How many times a work took the rows that count a counter, as the view `work_counters` says.
+fn counted(e: &Engine, work: i64, counter: &str) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT coalesce(sum(times), 0) FROM work_counters WHERE work = ?1 AND counter = ?2",
+            params![work, counter],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// The row each round of a work took at its cell, oldest first, as the view `round_rows` says.
+fn rows_taken(e: &Engine, work: i64) -> Vec<(String, Option<String>)> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT cell, took FROM round_rows WHERE work = ?1 ORDER BY round")
+            .unwrap();
+    st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// The architect's work at `U1`, with its project's remote at `url` from now on, and no wait for a step that failed to
+/// be taken again.
+fn architect_with_remote(s: &Setup, url: &str) -> (Engine, Arc<Mutex<Vec<String>>>, i64) {
+    no_reply_wait(s);
+    let (mut e, said) = engine(s, scripts());
+    quiet(&mut e);
+    e.backoff_unit = Duration::ZERO;
+    let arch = architect_work_at(&mut e, "U1");
+    git(&s.root.join("checkout"), &["remote", "set-url", "origin", url]);
+    (e, said, arch)
+}
+
+/// A remote that refuses every connection, as a network that fails in passing does.
+const REFUSED: &str = "http://127.0.0.1:1/p.git";
+
+// A step of the engine's before the architect's round that fails the way the network does by itself does not pause the
+// work: the failure is recorded on the cell with its text, counted as a retry, and the step is taken again, after which
+// the round runs as if nothing had happened, and is told nothing of the failed step.
+#[test]
+fn a_step_that_fails_like_the_network_is_taken_again() {
+    let s = setup("step-network");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        rows_taken(&e, arch),
+        [("U1".to_string(), Some("step_network".to_string()))],
+        "{log}"
+    );
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(counted(&e, arch, "retries"), 1, "{log}");
+    let (input, rejected): (String, String) =
+        e.db.conn()
+            .query_row(
+                "SELECT input, rejected FROM rounds WHERE work = ?1 AND n = 1",
+                [arch],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert!(input.contains("127.0.0.1"), "{input}");
+    assert!(
+        rejected.contains("step_network") && !rejected.contains("over"),
+        "{rejected}"
+    );
+    // The remote answers again: the step is taken again and the round runs.
+    git(
+        &s.root.join("checkout"),
+        &["remote", "set-url", "origin", &s.origin.to_string_lossy()],
+    );
+    for _ in 0..3 {
+        e.advance(arch).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    let rows = rows_taken(&e, arch);
+    assert_eq!(rows[0], ("U1".to_string(), Some("step_network".to_string())), "{log}");
+    assert!(
+        rows.len() > 1 && rows[1].1.as_deref() != Some("step_network"),
+        "{rows:?}\n{log}"
+    );
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(counted(&e, arch, "retries"), 1, "{log}");
+    // The round that ran is the cell's last; its message says nothing of the step that failed before it.
+    let message = message_at(&e, arch, "U1", true);
+    assert!(
+        message.contains("cell U1") && !message.contains("step_network"),
+        "{message}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A step that fails for any cause but the network's is not taken again: the work pauses at once, with the reason, and
+// no round records a retry.
+#[test]
+fn a_step_that_fails_for_another_cause_pauses_the_work_at_once() {
+    let s = setup("step-other");
+    let (mut e, said, arch) = architect_with_remote(&s, "/nonexistent/p.git");
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    let why: String =
+        e.db.conn()
+            .query_row("SELECT paused FROM works WHERE id = ?1", [arch], |r| r.get(0))
+            .unwrap();
+    assert!(why.contains("could not be brought to main"), "{why}");
+    assert!(rows_taken(&e, arch).is_empty(), "{log}");
+    assert_eq!(counted(&e, arch, "retries"), 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A step that keeps failing like the network pauses the work and tells the owner once the flow's bound of failures in a
+// row is passed, the architect's own work as much as any; the owner's Start counts afresh.
+#[test]
+fn a_step_that_keeps_failing_like_the_network_pauses_the_work_past_its_bound() {
+    let s = setup("step-bound");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    for _ in 0..12 {
+        e.advance(arch).unwrap();
+        if paused_by(&e, arch).is_some() {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let rows: Vec<Option<String>> = rows_taken(&e, arch).into_iter().map(|r| r.1).collect();
+    let mut want = vec![Some("step_network".to_string()); 5];
+    want.push(Some("step_network_too_often".to_string()));
+    assert_eq!(rows, want, "{log}");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    assert_eq!(counted(&e, arch, "retries"), 5, "{log}");
+    assert!(told(&s, "6 times in a row") > 0, "{log}");
+    // Once the owner lets the work go on, it counts afresh: the next failure is retried, not paused.
+    api::resume(&mut e.db, arch).unwrap();
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(
+        rows_taken(&e, arch).last().and_then(|r| r.1.clone()).as_deref(),
+        Some("step_network"),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A passing failure of the agent's run is run again only up to the flow's bound of failures in a row: past it, the work
+// pauses and the owner is told. Each run again is counted as a retry, and the run past the bound as none.
+#[test]
+fn a_passing_failure_pauses_the_work_past_its_bound() {
+    let (s, mut e, said, item) = failing("transient-bound", "API Error: 529 Overloaded".to_string(), 100);
+    for _ in 0..30 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "R1", "{log}");
+    assert!(
+        paused
+            .as_deref()
+            .is_some_and(|p| p.contains("once more after 8 times in a row")),
+        "{paused:?}\n{log}"
+    );
+    assert_eq!(failed_kinds(&e), vec!["transient"; 9], "{log}");
+    assert_eq!(counted(&e, work, "retries"), 8, "{log}");
+    assert_eq!(
+        rows_taken(&e, work).last().and_then(|r| r.1.clone()).as_deref(),
+        Some("transient_too_often"),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Failures are in a row only until a row of an agent is taken: five at one cell, its return, and five at the next are
+// ten failures, and neither run of them is past the bound.
+#[test]
+fn failures_with_a_return_between_are_not_in_a_row() {
+    let s = setup("far-apart");
+    let mut scripts = scripts();
+    let fail = || vec![("@error", json!("API Error: 529 Overloaded"))];
+    scripts.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| (Vec::new(), if n <= 5 { fail() } else { Vec::new() })),
+    );
+    let d2 = scripts.remove("D2").unwrap();
+    scripts.insert(
+        "D2",
+        Box::new(move |r: &Request, n: usize| {
+            if n <= 5 {
+                (Vec::new(), vec![("@error", json!("API Error: 529 Overloaded"))])
+            } else {
+                d2(r, n - 5)
+            }
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    for _ in 0..60 {
+        e.tick().unwrap();
+        if failed_kinds(&e).len() >= 10 || state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    for _ in 0..3 {
+        e.tick().unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, _, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert_eq!(failed_kinds(&e), vec!["transient"; 10], "{log}");
+    assert_eq!(counted(&e, work, "retries"), 10, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

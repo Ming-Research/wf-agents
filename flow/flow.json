@@ -4369,6 +4369,14 @@
           {
             "name": "history_lookups",
             "desc": "The times a cell had the history looked up"
+          },
+          {
+            "name": "retries",
+            "desc": "The times the engine ran a round or one of its own steps again after it failed in passing: a run of the agent's command line that ended without a return and would be given again, and a step before the round that reached the network and failed the way a passing failure does"
+          },
+          {
+            "name": "sent_back",
+            "desc": "The times a cell's return was sent back to be written again"
           }
         ]
       },
@@ -11352,7 +11360,8 @@
         "sentBack": {
           "desc": "A return that does not fit the cell's schema, or fails one of the cell's checks, is sent back: the same cell runs again in the same session, told only what was wrong, and rewrites its return.",
           "pauseAfter": 3,
-          "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work at that cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
+          "pause": "When 3 returns in a row are sent back, with no return of an agent, a tool or the owner taken in between, the engine pauses the work at the cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted.",
+          "counts": "sent_back"
         },
         "failed": {
           "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer. The command line writes the round's message into the session before it calls the service, so a round run again in the same session is given only what the session lacks, not its message once more.",
@@ -11373,7 +11382,10 @@
               "name": "transient",
               "when": "The service is overloaded, returns a server error or times out, or the command line crashes",
               "handle": "retry",
-              "desc": "The engine runs the same round again: once after a short wait, then, while it still fails, after waits that grow each time up to five minutes, until it passes, and records each attempt on the work."
+              "desc": "The engine runs the same round again: once after a short wait, then, while it still fails, after waits that grow each time up to five minutes, and records each attempt on the work. It does so after each of the first 8 failures in a row, with no return of an agent, a tool or the owner taken in between; the next failure pauses the work and tells the owner instead: running again has not helped.",
+              "inRow": 8,
+              "then": "pause",
+              "counts": "retries"
             },
             {
               "name": "flagged",
@@ -11418,8 +11430,17 @@
           {
             "name": "cannot_step",
             "when": "A step cannot be taken: the configuration is wrong, or the item is above the highest level",
-            "desc": "The engine pauses the work with the reason and tells the owner; once the owner lets it go on, the step is taken again.",
+            "desc": "The engine pauses the work with the reason and tells the owner; once the owner lets it go on, the step is taken again. A step that failed the way a passing failure of the network does is not this case but step_network.",
             "pauses": true
+          },
+          {
+            "name": "step_network",
+            "when": "A step of the engine's before the agent's round, such as bringing the architect's worktree to the latest main, reaches the network and fails the way a passing failure does: a transport error, a timeout, a host that does not resolve, a connection that is reset or refused",
+            "desc": "The engine records the failure on the cell, waits as long as the backoff says (5, 15 and 45 seconds, 2 minutes, then 5 minutes), and takes the step again. It does so after each of the first 5 failures in a row, with no return of an agent, a tool or the owner taken in between; the next failure pauses the work and tells the owner instead: the architect's own work as much as any, since it cannot ask itself. A failure the engine does not know for one of the network's is a cannot_step.",
+            "inRow": 5,
+            "backoff": [5, 15, 45, 120, 300],
+            "then": "pause",
+            "counts": "retries"
           },
           {
             "name": "repeats",
@@ -11846,6 +11867,14 @@
           {
             "name": "history_lookups",
             "desc": "The times a cell had the history looked up"
+          },
+          {
+            "name": "retries",
+            "desc": "The times the engine ran a round or one of its own steps again after it failed in passing: a run of the agent's command line that ended without a return and would be given again, and a step before the round that reached the network and failed the way a passing failure does"
+          },
+          {
+            "name": "sent_back",
+            "desc": "The times a cell's return was sent back to be written again"
           }
         ]
       },
@@ -17512,7 +17541,8 @@
         "sentBack": {
           "desc": "A return that does not fit the cell's schema, or fails one of the cell's checks, is sent back: the same cell runs again in the same session, told only what was wrong, and rewrites its return.",
           "pauseAfter": 3,
-          "pause": "When 3 returns of one cell in a row are sent back, the engine pauses the work at that cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted."
+          "pause": "When 3 returns in a row are sent back, with no return of an agent, a tool or the owner taken in between, the engine pauses the work at the cell and tells the owner, with the last reason: a blocker on the cell that the owner holds. Once the owner lets the work go on, the cell runs again. A round the engine cut off itself, a run that ended without a return, and a round that started before the owner last let the work go on are not counted.",
+          "counts": "sent_back"
         },
         "failed": {
           "desc": "A run of the agent's command line that ends without handing in a return is not a return sent back, and is never counted with returns sent back: nothing was wrong with what the agent did, since it never ran to the end. The engine tells the kinds below apart by what the command line reports. None of them asks the owner for a written answer. The command line writes the round's message into the session before it calls the service, so a round run again in the same session is given only what the session lacks, not its message once more.",
@@ -17533,7 +17563,10 @@
               "name": "transient",
               "when": "The service is overloaded, returns a server error or times out, or the command line crashes",
               "handle": "retry",
-              "desc": "The engine runs the same round again: once after a short wait, then, while it still fails, after waits that grow each time up to five minutes, until it passes, and records each attempt on the work."
+              "desc": "The engine runs the same round again: once after a short wait, then, while it still fails, after waits that grow each time up to five minutes, and records each attempt on the work. It does so after each of the first 8 failures in a row, with no return of an agent, a tool or the owner taken in between; the next failure pauses the work and tells the owner instead: running again has not helped.",
+              "inRow": 8,
+              "then": "pause",
+              "counts": "retries"
             },
             {
               "name": "flagged",
@@ -17578,8 +17611,17 @@
           {
             "name": "cannot_step",
             "when": "A step cannot be taken: the configuration is wrong, or the item is above the highest level",
-            "desc": "The engine pauses the work with the reason and tells the owner; once the owner lets it go on, the step is taken again.",
+            "desc": "The engine pauses the work with the reason and tells the owner; once the owner lets it go on, the step is taken again. A step that failed the way a passing failure of the network does is not this case but step_network.",
             "pauses": true
+          },
+          {
+            "name": "step_network",
+            "when": "A step of the engine's before the agent's round, such as bringing the architect's worktree to the latest main, reaches the network and fails the way a passing failure does: a transport error, a timeout, a host that does not resolve, a connection that is reset or refused",
+            "desc": "The engine records the failure on the cell, waits as long as the backoff says (5, 15 and 45 seconds, 2 minutes, then 5 minutes), and takes the step again. It does so after each of the first 5 failures in a row, with no return of an agent, a tool or the owner taken in between; the next failure pauses the work and tells the owner instead: the architect's own work as much as any, since it cannot ask itself. A failure the engine does not know for one of the network's is a cannot_step.",
+            "inRow": 5,
+            "backoff": [5, 15, 45, 120, 300],
+            "then": "pause",
+            "counts": "retries"
           },
           {
             "name": "repeats",
