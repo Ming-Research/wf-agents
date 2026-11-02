@@ -284,4 +284,175 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    // The reading of a name against a run's log is the one `ci_before` results always had, whatever the binary, the
+    // test and the way of writing: the formula of the code before this change is written out here as it was.
+    #[test]
+    fn a_name_in_a_log_is_read_as_before_over_each_binary_test_and_way_of_writing() {
+        let before = |named: &str, binary: &str, test: &str| {
+            test == named
+                || format!("{binary} {test}") == named
+                || test.ends_with(&format!("::{named}"))
+                || named.ends_with(&format!("::{test}"))
+        };
+        let binaries = ["engine::e2e", "e2e", "engine", "wf-agents::bin/wf-agents"];
+        let tests = ["a_test", "tools::tests::a_test", "a_test_not", "b"];
+        let mut names: Vec<String> = ["", " ", "a_tes", "tests::a_test", "::a_test", "a_test::", "b", "a::b", "x::b"]
+            .map(String::from)
+            .to_vec();
+        for binary in binaries {
+            for test in tests {
+                for form in [
+                    test.to_string(),
+                    format!("{binary} {test}"),
+                    format!("{binary}::{test}"),
+                    format!("x::{test}"),
+                    format!("{test}::"),
+                    format!("{binary} "),
+                    format!(" {test}"),
+                    format!("{binary}  {test}"),
+                ] {
+                    names.push(form);
+                }
+            }
+        }
+        let (mut held, mut total) = (0, 0);
+        for binary in binaries {
+            for test in tests {
+                for named in &names {
+                    let want = before(named, binary, test);
+                    assert_eq!(matches_run(named, binary, test), want, "{named:?} in {binary} {test}");
+                    held += usize::from(want);
+                    total += 1;
+                }
+            }
+        }
+        assert!(0 < held && held < total, "{held} of {total}");
+    }
+
+    /// A repository with the given files, committed once.
+    fn repo_with_files(tag: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("wf-agents-test-name-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (path, text) in files {
+            let at = dir.join(path);
+            std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+            std::fs::write(at, text).unwrap();
+        }
+        git_in(&dir, &["init", "-q"]);
+        git_in(&dir, &["add", "-A"]);
+        git_in(&dir, &["commit", "-qm", "tests"]);
+        dir
+    }
+
+    // Titles with marks a pattern or a source string treats specially (brackets, a star, a dollar, a backslash, a
+    // quote of each kind, a dash, a path inside the nextest binary) are found as the source holds them; a name that
+    // only extends or cuts a function's name is not the function.
+    #[test]
+    fn titles_with_marks_and_functions_with_longer_names_are_told_apart() {
+        let dir = repo_with_files(
+            "marks",
+            &[
+                (
+                    "client/src/m.test.ts",
+                    concat!(
+                        "describe('marks', () => {\n",
+                        "  it('matches [a-z]* and $HOME \\\\ path', () => {});\n",
+                        "  it(\"says \\\"hi\\\" and it's ok\", () => {});\n",
+                        "  it('says \"hi\" and it\\'s fine', () => {});\n",
+                        "  it('shows \u{2014} the rows', () => {});\n",
+                        "  it('handles v1.2: the end.', () => {});\n",
+                        "});\n",
+                    ),
+                ),
+                ("crates/a/src/lib.rs", "#[tokio::test] async fn waits_for_a_slot() {}\n"),
+            ],
+        );
+        for named in [
+            "marks > matches [a-z]* and $HOME \\ path",
+            "marks > says \"hi\" and it's ok",
+            "m.test.ts > marks > says \"hi\" and it's fine",
+            "marks > shows \u{2014} the rows",
+            "client/src/m.test.ts > marks > handles v1.2: the end.",
+            "  engine::bin/wf-agents waits_for_a_slot  ",
+            " waits_for_a_slot ",
+        ] {
+            assert!(on_branch(&dir, named).is_ok(), "{named}");
+        }
+        for named in [
+            "engine::e2e waits_for_a",
+            "engine::e2e waits_for_a_slot_extra",
+            "engine::e2e::waits_for_a_slot_extra",
+            "waits_for_a",
+            "marks > matches [a-z]+ and $HOME \\ path",
+            "marks > says 'hi' and it's ok",
+        ] {
+            assert!(on_branch(&dir, named).is_err(), "{named}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A name the branch lacks stays refused when it holds a blank line: a blank line is no word to look for, and
+    // a blank pattern would match every line of every file.
+    #[test]
+    fn a_name_with_a_blank_line_in_it_is_still_not_found() {
+        let dir = repo_with_tests("blank");
+        for named in [
+            "zzabsent:\n\nqqnone",
+            "zzabsent > qqnone\n\nghost",
+            "zzabsent\n\nqqnone",
+            "engine::e2e zzabsent:\n\nqqnone",
+            "zzabsent\r\nqqnone",
+        ] {
+            assert!(on_branch(&dir, named).is_err(), "{named:?}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Names built from two kinds of word and each separator a name uses: whatever the reading before this change
+    // let through (written out as git is asked) is let through; a name made of absent words alone, with a word left
+    // after its last `:`, `/` or `.`, is refused.
+    #[test]
+    fn names_built_from_present_and_absent_words_are_read_no_stricter_and_no_looser() {
+        let dir = repo_with_tests("built");
+        let before = |named: &str| {
+            let word = named.rsplit([':', '/', '.']).next().unwrap_or(named).trim();
+            word.is_empty()
+                || Command::new("git")
+                    .arg("-C")
+                    .arg(&dir)
+                    .args(["grep", "-q", "-F", "-w", word, "HEAD"])
+                    .status()
+                    .unwrap()
+                    .success()
+        };
+        let present = ["waits_for_a_slot", "page"];
+        let absent = ["zzabsent", "qqnone"];
+        let joins = [".", "::", " ", " > ", "/"];
+        let words: Vec<&str> = present.iter().chain(&absent).copied().collect();
+        let mut names = Vec::new();
+        for a in &words {
+            for join in joins {
+                names.push(format!("{a}{join}"));
+                names.push(format!("{join}{a}"));
+                for b in &words {
+                    names.push(format!("{a}{join}{b}"));
+                }
+            }
+        }
+        let (mut let_through, mut refused) = (0, 0);
+        for named in &names {
+            let now = on_branch(&dir, named);
+            if before(named) {
+                assert!(now.is_ok(), "{named:?} was let through before");
+                let_through += 1;
+            }
+            if !present.iter().any(|w| named.contains(w)) && !last_segment(named).is_empty() {
+                assert!(now.is_err(), "{named:?} has no word of the branch");
+                refused += 1;
+            }
+        }
+        assert!(let_through > 20 && refused > 20, "{let_through} let through, {refused} refused");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

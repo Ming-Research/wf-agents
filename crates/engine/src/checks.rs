@@ -1360,4 +1360,61 @@ mod tests {
             assert!(why.contains("R<work>-<n>") && !why.contains("design/"), "{why}");
         }
     }
+
+    // An entry that does not begin with a round's name is a file exactly when the rule before this change said so
+    // (a path with a `/` or a `.` in it that does not start at the root), whatever follows it; one that begins with a
+    // round's name is that round, with a mark or a field or a note after it.
+    #[test]
+    fn an_entry_is_a_file_as_before_unless_it_begins_with_a_rounds_name() {
+        let before = |entry: &str| {
+            let p = path_in(entry).trim_end_matches('/');
+            (p.contains('/') || p.contains('.')) && !p.starts_with('/')
+        };
+        let (mut files, mut texts) = (0, 0);
+        for stem in [
+            "crates/x.rs",
+            "README.md",
+            "4.357s",
+            "D5/D6",
+            "PR",
+            "design",
+            "a b",
+            "/abs/x.rs",
+            "../up.rs",
+            "",
+            "R5",
+            "R5-9x",
+            "R5-9.md",
+            "R5-9-2",
+            "Rx-9",
+        ] {
+            for after in ["", ":12-30", " (note)", "\u{b7}D2\u{b7}measure", ".", "/", ", more", ")"] {
+                let entry = format!("{stem}{after}");
+                match cited(&entry) {
+                    Cited::File(_) => {
+                        assert!(before(&entry), "{entry:?} was not a file before");
+                        files += 1;
+                    }
+                    Cited::Text => {
+                        assert!(!before(&entry), "{entry:?} was a file before");
+                        texts += 1;
+                    }
+                    Cited::Round(id) => panic!("{entry:?} read as the round {id}"),
+                }
+            }
+        }
+        assert!(files > 10 && texts > 10, "{files} files, {texts} texts");
+        for (entry, round) in [
+            ("R5-9,", "R5-9"),
+            ("R5-9)", "R5-9"),
+            ("R5-9;", "R5-9"),
+            ("R5-9:", "R5-9"),
+            ("R5-9/", "R5-9"),
+            ("R5-9\u{b7}I1\u{b7}test_changes[added]", "R5-9"),
+            ("R246-18\u{b7}D11\u{b7}adversarial[needed].why", "R246-18"),
+            ("R5-9 and R5-10", "R5-9"),
+        ] {
+            assert!(matches!(cited(entry), Cited::Round(id) if id.to_string() == round), "{entry:?}");
+        }
+    }
 }
