@@ -312,12 +312,12 @@ describe('how a work goes on', () => {
     expect([controls(slot, status({})).pause, controls(slot, status({})).start]).toEqual([true, false]);
     expect(controls(slot, status({})).step).toBe(false);
     // A pause asked to be lifted by the command line or the architect waits the same way, and its Pause takes that back.
-    const asked = course(
+    const resumed = course(
       work({ paused: 'the owner paused it', paused_by: 'owner' }),
       status({ waiting_for_slot: [5] }),
     );
-    expect([asked.held, asked.releasing, asked.slot]).toEqual(['you', false, true]);
-    expect(controls(asked, status({}))).toEqual({ pause: true, start: false, step: false, canStep: true });
+    expect([resumed.held, resumed.releasing, resumed.slot]).toEqual(['you', false, true]);
+    expect(controls(resumed, status({}))).toEqual({ pause: true, start: false, step: false, canStep: true });
     // A work that waits on for a slot under Pause all is not one a pause is asked to be lifted of: its Start stays.
     const underAll = course(work({}), status({ paused: true, waiting_for_slot: [5] }));
     expect([underAll.held, controls(underAll, status({})).start]).toEqual(['all', true]);
