@@ -1662,8 +1662,27 @@ fn readable_dirs(e: &Engine) -> Vec<std::path::PathBuf> {
     out
 }
 
+/// Whether a round of the fix answered a row that the cell `side` raised: a row of the table that round was given
+/// names the cell it came from. A round's rows are numbered anew, so its answers are read against its own table; a
+/// round given no table (the engine runs none then) answered nothing.
+fn answers_a_row_of(fix: &Round, within: &str, side: &str) -> bool {
+    let table = fix.input["engine"]["table"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let answers = fix.output.as_ref().and_then(|o| o[within]["rows"].as_array());
+    answers.is_some_and(|rows| {
+        rows.iter().any(|row| {
+            table
+                .iter()
+                .any(|t| t["row"] == row["id"] && t["from"].as_str().and_then(|f| f.split('·').next()) == Some(side))
+        })
+    })
+}
+
 /// Cell `T7`: what runs next, from what the design chose, what the review accepted, whether the change
-/// changed since each side last looked, and what the fix answered.
+/// changed since each side last looked, and what the fix answered: a side that raised a row the fix answered looks at
+/// it again, whatever the answer was.
 fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, String> {
     let project = e.project_of(w)?;
     let reviews = inputs::answered(e, w, g, "T4")?;
@@ -1683,43 +1702,19 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
         rs.first()
             .is_some_and(|r| r.input["engine"]["change"].as_str() != now.as_deref())
     };
-    let answers_after = |rs: &[Round], kinds: &[&str]| -> bool {
+    // Whether the fix answered, with any answer, a row that `side` raised since `side` last returned.
+    let answered_since = |rs: &[Round], side: &str| -> bool {
         let since = rs.first().map(|r| r.id);
-        fixes.iter().filter(|f| since.is_none_or(|s| f.id > s)).any(|f| {
-            f.output
-                .as_ref()
-                .and_then(|o| o[&g.within]["rows"].as_array().cloned())
-                .unwrap_or_default()
-                .iter()
-                .any(|row| row["answer"].as_str().is_some_and(|a| kinds.contains(&a)))
-        })
-    };
-    // Whether the fix answered, since the review, a row that review left itself: a finding, a column it could not
-    // verify, a finding not fixed or insisted on, whatever the answer. The table a fix was given is in its input, and
-    // each row of it says which cell it came from. Only that review can close such a row, so that a fix which
-    // changed nothing in the PR's diff (the PR description, a ruling) is looked at by it again; otherwise the merge
-    // judgment sends the work to a fix whose table holds no row, and the work goes round again.
-    let answered_review_rows = |rs: &[Round]| -> bool {
-        let since = rs.first().map(|r| r.id);
-        fixes.iter().filter(|f| since.is_none_or(|s| f.id > s)).any(|f| {
-            let table = f.input["engine"]["table"].as_array().cloned().unwrap_or_default();
-            f.output
-                .as_ref()
-                .and_then(|o| o[&g.within]["rows"].as_array().cloned())
-                .unwrap_or_default()
-                .iter()
-                .any(|row| {
-                    table.iter().any(|t| {
-                        t["row"] == row["id"] && t["from"].as_str().is_some_and(|from| from.starts_with("T4·"))
-                    })
-                })
-        })
+        fixes
+            .iter()
+            .filter(|f| since.is_none_or(|s| f.id > s))
+            .any(|f| answers_a_row_of(f, &g.within, side))
     };
     let adv = if (chose || not_accepted) && adversarial.is_empty() {
         "all"
     } else if !adversarial.is_empty() && changed_since(&adversarial) {
         "changed"
-    } else if !adversarial.is_empty() && answers_after(&adversarial, &["test_wrong"]) {
+    } else if !adversarial.is_empty() && answered_since(&adversarial, "T1") {
         "disputes"
     } else {
         "skipped"
@@ -1728,12 +1723,9 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
         "all"
     } else if changed_since(&reviews) {
         "changed"
-    } else if answers_after(&reviews, &["disagree", "cannot_verify"])
-        || answered_review_rows(&reviews)
-        || !crate::message::unverified_last(e, w, g).is_empty()
-    {
-        // The findings disputed, the rows the last review left that the fix answered, and the columns it could not
-        // verify, which it decides again.
+    } else if answered_since(&reviews, "T4") || !crate::message::unverified_last(e, w, g).is_empty() {
+        // The rows the fix answered, whatever the answer and whether or not it changed the code, and the columns the
+        // last review could not verify: the side that raised them decides them again.
         "disputes"
     } else {
         "none"
@@ -1758,5 +1750,88 @@ mod tests {
         let before = vec![json!({ "value": { "points": [{ "kind": "blocked_by_permission", "what": "Run it." }] } })];
         assert_eq!(what_is_asked(&before), ": Run it.");
         assert_eq!(what_is_asked(&[]), "");
+    }
+
+    // The numbered table of a fix, made as the engine makes it: F1 a finding of the table review, F2 a test of
+    // adversarial testing that went wrong, F3 a red check of the full CI.
+    fn fix_table() -> Value {
+        let place = |cell: &str, path: &str, value: Value| inputs::Part {
+            origin: inputs::Origin::Place {
+                round: crate::work::RoundId::new(1, 9),
+                first: crate::work::RoundId::new(1, 9),
+                cell: cell.into(),
+                path: path.into(),
+            },
+            value,
+        };
+        let finding = json!({ "fid": "R1", "where": "w", "what": "x", "fix": "y" });
+        let gathered = inputs::Gathered {
+            input: flow::CompiledInput {
+                id: None,
+                name: None,
+                common: false,
+                numbered: Some("F".into()),
+                what: "The table to answer".into(),
+                from: Vec::new(),
+                maybe: true,
+                newest: false,
+                unanswered: false,
+            },
+            parts: vec![
+                place(
+                    "T4",
+                    "columns[findings]",
+                    json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding] }]),
+                ),
+                place(
+                    "T1",
+                    "new_tests",
+                    json!([{ "name": "red_test", "on_head": "red", "on_base": "red" }]),
+                ),
+                place(
+                    "T2",
+                    "result[red]",
+                    json!({ "kind": "red", "checks": [{ "name": "lint", "result": "red", "run": "u" }] }),
+                ),
+            ],
+            value: None,
+        };
+        Value::Array(inputs::table(&[gathered]))
+    }
+
+    fn fix_round(table: Option<&Value>, answer: &str, id: &str) -> Round {
+        Round {
+            id: crate::work::RoundId::new(1, 9),
+            cell: Some("T6".into()),
+            session: None,
+            input: json!({ "engine": { "table": table } }),
+            output: Some(json!({ "outcome": { "rows": [{ "answer": answer, "id": id }] } })),
+            transition: Some("done".into()),
+            rejected: None,
+            compactions: 0,
+            started_at: 0,
+            ended_at: None,
+            usage: None,
+        }
+    }
+
+    // A fix answered a row the cell `side` raised when its answer names a row of the table it was given that came from
+    // that cell, whatever the answer is. Every answer the flow gives is tried, so one added later cannot be left out;
+    // a row of another cell, a number the table does not have and a round given no table answer no one's.
+    #[test]
+    fn any_answer_to_a_row_a_side_raised_is_an_answer_to_that_side() {
+        let table = fix_table();
+        let answers = flow::answers("T6", "rows").unwrap();
+        assert!(answers.iter().any(|a| a == "fixed_outside_commit"), "{answers:?}");
+        for a in &answers {
+            let answered = |id: &str, side: &str| answers_a_row_of(&fix_round(Some(&table), a, id), "outcome", side);
+            assert!(answered("F1", "T4"), "{a}");
+            assert!(!answered("F1", "T1"), "{a}");
+            assert!(answered("F2", "T1"), "{a}");
+            assert!(!answered("F2", "T4"), "{a}");
+            assert!(!answered("F3", "T4") && !answered("F3", "T1"), "{a}");
+            assert!(!answered("F9", "T4") && !answered("F9", "T1"), "{a}");
+            assert!(!answers_a_row_of(&fix_round(None, a, "F1"), "outcome", "T4"), "{a}");
+        }
     }
 }
