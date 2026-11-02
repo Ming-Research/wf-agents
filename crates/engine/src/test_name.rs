@@ -58,7 +58,7 @@ fn source_words(named: &str) -> Vec<String> {
     let parts: Vec<&str> = named.split(" > ").map(str::trim).collect();
     let mut words = Vec::new();
     if parts.len() > 1 {
-        // Vitest prints `[file > ]describe > it`: the source holds the title alone, quoted as the source quotes it.
+        // Vitest prints `[file > ]describe > it`: the source holds the title alone, in quotes.
         words.extend(quoted_titles(parts[parts.len() - 1]));
     } else if let Some((_, name)) = named.split_once(' ')
         && !name.is_empty()
@@ -81,14 +81,16 @@ fn source_words(named: &str) -> Vec<String> {
     words
 }
 
-/// A title as it may stand in a source file: as it is printed, and with the quote of each kind of string escaped as
-/// a source escapes it inside that string.
+/// A title as a source file holds it: in a string of each kind of quote, with that quote (and the backslash) escaped
+/// as a source escapes it inside that string. The quotes are part of the word, so that the same words in a comment
+/// or a document, which no quote holds, are not the title of a test.
 fn quoted_titles(title: &str) -> Vec<String> {
-    let mut out = vec![title.to_string()];
+    let mut out: Vec<String> = Vec::new();
     for quote in ['\'', '"', '`'] {
         let escaped = title.replace('\\', "\\\\").replace(quote, &format!("\\{quote}"));
-        if !out.contains(&escaped) {
-            out.push(escaped);
+        let quoted = format!("{quote}{escaped}{quote}");
+        if !out.contains(&quoted) {
+            out.push(quoted);
         }
     }
     out
@@ -125,8 +127,11 @@ mod tests {
         assert_eq!(source_words("engine tools::tests::a_test")[0], "fn a_test");
         // Vitest's titles: the last one, quoted each way a source quotes it.
         let vitest = source_words("src/x.test.tsx > a page > shows the owner's list");
-        assert_eq!(vitest[0], "shows the owner's list");
-        assert_eq!(vitest[1], "shows the owner\\'s list");
+        assert_eq!(vitest[0], "'shows the owner\\'s list'");
+        assert_eq!(vitest[1], "\"shows the owner's list\"");
+        assert_eq!(vitest[2], "`shows the owner's list`");
+        // The title is not a word of its own, outside any quote.
+        assert!(!vitest.contains(&"shows the owner's list".to_string()));
         assert!(vitest.contains(&"src/x.test.tsx > a page > shows the owner's list".to_string()));
         // The last word of a title with spaces is not looked for alone, nor is a function named after it.
         assert!(!source_words("a page > shows the list").contains(&"list".to_string()));
@@ -371,7 +376,7 @@ mod tests {
                         "  it(\"says \\\"hi\\\" and it's ok\", () => {});\n",
                         "  it('says \"hi\" and it\\'s fine', () => {});\n",
                         "  it('shows \u{2014} the rows', () => {});\n",
-                        "  it('handles v1.2: the end.', () => {});\n",
+                        "  it('handles v1.2: the end!', () => {});\n",
                         "});\n",
                     ),
                 ),
@@ -383,7 +388,7 @@ mod tests {
             "marks > says \"hi\" and it's ok",
             "m.test.ts > marks > says \"hi\" and it's fine",
             "marks > shows \u{2014} the rows",
-            "client/src/m.test.ts > marks > handles v1.2: the end.",
+            "client/src/m.test.ts > marks > handles v1.2: the end!",
             "  engine::bin/wf-agents waits_for_a_slot  ",
             " waits_for_a_slot ",
         ] {
@@ -399,6 +404,47 @@ mod tests {
         ] {
             assert!(on_branch(&dir, named).is_err(), "{named}");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A name that ends in `:`, `/` or `.` is not looked for at all, as the reading before this change did not look
+    // for it; so it is let through whether or not the branch holds it. That is too lax, and item #11's to tighten.
+    #[test]
+    fn a_name_that_ends_in_a_separator_is_not_looked_for() {
+        let dir = repo_with_tests("separator");
+        for named in [
+            "client/src/m.test.ts > marks > handles v1.2: the end.",
+            "a round picked beside a chart > shows nothing at all.",
+            "engine::e2e missing_test:",
+            "engine::e2e::missing_test/",
+        ] {
+            assert!(on_branch(&dir, named).is_ok(), "{named}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // The title of a vitest name is looked for as a string in a source file, with its quotes. The same words in a
+    // document or a comment are not a test: the name is refused, and the quoted title is found.
+    #[test]
+    fn a_title_in_prose_is_not_a_test() {
+        let dir = repo_with_files(
+            "prose",
+            &[
+                ("README.md", "This works, and so shows nothing at all about tests.\n"),
+                (
+                    "client/src/p.test.ts",
+                    "// shows the list of rounds\ndescribe('a page', () => {\n  it('lists rounds', () => {});\n});\n",
+                ),
+            ],
+        );
+        for named in [
+            "suite > works",
+            "a page > shows nothing at all",
+            "client/src/p.test.ts > a page > shows the list of rounds",
+        ] {
+            assert!(on_branch(&dir, named).is_err(), "{named}");
+        }
+        assert!(on_branch(&dir, "client/src/p.test.ts > a page > lists rounds").is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
