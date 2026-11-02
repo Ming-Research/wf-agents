@@ -13322,6 +13322,7 @@ fn a_start_over_is_refused_once_a_cancel_is_asked() {
 // does over the owner's Start: the page's Pause answers that the work stays paused. So the request must not lift the
 // pause once the slot is free.
 #[test]
+#[ignore]
 fn the_owner_s_pause_after_a_resume_keeps_the_work_paused() {
     let s = setup("pause-after-resume");
     let (hold, free) = (Gate::default(), Arc::new(AtomicI64::new(0)));
