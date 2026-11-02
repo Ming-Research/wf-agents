@@ -9180,7 +9180,11 @@ fn the_notebook_is_written_where_it_is_learned_and_given_whole_once_changed() {
         "{record}"
     );
     let rethink = input_at(&e, arch, "B4", false);
-    assert_eq!(given_ending(&rethink, "·engine·notebook_plan"), Some(false), "{rethink}");
+    assert_eq!(
+        given_ending(&rethink, "·engine·notebook_plan"),
+        Some(false),
+        "{rethink}"
+    );
     assert_eq!(given_ending(&again, "·engine·notebook_plan"), Some(false), "{again}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
