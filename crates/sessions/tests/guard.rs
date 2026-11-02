@@ -382,6 +382,27 @@ fn a_graph_whose_rounds_never_jumped_gives_no_line_of_a_jump() {
     assert!(r.stop_record().is_none());
 }
 
+// Acceptance: a cell without a line of its own is judged by every round of its graph, and only a graph of fewer than 19
+// rounds is left unjudged. Most rounds of the architect's graph add nothing, so its median is 0 though it has a scale:
+// of its 868 rounds measured on the real history, 753 added 0 tokens, and the most added was 39,549 at 9,280 a call. The
+// rows here have that shape, and a round that adds ten times the most at ten times the pace is what the guard is for.
+#[test]
+fn a_graph_whose_median_is_nothing_but_whose_rounds_grew_still_stops_growth_past_its_lines() {
+    let rows: Vec<Sample> = (1..=100)
+        .map(|i| Sample {
+            cell: "B1".into(),
+            calls: 5,
+            added: (i - 87).max(0) * 3000,
+            ..Sample::default()
+        })
+        .collect();
+    let judged = Lines::of(&rows, "architect", "B1", OPUS, 19);
+    let mut r = Run::new(judged, Action::Stopped, OPUS, 1000, None);
+    r.see(&call("a", 10_000));
+    r.see(&call("b", 410_000));
+    assert!(r.stop_record().is_some(), "{:?}", r.lines());
+}
+
 // Acceptance: the lines come only from history, no setting holds them, and changing history changes the verdict. The
 // verdict is read here from what the database keeps, not from values handed to the judgement.
 #[test]
