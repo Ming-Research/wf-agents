@@ -13351,11 +13351,19 @@ fn the_talk_is_cut_at_the_first_round_of_a_session_across_the_works_it_ran_in() 
 // the project, no cut.
 #[test]
 fn the_first_understanding_is_told_the_same_talk_at_every_round_with_no_lower_bound() {
-    let (s, e, said, works) = architect_works_in(
-        "owner-talk-first-rounds",
-        understanding_asks_for_tools_once(),
-        &[(0, "Alpha talk. ALPHAEND")],
+    // The first round of the understanding, the project's first, asks for tools; the round after answers.
+    let mut agents = scripts();
+    agents.insert(
+        "U1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            (Vec::new(), Vec::new())
+        }),
     );
+    let (s, e, said, works) = architect_works_in("owner-talk-first-rounds", agents, &[(0, "Alpha talk. ALPHAEND")]);
     let log = said.lock().unwrap().join("\n");
     let rounds = rounds_numbered(&e, works[0], "U1");
     assert_eq!(rounds.len(), 2, "tools, then the answer: {rounds:?}\n{log}");
