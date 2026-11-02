@@ -1405,7 +1405,7 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
 
 /// Records a round of `cell` that was given `input` and handed in `output`, and leaves the work at `at`, where the row
 /// `transition` of the cell leads.
-fn record_round(e: &mut Engine, work: i64, cell: &str, input: &Value, output: &Value, transition: &str, at: &str) {
+fn seed_round(e: &mut Engine, work: i64, cell: &str, input: &Value, output: &Value, transition: &str, at: &str) {
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
@@ -1484,7 +1484,7 @@ fn a_fix_that_answered_the_reviews_row_without_a_commit_goes_back_to_the_review(
     let log = || said.lock().unwrap().join("\n");
     // The review hands in its return and the merge judgment reads it.
     let review = |e: &mut Engine, outcome: Value| {
-        record_round(e, work, "T4", &reviewed, &returned(outcome), "done", "M1");
+        seed_round(e, work, "T4", &reviewed, &returned(outcome), "done", "M1");
         e.step_work(work).unwrap();
     };
     // The fix answers the one row it was given, which came from `from`, and the work stands where the choice of what
@@ -1492,7 +1492,7 @@ fn a_fix_that_answered_the_reviews_row_without_a_commit_goes_back_to_the_review(
     let fix = |e: &mut Engine, row: Value, answer: Value| {
         let input = json!({ "engine": { "table": [row] } });
         let output = returned(json!({ "rows": [answer], "head": "abc" }));
-        record_round(e, work, "T6", &input, &output, "done", "T7");
+        seed_round(e, work, "T6", &input, &output, "done", "T7");
     };
     // The choice of what runs next, and where the work goes after it.
     let choose = |e: &mut Engine| {
@@ -1561,7 +1561,7 @@ fn a_fix_that_answered_a_row_of_another_cell_without_a_commit_is_not_reviewed_ag
     let (work, _, _) = state(&e, item).unwrap();
     let pass = json!({ "id": "1", "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } });
     let reviewed = input_of_the_change_reviewed(&e, work);
-    record_round(
+    seed_round(
         &mut e,
         work,
         "T4",
@@ -1574,7 +1574,7 @@ fn a_fix_that_answered_a_row_of_another_cell_without_a_commit_is_not_reviewed_ag
                       "run": "https://example.com/runs/7" });
     let input = json!({ "engine": { "table": [row] } });
     let output = returned(json!({ "rows": [{ "id": "F1", "answer": "fixed", "commit": "abc" }], "head": "abc" }));
-    record_round(&mut e, work, "T6", &input, &output, "done", "T7");
+    seed_round(&mut e, work, "T6", &input, &output, "done", "T7");
     e.step_work(work).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(planned(&e, work), ("none".to_string(), "skipped".to_string()), "{log}");
