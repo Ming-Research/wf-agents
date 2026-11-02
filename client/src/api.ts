@@ -862,6 +862,11 @@ forwarding: Forwarding | null, };
  */
 export type WorkSaid = { text: string,
 /**
+ * Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect; kept with the
+ * words that come to the architect, not with those that go to the engineer alone.
+ */
+speaker: string,
+/**
  * engineer (the default), architect (the default of a question about a decision card) or both.
  */
 to?: string,
@@ -887,6 +892,10 @@ export type ProjectsSaid = {
  */
 key: string, text: string,
 /**
+ * Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect.
+ */
+speaker: string,
+/**
  * The project whose architect it is for; none for every architect of the group.
  */
 to?: string,
@@ -900,6 +909,11 @@ images: Array<ImageSent>, };
  * question of the architect's they reply to, when the box replies to one.
  */
 export type ArchitectSaid = { text: string,
+/**
+ * Who the caller declares to speak: `owner` at the page, `delegate` for a session that speaks for the owner. The
+ * architect's record of a decision says which was declared; the engine cannot tell it from who speaks.
+ */
+speaker: string,
 /**
  * The item it is about, if any.
  */
@@ -953,6 +967,10 @@ export type ForwardNew = { project: string | null, };
  * The owner's answer to an ask of the owner, as the page and the command line hand it in.
  */
 export type Answer = { text: string,
+/**
+ * Who the caller declares to answer, `owner` or `delegate`, as for the words said to one architect.
+ */
+speaker: string,
 /**
  * For what the architect is asked: why it was decided this way.
  */
