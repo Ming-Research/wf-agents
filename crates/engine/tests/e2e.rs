@@ -1193,8 +1193,10 @@ fn building_a_message_writes_nothing() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// Puts a commit on main that writes the files given, as another pull request merged meanwhile would.
-fn main_moves_on(root: &Path, files: &[(&str, &str)], message: &str) {
+/// Makes, in a clone of the origin, the commit that writes the files given on top of main as it is now, as another pull
+/// request merged meanwhile would, and gives the clone. The commit is not on main until it is pushed from there
+/// ([`main_moves_on`]).
+fn commit_on_main(root: &Path, files: &[(&str, &str)], message: &str) -> PathBuf {
     let dir = root.join("elsewhere");
     if !dir.exists() {
         let origin = root.join("origin.git");
@@ -1210,7 +1212,61 @@ fn main_moves_on(root: &Path, files: &[(&str, &str)], message: &str) {
     }
     git(&dir, &["add", "-A"]);
     git(&dir, &["commit", "-q", "-m", message]);
+    dir
+}
+
+/// Puts a commit on main that writes the files given, as another pull request merged meanwhile would.
+fn main_moves_on(root: &Path, files: &[(&str, &str)], message: &str) {
+    let dir = commit_on_main(root, files, message);
     git(&dir, &["push", "-q", "origin", "HEAD:main"]);
+}
+
+/// Notes each fetch that reaches project p's remote from its checkout. A fetch runs `git upload-pack` at the remote,
+/// which the checkout's remote is set here to run as a script that notes the run and then does it; so every fetch is
+/// noted once, whoever makes it. The script can also push the commit that [`commit_on_main`] made right after the next
+/// fetch is answered, as another work's push reaching main while a fetch is under way.
+struct Fetches {
+    root: PathBuf,
+}
+
+impl Fetches {
+    fn watching(s: &Setup) -> Fetches {
+        let root = s.root.clone();
+        let script = root.join("upload-pack.sh");
+        let r = root.display();
+        write(
+            &root,
+            "upload-pack.sh",
+            &format!(
+                "#!/bin/sh\n\
+                 echo fetch >> '{r}/fetches'\n\
+                 git upload-pack \"$@\"\n\
+                 status=$?\n\
+                 if [ -f '{r}/push-after' ]; then\n\
+                 \x20 rm '{r}/push-after'\n\
+                 \x20 (unset GIT_DIR; git -C '{r}/elsewhere' push -q origin HEAD:main)\n\
+                 fi\n\
+                 exit $status\n"
+            ),
+        );
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        git(
+            &root.join("checkout"),
+            &["config", "remote.origin.uploadpack", &script.to_string_lossy()],
+        );
+        Fetches { root }
+    }
+
+    /// How many fetches there have been since the watching began.
+    fn so_far(&self) -> usize {
+        std::fs::read_to_string(self.root.join("fetches")).map_or(0, |t| t.lines().count())
+    }
+
+    /// Has the commit made with [`commit_on_main`] pushed to main right after the next fetch is answered.
+    fn push_after_the_next(&self) {
+        write(&self.root, "push-after", "");
+    }
 }
 
 /// Names `CONSTITUTION.md` as project p's constitution in its configuration.
@@ -14338,6 +14394,144 @@ fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
         git(&s.origin, &["rev-parse", "main"])
     );
     let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A round of a project's architect on its line makes one fetch of main, and the worktree it reads files in, the inputs
+// it is given and the commit its record keeps are of the commit that fetch brought, though main moves on the moment the
+// fetch has been answered: a second fetch would bring the worktree past the commit the inputs were read at. The
+// reference is the fetch count itself, which a second fetch adds one to, and the two commits compared with each other.
+#[test]
+fn an_architect_s_round_fetches_main_once_and_reads_one_commit_in_its_worktree_and_its_inputs() {
+    let s = setup("main-one-fetch");
+    no_reply_wait(&s);
+    main_moves_on(&s.root, &[("AGENTS.md", "Work the first way.\n")], "The first way");
+    let first = git(&s.origin, &["rev-parse", "main"]);
+    let fetches = Fetches::watching(&s);
+    // The second way is committed now and reaches main right after the round's first fetch is answered.
+    commit_on_main(&s.root, &[("AGENTS.md", "Work the second way.\n")], "The second way");
+    let mut agents = scripts();
+    let seen = keeps_prompts(&mut agents, &["U1"], |_: &Request, _: usize| (Vec::new(), Vec::new()));
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    let before = fetches.so_far();
+    fetches.push_after_the_next();
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(fetches.so_far() - before, 1, "{log}");
+    // Main did move on while the round was starting.
+    let second = git(&s.origin, &["rev-parse", "main"]);
+    assert_ne!(second, first, "the second way did not reach main\n{log}");
+    // The worktree, the record and the text the round was given are all of the commit the one fetch brought.
+    let worktree = s.data.join("worktrees").join("architect").join("p");
+    assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), first, "{log}");
+    assert_eq!(
+        std::fs::read_to_string(worktree.join("AGENTS.md")).unwrap(),
+        "Work the first way.\n"
+    );
+    assert_eq!(pinned_main(&e, arch, "U1").as_deref(), Some(first.as_str()), "{log}");
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1, "{log}");
+    assert!(seen[0].1.contains("Work the first way."), "{}", seen[0].1);
+    assert!(!seen[0].1.contains("Work the second way."), "{}", seen[0].1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// An engineer's round makes one fetch of main at a cell that reads the project (`G1`) and none at a cell that does not
+// (`R1`): the fetch is the round's, made before its inputs are gathered, and a cell that reads nothing of main does not
+// make it. The reference is the fetch count of each step.
+#[test]
+fn an_engineer_s_round_fetches_main_once_where_it_reads_the_project_and_not_where_it_does_not() {
+    let s = setup("main-fetch-count");
+    names_a_constitution(&s);
+    main_moves_on(
+        &s.root,
+        &[("CONSTITUTION.md", "## Article 1. Small\n\nKeep it small.\n")],
+        "A constitution",
+    );
+    let fetches = Fetches::watching(&s);
+    let mut agents = scripts();
+    keeps_prompts(&mut agents, &["G1", "R1"], |_: &Request, _: usize| {
+        (Vec::new(), Vec::new())
+    });
+    let (mut e, said, item, _) = stands_at_g1(&s, agents, true);
+    let work = state(&e, item).unwrap().0;
+    let mut made: BTreeMap<String, usize> = BTreeMap::new();
+    for _ in 0..12 {
+        let Some((_, cell, _)) = state(&e, item) else { break };
+        let before = fetches.so_far();
+        e.advance(work).unwrap();
+        if cell == "G1" || cell == "R1" {
+            made.insert(cell, fetches.so_far() - before);
+        }
+        if made.len() == 2 {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        made,
+        BTreeMap::from([("G1".to_string(), 1), ("R1".to_string(), 0)]),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A project's architect whose worktree cannot be brought to main does not start its round: with the network up its work
+// is paused and says why, and with it down every work waits for it, and goes on from its cell once it is back. The
+// fetch that brings the worktree to main is the round's, so this holds though main could not be fetched for the
+// inputs either.
+#[test]
+fn an_architect_whose_worktree_cannot_be_brought_to_main_is_paused_or_waits_and_goes_on_when_it_can() {
+    for up in [true, false] {
+        let s = setup(&format!("architect-no-main-{up}"));
+        no_reply_wait(&s);
+        let net = Arc::new(std::sync::atomic::AtomicBool::new(up));
+        let seen_net = net.clone();
+        let hooks = Hooks {
+            network: Some(Arc::new(move || seen_net.load(Ordering::SeqCst))),
+            ..Hooks::default()
+        };
+        let mut agents = scripts();
+        let seen = keeps_prompts(&mut agents, &["U1"], |_: &Request, _: usize| (Vec::new(), Vec::new()));
+        let (mut e, said) = engine_with(&s, agents, hooks);
+        quiet(&mut e);
+        let arch = architect_work_at(&mut e, "U1");
+        let away = s.root.join("origin-away");
+        std::fs::rename(&s.origin, &away).unwrap();
+        e.advance(arch).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        let paused: Option<String> =
+            e.db.conn()
+                .query_row("SELECT paused FROM works WHERE id = ?1", [arch], |r| r.get(0))
+                .unwrap();
+        assert!(seen.lock().unwrap().is_empty(), "{log}");
+        if up {
+            let why = paused.unwrap_or_else(|| panic!("not paused\n{log}"));
+            assert!(
+                why.starts_with("cell U1: the architect's worktree ") && why.contains("could not be brought to main"),
+                "{why}"
+            );
+            // Put right, the owner presses Start: the round starts, at the commit main has.
+            std::fs::rename(&away, &s.origin).unwrap();
+            api::resume(&mut e.db, arch).unwrap();
+        } else {
+            assert_eq!(paused, None, "{log}");
+            assert_eq!(e.halt().map(|h| h.kind).as_deref(), Some("offline"), "{log}");
+            std::fs::rename(&away, &s.origin).unwrap();
+            net.store(true, Ordering::SeqCst);
+            e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
+        }
+        e.advance(arch).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        assert_eq!(seen.lock().unwrap().len(), 1, "{log}");
+        assert_eq!(
+            pinned_main(&e, arch, "U1").as_deref(),
+            Some(git(&s.origin, &["rev-parse", "main"]).as_str()),
+            "{log}"
+        );
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
 }
 
 // A constitution the configuration names that main does not have is no constitution to go without: no round of an

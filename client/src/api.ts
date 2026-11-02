@@ -1460,7 +1460,7 @@ records: string | null,
  */
 ci_fast: string, ci_full: Array<string>, merge_checks: Array<string>,
 /**
- * Its constitution, a path in its checkout; none when it has none.
+ * Its constitution, a path in its repository as its main has it; none when it has none.
  */
 constitution: string | null,
 /**

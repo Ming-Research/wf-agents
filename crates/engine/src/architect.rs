@@ -73,7 +73,8 @@ pub const INPUTS: [&str; 31] = [
 ];
 
 /// The engine's inputs that read the project's files on its main, each as one commit of it has them. A round whose cell
-/// has any of them is pinned to one commit of main (`inputs::pin_main`), which every one of them is read at.
+/// has any of them is pinned to one commit of main (`inputs::pin_main`; for a cell on a project's architect's line, the
+/// commit its worktree is brought to), which every one of them is read at, after one fetch of main.
 pub const MAIN_INPUTS: [&str; 3] = ["constitution", "guide", "cited_nodes"];
 
 /// The input that gives what the cell before this one on the matter's path answered of it, as that round's return:
@@ -318,22 +319,26 @@ pub fn workdir(data: &Path, g: &CompiledGraph, cell: &CompiledCell, project: &st
 }
 
 /// Readies where a round of a project's architect runs, before the round: its graph's worktree brought to the latest
-/// main, whatever was changed there dropped, or the empty directory of a cell on no line made afresh.
-pub fn ready(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<(), String> {
+/// main, whatever was changed there dropped, which fetches main and gives the commit the worktree stands at, the one
+/// the round reads the project at; or the empty directory of a cell on no line made afresh, which fetches nothing and
+/// gives none.
+pub fn ready(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -> Result<Option<String>, String> {
     let project = project_of(w)?;
     let dir = workdir(&e.data, g, cell, project);
     if cell.line.is_none() {
         if dir.exists() {
             std::fs::remove_dir_all(&dir).map_err(|x| format!("{}: {x}", dir.display()))?;
         }
-        return std::fs::create_dir_all(&dir).map_err(|x| format!("{}: {x}", dir.display()));
+        return std::fs::create_dir_all(&dir)
+            .map(|_| None)
+            .map_err(|x| format!("{}: {x}", dir.display()));
     }
-    refresh(e, &g.name, project).map(|_| ())
+    refresh(e, &g.name, project).map(|(_, commit)| Some(commit))
 }
 
 /// Brings the worktree of a project's architect for the works of a graph to the latest main, making it when it is
-/// not there; gives where it is.
-pub fn refresh(e: &Engine, graph: &str, project: &str) -> Result<PathBuf, String> {
+/// not there, with one fetch of main; gives where it is and the commit of main it stands at.
+pub fn refresh(e: &Engine, graph: &str, project: &str) -> Result<(PathBuf, String), String> {
     let p = e
         .config
         .config
@@ -341,13 +346,13 @@ pub fn refresh(e: &Engine, graph: &str, project: &str) -> Result<PathBuf, String
         .get(project)
         .ok_or_else(|| format!("no project {project} in the configuration"))?;
     let dir = worktree(&e.data, graph, project);
-    sessions::worktree::at_main(&p.checkout, &dir, &p.main).map_err(|x| {
+    let commit = sessions::worktree::at_main(&p.checkout, &dir, &p.main).map_err(|x| {
         format!(
             "the architect's worktree {} could not be brought to main: {x}",
             dir.display()
         )
     })?;
-    Ok(dir)
+    Ok((dir, commit))
 }
 
 /// The project whose architect a work is.

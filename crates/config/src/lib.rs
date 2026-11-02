@@ -1032,12 +1032,12 @@ impl Config {
                     problems.push(format!("projects/{name}.toml: no such rule: {r} (rules/{r}.md)"));
                 }
             }
-            // The constitution is a file in the project's checkout, named by its path from there.
+            // The constitution is a file of the project's repository, named by its path from the repository's root.
             if let Some(c) = &p.constitution
                 && (c.as_os_str().is_empty() || !c.is_relative())
             {
                 problems.push(format!(
-                    "projects/{name}.toml: constitution is not a path in the project's checkout: {}",
+                    "projects/{name}.toml: constitution is not a path in the project's repository: {}",
                     c.display()
                 ));
             }
@@ -1307,17 +1307,35 @@ pub fn read_at(p: &Project, commit: &str, path: &Path) -> Result<String, String>
 const MAX_LINKS: usize = 16;
 
 /// The git object of the file `path` names at `commit` of the repository at `repo`. Git stores a link as a file that
-/// holds the path it points to, and a read of the checkout's files followed it, so a link is followed here too: the
-/// object is the file's that the link points to, however many links lead to it. A target outside the repository, a
-/// loop, a path that is not there and a path that is no file are errors that say which.
+/// holds the path it points to, and a read of the checkout's files followed it, at the end of the path and in the
+/// middle of it alike, so links are followed here too: the path is walked one name at a time from the root, and a name
+/// that is a link is replaced by the path it points to, however many links lead to the file. A target outside the
+/// repository, a loop, a path that is not there, a name in the middle that is no directory and a path that is no file
+/// are errors that say which.
 fn blob_object(repo: &Path, commit: &str, path: &str) -> Result<String, String> {
-    let mut at = path.to_string();
-    for _ in 0..=MAX_LINKS {
-        if at.is_empty() {
-            return Err(format!(
-                "{path} leads to the repository's root, which is not a file at {commit}"
-            ));
+    use std::collections::VecDeque;
+    // The directories walked so far, real ones at the commit, and the names still to walk.
+    let mut walked: Vec<String> = Vec::new();
+    let mut ahead: VecDeque<String> = path.split('/').map(str::to_string).collect();
+    // The last link followed and the path it points to, which a name that leaves the repository after it is blamed on.
+    let mut via: Option<(String, String)> = None;
+    let mut followed = 0;
+    while let Some(name) = ahead.pop_front() {
+        match name.as_str() {
+            "" | "." => continue,
+            ".." => {
+                if walked.pop().is_some() {
+                    continue;
+                }
+                return Err(match via {
+                    Some((link, target)) => format!("the link {link} points outside the repository, to {target}"),
+                    None => format!("{path} leads outside the repository at {commit}"),
+                });
+            }
+            _ => {}
         }
+        walked.push(name);
+        let at = walked.join("/");
         let listed = git(repo, &["ls-tree", "-z", commit, "--", &at])?;
         let entry = listed
             .split('\0')
@@ -1330,31 +1348,38 @@ fn blob_object(repo: &Path, commit: &str, path: &str) -> Result<String, String> 
         let mut m = meta.split(' ');
         let (mode, kind, object) = (m.next(), m.next(), m.next().unwrap_or_default());
         if mode == Some("120000") {
+            followed += 1;
+            if followed > MAX_LINKS {
+                return Err(format!(
+                    "{path} is a link that leads through more than {MAX_LINKS} links at {commit}"
+                ));
+            }
             let target = String::from_utf8(git_bytes(repo, &["cat-file", "blob", object])?)
                 .map_err(|_| format!("the link {at} does not hold a path"))?;
-            let mut parts: Vec<&str> = at.split('/').collect();
-            parts.pop();
             if target.starts_with('/') {
                 return Err(format!("the link {at} points outside the repository, to {target}"));
             }
-            for part in target.split('/') {
-                match part {
-                    "" | "." => {}
-                    ".." if parts.pop().is_some() => {}
-                    ".." => return Err(format!("the link {at} points outside the repository, to {target}")),
-                    name => parts.push(name),
-                }
+            // The link stands where its name stood: its target is read from the directory that held it.
+            walked.pop();
+            for name in target.split('/').rev() {
+                ahead.push_front(name.to_string());
             }
-            at = parts.join("/");
-        } else if kind == Some("blob") {
+            via = Some((at, target));
+        } else if kind == Some("blob") && ahead.iter().all(String::is_empty) {
             return Ok(object.to_string());
-        } else {
+        } else if kind == Some("blob") {
+            return Err(format!("{at} is a file, not a directory, at {commit}"));
+        } else if kind != Some("tree") {
             return Err(format!("{at} is not a file at {commit}"));
         }
     }
-    Err(format!(
-        "{path} is a link that leads through more than {MAX_LINKS} links at {commit}"
-    ))
+    // The names ran out on a directory, or on the root.
+    if walked.is_empty() {
+        return Err(format!(
+            "{path} leads to the repository's root, which is not a file at {commit}"
+        ));
+    }
+    Err(format!("{} is not a file at {commit}", walked.join("/")))
 }
 
 /// What a project says of itself as one commit has it, which agents are given as the project guide: its AGENTS.md,
@@ -1826,7 +1851,7 @@ asks = 9
         assert!(read(&m).is_err());
     }
 
-    // The architect's level is one of the levels, and a project's constitution a path in its checkout; anything else
+    // The architect's level is one of the levels, and a project's constitution a path in its repository; anything else
     // is refused.
     #[test]
     fn the_architect_s_level_and_a_constitution_point_somewhere() {
@@ -1851,8 +1876,9 @@ asks = 9
         let e = read(&m).unwrap_err();
         assert!(e.to_string().contains("agents.architect names no level: 9"), "{e}");
         assert!(
-            e.to_string()
-                .contains("projects/q.toml: constitution is not a path in the project's checkout: /q/CONSTITUTION.md"),
+            e.to_string().contains(
+                "projects/q.toml: constitution is not a path in the project's repository: /q/CONSTITUTION.md"
+            ),
             "{e}"
         );
     }
@@ -1968,17 +1994,22 @@ asks = 9
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // A link is followed to the file it points to, through any number of links inside the repository; a link that
-    // leaves the repository, one in a loop and one to a directory are errors that name the path and the commit.
+    // A link is followed to the file it points to, through any number of links inside the repository, at the end of the
+    // path and in the middle of it alike (a directory that is a link, as `docs -> reasoning`); a link that leaves the
+    // repository, one in a loop, one to a directory, a file taken for a directory and a name that is not there are errors
+    // that name the path and the commit.
     #[cfg(unix)]
     #[test]
     fn a_link_is_followed_inside_the_repository_and_only_there() {
         let dir = std::env::temp_dir().join(format!("wf-agents-links-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::create_dir_all(dir.join("reasoning")).unwrap();
+        std::fs::create_dir_all(dir.join("deep")).unwrap();
         let run = |args: &[&str]| git(&dir, args).unwrap();
         run(&["init", "-q"]);
         std::fs::write(dir.join("real.md"), "real\n").unwrap();
+        std::fs::write(dir.join("reasoning/constitution.md"), "# Articles\n").unwrap();
         for (link, target) in [
             ("sub/up.md", "../real.md"),
             ("chain.md", "sub/up.md"),
@@ -1987,6 +2018,15 @@ asks = 9
             ("loop-a.md", "loop-b.md"),
             ("loop-b.md", "loop-a.md"),
             ("dirlink.md", "sub"),
+            // Directories that are links: at the root, through another link, one level down, and back up with `..`.
+            ("docs", "reasoning"),
+            ("docs2", "docs"),
+            ("deep/inner", "../reasoning"),
+            ("sub/root", ".."),
+            // A directory link that leaves the repository, and two that lead into each other.
+            ("escape", "../elsewhere"),
+            ("ring-a", "ring-b"),
+            ("ring-b", "ring-a"),
         ] {
             std::os::unix::fs::symlink(target, dir.join(link)).unwrap();
         }
@@ -1997,14 +2037,32 @@ asks = 9
         let mut p = c.projects.remove("p").unwrap();
         p.checkout = dir.clone();
         assert_eq!(read_at(&p, &commit, Path::new("chain.md")).unwrap(), "real\n");
-        for (link, why) in [
+        for path in [
+            "docs/constitution.md",
+            "docs2/constitution.md",
+            "deep/inner/constitution.md",
+            "./docs/./constitution.md",
+        ] {
+            assert_eq!(read_at(&p, &commit, Path::new(path)).unwrap(), "# Articles\n", "{path}");
+        }
+        assert_eq!(read_at(&p, &commit, Path::new("sub/root/real.md")).unwrap(), "real\n");
+        for (path, why) in [
             ("out.md", "outside the repository"),
             ("abs.md", "outside the repository"),
             ("loop-a.md", "links"),
             ("dirlink.md", "not a file"),
+            ("docs", "not a file"),
+            ("escape/x.md", "outside the repository"),
+            ("ring-a/x.md", "links"),
+            ("docs/missing.md", "does not exist"),
+            ("missing/constitution.md", "does not exist"),
+            ("real.md/x.md", "not a directory"),
         ] {
-            let e = read_at(&p, &commit, Path::new(link)).unwrap_err();
-            assert!(e.contains(link) && e.contains(&commit) && e.contains(why), "{e}");
+            let e = read_at(&p, &commit, Path::new(path)).unwrap_err();
+            assert!(
+                e.contains(path) && e.contains(&commit) && e.contains(why),
+                "{path}: {e}"
+            );
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -95,6 +95,42 @@ fn recorded_inputs(gathered: &[Gathered]) -> Value {
     )
 }
 
+/// The commit of the project's main a step's round reads the project at ([`inputs::pin_main`]), main fetched once for
+/// it: for a cell on a project's architect's line, by the fetch that brings the architect's worktree to main
+/// ([`architect::ready`]), so that the worktree the architect reads files in and the inputs the round is given are of
+/// one commit, though main moves on between two fetches; for any other cell by the fetch of `pin_main`. Where the
+/// worktree cannot be brought to main, the step stops: the work waits, while the network is down, for it to be up
+/// again, and otherwise is paused, with why.
+fn pin_round(
+    e: &mut Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    item: Option<&Item>,
+) -> Result<Result<inputs::Pin, Advance>, String> {
+    if item.is_none() {
+        match architect::ready(e, w, g, cell) {
+            Ok(Some(commit)) => {
+                let commit = inputs::reads_main(cell).then_some(commit);
+                return Ok(Ok(inputs::Pin {
+                    commit,
+                    fetch_failed: None,
+                }));
+            }
+            Ok(None) => {}
+            Err(why) => {
+                let why = format!("cell {}: {why}", cell.id);
+                return Ok(Err(if e.network_down() {
+                    e.wait_offline(w.id, &why)?
+                } else {
+                    failed::pause(e, w, &why)?
+                }));
+            }
+        }
+    }
+    inputs::pin_main(e, w, cell, item, true).map(Ok)
+}
+
 /// The item a work is on, for a step that needs one.
 fn needed<'i>(item: &'i Option<Item>, w: &Work) -> Result<&'i Item, String> {
     item.as_ref()
@@ -144,15 +180,20 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         Some(_) => Some(e.project_of(w)?),
         None => None,
     };
-    // The commit of the project's main this step's round reads the project at, pinned once: main is fetched to find it,
-    // so that the inputs that read the project's files on main are the project as the remote has it now, and every one
-    // of them, with the checks of the return, is of that one commit. When the fetch fails, the round goes on at the
-    // commit an earlier fetch left, and its record says why. A cell with no such input neither fetches nor reads main.
+    // The commit of the project's main this step's round reads the project at, pinned once ([`pin_round`]): main is
+    // fetched once to find it, before any input is gathered, so that the inputs that read the project's files on main
+    // are the project as the remote has it now, and every one of them, with the checks of the return, is of that one
+    // commit. When the fetch of a cell that has such an input fails, the round goes on at the commit an earlier fetch
+    // left, and its record says why. A cell with no such input does not read main, and fetches only where it is an
+    // architect's on a line, whose worktree is brought to main.
     let mut pinned: Option<inputs::Pin> = None;
     // A table the cell must answer that has no row leaves its round nothing to answer: no round runs, and the engine
     // takes the cell's row for it, recorded with why.
     if let Some(row) = crate::row(cell, flow::format::NOTHING_TO_ANSWER).cloned() {
-        let pin = inputs::pin_main(e, w, cell, item.as_ref(), true)?;
+        let pin = match pin_round(e, w, g, cell, item.as_ref())? {
+            Ok(pin) => pin,
+            Err(stop) => return Ok(stop),
+        };
         let gathered = inputs::gather(e, w, g, cell, item.as_ref(), pin.commit.as_deref())?;
         let kept = pin.clone();
         pinned = Some(pin);
@@ -207,23 +248,17 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         );
         return failed::pause(e, w, &why);
     }
+    // A round of a project's architect reads the project at the latest main: for a cell on its line, its graph's worktree
+    // is brought there first, by the one fetch the round makes. Where it cannot be, the work waits for the owner, with
+    // why; or, while the network is down, every work waits for it.
     let pin = match pinned {
         Some(pin) => pin,
-        None => inputs::pin_main(e, w, cell, item.as_ref(), true)?,
+        None => match pin_round(e, w, g, cell, item.as_ref())? {
+            Ok(pin) => pin,
+            Err(stop) => return Ok(stop),
+        },
     };
     let main = pin.commit.clone();
-    // A round of a project's architect reads the project at the latest main: its graph's worktree is brought there
-    // first. Where it cannot be, the work waits for the owner, with why; or, while the network is down, every work
-    // waits for it.
-    if item.is_none()
-        && let Err(why) = architect::ready(e, w, g, cell)
-    {
-        let why = format!("cell {}: {why}", cell.id);
-        if e.network_down() {
-            return e.wait_offline(w.id, &why);
-        }
-        return failed::pause(e, w, &why);
-    }
     let line_of_cell = crate::line_of(g, cell);
     let (level_name, level, _) = level_of(e, g, cell, item.as_ref()).map_err(|x| format!("work {}: {x}", w.id))?;
     let cli_name = level.cli.clone();

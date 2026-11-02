@@ -1018,7 +1018,7 @@ pub struct ProjectSettings {
     pub ci_fast: String,
     pub ci_full: Vec<String>,
     pub merge_checks: Vec<String>,
-    /// Its constitution, a path in its checkout; none when it has none.
+    /// Its constitution, a path in its repository as its main has it; none when it has none.
     pub constitution: Option<String>,
     /// The rules it takes in, by name.
     pub rules: Vec<String>,

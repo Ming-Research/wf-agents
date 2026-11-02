@@ -377,7 +377,9 @@ impl Pin {
 /// fails does not stop the round while `origin/<main>` still has a commit from an earlier fetch: the round goes on at
 /// that commit, with why the fetch failed in the pin, and the engine says so. Nothing is retried. No commit of main is
 /// an error that names the project, the failed fetch first: the inputs cannot be computed, and the step that asked is
-/// paused or, with the network down, waits. A cell with no such input neither fetches nor reads main.
+/// paused or, with the network down, waits. A cell with no such input neither fetches nor reads main. A round that
+/// runs a cell on a project's architect's line is pinned by `steps::pin_round` instead: it brings the architect's
+/// worktree to main with the one fetch the round makes and pins the round to the commit the worktree is at.
 pub fn pin_main(e: &Engine, w: &Work, cell: &CompiledCell, item: Option<&Item>, fetch: bool) -> Result<Pin, String> {
     if !reads_main(cell) {
         return Ok(Pin::default());

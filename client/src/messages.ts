@@ -81,7 +81,7 @@ const messages = {
   settings_ci_full: 'The full CI',
   settings_merge_checks: 'A merge needs',
   settings_constitution: 'Constitution',
-  settings_constitution_where: 'in its checkout',
+  settings_constitution_where: 'in its repository, as main has it',
   settings_none: 'none',
   settings_rule: 'Rule',
   settings_rule_facts: "rules/{name}.md, given to every cell of the project's agents",

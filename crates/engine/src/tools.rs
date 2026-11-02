@@ -756,7 +756,9 @@ fn gh(
             if dir.join(".git").exists() {
                 dir
             } else {
-                crate::architect::refresh(e, &w.graph, architect).map_err(|x| (Failure::other(x), String::new()))?
+                crate::architect::refresh(e, &w.graph, architect)
+                    .map(|(dir, _)| dir)
+                    .map_err(|x| (Failure::other(x), String::new()))?
             }
         }
     };
