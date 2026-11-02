@@ -24,8 +24,11 @@ trait Passes {
     /// history (`G1`, `G2`) has that round taken too, in passes of their own: these tests are about the cells either
     /// side of it, and those about gathering look at its rounds.
     fn step(&mut self, after: Option<i64>) -> Result<Stepped, String>;
-    /// One pass while every work goes on: whether a step moved or a work started.
+    /// One pass while every work goes on, a gathering of the history taken with it as [`Passes::step`] takes it:
+    /// whether a step moved or a work started.
     fn tick(&mut self) -> Result<bool, String>;
+    /// The passes that take the rounds of the works left gathering the history.
+    fn gather(&mut self) -> Result<(), String>;
     /// The owner's round of one work while every other work is paused.
     fn step_work(&mut self, work: i64) -> Result<Stepped, String>;
     /// The owner's round of a project's architect while every work is paused.
@@ -67,27 +70,33 @@ fn asked_in(p: &Passed, ask: &Ask) -> Stepped {
 impl Passes for Engine {
     fn step(&mut self, _after: Option<i64>) -> Result<Stepped, String> {
         let moved = first_moved(&self.pass(&Go::default())?);
-        let gathering = |e: &Engine| -> i64 {
-            e.db.conn()
-                .query_row(
-                    "SELECT count(*) FROM works WHERE at IN ('G1', 'G2') AND ended IS NULL AND paused IS NULL",
-                    [],
-                    |r| r.get(0),
-                )
-                .unwrap()
-        };
-        for _ in 0..3 {
-            if gathering(self) == 0 {
-                break;
-            }
-            self.pass(&Go::default())?;
-        }
+        self.gather()?;
         Ok(moved)
     }
 
     fn tick(&mut self) -> Result<bool, String> {
         let p = self.pass(&Go::default())?;
+        self.gather()?;
         Ok(!p.rounds().is_empty() || p.started_item().is_some())
+    }
+
+    fn gather(&mut self) -> Result<(), String> {
+        for _ in 0..3 {
+            let gathering: i64 = self
+                .db
+                .conn()
+                .query_row(
+                    "SELECT count(*) FROM works WHERE at IN ('G1', 'G2') AND ended IS NULL AND paused IS NULL",
+                    [],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            if gathering == 0 {
+                break;
+            }
+            self.pass(&Go::default())?;
+        }
+        Ok(())
     }
 
     fn step_work(&mut self, work: i64) -> Result<Stepped, String> {
@@ -1407,7 +1416,8 @@ fn a_single_step_runs_exactly_one_round() {
     let rounds = |e: &Engine| -> i64 {
         e.db.conn()
             .query_row(
-                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work WHERE w.graph = 'engineer'",
+                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work
+                 WHERE w.graph = 'engineer' AND r.cell NOT IN ('G1', 'G2')",
                 [],
                 |r| r.get(0),
             )
@@ -2762,7 +2772,7 @@ fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "UPDATE rounds SET input = replace(input, '\"address\":\"rule:ground\"', '\"address\":\"rule:elsewhere\"')
-             WHERE work = ?1 AND n = 2",
+             WHERE work = ?1 AND n = 3",
             [work],
         )?;
         Ok(())
@@ -2776,9 +2786,9 @@ fn a_repeat_in_a_session_pauses_the_work_and_tells_the_owner() {
     let paused = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
     assert!(
         paused.starts_with(&format!(
-            "cell R2: the message of R{work}-3 was not sent, since it would repeat what its session holds: \
+            "cell R2: the message of R{work}-4 was not sent, since it would repeat what its session holds: \
              rule:ground (12 characters) would be given whole again, though the session got the same content in \
-             R{work}-2 as rule:elsewhere"
+             R{work}-3 as rule:elsewhere"
         )),
         "{paused}"
     );
@@ -2898,7 +2908,9 @@ fn sent_back(e: &Engine) -> i64 {
 
 fn rounds_count(e: &Engine) -> i64 {
     e.db.conn()
-        .query_row("SELECT count(*) FROM rounds", [], |r| r.get(0))
+        .query_row("SELECT count(*) FROM rounds WHERE cell NOT IN ('G1', 'G2')", [], |r| {
+            r.get(0)
+        })
         .unwrap()
 }
 
@@ -3596,7 +3608,10 @@ fn a_work_the_owner_pauses_stops_at_the_end_of_its_round() {
             )
             .unwrap();
     assert!(took.is_some(), "{log}");
-    assert_eq!(*busy.lock().unwrap(), [vec![work], vec![], vec![work], vec![]]);
+    assert_eq!(
+        *busy.lock().unwrap(),
+        [vec![work], vec![], vec![work], vec![], vec![work], vec![]]
+    );
     // Paused, it takes no step by itself.
     let n = rounds_count(&e);
     assert_eq!(e.step(Some(work)).unwrap().work, None);
@@ -3908,6 +3923,7 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
     assert_eq!(paused_by(&e, new).as_deref(), Some("owner"));
     // Stepped, it takes over the branch, the worktree with what was left in it, and the pull request, and is told what
     // exists.
+    e.step_work(new).unwrap();
     e.step_work(new).unwrap();
     e.step_work(new).unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -4351,8 +4367,8 @@ fn every_cell_of_a_line_gives_the_command_line_the_same_cached_prefix() {
             }
         }
     }
-    // The engineer's graph has four lines, the architect's three.
-    assert_eq!(lines, 7);
+    // The engineer's graph has five lines, the architect's three.
+    assert_eq!(lines, 8);
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -7177,7 +7193,7 @@ fn the_history_is_gathered_and_looked_up_by_the_reader_of_the_line_librarian() {
         }),
     );
     let (mut e, said, item) = start(&s, agents);
-    step_to(&mut e, item, "D1");
+    step_to(&mut e, item, "D2");
     let (work, _, _) = state(&e, item).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(ended_at(&e, item, "X5").len(), 1, "{log}");
@@ -7845,9 +7861,9 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     for end in [
         item_address.as_str(),
         "·R1·understanding",
-        "·D4·chosen",
-        "·D4·estimate",
-        "·D14·answer",
+        "·D2·chosen",
+        "·D2·estimate",
+        "·D10·answer",
     ] {
         assert_eq!(
             given_ending(implements[0], end),
@@ -7887,7 +7903,7 @@ fn the_engineer_starts_a_new_session_at_implementing_and_at_fixing() {
     assert_eq!(lines[2].2, "T6,T6");
     let rounds = agent_rounds(&e, item);
     let fixes: Vec<&Value> = rounds.iter().filter(|r| r.1 == "T6").map(|r| &r.2).collect();
-    for end in [item_address.as_str(), "·D4·acceptance", "·D4·design", "·I1·conditions"] {
+    for end in [item_address.as_str(), "·D2·acceptance", "·D2·design", "·I1·conditions"] {
         assert_eq!(
             given_ending(fixes[0], end),
             Some(true),
@@ -8079,19 +8095,23 @@ fn the_lines_a_work_can_come_back_to_are_kept_warm_while_it_goes_on() {
     let now = from + 55 * 60_000 + 1_000;
     move_to(&mut e, work, "T6");
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(warm_now(&mut e, now, None).unwrap(), 1, "{log}");
+    // The review comes back after the fix, and the reader of the history at a look-up the fix may ask for.
+    assert_eq!(warm_now(&mut e, now, None).unwrap(), 2, "{log}");
+    let going_on = json!({ "cell": "T6", "on": "work", "what": "the work goes on" });
+    let mut pings = pinged(&e);
+    pings.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(
-        pinged(&e),
-        [(
-            "review".to_string(),
-            json!({ "cell": "T6", "on": "work", "what": "the work goes on" })
-        )]
+        pings,
+        [
+            ("librarian".to_string(), going_on.clone()),
+            ("review".to_string(), going_on)
+        ]
     );
     move_to(&mut e, work, "M1");
     assert_eq!(warm_now(&mut e, now + 2_000, None).unwrap(), 1, "{log}");
     let pings = pinged(&e);
-    assert_eq!(pings.len(), 2, "{pings:?}");
-    assert_eq!((pings[1].0.as_str(), &pings[1].1["cell"]), ("engineer", &json!("M1")));
+    assert_eq!(pings.len(), 3, "{pings:?}");
+    assert_eq!((pings[2].0.as_str(), &pings[2].1["cell"]), ("engineer", &json!("M1")));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -9367,8 +9387,8 @@ fn the_writing_of_a_new_policy_is_given_the_design_goal() {
     quiet(&mut e);
     let (writing, _) = check_at(&mut e, "P2");
     let m = engine::next_message(&mut e, writing).unwrap().text;
-    let goal = work_from(&m).into_iter().nth(1).unwrap_or_default();
-    assert!(goal.starts_with("2. ") && !goal.ends_with("none"), "{goal}\n{m}");
+    let goal = work_from(&m).into_iter().next().unwrap_or_default();
+    assert!(goal.starts_with("1. ") && !goal.ends_with("none"), "{goal}\n{m}");
     assert!(m.contains("simple"), "{m}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

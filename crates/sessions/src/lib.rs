@@ -200,7 +200,8 @@ mod tests {
         );
     }
 
-    // The flow starts the engineer's new sessions at researching, implementing and fixing.
+    // The flow starts the engineer's new sessions at researching, implementing and fixing, and the reader's at its
+    // first gathering.
     #[test]
     fn the_engineer_starts_new_sessions_at_researching_implementing_and_fixing() {
         let f = compiled();
@@ -211,6 +212,6 @@ mod tests {
             .filter(|c| c.new_session)
             .map(|c| c.id.as_str())
             .collect();
-        assert_eq!(starts, ["R1", "I1", "T6"]);
+        assert_eq!(starts, ["G1", "R1", "I1", "T6"]);
     }
 }

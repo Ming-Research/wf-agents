@@ -430,11 +430,11 @@ case!(
     a_form_on_every_line_that_takes_an_interjection,
     "an agent off the line of the cell that receives",
     |v| {
-        obj(&mut graph(v)["agentCommon"]["returns"]["forms"][5]).remove("lines");
+        obj(&mut graph(v)["agentCommon"]["returns"]["forms"][6]).remove("lines");
     }
 );
 case!(a_form_for_no_such_line, "a form for no such line", |v| {
-    graph(v)["agentCommon"]["returns"]["forms"][5]["lines"] = json!(["test"]);
+    graph(v)["agentCommon"]["returns"]["forms"][6]["lines"] = json!(["test"]);
 });
 // Every agent's cell runs at an effort the command line names; a cell that is not an agent's runs at none.
 case!(
@@ -511,10 +511,10 @@ case!(a_recorded_value_nobody_reads, "never read", |v| {
     row(v, "A2", "answered")["sets"] = json!({ "extra": "x" });
 });
 case!(a_row_no_return_takes, "never taken", |v| {
-    row(v, "D3", "found")["if"]
+    row(v, "D8", "no")["if"]
         .as_array_mut()
         .unwrap()
-        .push(json!(["is", "better.verdict", ["present_best"]]));
+        .push(json!(["inp", "other_projects", ["yes"]]));
 });
 case!(a_value_no_way_records, "never taken", |v| {
     obj(row(v, "I1", "done")).remove("sets");
@@ -566,7 +566,7 @@ case!(
     a_row_that_counts_the_total_time,
     "a row counts the total time, which the engine measures",
     |v| {
-        graph(v)["agentCommon"]["rows"][1]["counts"] = json!("total_time");
+        graph(v)["agentCommon"]["rows"][2]["counts"] = json!("total_time");
     }
 );
 case!(an_interjection_at_an_engine_step_with_no_counter, "no counter", |v| {
@@ -623,7 +623,7 @@ case!(
 );
 case!(
     a_field_every_agent_return_has_with_no_title,
-    "a return field with no title: R1 progress",
+    "a return field with no title: G1 progress",
     |v| {
         obj(&mut v["shapes"]["progress_form"]).remove("title");
     }

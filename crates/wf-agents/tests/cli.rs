@@ -179,7 +179,7 @@ fn flow_check_passes_the_repository_flow_and_fails_a_broken_one() {
         .unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8(out.stdout).unwrap();
-    assert!(stdout.starts_with("engineer: 42 cells, 221 rows"), "{stdout}");
+    assert!(stdout.starts_with("engineer: 40 cells, 222 rows"), "{stdout}");
     // It says where each line's sessions start anew and how large the forms its returns share are.
     assert!(
         stdout.contains("engineer: format:common ")

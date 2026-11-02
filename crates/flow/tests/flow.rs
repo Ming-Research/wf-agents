@@ -845,14 +845,16 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
     );
 }
 
-// Every agent's cell is given the general rules and the project's design goal; every engineer's cell and the
-// advisor's are given the engineering standards; no cell has an input that only says to read something itself; and
-// the forms every return shares say how a return is written. A rule given to a line cannot be named by a cell again.
+// Every agent's cell but the reader of the history's, whose task says all it does, is given the general rules and the
+// project's design goal; every engineer's cell and the advisor's are given the engineering standards; no cell has an
+// input that only says to read something itself; and the forms every return shares say how a return is written. A rule
+// given to a line cannot be named by a cell again.
 #[test]
 fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
-    for cell in g.cells.iter().filter(|x| x.kind == "agent") {
+    let agents = g.cells.iter().filter(|x| x.kind == "agent");
+    for cell in agents.filter(|x| x.line.as_deref() != Some("librarian")) {
         let rules: Vec<(&str, bool)> = cell.rules.iter().map(|r| (r.name.as_str(), r.shared)).collect();
         assert_eq!(rules[0], ("general", true), "{}", cell.id);
         let engineer = matches!(cell.line.as_deref(), Some("engineer" | "advisor"));
@@ -1257,7 +1259,8 @@ fn a_work_moves_by_its_rows() {
     // The history of the code is gathered between the research and the design, and what the work learned after it
     // merged, before its end.
     assert_eq!(take(&p, "stands").at, "G2");
-    assert_eq!(g.cell("G2").unwrap().rows[0].to, "D1");
+    let gathered = g.cell("G2").unwrap().rows.iter().find(|r| r.name == "done").unwrap();
+    assert_eq!(gathered.to, "D1");
     let l1 = g.cell("L1").unwrap().rows.iter().find(|r| r.name == "green").unwrap();
     assert_eq!(l1.to, "L2");
     let l2 = g.cell("L2").unwrap();

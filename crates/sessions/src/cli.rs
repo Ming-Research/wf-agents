@@ -1459,7 +1459,13 @@ mod tests {
             json!(["tell_owner", "side_reports", "flow_feedback", "outcome"])
         );
         assert_eq!(s["properties"][&g.within]["additionalProperties"], false);
-        for line in ["review", "adversarial", "advisor", "librarian"] {
+        // The reader of the history asks for no tools, so nothing it hands in leaves out `progress`.
+        let reader = envelope(g, Some("librarian"));
+        assert_eq!(
+            reader["required"],
+            json!(["progress", "side_reports", "flow_feedback", "outcome"])
+        );
+        for line in ["review", "adversarial", "advisor"] {
             let h = envelope(g, Some(line));
             assert_eq!(
                 keys(&h),
