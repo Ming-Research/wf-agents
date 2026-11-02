@@ -14437,11 +14437,13 @@ fn an_architect_s_round_fetches_main_once_and_reads_one_commit_in_its_worktree_a
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// An engineer's round makes one fetch of main at a cell that reads the project (`G1`) and none at a cell that does not
-// (`R1`): the fetch is the round's, made before its inputs are gathered, and a cell that reads nothing of main does not
-// make it. The reference is the fetch count of each step.
+// An engineer's round makes one fetch of main, at the first cell (`G1`) and at the next (`R1`) alike: every agent's cell
+// is given the constitution through the flow's common inputs, so each reads main, and the fetch is the round's own,
+// made before its inputs are gathered. The reference is the fetch count of each step. (No agent's cell of the flow
+// declares none of the inputs that read main, so a round that makes no fetch has no cell to be shown at here; that a
+// cell reads main if and only if it declares one is held by the test of `reads_main` in `inputs.rs`.)
 #[test]
-fn an_engineer_s_round_fetches_main_once_where_it_reads_the_project_and_not_where_it_does_not() {
+fn an_engineer_s_round_fetches_main_once_at_each_agent_cell() {
     let s = setup("main-fetch-count");
     names_a_constitution(&s);
     main_moves_on(
@@ -14471,7 +14473,7 @@ fn an_engineer_s_round_fetches_main_once_where_it_reads_the_project_and_not_wher
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         made,
-        BTreeMap::from([("G1".to_string(), 1), ("R1".to_string(), 0)]),
+        BTreeMap::from([("G1".to_string(), 1), ("R1".to_string(), 1)]),
         "{log}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
