@@ -2,7 +2,7 @@
 
 For: the architect and the owner, who decide the fix for each class below (item #198, #212, #213 and the rest).
 Kept: as a dated record until the fixes have landed and its numbers are out of date; then deleted.
-Written: 2026-11-02, item #197, work 247. Data snapshot: 2026-11-02 19:34 UTC (round R247-33).
+Written: 2026-11-02, item #197, work 247. Data snapshot: 2026-11-02 19:50 UTC (round R247-37).
 
 How to read the claims. Each carries a basis: **[read]** a source file, a stored return or the flow text was read in
 this work; **[measured]** counted by a database query given in this report; **[reproduced]** a command was run here;
@@ -21,12 +21,13 @@ return is sent back. This report classifies every return sent back since flow ve
 Scope. A round whose `rounds.rejected` holds a `check` or a `format` key and which started at or after flow version
 33 was recorded (1793622870365 ms, 2026-11-02 12:34 UTC). Not counted: failed runs, interrupted runs and `error`
 rows, which are not returns: there are none since version 33; in all history there are 32 failed, 10 interrupted and 6
-error rows [measured]. All rows with `rejected` set in the database: 144 = 67 check + 29 format + 32 failed + 10
-interrupted + 6 error; 96 of them are returns sent back, 29 since version 33 [measured].
+error rows [measured]. All rows with `rejected` set in the database: 146 = 68 check + 30 format + 32 failed + 10
+interrupted + 6 error; 98 of them are returns sent back, 31 since version 33 [measured at R247-33 for the older rows,
+with the two sent back since added].
 
-Snapshot. 29 rows: 23 check and 6 format; the last is R241-35. The earlier research count of 27 (R247-11) was taken
-before R241-28 and R241-35 were sent back; more may have appeared since this snapshot. The one query that gives the
-table of section 4 (its row count is the 29):
+Snapshot. 31 rows: 24 check and 7 format; the last is R241-41. The earlier research count of 27 (R247-11) was taken
+before R241-28, R241-35, R241-40 and R241-41 were sent back; the table grew while this report was written, and more
+may have appeared since this snapshot. The one query that gives the table of section 4 (its row count is the 31):
 
 ```sql
 -- Returns the engine sent back since flow version 33 was recorded.
@@ -40,11 +41,13 @@ ORDER BY r.work, r.n;
 ```
 
 The works of the rows ran on flow version 33 and none had moved from another version (checked when the table had 28
-rows; the 29th row is in work 241, which was among them) [measured].
+rows; the three later rows are all in work 241, which was among the works checked) [measured]. All 31
+rounds ran on the engine build 0f7dc28 [measured, `rounds.input` call].
 
 Sources read. The engine and flow were read at repository commit 6a3eeea. The last commit that changed
 `flow/flow.json` or `crates/engine/src` before version 33 was recorded is be10fd2 (2026-11-02 12:09 UTC), and none
-changed them after [read, `git log`], so the checks and texts quoted below are those the 29 rounds met.
+changed them after, up to 6a3eeea, which contains the build 0f7dc28 [read, `git log`], so the checks and texts quoted
+below are those the 31 rounds met.
 
 Rule for the classes. Each round gets one class: the one problem that would still get the return sent back after the
 others in it are taken away. Judged in this order:
@@ -58,7 +61,7 @@ others in it are taken away. Judged in this order:
 
 Approaches compared (design of this work). Reading each return together with the check's or schema's source (chosen);
 replaying all stored returns mechanically through both schemas and every check (needs a program that reads the
-database; the sessions can only run read-only queries); widening to all 96 returns of all versions (older flows
+database; the sessions can only run read-only queries); widening to all 98 returns of all versions (older flows
 differ, each would need rebuilding first); making the engine store a category first and querying it (a code change,
 and a check's name does not give the cause: R227-22 and R238-34 are the same check with different causes).
 
@@ -70,16 +73,16 @@ are not in this table [read].
 
 | Class | Returns | Share | Cause lies in | Round cost (sum) |
 |---|---|---|---|---|
-| a. check wrong | 10 | 34% | `conditions_cover_acceptance` (5), `evidence_holds` (5) | $2.00 |
-| b. command-line schema looser than the cell's | 6 | 21% | the merged schema the command line gets | $1.78 |
-| c. text or input gap | 9 | 31% | D2, T4 texts, the I1 test lists, the architect cells' inputs | $3.16 |
-| d. model did not follow a stated rule | 2 | 7% | the model | $0.19 |
-| e. check was right | 2 | 7% | the returns | $0.18 |
+| a. check wrong | 10 | 32% | `conditions_cover_acceptance` (5), `evidence_holds` (5) | $2.00 |
+| b. command-line schema looser than the cell's | 7 | 23% | the merged schema the command line gets | $1.82 |
+| c. text or input gap | 10 | 32% | D2, T4 texts, the I1 and T6 test tables, the architect cells' inputs | $3.20 |
+| d. model did not follow a stated rule | 2 | 6% | the model | $0.19 |
+| e. check was right | 2 | 6% | the returns | $0.18 |
 
-25 of the 29 (86%) have their cause in the system, and a fix there removes them; 4 are the model's or the work's own.
-By cell: T4 8, I1 7, T1 4, D2 3, and one each for T6, T3, H8, H5, H3, G1, D3 [measured].
+The shares are rounded. 27 of the 31 (87%) have their cause in the system, and a fix there removes them; 4 are the
+model's or the work's own. By cell: T4 8, I1 7, T1 4, D2 3, T6 3, and one each for T3, H8, H5, H3, G1, D3 [measured].
 
-## 4. The 29 returns
+## 4. The 31 returns
 
 Round address is `R<work>-<n>`. "Message" paraphrases what the engine said.
 
@@ -112,10 +115,12 @@ Round address is `R<work>-<n>`. "Message" paraphrases what the engine said.
 | R241-2 | G1 | format | `outcome` holds `brief` and `ask` (null) and fits none of its forms | b |
 | R241-28 | I1 | `new_test_results` | an existing test listed as added new behaviour is not in the `new_tests` table | c |
 | R241-35 | T4 | `evidence_holds` | a `files` entry starting with a bare file name is not in the worktree | a |
+| R241-40 | T6 | format | `deviations[2]` has `why` | b |
+| R241-41 | T6 | `new_test_results` | a test said not to have run before the change, where ci_before reports it failed | c |
 | R242-13 | D2 | `measure_matches_runs` | answered measured, but the work has no measure run | c |
 | R242-15 | D3 | format | `better` has `considered`, not a field of `found` | b |
 
-Counts: a 10, b 6, c 9, d 2, e 2 = 29 [measured, this table is the query's rows].
+Counts: a 10, b 7, c 10, d 2, e 2 = 31 [measured, this table is the query's rows].
 
 ## 5. Classes
 
@@ -152,7 +157,7 @@ one grep, but it removes the guess.
 **`evidence_holds` (5: R227-30, R231-102, R232-78, R234-34, R241-35).** See section 7; the verdict there is to remove
 the check.
 
-### b. The command line's schema is looser than the cell's (6): R227-21, R227-26, R238-23, R238-58, R241-2, R242-15
+### b. The command line's schema is looser than the cell's (7): R227-21, R227-26, R238-23, R238-58, R241-2, R241-40, R242-15
 
 Cause: one return is described three times and the descriptions differ [read]:
 
@@ -167,11 +172,12 @@ Cause: one return is described three times and the descriptions differ [read]:
 3. The engine's validation against the cell's schema, which treats each form as closed.
 
 A return that the first accepts and the second refuses is sent back by the engine as a whole round. The command line
-retries up to 3 times inside one run when its own schema refuses (`cli.rs:104`); none of these six reached that path
+retries up to 3 times inside one run when its own schema refuses (`cli.rs:104`); none of these seven reached that path
 because its schema accepted them [read].
 
-- `deviations` (R227-21 entries 3 and 4, R238-23 entries 2 to 4, R238-58 entry 3, counted from 0): the refused entries are all `surprise`
-  rows with a real `why` text [read, stored returns].
+- `deviations` (R227-21 entries 3 and 4, R238-23 entries 2 to 4, R238-58 entry 3, R241-40 entry 2, counted from 0): the
+  refused entries are all `surprise` rows with a real `why` text [read, stored returns]. R241-40 is the T6 round of
+  work 241; its next return (R241-41) dropped the `why` and was sent back for another reason (class c).
 - `better` (R242-15): the return is `found` and carries `considered`, which belongs to `present_best`
   (`flow.json:5787-5826`) [read].
 - `tools` (R227-26): T3 may use `gh` only (`flow.json:7665-7667`); the command line's schema has `tool` as any string; the
@@ -196,7 +202,7 @@ Generic fix directions, with trade-offs:
    deviation; a null for any optional field of an object at any depth, not only of the matched form. Gain: no round
    lost. Cost: the cell's description gets longer, and an agent's extra field is kept or silently dropped.
 3. Keep both and say in each cell which fields belong to which form (it already does in `desc`); this was the state in
-   all six rounds and did not prevent them.
+   all seven rounds and did not prevent them.
 
 R227-26 (the `tools` list) is different. The allowed tools differ by cell and the schema is per line: T3 and T4 are both
 on the line `review`, T3 with `gh` only and T4 with `gh` and `query` (`flow.json:7664-7667`, `:7794-7798`) [read], so
@@ -204,7 +210,7 @@ a line-wide schema has to allow `query` for T3 too. None of the three directions
 only a schema per cell could, which gives up the shared prompt cache. The engine's refusal stays the guard there, and
 the cheaper fix is on the cell side: give T3 what it wanted (the CI results) so it does not reach for a tool it lacks.
 
-### c. The cell's text or input has a gap (9)
+### c. The cell's text or input has a gap (10)
 
 **c1. The measure answer (R231-21, R242-13; `measure_matches_runs`, `checks.rs:333-341`).** D2's `measure` has two
 answers: `not_measured` ("could be decided without measuring") and `measured` ("decided by the measurements you asked
@@ -257,6 +263,18 @@ is not among these cells' inputs [read]. The rule's text is `flow.json:3164`; wh
 not checked. Class c because the rule needs a value the cell cannot see [inferred as to the cell's inputs; confirm by
 reading the two stored messages in full]. Fix: show the number of reports with every observation a cell may name (in the
 search result and the matter), or let the engine do the fold step the rule demands when the count reaches 3.
+
+**c6. A test changed after its last ci_before run (R241-41; `new_test_results`).** T6 handed in the result before the
+change of `every_answer_to_a_row_a_side_raised_makes_that_side_look_again` as `not_run`; the engine said ci_before
+reports it failed [read, retry text and return]. The test had been run through ci_before earlier in the same work and
+was red before the change (the table review of R241-35 cites that run, round 25 of work 241) [read]. T6's own deviation
+says it extended the test in this round and did not run the extended version on the old code, so it handed in `not_run`
+[read, paraphrased]. The text for the table says to hand in the two results "as those tools report them", for the tests
+added or changed in this round; it does not say what to hand in for a test that changed after its last ci_before run,
+and the engine matches by name, so the earlier version's result counts [read; the matching code, `test_results_match_runs`,
+was not read: inferred from the retry text]. The reading T6 took is reasoned, so this is class c; it would be class
+e if "as the tools report them" is read strictly. Fix: say which run counts; or key the engine's match by the test and
+the head it ran on; or have the engine fill the result column from its own records, so the agent hands in names only.
 
 ### d. The model did not follow a stated rule (2): R227-40, R239-53
 
@@ -327,7 +345,7 @@ FROM rounds r WHERE instr(r.rejected,'evidence_holds') > 0 ORDER BY r.started_at
 
 Findings:
 
-1. It has never stopped a made-up file. Since version 33 it sent back 5 of the 17 table reviews whose return held an
+1. It has never stopped a made-up file. Since version 33 it sent back 5 of the 21 table reviews whose return held an
    evidence object [measured]; all five were evidence that is true but not a path.
 2. The `nodes` field is a leftover. It was added on 2026-10-26 (commits 08370fa, the engine reading it, and e265d01, the
    field's text "Which design tree nodes") for pages of the design tree [read, `git log -S`]. The design tree left the
@@ -347,26 +365,27 @@ Findings:
 Verdict: **not needed; remove the check and the `nodes` field.** What is lost: the engine no longer refuses a cited file
 that does not exist. That has not happened once in 11 entries. A cited file that does not exist is found by whoever follows
 the citation (the engineer answering the review, the owner). The cost of keeping it was five lost rounds since version
-33 ($1.00 of round cost, 5 of 17 reviews); keeping only the `files` half would still have sent back R241-35.
+33 ($1.00 of round cost, 5 of 21 reviews); keeping only the `files` half would still have sent back R241-35.
 The removal touches `flow/flow.json` and `checks.rs`, so it is an open question to the owner (AGENTS.md); this report
 decides, it does not make the change.
 
 ## 8. What the returns cost
 
-Snapshot at R247-33: 799 agent rounds since version 33 (rounds with a recorded usage), $224.94, 825.0 minutes of
+Snapshot at R247-37: 837 agent rounds since version 33 (rounds with a recorded usage), $237.28, 873.1 minutes of
 round time. The minutes are the sum of round durations; rounds of different works overlap, so it is not elapsed time
 [measured].
 
 | | Rounds | Cost | Round time |
 |---|---|---|---|
-| The 29 returns sent back | 29 (3.6% of all rounds) | $7.31 (3.2%) | 46.5 min (5.6%) |
-| The round that rewrote each (same work, same cell, next round, not itself sent back) | 27 | $4.46 | 19.2 min |
-| Together | 56 | $11.77 (5.2%) | 65.7 min (8.0%) |
+| The 31 returns sent back | 31 (3.7% of all rounds) | $7.39 (3.1%) | 47.0 min (5.4%) |
+| The round that rewrote each (same work, same cell, next round, not itself sent back) | 28 | $4.51 | 19.6 min |
+| Together | 59 | $11.90 (5.0%) | 66.6 min (7.6%) |
 
 The rewrite is an upper bound of the waste, since a rewrite may also do other work (the longest are R242-14 at 171 s,
-and R228-13 and R234-28 at 103 s each). The sent-back rounds by class, from per-round values: a $2.00 and 11.2 min, b $1.78 and 12.7 min, c $3.16 and
-20.4 min, d $0.19 and 0.7 min, e $0.18 and 1.3 min (the minutes sum to 46.2, the difference from 46.5 is the whole seconds
-kept per row). The dearest: R227-26 ($1.09, 422 s, the T3 call that could not be made), R231-21 ($0.64, 304 s), R234-27
+and R228-13 and R234-28 at 103 s each). Three of the 31 (R227-21, R234-26 and R241-40) have a sent-back round as their next
+round (R227-22, R234-27 and R241-41), which is counted once, among the 31. The sent-back rounds by class, from per-round values: a $2.00 and 11.2
+min, b $1.82 and 13.0 min, c $3.20 and 20.6 min, d $0.19 and 0.7 min, e $0.18 and 1.3 min (the minutes sum to 46.7, the
+difference from 47.0 is the whole seconds kept per row). The dearest: R227-26 ($1.09, 422 s, the T3 call that could not be made), R231-21 ($0.64, 304 s), R234-27
 ($0.63, 198 s) [measured].
 
 ```sql
@@ -383,10 +402,10 @@ FROM rounds WHERE started_at >= 1793622870365 AND usage IS NOT NULL;
 - The stored rejection is one string, `check (field): text`. Grouping needs the check name and the field path as
   keys of their own; with them, section 4 would be one query. The class itself stays a human judgment. The command
   line's own retries inside a run are not recorded at all, so the schema's refusals that worked are invisible.
-- Where the count is: a and c are 19 of 29. The changes that remove most are: one test identity per runner (a, 5),
-  removing `evidence_holds` (a, 5), saying the same thing in the three descriptions of a return (b, 6; direction 1 of
-  class b), telling D2, T4 and I1 what the engine does (c, 9).
-- The pause on every rejection (#198) will pause 29 times by this record; 25 of them would be cleared by a fix to the
+- Where the count is: a and c are 20 of 31. The changes that remove most are: one test identity per runner (a, 5),
+  removing `evidence_holds` (a, 5), saying the same thing in the three descriptions of a return (b, 7; direction 1 of
+  class b), telling D2, T4, I1 and T6 what the engine does and keeps (c, 10).
+- The pause on every rejection (#198) will pause 31 times by this record; 27 of them would be cleared by a fix to the
   system, not by the model's answer. The structured key above would let the pause show the class's usual cause.
 
 ## 10. What is not confirmed
@@ -395,7 +414,7 @@ FROM rounds WHERE started_at >= 1793622870365 AND usage IS NOT NULL;
   reading the stored messages in full, or by a trial.
 - The test names of R234-23 and R234-26 beyond the `describe > it` form: only the form was checked, not whether every
   test exists on work 234's branch.
-- `test_results_match_runs` (R238-34), what reads a repeated `stands` (R227-40), whether the command line takes a nested
+- `test_results_match_runs` (R238-34, R241-41), what reads a repeated `stands` (R227-40), whether the command line takes a nested
   `oneOf` or a `pattern` (b, d), whether the page draws an evidence object (section 7).
 - The class counts depend on the rule in section 2; a different order of the rule (for instance counting every a-class
   problem inside a return) would move R238-34 and R234-27.
