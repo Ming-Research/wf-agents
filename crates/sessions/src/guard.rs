@@ -31,12 +31,6 @@ pub fn line(xs: &[f64]) -> Option<f64> {
     Some(2.0 * largest - median(xs)?)
 }
 
-/// The line of a distribution with a scale, a median above nothing; none for one without.
-fn scaled(xs: &[f64]) -> Option<f64> {
-    median(xs).filter(|m| *m > 0.0)?;
-    line(xs)
-}
-
 /// The median of values, the mean of the middle two for an even number of them; none for no value.
 pub fn median(xs: &[f64]) -> Option<f64> {
     let mut sorted = xs.to_vec();
@@ -109,17 +103,14 @@ impl Sample {
 /// What of a kept round a line is computed from; none for a round that does not tell it.
 type Measure = fn(&Sample) -> Option<f64>;
 
-/// How the graph's rounds give a line: [`scaled`] for a signal that stops a round, [`line`] for one only recorded.
-type GraphLine = fn(&[f64]) -> Option<f64>;
-
-/// The line of a measure: from a cell's own rounds when they give one, else from those of its graph.
-fn judged(own: &[&Sample], any: &[&Sample], least: usize, of_graph: GraphLine, f: Measure) -> Option<Line> {
+/// The line of a measure: from a cell's own rounds when they give one, else from those of its graph. A median of
+/// nothing is usual among all a graph's rounds, so there only a line of nothing, from values that are all nothing,
+/// is no line.
+fn judged(own: &[&Sample], any: &[&Sample], least: usize, f: Measure) -> Option<Line> {
     let values = |of: &[&Sample]| -> Vec<f64> { of.iter().filter_map(|s| f(s)).collect() };
     let own = values(own);
-    if own.len() >= least
-        && let Some(value) = scaled(&own)
-    {
-        return Some(Line {
+    if own.len() >= least && median(&own).is_some_and(|m| m > 0.0) {
+        return line(&own).map(|value| Line {
             value,
             samples: own.len() as i64,
             scope: Scope::Cell,
@@ -129,7 +120,8 @@ fn judged(own: &[&Sample], any: &[&Sample], least: usize, of_graph: GraphLine, f
     if any.len() < least {
         return None;
     }
-    of_graph(&any).map(|value| Line {
+    let value = line(&any).filter(|v| *v > 0.0)?;
+    Some(Line {
         value,
         samples: any.len() as i64,
         scope: Scope::Graph,
@@ -153,10 +145,8 @@ impl Lines {
     /// The lines of a round of the cell `cell` on `model`, from every round of the cell's graph: a cell's own, from at
     /// least `least` of its rounds kept call by call and a median above nothing, since a distribution with no scale
     /// gives no line; else the graph's, from at least `least` rounds, those from before calls were kept included, so
-    /// that a new cell is judged from its first day. A signal that stops a round needs a median above nothing at the
-    /// graph too; one only recorded does not, since most rounds never compact or repeat a tool and such a signal has a
-    /// median of nothing however far its largest value reaches. What a round cost is judged among rounds on the same
-    /// model. A cell is every id it has had.
+    /// that a new cell is judged from its first day. What a round cost is judged among rounds on the same model. A
+    /// cell is every id it has had.
     pub fn of<'a>(all: &'a [Sample], graph: &str, cell: &str, model: &str, least: usize) -> Lines {
         let code = db::code_of(graph, cell).unwrap_or(cell);
         let every: Vec<&Sample> = all.iter().collect();
@@ -168,17 +158,16 @@ impl Lines {
             let same = |s: &&&Sample| s.model.as_deref().is_some_and(|m| same_model(m, model));
             of.iter().filter(same).copied().collect()
         };
-        let stops = |f: Measure| judged(&mine, &every, least, scaled, f);
-        let noted = |f: Measure| judged(&mine, &every, least, line, f);
+        let whole = |f: Measure| judged(&mine, &every, least, f);
         Lines {
-            added: stops(|s| Some(s.added as f64)),
-            rate: stops(Sample::rate),
-            jump: stops(|s| s.jump.map(|j| j as f64)),
-            ratio: stops(Sample::ratio),
-            cost: judged(&on_model(&mine), &on_model(&every), least, line, |s| s.cost),
-            calls: noted(|s| Some(s.calls as f64)),
-            repeats: noted(|s| s.repeats.map(|r| r as f64)),
-            compactions: noted(|s| Some(s.compactions as f64)),
+            added: whole(|s| Some(s.added as f64)),
+            rate: whole(Sample::rate),
+            jump: whole(|s| s.jump.map(|j| j as f64)),
+            ratio: whole(Sample::ratio),
+            cost: judged(&on_model(&mine), &on_model(&every), least, |s| s.cost),
+            calls: whole(|s| Some(s.calls as f64)),
+            repeats: whole(|s| s.repeats.map(|r| r as f64)),
+            compactions: whole(|s| Some(s.compactions as f64)),
         }
     }
 
@@ -766,12 +755,12 @@ mod tests {
     }
 
     // Most rounds never compact, so a graph's median of compactions is nothing: that one round in nineteen compacted
-    // still gives the signal only recorded its line, while a jump of the same shape stops nothing.
+    // still gives the signal its line. Values that are all nothing give none, which is what the first jump needs.
     #[test]
-    fn a_graph_with_a_median_of_nothing_gives_a_line_only_to_what_is_recorded() {
+    fn a_graph_gives_a_line_from_a_median_of_nothing_but_not_from_nothing_at_all() {
         let rows: Vec<Sample> = (1..=19)
             .map(|i| Sample {
-                jump: Some(if i == 19 { 50 } else { 0 }),
+                jump: Some(0),
                 compactions: if i == 19 { 2 } else { 0 },
                 ..sample("I1", true, i * 100, 11)
             })
