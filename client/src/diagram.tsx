@@ -1,18 +1,22 @@
 // A diagram written in a text as a fence of its kind: ```mermaid for any diagram mermaid draws, ```dot for Graphviz's.
 // Each library is loaded only when a fence of its kind first comes near the screen, so that the page's first load
-// carries neither. A diagram is drawn in the page's palette, light or dark as the page is, at its own size, scrolling
-// inside its box when wider than the text; one that cannot be drawn shows its source as code, saying so.
+// carries neither. A diagram is drawn in the page's palette, light or dark as the page is, once, at its own size, and
+// shown at that size or, when wider than its box, scaled down to the box's width, with a button that opens the same
+// drawing in a window of its own to move and zoom in as a flow chart is; one that cannot be drawn shows its source as
+// code, saying so.
 //
 // What a diagram's source says must never become markup the page did not mean: mermaid draws at its strict security
 // level, with no HTML in its labels, and keeps the page's look and security whatever the source's own configuration
-// says; Graphviz's drawing is sanitised as SVG, with no script and no foreign object.
+// says; Graphviz's drawing is sanitised as SVG, with no script and no foreign object. The enlarged view shows that
+// same sanitised markup, never a drawing made again from the source.
 
-import { CodeIcon } from '@primer/octicons-react';
-import { IconButton } from '@primer/react';
-import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
+import { CodeIcon, ScreenFullIcon } from '@primer/octicons-react';
+import { Dialog, IconButton } from '@primer/react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import type { MermaidConfig } from 'mermaid';
 import type { Viz } from '@viz-js/viz';
 
+import { DRAG_LIMIT, fitView, seenOf, Viewer, type ViewerHandle } from './graph/Viewer';
 import { t } from './text';
 
 export type DiagramKind = 'mermaid' | 'dot';
@@ -269,9 +273,13 @@ async function drawDot(source: string, look: Look): Promise<string> {
 /// The id a drawing's markup is cached under, each one drawn taking an id of its own in its place.
 const ID = 'wf-diagram-id';
 
+/// A drawing: its markup, whose ids are `ID` until a diagram takes it as its own, and its size in pixels of its own
+/// units, which is also the size its width and height attributes give it.
+export type Drawn = { svg: string; width: number; height: number };
+
 /// A drawing at its own size, in pixels of its own units: a library that scales it to the width of its box is undone,
-/// so that a wide diagram scrolls in its box rather than shrinking past reading.
-function atOwnSize(svg: string): string {
+/// so that a diagram is shown at the size it was drawn and scaled from that, whatever box it stands in.
+function atOwnSize(svg: string): Drawn {
   const tpl = document.createElement('template');
   tpl.innerHTML = svg;
   const el = tpl.content.querySelector('svg');
@@ -282,47 +290,159 @@ function atOwnSize(svg: string): string {
   el.setAttribute('width', String(box[2]));
   el.setAttribute('height', String(box[3]));
   el.style.removeProperty('max-width');
-  return tpl.innerHTML;
+  return { svg: tpl.innerHTML, width: box[2], height: box[3] };
+}
+
+/// A drawing's markup under an id of its own, so that two copies of one drawing in a page (the diagram's and its
+/// enlarged view) do not meet in the styles and arrow markers that mermaid scopes by id.
+export function under(drawn: Drawn, id: string): string {
+  return drawn.svg.replaceAll(ID, id);
 }
 
 /// The drawings made, by kind, theme, box width for mermaid (which draws a Gantt chart as wide as its box) and source,
 /// the latest last: a diagram shown again is not drawn again.
-const drawn = new Map<string, Promise<string>>();
+const made = new Map<string, Promise<Drawn>>();
 const KEPT = 64;
 
-function draw(kind: DiagramKind, source: string, look: Look): Promise<string> {
+function draw(kind: DiagramKind, source: string, look: Look): Promise<Drawn> {
   const key = `${kind}\n${look.dark ? 'dark' : 'light'}\n${kind === 'mermaid' ? look.width : ''}\n${source}`;
-  let svg = drawn.get(key);
-  if (svg === undefined) {
-    svg = (kind === 'mermaid' ? drawMermaid(source, look) : drawDot(source, look)).then(atOwnSize);
-    svg.catch(() => drawn.delete(key));
+  let drawing = made.get(key);
+  if (drawing === undefined) {
+    drawing = (kind === 'mermaid' ? drawMermaid(source, look) : drawDot(source, look)).then(atOwnSize);
+    drawing.catch(() => made.delete(key));
   } else {
-    drawn.delete(key);
+    made.delete(key);
   }
-  drawn.set(key, svg);
-  if (drawn.size > KEPT) drawn.delete(drawn.keys().next().value as string);
-  return svg;
+  made.set(key, drawing);
+  if (made.size > KEPT) made.delete(made.keys().next().value as string);
+  return drawing;
+}
+
+/// Whether a drawing of `natural` pixels is shown narrower than it was drawn, in a box of `box` pixels: the box has
+/// been measured and is the narrower. A drawing that fits is never scaled up.
+export function isScaled(natural: number, box: number): boolean {
+  return box > 0 && box < natural;
+}
+
+/// The width of an element's box in pixels, kept as it changes; 0 until it has been measured.
+function useWidth(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null || typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(() => setWidth(el.clientWidth));
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [ref]);
+  return width;
+}
+
+/// Whether a press at `down` and a release at `up` (client pixels) make a click on the drawing: the pointer moved no
+/// further than the viewer allows a click to, so that dragging across the diagram, to select its text, does not open it.
+export function isClick(down: { x: number; y: number }, up: { x: number; y: number }): boolean {
+  return Math.hypot(up.x - down.x, up.y - down.y) <= DRAG_LIMIT;
+}
+
+/// The buttons in a diagram's corner: one that shows its source in its place, and the diagram again, and, while the
+/// drawing is scaled down, one that opens it enlarged.
+export function DiagramTools({
+  scaled,
+  asCode,
+  onSource,
+  onZoom,
+}: {
+  scaled: boolean;
+  asCode: boolean;
+  onSource: () => void;
+  onZoom: () => void;
+}) {
+  return (
+    <div className="diagram-tools">
+      {scaled && !asCode ? (
+        <IconButton
+          className="diagram-tool"
+          icon={ScreenFullIcon}
+          size="small"
+          variant="invisible"
+          aria-label={t('diagram_zoom')}
+          onClick={onZoom}
+        />
+      ) : null}
+      <IconButton
+        className="diagram-tool"
+        icon={CodeIcon}
+        size="small"
+        variant="invisible"
+        aria-label={asCode ? t('diagram_drawing') : t('diagram_source')}
+        aria-pressed={asCode}
+        onClick={onSource}
+      />
+    </div>
+  );
+}
+
+const picksNothing = () => {};
+
+/// The enlarged view's size: nearly the whole window, which is as large as Primer's dialog goes (the window less its
+/// own margin). Its height is the contents' unless one is given, which only its style can do.
+const ENLARGED_WIDTH = 'calc(100dvw - var(--base-size-64))';
+const ENLARGED_HEIGHT = { height: 'calc(100dvh - var(--base-size-64))' };
+
+/// The inside of the enlarged view: the drawing, in the markup the diagram has, under an id of its own, in the viewer
+/// the flow charts are moved and zoomed in, shown whole once its box has a size.
+export function Enlarged({ drawn, id }: { drawn: Drawn; id: string }) {
+  const stage = useRef<HTMLDivElement>(null);
+  const viewer = useRef<ViewerHandle>(null);
+  useEffect(() => {
+    const el = stage.current;
+    if (el === null) return;
+    let placed = false;
+    const place = () => {
+      if (placed || el.clientWidth === 0 || el.clientHeight === 0) return;
+      placed = true;
+      // By the layout size: the window grows from half its size as it opens, and the viewer measures the screen.
+      const layout = { width: el.clientWidth, height: el.clientHeight };
+      viewer.current?.to(fitView(seenOf(layout, 0), drawn), false);
+    };
+    place();
+    if (typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(place);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [drawn]);
+  return (
+    <div ref={stage} className="diagram-zoom-stage">
+      <Viewer width={drawn.width} height={drawn.height} onPick={picksNothing} ref={viewer}>
+        <div dangerouslySetInnerHTML={{ __html: under(drawn, `${id}-zoom`) }} />
+      </Viewer>
+    </div>
+  );
 }
 
 let shown = 0;
 
 /// A diagram, drawn once it comes near the screen and again when the page's theme changes; its source as code while
-/// it is not drawn yet, and with a note under it if it cannot be. Under the pointer, a button in its corner shows its
-/// source in its place, and the diagram again.
+/// it is not drawn yet, and with a note under it if it cannot be. It is scaled down to the width of its box when wider,
+/// and then it, or a button in its corner, opens it enlarged in a window to move and zoom it in. Under the pointer, a
+/// button in its corner shows its source in its place, and the diagram again.
 export function Diagram({ kind, source }: { kind: DiagramKind; source: string }) {
   const box = useRef<HTMLDivElement>(null);
   const seen = useSeen(box);
   const dark = useDark();
+  const width = useWidth(box);
   const [id] = useState(() => `wf-diagram-${(shown += 1)}`);
-  const [got, setGot] = useState<{ svg: string } | { failed: true } | null>(null);
+  const [got, setGot] = useState<{ drawn: Drawn } | { failed: true } | null>(null);
   const [asCode, setAsCode] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+  // Where the pointer last went down on the drawing, to tell a click from a drag.
+  const pressed = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     const el = box.current;
     if (!seen || el === null) return;
     let live = true;
     draw(kind, source, lookAt(el, dark)).then(
-      (svg) => {
-        if (live) setGot({ svg: svg.replaceAll(ID, id) });
+      (drawn) => {
+        if (live) setGot({ drawn });
       },
       () => {
         if (live) setGot({ failed: true });
@@ -331,26 +451,47 @@ export function Diagram({ kind, source }: { kind: DiagramKind; source: string })
     return () => {
       live = false;
     };
-  }, [seen, kind, source, dark, id]);
-  const svg = got !== null && 'svg' in got ? got.svg : null;
+  }, [seen, kind, source, dark]);
+  const drawn = got !== null && 'drawn' in got ? got.drawn : null;
+  const svg = useMemo(() => (drawn !== null ? under(drawn, id) : null), [drawn, id]);
+  const scaled = drawn !== null && isScaled(drawn.width, width);
   return (
     <div ref={box} className="diagram">
       {svg !== null && !asCode ? (
-        <div className="diagram-drawing" dangerouslySetInnerHTML={{ __html: svg }} />
+        <div
+          className={scaled ? 'diagram-drawing diagram-drawing-scaled' : 'diagram-drawing'}
+          onPointerDown={(e) => {
+            pressed.current = { x: e.clientX, y: e.clientY };
+          }}
+          onClick={
+            scaled
+              ? (e) => {
+                  const down = pressed.current;
+                  if (down !== null && isClick(down, { x: e.clientX, y: e.clientY })) setZoomed(true);
+                }
+              : undefined
+          }
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
       ) : (
         <pre className="code-block">{source}</pre>
       )}
       {got !== null && 'failed' in got ? <p className="diagram-note">{t('diagram_failed')}</p> : null}
-      {svg !== null ? (
-        <IconButton
-          className="diagram-toggle"
-          icon={CodeIcon}
-          size="small"
-          variant="invisible"
-          aria-label={asCode ? t('diagram_drawing') : t('diagram_source')}
-          aria-pressed={asCode}
-          onClick={() => setAsCode(!asCode)}
-        />
+      {drawn !== null ? (
+        <DiagramTools scaled={scaled} asCode={asCode} onSource={() => setAsCode(!asCode)} onZoom={() => setZoomed(true)} />
+      ) : null}
+      {zoomed && drawn !== null ? (
+        <Dialog
+          title={t('diagram_zoom_title')}
+          width={ENLARGED_WIDTH}
+          style={ENLARGED_HEIGHT}
+          onClose={() => setZoomed(false)}
+          renderBody={() => <Enlarged drawn={drawn} id={id} />}
+        >
+          <Dialog.Footer>
+            <p className="diagram-zoom-hint">{t('diagram_zoom_hint')}</p>
+          </Dialog.Footer>
+        </Dialog>
       ) : null}
     </div>
   );

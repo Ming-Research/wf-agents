@@ -476,40 +476,71 @@
   overflow-x: auto;
 }
 
-/* A diagram in a text, on the text's background at its own size: wider than the text, it scrolls inside its box and
-   never widens the page. The button that shows its source sits in its top right corner, seen under the pointer or the
+/* A diagram in a text, on the text's background at its own size, or scaled down to the width of its box when wider
+   (never scaled up, never scrolling, never widening the page); the width and height attributes of its drawing and its
+   viewBox give the proportions that keep it from distorting. Scaled down, a click on it opens it enlarged. The
+   buttons that enlarge it and that show its source sit in its top right corner, seen under the pointer or the
    keyboard's focus, and always where there is no pointer to hover with. */
 .diagram {
   position: relative;
   min-width: 0;
 }
 
-.diagram-drawing {
-  overflow-x: auto;
-}
-
 .diagram-drawing > svg {
   display: block;
-  max-width: none;
+  max-width: 100%;
+  height: auto;
 }
 
-.diagram-toggle {
+.diagram-drawing-scaled {
+  cursor: zoom-in;
+}
+
+.diagram-tools {
   position: absolute;
   top: 0;
   right: 0;
+  display: flex;
+  gap: var(--base-size-4);
+}
+
+.diagram-tool {
   opacity: 0;
 }
 
-.diagram:hover .diagram-toggle,
-.diagram:focus-within .diagram-toggle,
-.diagram-toggle[aria-pressed='true'] {
+.diagram:hover .diagram-tool,
+.diagram:focus-within .diagram-tool,
+.diagram-tool[aria-pressed='true'] {
   opacity: 1;
 }
 
 @media (hover: none) {
-  .diagram-toggle {
+  .diagram-tool {
     opacity: 1;
   }
+}
+
+/* The enlarged view: its dialog's body is the viewer's place, which fills it as a flow chart's does, on the text's
+   background the diagram was drawn for, and the gestures it moves and zooms by are told in the dialog's footer. */
+.diagram-zoom-stage {
+  position: absolute;
+  inset: 0;
+  user-select: none;
+}
+
+.diagram-zoom-stage .viewer {
+  background: var(--bgColor-default);
+}
+
+.diagram-zoom-stage svg {
+  display: block;
+}
+
+.diagram-zoom-hint {
+  flex: 1;
+  margin: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
 }
 
 .diagram-note {

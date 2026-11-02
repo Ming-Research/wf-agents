@@ -25,6 +25,21 @@ export function seenOf(box: { width: number; height: number }, cover: number): A
   return { x0: 0, y0: 0, x1: Math.max(0, box.width - Math.max(0, cover)), y1: box.height };
 }
 
+/// How far, in pixels, a pointer may move between press and release for the press to still be a click, not a drag.
+export const DRAG_LIMIT = 6;
+
+/// The view that shows the whole of a drawing of `drawing`'s size in the middle of `w`, with a margin round it and no
+/// more than 1.6 times its size.
+export function fitView(w: Area, drawing: { width: number; height: number }): View {
+  const margin = 32;
+  const s = Math.min(
+    (w.x1 - w.x0 - margin) / Math.max(drawing.width, 1),
+    (w.y1 - w.y0 - margin) / Math.max(drawing.height, 1),
+    1.6,
+  );
+  return { s, x: w.x0 + (w.x1 - w.x0 - drawing.width * s) / 2, y: w.y0 + (w.y1 - w.y0 - drawing.height * s) / 2 };
+}
+
 /// The view at zoom `s` that brings the middle of `r` to the middle of what can be seen.
 export function centredOn(r: Rect, s: number, w: Area): View {
   return { s, x: (w.x0 + w.x1) / 2 - (r.x + r.width / 2) * s, y: (w.y0 + w.y1) / 2 - (r.y + r.height / 2) * s };
@@ -109,12 +124,7 @@ export function Viewer(props: {
       const w = seen();
       return [(w.x0 + w.x1) / 2, (w.y0 + w.y1) / 2];
     };
-    const whole = (): View => {
-      const w = seen();
-      const { w: dw, h: dh } = size.current;
-      const s = Math.min((w.x1 - w.x0 - 32) / Math.max(dw, 1), (w.y1 - w.y0 - 32) / Math.max(dh, 1), 1.6);
-      return { s, x: w.x0 + (w.x1 - w.x0 - dw * s) / 2, y: w.y0 + (w.y1 - w.y0 - dh * s) / 2 };
-    };
+    const whole = (): View => fitView(seen(), { width: size.current.w, height: size.current.h });
     const land = (id: number, t: View) => {
       if (id !== anim.current.id) return;
       view.current = { ...t };
@@ -281,7 +291,7 @@ export function Viewer(props: {
       mouse.current = local(e);
       if (!pts.has(e.pointerId)) return;
       pts.set(e.pointerId, [e.clientX, e.clientY]);
-      if (down && (pts.size > 1 || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6)) down = null;
+      if (down && (pts.size > 1 || Math.hypot(e.clientX - down.x, e.clientY - down.y) > DRAG_LIMIT)) down = null;
       if (pts.size === 2 && pinch) {
         const p = [...pts.values()];
         const d = Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]);
