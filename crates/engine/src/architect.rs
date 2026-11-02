@@ -3519,7 +3519,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             // what only the owner can decide goes back as an open question of the engineer's design, which waits for
             // nothing.
             if row["kind"] != crate::open_questions::KIND {
-                return Err(format!(
+                return checks::fail(format!(
                     "matter {m} is {}: its engineer waits for your reply, so it cannot be parked for the owner. Reply \
                      to it; what only the owner can decide, the reply has the engineer put to the owner as an open \
                      question of its design",
@@ -3532,7 +3532,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             if let Some(link) = row["link"].as_str().filter(|l| !l.is_empty())
                 && !markdown_link_targets(text(&ask["question"])).contains(&link)
             {
-                return Err(format!(
+                return checks::fail(format!(
                     "the question is pinned in the owner's one-to-one, away from the design it is about: link to the \
                      design in it, as a markdown link to {link}"
                 ));
