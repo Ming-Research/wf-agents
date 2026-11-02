@@ -1904,7 +1904,10 @@ asks = 9
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, text).unwrap();
         };
-        run(&root, &["init", "-q", "--bare", &origin.to_string_lossy()]);
+        run(
+            &root,
+            &["init", "-q", "--bare", "-b", "main", &origin.to_string_lossy()],
+        );
         run(
             &root,
             &["clone", "-q", &origin.to_string_lossy(), &checkout.to_string_lossy()],

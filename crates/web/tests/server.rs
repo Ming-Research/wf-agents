@@ -790,7 +790,10 @@ fn the_pages_show_the_project_as_its_main_has_it_and_say_why_when_they_cannot() 
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     let (origin, checkout, other) = (root.join("origin.git"), root.join("checkout"), root.join("other"));
-    git(&root, &["init", "-q", "--bare", &origin.to_string_lossy()]);
+    git(
+        &root,
+        &["init", "-q", "--bare", "-b", "main", &origin.to_string_lossy()],
+    );
     git(
         &root,
         &["clone", "-q", &origin.to_string_lossy(), &checkout.to_string_lossy()],
