@@ -128,9 +128,9 @@ const panel: ArchitectPanel = {
 const side = (
   tab: 'notebook' | 'policy' | 'queue',
   a: Architect = architect,
-  given: ArchitectPanel | undefined = panel,
+  given: ArchitectPanel | null = panel,
 ): string => {
-  read.panel = given;
+  read.panel = given ?? undefined;
   return renderToStaticMarkup(<ArchitectSide a={a} tab={tab} onClose={() => undefined} />);
 };
 
@@ -211,12 +211,12 @@ describe('the panel beside the one-to-one with an architect', () => {
 
   it('reads the notebook, the policy and the matters handled apart from the architect: until they are read it says so, and the queue it draws from the architect shows', () => {
     for (const tab of ['notebook', 'policy'] as const) {
-      const html = side(tab, architect, undefined);
+      const html = side(tab, architect, null);
       expect(html).toContain('Loading…');
       expect(html).not.toContain('Two parsers.');
       expect(html).not.toContain('Keep it small.');
     }
-    const queue = side('queue', architect, undefined);
+    const queue = side('queue', architect, null);
     expect(queue).toContain('The matter in hand');
     expect(queue).not.toContain('handled today');
   });

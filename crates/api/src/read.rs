@@ -4271,7 +4271,14 @@ mod tests {
             reply_wait: wait,
         };
         let read = |s: &Setup, wait: i64| {
-            let d = crate::conversation(s.db.conn(), &Flows::default(), &talks(wait), "architect:p").unwrap();
+            let d = crate::conversation(
+                s.db.conn(),
+                &Flows::default(),
+                &talks(wait),
+                "architect:p",
+                crate::CONVERSATION_WINDOW,
+            )
+            .unwrap();
             (d.questions.iter().map(|a| a.id).collect::<Vec<_>>(), d.waits_on)
         };
         // Question 2 parks matter 3; a newer one, 4, parks matter 9 and is the one waited on.
