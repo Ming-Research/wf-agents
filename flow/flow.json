@@ -3059,7 +3059,7 @@
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wait_for_matter": "No work of the project's architect runs: the engine takes this cell's rows for each project whose architect runs none, without a round, and one that takes `due` gets a work of the architect's graph, on no item, which starts at the cell that row leads to. The work holds no slot, and one runs at a time for each project; once it ends, the project waits here again. What was said in the works' groups since the architect last read it is queued first (`queue_group_talk`).",
       "end_architect_work": "Ends the architect's work.",
-      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, and what was said in the works' groups only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply; then, when the architect answered the owner's words less than that wait ago and the owner said nothing since, it waits for the owner's next words; then a matter of two cells waiting for its second cell; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round.",
+      "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, and what was said in the works' groups only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply (a question that pins an open question of an engineer's design is not waited for: that engineer's work goes on without its answer); then, when the architect answered the owner's words less than that wait ago and the owner said nothing since, it waits for the owner's next words; then a matter of two cells waiting for its second cell; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session. A work on an item that paused for its time budget also has its project's architect look at where it is stuck, as a place to set straight.",
       "stop_work": "A work cancelled, taken over by a work on a newer flow version because the cell it stands at is not the same there or a return it handed in does not fit its cell there (else it moves to that version and goes on where it stands), or started over by the owner or its project's architect, which a new work on the version the engine runs takes over as it would on a newer one, ends here from the cell it stands at, which it keeps as where it stopped; a round still open is cut off, and a round running when it is started over hands in nothing. A work taken over leaves its worktree and pull request to the work that takes it over."
@@ -3161,6 +3161,7 @@
       "understanding_written": "The understanding rewrites the notebook's sections on what the project is now and on what is unclear.",
       "plan_written": "The plan rewrites the notebook's plan.",
       "asked_before_writing": "The check of the policy hands in write_policy only once the owner said yes to a new policy: by the reply to the question whether to research one, or by the owner's own words, which asked for the check (queued by `H8`'s new_policy).",
+      "ask_only_on_open_question": "The ways for a question ask the owner only about an open question of an engineer's design, never about an engineer's question, whose engineer waits for the reply; and the question they pin links to the design it is about, as a markdown link to the link the matter holds.",
       "observation_changes_valid": "Each change to the observations holds, as effects_valid checks them: a new one has a title of at most 20 characters, spaces not counted, says what it is and carries the project's tags; one merged into or closed is open; one a merge makes reported three times is folded into an item moved ahead, as the revised changes say; one an item takes in is folded into it, not closed."
     },
     "inputs": {
@@ -11322,7 +11323,7 @@
       "designCard": [
         "A design holds its alternatives and its open questions itself: there are no cards. What the design is not sure of and could not settle it hands in as open questions, each with its options and the one it recommends.",
         "Once the checks after design pass, each open question goes to the architect as a question. It blocks nothing but the merge: the work goes on by what the design recommends.",
-        "The architect answers what it can, by the plan and the policy; what only the owner can decide it pins for the owner, with a link to the design. An answer that goes against the design comes to the engineer as an interjection, and the work goes back to design by the rows of cell `A4`.",
+        "The architect answers what it can, by the plan and the policy; what only the owner can decide it pins for the owner with an ask, whose question links to the design, and it replies once the owner has answered: the owner's words are kept in the answer as they were said, and the question has no answer, so the merge keeps waiting, until then. An answer that goes against the design comes to the engineer as an interjection, and the work goes back to design by the rows of cell `A4`.",
         "At cell `M1` the merge waits until every open question has its answer; the engine tells the owner which hold it."
       ],
       "interject": {
@@ -13339,7 +13340,7 @@
                 },
                 {
                   "value": "waits",
-                  "desc": "Neither, and the newest question pending was put to the owner less than the wait for the owner's reply ago, with nothing said to the architect since: the architect waits for the reply",
+                  "desc": "Neither, and the newest question pending that pins no open question of an engineer's design was put to the owner less than the wait for the owner's reply ago, with nothing said to the architect since: the architect waits for the reply",
                   "fields": [
                     {
                       "name": "question",
@@ -13467,7 +13468,7 @@
               "to": "Q0",
               "waits": true,
               "until": "agents.owner_reply_wait",
-              "note": "The architect waits for the owner's reply to the question it just put, five minutes unless the installation sets another wait (`agents.owner_reply_wait`): the reply comes back at once. Once the wait ran out, or the owner said anything else to the architect, the question waits at the back of the queue and blocks nothing, and the architect goes on."
+              "note": "The architect waits for the owner's reply to the question it just put, five minutes unless the installation sets another wait (`agents.owner_reply_wait`): the reply comes back at once. Once the wait ran out, or the owner said anything else to the architect, the question waits at the back of the queue and blocks nothing, and the architect goes on. A question that pins an open question of an engineer's design is never waited for: the engineer's work goes on without its answer, and the question waits at the back of the queue from the first."
             },
             {
               "name": "listens",
@@ -14570,6 +14571,26 @@
               ]
             },
             {
+              "name": "The owner's reply",
+              "what": "The owner's reply to the question you pinned for them while weighing the ways of this matter, with the question, when the matter comes back with it; none otherwise",
+              "from": [
+                {
+                  "engine": "owner_answer"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Questions pending",
+              "what": "The questions you put to the owner that wait for the owner's reply, newest first, each with the cell that asked, when, and the matter it parked: ask nothing they ask already; none when none waits",
+              "from": [
+                {
+                  "engine": "questions"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "Items running and queued",
               "what": "The items running and queued, each with its rank, title and what it waits for; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
               "from": [
@@ -14652,7 +14673,7 @@
             "What the question needs, judge from what it says. A defect or a root outside the work is fixed where it lies, by an item, made when there is none, or by a message to its project's architect, and not worked around in the work. A duplicate is the same thing, not the same code; when the asking work's item is merged away, what is useful on its branch and the owner's rulings on its decision cards go to the item kept by an interjection. A capability gap, the system lacking what the work needs (a tool, an input, a permission, a rule that says enough, data it cannot reach), is a defect of the system and not of the agent: unblock the work first, by the first way that works, a way around within the rules said in the reply, what only the owner can give (a credential, a configuration in the data directory) by pausing the work until the owner has given it, else an item that fixes it, which the work's item depends on, blocking, and the reply's waits name; then take the gap in as a report is: an item that covers it takes it, else an observation, merged into the same one when it is recorded already. A flow anomaly the engine reports, the way the engineer chose not fitting, is such a gap of the flow: the reply says which way fits. A question that need not touch other items or the structure changes nothing: the reply says whom to ask.",
             "Reply to the engineer concretely enough to carry on from: if sub-items were split off, say plainly that the work must redesign for the part that remains; if it must stop now and wait for other items to deliver, list them in the reply's waits, while a parallel dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this batch creates by its key: the engine puts its number there once it is made. The reply goes at once, or, when your item changes are what it says, once the review lets them be made; if an item it names is not made after all, it does not go out, and the question comes back to you with why.",
             "Works start in the order you give: first the items the owner queued, then each project's items by their rank. A new item goes last among its project's items, and moving one puts it first, last, or just before or after another item of its project. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them.",
-            "What only the owner can decide about the work (a measured slowdown to accept, a safety guarantee, the work's direction), the reply has the engineer put to the owner as an open question of its design, and go on with the option it recommends: the merge waits for the answer. What only the owner can do (a credential, a permission, a configuration in the data directory, another machine), pause the work in effects, saying what the owner must do and where, and reply that it goes on once the owner has done it and started it. What belongs to a related project's architect, hand to it with the reply's hand_over, saying why and, in its text, what you found. You never ask and wait."
+            "What only the owner can decide about the work (a measured slowdown to accept, a safety guarantee, the work's direction), the reply has the engineer put to the owner as an open question of its design, and go on with the option it recommends: the merge waits for the answer. An engineer that asked waits for your reply, so you never ask the owner about its question and wait; an open question of an engineer's design waits for nothing, and is yours to answer by the plan, the policy and the owner's earlier decisions. When one is left to the owner (a rule of the project that leaves it to the owner, a safety guarantee, the work's direction), do not answer it and do not reply that you will not: any reply is kept as the answer. Ask the owner instead: the question short, with no answer in it and a markdown link to the design it is about, since the owner reads it away from the design. The matter then waits for the owner out of your queue and comes back here with the owner's reply; reply to the engineer by it, writing the decision down so that the work can go on, and saying plainly where it goes against the design. What only the owner can do (a credential, a permission, a configuration in the data directory, another machine), pause the work in effects, saying what the owner must do and where, and reply that it goes on once the owner has done it and started it. What belongs to a related project's architect, hand to it with the reply's hand_over, saying why and, in its text, what you found."
           ],
           "out": [
             {
@@ -14711,6 +14732,10 @@
               "check": "reply_fits_changes"
             },
             {
+              "at": "ask",
+              "check": "ask_only_on_open_question"
+            },
+            {
               "at": "notebook",
               "check": "notebook_fits"
             }
@@ -14721,9 +14746,6 @@
           ],
           "rules": [
             "policy_scope"
-          ],
-          "without": [
-            "ask"
           ]
         },
         {

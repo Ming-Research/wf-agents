@@ -7077,6 +7077,10 @@ fn an_open_question_goes_to_the_architect_holds_the_merge_and_its_answer_reaches
         open_questions(&e, work)[0].2.as_deref(),
         Some("One table.\n\nThe items are few.")
     );
+    // The architect answered it itself: the record says so, and holds no ask of the owner.
+    let body = matter_body(&e, matter);
+    assert_eq!(body["answered_by"], "architect", "{body}");
+    assert!(body.get("owner_ask").is_none(), "{body}");
     let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
     assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
     let way_on = message_at(&e, work, "A4", true);
@@ -7084,6 +7088,252 @@ fn an_open_question_goes_to_the_architect_holds_the_merge_and_its_answer_reaches
         way_on.contains("The answer to the open question of your design \"Which table?\": One table."),
         "{way_on}"
     );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A matter's body.
+fn matter_body(e: &Engine, matter: i64) -> Value {
+    let body: String =
+        e.db.conn()
+            .query_row("SELECT body FROM architect_matters WHERE id = ?1", [matter], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    serde_json::from_str(&body).unwrap()
+}
+
+/// The ask of the owner that parks a matter, with the cell the matter goes back to with the owner's reply; none while
+/// no ask parks it.
+fn parked_for(e: &Engine, matter: i64) -> Option<(i64, String)> {
+    let (ask, cell): (Option<i64>, Option<String>) =
+        e.db.conn()
+            .query_row(
+                "SELECT asked, resume_cell FROM architect_matters WHERE id = ?1",
+                [matter],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    ask.zip(cell)
+}
+
+/// The work of the architect whose ways (`H3`) took a round, the first or the last.
+fn ways_work(e: &Engine, last: bool) -> i64 {
+    let order = if last { "DESC" } else { "" };
+    e.db.conn()
+        .query_row(
+            &format!("SELECT work FROM rounds WHERE cell = 'H3' ORDER BY work {order}, n {order} LIMIT 1"),
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// The link to the design that an open question's matter holds, as the message it was given in says it.
+fn design_link_in(message: &str) -> String {
+    let from = message
+        .find("design_link")
+        .expect("the matter holds the link to its design");
+    let at = from + message[from..].find("/works/").expect("the link is to a work");
+    message[at..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '?' | '=' | '-'))
+        .collect()
+}
+
+/// The ways for an open question only the owner can settle: they pin it in the owner's one-to-one, the question linking
+/// to the design, and reply once the owner's words are in the message, in words of their own.
+fn ways_pin_for_the_owner() -> Script {
+    Box::new(|r: &Request, _: usize| {
+        if r.prompt.contains("Take one table.") {
+            let reply = json!({ "text": "Go on with one table.", "why": "The owner decided it." });
+            return (Vec::new(), vec![("outcome.reply", reply)]);
+        }
+        let link = design_link_in(&r.prompt);
+        asks_the_owner(&format!("Is one table enough? See [the design]({link})."))
+    })
+}
+
+// An open question the architect pins for the owner has no answer until the owner has answered and the architect has
+// replied by it, so the merge keeps waiting; the architect does not wait for the reply, its work goes on and ends; the
+// question is pinned in the owner's one-to-one with the link to the design; and the owner's reply brings the matter back
+// to the ways, which are given it, and whose reply is kept after the owner's words as they were said, the record saying
+// the owner answered; the engineer is told, and the merge goes on.
+#[test]
+fn an_open_question_pinned_for_the_owner_holds_the_merge_until_the_owner_has_answered() {
+    let s = setup("open-question-pinned");
+    let mut agents = scripts();
+    agents.insert("D2", designs_with_an_open_question());
+    agents.insert("H3", ways_pin_for_the_owner());
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let matter = open_questions(&e, work)[0].0;
+    advance_until(&mut e, work, |e| !ended_at(e, item, "M1").is_empty());
+    let pinned = |e: &mut Engine| parked_for(e, matter).is_some();
+    assert!(steps_until(&mut e, 60, pinned), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    // The matter is parked at the ways for the ask, which holds the question with the link to the design.
+    let (ask, cell) = parked_for(&e, matter).unwrap();
+    assert_eq!(cell, "H3", "{log}");
+    let pinned_question: String =
+        e.db.conn()
+            .query_row(
+                "SELECT body ->> '$.question' FROM owner_asks WHERE id = ?1",
+                [ask],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let link = format!("(/works/{work}?round=R{work}-");
+    assert!(pinned_question.contains(&link), "{pinned_question}");
+    // It has no answer, so the merge goes on waiting for it, and the one-to-one lists it as pending.
+    assert_eq!(open_questions(&e, work)[0].2, None, "{log}");
+    assert_eq!(matter_body(&e, matter).get("answer"), None);
+    let pending: Vec<i64> = {
+        let mut st = e.db.conn().prepare(db::QUESTIONS_PENDING).unwrap();
+        st.query_map(["p"], |r| r.get("question"))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(pending, [ask]);
+    // The architect does not wait for the reply to it: its work ends with no wait at the look at the queue.
+    let arch = ways_work(&e, false);
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert!(
+        cells_of(&e, arch).iter().all(|c| c.1.as_deref() != Some("waits")),
+        "{:?}\n{log}",
+        cells_of(&e, arch)
+    );
+    for _ in 0..10 {
+        e.advance(work).unwrap();
+    }
+    assert_eq!(open_questions(&e, work)[0].2, None, "{log}");
+    assert!(
+        ended_at(&e, item, "M1")
+            .iter()
+            .all(|x| x.0.as_deref() == Some("wait_questions")),
+        "{:?}\n{log}",
+        ended_at(&e, item, "M1")
+    );
+    // The owner replies with the question ticked: the matter is back at the ways with the owner's reply.
+    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[]).unwrap();
+    let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
+    assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    let again = ways_work(&e, true);
+    assert_ne!(again, arch, "{log}");
+    let cells = cells_of(&e, again);
+    let back = cells.iter().position(|c| c.0 == "Q2").expect(&log);
+    assert_eq!(
+        (cells[back].1.as_deref(), cells[back + 1].0.as_str()),
+        (Some("back_with_answer_to_ways"), "H3"),
+        "{cells:?}\n{log}"
+    );
+    assert!(message_at(&e, again, "H3", true).contains("Take one table."), "{log}");
+    // The answer begins with the owner's words as they were said, and the record says who answered and where.
+    let words = "The owner answered: Take one table.\n\nGo on with one table.\n\nThe owner decided it.";
+    assert_eq!(open_questions(&e, work)[0].2.as_deref(), Some(words), "{log}");
+    let body = matter_body(&e, matter);
+    assert_eq!(
+        (&body["answer"], &body["answered_by"], &body["owner_ask"]),
+        (&json!(words), &json!("owner"), &json!(ask)),
+        "{body}"
+    );
+    // The engineer is told it, and the merge goes on.
+    let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
+    assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
+    let way_on = message_at(&e, work, "A4", true);
+    assert!(
+        way_on.contains(
+            "The answer to the open question of your design \"Which table?\": The owner answered: Take one table."
+        ),
+        "{way_on}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The ways ask the owner only about an open question: an engineer waits for the reply to its question, and the ask of the
+// owner is sent back, nothing is pinned, and the reply that follows reaches the engineer.
+#[test]
+fn an_engineer_s_question_cannot_be_pinned_for_the_owner() {
+    let s = setup("pin-engineer-question");
+    let ways: Script = Box::new(|_: &Request, n: usize| {
+        if n == 1 {
+            return asks_the_owner("Is a 3% slowdown acceptable? See [the design](/works/1?round=R1-1).");
+        }
+        let reply = json!({
+            "text": "Put the slowdown to the owner as an open question of your design, and go on.",
+            "why": "Accepting a slowdown is the owner's choice.",
+        });
+        (Vec::new(), vec![("outcome.reply", reply)])
+    });
+    let ask = asks_about_a_gap("The change makes parsing 3% slower, measured over 30 pairs.");
+    let (e, said, _, work, arch) = a_gap_asked(&s, ask, vec![("H3", ways)]);
+    let log = said.lock().unwrap().join("\n");
+    let sent_back = why_sent_back(&e, arch, "H3");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
+    assert!(sent_back[0].contains("cannot be parked for the owner"), "{sent_back:?}");
+    let asks: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM owner_asks", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(asks, 0, "{log}");
+    assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The question pinned for the owner links to the design it is about, which the owner reads it away from: an ask without
+// the link is sent back, nothing is pinned, and the architect that answers the question itself instead has it recorded as
+// its own answer.
+#[test]
+fn a_question_pinned_for_the_owner_must_link_to_its_design() {
+    let s = setup("pin-without-link");
+    let mut agents = scripts();
+    agents.insert("D2", designs_with_an_open_question());
+    agents.insert(
+        "H3",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                return asks_the_owner("Is one table enough?");
+            }
+            let reply = json!({ "text": "One table.", "why": "The items are few." });
+            (Vec::new(), vec![("outcome.reply", reply)])
+        }),
+    );
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let matter = open_questions(&e, work)[0].0;
+    let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
+    assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    let sent_back = why_sent_back(&e, ways_work(&e, false), "H3");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
+    assert!(sent_back[0].contains("link to the design"), "{sent_back:?}");
+    assert!(
+        sent_back[0].contains(&format!("/works/{work}?round=R{work}-")),
+        "{sent_back:?}"
+    );
+    assert_eq!(parked_for(&e, matter), None, "{log}");
+    let asks: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM owner_asks", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(asks, 0, "{log}");
+    assert_eq!(matter_body(&e, matter)["answered_by"], "architect", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

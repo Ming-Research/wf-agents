@@ -3579,6 +3579,38 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
             Ok(())
         }
+        "ask_only_on_open_question" => {
+            let Some(ask) = v else { return Ok(()) };
+            let Some(m) = picked(conn, c.w.id)? else { return Ok(()) };
+            let rows = query_json(
+                conn,
+                "SELECT kind, json_extract(body, '$.design_link') AS link FROM architect_matters WHERE id = ?1",
+                &[&m],
+                1,
+            )?;
+            let Some(row) = rows.first() else { return Ok(()) };
+            // An engineer waiting for the reply cannot be left waiting for the owner: its question is answered, and
+            // what only the owner can decide goes back as an open question of the engineer's design, which waits for
+            // nothing.
+            if row["kind"] != crate::open_questions::KIND {
+                return Err(format!(
+                    "matter {m} is {}: its engineer waits for your reply, so it cannot be parked for the owner. Reply \
+                     to it; what only the owner can decide, the reply has the engineer put to the owner as an open \
+                     question of its design",
+                    row["kind"].as_str().unwrap_or("not an open question")
+                ));
+            }
+            // The owner reads the question in their one-to-one, away from the design it is about: it links to it.
+            if let Some(link) = row["link"].as_str().filter(|l| !l.is_empty())
+                && !text(&ask["question"]).contains(link)
+            {
+                return Err(format!(
+                    "the question is pinned in the owner's one-to-one, away from the design it is about: link to the \
+                     design in it, as a markdown link to {link}"
+                ));
+            }
+            Ok(())
+        }
         "policy_text_clean" => {
             let Some(policy) = v else { return Ok(()) };
             let text = policy.to_string();
