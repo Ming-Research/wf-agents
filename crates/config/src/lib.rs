@@ -2012,4 +2012,117 @@ asks = 9
         assert!(main_commit(&gone).unwrap_err().contains("origin/master"));
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    // A file of main that is a link (an AGENTS.md that points to another file is common) is never given as the path it
+    // points to, which is what git holds for it: the text is the file's, as a read of the checkout's files followed the
+    // link, or else an error that names the path. Reference: `std::fs::read_to_string`, which followed a link, as the
+    // reads of the checkout's files did before main was read with git.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_on_main_is_never_read_as_the_path_it_points_to() {
+        let root = std::env::temp_dir().join(format!("wf-agents-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("repo");
+        std::fs::create_dir_all(dir.join("design")).unwrap();
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+        std::fs::write(dir.join("CLAUDE.md"), "How to work.\n").unwrap();
+        std::fs::write(dir.join("docs/real.md"), "The real constitution.\n").unwrap();
+        std::fs::write(dir.join("design/real.md"), "Decision: real.\n").unwrap();
+        std::os::unix::fs::symlink("CLAUDE.md", dir.join("AGENTS.md")).unwrap();
+        std::os::unix::fs::symlink("docs/real.md", dir.join("constitution.md")).unwrap();
+        std::os::unix::fs::symlink("real.md", dir.join("design/link.md")).unwrap();
+        let run = |args: &[&str]| git(&dir, args).unwrap();
+        run(&["init", "-q"]);
+        run(&["add", "-A"]);
+        run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "links"]);
+        let commit = run(&["rev-parse", "HEAD"]).trim().to_string();
+        let mut p = read(&files(&[])).unwrap().projects.remove("p").unwrap();
+        p.checkout = dir.clone();
+
+        match read_at(&p, &commit, Path::new("constitution.md")) {
+            Ok(text) => assert_eq!(text, "The real constitution.\n"),
+            Err(why) => assert!(why.contains("constitution.md"), "{why}"),
+        }
+        let design = ["design/".to_string()];
+        match project_guide_at(&dir, &commit, &design, "") {
+            Ok(g) => {
+                assert_ne!(g["agents_md"], "CLAUDE.md", "the guide is the path the link holds");
+                assert_eq!(g["agents_md"], "How to work.\n");
+                assert_eq!(g["records"]["design/link.md"], "Decision: real.");
+            }
+            Err(why) => assert!(why.contains("AGENTS.md") || why.contains("link.md"), "{why}"),
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // The checkout's `origin/<main>` is what the remote's main is after a fetch, whatever happened to it: a main that was
+    // rewritten and force-pushed, and a main whose name has a slash; a main the remote does not have is an error.
+    // Reference: `git ls-remote origin <main>`, the remote's own answer.
+    #[test]
+    fn a_rewritten_main_and_a_main_with_a_slash_in_its_name_are_what_the_remote_has_after_a_fetch() {
+        let root = std::env::temp_dir().join(format!("wf-agents-rewrite-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let origin = root.join("origin.git");
+        let (checkout, other) = (root.join("checkout"), root.join("other"));
+        let run = |dir: &Path, args: &[&str]| git(dir, args).unwrap();
+        let commit = |dir: &Path, args: &[&str]| {
+            run(dir, &["add", "-A"]);
+            let mut all = vec!["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q"];
+            all.extend_from_slice(args);
+            run(dir, &all);
+            run(dir, &["rev-parse", "HEAD"]).trim().to_string()
+        };
+        run(
+            &root,
+            &["init", "-q", "--bare", "-b", "main", &origin.to_string_lossy()],
+        );
+        run(
+            &root,
+            &["clone", "-q", &origin.to_string_lossy(), &other.to_string_lossy()],
+        );
+        std::fs::write(other.join("constitution.md"), "# First\n").unwrap();
+        let first = commit(&other, &["-m", "first"]);
+        run(&other, &["push", "-q", "origin", "HEAD:main"]);
+        run(
+            &root,
+            &["clone", "-q", &origin.to_string_lossy(), &checkout.to_string_lossy()],
+        );
+        let mut p = read(&files(&[])).unwrap().projects.remove("p").unwrap();
+        p.checkout = checkout.clone();
+        assert_eq!(main_commit(&p).unwrap(), first);
+
+        // The remote's main is rewritten: the commit is replaced by another one, which is not its child.
+        std::fs::write(other.join("constitution.md"), "# Rewritten\n").unwrap();
+        let rewritten = commit(&other, &["--amend", "-m", "first, rewritten"]);
+        assert_ne!(rewritten, first);
+        run(&other, &["push", "-q", "--force", "origin", "HEAD:main"]);
+        fetch_main(&p).unwrap();
+        assert_eq!(main_commit(&p).unwrap(), rewritten);
+        assert_eq!(
+            read_at(&p, &rewritten, Path::new("constitution.md")).unwrap(),
+            "# Rewritten\n"
+        );
+
+        // A main named with a slash is `origin/release/1` in the checkout, and a fetch brings it.
+        std::fs::write(other.join("constitution.md"), "# Release\n").unwrap();
+        let release = commit(&other, &["-m", "release"]);
+        run(&other, &["push", "-q", "origin", "HEAD:refs/heads/release/1"]);
+        p.main = "release/1".into();
+        assert_eq!(p.main_ref(), "origin/release/1");
+        assert!(main_commit(&p).is_err());
+        fetch_main(&p).unwrap();
+        assert_eq!(main_commit(&p).unwrap(), release);
+        assert_eq!(
+            read_at(&p, &release, Path::new("constitution.md")).unwrap(),
+            "# Release\n"
+        );
+
+        // A main the remote has not got cannot be fetched, and the error says which.
+        p.main = "no-such-branch".into();
+        let e = fetch_main(&p).unwrap_err();
+        assert!(e.contains("could not be fetched"), "{e}");
+        assert!(main_commit(&p).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
