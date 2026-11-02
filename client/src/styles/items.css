@@ -1,14 +1,15 @@
 /* The items: the trees in the pane of the split of a list and what is open from it (parts.css) and the item picked
-   beside them. Each project's tree is ours, after the v1 board's, under the project's heading and the buttons that show
-   or hide each state's items, a line between two projects as between a page's sections: each item a card whose left
-   edge and number are in its state's colour, the items it depends on under it, set in, with a rule down their left. */
+   beside them. Each project's tree is ours, after the v1 board's, under the project's head (ProjectHead: its name and,
+   at its right end, the buttons that show or hide each state's items), a line between two projects as between a
+   page's sections: each item a card whose left edge and number are in its state's colour, the items it depends on
+   under it, set in, with a rule down their left. */
 
 /* The trees, whose rows say their stage only where they have room for it. */
 .items-trees {
   container-type: inline-size;
 }
 
-/* A project: its heading, its buttons and its tree, as wide as the pane whatever its titles' length. */
+/* A project: its head and its tree, as wide as the pane whatever its titles' length. */
 .tree-project {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -23,11 +24,6 @@
 .tree-project + .tree-project {
   margin-top: var(--base-size-8);
   border-top: var(--borderWidth-thin) solid var(--borderColor-default);
-}
-
-.tree-head {
-  display: grid;
-  gap: var(--base-size-4);
 }
 
 .tree-states {

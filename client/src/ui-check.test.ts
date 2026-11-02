@@ -27,6 +27,26 @@ const code = Object.fromEntries(
 
 const said = (f: Finding) => `${f.file}:${f.line}: ${f.rule}: ${f.text}`;
 
+// The spec itself, read as written.
+const spec = Object.values(import.meta.glob<string>('../ui-spec.md', { query: '?raw', import: 'default', eager: true }))[0] ?? '';
+
+describe('the UI spec', () => {
+  it("states the principle of the screen's space and says nothing the works view made false", () => {
+    expect(spec).toContain("### Spend the screen's space reasonably");
+    expect(spec).toContain("### A project's head");
+    // The sentences of the spec before the architect was a row of the works and the buttons stood in the head.
+    for (const stale of [
+      "bar's Architect",
+      'Buttons over each project',
+      'no heading of its own',
+      'The two lists of works',
+      'under it the buttons that show or hide',
+    ]) {
+      expect(spec, stale).not.toContain(stale);
+    }
+  });
+});
+
 describe('the page against its UI spec', () => {
   it('writes every colour, size and spacing as a token, and never makes muted text bold', () => {
     // The check reads the page's styles and code where they are, as they are written.

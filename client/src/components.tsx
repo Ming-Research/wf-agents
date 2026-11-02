@@ -23,7 +23,7 @@ import { type ElementType, type ReactNode, useSyncExternalStore } from 'react';
 import type { ItemState, RoundOutcome, Status, Waits, WorkState, WorkSummary } from './api';
 import { Halo } from './graph/flowDraw';
 import type { Resource } from './live';
-import { t } from './text';
+import { t, tn } from './text';
 
 /// Label and value pairs.
 export function Facts({ rows }: { rows: Array<[ReactNode, ReactNode] | null | false> }) {
@@ -392,8 +392,9 @@ export function useShownStates<S extends string>(
   return [shown, toggle, set];
 }
 
-/// The buttons over a project's rows in a list (the items' tree, the works in the list of conversations, the
-/// observations) that show or hide its rows in each state, or pick its rows by tag and by state: one for each state
+/// The buttons in a project's head (`ProjectHead`), at the right end of its row, in a list (the items' tree, the works in
+/// the list of conversations and in the list of works, the observations) that show or hide its rows in each state, or
+/// pick its rows by tag and by state: one for each state
 /// among them, in the list's order of states (`order`), with how many are in it (`states`, the state of each row, a
 /// row with several tags once for each); each the state's mark (`mark`, a work's state's or an item's) and its count
 /// with no words, so that the row of buttons fits on one line, the state, its count and what a click does said on
@@ -442,6 +443,28 @@ export function StateFilter<S extends string>(props: {
         );
       })}
     </span>
+  );
+}
+
+/// The buttons over a project's works that show or hide them by state, one part for the list of conversations and the
+/// list of works: `StateFilter` in a work's states, their order, colours and marks, saying on hovering how many of the
+/// project's works are in a state and what a click does. `states` is the state of each of the project's works as it is
+/// in effect (`liveState`), `shown` the states the owner chose to show, one choice for both lists (`useTalkStates`).
+export function WorkStateFilter({ states, shown, onShown }: {
+  states: readonly WorkState[];
+  shown: readonly WorkState[];
+  onShown: (s: WorkState) => void;
+}) {
+  return (
+    <StateFilter
+      order={WORK_STATES}
+      states={states}
+      shown={shown}
+      tone={WORK_TONE}
+      mark={workStateMark}
+      title={(s, n, on) => tn(on ? 'talks_hide' : 'talks_show', n, { state: t(`state_${s}`) })}
+      onShown={onShown}
+    />
   );
 }
 
