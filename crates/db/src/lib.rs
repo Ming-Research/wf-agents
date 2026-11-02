@@ -102,6 +102,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0063.sql"),
     include_str!("../../../db/migrations/0064.sql"),
     include_str!("../../../db/migrations/0065.sql"),
+    include_str!("../../../db/migrations/0066.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1455,6 +1456,68 @@ mod tests {
                 .execute("UPDATE architect_matters SET what = 'x' WHERE id = 3", [])
                 .is_err()
         );
+    }
+
+    // Taken to version 66, a database keeps its sessions as they were, with the rows that point to them, takes a session
+    // that started because the cache expired and none that started for a reason made up, has the view of the
+    // conversations shown, and comes out as a new one.
+    #[test]
+    fn a_database_taken_to_version_66_keeps_its_sessions_and_takes_the_expired_reason() {
+        let mut old = at_version(65);
+        old.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'B1', 'p')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO sessions (work, line, cli, cli_session, started)
+                 VALUES (1, 'architect', 'claude', 's1', 'account')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at)
+                 VALUES (1, 1, 'U1', 1, '{}', 'c', 1)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let one = |q: &str| -> String { old.conn().query_row(q, [], |r| r.get(0)).unwrap() };
+        assert_eq!(
+            one("SELECT id || ' ' || line || ' ' || cli_session || ' ' || started FROM sessions"),
+            "1 architect s1 account"
+        );
+        assert_eq!(one("SELECT session || '' FROM rounds WHERE work = 1 AND n = 1"), "1");
+        assert_eq!(
+            one("SELECT count(*) || '' FROM sqlite_schema WHERE type = 'view' AND name = 'conversation_shown'"),
+            "1"
+        );
+        let insert = |db: &mut Db, started: &str| {
+            db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "INSERT INTO sessions (work, line, cli, cli_session, ended, started)
+                     VALUES (1, 'architect', 'claude', 's2', 5, ?1)",
+                    [started],
+                )?;
+                Ok(())
+            })
+        };
+        assert!(insert(&mut old, "expired").is_ok());
+        assert!(insert(&mut old, "made up").is_err());
+        // The triggers that record changes are made afresh: the new session's insertion was recorded.
+        let recorded = old
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM changes WHERE table_name = 'sessions' AND json_extract(new_row, '$.started') = 'expired'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(recorded, 1);
+        let new = Db::in_memory().unwrap();
+        assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
     }
 
     // Taken to version 61, a database keeps each observation as it was, and one recorded before observations had titles

@@ -139,7 +139,7 @@ function sessionName(u: UsageData, s: { line: string; nth: number }): string {
 }
 
 /// Why a session started, in a few words.
-function startedText(s: SessionRow): string {
+export function startedText(s: SessionRow): string {
   switch (s.started) {
     case 'cell':
       return t('us_started_cell', { cell: s.cell ?? '' });
@@ -151,6 +151,8 @@ function startedText(s: SessionRow): string {
       return t('us_started_model');
     case 'account':
       return t('us_started_account');
+    case 'expired':
+      return t('us_started_expired');
     case 'owner':
       return t('us_started_owner');
     case 'line':

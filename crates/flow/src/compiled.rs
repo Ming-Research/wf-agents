@@ -185,6 +185,10 @@ pub struct CompiledCell {
     /// its line each time the work comes by one of them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fresh_session: Vec<String>,
+    /// The cell's line says its session expires with the CLI's prompt cache: the cell starts a new session when its
+    /// line's session was last called a cache lifetime or more ago. False in a flow version stored before lines said so.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub cache_expiry: bool,
     /// The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
     /// declared one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -931,6 +935,10 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
             } else {
                 Vec::new()
             },
+            cache_expiry: c
+                .line
+                .as_ref()
+                .is_some_and(|line| g.flow.sessions.lines.iter().any(|l| &l.name == line && l.cache_expiry)),
             effort: c.effort.clone(),
             stage: g.stage.get(&ci).cloned(),
             tools: c.tools.clone(),

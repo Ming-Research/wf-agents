@@ -38,7 +38,7 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives.
-pub const INPUTS: [&str; 30] = [
+pub const INPUTS: [&str; 31] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -64,6 +64,7 @@ pub const INPUTS: [&str; 30] = [
     "words_behind_changes",
     "group_talk",
     "told_owner",
+    "owner_talk",
     "questions",
     "notebook_project_now",
     "notebook_plan",
@@ -1064,27 +1065,26 @@ fn fixes_found(conn: &Connection, work: i64) -> Result<i64, String> {
 
 // Sessions.
 
-/// Where the next round at the understanding question would run.
-fn plan_at_understanding(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<sessions::Plan, String> {
+/// Where the next round at the understanding question would run at `now`.
+fn plan_at_understanding(e: &Engine, w: &Work, g: &CompiledGraph, now: i64) -> Result<sessions::Plan, String> {
     let cell = g
         .cell(UNDERSTAND)
         .ok_or("the architect's graph has no understanding question")?;
     let level = crate::steps::level_of(e, g, cell, None)?.1;
-    let home = e.cli_dir(&level.cli);
-    let on = sessions::On {
-        model: &level.model,
-        home: home.as_deref(),
-    };
+    let runs = e.runs_on(&level);
     let limit = e.config.config.install.agents.context_limit;
     e.sessions()
-        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, on)
+        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, runs.on(), now)
 }
 
 /// Whether the session the architect's work goes on in is the one its previous work left: a new one, or one the next
-/// round would leave for a new one, is not, and understands the project first; a session that goes on never does again,
-/// compacted or not.
+/// round would leave for a new one (past the limit, on another model or account, or let go by the cache), is not, and
+/// understands the project first; a session that goes on never does again, compacted or not.
 fn understood(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
-    Ok(matches!(plan_at_understanding(e, w, g)?, sessions::Plan::Going { .. }))
+    Ok(matches!(
+        plan_at_understanding(e, w, g, db::now())?,
+        sessions::Plan::Going { .. }
+    ))
 }
 
 /// How the work came to the understanding question, which only a new session comes to: at the project's first
@@ -1151,9 +1151,10 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
 }
 
 /// Whether the architect's work goes back to understanding the project before a round of the architect's line at a
-/// cell: the round would start a new session there (the owner asked for one, the last was past the limit, or the model
-/// or the login account changed), past the understanding, and a new session remembers nothing but the notebook. The
-/// matter it had in hand goes back to the queue, and is taken again as any other.
+/// cell: the round would start a new session there at `now` (the owner asked for one, the last was past the limit, the
+/// model or the login account changed, or the CLI's prompt cache let the last go), past the understanding, and a new
+/// session remembers nothing but the notebook. The matter it had in hand goes back to the queue, and is taken again as
+/// any other.
 ///
 /// The cells it happens at are those with the line's row for it (`session_anew`); a flow version without such rows
 /// names them here. Gives why the session would start afresh, in words; none when the work goes on.
@@ -1162,6 +1163,7 @@ pub fn understand_first(
     w: &Work,
     g: &CompiledGraph,
     cell: &CompiledCell,
+    now: i64,
 ) -> Result<Option<String>, String> {
     let rowed = g.cells.iter().any(|c| c.rows.iter().any(crate::steps::anew));
     let here = if rowed {
@@ -1176,17 +1178,19 @@ pub fn understand_first(
         return Ok(None);
     }
     let level = crate::steps::level_of(e, g, cell, None)?.1;
-    let home = e.cli_dir(&level.cli);
-    let on = sessions::On {
-        model: &level.model,
-        home: home.as_deref(),
-    };
+    let runs = e.runs_on(&level);
     let limit = e.config.config.install.agents.context_limit;
     let plan = e
         .sessions()
-        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, on)?;
+        .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, runs.on(), now)?;
     Ok(match plan {
-        sessions::Plan::New(why) => Some(crate::steps::new_session_why(why, cell, limit, &level.model)),
+        sessions::Plan::New(why) => Some(crate::steps::new_session_why(
+            why,
+            cell,
+            limit,
+            &level.model,
+            runs.on().cache,
+        )),
         sessions::Plan::Going { .. } => None,
     })
 }
@@ -1247,6 +1251,109 @@ fn told_owner(e: &Engine, project: &str) -> Result<Option<Value>, String> {
         })
         .collect();
     Ok((!told.is_empty()).then_some(Value::Object(told)))
+}
+
+/// The most characters [`owner_talk`] gives of the talk, the latest whole entries.
+const TALK_MOST: usize = 60_000;
+
+/// What was said in a project's one-to-one with the owner since its architect last rewrote its notebook (any section;
+/// the time is that of the round that wrote it), for a new session, which remembers nothing of it but what the notebook
+/// holds: every entry the page shows in the conversation (`conversation_shown`), oldest first and whole, each with when,
+/// who said it to whom and the words; an ask of the architect's with the owner's answer, counted as made when it was
+/// answered if that was after the rewrite; an entry with images only says how many came with it. At the project's first
+/// rewrite there is none to cut at, and the latest entries are given. Over [`TALK_MOST`] characters the latest whole
+/// entries are given (the very latest always), then one line saying how many earlier ones there are. None when nothing
+/// was said since.
+fn owner_talk(e: &Engine, project: &str) -> Result<Option<Value>, String> {
+    let conn = e.db.conn();
+    let rewrote: Option<i64> = conn
+        .query_row(
+            "SELECT max(coalesce(r.ended_at, r.started_at)) FROM notebook_edits n
+             JOIN rounds r ON r.work = n.work AND r.n = n.round WHERE n.project = ?1",
+            [project],
+            |r| r.get(0),
+        )
+        .map_err(sql)?;
+    let after = rewrote.unwrap_or(i64::MIN);
+    let rows = query_json(
+        conn,
+        "SELECT c.at, c.sender, c.recipient, c.text,
+                CASE c.source
+                  WHEN 'words' THEN (SELECT count(*) FROM attachments x WHERE x.matter = c.id)
+                  WHEN 'interjection' THEN (SELECT count(*) FROM attachments x WHERE x.interjection = c.id)
+                  WHEN 'ask' THEN (SELECT count(*) FROM attachments x WHERE x.ask = c.id)
+                  ELSE 0 END AS images,
+                json_extract(a.answer, '$.text') AS answer, json_extract(a.answer, '$.at') AS answered_at,
+                json_extract(a.answer, '$.by') AS answered_by
+         FROM conversation_shown c LEFT JOIN owner_asks a ON c.source = 'ask' AND a.id = c.id
+         WHERE c.conversation = 'architect:' || ?1
+           AND max(c.at, coalesce(json_extract(a.answer, '$.at'), c.at)) > ?2
+         ORDER BY max(c.at, coalesce(json_extract(a.answer, '$.at'), c.at)), c.source, c.id",
+        &[&project, &after],
+        usize::MAX,
+    )?;
+    let entries: Vec<(usize, Value)> = rows
+        .iter()
+        .map(|r| {
+            let images = |n: i64| match n {
+                0 => None,
+                1 => Some("1 image attached".to_string()),
+                n => Some(format!("{n} images attached")),
+            };
+            let n = r["images"].as_i64().unwrap_or(0);
+            let text = r["text"].as_str().unwrap_or_default();
+            let mut x = json!({
+                "at": r["at"].as_i64().map(utc_minute),
+                "from": r["sender"],
+                "to": r["recipient"],
+                "text": text,
+            });
+            let mut size = text.chars().count();
+            let answer = r["answer"].as_str();
+            let answered = r["answered_at"].as_i64();
+            if answer.is_some() || answered.is_some() {
+                let said = answer.unwrap_or_default();
+                size += said.chars().count();
+                let mut a = json!({ "at": answered.map(utc_minute), "text": said });
+                if let Some(by) = r["answered_by"].as_str().filter(|b| *b != "owner") {
+                    a["by"] = json!(by);
+                }
+                if let Some(i) = images(n) {
+                    a["images"] = json!(i);
+                }
+                x["answer"] = a;
+            } else if let Some(i) = images(n) {
+                x["images"] = json!(i);
+            }
+            (size, x)
+        })
+        .collect();
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    // The latest whole entries that fit, the very latest always.
+    let mut kept = 0;
+    let mut used = 0;
+    for (size, _) in entries.iter().rev() {
+        if kept > 0 && used + size > TALK_MOST {
+            break;
+        }
+        used += size;
+        kept += 1;
+    }
+    let earlier = entries.len() - kept;
+    let mut said: Vec<Value> = entries.into_iter().skip(earlier).map(|(_, x)| x).collect();
+    if earlier > 0 {
+        let what = if earlier == 1 { "entry" } else { "entries" };
+        said.push(json!(format!(
+            "and {earlier} earlier {what} before these: read them with the history search (X5)"
+        )));
+    }
+    let mut out = json!({ "said": said });
+    if let Some(t) = rewrote {
+        out["since"] = json!(utc_minute(t));
+    }
+    Ok(Some(out))
 }
 
 // Asks of the owner.
@@ -3639,6 +3746,7 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "words_behind_changes" => words_behind_changes(e, w),
         "group_talk" => group_talk(e, w, project),
         "told_owner" => told_owner(e, project),
+        "owner_talk" => owner_talk(e, project),
         "notebook_project_now" | "notebook_plan" | "notebook_unclear" | "notebook_other" => {
             let section = NOTEBOOK.iter().find(|x| x.1 == name).map_or("", |x| x.0);
             Ok(notebook_section(e.db.conn(), project, section)?.map(Value::String))

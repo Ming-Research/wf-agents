@@ -224,6 +224,24 @@ impl Shared {
     }
 }
 
+/// What a level's rounds run on ([`Engine::runs_on`]), which [`RunsOn::on`] lends to the session manager.
+#[derive(Debug, Clone)]
+pub struct RunsOn {
+    model: String,
+    home: Option<PathBuf>,
+    cache: Option<i64>,
+}
+
+impl RunsOn {
+    pub fn on(&self) -> sessions::On<'_> {
+        sessions::On {
+            model: &self.model,
+            home: self.home.as_deref(),
+            cache: self.cache,
+        }
+    }
+}
+
 /// One thread's context for taking steps: the part every thread shares, a connection to the database of its own, with
 /// the shared commit listener registered on it, and the configuration as its step began. A step writes only through
 /// its context's connection, so what one step wrote ([`Stepped`]) is what that connection wrote.
@@ -640,11 +658,18 @@ impl Engine {
             .map_err(|e| e.to_string())
     }
 
-    /// The configuration directory a CLI runs agents with, as the configuration names it: the login account the
-    /// agents' calls are made under, which holds their sessions. [`Engine::cli_home`] makes it.
-    pub fn cli_dir(&self, name: &str) -> Option<PathBuf> {
-        let cli = self.config.config.install.agents.clis.get(name)?;
-        Some(cli.home(&self.data, name))
+    /// What a level's rounds run on, by which the session manager chooses their session: the level's model, the
+    /// configuration directory its CLI runs agents with, as the configuration names it (the login account the agents'
+    /// calls are made under, which holds their sessions; [`Engine::cli_home`] makes it), and how long the CLI's prompt
+    /// cache keeps a session's prompt after its last call. The one place the engine works this out, for a round, the
+    /// check before it, the keep-warm pings and the question whether a session understood the project.
+    pub fn runs_on(&self, level: &config::Level) -> RunsOn {
+        let cli = self.config.config.install.agents.clis.get(&level.cli);
+        RunsOn {
+            model: level.model.clone(),
+            home: cli.map(|c| c.home(&self.data, &level.cli)),
+            cache: cli.and_then(|c| c.kind.cache_lifetime()),
+        }
     }
 
     /// The configuration directory a CLI runs agents with, made when it is not there yet, and kept out of the data

@@ -215,12 +215,8 @@ pub fn due(e: &mut Engine, now: i64, pause: Option<&GlobalPause>) -> Result<Vec<
             else {
                 continue;
             };
-            let home = e.cli_dir(&level.cli);
-            let on = sessions::On {
-                model: &level.model,
-                home: home.as_deref(),
-            };
-            let Some(due) = sessions::warm::due(e.db.conn(), w.id, &cells, limit, on, now)? else {
+            let runs = e.runs_on(&level);
+            let Some(due) = sessions::warm::due(e.db.conn(), w.id, &cells, limit, runs.on(), now)? else {
                 continue;
             };
             pings.push(Ping {

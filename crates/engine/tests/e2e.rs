@@ -4462,6 +4462,196 @@ fn a_resumed_session_goes_from_starting_to_the_queue() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// Moves everything the project's architect did and was told back in time by `ms`, as if it had happened that long
+/// before: its rounds, and the matters it was given. What the cache of its session holds is as old as its last call.
+fn age_architect(e: &mut Engine, ms: i64) {
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET started_at = started_at - ?1, ended_at = ended_at - ?1",
+            [ms],
+        )?;
+        tx.execute("UPDATE architect_matters SET at = at - ?1", [ms])?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// The CLI sessions of the architect's line in two works, oldest first: why each started and its CLI session.
+fn architect_sessions(e: &Engine, first: i64, second: i64) -> Vec<(String, String)> {
+    let mut st = e
+        .db
+        .conn()
+        .prepare("SELECT started, cli_session FROM sessions WHERE line = 'architect' AND work IN (?1, ?2) ORDER BY id")
+        .unwrap();
+    st.query_map([first, second], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// Two works of project p's architect, the owner's `first` words starting the first and `second` words the second,
+/// said `age` milliseconds after the first work ended (the first work and what it was told made that much older).
+fn two_architect_works(
+    name: &str,
+    age: i64,
+    first: &str,
+    second: &str,
+) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64, i64) {
+    let s = setup(name);
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, first);
+    let one = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, one)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    age_architect(&mut e, age);
+    say(&mut e, second);
+    let two = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, two)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    (s, e, said, one, two)
+}
+
+// A work of the architect whose project's previous architect work ended 90 minutes ago, a session whose last call the
+// CLI's cache has let go, understands the project in a new session, started as expired, and is told what was said
+// since the notebook was last rewritten and not what was said before; the same work 30 minutes after the other goes on
+// in the session it had, as before.
+#[test]
+fn a_work_after_the_cache_expired_understands_the_project_in_a_new_session() {
+    // The end of each of the words is its own, which the first sentence a matter is named by does not carry.
+    let (s, e, said, first, second) = two_architect_works(
+        "expired-between",
+        90 * 60_000,
+        "Alpha talk. ALPHAEND",
+        "Beta talk. BETAEND",
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, second);
+    assert_eq!(&path[..2], ["S1", "U1"], "{path:?}\n{log}");
+    let sessions = architect_sessions(&e, first, second);
+    assert_eq!(sessions.len(), 2, "{sessions:?}\n{log}");
+    assert_eq!(sessions[1].0, "expired", "{sessions:?}");
+    assert_ne!(sessions[0].1, sessions[1].1);
+    // The new session is told the talk since the notebook was last rewritten: the second words, not the first.
+    let u1 = input_at(&e, second, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap();
+    assert!(m.contains("BETAEND"), "{m}");
+    assert!(!m.contains("ALPHAEND"), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+
+    let (s, e, said, first, second) = two_architect_works(
+        "fresh-between",
+        30 * 60_000,
+        "Alpha talk. ALPHAEND",
+        "Beta talk. BETAEND",
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, second);
+    assert_eq!(&path[..2], ["S1", "Q0"], "{path:?}\n{log}");
+    let sessions = architect_sessions(&e, first, second);
+    assert_eq!(sessions[1].0, "carried", "{sessions:?}");
+    assert_eq!(sessions[0].1, sessions[1].1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The first understanding of a project, with no rewrite of the notebook to cut the talk at, is given the latest
+// entries of the one-to-one; over the size limit it is given the latest whole entries and one line saying how many
+// earlier ones there are.
+#[test]
+fn the_first_understanding_is_given_the_latest_whole_entries_of_the_talk() {
+    let s = setup("owner-talk-limit");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    // The end of each long entry is its own, which the first sentence a matter is named by does not carry.
+    say(&mut e, "Alpha talk.");
+    say(&mut e, &format!("{} GAMMAEND", "g".repeat(35_000)));
+    say(&mut e, &format!("{} DELTAEND", "d".repeat(35_000)));
+    say(&mut e, "Epsilon talk. EPSILONEND");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 30, |e| path_of(e, arch).iter().any(|c| c == "U1")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let u1 = input_at(&e, arch, "U1", false);
+    assert_eq!(given_ending(&u1, "·engine·owner_talk"), Some(true), "{u1}");
+    let m = u1["message"].as_str().unwrap();
+    assert!(
+        m.contains("DELTAEND") && m.contains("EPSILONEND"),
+        "the latest entries, whole"
+    );
+    assert!(!m.contains("GAMMAEND"), "an entry that does not fit is left out whole");
+    assert!(
+        m.contains("and 2 earlier entries before these"),
+        "{}",
+        &m[m.len().saturating_sub(3_000)..]
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The cache of the architect's session expiring in the middle of a work, with no keep-warm ping to hold it, has the
+// next round take the row for a new session, naming the expired cache: the matter in hand goes back to the queue and
+// the work understands the project in a new session, started as expired, before it takes the matter again.
+#[test]
+fn the_cache_expiring_in_the_middle_of_an_architect_work_starts_a_new_session() {
+    let s = setup("expired-midway");
+    let mut agents = scripts();
+    picks_first(&s, &mut agents);
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "One.");
+    say(&mut e, "Two.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 20, |e| e.work(arch).unwrap().pos.at == "H8"),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    age_architect(&mut e, 90 * 60_000);
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, arch);
+    let back = path.iter().rposition(|c| c == "S1").expect(&log);
+    assert_eq!(&path[back - 1..back + 3], ["H8", "S1", "U1", "Q0"], "{path:?}\n{log}");
+    let why: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(input, '$.engine.new_session') FROM rounds
+                 WHERE work = ?1 AND transition = 'session_anew'",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(why.contains("prompt cache expired"), "{why}");
+    let lines = line_sessions(&e, arch, "architect");
+    assert_eq!(lines.len(), 2, "{lines:?}\n{log}");
+    assert_eq!(lines[1].0, "expired", "{lines:?}");
+    assert!(lines[1].2.starts_with("U1,"), "{lines:?}");
+    assert_eq!(
+        matters(&e),
+        [
+            ("owner_words".to_string(), false, true),
+            ("owner_words".to_string(), false, true)
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // An engineer's question to its project's architect is a matter of its queue, which starts a work of the architect; the
 // engineer's work waits at its question, holding no slot. The architect finds the crux, the question going back to the
 // queue between, weighs the ways and replies, and the reply takes the work on from there unchanged.

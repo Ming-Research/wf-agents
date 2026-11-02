@@ -1,9 +1,11 @@
 //! Which session an agent's round runs in: its line's session going on, or a new one, and why. A line starts a new
 //! session at its first round in a work, at the work's first round of a cell the flow says it starts one at (a row
 //! leads there with the action `open_session`), when the context of its session is past the configuration's limit,
-//! when its rounds run on another model or under another login account than its session's, and when the owner asks for
-//! one; every other round goes on in the line's session. The architect's line, at its first round in a work, takes up the session the
-//! project's previous architect work left, unless it ended. A cell on no line has a session of its own every round.
+//! when its rounds run on another model or under another login account than its session's, when the CLI's prompt cache
+//! has let the session go (for a line whose cells the flow says expire with it), and when the owner asks for one; every
+//! other round goes on in the line's session. The architect's line, at its first round in a work, takes up the session
+//! the project's previous architect work left, unless it ended. A cell on no line has a session of its own every
+//! round.
 
 use std::path::Path;
 
@@ -27,6 +29,9 @@ pub enum Start {
     /// The line's rounds run under another login account of the CLI than its session's: in another configuration
     /// directory, which does not hold the session, whose log is in the directory it ran in.
     Account,
+    /// The CLI's prompt cache let the line's session go: its last call was a cache lifetime or more ago, and the flow
+    /// says the line's cells start a new session then, instead of writing the whole session to the cache again.
+    Expired,
     /// A new work of the architect goes on in the CLI session the project's previous architect work left.
     Carried,
     /// The owner asked for a new session with the round's Start or Step on the page.
@@ -41,6 +46,7 @@ impl Start {
             Start::Limit => "limit",
             Start::Model => "model",
             Start::Account => "account",
+            Start::Expired => "expired",
             Start::Carried => "carried",
             Start::Owner => "owner",
         }
@@ -131,11 +137,14 @@ pub fn same_dir(a: &Path, b: &Path) -> bool {
 pub struct On<'a> {
     pub model: &'a str,
     pub home: Option<&'a Path>,
+    /// How long, in milliseconds, the CLI's prompt cache keeps a session's prompt after its last call
+    /// ([`config::CliKind::cache_lifetime`]); none for a CLI with no prompt cache.
+    pub cache: Option<i64>,
 }
 
 /// Where the work's next round at a cell runs, on what it runs on, with the configuration's limit of a session's
-/// context in tokens. It reads only: [`open`] starts a new session.
-pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: On) -> Result<Plan, String> {
+/// context in tokens and the time it is asked at (`now`, in milliseconds). It reads only: [`open`] starts a new session.
+pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: On, now: i64) -> Result<Plan, String> {
     let Some(line) = &cell.line else {
         return Ok(Plan::New(Start::Line));
     };
@@ -167,15 +176,23 @@ pub fn plan(conn: &Connection, work: i64, cell: &CompiledCell, limit: u64, on: O
     {
         return Ok(Plan::New(Start::Account));
     }
-    // A return sent back is rewritten in the session that wrote it; the limit and a new model take effect at the round
-    // after. A model's prompt cache holds nothing of a session another model ran, so a session on another model would
-    // be written again whole: a new one is given only what its cell needs.
+    // A return sent back is rewritten in the session that wrote it; the limit, a new model and an expired cache take
+    // effect at the round after. A model's prompt cache holds nothing of a session another model ran, so a session on
+    // another model would be written again whole: a new one is given only what its cell needs. So would a session
+    // whose cache lifetime has run out since its last call, a round's or a keep-warm ping's, when the flow says the
+    // cell's line starts a new session then.
     if !rewrites(&rounds, &cell.id) {
         if context(&rounds).is_some_and(|c| c > i64::try_from(limit).unwrap_or(i64::MAX)) {
             return Ok(Plan::New(Start::Limit));
         }
         if model(&rounds).is_some_and(|m| m != on.model) {
             return Ok(Plan::New(Start::Model));
+        }
+        if cell.cache_expiry
+            && let Some(life) = on.cache
+            && crate::warm::last_call(conn, &cli_session, &rounds)?.is_some_and(|last| now - last >= life)
+        {
+            return Ok(Plan::New(Start::Expired));
         }
     }
     let resume = rounds.iter().any(|r| r.usage.as_ref().is_some_and(|u| !u.is_null()));
@@ -404,6 +421,160 @@ mod tests {
         let mut older = g.cell("I1").unwrap().clone();
         older.effort = None;
         assert_eq!(effort(&older), None);
+    }
+
+    const HOUR: i64 = 60 * 60_000;
+    const SONNET: &str = "claude-sonnet-5-5";
+
+    /// A database holding one architect work with one CLI session, `cs1`, and no round yet.
+    fn session_db() -> db::Db {
+        let mut db = db::Db::in_memory().unwrap();
+        db.write(db::Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'N1', 'p')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO sessions (work, line, cli, cli_session) VALUES (1, 'architect', 'claude', 'cs1')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        db
+    }
+
+    /// A round of that session that ended at `ended`, with the usage the CLI reported, or none when it never ran the
+    /// CLI. A round that ran it also has the command line it ran, on the model `SONNET`.
+    fn session_round(db: &mut db::Db, n: i64, ended: i64, usage: Option<&str>) {
+        let input = if usage.is_some() {
+            json!({ "call": { "command": ["claude", "-p", "--model", SONNET] } })
+        } else {
+            json!({})
+        };
+        db.write(db::Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, started_at, ended_at, usage)
+                 VALUES (1, ?1, 'N1', 1, ?2, 'c', ?3, ?4, ?5)",
+                db::rusqlite::params![n, input.to_string(), ended - 1_000, ended, usage],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    /// A keep-warm ping of that session that ended at `ended`, with the usage the CLI reported, or none when it failed.
+    fn session_ping(db: &mut db::Db, ended: i64, usage: Option<&str>) {
+        db.write(db::Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO pings (session, waited, usage, started_at, ended_at) VALUES (1, '{}', ?1, ?2, ?3)",
+                db::rusqlite::params![usage, ended - 1_000, ended],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    const RAN: &str = r#"{"cost_usd": 0.01, "usage": {"iterations": [
+        {"input_tokens": 10, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 0}]}}"#;
+
+    fn architect_cell(expires: bool) -> CompiledCell {
+        let relations = db::relations(db::SCHEMA).unwrap();
+        let tables = db::index_of(db::SCHEMA).unwrap();
+        let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
+        let mut cell = f.graph("architect").unwrap().cell("N1").unwrap().clone();
+        assert!(cell.cache_expiry, "the architect's line expires with the cache");
+        cell.cache_expiry = expires;
+        cell
+    }
+
+    fn at(db: &db::Db, cell: &CompiledCell, cache: Option<i64>, now: i64) -> Plan {
+        let on = On {
+            model: SONNET,
+            home: None,
+            cache,
+        };
+        plan(db.conn(), 1, cell, 500_000, on, now).unwrap()
+    }
+
+    fn goes_on(p: &Plan) -> bool {
+        matches!(p, Plan::Going { .. })
+    }
+
+    fn expired(p: &Plan) -> bool {
+        matches!(p, Plan::New(Start::Expired))
+    }
+
+    // A session of a line that expires with the cache, last called a lifetime or more ago, is replaced for the reason
+    // that the cache expired; one last called less than a lifetime ago goes on, to the millisecond.
+    #[test]
+    fn a_session_the_cache_let_go_is_replaced_on_a_line_that_expires_with_it() {
+        let mut db = session_db();
+        session_round(&mut db, 1, 1_000_000, Some(RAN));
+        let cell = architect_cell(true);
+        assert!(goes_on(&at(&db, &cell, Some(HOUR), 1_000_000 + HOUR - 1)));
+        assert!(expired(&at(&db, &cell, Some(HOUR), 1_000_000 + HOUR)));
+        assert!(expired(&at(&db, &cell, Some(HOUR), 1_000_000 + 3 * HOUR)));
+        // A CLI whose cache lives longer lets go later.
+        assert!(goes_on(&at(&db, &cell, Some(2 * HOUR), 1_000_000 + HOUR)));
+    }
+
+    // A ping that read the cache is a call, so the session goes on while the cache holds from it; a ping that failed
+    // and a round that never ran the CLI are no calls and keep nothing in the cache.
+    #[test]
+    fn only_a_call_that_read_the_cache_keeps_a_session_from_expiring() {
+        let cell = architect_cell(true);
+        let mut db = session_db();
+        session_round(&mut db, 1, 1_000_000, Some(RAN));
+        let now = 1_000_000 + 70 * 60_000;
+        assert!(expired(&at(&db, &cell, Some(HOUR), now)));
+        // A successful ping 10 minutes ago.
+        session_ping(&mut db, now - 10 * 60_000, Some(RAN));
+        assert!(goes_on(&at(&db, &cell, Some(HOUR), now)));
+
+        let mut failed = session_db();
+        session_round(&mut failed, 1, 1_000_000, Some(RAN));
+        session_ping(&mut failed, now - 10 * 60_000, None);
+        session_round(&mut failed, 2, now - 5 * 60_000, None);
+        assert!(expired(&at(&failed, &cell, Some(HOUR), now)));
+    }
+
+    // A line that does not say its session expires goes on whatever its age, as does a session whose CLI has no
+    // prompt cache; `claude` keeps the prompt an hour.
+    #[test]
+    fn a_session_goes_on_when_its_line_or_cli_has_no_cache_to_expire() {
+        let mut db = session_db();
+        session_round(&mut db, 1, 1_000_000, Some(RAN));
+        let later = 1_000_000 + 3 * HOUR;
+        assert!(goes_on(&at(&db, &architect_cell(false), Some(HOUR), later)));
+        assert!(goes_on(&at(&db, &architect_cell(true), None, later)));
+        assert_eq!(config::CliKind::Claude.cache_lifetime(), Some(HOUR));
+    }
+
+    // The keep-warm module pings a session that the cache has not let go, from five minutes before it does, and none
+    // that the chooser would replace, none once the cache let it go, and none when the CLI has no cache.
+    #[test]
+    fn a_session_is_pinged_in_the_last_five_minutes_before_its_cache_lets_it_go() {
+        let cell = architect_cell(true);
+        let mut db = session_db();
+        session_round(&mut db, 1, 1_000_000, Some(RAN));
+        let due_at = |cache: Option<i64>, now: i64| {
+            let on = On {
+                model: SONNET,
+                home: None,
+                cache,
+            };
+            crate::warm::due(db.conn(), 1, &[&cell], 500_000, on, now)
+                .unwrap()
+                .is_some()
+        };
+        assert!(!due_at(Some(HOUR), 1_000_000 + 55 * 60_000 - 1));
+        assert!(due_at(Some(HOUR), 1_000_000 + 55 * 60_000));
+        assert!(due_at(Some(HOUR), 1_000_000 + HOUR - 1));
+        assert!(!due_at(Some(HOUR), 1_000_000 + HOUR));
+        assert!(!due_at(None, 1_000_000 + 55 * 60_000));
+        assert_eq!(crate::warm::after_ms(HOUR), 55 * 60_000);
     }
 
     // Only a return sent back is rewritten in its own session: a run that failed or was cut off is done again.

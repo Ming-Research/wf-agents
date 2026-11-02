@@ -2656,6 +2656,11 @@ new_session?: boolean,
  */
 fresh_session?: Array<string>,
 /**
+ * The cell's line says its session expires with the CLI's prompt cache: the cell starts a new session when its
+ * line's session was last called a cache lifetime or more ago. False in a flow version stored before lines said so.
+ */
+cache_expiry?: boolean,
+/**
  * The reasoning effort an agent's cell runs at, whatever the model; none in a flow version stored before cells
  * declared one.
  */

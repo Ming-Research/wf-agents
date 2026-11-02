@@ -1,10 +1,12 @@
-//! Keeping an idle session's prompt cache warm. The CLI keeps a session's prompt in the cache an hour after its last
-//! call; a round after that writes the whole prompt again, at many times the price of reading it. While a work goes on
-//! or waits, a session of one of its lines that the flow can still come back to is sent one minimal message 55 minutes
-//! after its last call, so that the cache is read instead of expiring, and again every 55 minutes, as many times in one
-//! wait as the reads cost no more than writing the session again would beyond reading it, at the session's model's
-//! prices ([`most`]). This works around the cache's lifetime; each ping records where the work stood and for what the
-//! line waited, so that a line that waits long shows where it comes from.
+//! Keeping an idle session's prompt cache warm. The CLI keeps a session's prompt in the cache a while after its last
+//! call (an hour for `claude`, [`config::CliKind::cache_lifetime`]); a round after that writes the whole prompt again,
+//! at many times the price of reading it. While a work goes on or waits, a session of one of its lines that the flow
+//! can still come back to is sent one minimal message five minutes before the cache lets it go ([`after_ms`]), so that
+//! the cache is read instead of expiring, and again every 55 minutes, as many times in one wait as the reads cost no
+//! more than writing the session again would beyond reading it, at the session's model's prices ([`most`]). This works
+//! around the cache's lifetime; each ping records where the work stood and for what the line waited, so that a line
+//! that waits long shows where it comes from. A session's last call is told in one place ([`last_call`]), for the
+//! pings, for the chooser of a session whose line expires with the cache, and for the tell of a round that missed it.
 
 use std::path::PathBuf;
 
@@ -18,12 +20,37 @@ use crate::cli::{Agents, Request};
 use crate::cost;
 use crate::round::Round;
 
-/// How long after a session's last call it is pinged.
-pub const AFTER_MS: i64 = 55 * 60_000;
+/// How long before the cache lets a session's prompt go it is pinged.
+const MARGIN_MS: i64 = 5 * 60_000;
 
-/// How long the cache keeps a session's prompt after its last call: a ping later than that would write it whole
+/// How long after a session's last call it is pinged, when the cache keeps a prompt `life` milliseconds after a call
+/// ([`config::CliKind::cache_lifetime`]): 55 minutes of an hour. A ping later than `life` would write the prompt whole
 /// again, for nothing.
-pub const CACHE_MS: i64 = 60 * 60_000;
+pub fn after_ms(life: i64) -> i64 {
+    life - MARGIN_MS
+}
+
+/// When a session's last call ended: its latest round that ran the command line, or its latest keep-warm ping that
+/// reached the CLI, whichever came last; those are the calls that read the cache and so kept the prompt in it a
+/// lifetime longer. A round that never ran the command line and a ping that failed before it did leave the cache as it
+/// was and count for nothing. `rounds` are the session's, oldest first, those of the architect's earlier works too, as
+/// [`crate::held::of_session`] gives them; the pings of every row that has the CLI session count.
+pub fn last_call(conn: &Connection, cli_session: &str, rounds: &[Round]) -> Result<Option<i64>, String> {
+    let round = rounds
+        .iter()
+        .filter(|r| r.usage.is_some())
+        .filter_map(|r| r.ended_at)
+        .max();
+    let ping: Option<i64> = conn
+        .query_row(
+            "SELECT max(p.ended_at) FROM pings p JOIN sessions s ON s.id = p.session
+             WHERE s.cli_session = ?1 AND p.usage IS NOT NULL",
+            [cli_session],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(round.max(ping))
+}
 
 /// The most pings in one wait of a session on a model whose context is `prompt` tokens: as many as cost, each reading
 /// the session from the cache, no more than writing the session again for an hour would beyond reading it, which a ping
@@ -75,19 +102,19 @@ pub struct Due {
     pub pings: usize,
 }
 
-/// One ping of a session, as `pings` keeps it: when it started and ended, and whether the CLI read the session.
+/// One ping of a session, as `pings` keeps it: when it started and ended.
 struct Sent {
     started_at: i64,
     ended_at: Option<i64>,
-    read: bool,
 }
 
 /// Whether the session of a line of the work is due a ping at `now`, given the cells of the line the flow can come back
-/// to in that session, on what the line's rounds run on: none when they are not all on one line, when the line's next
-/// round will start a new session anyway (a session past the limit, on another model or under another login account,
-/// or a cell its line starts one at), while a round runs, before 55 minutes have passed since its last call or once the
-/// cache has let it go, a minute after a ping that failed, and after the most pings in one wait that its model's prices
-/// make worth it ([`most`]).
+/// to in that session, on what the line's rounds run on: none when the CLI has no prompt cache to keep, when they are
+/// not all on one line, when the line's next round will start a new session anyway (a session past the limit, on
+/// another model or under another login account, whose cache has let it go for a line that starts a new session then,
+/// or a cell its line starts one at), while a round runs, before the ping is due since its last call ([`after_ms`]) or
+/// once the cache has let it go, a minute after a ping that failed, and after the most pings in one wait that its
+/// model's prices make worth it ([`most`]).
 pub fn due(
     conn: &Connection,
     work: i64,
@@ -96,6 +123,9 @@ pub fn due(
     on: choose::On,
     now: i64,
 ) -> Result<Option<Due>, String> {
+    let Some(life) = on.cache else {
+        return Ok(None);
+    };
     let Some(line) = cells.first().and_then(|c| c.line.clone()) else {
         return Ok(None);
     };
@@ -104,7 +134,7 @@ pub fn due(
     }
     let mut going: Option<(i64, String, Vec<Round>)> = None;
     for c in cells {
-        match choose::plan(conn, work, c, limit, on)? {
+        match choose::plan(conn, work, c, limit, on, now)? {
             Plan::Going {
                 id,
                 cli_session,
@@ -137,16 +167,12 @@ pub fn due(
     if sent.len() >= most(&model, choose::context(&rounds).unwrap_or(0)) {
         return Ok(None);
     }
-    let read_at = sent
-        .iter()
-        .filter(|p| p.read)
-        .filter_map(|p| p.ended_at)
-        .chain([waits_from])
-        .max()
-        .unwrap_or(waits_from);
+    let Some(read_at) = last_call(conn, &cli_session, &rounds)? else {
+        return Ok(None);
+    };
     let tried_at = sent.iter().map(|p| p.ended_at.unwrap_or(p.started_at)).max();
     let since = now - read_at;
-    if !(AFTER_MS..CACHE_MS).contains(&since) || tried_at.is_some_and(|t| now - t < RETRY_MS) {
+    if !(after_ms(life)..life).contains(&since) || tried_at.is_some_and(|t| now - t < RETRY_MS) {
         return Ok(None);
     }
     Ok(Some(Due {
@@ -162,7 +188,7 @@ pub fn due(
 fn pings_since(conn: &Connection, cli_session: &str, after: i64) -> Result<Vec<Sent>, String> {
     let mut st = conn
         .prepare(
-            "SELECT p.started_at, p.ended_at, json_extract(p.usage, '$.usage') IS NOT NULL FROM pings p
+            "SELECT p.started_at, p.ended_at FROM pings p
              JOIN sessions s ON s.id = p.session
              WHERE s.cli_session = ?1 AND p.started_at > ?2 ORDER BY p.started_at",
         )
@@ -171,7 +197,6 @@ fn pings_since(conn: &Connection, cli_session: &str, after: i64) -> Result<Vec<S
         Ok(Sent {
             started_at: r.get(0)?,
             ended_at: r.get(1)?,
-            read: r.get(2)?,
         })
     })
     .map_err(|e| e.to_string())?
