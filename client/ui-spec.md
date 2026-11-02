@@ -681,7 +681,8 @@ until its machine has a slot free, is waiting for a free slot, as the engine's s
 the owner must see why a work whose answer came does not move; its chip says on hovering that it goes on once its
 machine has a slot free, before any new work starts. So is a paused work whose pause was asked to be lifted, by the
 command line or the architect, while its machine has none free, because a resume that does not show looks as if it
-failed.
+failed. It has Pause and no Start or Step, as a work the owner started and that waits for a slot has, because it is on
+its way to going on and the owner's later word must be able to keep it paused: Pause withdraws the request.
 
 ### Stopping
 

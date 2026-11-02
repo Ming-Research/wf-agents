@@ -150,13 +150,15 @@ export function course(w: WorkSummary, status: Status | null): Course {
 /// What the owner can do with a work now; a work over or stopping, or any while the engine's state is not known, has
 /// nothing. Otherwise it has exactly one of Start and Pause: Start while it is held back (paused by the owner, every work
 /// paused, or stopped by the engine or the architect), after which it goes on whatever the global state, its own pause
-/// lifted; Pause while it goes on, or the owner started it and it waits for a slot, after which it stays paused
-/// whatever the global state. Step, one round of it, is for a work held back that no round of it runs and that waits
-/// for nothing (`step`), and can run only while no round of it asked for before is under way and nothing stops every
-/// work (`canStep`): the rounds asked of other works run beside it.
+/// lifted; Pause while it goes on, or its pause is asked to be lifted, by the owner's Start, the command line or the
+/// architect, and it waits for a slot, after which it stays paused whatever the global state. Step, one round of it, is
+/// for a work held back that no round of it runs and that waits for nothing (`step`), and can run only while no round of
+/// it asked for before is under way and nothing stops every work (`canStep`): the rounds asked of other works run beside
+/// it.
 export function controls(c: Course, status: Status | null) {
   if (c.over || c.stopping || status === null) return { pause: false, start: false, step: false, canStep: false };
-  const back = c.held !== null && !c.releasing;
+  const lifting = c.releasing || (c.slot && c.held !== 'all');
+  const back = c.held !== null && !lifting;
   return {
     pause: !back,
     start: back,

@@ -660,7 +660,8 @@ pub fn rule(db: &mut Db, design_card: i64, r: &Ruling) -> Result<String, String>
 
 /// Pauses a work that goes on: a round of it under way ends first, and then it takes no step by itself, whatever the
 /// global state, until the owner starts it again; letting every work go on does not lift it. Why is the owner's words,
-/// or that the owner paused it.
+/// or that the owner paused it. A work paused already stays as it is, but for a resume of it that still waits for a free
+/// slot, which this later word withdraws.
 pub fn pause(db: &mut Db, work: i64, why: Option<&str>) -> Result<String, String> {
     let found: Option<(Option<String>, Option<String>)> = db
         .conn()
@@ -672,7 +673,15 @@ pub fn pause(db: &mut Db, work: i64, why: Option<&str>) -> Result<String, String
     match found {
         None => return Err(format!("no work {work}")),
         Some((_, Some(_))) => return Err(format!("work {work} has ended")),
-        Some((Some(_), None)) => return Err(format!("work {work} is paused already")),
+        Some((Some(_), None)) => {
+            // A resume that still waits for a slot is the owner's or the architect's earlier word, and this is the later.
+            if !db::resume_asked(db.conn()).map_err(sql)?.contains(&work) {
+                return Err(format!("work {work} is paused already"));
+            }
+            db.write(Actor::Owner, |tx| db::withdraw_resume(tx, work))
+                .map_err(sql)?;
+            return Ok(format!("work {work} stays paused: the resume asked is withdrawn"));
+        }
         Some((None, None)) => {}
     }
     let why = why
@@ -1155,6 +1164,14 @@ mod tests {
             paused(&db, 1),
             (Some(db::PAUSED_BY_OWNER.to_string()), Some("owner".to_string()))
         );
+        assert!(pause(&mut db, 1, None).is_err());
+        // A resume that still waits for a slot is withdrawn: the owner's Pause is the later word.
+        db.write(Actor::Owner, |tx| db::ask_resume(tx, 1, Actor::Owner)).unwrap();
+        assert_eq!(
+            pause(&mut db, 1, None).unwrap(),
+            "work 1 stays paused: the resume asked is withdrawn"
+        );
+        assert_eq!(db::resume_asked(db.conn()).unwrap(), Vec::<i64>::new());
         assert!(pause(&mut db, 1, None).is_err());
         assert!(pause(&mut db, 9, None).is_err());
         assert_eq!(

@@ -677,8 +677,11 @@ impl Engine {
 
     /// Takes a work the owner asked a round of into the owner's hands: a work the engine paused is let go on and at
     /// once paused by the owner, so that its cell counts afresh, as after any time the owner lets a work go on, and it
-    /// stays paused after the round.
+    /// stays paused after the round. So a resume that still waits for a slot is over: the owner's Step is the later word.
     fn take_in_hand(&mut self, id: i64) -> Result<(), String> {
+        self.db
+            .write(Actor::Owner, |tx| db::withdraw_resume(tx, id))
+            .map_err(|e| e.to_string())?;
         let by: Option<String> = self
             .db
             .conn()

@@ -23,7 +23,8 @@ pub enum End<'a> {
     Done,
     /// Before its end, saying why, such as its item cancelled.
     Stopped(&'a str),
-    /// Before its end, saying why, for a new work that takes over its worktree, branch and pull request.
+    /// Before its end, saying why, for a new work that takes over its worktree, branch and pull request, which it holds
+    /// from its first cell on; a cancel before then lets go of them ([`cancel_now`]).
     TakenOver(&'a str),
 }
 
@@ -125,6 +126,40 @@ pub fn end(
     }
     if let (Some(_), Some(n), Some(p)) = (why, pr, place) {
         close_pr(tx, work, item, n, p)?;
+    }
+    Ok(())
+}
+
+/// Lets go of what a work taken over left for the new work on its item, when that item is cancelled before any new work
+/// took it up: the new work has not been set up (cell `S1`), or its item still waits for a free slot, so no work that
+/// ends now holds the worktree or the pull request, and they would stay with no one to remove or close them. What a new
+/// work takes up is the item's latest work with a branch's ([`sessions::worktree::set_up`]), and on an item not
+/// cancelled yet a work with a branch has ended only by being taken over. To be called before the item is marked.
+fn let_go_of_what_no_one_took_up(
+    tx: &Transaction<'_>,
+    item: i64,
+    projects: &BTreeMap<String, config::Project>,
+) -> Result<(), String> {
+    let left = work::query_json(
+        tx,
+        "SELECT w.id, w.worktree, w.pr, w.ended, i.project, i.cancelled
+         FROM works w JOIN items i ON i.id = w.item
+         WHERE w.item = ?1 AND w.branch IS NOT NULL ORDER BY w.id DESC LIMIT 1",
+        &[&item],
+        1,
+    )?;
+    let Some(left) = left.first().filter(|w| w["ended"].is_string() && w["cancelled"].is_null()) else {
+        return Ok(());
+    };
+    let Some(p) = left["project"].as_str().and_then(|p| projects.get(p)) else {
+        return Ok(());
+    };
+    let work = left["id"].as_i64().unwrap_or_default();
+    if let Some(dir) = left["worktree"].as_str() {
+        remove_worktree(tx, work, p, dir)?;
+    }
+    if let Some(n) = left["pr"].as_i64() {
+        close_pr(tx, work, Some(item), n, p)?;
     }
     Ok(())
 }
@@ -329,7 +364,8 @@ pub(crate) fn merge_came_first(tx: &Transaction<'_>, item: i64, not: &str, by: &
 }
 
 /// Cancels an item now, with no work on it left to wait for: it is not to be done, it leaves the owner's
-/// queue, every work on it that has not ended ends, saying why, and it no longer depends on any item or holds any back.
+/// queue, every work on it that has not ended ends, saying why, what a work taken over left that no new work took up
+/// is let go of, and it no longer depends on any item or holds any back.
 /// Each item that depended on it is told, by where it stands: a work running on it, by an interjection from `by`, which
 /// a work standing where it waits, for the items it depends on (`A6`), to enter the merge queue (`M1`) or for the
 /// architect's reply (`A2`), takes at once to choose the way on (`A4`) by a row of its own; an item with no work running, by a
@@ -341,6 +377,7 @@ fn cancel_now(
     by: &str,
     projects: &BTreeMap<String, config::Project>,
 ) -> Result<(), String> {
+    let_go_of_what_no_one_took_up(tx, item, projects)?;
     tx.execute("UPDATE items SET cancelled = ?2 WHERE id = ?1", params![item, why])
         .map_err(sql)?;
     tx.execute("DELETE FROM dispatch_queue WHERE item = ?1", [item])
@@ -701,6 +738,86 @@ mod tests {
         .unwrap();
         let idle: i64 = one(&db, "SELECT max(id) FROM items");
         assert_eq!(ask(&mut db, idle, "owner"), Cancelling::Cancelled);
+    }
+
+    // A work taken over leaves its worktree and pull request to the new work on its item. Cancelled before a new work took
+    // them up, the item must let go of them itself, whether its new work still waits for a free slot, so that none goes
+    // on, or stands before cell `S1` with neither. Once a new work took them up, they are that work's to let go of; and
+    // cancelling an item again repeats nothing.
+    #[test]
+    fn a_cancel_lets_go_of_what_a_work_taken_over_left_and_no_one_took_up() {
+        let mut db = Db::in_memory().unwrap();
+        let closes = |db: &Db, work: i64| -> Vec<(i64, String)> {
+            outbox(db)
+                .into_iter()
+                .filter(|x| x.0 == work && x.1 != "cancel_item")
+                .map(|x| (x.0, x.1))
+                .collect()
+        };
+        let let_go = |work: i64| vec![(work, "remove_worktree".to_string()), (work, "close_pr".to_string())];
+        let ended = |db: &mut Db, work: i64| {
+            db.write(Actor::Engine, |tx| {
+                end(tx, work, End::TakenOver("stopped: started over"), &projects()).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        };
+        // A new work with no place yet, as before cell `S1`, or one that took up the place of the work before it.
+        let new_work = |db: &mut Db, item: i64, place: Option<i64>| -> i64 {
+            db.write(Actor::Engine, |tx| {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at, worktree, branch, pr)
+                     VALUES (?1, 1, 'engineer', 'S1', ?2, ?3, ?4)",
+                    params![
+                        item,
+                        place.map(|_| format!("/worktrees/{item}")),
+                        place.map(|_| "b"),
+                        place
+                    ],
+                )?;
+                Ok(tx.last_insert_rowid())
+            })
+            .unwrap()
+        };
+        let cancel = |db: &mut Db, item: i64| {
+            db.write(Actor::Owner, |tx| {
+                cancel_item(tx, item, "a duplicate", "owner", &projects()).map_err(db::Error::Abort)
+            })
+            .unwrap()
+        };
+        let carry_out = |db: &mut Db, item: i64| {
+            db.write(Actor::Engine, |tx| {
+                cancel_asked(tx, item, "a duplicate", "owner", &projects()).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        };
+
+        // No work goes on: the item waits at the head of the queue, and is cancelled at once.
+        let (waits, taken) = db.write(Actor::Owner, |tx| a_work(tx, "Waits", "T3", 1)).unwrap();
+        ended(&mut db, taken);
+        assert_eq!(closes(&db, taken), []);
+        assert_eq!(cancel(&mut db, waits), Cancelling::Cancelled);
+        assert_eq!(closes(&db, taken), let_go(taken));
+        // The same cancel again, which the command line does not refuse, finds them let go of.
+        assert_eq!(cancel(&mut db, waits), Cancelling::Cancelled);
+        assert_eq!(closes(&db, taken), let_go(taken));
+
+        // A new work stands before cell `S1`: the cancel is asked, and the loop lets go of them.
+        let (before, taken) = db.write(Actor::Owner, |tx| a_work(tx, "Before", "T3", 2)).unwrap();
+        ended(&mut db, taken);
+        let new = new_work(&mut db, before, None);
+        assert_eq!(cancel(&mut db, before), Cancelling::Asked);
+        carry_out(&mut db, before);
+        assert_eq!(closes(&db, taken), let_go(taken));
+        assert_eq!(closes(&db, new), []);
+
+        // A new work took them up: only it lets go of them, once.
+        let (took, taken) = db.write(Actor::Owner, |tx| a_work(tx, "Took", "T3", 3)).unwrap();
+        ended(&mut db, taken);
+        let new = new_work(&mut db, took, Some(3));
+        assert_eq!(cancel(&mut db, took), Cancelling::Asked);
+        carry_out(&mut db, took);
+        assert_eq!(closes(&db, taken), []);
+        assert_eq!(closes(&db, new), let_go(new));
     }
 
     // A cancelled item depends on nothing and holds back nothing, and each item that depended on it is told: a work

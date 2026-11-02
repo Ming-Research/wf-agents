@@ -13322,23 +13322,8 @@ fn a_start_over_is_refused_once_a_cancel_is_asked() {
 // pause once the slot is free.
 #[test]
 fn the_owner_s_pause_after_a_resume_keeps_the_work_paused() {
-    let s = setup("pause-after-resume");
-    let (hold, free) = (Gate::default(), Arc::new(AtomicI64::new(0)));
-    let (mut e, said, _) = start(&s, held_in_r1(&hold, &free));
-    let work = e.step(None).unwrap().work.unwrap();
-    free.store(work, Ordering::SeqCst);
-    api::pause(&mut e.db, work, None).unwrap();
-    let second = another_item(&mut e);
-    hold.shut();
-    let came = hold.came();
-    let held = turns_until(&mut e, &Go::default(), |_| hold.came() > came);
-    let log = said.lock().unwrap().join("\n");
-    assert!(held, "{log}");
-    let other = state(&e, second).unwrap().0;
+    let (s, mut e, said, hold, work, other) = a_resume_waiting_for_a_slot("pause-after-resume");
     let rounds = rounds_after(&e, work, 0).0;
-    api::resume(&mut e.db, work).unwrap();
-    three_turns(&mut e);
-    assert_eq!(e.waiting_for_slot().unwrap(), [work], "{log}");
     // As the page's Pause sends it, for which a work paused already stays paused.
     let _ = api::pause(&mut e.db, work, None);
     api::pause(&mut e.db, other, None).unwrap();
@@ -13351,6 +13336,54 @@ fn the_owner_s_pause_after_a_resume_keeps_the_work_paused() {
     assert_eq!(rounds_after(&e, work, 0).0, rounds, "{log}");
     assert_eq!(db::resume_asked(e.db.conn()).unwrap(), Vec::<i64>::new(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// So is the owner's Step, after which a work stays paused: the slot that frees later lifts nothing.
+#[test]
+fn the_owner_s_step_after_a_resume_keeps_the_work_paused() {
+    let (s, mut e, said, hold, work, other) = a_resume_waiting_for_a_slot("step-after-resume");
+    let rounds = rounds_after(&e, work, 0).0;
+    let go = Go {
+        steps: vec![work],
+        ..Go::default()
+    };
+    e.dispatch(&go).unwrap();
+    assert_eq!(db::resume_asked(e.db.conn()).unwrap(), Vec::<i64>::new());
+    let stepped = turns_until(&mut e, &Go::default(), |e| {
+        !e.in_flight().contains(&work) && rounds_after(e, work, 0).0 > rounds
+    });
+    api::pause(&mut e.db, other, None).unwrap();
+    hold.open();
+    e.drain().unwrap();
+    three_turns(&mut e);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(stepped, "{log}");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    assert_eq!(rounds_after(&e, work, 0).0, rounds + 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A paused work whose resume waits for a slot: the one slot is held by a second work, whose round stays in the gate.
+/// Gives the gate, the work and the second work.
+fn a_resume_waiting_for_a_slot(name: &str) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, Gate, i64, i64) {
+    let s = setup(name);
+    let (hold, free) = (Gate::default(), Arc::new(AtomicI64::new(0)));
+    let (mut e, said, _) = start(&s, held_in_r1(&hold, &free));
+    let work = e.step(None).unwrap().work.unwrap();
+    free.store(work, Ordering::SeqCst);
+    api::pause(&mut e.db, work, None).unwrap();
+    let second = another_item(&mut e);
+    hold.shut();
+    let came = hold.came();
+    let held = turns_until(&mut e, &Go::default(), |_| hold.came() > came);
+    let log = said.lock().unwrap().join("\n");
+    assert!(held, "{log}");
+    let other = state(&e, second).unwrap().0;
+    api::resume(&mut e.db, work).unwrap();
+    three_turns(&mut e);
+    assert_eq!(e.waiting_for_slot().unwrap(), [work], "{log}");
+    (s, e, said, hold, work, other)
 }
 
 // Two resumes on a machine with one slot free: each request reads the slots as the one before it left them, so that one

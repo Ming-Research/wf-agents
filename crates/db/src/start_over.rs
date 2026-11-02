@@ -114,7 +114,8 @@ pub fn ask_resume(tx: &Transaction<'_>, work: i64, by: Actor) -> Result<()> {
 }
 
 /// Withdraws a request to lift a work's pause: the pause it was for is gone or replaced, as by the engine's pause for a
-/// problem, which the owner looks at first, and it must not lift another.
+/// problem, which the owner looks at first, and it must not lift another; or the owner's Pause or Step came after it, and
+/// the later word stands.
 pub fn withdraw_resume(tx: &Transaction<'_>, work: i64) -> Result<()> {
     tx.execute(
         "DELETE FROM outbox WHERE work = ?1 AND kind = ?2",
