@@ -232,3 +232,172 @@ fn fetches_of_main_that_overlap_in_one_checkout_all_succeed() {
         assert_eq!(config::main_commit(&r.project).unwrap(), pushed);
     }
 }
+
+// A path names a file exactly, as the checkout's files named it: a character git's pathspecs give a meaning (`*`, `?`,
+// `[`, a leading `:(top)`), a space and a letter outside ASCII are only characters of a name, so a name that is not in
+// the commit is an error and one that is is read. Reference: `std::fs::read_to_string` on the same file in the
+// checkout, which takes a name literally.
+#[cfg(unix)]
+#[test]
+fn a_path_is_a_name_and_never_a_pattern() {
+    let r = Repos::new("literal");
+    let checkout = &r.checkout;
+    write(checkout, "docs/sp ace [1]/a*.md", "Star.\n");
+    write(checkout, "docs/ünï/c.md", "Umlaut.\n");
+    write(checkout, "docs/-dash.md", "Dash.\n");
+    write(checkout, "docs/other.md", "Other.\n");
+    git(checkout, &["add", "-A"]);
+    git(checkout, &["commit", "-q", "-m", "names"]);
+    git(checkout, &["push", "-q", "origin", "HEAD:main"]);
+    let commit = config::main_commit(&r.project).unwrap();
+    for path in [
+        "docs/sp ace [1]/a*.md",
+        "docs/ünï/c.md",
+        "docs/-dash.md",
+        // Not names of any file: patterns and pathspec magic.
+        "docs/sp ace [1]/a?.md",
+        "docs/sp ace [1]/a*",
+        "docs/sp ace [1]/",
+        "docs/oth*.md",
+        "docs/other.m[d]",
+        "docs/[o]ther.md",
+        ":(top)AGENTS.md",
+        ":(top)docs/other.md",
+        ":/AGENTS.md",
+        ":(glob)docs/*.md",
+        ":!docs/other.md",
+    ] {
+        let on_disk = std::fs::read_to_string(checkout.join(path));
+        let at_main = config::read_at(&r.project, &commit, Path::new(path));
+        match (on_disk, at_main) {
+            (Ok(disk), Ok(main)) => assert_eq!(main, disk, "{path}"),
+            (Err(_), Err(why)) => assert!(why.contains(path), "{path}: {why}"),
+            (disk, main) => panic!("{path}: the checkout's file gives {disk:?}, main gives {main:?}"),
+        }
+    }
+}
+
+// A link is followed as a read of the checkout's files followed it, whatever form its target is written in: with a
+// trailing slash, with a doubled slash, through `.` and through a directory that is itself a link and back up out of it.
+// Reference: `std::fs::read_to_string` on the same path in the checkout.
+#[cfg(unix)]
+#[test]
+fn a_link_is_read_as_the_checkout_reads_it_in_every_form_of_its_target() {
+    let r = Repos::new("link-forms");
+    let checkout = &r.checkout;
+    write(checkout, "reasoning/constitution.md", "# Articles\n");
+    write(checkout, "reasoning/deeper/x.md", "Deeper.\n");
+    write(checkout, "top.md", "Top.\n");
+    for (link, target) in [
+        ("slash", "reasoning/"),
+        ("double", "reasoning//deeper"),
+        ("dot", "./reasoning/./deeper/"),
+        ("back", "reasoning/deeper/.."),
+        ("reasoning/up", "../top.md"),
+        ("reasoning/deeper/in-a-link", "../../slash/constitution.md"),
+        ("viadir", "reasoning/deeper/../constitution.md"),
+    ] {
+        std::os::unix::fs::symlink(target, checkout.join(link)).unwrap();
+    }
+    git(checkout, &["add", "-A"]);
+    git(checkout, &["commit", "-q", "-m", "links"]);
+    git(checkout, &["push", "-q", "origin", "HEAD:main"]);
+    let commit = config::main_commit(&r.project).unwrap();
+    for path in [
+        "slash/constitution.md",
+        "double/x.md",
+        "dot/x.md",
+        "back/constitution.md",
+        "reasoning/up",
+        "reasoning/deeper/in-a-link",
+        "viadir",
+        "slash/deeper/x.md",
+        "slash",
+        "double",
+    ] {
+        let on_disk = std::fs::read_to_string(checkout.join(path));
+        let at_main = config::read_at(&r.project, &commit, Path::new(path));
+        match (on_disk, at_main) {
+            (Ok(disk), Ok(main)) => assert_eq!(main, disk, "{path}"),
+            (Err(_), Err(why)) => assert!(why.contains(path) && why.contains(&commit), "{path}: {why}"),
+            (disk, main) => panic!("{path}: the checkout's file gives {disk:?}, main gives {main:?}"),
+        }
+    }
+}
+
+// The records under a design path are the files a walk of the checkout found, links to directories followed as that
+// walk followed them (`Path::is_dir` is true for a link to a directory): a records directory that is a link, and one
+// inside a records directory. They are in the index, or reading them is an error that names the path; they are never
+// left out without a word, which gives an agent a project guide that looks complete.
+#[cfg(unix)]
+#[test]
+fn a_link_to_a_directory_of_records_is_not_left_out_without_a_word() {
+    let r = Repos::new("record-links");
+    let checkout = &r.checkout;
+    write(checkout, "reasoning/one.md", "# One\n");
+    write(checkout, "more/two.md", "# Two\n");
+    write(checkout, "design/real.md", "# Real\n");
+    std::os::unix::fs::symlink("../more", checkout.join("design/inner")).unwrap();
+    std::os::unix::fs::symlink("reasoning", checkout.join("linked")).unwrap();
+    git(checkout, &["add", "-A"]);
+    git(checkout, &["commit", "-q", "-m", "records"]);
+    git(checkout, &["push", "-q", "origin", "HEAD:main"]);
+    let commit = config::main_commit(&r.project).unwrap();
+    // What a walk of the checkout's files finds, by the paths the records are named with.
+    let on_disk = |dir: &str| -> Vec<(String, String)> {
+        let mut found = Vec::new();
+        let mut stack = vec![PathBuf::from(dir)];
+        while let Some(d) = stack.pop() {
+            for entry in std::fs::read_dir(checkout.join(&d)).unwrap() {
+                let rel = d.join(entry.unwrap().file_name());
+                if checkout.join(&rel).is_dir() {
+                    stack.push(rel);
+                } else if rel.extension().is_some_and(|x| x == "md") {
+                    found.push((
+                        rel.to_string_lossy().into_owned(),
+                        std::fs::read_to_string(checkout.join(&rel)).unwrap(),
+                    ));
+                }
+            }
+        }
+        found.sort();
+        found
+    };
+    for dir in ["design", "linked"] {
+        let want = on_disk(dir);
+        assert!(!want.is_empty(), "{dir}");
+        let design = [format!("{dir}/")];
+        match config::project_guide_at(checkout, &commit, &design, "") {
+            Ok(g) => {
+                for (path, text) in &want {
+                    let first = text.lines().next().unwrap();
+                    assert_eq!(g["records"][path], first, "{dir}: {path} is not in {}", g["records"]);
+                }
+            }
+            Err(why) => assert!(why.contains(dir), "{dir}: {why}"),
+        }
+        match config::files_at(checkout, &commit, dir) {
+            Ok(found) => assert_eq!(found, want, "{dir}"),
+            Err(why) => assert!(why.contains(dir), "{dir}: {why}"),
+        }
+    }
+}
+
+// The checkout's `origin/<main>` is the remote's branch after a fetch even when the remote also has a tag of the same
+// name at another commit: the commit read is the branch's. Reference: `git rev-parse refs/heads/main` in the origin.
+#[test]
+fn a_tag_named_like_main_does_not_hold_back_the_fetch_of_main() {
+    let r = Repos::new("tag-main");
+    let other = r.other();
+    let old = git(&other, &["rev-parse", "HEAD"]);
+    git(&other, &["tag", "main", &old]);
+    git(&other, &["push", "-q", "origin", "refs/tags/main"]);
+    write(&other, "AGENTS.md", "Newer.\n");
+    git(&other, &["add", "-A"]);
+    git(&other, &["commit", "-q", "-m", "newer"]);
+    git(&other, &["push", "-q", "origin", "HEAD:main"]);
+    let branch = git(&r.origin, &["rev-parse", "refs/heads/main"]);
+    assert_ne!(branch, old);
+    config::fetch_main(&r.project).unwrap();
+    assert_eq!(config::main_commit(&r.project).unwrap(), branch);
+}
