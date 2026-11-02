@@ -363,6 +363,8 @@ function sessionWhy(r: RoundSummary): string | null {
       return t('session_why_model');
     case 'account':
       return t('session_why_account');
+    case 'expired':
+      return t('session_why_expired');
     case 'owner':
       return t('session_why_owner');
     default:

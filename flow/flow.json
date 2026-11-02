@@ -3194,6 +3194,7 @@
       "changes_touch": "The items the batch's changes touch, each in full: as its creator wrote it, its locked acceptance, its rank and level, its dependencies and who waits for it, each blocking or parallel, its decision cards, and its latest work's cell, pull request and what it waits for.",
       "group_talk": "What was said in the groups of the project's works since the architect last read it, at its last reading of it (`H12`), other than to it: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item.",
       "told_owner": "What the project's architect told the owner lately: its latest messages to the owner, each with when and at which cell, oldest first.",
+      "owner_talk": "What was said in the project's one-to-one between the owner and its architect since the first round of the architect's previous session (the session of the project's latest understanding that was answered, across the works it ran in): each entry as the owner's page shows it, whole and oldest first, with when, who said it to whom and the words, an ask of the architect's with the owner's answer (counted as made when it was answered, if that was after the session began), and only how many images came with an entry. Before the project's first session there is no lower bound. Over 60,000 characters, the latest whole entries, then one line saying how many earlier ones there are; none when nothing was said since.",
       "questions": "The questions the project's architect put to the owner that wait for the owner's reply, newest first: each question, the cell that asked and when, and the matter it parked.",
       "notebook_project_now": "The text of the section project now of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
       "notebook_plan": "The text of the section plan of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
@@ -11655,12 +11656,13 @@
         "lines": [
           {
             "name": "architect",
-            "desc": "The architect of the work's project: a work of the architect goes on in the session the project's previous architect work left, from understanding the project to its end, the setting of a new policy included",
+            "desc": "The architect of the work's project: a work of the architect goes on in the session the project's previous architect work left, from understanding the project to its end, the setting of a new policy included; the session's prompt cache expiring (its last call a cache lifetime or more ago) also starts a new session",
             "colour": "purple",
+            "cacheExpiry": true,
             "anew": {
               "row": "session_anew",
               "to": "S1",
-              "note": "A new session would start here (the owner asked for one, the last is past the context limit, or the model or the login account changed): it remembers nothing but the notebook, so the architect's work goes back to understanding the project first, and the matter picked goes back to the queue, to be taken again.",
+              "note": "A new session would start here (the owner asked for one, the last is past the context limit, the model or the login account changed, or the session's prompt cache expired): it remembers nothing but the notebook, so the architect's work goes back to understanding the project first, and the matter picked goes back to the queue, to be taken again.",
               "not": [
                 "U1"
               ]
@@ -11678,7 +11680,7 @@
           }
         ],
         "rules": [
-          "A work of the architect goes on in the session the project's previous architect work left. A new session starts at the project's first architect work, when the owner asks for one, past the context limit and when the model or the login account changes; a new session understands the project first, and a session that goes on never does again.",
+          "A work of the architect goes on in the session the project's previous architect work left. A new session starts at the project's first architect work, when the owner asks for one, past the context limit, when the model or the login account changes and when the session's prompt cache expired (its last call, a round's or a keep-warm ping's, a cache lifetime or more ago); a new session understands the project first, and is told what was said in the one-to-one with the owner since the previous session began, and a session that goes on never understands it again.",
           "The setting of a new policy is a matter of the architect's work, in its session: none starts for it, and a new policy that takes effect leaves the session going on.",
           "In the loop that takes matters one by one, each round adds little to the session: the constitution, the guide, the policy, the board, the numbers, the observations, the queue and the batch are given once in a session and after that only as what changed, with the numbers of the matters that can be picked and of those handled each time; a matter's material is given to the first cell of its path, and the second refers to it.",
           "The review of a batch's item changes is a line of its own, a new session for each batch, so that it reads them afresh; the search of observations is a line of its own on a cheap model.",
@@ -12261,7 +12263,7 @@
               ],
               [
                 "not_understood",
-                "A new session: the architect's first work on the project, or a new one because the owner asked for one, the last was past the limit, or the model or the login account changed"
+                "A new session: the architect's first work on the project, or a new one because the owner asked for one, the last was past the limit, the model or the login account changed, or the session's prompt cache expired"
               ]
             ]
           }
@@ -12351,6 +12353,16 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Your talk with the owner",
+              "what": "What the owner and you said to each other in your one-to-one since your previous session began, whole and oldest first: each entry with when, who said it to whom and the words, your asks with the owner's answers, and how many images came with an entry. Given once, to a session that does not remember it; none when nothing was said since",
+              "from": [
+                {
+                  "engine": "owner_talk"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -12391,7 +12403,7 @@
                 "This is your first work on the project, and you remember nothing: your notebook holds nothing of it yet. Read main's history and the guide, then the items and the code they touch, until you can say each line of work."
               ],
               "new": [
-                "This session is new (the owner asked for one, the last one was full, or the model or the login account changed): you remember nothing but your notebook, and you understand the project afresh, from the facts."
+                "This session is new (the owner asked for one, the last one was full, the model or the login account changed, or the last session's prompt cache expired): you remember nothing but your notebook, and you understand the project afresh, from the facts. What the owner and you said to each other since your previous session began is given whole: it is a talk you no longer remember, and what your notebook does not say of it you take from there. What was said before that session began is not given: where your notebook does not hold it, look it up with the history search (X5)."
               ]
             }
           },
@@ -12403,7 +12415,7 @@
               ],
               [
                 "new",
-                "Another new session: the owner asked for one, the last was past the limit, or the model or the login account changed"
+                "Another new session: the owner asked for one, the last was past the limit, the model or the login account changed, or the session's prompt cache expired"
               ]
             ]
           },

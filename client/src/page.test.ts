@@ -97,6 +97,7 @@ import {
   waitingByKey,
 } from './conversation';
 import { addressesByNumber, atPath, modelName, RoundTold } from './pages/RoundView';
+import { startedText } from './pages/Usage';
 import { helperThread } from './pages/Work';
 import { roundsShown } from './pages/WorkChart';
 import { catalog, type Key, t, tn } from './messages';
@@ -106,7 +107,7 @@ import { type Draft, draftOf, settingsChange, settingsProblems, shellWord, signI
 import { tiersAllowed } from './pages/TalkHead';
 import { coloursOf } from './roles';
 import { spendTable } from './spend';
-import { axisTicks, gapsOf, usageOf } from './usage';
+import { axisTicks, gapsOf, type SessionRow, usageOf } from './usage';
 
 describe('the message catalog', () => {
   // That every text is in English is checked with every file of the repository (crates/wf-agents/tests/english.rs).
@@ -2445,5 +2446,16 @@ describe("the owner's conversations", () => {
         (c) => c.key,
       ),
     ).toEqual(['architect:p', 'work:6']);
+  });
+});
+
+describe('the usage page names why a session started', () => {
+  // A session started because the CLI's prompt cache let the one before go has a label of its own, and a reason the
+  // page does not know has none.
+  it('says a session started expired as cache expired', () => {
+    const session = (started: string | null) => ({ started, cell: 'U1', before: null }) as SessionRow;
+    expect(startedText(session('expired'))).toBe('cache expired');
+    expect(startedText(session('account'))).toBe("the agents' login account changed");
+    expect(startedText(session('made up'))).toBe('');
   });
 });

@@ -375,6 +375,15 @@ pub enum CliKind {
 const CLAUDE_FAMILIES: [&str; 5] = ["haiku", "sonnet", "opus", "fable", "mythos"];
 
 impl CliKind {
+    /// How long, in milliseconds, the CLI's prompt cache keeps a session's prompt after the session's last call: a call
+    /// later than that writes the whole prompt again, at many times the price of reading it. `claude` keeps it an hour.
+    /// None for a CLI with no prompt cache, whose sessions lose nothing by waiting.
+    pub fn cache_lifetime(self) -> Option<i64> {
+        match self {
+            CliKind::Claude => Some(60 * 60_000),
+        }
+    }
+
     /// Whether the CLI takes a model by this name, in the forms its `--model` takes: for `claude`, the alias of a
     /// family's latest model (`opus`) or a model's full name (`claude-opus-5-5`, `claude-3-5-sonnet-20241022`), each
     /// with `[1m]` after it or not; a family it does not know, or a name in no such form, it does not take.
@@ -1754,6 +1763,12 @@ asks = 9
         assert!(set_setting(project, &["repo", "name"], Some(Value::from("x"))).is_err());
         assert!(set_setting(project, &["ci"], Some(Value::from("x"))).is_err());
         assert!(set_setting("[items\n", &["items", "title_max"], Some(Value::from(1))).is_err());
+    }
+
+    // `claude` keeps a session's prompt in its cache an hour after the session's last call.
+    #[test]
+    fn claudes_prompt_cache_lives_an_hour() {
+        assert_eq!(CliKind::Claude.cache_lifetime(), Some(60 * 60 * 1000));
     }
 
     // A model is one `claude` takes: a family's alias or a model's full name, with the larger context or not; a name
