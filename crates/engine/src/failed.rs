@@ -315,6 +315,20 @@ impl Failed<'_> {
                            AND id = (SELECT session FROM rounds WHERE work = ?1 AND n = ?2)",
                         params![round.work, round.n, db::now()],
                     )?;
+                    // What the hook handed in during the round went with its session, and the round will never answer
+                    // it: it waits again, for the whole message of the new session.
+                    tx.execute(
+                        "UPDATE rounds SET input = json_set(input, '$.engine.interjections', json((
+                           SELECT json_group_array(value) FROM json_each(input, '$.engine.interjections')
+                           WHERE value NOT IN (
+                             SELECT id FROM interjections WHERE work = ?1 AND delivered_round = ?2))))
+                         WHERE work = ?1 AND n = ?2",
+                        params![round.work, round.n],
+                    )?;
+                    tx.execute(
+                        "UPDATE interjections SET delivered_round = NULL WHERE work = ?1 AND delivered_round = ?2",
+                        params![round.work, round.n],
+                    )?;
                     Ok(())
                 })
                 .map_err(sql)?;

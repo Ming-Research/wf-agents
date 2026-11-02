@@ -437,12 +437,9 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         command: (!reply.command.is_empty()).then(|| reply.command.clone()),
         ..Ended::default()
     };
-    // What the round came to joins the rounds later ones are judged by, unless it was stopped, so that an anomaly never
-    // becomes its own baseline.
+    // What the round came to joins the rounds later ones are judged by, unless it went past a signal that stops a round.
     let spent = ended.usage.as_ref().and_then(|u| u["cost_usd"].as_f64());
-    if reply.stopped.is_none()
-        && let Some(sample) = watched.sample(&cell.id, reply.model.as_deref(), spent)
-    {
+    if let Some(sample) = watched.sample(&cell.id, reply.model.as_deref(), spent) {
         let kept = e.db.write(Actor::Engine, |tx| {
             sessions::guard::keep_sample(tx, round, &g.name, &sample)?;
             Ok(())

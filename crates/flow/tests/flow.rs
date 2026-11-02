@@ -829,26 +829,6 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
         assert_eq!(waits, ["usage_limit", "offline", "cannot_run"]);
         assert_eq!(shared[0].conditions, [flow::format::Atom::SentBack(Some(3))]);
     }
-    // A stop with no row to take, or a row no stop leads to, would not be what the chart says; the rule's rounds are the
-    // flow's, and a round is not its own distribution.
-    let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    v["flows"][0]["rounds"]["failed"]["kinds"]
-        .as_array_mut()
-        .unwrap()
-        .retain(|k| k["name"] != "guarded");
-    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
-    assert!(
-        e.contains("rounds.guard needs a kind of failed run named guarded"),
-        "{e}"
-    );
-    let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    v["flows"][0]["rounds"]["guard"] = Value::Null;
-    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
-    assert!(e.contains("the kind of failed run guarded has no rounds.guard"), "{e}");
-    let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    v["flows"][0]["rounds"]["guard"]["samples"] = 1.into();
-    let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
-    assert!(e.contains("rounds.guard.samples is less than 2"), "{e}");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     v["flows"][0]["rounds"]["failed"]["kinds"][3]["then"] = "A3".into();
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();

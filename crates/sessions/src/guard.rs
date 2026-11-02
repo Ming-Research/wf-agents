@@ -523,9 +523,12 @@ impl Run {
         Some(record)
     }
 
-    /// The row `round_measures` keeps of the run, once it ended; none for a run that made no call.
+    /// The row `round_measures` keeps of the run, once it ended; none for a run that made no call, or that went past a
+    /// signal that stops a round, stopped or not: an anomaly never becomes its own baseline, and the owner's Start lets
+    /// a round run without saying its size is usual.
     pub fn sample(&self, cell: &str, model: Option<&str>, cost: Option<f64>) -> Option<Sample> {
-        (self.totals.calls > 0).then(|| Sample {
+        let past = self.crossed.contains(&Signal::Growth) || self.crossed.contains(&Signal::Jump);
+        (self.totals.calls > 0 && !past).then(|| Sample {
             cell: cell.to_string(),
             model: Some(model.unwrap_or(&self.model).to_string()),
             calls: self.totals.calls,
@@ -936,6 +939,7 @@ mod tests {
         let past = r.see(&call("a", 20_000));
         assert_eq!(past[0].action, Action::Waived);
         assert!(r.stop_record().is_none());
+        assert_eq!(r.sample("I1", None, None), None);
     }
 
     // The longest round that ever ran, work 38's round 22, took 237 calls at some 1,173 tokens a call and was right to:

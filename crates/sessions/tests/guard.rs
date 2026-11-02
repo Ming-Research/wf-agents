@@ -268,13 +268,15 @@ fn round(n: i64, output: Option<Value>, usage: Option<Value>) -> Round {
 }
 
 // A jump is measured from the session's context, which a subagent's call is not in; a round that made no call says
-// nothing of it; and rounds from before the ledger tell it by their record.
+// nothing of it; a failed round that made calls does, since what it wrote stays in the session; and rounds from before
+// the ledger tell it by their record.
 #[test]
 fn a_session_s_last_prompt_is_its_own_last_call_kept() {
-    let mut db = with_rounds(2);
+    let mut db = with_rounds(3);
     db.write(Actor::Engine, |tx| {
         guard::keep_call(tx, RoundId::new(1, 1), &told("a", 1000, 1, false), 1)?;
         guard::keep_call(tx, RoundId::new(1, 1), &told("s", 900_000, 1, true), 1)?;
+        guard::keep_call(tx, RoundId::new(1, 3), &told("b", 7000, 1, false), 1)?;
         Ok(())
     })
     .unwrap();
@@ -284,8 +286,13 @@ fn a_session_s_last_prompt_is_its_own_last_call_kept() {
         Some(json!({ "usage": { "iterations": [{ "input_tokens": 500 }] } })),
     );
     let (first, failed) = (round(1, None, None), round(2, None, None));
+    let failed_with_calls = Round {
+        rejected: Some(json!({ "failed": { "kind": "transient", "what": "529" } })),
+        ..round(3, None, None)
+    };
     let last = |rounds: &[Round]| guard::last_prompt(db.conn(), rounds).unwrap();
-    assert_eq!(last(&[old.clone(), first, failed.clone()]), Some(1000));
+    assert_eq!(last(&[old.clone(), first.clone(), failed.clone()]), Some(1000));
+    assert_eq!(last(&[first, failed_with_calls]), Some(7000));
     assert_eq!(last(&[old, failed.clone()]), Some(500));
     assert_eq!(last(&[failed]), None);
 }

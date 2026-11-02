@@ -99,7 +99,8 @@ agents are then not asked for it.
 
 ## The owner's page
 
-`wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). The engine starts with
+`wf-agents run` serves the owner's page at `http://127.0.0.1:7480/` (`--port` takes another). However the engine ends,
+Ctrl-C and a closed terminal included, the agents it was running are stopped with it. The engine starts with
 every work paused, so nothing runs until the owner presses Start all in the page's bar, which is also how the page is
 looked at against a copy of the data; Pause all stops every work at the end of the round it is in, and beside it a
 switch keeps waiting sessions warm meanwhile. Each work has its own Start, Pause and Step in the head of its

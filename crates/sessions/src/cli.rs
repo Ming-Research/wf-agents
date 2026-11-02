@@ -494,6 +494,41 @@ fn signal_group(group: u32, signal: &str) {
         .status();
 }
 
+/// What a run's overseer does, the group being `$1` and the wait `$2`: it waits for its standard input to close, then
+/// stops the group as [`stop`] does.
+const OVERSEEING: &str = r#"read -r line; kill -s TERM -- "-$1"; sleep "$2"; kill -s KILL -- "-$1""#;
+
+/// What stops a run's process group when the engine goes away while it runs. The group is out of the terminal's reach,
+/// so a Ctrl-C or a closed terminal would end the engine and not the run, and no signal handler sees a crash or a
+/// `kill -9`. So a small shell waits on a pipe that only the engine holds: however the engine ends, the pipe closes and
+/// the shell stops the group. It is in a process group of its own, so that the terminal's signals do not end it first.
+/// Dropped, it ends without touching the run.
+struct Overseer(std::process::Child);
+
+impl Overseer {
+    /// None when no shell can be started: the run goes on, with what a crash leaves behind as before.
+    fn of(group: u32) -> Option<Overseer> {
+        Command::new("sh")
+            .args(["-c", OVERSEEING, "overseer"])
+            .args([group.to_string(), STOP_WAIT.as_secs().to_string()])
+            .process_group(0)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()
+            .map(Overseer)
+    }
+}
+
+impl Drop for Overseer {
+    /// The shell is killed while the pipe is open: closing the pipe is what makes it stop the group.
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 impl Claude {
     /// One run of the CLI, in a process group of its own, so that it can be stopped with everything it started: the
     /// message on its standard input ([`stdin`]), its stream read line by line as it comes, what each line says told to
@@ -516,6 +551,7 @@ impl Claude {
                 return reply;
             }
         };
+        let overseer = Overseer::of(child.id());
         // The message is written beside, as the standard error is read, so that a large one, images and all, and the
         // stream never wait on each other; the standard input is closed once it is written, so the CLI knows it has all
         // of it.
@@ -543,6 +579,8 @@ impl Claude {
                     }
                 }
             }
+            // Before the child can be reaped, after which its group's id is free for another's.
+            drop(overseer);
             if let Some(why) = reply.stopped.clone() {
                 stop(&mut child, lines);
                 stream.end(&mut reply);
@@ -2831,6 +2869,51 @@ mod tests {
         });
         let _ = std::fs::remove_dir_all(&dir);
         assert!(gone, "process {pid} outlived the stop");
+    }
+
+    /// Whether a process stands, the zombie its parent has not reaped apart.
+    fn alive(pid: u32) -> bool {
+        Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .is_ok_and(|o| {
+                let stat = String::from_utf8_lossy(&o.stdout);
+                !stat.trim().is_empty() && !stat.trim().starts_with('Z')
+            })
+    }
+
+    // When the engine goes away the pipe its overseer waits on closes, and the run's group ends, what ignores the polite
+    // signal too; an overseer dropped because the run went on to its end leaves the group alone. Taking the pipe closes
+    // it as the end of the engine's process does.
+    #[test]
+    fn a_run_outlives_no_engine_and_its_overseer_only_acts_when_the_engine_is_gone() {
+        let group = || {
+            Command::new("sh")
+                .args(["-c", "trap '' TERM; sleep 120 & wait"])
+                .process_group(0)
+                .spawn()
+                .unwrap()
+        };
+        let mut left = group();
+        drop(Overseer::of(left.id()).unwrap());
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(alive(left.id()), "a dropped overseer stopped the group");
+        signal_group(left.id(), "KILL");
+        let _ = left.wait();
+
+        let mut orphan = group();
+        let mut overseer = Overseer::of(orphan.id()).unwrap();
+        drop(overseer.0.stdin.take());
+        let ended = (0..100).any(|_| {
+            if alive(orphan.id()) {
+                std::thread::sleep(Duration::from_millis(100));
+                return false;
+            }
+            true
+        });
+        signal_group(orphan.id(), "KILL");
+        let _ = orphan.wait();
+        assert!(ended, "the group outlived its overseer's pipe");
     }
 
     // A run that ends by itself ends as ever under a watcher that lets it go on: the process group changes nothing.

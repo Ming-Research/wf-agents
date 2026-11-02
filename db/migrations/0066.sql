@@ -40,8 +40,9 @@ CREATE TABLE round_calls (
 
 CREATE TABLE round_measures (
   -- What each agent's round that made a call came to, by what the run guard's lines are computed from: one row for each
-  -- round, written once when it ended, or put in from its record by the migration that brought the ledger. A round the
-  -- guard stopped has none, so that an anomaly never becomes its own baseline.
+  -- round, written once when it ended, or put in from its record by the migration that brought the ledger. A round that
+  -- went past a signal that stops a round has none, stopped or let go on by the owner's Start, so that an anomaly never
+  -- becomes its own baseline.
   -- Hidden from agents.
   -- Read by: the run guard, which computes a round's lines from these rows when it starts.
   -- The round: its work, and its number in the work.

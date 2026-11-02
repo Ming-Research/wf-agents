@@ -423,6 +423,20 @@ impl Context<'_> {
         (here && cut && !self.held.rounds.is_empty()).then_some(r.id)
     }
 
+    /// The cell's last round, with why the run guard stopped it, when that is the round this one runs again: runs since
+    /// that never wrote their message told the session nothing, so they are passed over and this round still has to be
+    /// told.
+    fn stopped(&self) -> Option<(RoundId, &Value)> {
+        let failed = |r: &Round| r.rejected.as_ref().is_some_and(|x| x.get("failed").is_some());
+        let r = self
+            .rounds
+            .iter()
+            .rev()
+            .filter(|r| r.cell.as_deref() == Some(self.cell.id.as_str()))
+            .find(|r| !failed(r) || sessions::held::wrote_message(r))?;
+        Some((r.id, r.rejected.as_ref()?["failed"].get("guard")?))
+    }
+
     /// Why this round happens, and the conditional inputs it says it with.
     fn why(&self, m: &mut Giver<'_>, interjections: &[String]) -> Vec<String> {
         let c = self.cell;
@@ -437,16 +451,15 @@ impl Context<'_> {
                         "{} was cut off when the engine stopped: do its work again.",
                         r.id
                     ));
-                } else if let Some(guard) = rej["failed"].get("guard") {
+                } else if let Some((stopped, guard)) = self.stopped() {
                     // Why the guard stopped the run, which the engine wrote and which quotes nothing of the run's
                     // return: the new session is to do the work differently, not to run into the same line.
-                    let a = m.add(format!("{}·engine·guard", r.id), guard.clone());
+                    let a = m.add(format!("{stopped}·engine·guard"), guard.clone());
                     out.push(format!(
-                        "The run guard stopped {}, and this round runs in a new session: {a} says which signal passed \
-                         which line, its value and the last tools that round used. First look at the worktree as it is \
-                         now (files changed, commits made), then do its work again, in a way that does not repeat what \
-                         stopped it.",
-                        r.id
+                        "The run guard stopped {stopped}, and this round runs in a new session: {a} says which signal \
+                         passed which line, its value and the last tools that round used. First look at the worktree \
+                         as it is now (files changed, commits made), then do its work again, in a way that does not \
+                         repeat what stopped it."
                     ));
                 } else if let Some(f) = rej.get("failed") {
                     // Only the kind: what the command line reported may quote the run's own return, which a new

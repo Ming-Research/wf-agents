@@ -159,7 +159,6 @@ export function reread(...keys: string[]): void {
   bump(...keys);
 }
 
-/// What a work's running agent did last, newest last; empty when nothing was reported since the page opened.
 /// How the running rounds stand as the event stream last told it: what came since the page read them.
 export function useMeasures(): Map<string, Measure> {
   return useSyncExternalStore(subscribe, () => state.measures);
@@ -168,6 +167,7 @@ export function useMeasures(): Map<string, Measure> {
 /// What `useMeasures` keeps a round under.
 export const measureKey = (work: number, round: number): string => `${work}-${round}`;
 
+/// What a work's running agent did last, newest last; empty when nothing was reported since the page opened.
 export function useActivity(work: number): Activity[] {
   return useSyncExternalStore(subscribe, () => state.activity.get(work) ?? NONE);
 }

@@ -12951,42 +12951,8 @@ fn a_round_past_both_lines_is_stopped_and_runs_again_in_a_new_session() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Stopped again in its new session, the work pauses and the owner is told; once the owner lets it go on, the next round
-// is recorded past its line and not stopped, since the owner's Start comes first.
-#[test]
-fn a_round_stopped_twice_pauses_and_the_owners_start_lets_the_next_run() {
-    let (s, mut e, said, item) = growing("guard-twice", 3);
-    for _ in 0..8 {
-        e.tick().unwrap();
-        if state(&e, item).unwrap().2.is_some() {
-            break;
-        }
-    }
-    let log = said.lock().unwrap().join("\n");
-    let (work, at, paused) = state(&e, item).unwrap();
-    assert_eq!(at, "R1", "{log}");
-    let why = paused.unwrap_or_default();
-    assert!(why.contains("the run guard stopped the agent's run in"), "{why}\n{log}");
-    assert_eq!(failed_kinds(&e), ["guarded", "guarded"], "{log}");
-    api::resume(&mut e.db, work).unwrap();
-    for _ in 0..4 {
-        e.tick().unwrap();
-        if state(&e, item).unwrap().1 != "R1" {
-            break;
-        }
-    }
-    let log = said.lock().unwrap().join("\n");
-    let (_, at, paused) = state(&e, item).unwrap();
-    assert_eq!(paused, None, "{log}");
-    assert_ne!(at, "R1", "{log}");
-    assert_eq!(failed_kinds(&e), ["guarded", "guarded"], "{log}");
-    let actions: Vec<String> = guard_events(&e).into_iter().map(|(_, a)| a).collect();
-    assert_eq!(actions, ["stopped", "stopped", "waived"]);
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
 // A round that adds much at the pace of its cell's rounds is a long round, as the longest that ever ran was: it runs to
-// its return, and what it came to joins the history.
+// its return, and what it came to joins the history. Its calls go past their line, which is only recorded, once.
 #[test]
 fn a_long_round_at_the_usual_pace_is_not_stopped() {
     let s = setup("guard-long");
@@ -13008,6 +12974,7 @@ fn a_long_round_at_the_usual_pace_is_not_stopped() {
     }
     let log = said.lock().unwrap().join("\n");
     assert!(failed_kinds(&e).is_empty(), "{log}");
+    assert_eq!(guard_events(&e), [("calls".to_string(), "noted".to_string())], "{log}");
     let (work, at, _) = state(&e, item).unwrap();
     assert_ne!(at, "R1", "{log}");
     let (added, calls): (i64, i64) =
@@ -13067,33 +13034,6 @@ fn a_jump_nothing_given_explains_stops_the_round_at_its_first_call() {
         ),
     );
     assert_eq!(calls, 1, "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// A signal only recorded goes on the record and leaves the round to run to its return: each once, however far past.
-#[test]
-fn a_signal_only_noted_leaves_the_round_to_its_end() {
-    let s = setup("guard-noted");
-    let mut scripts = scripts();
-    scripts.insert(
-        "R1",
-        Box::new(|_: &Request, _: usize| {
-            let prompts: Vec<i64> = (0..14).map(|i| 10_000 + i).collect();
-            (Vec::new(), vec![("@stream", calls_of(&prompts))])
-        }),
-    );
-    let (mut e, said, item) = start(&s, scripts);
-    history(&mut e, "R1", 19, &usual);
-    for _ in 0..4 {
-        e.tick().unwrap();
-        if state(&e, item).unwrap().1 != "R1" {
-            break;
-        }
-    }
-    let log = said.lock().unwrap().join("\n");
-    assert!(failed_kinds(&e).is_empty(), "{log}");
-    assert_eq!(guard_events(&e), [("calls".to_string(), "noted".to_string())], "{log}");
-    assert_ne!(state(&e, item).unwrap().1, "R1", "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -13217,15 +13157,14 @@ fn after_the_round_the_owner_let_go_on_the_next_is_judged_as_ever() {
     scripts.insert(
         "R1",
         Box::new(|_: &Request, n: usize| {
-            let past = |to: i64| ("@stream", calls_of(&[10_000, to]));
+            let past = || ("@stream", calls_of(&[10_000, 30_000]));
             (
                 Vec::new(),
                 match n {
-                    1 | 2 => vec![past(30_000)],
-                    3 => vec![past(30_000), ("@error", json!("API Error: 529 Overloaded"))],
-                    // The failed round before it joined the rounds the cell's lines come from: 20,000 tokens added
-                    // now give a line of 38,950 and of 39,895 a call, so this one goes past those.
-                    4 => vec![past(90_000)],
+                    1 | 2 => vec![past()],
+                    3 => vec![past(), ("@error", json!("API Error: 529 Overloaded"))],
+                    // The round let go on joined no history, so the same growth is past the same lines again.
+                    4 => vec![past()],
                     _ => Vec::new(),
                 },
             )
@@ -13249,7 +13188,8 @@ fn after_the_round_the_owner_let_go_on_the_next_is_judged_as_ever() {
     }
     let (work, _, paused) = state(&e, item).unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert!(paused.is_some(), "{log}");
+    let why = paused.unwrap_or_default();
+    assert!(why.contains("the run guard stopped the agent's run in"), "{why}\n{log}");
     api::resume(&mut e.db, work).unwrap();
     for _ in 0..12 {
         e.tick().unwrap();
@@ -13264,6 +13204,110 @@ fn after_the_round_the_owner_let_go_on_the_next_is_judged_as_ever() {
         .map(|(_, a)| a)
         .collect();
     assert_eq!(actions, ["stopped", "stopped", "waived", "waived", "stopped"], "{log}");
+    // R1 stopped twice, its failure in passing, and R2's stop: no third stop of R1 after the Start.
+    let kinds = ["guarded", "guarded", "transient", "guarded"];
+    assert_eq!(failed_kinds(&e), kinds, "{log}");
     assert_eq!(state(&e, item).unwrap().2, None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// What the hook handed in during a round the guard stopped went with the session that ended: the round will never
+// answer it, so it waits again, and the new session's whole message gives it.
+#[test]
+fn what_was_said_during_a_stopped_round_reaches_the_round_run_again() {
+    let s = setup("guard-said");
+    let mut scripts = scripts();
+    let path = config::database(&s.data);
+    scripts.insert(
+        "R1",
+        Box::new(move |_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let mut db = db::Db::open(&path).unwrap();
+            let (work, round): (i64, i64) = db
+                .conn()
+                .query_row(
+                    "SELECT work, n FROM rounds WHERE cell = 'R1' AND ended_at IS NULL",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap();
+            db.write(Actor::Owner, |tx| {
+                tx.execute(
+                    "INSERT INTO interjections (work, line, speaker, text)
+                     VALUES (?1, 'engineer', 'owner', 'Look at the log.')",
+                    [work],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            sessions::interject::deliver(&mut db, work, round, "engineer")
+                .unwrap()
+                .unwrap();
+            (Vec::new(), vec![("@stream", calls_of(&[10_000, 30_000]))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    for _ in 0..8 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed_kinds(&e), ["guarded"], "{log}");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_ne!(at, "R1", "{log}");
+    let again = input_at(&e, work, "R1", true);
+    let told = again["message"].as_str().unwrap_or_default();
+    assert!(told.contains("Look at the log."), "{told}");
+    let stopped = input_at(&e, work, "R1", false);
+    assert_eq!(stopped["engine"]["interjections"], json!([]), "{stopped}");
+    let taken: i64 = number(&e, "SELECT count(*) FROM interjections WHERE delivered_round IS NULL");
+    assert_eq!(taken, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A login that expired right after a stop writes nothing in the session, so the round after it is the first the new
+// session is told anything by, and it is still told why the round before was stopped.
+#[test]
+fn a_run_that_never_wrote_its_message_leaves_the_guards_reason_to_the_next() {
+    let s = setup("guard-login");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            (
+                Vec::new(),
+                match n {
+                    1 => vec![("@stream", calls_of(&[10_000, 30_000]))],
+                    2 => vec![("@error", json!("Not logged in · Please run /login"))],
+                    _ => Vec::new(),
+                },
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    history(&mut e, "R1", 19, &usual);
+    for _ in 0..8 {
+        e.tick().unwrap();
+        if let Some(h) = e.halt() {
+            e.set_halt(Some(engine::Halt { until: 0, ..h }));
+        }
+        if state(&e, item).unwrap().1 != "R1" {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(failed_kinds(&e), ["guarded", "cannot_run"], "{log}");
+    let (work, at, _) = state(&e, item).unwrap();
+    assert_ne!(at, "R1", "{log}");
+    let again = input_at(&e, work, "R1", true);
+    let told = again["message"].as_str().unwrap_or_default();
+    assert!(told.contains("The run guard stopped"), "{told}");
+    assert!(told.contains(r#""also":{"value":20000.0,"line":280.0}"#), "{told}");
+    assert!(told.contains(r#""last_tools":"#), "{told}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

@@ -1193,3 +1193,38 @@ fn stored_rounds<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Rounds
     let v = Option::<Value>::deserialize(d)?;
     Ok(v.and_then(|v| serde_json::from_value(v).ok()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What `rounds` refuses in the flow's rounds section once `change` changed it.
+    fn refused(change: impl FnOnce(&mut Value)) -> String {
+        let flow: Value = serde_json::from_str(crate::FLOW).unwrap();
+        let mut section = flow["flows"][0]["rounds"].clone();
+        change(&mut section);
+        let r: Rounds = serde_json::from_value(section).unwrap();
+        rounds(&r, &[]).unwrap_err()
+    }
+
+    // A stop with no row to take, or a row no stop leads to, would not be what the chart says; the rule's rounds are the
+    // flow's, and a round is not its own distribution.
+    #[test]
+    fn a_stop_and_its_row_come_together_and_a_rule_needs_two_rounds() {
+        let no_row = refused(|s| {
+            let kinds = s["failed"]["kinds"].as_array_mut().unwrap();
+            kinds.retain(|k| k["name"] != GUARDED);
+        });
+        assert!(
+            no_row.contains("rounds.guard needs a kind of failed run named guarded"),
+            "{no_row}"
+        );
+        let no_rule = refused(|s| s["guard"] = Value::Null);
+        assert!(
+            no_rule.contains("the kind of failed run guarded has no rounds.guard"),
+            "{no_rule}"
+        );
+        let one = refused(|s| s["guard"]["samples"] = 1.into());
+        assert!(one.contains("rounds.guard.samples is less than 2"), "{one}");
+    }
+}
