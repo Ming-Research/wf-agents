@@ -9143,7 +9143,16 @@ fn the_architect_s_look_up_of_the_history_is_given_the_rule_for_gathering_it() {
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
-    db::say_to_architect(&mut e.db, "p", None, None, "Why is the parser's item so?", &[]).unwrap();
+    db::say_to_architect(
+        &mut e.db,
+        "p",
+        None,
+        None,
+        "Why is the parser's item so?",
+        &[],
+        db::Speaker::Owner,
+    )
+    .unwrap();
     let arch = e.step(None).unwrap().work.unwrap();
     let looked_up = |e: &mut Engine| -> bool {
         let n: i64 =
