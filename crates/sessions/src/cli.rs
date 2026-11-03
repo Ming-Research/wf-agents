@@ -104,11 +104,14 @@ pub fn sign_in(kind: config::CliKind) -> (&'static str, &'static str) {
 }
 
 /// The environment every agent's command line starts with, besides its configuration directory: each tool input
-/// streamed whole, not in pieces, so that the service checks its JSON; and three attempts at a return, not five, since
-/// each attempt writes the whole return again.
-pub const ENVIRONMENT: [(&str, &str); 2] = [
+/// streamed whole, not in pieces, so that the service checks its JSON; three attempts at a return, not five, since
+/// each attempt writes the whole return again; and no Rust toolchain installed by rustup when a command the agent may
+/// run, such as `cargo update` or `rustfmt`, asks for one the machine lacks: the command fails instead of downloading
+/// it.
+pub const ENVIRONMENT: [(&str, &str); 3] = [
     ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
     ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
+    ("RUSTUP_AUTO_INSTALL", "0"),
 ];
 
 /// The tool the command line hands a return in with, under `--json-schema`.
@@ -302,7 +305,9 @@ pub fn command_line(r: &Request) -> Vec<String> {
         out.extend(["--add-dir".to_string(), d.display().to_string()]);
     }
     // The line's permissions, after the CLI's own arguments: the CLI allows what any rule of either allows, unless a
-    // rule of either refuses it, and refuses what any rule of either refuses.
+    // rule of either refuses it, and refuses what any rule of either refuses. A flag given twice adds its values to
+    // those it was given before, as `claude`'s parser of arguments does with every flag that takes a list (checked
+    // with claude 2.1.316).
     if !r.allowed.is_empty() {
         out.push("--allowedTools".into());
         out.extend(r.allowed.iter().cloned());
@@ -2722,16 +2727,27 @@ mod tests {
 
     #[test]
     fn a_round_runs_with_its_whole_command_line_and_its_own_configuration_directory() {
+        let cli = config::Cli {
+            kind: config::CliKind::Claude,
+            command: "claude".into(),
+            args: [
+                "--permission-mode",
+                "acceptEdits",
+                "--allowedTools",
+                "Bash(git *)",
+                "Bash(cargo fmt *)",
+            ]
+            .iter()
+            .map(|a| a.to_string())
+            .collect(),
+            config_dir: None,
+        };
+        let permissions = config::Permissions::default();
         let r = Request {
             work: 1,
             cell: "I1".into(),
             line: "engineer".into(),
-            cli: config::Cli {
-                kind: config::CliKind::Claude,
-                command: "claude".into(),
-                args: vec!["--permission-mode".into(), "acceptEdits".into()],
-                config_dir: None,
-            },
+            cli: cli.clone(),
             model: "m".into(),
             effort: Some("high".into()),
             worktree: PathBuf::from("/w"),
@@ -2743,8 +2759,8 @@ mod tests {
             images: Vec::new(),
             schema: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
             envelope: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
-            allowed: config::Permissions::default().allowed("engineer"),
-            refused: config::Permissions::default().refused("engineer"),
+            allowed: permissions.allowed("engineer"),
+            refused: permissions.refused("engineer", &cli),
             readable: vec![PathBuf::from("/data/tool-output")],
             replay: None,
             regive: Some(PathBuf::from("/tmp/given it.md")),
@@ -2760,17 +2776,29 @@ mod tests {
             "{line:?}"
         );
         assert!(line.iter().any(|a| a == "Edit(//data/tool-output/**)"), "{line:?}");
-        assert_eq!(&line[..4], ["claude", "--permission-mode", "acceptEdits", "-p"]);
-        // Heavy work is refused on every line; an engineer may still edit and commit, and update a lock file with the
-        // package manager, which the line's own rule allows and no rule refuses.
-        let flag = |f: &str| line.iter().position(|a| a == f).unwrap();
-        let (allowed, refused) = (flag("--allowedTools"), flag("--disallowedTools"));
         assert_eq!(
-            line[allowed + 1..refused],
-            config::Permissions::default().allowed("engineer")[..]
+            &line[..7],
+            [
+                "claude",
+                "--permission-mode",
+                "acceptEdits",
+                "--allowedTools",
+                "Bash(git *)",
+                "Bash(cargo fmt *)",
+                "-p"
+            ]
         );
+        // Heavy work is refused on every line; an engineer may still edit and commit, and update a lock file with the
+        // package manager, which the line's own rule allows, after the CLI's own, and no rule refuses. What the CLI's
+        // own arguments allow of a heavy command left out for that is refused again.
+        let flag = |f: &str| line.iter().rposition(|a| a == f).unwrap();
+        let (allowed, refused) = (flag("--allowedTools"), flag("--disallowedTools"));
+        assert!(allowed > 7);
+        assert_eq!(line[allowed + 1..refused], permissions.allowed("engineer")[..]);
         assert!(line[allowed + 1..refused].iter().any(|a| a == "Bash(cargo update *)"));
-        assert!(line[refused..].iter().any(|a| a == "Bash(npm run *)"), "{line:?}");
+        for a in ["Bash(npm run *)", "Bash(cargo fmt *)", "Bash(npm install *=*)"] {
+            assert!(line[refused..].iter().any(|x| x == a), "{a}: {line:?}");
+        }
         assert!(
             !line.iter().any(|a| a == "Bash(cargo *)" || a == "Bash(npm install *)"),
             "{line:?}"
@@ -2779,17 +2807,25 @@ mod tests {
             !line.iter().any(|a| a == "Edit" || a == "Bash(git commit *)"),
             "{line:?}"
         );
-        // The review and the advisor only read; the adversarial tester writes tests.
+        // The review and the advisor only read: they may not edit or commit, and their command line allows nothing
+        // beyond the CLI's own arguments; the adversarial tester writes tests.
         for l in ["review", "advisor"] {
-            let refused = config::Permissions::default().refused(l);
+            let refused = permissions.refused(l, &cli);
             assert!(refused.iter().any(|a| a == "Edit") && refused.iter().any(|a| a == "Bash(git commit *)"));
+            let reader = command_line(&Request {
+                line: l.into(),
+                allowed: permissions.allowed(l),
+                refused,
+                ..r.clone()
+            });
+            assert_eq!(
+                reader.iter().filter(|a| *a == "--allowedTools").count(),
+                1,
+                "{reader:?}"
+            );
+            assert!(!reader.iter().any(|a| a.starts_with("Bash(cargo update")), "{reader:?}");
         }
-        assert!(
-            !config::Permissions::default()
-                .refused("adversarial")
-                .iter()
-                .any(|a| a == "Edit")
-        );
+        assert!(!permissions.refused("adversarial", &cli).iter().any(|a| a == "Edit"));
         assert_eq!(&line[line.len() - 2..], ["--resume", "s1"]);
         // A compaction within the round has the command line give the session again what the round was given.
         let settings = line.iter().position(|a| a == "--settings").unwrap();
@@ -2810,6 +2846,7 @@ mod tests {
         assert_eq!(c["env"]["CLAUDE_CONFIG_DIR"], "/data/agents/claude");
         assert_eq!(c["env"]["CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING"], "0");
         assert_eq!(c["env"]["MAX_STRUCTURED_OUTPUT_RETRIES"], "3");
+        assert_eq!(c["env"]["RUSTUP_AUTO_INSTALL"], "0");
         // The structured-output schema is in the command line, and not recorded again beside it.
         assert!(c.get("schema").is_none());
         assert!(
@@ -2833,7 +2870,8 @@ mod tests {
             want("CLAUDE_CONFIG_DIR", "/data/agents/claude")
                 && want("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0")
                 && want("MAX_STRUCTURED_OUTPUT_RETRIES", "3")
-                && env.len() == 3,
+                && want("RUSTUP_AUTO_INSTALL", "0")
+                && env.len() == 4,
             "{env:?}"
         );
         // A bare call, as a repair, is offered no tools and given no structured output.

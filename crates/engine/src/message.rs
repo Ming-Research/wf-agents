@@ -1015,17 +1015,25 @@ fn workspace(
 }
 
 /// What an agent that writes code is told of the commands it updates a lock file with, after a space; nothing when
-/// there are none.
+/// there are none. A bare `cargo update` upgrades every dependency, which would fill the work's diff with changes it
+/// did not need, so where it is among them the agent is told how to change only what the work needs.
 fn lock_commands(locks: &[String]) -> String {
     if locks.is_empty() {
         return String::new();
     }
     let named: Vec<String> = locks.iter().map(|c| format!("`{c}`")).collect();
-    format!(
-        " Change a lock file with one of these commands, your arguments after it, rather than by hand: {}. Each writes \
-         the lock file and builds, runs and installs nothing.",
+    let mut out = format!(
+        " Change a lock file with one of these commands, your arguments after it, in the directory of the manifest it \
+         changes, rather than by hand: {}. Each writes the lock file and builds, runs and installs nothing.",
         named.join(", ")
-    )
+    );
+    if locks.iter().any(|c| c == "cargo update") {
+        out.push_str(
+            " Bring Cargo.lock in line with an edited Cargo.toml with `cargo update --workspace`, and move one \
+             dependency with `cargo update -p <crate>`; a bare `cargo update` upgrades every dependency.",
+        );
+    }
+    out
 }
 
 /// What the column of an acceptance condition adds about the rows of the conditions table that name no test. The engine
@@ -1723,7 +1731,17 @@ mod tests {
                 assert!(text.contains(&format!("`{c}`")), "{line}: {text}");
             }
             assert!(text.contains("rather than by hand"), "{text}");
+            assert!(
+                text.contains("`cargo update --workspace`") && text.contains("`cargo update -p <crate>`"),
+                "{text}"
+            );
         }
+        // An installation without `cargo update` is told nothing of it.
+        let npm_only = config::Permissions {
+            locks: vec!["npm install --package-lock-only --ignore-scripts".into()],
+            ..permissions.clone()
+        };
+        assert!(!told("engineer", &npm_only).contains("cargo update"));
         let review = told("review", &permissions);
         assert!(
             review.contains("you only read it") && !review.contains("lock file"),

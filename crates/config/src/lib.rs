@@ -262,6 +262,11 @@ pub struct Permissions {
     /// a lock file by hand and leave it to CI to find its mistakes.
     #[serde(default = "locks")]
     pub locks: Vec<String>,
+    /// The uses of the lock commands refused all the same, wherever those are allowed, each a command whose arguments
+    /// may hold `*` for any text: the arguments with which a lock command would build, run or install after all, as a
+    /// later npm option overrides an earlier one.
+    #[serde(default = "locks_except")]
+    pub locks_except: Vec<String>,
     /// The lines whose agents only read: they edit no file and commit nothing.
     #[serde(default = "read_only")]
     pub read_only: Vec<String>,
@@ -272,6 +277,7 @@ impl Default for Permissions {
         Permissions {
             heavy: heavy(),
             locks: locks(),
+            locks_except: locks_except(),
             read_only: read_only(),
         }
     }
@@ -326,6 +332,26 @@ fn locks() -> Vec<String> {
         "cargo update",
         "cargo add",
         "npm install --package-lock-only --ignore-scripts",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// npm's options that would undo `--package-lock-only` or `--ignore-scripts` or install elsewhere: a negated option
+/// (`--no-ignore-scripts`); any option given a value after `=`, which turns a flag off with `false`, `null`, `0` or
+/// nothing and sets `--location=global` or `--prefix=<dir>`; a flag turned off by a separate `false`; and `-g`,
+/// `--global`, `--location`, `--prefix` and `-C`, with every abbreviation of them npm takes.
+fn locks_except() -> Vec<String> {
+    [
+        "npm install *-no-*",
+        "npm install *=*",
+        "npm install * false*",
+        "npm install * -g*",
+        "npm install *--gl*",
+        "npm install *--loc*",
+        "npm install *--pref*",
+        "npm install * -C*",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -395,19 +421,36 @@ impl Permissions {
         self.locks_of(line).iter().map(|c| format!("Bash({c} *)")).collect()
     }
 
-    /// What a round on `line` may not use, as the CLI's tool rules name it: each heavy command, and for a line that
-    /// only reads, the tools that edit files and the git commands that change the repository. On a line that writes
-    /// code a heavy command that a command updating a lock file falls under, such as `cargo` for `cargo update`, is
-    /// left out, since the CLI refuses what any of its rules refuses even where another allows it: there its other
-    /// uses are refused as every command is that no rule allows, and the CLI's own arguments must allow none of them.
-    pub fn refused(&self, line: &str) -> Vec<String> {
+    /// What a round on `line`, run in `cli`, may not use, as the CLI's tool rules name it: each heavy command, and for a
+    /// line that only reads, the tools that edit files and the git commands that change the repository.
+    ///
+    /// On a line that writes code a heavy command that a command updating a lock file falls under, such as `cargo` for
+    /// `cargo update`, is left out, since the CLI refuses what any of its rules refuses even where another allows it.
+    /// Its other uses are then refused only as every command is that no rule allows, so each rule of the CLI's own
+    /// arguments that allows one, such as `Bash(cargo fmt *)`, is refused again, and where those arguments allow all
+    /// of the heavy command, it is kept whole, and the lock commands under it are refused with it. The uses of the
+    /// lock commands that would build, run or install after all are refused there too.
+    pub fn refused(&self, line: &str, cli: &Cli) -> Vec<String> {
         let locks = self.locks_of(line);
-        let mut out: Vec<String> = self
-            .heavy
-            .iter()
-            .filter(|h| !locks.iter().any(|l| falls_under(l, h)))
-            .map(|c| format!("Bash({c} *)"))
-            .collect();
+        let allows = cli.allows();
+        let commands: Vec<(&String, &str)> = allows.iter().filter_map(|r| bash_command(r).map(|c| (r, c))).collect();
+        let mut out: Vec<String> = Vec::new();
+        for h in &self.heavy {
+            let lifted = locks.iter().any(|l| falls_under(l, h))
+                && !commands.iter().any(|(_, c)| c.is_empty() || falls_under(h, c));
+            if !lifted {
+                out.push(format!("Bash({h} *)"));
+                continue;
+            }
+            for (rule, c) in &commands {
+                if falls_under(c, h) && !locks.iter().any(|l| falls_under(c, l)) && !out.contains(rule) {
+                    out.push(rule.to_string());
+                }
+            }
+        }
+        if !locks.is_empty() {
+            out.extend(self.locks_except.iter().map(|c| format!("Bash({c})")));
+        }
         if self.reads_only(line) {
             out.extend(EDIT_TOOLS.iter().map(|t| t.to_string()));
             out.extend(GIT_CHANGES.iter().map(|g| format!("Bash(git {g} *)")));
@@ -422,6 +465,41 @@ fn falls_under(command: &str, heavy: &str) -> bool {
     command
         .strip_prefix(heavy)
         .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+}
+
+/// The rules a value of a list of tool rules holds, split at commas and spaces outside parentheses.
+fn rules_in(value: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let (mut depth, mut start) = (0usize, 0usize);
+    for (i, c) in value.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            c if depth == 0 && (c == ',' || c.is_whitespace()) => {
+                out.push(&value[start..i]);
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    out.push(&value[start..]);
+    out.into_iter().filter(|r| !r.is_empty()).map(str::to_string).collect()
+}
+
+/// The commands a rule of the CLI's tools lets run in its shell, as a command with the start of its arguments: what
+/// `Bash(cargo fmt *)`, `Bash(cargo fmt:*)` or `Bash(cargo fmt)` names, `cargo fmt`; empty for one that may cover every
+/// command, a bare `Bash` or a rule that starts with `*`. None for a rule of another tool.
+fn bash_command(rule: &str) -> Option<&str> {
+    if rule == "Bash" {
+        return Some("");
+    }
+    let body = rule.strip_prefix("Bash(")?.strip_suffix(')')?;
+    let command = body
+        .strip_suffix(":*")
+        .or_else(|| body.strip_suffix('*'))
+        .unwrap_or(body)
+        .trim();
+    Some(if command.starts_with('*') { "" } else { command })
 }
 
 /// How many subagents a round may start for chores within it, such as reading documents or searching code.
@@ -461,6 +539,36 @@ pub struct Cli {
 }
 
 impl Cli {
+    /// The rules of the CLI's tools that its own arguments allow, as written there: each value of `--allowedTools`
+    /// split into its rules, as `claude` splits it, at commas and spaces outside parentheses; and a bare `Bash` when
+    /// the arguments skip the CLI's permission checks, which then let every command run.
+    pub fn allows(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut taking = false;
+        for (i, a) in self.args.iter().enumerate() {
+            if let Some(v) = a
+                .strip_prefix("--allowedTools=")
+                .or_else(|| a.strip_prefix("--allowed-tools="))
+            {
+                out.extend(rules_in(v));
+                taking = false;
+            } else if a == "--allowedTools" || a == "--allowed-tools" {
+                taking = true;
+            } else if a.starts_with('-') {
+                taking = false;
+                let bypass = a == "--dangerously-skip-permissions"
+                    || a == "--permission-mode=bypassPermissions"
+                    || (a == "--permission-mode" && self.args.get(i + 1).is_some_and(|m| m == "bypassPermissions"));
+                if bypass {
+                    out.push("Bash".to_string());
+                }
+            } else if taking {
+                out.extend(rules_in(a));
+            }
+        }
+        out
+    }
+
     /// The directory the CLI named `name` runs agents with, for the data directory `data`.
     pub fn home(&self, data: &Path, name: &str) -> PathBuf {
         match &self.config_dir {
@@ -1971,7 +2079,7 @@ asks = 9
             "advisor",
             "librarian",
         ] {
-            let refused = p.refused(line);
+            let refused = p.refused(line, &cli(&[]));
             for t in EDIT_TOOLS {
                 assert!(refused.iter().any(|r| r == t), "{line}: {t}");
             }
@@ -1982,16 +2090,28 @@ asks = 9
                 assert!(!refused.contains(&format!("Bash(git {g} *)")), "{line}: git {g}");
             }
         }
-        let engineer = p.refused("engineer");
+        let engineer = p.refused("engineer", &cli(&[]));
         assert!(!engineer.iter().any(|r| r == "Edit" || r == "Bash(git commit *)"));
+    }
+
+    /// A `claude` CLI with these arguments of its own.
+    fn cli(args: &[&str]) -> Cli {
+        Cli {
+            kind: CliKind::Claude,
+            command: "claude".into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            config_dir: None,
+        }
     }
 
     // A line that writes code, the engineer's and the adversarial tester's, may update a lock file with the package
     // manager, and no heavy rule of the engine refuses that: the heavy commands the lock commands fall under are left
-    // out there, every other stays. A line that only reads is allowed none of them, and refused every heavy command.
+    // out there, every other stays, and the npm options that would undo a lock command are refused. A line that only
+    // reads is allowed none of them, and refused every heavy command.
     #[test]
     fn only_a_line_that_writes_code_may_update_a_lock_file() {
         let p = Permissions::default();
+        let bare = cli(&[]);
         let locks = [
             "Bash(cargo update *)",
             "Bash(cargo add *)",
@@ -1999,7 +2119,7 @@ asks = 9
         ];
         for line in ["engineer", "adversarial"] {
             assert_eq!(p.allowed(line), locks, "{line}");
-            let refused = p.refused(line);
+            let refused = p.refused(line, &bare);
             for gone in ["Bash(cargo *)", "Bash(npm install *)"] {
                 assert!(!refused.iter().any(|r| r == gone), "{line}: {gone}");
             }
@@ -2009,34 +2129,147 @@ asks = 9
                 "Bash(npm ci *)",
                 "Bash(npx *)",
                 "Bash(git push *)",
+                "Bash(npm install *-no-*)",
+                "Bash(npm install *=*)",
+                "Bash(npm install * -g*)",
+                "Bash(npm install *--pref*)",
             ] {
                 assert!(refused.iter().any(|r| r == kept), "{line}: {kept}");
             }
-            assert_eq!(refused.len(), p.heavy.len() - 2, "{line}");
+            assert_eq!(refused.len(), p.heavy.len() - 2 + p.locks_except.len(), "{line}");
         }
-        for line in ["review", "advisor", "architect"] {
+        assert!(!p.read_only.is_empty());
+        for line in &p.read_only {
             assert!(p.allowed(line).is_empty(), "{line}");
             assert!(p.locks_of(line).is_empty(), "{line}");
-            let refused = p.refused(line);
+            let refused = p.refused(line, &bare);
             for heavy in &p.heavy {
                 assert!(refused.contains(&format!("Bash({heavy} *)")), "{line}: {heavy}");
             }
+            assert!(!refused.iter().any(|r| r.contains("-no-")), "{line}");
         }
         // A lock command falls under a heavy command by whole words, and a heavy command narrower than a lock command
         // still refuses what it names: what the installation counts as heavy work holds over its lock commands.
         let set: Permissions = toml::from_str(
-            "heavy = [\"car\", \"cargo\", \"cargo update --precise\", \"npm\"]\nlocks = [\"cargo update\"]",
+            "heavy = [\"car\", \"cargo\", \"cargo update --precise\", \"npm\"]\nlocks = [\"cargo update\"]\n\
+             locks_except = []",
         )
         .unwrap();
         assert_eq!(
-            set.refused("engineer"),
+            set.refused("engineer", &bare),
             ["Bash(car *)", "Bash(cargo update --precise *)", "Bash(npm *)"]
         );
         assert_eq!(set.allowed("engineer"), ["Bash(cargo update *)"]);
         // An installation that lists no lock command refuses every heavy command on every line, as before.
         let none: Permissions = toml::from_str("locks = []").unwrap();
         assert!(none.allowed("engineer").is_empty());
-        assert_eq!(none.refused("engineer").len(), none.heavy.len());
+        assert_eq!(none.refused("engineer", &bare).len(), none.heavy.len());
+    }
+
+    // A heavy command left out for a lock command stays refused in every other use the CLI's own arguments allow: the
+    // engine refuses each such rule again, as `cargo fmt` that the installation allows, but not a lock command or a
+    // use under one; and where the arguments allow the whole heavy command, or every command, it keeps it whole.
+    #[test]
+    fn what_the_cli_s_own_arguments_allow_under_a_heavy_command_stays_refused() {
+        let p = Permissions::default();
+        let installed = cli(&[
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Bash(git *)",
+            "Bash(rustfmt *)",
+            "Bash(cargo fmt *)",
+            "Bash(cargo update -p:*),Read",
+            "--disallowedTools",
+            "Bash(npm install *)",
+        ]);
+        assert_eq!(
+            installed.allows(),
+            [
+                "Bash(git *)",
+                "Bash(rustfmt *)",
+                "Bash(cargo fmt *)",
+                "Bash(cargo update -p:*)",
+                "Read"
+            ]
+        );
+        let refused = p.refused("engineer", &installed);
+        assert!(refused.iter().any(|r| r == "Bash(cargo fmt *)"), "{refused:?}");
+        assert!(
+            !refused
+                .iter()
+                .any(|r| r == "Bash(cargo *)" || r.starts_with("Bash(cargo update") || r == "Bash(git *)"),
+            "{refused:?}"
+        );
+        assert_eq!(refused.len(), p.heavy.len() - 2 + p.locks_except.len() + 1);
+        // A value after `=`, an exact command, and several rules in one word split at commas and spaces.
+        let exact = cli(&["--allowed-tools=Bash(cargo fmt --check) Bash(npm install foo:*)"]);
+        let refused = p.refused("engineer", &exact);
+        assert!(refused.iter().any(|r| r == "Bash(cargo fmt --check)"), "{refused:?}");
+        assert!(refused.iter().any(|r| r == "Bash(npm install foo:*)"), "{refused:?}");
+        // The whole of a heavy command allowed, every command allowed, or the permission checks skipped: the heavy
+        // command stays refused whole, and the lock commands under it with it.
+        for args in [
+            &["--allowedTools", "Bash(cargo:*)"][..],
+            &["--allowedTools", "Bash"],
+            &["--allowedTools", "Bash(* --version)"],
+            &["--dangerously-skip-permissions"],
+            &["--permission-mode", "bypassPermissions"],
+        ] {
+            let refused = p.refused("engineer", &cli(args));
+            assert!(refused.iter().any(|r| r == "Bash(cargo *)"), "{args:?}");
+        }
+        // A read-only line keeps every heavy command whole whatever the arguments allow, and refuses no rule of theirs.
+        let review = p.refused("review", &installed);
+        assert!(review.iter().any(|r| r == "Bash(cargo *)") && !review.iter().any(|r| r == "Bash(cargo fmt *)"));
+    }
+
+    /// Whether a command matches a pattern of the CLI's tool rules, in which `*` stands for any text.
+    fn matches(pattern: &str, command: &str) -> bool {
+        match pattern.split_once('*') {
+            None => pattern == command,
+            Some((head, rest)) => command
+                .strip_prefix(head)
+                .is_some_and(|tail| (0..=tail.len()).any(|i| matches(rest, &tail[i..]))),
+        }
+    }
+
+    // The npm lock command, written as an agent writes it, is allowed and refused by no exception; each later option
+    // that would undo `--package-lock-only` or `--ignore-scripts`, or install elsewhere, is refused by one.
+    #[test]
+    fn the_npm_options_that_would_undo_the_lock_command_are_refused_and_it_is_not() {
+        let p = Permissions::default();
+        let refused = |command: &str| p.locks_except.iter().any(|e| matches(e, command));
+        let lock = "npm install --package-lock-only --ignore-scripts";
+        assert!(!refused(lock));
+        for args in ["happy-dom", "-D --save-exact happy-dom@21.0.4", "-w client vitest"] {
+            let command = format!("{lock} {args}");
+            assert!(
+                p.allowed("engineer")
+                    .iter()
+                    .any(|a| matches(&a[5..a.len() - 1], &command)),
+                "{command}"
+            );
+            assert!(!refused(&command), "{command}");
+        }
+        for args in [
+            "--no-package-lock-only",
+            "--no-ignore-scripts",
+            "--ignore-scripts=false",
+            "--ignore-scripts=0",
+            "--package-lock-only=",
+            "--ignore-scripts false",
+            "-g",
+            "--global",
+            "--location global",
+            "--location=global",
+            "--prefix /elsewhere",
+            "--prefix=/elsewhere",
+            "-C /elsewhere",
+        ] {
+            let command = format!("{lock} {args} happy-dom");
+            assert!(refused(&command), "{command}");
+        }
     }
 
     // The level above a level goes by the levels' names, by number when they are numbers; the top is its own level

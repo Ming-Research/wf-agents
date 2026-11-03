@@ -834,6 +834,8 @@ pub fn cell_request(
         (None, None) => architect::workdir(&e.data, g, cell, architect::project_of(w)?),
     };
     let readable = readable_dirs(e);
+    let permissions = &e.config.config.install.agents.permissions;
+    let (allowed, refused) = (permissions.allowed(&line), permissions.refused(&line, &cli));
     Ok(Request {
         work: w.id,
         cell: cell.id.clone(),
@@ -849,8 +851,8 @@ pub fn cell_request(
         images: Vec::new(),
         schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
         envelope: sessions::cli::envelope(g, cell.line.as_deref()),
-        allowed: e.config.config.install.agents.permissions.allowed(&line),
-        refused: e.config.config.install.agents.permissions.refused(&line),
+        allowed,
+        refused,
         readable,
         replay: None,
         regive: None,
