@@ -50,7 +50,10 @@ fn queue(db: &Db, project: &str) -> Vec<i64> {
         .conn()
         .prepare("SELECT work FROM merge_queue WHERE project = ?1")
         .unwrap();
-    st.query_map([project], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    st.query_map([project], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
 }
 
 // A work inserted at the merge cell comes to it by its insertion, at the place its insertion took among the others'
@@ -102,7 +105,10 @@ fn with_history(history: usize) -> (Db, i64, i64) {
     db.write(Actor::Engine, |tx| {
         for n in 0..history {
             tx.execute("UPDATE works SET at = 'M2' WHERE id = ?1", [x])?;
-            tx.execute("UPDATE works SET pushed_head = ?2 WHERE id = ?1", params![x, format!("a{n}")])?;
+            tx.execute(
+                "UPDATE works SET pushed_head = ?2 WHERE id = ?1",
+                params![x, format!("a{n}")],
+            )?;
             tx.execute("UPDATE works SET at = 'T6' WHERE id = ?1", [x])?;
         }
         Ok(())
@@ -125,7 +131,10 @@ fn with_history(history: usize) -> (Db, i64, i64) {
 
 /// The number of steps the database's virtual machine takes to read project p's merge queue.
 fn steps_to_read(db: &Db) -> i32 {
-    let mut st = db.conn().prepare("SELECT work FROM merge_queue WHERE project = 'p'").unwrap();
+    let mut st = db
+        .conn()
+        .prepare("SELECT work FROM merge_queue WHERE project = 'p'")
+        .unwrap();
     let rows = st.query_map([], |r| r.get::<_, i64>(0)).unwrap().count();
     assert_eq!(rows, 2);
     st.get_status(StatementStatus::VmStep)
@@ -142,5 +151,8 @@ fn the_cost_of_reading_the_merge_queue_does_not_grow_with_the_history_of_its_wor
     assert_eq!(queue(&long, "p"), [y_long, x_long]);
     let (few, many) = (steps_to_read(&short), steps_to_read(&long));
     assert!(few > 0, "the steps were not counted");
-    assert!(many <= few + 50, "a work with no history takes {few} steps, one with a long history {many}");
+    assert!(
+        many <= few + 50,
+        "a work with no history takes {few} steps, one with a long history {many}"
+    );
 }
