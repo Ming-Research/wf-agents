@@ -274,15 +274,21 @@ fn retrying(cell: Option<&CompiledCell>, rounds: &[Light], g: Option<&CompiledGr
     let (Some(c), Some(r), Some(section)) = (cell, rounds.last(), g.and_then(|g| g.rounds.as_ref())) else {
         return false;
     };
-    let kind = r.rejected.as_ref().and_then(|x| x["failed"]["kind"].as_str());
+    let failed = r.rejected.as_ref().map(|x| &x["failed"]);
+    let kind = failed.and_then(|f| f["kind"].as_str());
+    // A failure past its bound is not run again: the engine paused the work.
+    let over = failed.is_some_and(|f| !f["over"].is_null());
+    // The wait is `failed::waiting`'s: a kind of failed run the flow runs again, or the engine's step before the cell's
+    // round that reaches the network (`step_network`), which the flow's case for it runs again after its backoff.
     r.ended_at.is_some()
+        && !over
         && r.cell.as_deref() == Some(c.id.as_str())
         && kind.is_some_and(|k| {
-            section
-                .failed
-                .kinds
-                .iter()
-                .any(|f| f.name == k && f.handle == Handle::Retry)
+            section.failed.kinds.iter().any(|f| f.name == k && f.handle == Handle::Retry)
+                || section
+                    .engine
+                    .iter()
+                    .any(|e| e.name == k && e.in_row.is_some() && !e.backoff.is_empty())
         })
 }
 
@@ -328,7 +334,8 @@ fn waits(conn: &Connection, w: &WorkRow, rounds: &[Light], g: Option<&CompiledGr
             None => asked_architect(conn, r)?.map(|matter| Waits::Architect { matter, project: None }),
         });
     }
-    if retrying(cell, rounds, g) {
+    // A paused work is not run again, whatever its last round was, so it waits for nothing to retry.
+    if w.paused.is_none() && retrying(cell, rounds, g) {
         return Ok(Some(Waits::Retry));
     }
     let Some(row) = waiting_row(cell, rounds) else {
@@ -2814,7 +2821,9 @@ mod tests {
     // The engine steps a work whose cell failed in a way the flow runs again, after a wait that grows, and that step
     // writes no round: the page must read the work as waiting, not as ready. A failed run of a kind that halts every
     // work reads as ready (the engine's halt says the rest), a round open after it as running, and a failed run at
-    // another cell than the one the work stands at as none of the cell's.
+    // another cell than the one the work stands at as none of the cell's. The engine's step before the cell's round
+    // that reached the network and failed (`step_network`) waits the same way; a failure past its bound and a work that
+    // is paused wait for no run again.
     #[test]
     fn a_cell_whose_last_round_failed_in_a_way_the_flow_runs_again_waits_to_run_again() {
         let mut s = setup("retry");
@@ -2825,12 +2834,17 @@ mod tests {
         assert_eq!(handle("prompt_too_long"), Some(Handle::Pause));
         let cache = Flows::default();
         // A new work at the cell R1 whose one ended round was at `cell` and failed as `kind`; as it is read.
-        let failed = |s: &mut Setup, cell: &str, kind: &str| {
-            let rejected = json!({ "failed": { "kind": kind, "what": "x" } }).to_string();
+        // `paused` is a reason the work was paused for by the owner, when it was.
+        let failed_with = |s: &mut Setup, cell: &str, failed: Value, paused: Option<&str>| {
+            let rejected = json!({ "failed": failed }).to_string();
             let id = s
                 .db
                 .write(Actor::Engine, |tx| {
-                    tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'R1')", [])?;
+                    tx.execute(
+                        "INSERT INTO works (item, flow_version, graph, at, paused, paused_by)
+                         VALUES (1, 1, 'engineer', 'R1', ?1, IIF(?1 IS NULL, NULL, 'owner'))",
+                        [paused],
+                    )?;
                     let id = tx.last_insert_rowid();
                     tx.execute(
                         "INSERT INTO rounds (work, n, cell, input, output, rejected, config_commit, started_at, ended_at)
@@ -2849,6 +2863,9 @@ mod tests {
                     .unwrap(),
             )
         };
+        let failed = |s: &mut Setup, cell: &str, kind: &str| {
+            failed_with(s, cell, json!({ "kind": kind, "what": "x" }), None)
+        };
         let read = |s: &mut Setup, cell: &str, kind: &str| {
             let (_, w) = failed(s, cell, kind);
             (w.state, w.waits)
@@ -2857,6 +2874,25 @@ mod tests {
             read(&mut s, "R1", "transient"),
             (WorkState::Waiting, Some(Waits::Retry))
         );
+        // The engine's step before the cell's round that reached the network, taken again after its backoff, is the
+        // same wait (`failed::waiting`): a work that only waits must not read as ready.
+        let case = section.engine.iter().find(|c| c.name == "step_network").unwrap();
+        assert!(case.in_row.is_some() && !case.backoff.is_empty());
+        assert_eq!(
+            read(&mut s, "R1", "step_network"),
+            (WorkState::Waiting, Some(Waits::Retry))
+        );
+        // Past its bound a failure is not run again: the engine paused the work, and a record that says so reads as no
+        // wait, whichever kind it is.
+        for kind in ["transient", "step_network"] {
+            let (_, w) = failed_with(&mut s, "R1", json!({ "kind": kind, "what": "x", "over": 3 }), None);
+            assert_eq!((w.state, w.waits), (WorkState::Ready, None), "{kind} past its bound");
+        }
+        // A work that is paused is not run again, whatever its last round was: it waits for nothing to retry.
+        for kind in ["transient", "step_network"] {
+            let (_, w) = failed_with(&mut s, "R1", json!({ "kind": kind, "what": "x" }), Some("the owner paused it"));
+            assert_eq!((w.state, w.waits), (WorkState::Paused, None), "{kind}, paused");
+        }
         assert_eq!(read(&mut s, "R1", "offline"), (WorkState::Ready, None));
         assert_eq!(read(&mut s, "R1", "prompt_too_long"), (WorkState::Ready, None));
         // A failed run at another cell than the one the work stands at is not the cell's to run again.

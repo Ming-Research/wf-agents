@@ -226,8 +226,10 @@ pub enum Waits {
     Items { items: Vec<i64> },
     /// What the row it took waits for, when it is none of these: the cell and the row.
     Row { cell: String, row: String },
-    /// Its last round at the cell ended without a return, of a kind of failed run the flow runs again: the cell runs
-    /// again after a wait that grows with each failure. Nothing the owner can do shortens it, so it names no time.
+    /// Its last round at the cell ended without a return, of a kind of failed run the flow runs again, or is the record
+    /// of the engine's step before the cell's round that reached the network and failed (`step_network`), not past
+    /// its bound: the cell runs again after a wait that grows with each failure. Nothing the owner can do shortens it,
+    /// so it names no time. A paused work does not wait so.
     Retry,
 }
 
