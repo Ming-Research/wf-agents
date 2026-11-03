@@ -27,7 +27,8 @@ pub struct CheckRun {
 /// A tool that did not run, in the kinds the flow names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Failure {
-    /// network_or_api, ci_did_not_start, timed_out, machine_down or other.
+    /// network_or_api, ci_did_not_start, timed_out, machine_down or other; or `rejected`, which a tool turns into a
+    /// refusal its agent sees and never gives as a failed tool: GitHub reached, and refused the request itself.
     pub kind: &'static str,
     pub what: String,
 }
@@ -36,6 +37,13 @@ impl Failure {
     pub fn network(what: impl Into<String>) -> Failure {
         Failure {
             kind: "network_or_api",
+            what: what.into(),
+        }
+    }
+
+    pub fn rejected(what: impl Into<String>) -> Failure {
+        Failure {
+            kind: "rejected",
             what: what.into(),
         }
     }
@@ -622,7 +630,13 @@ impl GitHub for Gh {
         for f in &fields {
             args.extend(["-f", f.as_str()]);
         }
-        self.run(&args).map(|_| ())
+        self.run(&args).map(|_| ()).map_err(|f| {
+            if dispatch_rejected(&f.what) {
+                Failure::rejected(f.what)
+            } else {
+                f
+            }
+        })
     }
 
     fn job_log(&self, repo: &str, check: &CheckRun) -> Result<String, Failure> {
@@ -722,6 +736,14 @@ impl GitHub for Gh {
     }
 }
 
+/// Whether what `gh workflow run` said is GitHub refusing the request itself (HTTP 422: an input the workflow requires
+/// is missing, one it does not take is given, a value is not allowed, the workflow cannot run by hand), which running
+/// it again cannot change; not a failure to reach GitHub, nor a ref GitHub has not seen yet after the push, which a
+/// later try gets through.
+fn dispatch_rejected(said: &str) -> bool {
+    said.contains("HTTP 422") && !said.contains("No ref found")
+}
+
 /// Pushes a commit to a branch or ref of the worktree's origin; it must fast-forward unless forced.
 pub fn push(worktree: &Path, sha: &str, refname: &str, force: bool) -> Result<(), Failure> {
     let spec = format!("{}{sha}:{refname}", if force { "+" } else { "" });
@@ -740,6 +762,22 @@ pub fn delete_ref(worktree: &Path, refname: &str) -> Result<(), Failure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // gh's messages for a workflow run by hand that GitHub refuses are told from a failure to reach GitHub and from a
+    // ref GitHub has not seen yet: only the first is a request no later try can fix.
+    #[test]
+    fn a_refused_dispatch_is_told_from_one_that_could_not_be_made() {
+        let said = |s: &str| format!("gh workflow run measure.yml -R o/r --ref b -f x=1: {s}");
+        assert!(dispatch_rejected(&said(
+            "could not create workflow dispatch event: HTTP 422: Required input 'base' not provided"
+        )));
+        assert!(dispatch_rejected(&said(
+            "could not create workflow dispatch event: HTTP 422: Unexpected inputs provided: [\"x\"]"
+        )));
+        assert!(!dispatch_rejected(&said("HTTP 422: No ref found for: b")));
+        assert!(!dispatch_rejected(&said("error connecting to api.github.com")));
+        assert!(!dispatch_rejected(&said("HTTP 502: Bad Gateway")));
+    }
 
     #[test]
     fn a_job_log_loses_what_gh_puts_before_each_line_and_its_colours() {

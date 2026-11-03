@@ -555,8 +555,12 @@ pub struct Ci {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generated_artifact: Option<String>,
     /// The workflows the measure tool may run, each with what it takes and gives; none when the project has no
-    /// measurement workflow, and the measure tool then refuses and says so. Left out of the settings an agent is
-    /// shown when empty, which they read as `none`.
+    /// measurement workflow, and the measure tool then refuses and says so. The tool runs a workflow on a temporary ref
+    /// under `wf-agents-measure/` and finds its run by the ref's commit and the workflow's name, so the project's
+    /// workflows that run on push, the fast CI and a measurement workflow itself among them, must ignore branches under
+    /// `wf-agents-measure/`; else the push starts the fast CI as well, and a push run of the measurement workflow could
+    /// be taken for the one dispatched. Left out of the settings an agent is shown when empty, which they read as
+    /// `none`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub measure: Vec<MeasureWorkflow>,
 }

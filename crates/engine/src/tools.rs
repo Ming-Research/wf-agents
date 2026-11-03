@@ -874,17 +874,48 @@ fn measure(
     let branch = format!("{MEASURE}/{}-{}-{n}", round.work, round.n);
     let refname = format!("refs/heads/{branch}");
     let inputs: Vec<(&str, &str)> = inputs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    attempts(e, round, "measure", req, |e| {
-        let message = format!("Measurement of {sha} for round {round}, request {n}, at {}", db::now());
-        let commit = git::commit_over(&wt, &sha, &message).map_err(Failure::other)?;
-        hub::push(&wt, &commit, &refname, true)?;
-        let ran = e
-            .github()
-            .dispatch(&repo(project), &wf.workflow, &branch, &inputs)
-            .and_then(|()| e.github().checks(&repo(project), &commit, &wf.workflow));
-        // The run is over, or did not come; the ref has served either way.
-        let _ = hub::delete_ref(&wt, &refname);
-        let checks = ran?;
+    // A try again must not start another measurement, which takes as long as the workflow does: the commit is made
+    // once, and once the workflow has been dispatched a try again only waits for its run again.
+    let mut commit: Option<String> = None;
+    let mut dispatched = false;
+    let got = attempts(e, round, "measure", req, |e| {
+        let at = match commit.clone() {
+            Some(at) => at,
+            None => {
+                let message = format!("Measurement of {sha} for round {round}, request {n}, at {}", db::now());
+                let at = git::commit_over(&wt, &sha, &message).map_err(Failure::other)?;
+                commit = Some(at.clone());
+                at
+            }
+        };
+        let ran = if dispatched {
+            e.github().checks(&repo(project), &at, &wf.workflow)
+        } else {
+            hub::push(&wt, &at, &refname, true)
+                .and_then(|()| e.github().dispatch(&repo(project), &wf.workflow, &branch, &inputs))
+                .and_then(|()| {
+                    dispatched = true;
+                    e.github().checks(&repo(project), &at, &wf.workflow)
+                })
+        };
+        let checks = match ran {
+            Ok(checks) => checks,
+            // GitHub refused the request itself, such as an input the workflow requires and the request lacks: trying
+            // again cannot help, and the engineer, who can change the request, is told what GitHub said.
+            Err(f) if f.kind == "rejected" => {
+                return Ok(json!({ "push": { "verdict": "refused", "why": format!(
+                    "GitHub refused to run {}: {}", wf.workflow, f.what
+                ) } }));
+            }
+            // A run that did not start or did not finish in time is not tried again, which would start another and
+            // wait as long again; it is a measurement that did not run to the end, and says why.
+            Err(f) if matches!(f.kind, "ci_did_not_start" | "timed_out") => {
+                return Ok(json!({ "push": {
+                    "verdict": "ran", "head": sha, "run": "", "ok": "not_run", "files": [], "note": f.what,
+                } }));
+            }
+            Err(f) => return Err(f),
+        };
         let dir = e.data.join("tool-output").join(format!("{round}-{n}-measure"));
         let (files, missed) = keep_measurement(e.github(), &dir, &repo(project), wf.artifact.as_deref(), &checks);
         let whole = !checks.is_empty() && checks.iter().all(|c| c.result == "green");
@@ -907,7 +938,10 @@ fn measure(
             ));
         }
         Ok(json!({ "push": push }))
-    })
+    });
+    // The run is over, or did not come, or no try will: the ref has served.
+    let _ = hub::delete_ref(&wt, &refname);
+    got
 }
 
 fn gh(

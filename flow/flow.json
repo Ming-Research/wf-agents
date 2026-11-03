@@ -3123,7 +3123,7 @@
           "branches": [
             {
               "value": "ran",
-              "desc": "The workflow ran on the head, and has finished",
+              "desc": "The workflow was run on the head, and has finished or been given up on; ok and note say which",
               "fields": [
                 {
                   "name": "head",
@@ -3149,7 +3149,7 @@
                     ],
                     [
                       "not_run",
-                      "A job of the workflow ended red or was cancelled"
+                      "A job of the workflow ended red or was cancelled, or the run did not start or did not finish in time (the note says which)"
                     ]
                   ]
                 },
@@ -3167,7 +3167,7 @@
                   "name": "note",
                   "title": "Note",
                   "type": "text",
-                  "desc": "What of the run's logs or artifact could not be fetched or saved, and why",
+                  "desc": "What of the run's logs or artifact could not be fetched or saved, and why; or, when the run is empty, why there is no run: it did not start or did not finish in time",
                   "optional": true
                 }
               ]
@@ -3180,7 +3180,7 @@
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed: the project lists no measurement workflow, the workflow or an input is not one it lists, or the head is not the one handed in, has uncommitted changes in the worktree, does not follow the last push, or carries another branch"
+                  "desc": "Which check failed, or what GitHub said in refusing the request: the project lists no measurement workflow, the workflow or an input is not one it lists, or the head is not the one handed in, has uncommitted changes in the worktree, does not follow the last push, or carries another branch"
                 }
               ]
             }

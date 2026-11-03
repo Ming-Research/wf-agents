@@ -609,10 +609,15 @@ struct ByHand {
     branch: String,
     commit: Option<String>,
     inputs: Vec<(String, String)>,
+    /// How many times the run was waited for.
+    waits: usize,
 }
 
 /// The runs by hand the fake GitHub was asked for, in order, which a test reads. A run whose `command` input is `red`
-/// ends red, and one whose `command` is `down` fails to start, as GitHub does when it cannot be reached.
+/// ends red, one whose `command` is `down` fails to start, as GitHub does when it cannot be reached, one whose `command`
+/// is `reject` is refused as GitHub refuses a request that lacks an input the workflow requires, one whose `command` is
+/// `timeout` does not finish in time, and one whose `command` is `flaky` is run, but the first wait for it fails to
+/// reach GitHub.
 type ByHands = Arc<Mutex<Vec<ByHand>>>;
 
 /// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
@@ -691,9 +696,30 @@ impl GitHub for FakeHub {
 
     fn checks(&self, _repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
         self.ci.pass();
-        let red = self
-            .run_by_hand(sha)
-            .is_some_and(|d| d.inputs.contains(&("command".to_string(), "red".to_string())));
+        let command = |c: &str| {
+            self.run_by_hand(sha)
+                .is_some_and(|d| d.inputs.contains(&("command".to_string(), c.to_string())))
+        };
+        if command("timeout") {
+            return Err(Failure {
+                kind: "timed_out",
+                what: format!("the run of {workflow} on {sha} did not finish in 10800 s"),
+            });
+        }
+        if command("flaky") {
+            let mut runs = self.by_hand.lock().unwrap();
+            let waits = runs
+                .iter_mut()
+                .find(|d| d.commit.as_deref() == Some(sha))
+                .map(|d| {
+                    d.waits += 1;
+                    d.waits
+                });
+            if waits == Some(1) {
+                return Err(Failure::network("gh run list: connection reset"));
+            }
+        }
+        let red = command("red");
         Ok(vec![CheckRun {
             name: "check".into(),
             result: if red { "red" } else { "green" }.into(),
@@ -712,6 +738,7 @@ impl GitHub for FakeHub {
             .unwrap();
         let inputs: Vec<(String, String)> = inputs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let down = inputs.contains(&("command".to_string(), "down".to_string()));
+        let reject = inputs.contains(&("command".to_string(), "reject".to_string()));
         self.by_hand.lock().unwrap().push(ByHand {
             workflow: workflow.to_string(),
             branch: branch.to_string(),
@@ -720,9 +747,16 @@ impl GitHub for FakeHub {
                 .success()
                 .then(|| String::from_utf8_lossy(&on_remote.stdout).trim().to_string()),
             inputs,
+            waits: 0,
         });
         if down {
             return Err(Failure::network("GitHub cannot be reached"));
+        }
+        if reject {
+            return Err(Failure::rejected(format!(
+                "gh workflow run {workflow}: could not create workflow dispatch event: HTTP 422: Required input \
+                 'base' not provided"
+            )));
         }
         Ok(())
     }
@@ -4382,6 +4416,58 @@ fn a_measurement_that_cannot_start_leaves_no_temporary_ref() {
     let by_hand = s.by_hand.lock().unwrap().clone();
     assert_eq!(by_hand.len(), 1, "{by_hand:?}");
     assert!(by_hand[0].commit.is_some(), "{by_hand:?}");
+    assert_eq!(remote_branches(&s), ["refs/heads/main"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A request GitHub refuses to run (an input the workflow requires is missing) is a refusal the engineer sees with what
+// GitHub said, not a failed tool tried three times; a run that does not finish in time is a measurement that did not run
+// to the end, not tried again to wait as long again; and a wait that fails to reach GitHub is tried again by waiting
+// for the same run, not by starting another measurement. None leaves a temporary ref.
+#[test]
+fn a_measurement_is_tried_again_only_by_waiting_for_the_run_it_started() {
+    let s = setup("measure-retry");
+    lists_a_measurement_workflow(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            write(wt, "src/lib.txt", "old\nfeature\n");
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Add the feature"]);
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            let tools = json!([
+                measure_request(&head, "measure.yml", "command=reject"),
+                measure_request(&head, "measure.yml", "command=timeout"),
+                measure_request(&head, "measure.yml", "command=flaky"),
+            ]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "X1");
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(ended_at(&e, item, "X1"), [(Some("ran".to_string()), None)], "{log}");
+    let runs = tool_runs(&e, item, "measure");
+    let attempts: Vec<i64> = runs.iter().map(|r| r.0).collect();
+    assert_eq!(attempts, [1, 1, 1, 2], "{runs:?}\n{log}");
+    // The refusal says what GitHub said.
+    assert_eq!(runs[0].1["push"]["verdict"], "refused", "{runs:?}");
+    let why = runs[0].1["push"]["why"].as_str().unwrap();
+    assert!(why.contains("HTTP 422: Required input 'base' not provided"), "{why}");
+    // The run that did not finish in time has run, not to the end, and says why.
+    let timed_out = &runs[1].1["push"];
+    assert_eq!((&timed_out["verdict"], &timed_out["ok"]), (&json!("ran"), &json!("not_run")), "{runs:?}");
+    assert!(timed_out["note"].as_str().unwrap().contains("did not finish in 10800 s"), "{runs:?}");
+    // The wait that failed is a failed attempt, and the next one has the run of the same measurement.
+    assert_eq!(runs[2].1["failed"]["kind"], "network_or_api", "{runs:?}");
+    assert_eq!(runs[3].1["push"]["ok"], "ran", "{runs:?}");
+    // One workflow was started for each request, none for the try again.
+    let by_hand = s.by_hand.lock().unwrap().clone();
+    assert_eq!(by_hand.len(), 3, "{by_hand:?}");
+    assert_eq!(by_hand[2].waits, 2, "{by_hand:?}");
     assert_eq!(remote_branches(&s), ["refs/heads/main"], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
