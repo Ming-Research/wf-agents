@@ -4075,6 +4075,14 @@ fn a_work_the_version_can_take_on_nowhere_stays_at_v1_paused() {
             ))),
             "{paused:?}"
         );
+        // Its merge does not stand, so a start over and a cancel are offered beside the Start.
+        assert!(
+            paused.as_deref().is_some_and(|p| p.ends_with(
+                "Start it over, or cancel its item; or Start it once a flow version that has a cell it walked is \
+                 installed, and it looks again"
+            )),
+            "{paused:?}"
+        );
         let v1 = brought(&e, work);
         assert_eq!(v1.len(), time, "{v1:?}\n{log}");
         assert_eq!(
@@ -4083,6 +4091,16 @@ fn a_work_the_version_can_take_on_nowhere_stays_at_v1_paused() {
             "{log}"
         );
         assert_eq!(asked(&e).len(), 1, "{log}");
+        let what: String =
+            e.db.conn()
+                .query_row("SELECT what FROM architect_matters WHERE id = ?1", [asked(&e)[0]], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+        assert!(
+            what.ends_with("it waits, paused, for the owner's Start, a start over or a cancel of its item"),
+            "{what}"
+        );
         assert_eq!(works_of(&e, item).len(), 1, "{log}");
         // The owner starts it again.
         e.db.write(Actor::Owner, |tx| {
@@ -4094,14 +4112,82 @@ fn a_work_the_version_can_take_on_nowhere_stays_at_v1_paused() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Item #230: a work whose graph the version the engine runs has no more, as the setting of a policy that was a graph of
-// its own, has no cell of that version to come to: it is paused where it stands, saying why, and its project's
-// architect is asked to set it straight. It is not ended.
+// Item #230, A8: an architect's work that the version the engine runs can take on at none of the cells it walked stays
+// at cell `V1`, paused, as an engineer's does; it asks no architect to set it straight, since that architect is this
+// work, and its pause alone tells the owner, saying what the owner's Start will do.
 #[test]
-fn a_work_whose_graph_the_version_lacks_is_paused_where_it_stands() {
+fn an_architect_work_the_version_can_take_on_nowhere_stays_at_v1_and_asks_no_one() {
+    let s = setup("nowhere-architect");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Look at the item.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    // On the version before, it stood at a cell the version the engine runs lacks, having walked only such a cell.
+    older_graph(&mut e, &[arch], engine::ARCHITECT, |g| {
+        for (id, like) in [("Z0", "Q0"), ("Z1", "Q1")] {
+            let mut c = g.cell(like).unwrap().clone();
+            c.id = id.into();
+            g.cells.push(c);
+        }
+    });
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE works SET at = 'Z1', resume_at = NULL, waiting = '[]' WHERE id = ?1",
+            [arch],
+        )?;
+        tx.execute("UPDATE rounds SET cell = 'Z0' WHERE work = ?1", [arch])?;
+        Ok(())
+    })
+    .unwrap();
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let w = e.work(arch).unwrap();
+    assert_eq!(
+        (w.pos.at.as_str(), w.paused_by.as_deref()),
+        ("V1", Some("engine")),
+        "{log}"
+    );
+    let paused = w.paused.unwrap_or_default();
+    assert!(
+        paused.starts_with(&format!("it cannot go on in flow version {}: ", e.flow_now))
+            && paused.ends_with(
+                "Start it once a flow version that has a cell it walked is installed, and it looks again"
+            ),
+        "{paused}"
+    );
+    let v1 = brought(&e, arch);
+    assert_eq!(
+        v1.iter().map(|(row, out)| (row.as_str(), &out["back_to"])).collect::<Vec<_>>(),
+        [("stuck", &Value::Null)],
+        "{log}"
+    );
+    let asked: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(asked, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #230, A11: a work whose graph the version the engine runs has no more, as the setting of a policy that was a
+// graph of its own, has no cell of that version that can run it: it ends, the owner told why, and what it held is let
+// go: its project's hold of new starts for setting it straight, and the worktree the setting read in. It is neither
+// paused nor put to the architect, and no work starts in its place.
+#[test]
+fn a_work_whose_graph_the_version_lacks_ends_and_lets_go_of_what_it_held() {
     let s = setup("graph-gone");
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
+    let tree = s.data.join("worktrees").join(engine::POLICY).join("p");
+    git(
+        &s.root.join("checkout"),
+        &["worktree", "add", "-q", "--detach", &tree.to_string_lossy()],
+    );
     let now = e.flow_now;
     let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
     let mut policy = f.graph(engine::ARCHITECT).unwrap().clone();
@@ -4119,28 +4205,44 @@ fn a_work_whose_graph_the_version_lacks_is_paused_where_it_stands() {
                 "INSERT INTO works (item, flow_version, graph, at, project) VALUES (NULL, ?1, ?2, 'P1', 'p')",
                 params![v, engine::POLICY],
             )?;
-            Ok(tx.last_insert_rowid())
+            let work = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO dispatch_holds (project, reason, since) VALUES ('p', 'set_straight', 1)",
+                [],
+            )?;
+            Ok(work)
         })
         .unwrap();
+    assert!(tree.exists());
+    let works = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM works", [], |r| r.get(0))
+            .unwrap()
+    };
+    let before = works(&e);
     e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     let w = e.work(work).unwrap();
-    assert_eq!((w.pos.at.as_str(), w.ended.as_deref()), ("P1", None), "{log}");
+    let why = "the version has no graph policy";
     assert_eq!(
-        w.paused.as_deref(),
-        Some(format!("it cannot go on in flow version {now}: the version has no graph policy").as_str()),
+        (w.ended.as_deref(), w.paused.as_deref()),
+        (Some(format!("stopped: {why}").as_str()), None),
         "{log}"
     );
-    let asked: i64 = e
-        .db
-        .conn()
-        .query_row(
-            "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight' AND json_extract(body, '$.work') = ?1",
-            [work],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(asked, 1, "{log}");
+    assert_eq!(notices_of(&e, work), [format!("Work {work} stopped: {why}.")], "{log}");
+    let count = |sql: &str| -> i64 { e.db.conn().query_row(sql, [], |r| r.get(0)).unwrap() };
+    assert_eq!(
+        count("SELECT count(*) FROM dispatch_holds WHERE reason = 'set_straight'"),
+        0,
+        "{log}"
+    );
+    assert_eq!(
+        count("SELECT count(*) FROM architect_matters WHERE kind = 'set_straight'"),
+        0,
+        "{log}"
+    );
+    assert!(!tree.exists(), "{log}");
+    assert_eq!(works(&e), before, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

@@ -1492,10 +1492,15 @@ pub fn bring_up(
     if row.pauses {
         // A paused work is brought to a newer version only as it goes on, so the owner's Start is what looks again.
         let again = "Start it once a flow version that has a cell it walked is installed, and it looks again";
-        let then = match (&back_to, w.graph == ARCHITECT) {
+        // An engineer's work whose merge stands can be neither started over nor cancelled.
+        let ends = match w.item {
+            Some(item) if w.graph != ARCHITECT => !db::merge_stands(e.db.conn(), item).map_err(|x| x.to_string())?,
+            _ => false,
+        };
+        let then = match (&back_to, ends) {
             (Some(t), _) => format!("Start takes it back to cell {t} all the same"),
-            (None, true) => again.to_string(),
-            (None, false) => format!("Start it over, or cancel its item; or {again}"),
+            (None, false) => again.to_string(),
+            (None, true) => format!("Start it over, or cancel its item; or {again}"),
         };
         let now = e.flow_now;
         e.pause(w.id, &format!("it cannot go on in flow version {now}: {why}. {then}"))?;

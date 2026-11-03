@@ -45,7 +45,8 @@ pub enum Plan {
 /// is on, having run `rounds`, oldest first. Both graphs are as the work's project's agents are asked them, which its
 /// returns were checked against. A work never goes back past a round whose effect took hold and cannot be undone, as
 /// `in_effect` says of each round in words (a merge, a reply that went out): it is stuck instead, for the owner to
-/// decide.
+/// decide. An engineer's work whose merge stands is judged by the rounds after its merge alone ([`after_merge`]), so
+/// that no plan, and no Start of the owner's, takes it back before its merge.
 pub fn plan(
     old: &CompiledGraph,
     new: &CompiledGraph,
@@ -53,6 +54,9 @@ pub fn plan(
     rounds: &[Round],
     in_effect: impl Fn(&Round) -> Option<String>,
 ) -> Plan {
+    // A merged work is judged by the rounds after its merge alone: their returns, the cells they walked and those they
+    // would do again. Those before are never done again, and later cells read their returns as they are.
+    let rounds = &rounds[after_merge(old, rounds)..];
     match decide(old, new, pos, rounds) {
         Plan::GoBack { to, why } => {
             let from = redone_from(old, rounds, &to);
@@ -152,6 +156,22 @@ pub fn redone_from(g: &CompiledGraph, rounds: &[Round], to: &str) -> usize {
         }
     }
     first
+}
+
+/// The first of `rounds` after the merge of an engineer's work while it stands, as `db::merge_stands` says: the merge
+/// cell took `merged`, and watching main has not taken `broken_by_merge` since; none (0) for a work whose merge does not
+/// stand, or of another graph.
+fn after_merge(g: &CompiledGraph, rounds: &[Round]) -> usize {
+    let at = |r: &Round, cell: &str, row: &str| {
+        r.transition.as_deref() == Some(row) && r.cell.as_deref().is_some_and(|c| db::is_cell(crate::ENGINEER, cell, c))
+    };
+    if g.name != crate::ENGINEER {
+        return 0;
+    }
+    match rounds.iter().rposition(|r| at(r, crate::MERGE, "merged")) {
+        Some(m) if !rounds[m + 1..].iter().any(|r| at(r, crate::WATCH, "broken_by_merge")) => m + 1,
+        _ => 0,
+    }
 }
 
 /// The cell a work standing at `pos` serves: where it stopped, else the first of the cells that wait for an answer,
@@ -887,66 +907,33 @@ mod tests {
         );
     }
 
-    // A work never goes back past a round whose effect cannot be undone: an engineer's work whose pull request merged
-    // and whose answer from before the merge no longer fits is stuck, with that cell for the owner's Start, whether it
-    // waits for main's checks or writes what it learned; one that goes back to a cell after its merge goes back. An
-    // answer from before the merge that no cell the work can still come to reads takes no part: it moves.
+    // Item #230, A12: an engineer's work whose merge stands is judged by the rounds after its merge alone, so that
+    // neither the engine nor the owner's Start ever takes it back before its merge: an answer from before the merge
+    // that no longer fits moves it, a cell after the merge it had begun and the version changed is done again, and with
+    // no cell walked since the merge it is stuck with nowhere to go back to. Once watching main took the merge back,
+    // going back past the merge is stuck, with that cell for the owner's Start.
     #[test]
     fn a_merged_work_never_goes_back_before_its_merge() {
         let old = engineer();
-        let mut new = old.clone();
-        needs_after(&mut new, "R1", "understanding");
         let rounds = [
             ran(1, "R1", "done", sample("R1", "done")),
-            ran(2, "M2", "merged", sample("M2", "merged")),
-            ran(3, "L1", "green", sample("L1", "green")),
-        ];
-        match plan(&old, &new, &at("L1"), &rounds[..2]) {
-            Plan::Stuck { why, back_to } => {
-                assert!(
-                    why.ends_with("going back to cell R1 would do round R1-2 again, which merged the pull request"),
-                    "{why}"
-                );
-                assert_eq!(back_to.as_deref(), Some("R1"));
-            }
-            other => panic!("{other:?}"),
-        }
-        // A version whose cell L2 goes on by its own rows alone, which no cell after it reads the answer of R2 in.
-        let mut alone = old.clone();
-        cell(&mut alone, "L2").rows.retain(|r| !r.common);
-        let done = [
-            ran(1, "R2", "stands", sample("R2", "stands")),
             ran(2, "D2", "first", sample("D2", "first")),
             ran(3, "M2", "merged", sample("M2", "merged")),
             ran(4, "L1", "green", sample("L1", "green")),
         ];
-        let mut r2 = alone.clone();
-        needs_after(&mut r2, "R2", "answer");
-        assert!(!read_from(&r2, &at("L2")).contains("R2"));
-        assert_eq!(plan(&old, &r2, &at("L2"), &done), Plan::Move);
-        // The design, which L2 reads, would be done again before the merge.
-        let mut d2 = alone.clone();
+        // An answer from before the merge that no longer fits, the understanding at L1 or the design L2 reads, moves
+        // the work: the cells before its merge are never done again, and later ones read those answers as they are.
+        let mut r1 = old.clone();
+        needs_after(&mut r1, "R1", "understanding");
+        assert_eq!(plan(&old, &r1, &at("L1"), &rounds[..3]), Plan::Move);
+        let mut d2 = old.clone();
         needs_after(&mut d2, "D2", "chosen");
-        match plan(&old, &d2, &at("L2"), &done) {
-            Plan::Stuck { back_to, .. } => assert_eq!(back_to.as_deref(), Some("D2")),
-            other => panic!("{other:?}"),
-        }
-        assert_eq!(
-            plan(&old, &new, &at("L2"), &rounds),
-            Plan::Stuck {
-                why: format!(
-                    "{}; going back to cell R1 would do round R1-2 again, which merged the pull request",
-                    match super::decide(&old, &new, &at("L2"), &rounds) {
-                        Plan::GoBack { why, .. } => why,
-                        other => panic!("{other:?}"),
-                    }
-                ),
-                back_to: Some("R1".into()),
-            }
-        );
+        assert!(read_from(&d2, &at("L2")).contains("D2"));
+        assert_eq!(plan(&old, &d2, &at("L2"), &rounds), Plan::Move);
+        // A cell after the merge it had begun, on another line, is done again.
         let mut l2 = old.clone();
         cell(&mut l2, "L2").line = Some("reviewer".into());
-        let begun = [rounds[1].clone(), took_none(3, "L2")];
+        let begun = [rounds[2].clone(), took_none(4, "L2")];
         assert_eq!(
             plan(&old, &l2, &at("L2"), &begun),
             Plan::GoBack {
@@ -954,6 +941,28 @@ mod tests {
                 why: "cell L2, which the work had begun, is on another line".into()
             }
         );
+        // The cell it stands at gone, with no cell walked since the merge, it is stuck with nowhere to go back to,
+        // though the version has every cell from before the merge.
+        let mut gone = old.clone();
+        gone.cells.retain(|c| c.id != "L1");
+        match plan(&old, &gone, &at("L1"), &rounds[..3]) {
+            Plan::Stuck { back_to, .. } => assert_eq!(back_to, None),
+            other => panic!("{other:?}"),
+        }
+        // Once watching main took the merge back, the merge no longer stands: going back past it is stuck, for the
+        // owner's Start, as for any round that cannot be undone.
+        let broken = json!({ "main": { "kind": "broken_by_merge", "checks": [] } });
+        let reverted = [&rounds[..], &[ran(5, "L1", "broken_by_merge", broken)]].concat();
+        match plan(&old, &d2, &at("T6"), &reverted) {
+            Plan::Stuck { why, back_to } => {
+                assert!(
+                    why.ends_with("going back to cell D2 would do round R1-3 again, which merged the pull request"),
+                    "{why}"
+                );
+                assert_eq!(back_to.as_deref(), Some("D2"));
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     /// A return of an architect's cell that answers an engineer's question, as a round stores it, with `effects`.

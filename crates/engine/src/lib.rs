@@ -83,9 +83,12 @@ pub const ARCHITECT: &str = "architect";
 /// The cell of the engineer's graph whose row `merged` merges the work's pull request.
 const MERGE: &str = "M2";
 
+/// The cell of the engineer's graph that watches main after the merge, whose row `broken_by_merge` takes the merge back.
+const WATCH: &str = "L1";
+
 /// The graph a flow version before the setting of a project's policy was a stage of the architect's works ran it as, a
-/// work of its own: the version the engine runs has no such graph, so such a work that still goes on is paused where it
-/// stands, and its project's architect asked to set it straight ([`Engine::bring`]).
+/// work of its own: the version the engine runs has no such graph, so such a work that still goes on ends, its hold and
+/// worktree let go ([`Engine::take_over`]).
 pub const POLICY: &str = "policy";
 
 /// The line of the search of observations, which runs at the observer's level.
@@ -463,7 +466,8 @@ impl Engine {
     }
 
     /// Brings works on an older flow version to the version the engine runs, which the loop does when each next goes
-    /// on with no job in flight, before it dispatches its step ([`Engine::bring`]). A new version never ends a work.
+    /// on with no job in flight, before it dispatches its step ([`Engine::bring`]). A new version ends a work only when
+    /// it has no graph for it, where no cell can run it ([`Engine::bring_back`]).
     fn bring_up(&mut self, works: &[Work]) -> Result<(), String> {
         for w in works {
             self.bring(w)?;
@@ -486,7 +490,7 @@ impl Engine {
 
     /// What the version the engine runs does with a work on an older one ([`versions::plan`]), both versions' graphs
     /// read as the work's project's agents are asked them, which its returns were checked against. A work whose graph
-    /// the version lacks is stuck.
+    /// the version lacks is stuck, with no cell to bring it to: it ends ([`Engine::bring_back`]).
     pub(crate) fn plan(&mut self, w: &Work) -> Result<versions::Plan, String> {
         if self.flow(self.flow_now)?.graph(&w.graph).is_none() {
             return Ok(versions::Plan::Stuck {
@@ -509,12 +513,12 @@ impl Engine {
     /// back to (`to`; none when it can go back to none) as where it stopped, and no cell waiting for an answer; the round
     /// it was in cut off, and the question it had out withdrawn, saying why. What it answered, asked and was told stays.
     /// Then that cell's step runs at once ([`steps::bring_up`]), which keeps it there when it is `stuck`. A work whose
-    /// graph the version lacks, or lacks that cell, is paused where it stands instead, its project's architect asked to
-    /// set it straight.
+    /// graph the version lacks, or lacks that cell, ends instead, as no cell of the version can run it, and is taken
+    /// over as a work started over is ([`Engine::take_over`]).
     fn bring_back(&mut self, w: &Work, to: Option<&str>, why: &str, stuck: bool) -> Result<(), String> {
         let (id, from, now) = (w.id, w.flow_version, self.flow_now);
         let Some(cell) = self.flow(now)?.graph(&w.graph).and_then(|g| g.version.clone()) else {
-            return self.stuck_where_it_stands(w, why);
+            return self.take_over(w, why);
         };
         let left = match to {
             Some(t) if !stuck => format!("the work goes back to cell {t} of flow version {now}, to do it again: {why}"),
@@ -568,20 +572,6 @@ impl Engine {
         Ok(())
     }
 
-    /// Pauses a work on an older flow version where it stands, which the version the engine runs cannot take on and has
-    /// no cell to bring it to, its graph gone, and asks its project's architect to set it straight.
-    fn stuck_where_it_stands(&mut self, w: &Work, why: &str) -> Result<(), String> {
-        let now = self.flow_now;
-        let id = w.id;
-        self.db
-            .write(Actor::Engine, |tx| {
-                actions::report_stuck(tx, id, now, why).map_err(db::Error::Abort)
-            })
-            .map_err(|e| e.to_string())?;
-        self.say(&format!("work {id} cannot go on in flow version {now}: {why}"));
-        self.pause(id, &format!("it cannot go on in flow version {now}: {why}"))
-    }
-
     /// Moves a work on an older flow version to the version the engine runs: the same work, at the same cell, in the
     /// same sessions, recording the version it moved from. Its sessions are given again what the version changed of
     /// what they hold, as any changed input is given.
@@ -604,7 +594,8 @@ impl Engine {
     }
 
     /// Takes over a work of the engineer's graph the owner or its project's architect started over
-    /// ([`Engine::start_over`]), with why. It stops, saying why, as every work ends ([`ending::end`]: the round it was
+    /// ([`Engine::start_over`]), or a work of any graph whose graph the flow version the engine runs lacks
+    /// ([`Engine::bring_back`]), with why. It stops, saying why, as every work ends ([`ending::end`]: the round it was
     /// in is cut off, its decision cards are replaced, its asks of the owner need no answer, its questions to the
     /// architect are withdrawn and its sessions end), and its item gets a new work on the version the engine runs, whose
     /// cell `S1` takes over the stopped work's branch, worktree (with what is not committed in it) and pull request and
@@ -626,6 +617,30 @@ impl Engine {
             })
             .map_err(|e| e.to_string())?;
         self.say(&format!("work {id} stopped: {why}"));
+        // An architect work stopped leaves no hold of its own behind: setting its project straight is the work's, as a
+        // policy being set was the setting's, a work of its own in a flow version before; the architect's next work
+        // asks its questions afresh.
+        if w.graph == ARCHITECT || w.graph == POLICY {
+            let project = w.project.clone();
+            self.db
+                .write(Actor::Engine, |tx| {
+                    tx.execute(
+                        "DELETE FROM dispatch_holds WHERE project = ?1 AND reason = 'set_straight'",
+                        [&project],
+                    )?;
+                    Ok(())
+                })
+                .map_err(|e| e.to_string())?;
+        }
+        // The worktree a setting of a policy read in, as a work of its own, is no one's any longer.
+        if w.graph == POLICY
+            && let Some(p) = w.project.as_deref().and_then(|p| projects.get(p))
+        {
+            let dir = architect::worktree(&self.data, POLICY, w.project.as_deref().unwrap_or_default());
+            if let Err(x) = sessions::worktree::remove_worktree(&p.checkout, &dir) {
+                self.say(&format!("work {id}: its worktree {} stays: {x}", dir.display()));
+            }
+        }
         let Some(item) = w.item.filter(|_| w.graph == ENGINEER) else {
             return Ok(());
         };

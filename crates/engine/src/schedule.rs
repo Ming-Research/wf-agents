@@ -369,7 +369,8 @@ impl Engine {
     /// Makes ready the owner's round of a work, as the loop does before it dispatches it: the work is taken into the
     /// owner's hands ([`Engine::take_in_hand`]) and, on an older flow version, brought up first ([`Engine::bring`]), so
     /// that the round is of the cell it moved to or went back to. Gives the work whose step to dispatch; none when it
-    /// could go on from no cell of the version and stays where it was brought, paused: that was its step.
+    /// could go on from no cell of the version and stays where it was brought, paused, or ended as the version has no
+    /// graph for it: that was its step.
     fn owner_round(&mut self, work: i64) -> Result<Option<i64>, String> {
         self.take_in_hand(work)?;
         let w = self.work(work)?;

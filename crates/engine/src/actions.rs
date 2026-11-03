@@ -720,20 +720,19 @@ fn capitalized(text: &str) -> String {
 
 /// `report_stuck`: asks the project's architect, as a place to set straight, about a work that cannot go on in flow
 /// version `now`, and why, as it waits paused: once while it stays stuck, a matter still open for it asking nothing more.
-/// A work of the architect is its own architect's, which would be the work that waits: the owner alone is told, by its
-/// pause.
+/// Only an engineer's work asks: a work of the architect is its own architect's, which would be the work that waits, so
+/// the owner alone is told, by its pause. A work whose merge stands is not offered a start over or a cancel, which its
+/// merge refuses.
 pub(crate) fn report_stuck(tx: &Transaction<'_>, work: i64, now: i64, why: &str) -> Result<(), String> {
-    type Found = (String, Option<String>, Option<i64>, Option<String>);
-    let found: Option<Found> = tx
+    let found: Option<(String, String, i64, String)> = tx
         .query_row(
-            "SELECT w.graph, coalesce(i.project, w.project), w.item, i.title FROM works w
-             LEFT JOIN items i ON i.id = w.item WHERE w.id = ?1",
+            "SELECT w.graph, i.project, i.id, i.title FROM works w JOIN items i ON i.id = w.item WHERE w.id = ?1",
             [work],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()
         .map_err(sql)?;
-    let Some((graph, Some(project), item, title)) = found.filter(|f| f.0 != crate::ARCHITECT) else {
+    let Some((_, project, item, title)) = found.filter(|f| f.0 == crate::ENGINEER) else {
         return Ok(());
     };
     let open: i64 = tx
@@ -749,20 +748,20 @@ pub(crate) fn report_stuck(tx: &Transaction<'_>, work: i64, now: i64, why: &str)
         return Ok(());
     }
     let why = db::without_final_terminal(why.trim());
-    let (which, then) = match (item, &title) {
-        (Some(i), Some(t)) => (
-            format!("Work {work} on item {i} ({t})"),
-            "for the owner's Start, a start over or a cancel of its item",
-        ),
-        _ => (format!("Work {work} of the graph {graph}"), "for the owner's Start"),
+    // A work whose merge stands can be neither started over nor cancelled: the owner's Start alone looks again.
+    let then = if db::merge_stands(tx, item).map_err(sql)? {
+        "for the owner's Start once a flow version that has a cell it walked is installed"
+    } else {
+        "for the owner's Start, a start over or a cancel of its item"
     };
+    let which = format!("Work {work} on item {item} ({title})");
     let m = db::Matter {
         project,
         kind: "set_straight".into(),
         detail: None,
         what: format!("{which} cannot go on in flow version {now}: {why}; it waits, paused, {then}"),
         body: json!({ "work": work, "version": now, "why": why }),
-        item,
+        item: Some(item),
         raised: None,
     };
     db::queue_matter(tx, &m).map_err(sql)?;
