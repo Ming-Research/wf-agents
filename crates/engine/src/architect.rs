@@ -29,6 +29,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::actions::{self, Ctx};
 use crate::checks::{self, Problems};
+use crate::decisions;
 use crate::inputs::{self, Gathered, Origin, Part};
 use crate::steps::{finish, what_is_asked};
 use crate::work::{self, Ended, Item, Round, RoundId, Work, json_col, query_json};
@@ -38,7 +39,7 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives.
-pub const INPUTS: [&str; 31] = [
+pub const INPUTS: [&str; 33] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -62,6 +63,8 @@ pub const INPUTS: [&str; 31] = [
     "batch_changes",
     "changes_touch",
     "words_behind_changes",
+    "batch_words",
+    "batch_items",
     "group_talk",
     "told_owner",
     "owner_talk",
@@ -213,6 +216,12 @@ const PICK: &str = "Q1";
 const UNDERSTAND: &str = "U1";
 const RETHINK: &str = "B4";
 const REVIEW: &str = "B2";
+
+/// The cell that records the decisions the owner's words of a batch make, which comes between the end of the batch and
+/// its review, and the rows it answers by: with decisions to review, with item changes already to review, or with
+/// nothing to review.
+const DECISIONS: &str = "B5";
+const DECIDED: &str = "('decisions', 'changes', 'none')";
 
 /// The cell of the owner's words, which a matter back with the owner's reply goes to when the flow no longer has the
 /// cell that asked.
@@ -1062,6 +1071,8 @@ fn batch_next(
         "more"
     } else if can == 0 && has_value(TALKING) && listens_after(conn, project, wait_ms, now)?.is_some() {
         TALKING
+    } else if has_value("decisions") && decisions_due(conn, work)? {
+        "decisions"
     } else if !collected(conn, work)?.is_empty() {
         "review"
     } else if nothing()? {
@@ -1069,6 +1080,36 @@ fn batch_next(
     } else {
         "done"
     })
+}
+
+/// The matters of the owner's words an architect work's batch handled, oldest first: those a round of the work closed
+/// since the batch began, but for the engine's note of a work the owner started, which holds no word the owner said.
+fn words_of_batch(conn: &Connection, work: i64) -> Result<Vec<i64>, String> {
+    let from = batch_start(conn, work)?;
+    let rows = query_json(
+        conn,
+        "SELECT id FROM architect_matters
+         WHERE kind = 'owner_words' AND coalesce(detail, '') <> 'release' AND handled_work = ?1 AND handled_round > ?2
+         ORDER BY id",
+        &[&work, &from],
+        100_000,
+    )?;
+    Ok(rows.iter().filter_map(|r| r["id"].as_i64()).collect())
+}
+
+/// Whether the batch handled owner's words whose decisions are not recorded yet: the cell that records them has not
+/// answered since the batch began.
+fn decisions_due(conn: &Connection, work: i64) -> Result<bool, String> {
+    if words_of_batch(conn, work)?.is_empty() {
+        return Ok(false);
+    }
+    let from = batch_start(conn, work)?;
+    let done = count(
+        conn,
+        &format!("SELECT count(*) FROM rounds WHERE work = ?1 AND n > ?2 AND cell = ?3 AND transition IN {DECIDED}"),
+        &[&work, &from, &DECISIONS],
+    )?;
+    Ok(done == 0)
 }
 
 fn fixes_found(conn: &Connection, work: i64) -> Result<i64, String> {
@@ -1174,6 +1215,12 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
         "route" => route(e, w, g)?,
         "next_in_batch" => next_in_batch(e, w, g)?.into(),
         "fixes_before" => if fixes_found(conn, w.id)? >= 2 { "two" } else { "fewer" }.into(),
+        "collected_changes" => if collected(conn, w.id)?.is_empty() {
+            "none"
+        } else {
+            "some"
+        }
+        .into(),
         // A flow version from before asks lost their kinds weighed a question by its kind: the kind its matter was
         // queued with, when that version has a case of it, else another question. No question is queued with a kind
         // now.
@@ -1874,7 +1921,7 @@ fn texts(v: &Value) -> Vec<String> {
 }
 
 /// Makes one change to a project's observations, at once; `from` says where it came from, such as the matter in hand.
-fn observe(tx: &Transaction<'_>, project: &str, from: &str, o: &Value) -> Result<(), String> {
+pub(crate) fn observe(tx: &Transaction<'_>, project: &str, from: &str, o: &Value) -> Result<(), String> {
     match text(&o["kind"]) {
         "new" => {
             let source = format!("{} ({from})", text(&o["source"]).trim());
@@ -1982,6 +2029,20 @@ fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(),
         message(tx, &project, text(&m["project"]), text(&m["text"]), detail, body)?;
     }
     Ok(())
+}
+
+/// The change that records a decision in a batch, as the batch keeps it: the decision as it was handed in, with what the
+/// engine read of the records it quotes (who decided, when, the words and the line to write), so that the review reads
+/// what is written.
+fn decision_change(conn: &Connection, project: &str, matter: i64, d: &Value) -> Result<Value, String> {
+    let item = d.get("item").and_then(|v| {
+        v.as_i64()
+            .or_else(|| v.as_str().and_then(|s| s.trim().trim_start_matches('#').parse().ok()))
+    });
+    let resolved = decisions::resolve(conn, project, d, "architect", item).map_err(|why| why.join("\n"))?;
+    let mut change = crate::arch_changes::record_decision_of(project, matter, d);
+    change["resolved"] = resolved.to_json();
+    Ok(change)
 }
 
 /// Whether a round's effects hold item changes.
@@ -2287,6 +2348,11 @@ fn became(tx: &Transaction<'_>, matter: i64, outcome: &Value, told: BTreeSet<i64
                 false,
                 item_number(&c["item"]).or_else(|| created.get(text(&c["item"]).trim()).copied()),
             ),
+            Some("record_decision") => (
+                false,
+                item_number(&c["decision"]["item"])
+                    .or_else(|| created.get(text(&c["decision"]["item"]).trim()).copied()),
+            ),
             _ => continue,
         };
         let Some(id) = id.filter(|id| told.insert(*id)) else {
@@ -2409,13 +2475,17 @@ fn batch_over(tx: &Transaction<'_>, work: i64, project: &str) -> Result<(), Stri
 }
 
 /// The item a change names by a key an earlier change of the batch creates it under, among those it names: the item it
-/// changes, the item a dependency is on, a merge keeps or absorbs, a known red check's fix, and the item another is
-/// made or moved under.
+/// changes, the item a dependency is on, a merge keeps or absorbs, a known red check's fix, the item another is
+/// made or moved under, and the item a decision is recorded in.
 fn names_key(c: &Value, key: &str) -> bool {
     ["item", "on", "keep", "fix_item"]
         .iter()
         .map(|k| c[*k].clone())
-        .chain([c["under"]["item"].clone(), c["to"]["item"].clone()])
+        .chain([
+            c["under"]["item"].clone(),
+            c["to"]["item"].clone(),
+            c["decision"]["item"].clone(),
+        ])
         .chain(items(c.get("absorbed")))
         .any(|v| v.as_str().is_some_and(|s| s.trim() == key))
 }
@@ -2456,6 +2526,50 @@ fn sorted_by_review(rows: Vec<Change>, review: &[Value]) -> (Vec<Change>, Vec<(C
         ));
     }
     (sound, dropped)
+}
+
+/// The rows the review found sound, but for each text that replaces an item's `approach` and leaves out a line of the
+/// item's decisions as the item has them now. The check of the change read the text the item had then; another work
+/// that ended since, or an earlier batch, may have recorded a decision in it, which the text would write over. Such a
+/// row is left out, with why, in `left_out`.
+fn without_stale_approaches(
+    tx: &Transaction<'_>,
+    sound: Vec<Change>,
+    left_out: &mut Vec<(Change, Value)>,
+) -> Result<Vec<Change>, String> {
+    let mut kept = Vec::new();
+    // The texts as the rows made so far leave them: a merge carries the lines of the item it absorbs into the one it
+    // keeps.
+    let mut approaches = decisions::Approaches::default();
+    for row in sound {
+        let c = &row.3;
+        if c["kind"] == "merge"
+            && let Some(keep) = item_number(&c["keep"])
+        {
+            for a in items(c.get("absorbed")).iter().filter_map(item_number) {
+                approaches.merged(tx, keep, a);
+            }
+        }
+        let edit = (c["kind"] == "edit_item" && c["part"] == "approach")
+            .then(|| item_number(&c["item"]))
+            .flatten();
+        let lost = edit
+            .map(|id| decisions::unkept(&approaches.of(tx, id), text(&c["text"])))
+            .unwrap_or_default();
+        if lost.is_empty() {
+            if let Some(id) = edit {
+                approaches.written(id, text(&c["text"]));
+            }
+            kept.push(row);
+        } else {
+            let what = format!(
+                "The decisions of the item changed after this change was checked, and its text would write over them: {}",
+                lost.join("; ")
+            );
+            left_out.push((row, json!({ "verdict": "drop", "what": what })));
+        }
+    }
+    Ok(kept)
 }
 
 /// Marks rows of an architect work's batch dropped, each with why.
@@ -2547,7 +2661,8 @@ fn cancel_within_batch(tx: &Transaction<'_>, work: i64) -> Result<(), String> {
 fn give_up(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let (w, project) = architect_work_of(ctx)?;
     let review = items(ctx.unwrapped.get("review"));
-    let (sound, left_out) = sorted_by_review(collected(tx, w)?, &review);
+    let (sound, mut left_out) = sorted_by_review(collected(tx, w)?, &review);
+    let sound = without_stale_approaches(tx, sound, &mut left_out)?;
     let keys = make(tx, &sound, &ctx.projects)?;
     drop_rows(tx, &left_out)?;
     // What the review drops is left out, and what it still finds to fix is put to the owner.
@@ -3017,30 +3132,54 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             }
         }
         "revise_batch" => {
+            let (_, project) = architect_work_of(ctx)?;
             tx.execute(
                 "UPDATE architect_item_changes SET state = 'revised' WHERE work = ?1 AND state = 'collected'",
                 [w],
             )
             .map_err(sql)?;
             for x in items(at) {
+                let matter = x["matter"].as_i64();
+                // A decision is handed in as one, and the engine reads its records again as it keeps it.
+                let change = if x["decision"].is_object() {
+                    decision_change(tx, &project, matter.unwrap_or_default(), &x["decision"])?
+                } else {
+                    x["change"].clone()
+                };
                 tx.execute(
                     "INSERT INTO architect_item_changes (work, round, matter, change, state)
                      VALUES (?1, ?2, ?3, ?4, 'collected')",
-                    params![
-                        ctx.round.work,
-                        ctx.round.n,
-                        x["matter"].as_i64(),
-                        x["change"].to_string()
-                    ],
+                    params![ctx.round.work, ctx.round.n, matter, change.to_string()],
                 )
                 .map_err(sql)?;
             }
             cancel_within_batch(tx, w)?;
         }
+        "collect_decisions" => {
+            // Each decision the owner's words of the batch make joins the batch's item changes, from the first matter of
+            // the batch it quotes, so that it is reviewed with them and made when they are.
+            let (_, project) = architect_work_of(ctx)?;
+            let batch: BTreeSet<i64> = words_of_batch(tx, w)?.into_iter().collect();
+            for d in items(at) {
+                let matter = decisions::quotes(&d)
+                    .into_iter()
+                    .find(|(from, id, _)| from == "matter" && batch.contains(id))
+                    .map(|q| q.1)
+                    .ok_or("a decision quotes no matter of the owner's words this batch handled")?;
+                let change = decision_change(tx, &project, matter, &d)?;
+                tx.execute(
+                    "INSERT INTO architect_item_changes (work, round, matter, change, state)
+                     VALUES (?1, ?2, ?3, ?4, 'collected')",
+                    params![ctx.round.work, ctx.round.n, matter, change.to_string()],
+                )
+                .map_err(sql)?;
+            }
+        }
         "apply_batch" => {
             // What the review drops is left out; a flow version before named no review, and the batch was made whole.
             let (_, project) = architect_work_of(ctx)?;
-            let (rows, dropped) = sorted_by_review(collected(tx, w)?, &items(at));
+            let (rows, mut dropped) = sorted_by_review(collected(tx, w)?, &items(at));
+            let rows = without_stale_approaches(tx, rows, &mut dropped)?;
             let keys = make(tx, &rows, &ctx.projects)?;
             drop_rows(tx, &dropped)?;
             release_held_replies(tx, w, &keys, &BTreeSet::new())?;
@@ -3432,6 +3571,93 @@ fn created_keys(effects: &Value) -> BTreeSet<String> {
         .collect()
 }
 
+/// The observation a decision no item holds is kept as, as far as the checks of observations read it.
+fn decision_observation(d: &Value) -> Value {
+    json!({ "kind": "new", "title": d["title"], "what": d["what"], "tags": d["tags"] })
+}
+
+/// Whether the decisions a return hands in hold, which the engine writes as lines of an item's decisions. Each must be
+/// one the records it quotes bear out, and none may quote words another of them quotes, or an item already holds. An
+/// engineer's are recorded in its work's item. The architect's are recorded in the item each names, a number or the key
+/// of an item the batch creates, or as an observation when it names none; each quotes a matter of the owner's words the
+/// batch handled, and the rows of `looked` that say which hold a decision agree with them: a decision's matters are
+/// those the rows say hold one, and each of those is quoted.
+fn decisions_hold(c: &checks::Ctx<'_>, v: Option<&Value>) -> Result<(), Problems> {
+    let list = items(v);
+    let conn = c.e.db.conn();
+    let mut problems: Vec<String> = Vec::new();
+    if let Some(item) = c.item {
+        let mut quoted: BTreeSet<(String, i64, String)> = BTreeSet::new();
+        for (i, d) in list.iter().enumerate() {
+            match decisions::resolve(conn, &item.project, d, "engineer", Some(item.id)) {
+                Ok(r) => {
+                    for s in r.said {
+                        if !quoted.insert((s.from.clone(), s.id, s.words.clone())) {
+                            problems.push(format!(
+                                "decision {}: \"{}\" of {} {} is quoted by an earlier decision of this return",
+                                i + 1,
+                                s.words,
+                                s.from,
+                                s.id
+                            ));
+                        }
+                    }
+                }
+                Err(why) => problems.extend(why.into_iter().map(|p| format!("decision {}: {p}", i + 1))),
+            }
+        }
+        return Problems::from(problems).into_result();
+    }
+    let project = project_of(c.w)?;
+    let batch: BTreeSet<i64> = words_of_batch(conn, c.w.id)?.into_iter().collect();
+    // The batch's changes so far stand as they are, and each decision follows them as a change that records it.
+    let mut changes: Vec<Value> = collected(conn, c.w.id)?.into_iter().map(|r| r.3).collect();
+    let before = changes.len();
+    let mut cited: BTreeSet<i64> = BTreeSet::new();
+    for (i, d) in list.iter().enumerate() {
+        let from_batch: Vec<i64> = decisions::quotes(d)
+            .into_iter()
+            .filter(|(from, id, _)| from == "matter" && batch.contains(id))
+            .map(|q| q.1)
+            .collect();
+        match from_batch.first() {
+            Some(m) => changes.push(crate::arch_changes::record_decision_of(project, *m, d)),
+            None => problems.push(format!(
+                "decision {}: it quotes no matter of the owner's words this batch handled, which are {:?}",
+                i + 1,
+                batch
+            )),
+        }
+        cited.extend(from_batch);
+    }
+    if let Err(why) = crate::arch_changes::validate_from(c.e, project, &changes, before) {
+        problems.push(why);
+    }
+    let kept: Vec<Value> = list
+        .iter()
+        .filter(|d| d["item"].is_null())
+        .map(decision_observation)
+        .collect();
+    problems.extend(observation_problems(c, project, &kept, &[])?);
+    let rows = items(c.unwrapped.get("looked"));
+    let holding: BTreeSet<i64> = rows
+        .iter()
+        .filter(|r| r["verdict"] == "decision")
+        .filter_map(|r| r["matter"].as_i64())
+        .collect();
+    for m in cited.difference(&holding) {
+        problems.push(format!(
+            "matter {m}: a decision quotes it, and the row for it does not say decision"
+        ));
+    }
+    for m in holding.difference(&cited) {
+        problems.push(format!(
+            "matter {m}: its row says it holds a decision, and no decision quotes it: record one, or change the row"
+        ));
+    }
+    Problems::from(problems).into_result()
+}
+
 /// Runs a check of the architect's graph.
 pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), Problems> {
     let conn = c.e.db.conn();
@@ -3493,11 +3719,12 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
         }
         "observation_changes_valid" => {
-            // The revision's item changes stand for the batch's.
-            let revised: Vec<Value> = items(c.unwrapped.get("changes"))
-                .iter()
-                .map(|x| x["change"].clone())
-                .collect();
+            // The revision's item changes stand for the batch's; a round that revises none, as the one that records
+            // decisions, stands beside the changes the batch has collected.
+            let revised: Vec<Value> = match c.unwrapped.get("changes") {
+                Some(changes) => items(Some(changes)).iter().map(|x| x["change"].clone()).collect(),
+                None => collected(conn, c.w.id)?.into_iter().map(|r| r.3).collect(),
+            };
             Problems::from(observation_problems(c, project_of(c.w)?, &items(v), &revised)?).into_result()
         }
         "effects_valid" => {
@@ -3539,13 +3766,98 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
             Ok(())
         }
+        "decision_words_hold" => decisions_hold(c, v),
+        "learned_holds_no_decision" => {
+            let text = v.and_then(Value::as_str).unwrap_or_default();
+            let lines: Vec<&str> = text.lines().filter(|l| decisions::is_line(l)).collect();
+            if lines.is_empty() {
+                return Ok(());
+            }
+            checks::fail(format!(
+                "learned holds {} line(s) that start a decision, such as \"{}\": a decision goes in decisions, from the \
+                 records it quotes, and the engine makes its line; learned holds only Fact ( and Dropped ( lines",
+                lines.len(),
+                lines[0].trim()
+            ))
+        }
+        "words_all_looked" => {
+            let batch = words_of_batch(conn, c.w.id)?;
+            let rows = items(v);
+            let want: Vec<String> = batch.iter().map(i64::to_string).collect();
+            let given: Vec<String> = rows
+                .iter()
+                .filter_map(|r| r["matter"].as_i64())
+                .map(|m| m.to_string())
+                .collect();
+            let misses = checks::id_misses(&want, &given);
+            let mut problems = Problems::default();
+            problems.about(
+                &misses.unknown,
+                |x| format!("matter {x} is none of the owner's words this batch handled"),
+                |xs| format!("matters {xs} are none of the owner's words this batch handled"),
+            );
+            problems.about(
+                &misses.twice,
+                |x| format!("matter {x} has more than one row: one row for each"),
+                |xs| format!("matters {xs} have more than one row: one row for each"),
+            );
+            problems.about(
+                &misses.missing,
+                |x| format!("matter {x}, which this batch handled, has no row"),
+                |xs| format!("matters {xs}, which this batch handled, have no row"),
+            );
+            // A suggestion is made as a new observation, which the same return holds. This does not rest on the
+            // rows covering the batch, so it is said with the misses.
+            let suggested = rows.iter().any(|r| r["verdict"] == "suggestion");
+            let observed = items(c.unwrapped.get("observation_changes"))
+                .iter()
+                .any(|o| o["kind"] == "new");
+            if suggested && !observed {
+                problems.push(
+                    "a row says it makes a suggestion, and observation_changes holds no new observation: record the \
+                     suggestion there, or say nothing is to be recorded",
+                );
+            }
+            problems.into_result()
+        }
         "changes_valid" => {
             let list = items(v);
-            let changes: Vec<Value> = list.iter().map(|x| x["change"].clone()).collect();
+            let project = project_of(c.w)?;
+            let batch = words_of_batch(conn, c.w.id)?;
             let mut problems: Vec<String> = Vec::new();
-            if let Err(why) = crate::arch_changes::validate(c.e, project_of(c.w)?, &changes) {
+            // A change is handed in as a change or as a decision to record, one of the two.
+            let mut changes: Vec<Value> = Vec::new();
+            for (i, x) in list.iter().enumerate() {
+                let n = i + 1;
+                match (x["change"].is_object(), x["decision"].is_object()) {
+                    (true, false) => changes.push(x["change"].clone()),
+                    (false, true) => {
+                        let m = x["matter"].as_i64().unwrap_or_default();
+                        let cites = decisions::quotes(&x["decision"])
+                            .iter()
+                            .any(|(from, id, _)| from == "matter" && batch.contains(id));
+                        if !cites {
+                            problems.push(format!(
+                                "change {n}: the decision quotes no matter of the owner's words this batch handled"
+                            ));
+                        }
+                        changes.push(crate::arch_changes::record_decision_of(project, m, &x["decision"]));
+                    }
+                    _ => {
+                        problems.push(format!("change {n}: hand in change or decision, one of the two"));
+                        changes.push(Value::Null);
+                    }
+                }
+            }
+            if let Err(why) = crate::arch_changes::validate(c.e, project, &changes) {
                 problems.push(why);
             }
+            let kept: Vec<Value> = list
+                .iter()
+                .filter(|x| x["decision"].is_object() && x["decision"]["item"].is_null())
+                .map(|x| decision_observation(&x["decision"]))
+                .collect();
+            problems.extend(observation_problems(c, project, &kept, &[])?);
             let from = batch_start(conn, c.w.id)?;
             let mine: BTreeSet<i64> = query_json(
                 conn,
@@ -3856,6 +4168,8 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str, main: Option<&
         "batch_changes" => batch_changes(e, w).map(Some),
         "changes_touch" => changes_touch(e, w),
         "words_behind_changes" => words_behind_changes(e, w),
+        "batch_words" => batch_words(e, w),
+        "batch_items" => batch_items(e, w),
         "group_talk" => group_talk(e, w, project),
         "told_owner" => told_owner(e, project),
         "owner_talk" => owner_talk(e, project),
@@ -5571,19 +5885,159 @@ fn words_behind_changes(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let matters: BTreeSet<i64> = collected(conn, w.id)?.iter().map(|r| r.2).collect();
     let mut out = Map::new();
     for m in matters {
-        let row = query_json(
+        if let Some(said) = said_of(conn, m)? {
+            out.insert(format!("#{m}"), said);
+        }
+    }
+    Ok((!out.is_empty()).then_some(Value::Object(out)))
+}
+
+/// What the owner said in a matter of their words, as a cell that reads it is given it: the words whole, where and when
+/// they were said, who the record says spoke them (`owner`, `delegate`, or `unrecorded` for words kept before who
+/// speaks was declared), the parts of them a delegate declared to be the owner's own (`relayed`; none declared, none
+/// given), the question they reply to when they do, and what the architect said in that place before them, which a
+/// short word of the owner's, such as agreement, cannot be read without. None for a matter that is no owner's words.
+fn said_of(conn: &Connection, matter: i64) -> Result<Option<Value>, String> {
+    let row = query_json(
+        conn,
+        "SELECT project, body, at FROM architect_matters WHERE id = ?1 AND kind = 'owner_words'",
+        &[&matter],
+        1,
+    )?;
+    let Some(r) = row.first() else { return Ok(None) };
+    let b = &r["body"];
+    let at = r["at"].as_i64().unwrap_or_default();
+    let words = if b["text"].is_null() { &b["answer"] } else { &b["text"] };
+    let mut said = json!({
+        "words": words,
+        "where": b["where"],
+        "at": utc_minute(at),
+        "speaker": decisions::Source::declared(b["speaker"].as_str()).as_str(),
+    });
+    for (from, to) in [
+        ("work", "work"),
+        ("question", "asked"),
+        ("ask", "asked"),
+        ("design_card", "design_card"),
+        ("relayed", "relayed"),
+    ] {
+        if !b[from].is_null() {
+            said[to] = b[from].clone();
+        }
+    }
+    if let Some(before) = reply_before(conn, text(&r["project"]), b, at)? {
+        said["architect_said_before"] = before;
+    }
+    Ok(Some(said))
+}
+
+/// What the architect last said to the owner in the place the owner's words were said, before them: in the group of the
+/// work they were said in, else in the one-to-one with the architect; none in a group of projects, or when it had said
+/// nothing there.
+fn reply_before(conn: &Connection, project: &str, body: &Value, at: i64) -> Result<Option<Value>, String> {
+    let conversation = match (body["where"].as_str(), body["work"].as_i64()) {
+        (Some("work"), Some(work)) => format!("work:{work}"),
+        (Some("projects"), _) => return Ok(None),
+        _ => format!("architect:{project}"),
+    };
+    let rows = query_json(
+        conn,
+        "SELECT text, at FROM conversation_entries
+         WHERE conversation = ?1 AND source = 'message' AND sender = 'architect' AND at < ?2
+         ORDER BY at DESC, id DESC LIMIT 1",
+        &[&conversation, &at],
+        1,
+    )?;
+    Ok(rows
+        .first()
+        .map(|r| json!({ "said": r["text"], "at": r["at"].as_i64().map(utc_minute) })))
+}
+
+/// The owner's words the batch handled, each by its matter with what `words_behind_changes` gives of them and how the
+/// architect handled them: the round, the way on it took and the reply it gave. None when the batch handled none. The
+/// input of the cell that records the decisions in them.
+fn batch_words(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
+    let conn = e.db.conn();
+    let mut out = Map::new();
+    for m in words_of_batch(conn, w.id)? {
+        let Some(mut said) = said_of(conn, m)? else { continue };
+        let handled = query_json(
             conn,
-            "SELECT body, at FROM architect_matters WHERE id = ?1 AND kind = 'owner_words'",
+            "SELECT r.work, r.n, r.cell, r.transition, json_extract(r.output, '$.outcome.answer.reply') AS reply
+             FROM architect_matters m JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
+             WHERE m.id = ?1",
             &[&m],
             1,
         )?;
-        let Some(r) = row.first() else { continue };
-        let b = &r["body"];
-        let mut said = json!({ "words": b["text"], "where": b["where"], "at": r["at"].as_i64().map(utc_minute) });
-        if !b["work"].is_null() {
-            said["work"] = b["work"].clone();
+        if let Some(h) = handled.first() {
+            said["handled"] = json!({
+                "round": format!("R{}-{}", h["work"], h["n"]),
+                "cell": h["cell"],
+                "way": h["transition"],
+                "reply": h["reply"],
+            });
         }
         out.insert(format!("#{m}"), said);
+    }
+    Ok((!out.is_empty()).then_some(Value::Object(out)))
+}
+
+/// The numbers a text names as items, each after a `#`, up to six digits.
+fn numbers_named(text: &str) -> Vec<i64> {
+    text.split('#')
+        .skip(1)
+        .filter_map(|rest| {
+            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            if digits.is_empty() || digits.len() > 6 {
+                None
+            } else {
+                digits.parse().ok()
+            }
+        })
+        .collect()
+}
+
+/// The items the batch's owner's words concern, each in full, with the lines of the decisions it holds: the item each
+/// matter names, the item of the work a matter was said in, and each item the words or the reply to them name by its
+/// number (`#12`); at most twelve, the first named.
+fn batch_items(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
+    const MOST: usize = 12;
+    let conn = e.db.conn();
+    let mut ids: Vec<i64> = Vec::new();
+    let mut add = |id: Option<i64>| {
+        if let Some(id) = id.filter(|id| !ids.contains(id)) {
+            ids.push(id);
+        }
+    };
+    for m in words_of_batch(conn, w.id)? {
+        let rows = query_json(
+            conn,
+            "SELECT m.item, m.body, (SELECT x.item FROM works x WHERE x.id = json_extract(m.body, '$.work')) AS of_work,
+                    json_extract(r.output, '$.outcome.answer.reply') AS reply
+             FROM architect_matters m LEFT JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
+             WHERE m.id = ?1",
+            &[&m],
+            1,
+        )?;
+        let Some(r) = rows.first() else { continue };
+        add(r["item"].as_i64());
+        add(r["of_work"].as_i64());
+        let said = [
+            r["body"]["text"].as_str(),
+            r["body"]["answer"].as_str(),
+            r["reply"].as_str(),
+        ];
+        for t in said.into_iter().flatten() {
+            for n in numbers_named(t) {
+                add(Some(n));
+            }
+        }
+    }
+    let mut out = Map::new();
+    for id in ids.into_iter().take(MOST) {
+        if let Some(x) = item_in_full(e, id)? {
+            out.insert(format!("#{id}"), x);
+        }
     }
     Ok((!out.is_empty()).then_some(Value::Object(out)))
 }
@@ -5604,6 +6058,7 @@ fn changes_touch(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
         }
         ids_of(&c["under"]["item"], &mut item_ids);
         ids_of(&c["to"]["item"], &mut item_ids);
+        ids_of(&c["decision"]["item"], &mut item_ids);
         for a in items(c.get("absorbed")) {
             ids_of(&a, &mut item_ids);
         }
@@ -5813,27 +6268,92 @@ mod tests {
                 9,
                 json!({ "kind": "fold_observations", "item": "new", "observations": [2] }),
             ),
+            // A decision recorded in the item names it in its decision; a decision recorded in item 3 does not.
+            (
+                5,
+                5,
+                9,
+                json!({ "kind": "record_decision", "decision": { "item": "new" } }),
+            ),
+            (6, 5, 9, json!({ "kind": "record_decision", "decision": { "item": 3 } })),
         ];
         let review = vec![
             json!({ "change": 1, "verdict": "fix", "what": "w", "how": "h" }),
             json!({ "change": 2, "verdict": "ok", "why": "y" }),
             json!({ "change": 3, "verdict": "ok", "why": "y" }),
             json!({ "change": 4, "verdict": "ok", "why": "y" }),
+            json!({ "change": 5, "verdict": "ok", "why": "y" }),
+            json!({ "change": 6, "verdict": "ok", "why": "y" }),
         ];
         let (sound, dropped) = sorted_by_review(rows.clone(), &review);
-        assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3]);
-        assert_eq!(dropped.iter().map(|r| r.0.0).collect::<Vec<_>>(), [1, 2, 4]);
+        assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3, 6]);
+        assert_eq!(dropped.iter().map(|r| r.0.0).collect::<Vec<_>>(), [1, 2, 4, 5]);
         // A change the review drops is left out as one it finds to fix is, and what names its item goes with it,
         // dropped too.
         let mut review = review;
         review[0] = json!({ "change": 1, "verdict": "drop", "why": "Item 5 does it already." });
         let (sound, dropped) = sorted_by_review(rows, &review);
-        assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3]);
+        assert_eq!(sound.iter().map(|r| r.0).collect::<Vec<_>>(), [3, 6]);
         let verdicts: Vec<(i64, &str)> = dropped
             .iter()
             .map(|r| (r.0.0, r.1["verdict"].as_str().unwrap()))
             .collect();
-        assert_eq!(verdicts, [(1, "drop"), (2, "drop"), (4, "drop")]);
+        assert_eq!(verdicts, [(1, "drop"), (2, "drop"), (4, "drop"), (5, "drop")]);
+    }
+
+    // The text that replaces an item's `approach` is checked against the decisions the item has when it is written: one
+    // recorded since it was checked is not written over, and the change is left out with why; a text that keeps every
+    // line, or a change of another part or another item, is made.
+    #[test]
+    fn a_text_written_over_a_decision_recorded_since_it_was_checked_is_left_out() {
+        let line = "Decision (2026-11-02, owner): A. Situation: s. Reason: r. Replaces: none. Words: \"w\" (matter 1)";
+        let mut db = db::Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, approach, deliver, level)
+                 VALUES ('p', 'one', 'x', 'y', ?1, 'change', 'l')",
+                [format!("Approach:\n- Do it.\nDecisions:\n{line}")],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let edit = |part: &str, item: Value, text: &str| {
+            (
+                1,
+                1,
+                1,
+                json!({ "kind": "edit_item", "item": item, "part": part, "text": text }),
+            )
+        };
+        let rows = vec![
+            // Written whole from the text the item had before the decision: it leaves the line out.
+            edit("approach", json!(1), "Approach:\n- Do it differently."),
+            // Keeps the line.
+            edit(
+                "approach",
+                json!("#1"),
+                &format!("Approach:\n- Do it.\n- More.\nDecisions:\n{line}"),
+            ),
+            // Another part of the same item.
+            edit("why", json!(1), "Because."),
+            // An item the batch creates, named by its key.
+            edit("approach", json!("new"), "Approach:\n- New."),
+        ];
+        let mut left_out = Vec::new();
+        let sound = db
+            .write(Actor::Engine, |tx| {
+                without_stale_approaches(tx, rows, &mut left_out).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        assert_eq!(sound.len(), 3);
+        assert!(!sound.iter().any(|r| r.3["text"] == "Approach:\n- Do it differently."));
+        assert_eq!(left_out.len(), 1);
+        assert_eq!(left_out[0].1["verdict"], "drop");
+        assert!(
+            left_out[0].1["what"].as_str().unwrap().contains("leaves out the line"),
+            "{}",
+            left_out[0].1
+        );
     }
 
     /// A database with a work of project p's architect, its rounds 1 to 4, and matter 1, an engineer's question the
@@ -5976,6 +6496,13 @@ mod tests {
                 "collected",
                 Value::Null,
             ),
+            // A decision recorded in the item that is never made goes with it.
+            (
+                2,
+                json!({ "kind": "record_decision", "decision": { "item": "cover" } }),
+                "collected",
+                Value::Null,
+            ),
             (
                 2,
                 json!({ "kind": "move", "item": 4, "to": { "place": "last" } }),
@@ -5992,7 +6519,10 @@ mod tests {
                 .unwrap();
             st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
         };
-        assert_eq!(states, ["dropped", "dropped", "dropped", "dropped", "collected"]);
+        assert_eq!(
+            states,
+            ["dropped", "dropped", "dropped", "dropped", "dropped", "collected"]
+        );
         let (handled, reply, held, not_sent) = matter_one(&db);
         assert_eq!((handled, reply, held), (None, None, None));
         let why = |k: usize| {
@@ -6092,6 +6622,19 @@ mod tests {
         assert_eq!(listens_after(said.conn(), "p", WAIT, ANSWERED + 60_000).unwrap(), None);
     }
 
+    /// The answer of the cell that records the decisions in the owner's words, as round 4 of the work.
+    fn decisions_recorded(db: &mut db::Db, row: &str) {
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (1, 4, ?1, '{}', '{}', ?2, 'c', 9, 9)",
+                params![DECISIONS, row],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
     // A question the architect just put that pins an open question of an engineer's design is not waited on: the look at
     // the queue goes on to the matter at the head of the queue at once, while the same question from another kind of
     // matter is waited on.
@@ -6144,7 +6687,8 @@ mod tests {
     }
 
     // While the architect waits for the owner's next words and no matter can be picked, the batch's review waits too,
-    // until the owner goes quiet; once the talk is over, the batch is done at once.
+    // until the owner goes quiet; once the talk is over, the batch is done at once. The owner's words the batch handled
+    // have their decisions recorded before either, once.
     #[test]
     fn the_batch_waits_while_the_owner_talks() {
         let g = architect_graph();
@@ -6167,10 +6711,126 @@ mod tests {
         assert_eq!(next(&open, ANSWERED + 60_000), "more");
         picked_none(&mut open, true);
         assert_eq!(next(&open, ANSWERED + 60_000), TALKING);
+        assert_eq!(next(&open, ANSWERED + WAIT), "decisions");
+        decisions_recorded(&mut open, "decisions");
         assert_eq!(next(&open, ANSWERED + WAIT), "review");
         let mut over = talked("over");
         picked_none(&mut over, false);
+        assert_eq!(next(&over, ANSWERED + 60_000), "decisions");
+        decisions_recorded(&mut over, "none");
         assert_eq!(next(&over, ANSWERED + 60_000), "done");
+    }
+
+    // The owner's words a batch handled are those a round of the work closed since the batch's last rethink, but for the
+    // engine's note of a work the owner started, and a batch that handled none has no decisions to record; a round that
+    // only asked for tools does not record them.
+    #[test]
+    fn the_owner_s_words_of_a_batch_are_those_handled_since_its_rethink() {
+        let mut db = talked("over");
+        db.write(Actor::Engine, |tx| {
+            for (n, cell, row) in [
+                (4, "B4", "go_on"),
+                (5, "H8", "done"),
+                (6, "H8", "done"),
+                (7, "H8", "done"),
+            ] {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                     VALUES (1, ?1, ?2, '{}', '{}', ?3, 'c', ?1, ?1)",
+                    params![n, cell, row],
+                )?;
+            }
+            for (detail, round) in [("said", 5), ("release", 6), ("answer", 7)] {
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, detail, what, body, at, handled_work, handled_round)
+                     VALUES ('p', 'owner_words', ?1, 'Says', '{}', 3, 1, ?2)",
+                    params![detail, round],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        // Matter 1 was handled before the rethink at round 4; matter 4 is the engine's note.
+        assert_eq!(words_of_batch(db.conn(), 1).unwrap(), [3, 5]);
+        assert!(decisions_due(db.conn(), 1).unwrap());
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (1, 8, ?1, '{}', '{}', 'tools', 'c', 9, 9)",
+                [DECISIONS],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(decisions_due(db.conn(), 1).unwrap());
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (1, 9, ?1, '{}', '{}', 'decisions', 'c', 9, 9)",
+                [DECISIONS],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!decisions_due(db.conn(), 1).unwrap());
+        // A batch that handled none has none to record.
+        assert!(!decisions_due(talked("over").conn(), 2).unwrap());
+    }
+
+    // What the owner's words give a cell that reads them: the words, where they were said, who the record says spoke them
+    // and what the architect said in that place before them, which a short agreement cannot be read without; and not
+    // what it said after them.
+    #[test]
+    fn the_owner_s_words_come_with_who_spoke_them_and_what_was_said_before() {
+        let mut db = db::Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'H8', 'p')",
+                [],
+            )?;
+            for (n, ended) in [(1, 100), (2, 300)] {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, ended_at)
+                     VALUES (1, ?1, 'H8', '{}', 'c', ?2, ?2)",
+                    params![n, ended],
+                )?;
+                tx.execute(
+                    "INSERT INTO owner_messages (work, round, text) VALUES (1, ?1, ?2)",
+                    params![n, format!("Said at {ended}.")],
+                )?;
+            }
+            for (body, at) in [
+                (r#"{"text":"Early.","where":"page","speaker":"owner"}"#, 50),
+                (r#"{"text":"Yes, that.","where":"page","speaker":"delegate"}"#, 200),
+                (r#"{"text":"Old.","where":"page"}"#, 400),
+                (
+                    r#"{"text":"Yes. Keep it small.","where":"page","speaker":"delegate","relayed":["Keep it small."]}"#,
+                    250,
+                ),
+            ] {
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, detail, what, body, at)
+                     VALUES ('p', 'owner_words', 'said', 'w', ?1, ?2)",
+                    params![body, at],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let said = |m: i64| said_of(db.conn(), m).unwrap().unwrap();
+        assert!(said(1).get("architect_said_before").is_none());
+        assert_eq!(said(1)["speaker"], "owner");
+        assert_eq!(said(2)["architect_said_before"]["said"], "Said at 100.");
+        assert_eq!(said(2)["speaker"], "delegate");
+        assert_eq!(said(3)["architect_said_before"]["said"], "Said at 300.");
+        assert_eq!(said(3)["speaker"], "unrecorded");
+        assert_eq!(said(3)["words"], "Old.");
+        // The parts a delegate declared to be the owner's own come with the words, and only when it declared any.
+        assert_eq!(said(4)["relayed"], json!(["Keep it small."]));
+        assert_eq!(said(4)["speaker"], "delegate");
+        assert!(said(2).get("relayed").is_none());
+        assert!(said_of(db.conn(), 9).unwrap().is_none());
     }
 
     // A matter of two cells its first cell sent back to the queue is taken again after the owner's words that came

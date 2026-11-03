@@ -127,6 +127,28 @@ fn dependency(kind: &Value, bad: &mut dyn FnMut(String)) {
     }
 }
 
+/// What is said of a line of a decision that a change writes by hand.
+fn hand_written(line: &str) -> String {
+    format!(
+        "it writes the line \"{line}\" of a decision, which the item's text does not have: a decision is recorded by \
+         the cell that records decisions, which makes its line from the records it quotes; a line the item has \
+         stands letter for letter"
+    )
+}
+
+/// The change that records a decision in the batch, before the engine reads its records: the decision as it was handed
+/// in, with the project it is of and the matter of the batch it comes from. The engine adds what it read of the records
+/// (`resolved`) when it collects the change, so that the review reads what is written.
+pub fn record_decision_of(project: &str, matter: i64, decision: &Value) -> Value {
+    json!({
+        "kind": "record_decision",
+        "reason": format!("Records the decision that the words of matter {matter} make, from the records it quotes"),
+        "project": project,
+        "matter": matter,
+        "decision": decision,
+    })
+}
+
 /// The most characters an item's title has, spaces not counted, and an observation's.
 const TITLE_MOST: usize = 20;
 
@@ -155,15 +177,35 @@ pub(crate) fn title_fits(title: &str, bad: &mut dyn FnMut(String)) {
 /// another item, or next to another item of its own project; observations folded in are the project's and open; and
 /// after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
 pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), String> {
+    validate_from(e, project, changes, 0)
+}
+
+/// [`validate`], saying what is wrong with the changes from the `first`-th on only: those before it stand as the
+/// changes that come after must find them, and are not judged again. A change that records a decision is held to what
+/// a decision must be: the records it quotes hold its words, an item it names is the project's, and no edit of that
+/// item's `approach` comes after it in the batch, which would write the text over again; and no change writes a line of
+/// a decision by hand, which only a decision does.
+pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize) -> Result<(), String> {
     let mut s = State::load(e.db.conn())?;
     let cfg = &e.config.config;
     let mut problems: Vec<String> = Vec::new();
     let mut next_new = -1;
     // The acceptance conditions each item split gives to its new items so far.
     let mut taken: BTreeMap<i64, BTreeSet<String>> = BTreeMap::new();
+    // The items a decision of the batch is recorded in so far, and the words each has quoted.
+    let mut decided: BTreeSet<i64> = BTreeSet::new();
+    let mut quoted: BTreeSet<(i64, String, i64, String)> = BTreeSet::new();
+    // The `approach` of the items changes of the batch make, and the items merged away so far, with the item each is
+    // kept in.
+    let mut approaches = crate::decisions::Approaches::default();
+    let mut away: BTreeMap<i64, i64> = BTreeMap::new();
     for (i, c) in changes.iter().enumerate() {
         let n = i + 1;
-        let mut bad = |p: String| problems.push(format!("change {n} ({}): {p}", text(c, "kind")));
+        let mut bad = |p: String| {
+            if i >= first {
+                problems.push(format!("change {n} ({}): {p}", text(c, "kind")));
+            }
+        };
         if text(c, "reason").trim().is_empty() {
             bad("it has no reason".into());
         }
@@ -197,6 +239,9 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                     }
                 }
                 title_fits(text(c, "title"), &mut bad);
+                for l in crate::decisions::new_decision_lines("", text(c, "approach")) {
+                    bad(hand_written(&l));
+                }
                 if text(c, "project") != project {
                     bad(format!(
                         "it is of {}, and you make items of {project} only",
@@ -290,6 +335,8 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                             bad(format!("item {v} is not another item to merge into item {keep}"));
                             continue;
                         };
+                        approaches.merged(e.db.conn(), keep, a);
+                        away.insert(a, keep);
                         let links: Vec<(i64, i64)> = s.links.iter().copied().collect();
                         s.links.clear();
                         for (x, d) in links {
@@ -305,12 +352,69 @@ pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), Stri
                 own(&c["item"], &s, &mut bad);
             }
             "edit_item" => {
-                own(&c["item"], &s, &mut bad);
+                let id = own(&c["item"], &s, &mut bad);
                 if text(c, "text").trim().is_empty() {
                     bad("it changes the text to nothing".into());
                 }
                 if text(c, "part") == "title" {
                     title_fits(text(c, "text"), &mut bad);
+                }
+                if text(c, "part") == "approach" {
+                    // The lines of decisions the text had stand; a line it did not have is a decision written by hand.
+                    // The text it has now is the one the batch has made of it: a merge of an earlier change carried the
+                    // lines of the absorbed item's decisions into it.
+                    let now = id.map(|id| approaches.of(e.db.conn(), id)).unwrap_or_default();
+                    let now = now.as_str();
+                    for l in crate::decisions::new_decision_lines(now, text(c, "text")) {
+                        bad(hand_written(&l));
+                    }
+                    for why in crate::decisions::unkept(now, text(c, "text")) {
+                        bad(format!(
+                            "{why}: the lines of the item's decisions stand letter for letter, in their order, under \
+                             the head {}",
+                            crate::decisions::HEAD
+                        ));
+                    }
+                    if id.is_some_and(|id| decided.contains(&id)) {
+                        bad(
+                            "it writes the item's approach whole after a decision of this batch was recorded in it, \
+                             which the new text would write over: put this change before the decision"
+                                .into(),
+                        );
+                    }
+                    if let Some(id) = id {
+                        approaches.written(id, text(c, "text"));
+                    }
+                }
+            }
+            "record_decision" => {
+                let d = &c["decision"];
+                let id = match d.get("item").filter(|v| !v.is_null()) {
+                    Some(v) => own(v, &s, &mut bad),
+                    None => None,
+                };
+                if let Some(keep) = id.and_then(|id| away.get(&id)) {
+                    bad(format!(
+                        "item {} is merged into item {keep} earlier in this batch, and is cancelled with it: record \
+                         the decision in item {keep}, or put it before the merge, which carries it",
+                        id.unwrap_or_default()
+                    ));
+                }
+                if let Some(id) = id {
+                    decided.insert(id);
+                }
+                match crate::decisions::resolve(e.db.conn(), project, d, "architect", id.filter(|id| *id > 0)) {
+                    Ok(r) => {
+                        for w in &r.said {
+                            if !quoted.insert((id.unwrap_or_default(), w.from.clone(), w.id, w.words.clone())) {
+                                bad(format!(
+                                    "\"{}\" of {} {} is quoted by an earlier decision of this batch",
+                                    w.words, w.from, w.id
+                                ));
+                            }
+                        }
+                    }
+                    Err(why) => why.into_iter().for_each(&mut bad),
                 }
             }
             "set_level" => {
@@ -517,6 +621,19 @@ fn write_one(
                         text(&p, "kind"),
                     )?;
                 }
+                // The decisions that bear on the absorbed item bear on the one kept: its lines go there, as they are.
+                let approach_of = |id: i64| -> Result<String, String> {
+                    let a: Option<String> = tx
+                        .query_row("SELECT approach FROM items WHERE id = ?1", [id], |r| r.get(0))
+                        .map_err(sql)?;
+                    Ok(a.unwrap_or_default())
+                };
+                let (kept, absorbed) = (approach_of(keep)?, approach_of(a)?);
+                let carried = crate::decisions::carry(&kept, &absorbed);
+                if carried != kept {
+                    tx.execute("UPDATE items SET approach = ?2 WHERE id = ?1", params![keep, carried])
+                        .map_err(sql)?;
+                }
                 cancel(a, &format!("merged into item {keep}: {reason}"))?;
             }
         }
@@ -562,6 +679,44 @@ fn write_one(
                 params![item_of(&c["item"], keys)?, text(c, "level")],
             )
             .map_err(sql)?;
+        }
+        "record_decision" => {
+            // The line is the one the review read, which the engine made from the records when it collected the change.
+            let line = c["resolved"]["line"]
+                .as_str()
+                .ok_or("a decision to record has no line the review read")?;
+            let d = &c["decision"];
+            match d.get("item").filter(|v| !v.is_null()) {
+                Some(v) => {
+                    let id = item_of(v, keys)?;
+                    let now: Option<String> = tx
+                        .query_row("SELECT approach FROM items WHERE id = ?1", [id], |r| r.get(0))
+                        .map_err(sql)?;
+                    tx.execute(
+                        "UPDATE items SET approach = ?2 WHERE id = ?1",
+                        params![id, crate::decisions::insert(now.as_deref().unwrap_or_default(), line)],
+                    )
+                    .map_err(sql)?;
+                }
+                // No item holds it: the line is kept as an observation, for an item to take in.
+                None => {
+                    let refs: Vec<String> = items(c["resolved"].get("words"))
+                        .iter()
+                        .map(|w| format!("{} {}", text(w, "from"), w["id"]))
+                        .collect();
+                    let o = json!({
+                        "kind": "new",
+                        "title": text(d, "title").trim(),
+                        "what": line,
+                        "tags": d.get("tags").cloned().unwrap_or(Value::Null),
+                        "source": "A decision found in the owner's words that no item holds, as the architect's \
+                                   batch of item changes recorded it",
+                        "refs": refs,
+                    });
+                    let from = format!("matter {}", c["matter"]);
+                    crate::architect::observe(tx, text(c, "project"), &from, &o)?;
+                }
+            }
         }
         "add_known_red_check" => {
             tx.execute(
@@ -804,6 +959,50 @@ mod tests {
                 (db::CANCEL_ITEM.to_string(), json!(3)),
             ]
         );
+    }
+
+    // A merge keeps the decisions that bear on the absorbed item: their lines go into the kept item's approach, under its
+    // head and in their order, each once, and the absorbed item keeps its own.
+    #[test]
+    fn a_merge_carries_the_decisions_of_the_absorbed_item_to_the_one_kept() {
+        let (a, b) = ("Decision (2026-11-01, owner): A.", "Decision (2026-11-02, owner): B.");
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Architect, |tx| {
+            for approach in [
+                Some(format!("Approach:\n- Keep.\nDecisions:\n{a}\nLearned:\nx")),
+                Some(format!("Approach:\n- Gone.\nDecisions:\n{a}\n{b}")),
+                None,
+                Some(format!("Approach:\n- Gone.\nDecisions:\n{a}\n{b}")),
+            ] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, approach, deliver, level)
+                     VALUES ('p', 't', 'x', 'y', ?1, 'change', 'l')",
+                    [approach],
+                )?;
+            }
+            let merge = |keep: &str, gone: &str| {
+                json!({ "kind": "merge", "keep": keep, "absorbed": [gone], "reason": "the same" })
+            };
+            write_all(tx, &[merge("1", "2"), merge("3", "4")], &BTreeMap::new()).map_err(db::Error::Abort)?;
+            Ok(())
+        })
+        .unwrap();
+        let approach = |id: i64| -> Option<String> {
+            db.conn()
+                .query_row("SELECT approach FROM items WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
+        // The first has the first line already: the second comes after it, before `Learned:`.
+        assert_eq!(
+            approach(1).unwrap(),
+            format!("Approach:\n- Keep.\nDecisions:\n{a}\n{b}\nLearned:\nx")
+        );
+        assert_eq!(
+            approach(2).unwrap(),
+            format!("Approach:\n- Gone.\nDecisions:\n{a}\n{b}")
+        );
+        // The third had no text: it has the head and both lines.
+        assert_eq!(approach(3).unwrap(), format!("Decisions:\n{a}\n{b}"));
     }
 
     // An observation folded into an item the batch creates, named by its key, is folded into that item once it is made.
