@@ -844,6 +844,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "sent_back",
                 "usage_limit",
                 "offline",
+                "transient_too_often",
                 "transient",
                 "flagged",
                 "guarded",
@@ -852,27 +853,40 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "unparsed",
                 "cut_off",
                 "cannot_step",
+                "step_network_too_often",
+                "step_network",
                 "repeats",
                 "work_ended"
             ],
             "{}",
             cell.id
         );
-        assert!(
-            shared
-                .iter()
-                .all(|x| x.to == "@self" && x.fallback && !x.common && x.counts.is_none())
+        assert!(shared.iter().all(|x| x.to == "@self" && x.fallback && !x.common));
+        // The rows that run again count, and no other does; the row for being taken too often is the pause.
+        let counts: Vec<(&str, &str)> = shared
+            .iter()
+            .filter_map(|x| Some((x.name.as_str(), x.counts.as_deref()?)))
+            .collect();
+        assert_eq!(
+            counts,
+            [
+                ("sent_back", "sent_back"),
+                ("transient", "retries"),
+                ("step_network", "retries")
+            ]
         );
         let pauses: Vec<&str> = shared.iter().filter(|x| x.pauses).map(|x| x.name.as_str()).collect();
         assert_eq!(
             pauses,
             [
                 "sent_back_too_often",
+                "transient_too_often",
                 "flagged",
                 "guarded",
                 "prompt_too_long",
                 "unparsed",
                 "cannot_step",
+                "step_network_too_often",
                 "repeats"
             ]
         );
@@ -881,9 +895,9 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
         assert_eq!(shared[0].conditions, [flow::format::Atom::SentBack(Some(3))]);
     }
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    v["flows"][0]["rounds"]["failed"]["kinds"][3]["then"] = "A3".into();
+    v["flows"][0]["rounds"]["failed"]["kinds"][3]["later"] = "A3".into();
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
-    assert!(e.contains("unknown field `then`"), "{e}");
+    assert!(e.contains("unknown field `later`"), "{e}");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     v["flows"][0]["rounds"]["failed"]["kinds"][1]["name"] = "pause".into();
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();

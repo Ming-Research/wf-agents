@@ -105,6 +105,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0066.sql"),
     include_str!("../../../db/migrations/0067.sql"),
     include_str!("../../../db/migrations/0068.sql"),
+    include_str!("../../../db/migrations/0069.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1463,13 +1464,13 @@ mod tests {
         );
     }
 
-    // Taken to version 68, the head `Owner's decisions:` of an item's approach is `Decisions:`, wherever the head
+    // Taken to version 69, the head `Owner's decisions:` of an item's approach is `Decisions:`, wherever the head
     // stands (first line, middle or last), and every other byte of the text stays: a line that holds the words but is
     // not the head, an indented one and an approach with no head are as they were, and an item with no approach has
     // none; the view of what the owner said that concerns a work reads the words and who was declared to speak them.
     #[test]
     fn the_head_of_the_owner_s_decisions_is_renamed_and_nothing_else_changes() {
-        let mut old = at_version(67);
+        let mut old = at_version(68);
         let texts: [Option<&str>; 6] = [
             Some("Approach:\n- Do it.\nOwner's decisions:\nDecision (2026-11-02, owner): A.\n\nLearned:\nCommits: abc"),
             Some("Owner's decisions:\nDecision (2026-11-02, owner): B."),
