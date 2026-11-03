@@ -1262,7 +1262,10 @@ mod tests {
         assert_eq!(note.text, "api.ts is changed.");
         let pause = |db: &mut Db, why: &str, by: &str| {
             db.write(Actor::Engine, |tx| {
-                tx.execute("UPDATE works SET paused = ?1, paused_by = ?2 WHERE id = 1", params![why, by])?;
+                tx.execute(
+                    "UPDATE works SET paused = ?1, paused_by = ?2 WHERE id = 1",
+                    params![why, by],
+                )?;
                 Ok(())
             })
             .unwrap();
@@ -1279,12 +1282,20 @@ mod tests {
         // A work the engine paused for another reason takes none: nothing is asked of the engine.
         pause(&mut db, "cell tools: no", "engine");
         assert!(can_start(db.conn(), 1, false).is_ok());
-        assert!(can_start(db.conn(), 1, true).unwrap_err().contains("not stopped by the architect"));
+        assert!(
+            can_start(db.conn(), 1, true)
+                .unwrap_err()
+                .contains("not stopped by the architect")
+        );
         let refused = resume_with_note(&mut db, 1, Some(&note)).unwrap_err();
         assert!(refused.contains("not stopped by the architect"), "{refused}");
         assert_eq!(db::resume_asked(db.conn()).unwrap(), Vec::<i64>::new());
         // A work the architect stopped takes it, in the request and then in what the architect is told.
-        pause(&mut db, &format!("{}: it waits for the parser", db::STOPPED_BY_ARCHITECT), "engine");
+        pause(
+            &mut db,
+            &format!("{}: it waits for the parser", db::STOPPED_BY_ARCHITECT),
+            "engine",
+        );
         assert!(can_start(db.conn(), 1, true).is_ok());
         resume_with_note(&mut db, 1, Some(&note)).unwrap();
         assert_eq!(db::resume_note(db.conn(), 1).unwrap(), Some(note.clone()));
@@ -1293,9 +1304,16 @@ mod tests {
             db::lift_pause(tx, 1, n.as_ref())
         })
         .unwrap();
-        assert_eq!(told(&db), (Some("api.ts is changed.".to_string()), Some("owner".to_string())));
+        assert_eq!(
+            told(&db),
+            (Some("api.ts is changed.".to_string()), Some("owner".to_string()))
+        );
         // A Start with no note leaves neither.
-        pause(&mut db, &format!("{}: it waits again", db::STOPPED_BY_ARCHITECT), "engine");
+        pause(
+            &mut db,
+            &format!("{}: it waits again", db::STOPPED_BY_ARCHITECT),
+            "engine",
+        );
         resume_with_note(&mut db, 1, None).unwrap();
         assert_eq!(db::resume_note(db.conn(), 1).unwrap(), None);
         db.write(Actor::Owner, |tx| db::lift_pause(tx, 1, None)).unwrap();
@@ -1310,7 +1328,10 @@ mod tests {
             speaker: Some("delegate".into()),
             ..ask.clone()
         };
-        assert_eq!(spoken.note(true).unwrap().map(|n| n.speaker), Some(db::Speaker::Delegate));
+        assert_eq!(
+            spoken.note(true).unwrap().map(|n| n.speaker),
+            Some(db::Speaker::Delegate)
+        );
         assert!(spoken.note(false).unwrap_err().contains("only with the Start"));
         assert_eq!(RunAsk::default().note(false).unwrap(), None);
     }

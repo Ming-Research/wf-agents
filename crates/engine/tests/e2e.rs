@@ -9824,7 +9824,7 @@ fn the_search_of_observations_hands_back_candidates() {
 // where before the search it had them not listed at all, and does not take them for not given.
 #[test]
 fn a_search_that_found_nothing_comes_back_as_none() {
-    let (mut e, arch, log, s) = searched("search-none", json!([]));
+    let (e, arch, log, s) = searched("search-none", json!([]));
     let w = e.work(arch).unwrap();
     let g = e.graph_of(&w).unwrap();
     let number = g
@@ -15397,7 +15397,8 @@ fn the_policy_in_force_says_when_it_took_effect() {
     quiet(&mut e);
     let v = e.flow_now;
     let policy = json!({ "direction": "d", "why": "w", "principles": [{ "no": 1, "text": "t" }], "signals": [] });
-    let written = json!({ "outcome": { "policy": policy, "new_measures": [] }, "progress": "Written.", "tell_owner": [] });
+    let written =
+        json!({ "outcome": { "policy": policy, "new_measures": [] }, "progress": "Written.", "tell_owner": [] });
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
             "INSERT INTO works (item, flow_version, graph, at, ended, project)
@@ -16530,18 +16531,16 @@ fn the_slots_say_whether_works_run_and_the_batch_its_changes_with_their_keys() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// The `k`th round (from 0) of a work at a cell: its number and the message it was sent.
-fn nth_message(e: &Engine, work: i64, cell: &str, k: i64) -> (i64, String) {
-    let (n, input): (i64, String) =
+/// The numbers of a work's rounds at a cell, in order.
+fn round_numbers(e: &Engine, work: i64, cell: &str) -> Vec<i64> {
+    let mut st =
         e.db.conn()
-            .query_row(
-                "SELECT n, input FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n LIMIT 1 OFFSET ?3",
-                params![work, cell, k],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
+            .prepare("SELECT n FROM rounds WHERE work = ?1 AND cell = ?2 ORDER BY n")
             .unwrap();
-    let input = db::put_back(e.db.conn(), &serde_json::from_str(&input).unwrap());
-    (n, input["message"].as_str().unwrap_or_default().to_string())
+    st.query_map(params![work, cell], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
 }
 
 /// An engineer's work on an item at a cell, with its branch, worktree and pull request, ended when `ended` says why.
@@ -16567,9 +16566,13 @@ fn work_on(e: &mut Engine, item: i64, at: &str, branch: &str, worktree: &str, pr
 fn a_value_that_came_back_is_told_as_the_value_now_and_the_one_between_as_no_longer_current() {
     let s = setup("value-back");
     let mut agents = scripts();
+    // What the architect was sent in each of its rounds at H10, as the agent received it.
+    let sent = Arc::new(Mutex::new(Vec::<String>::new()));
+    let heard = sent.clone();
     agents.insert(
         "H10",
-        Box::new(|_: &Request, n: usize| {
+        Box::new(move |r: &Request, n: usize| {
+            heard.lock().unwrap().push(r.prompt.clone());
             if n <= 3 {
                 let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
                 return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
@@ -16626,14 +16629,23 @@ fn a_value_that_came_back_is_told_as_the_value_now_and_the_one_between_as_no_lon
     // The engine runs again: the slots are the first round's value.
     e.set_global_pause(None);
     assert!(steps_until(&mut e, 20, |e| rounds(&*e) >= 3), "{}", log());
-    let (first, one) = nth_message(&e, arch, "H10", 0);
-    let (second, two) = nth_message(&e, arch, "H10", 1);
-    let (_, three) = nth_message(&e, arch, "H10", 2);
-    assert_eq!(given_value(&one, "·engine·slots").expect(&one)["engine"]["runs"], "running");
-    assert_eq!(given_value(&two, "·engine·slots").expect(&two)["engine"]["runs"], "paused", "{two}");
+    let numbers = round_numbers(&e, arch, "H10");
+    let (first, second) = (numbers[0], numbers[1]);
+    let told = sent.lock().unwrap().clone();
+    assert!(told.len() >= 3, "{} messages were sent\n{}", told.len(), log());
+    let (one, two, three) = (&told[0], &told[1], &told[2]);
+    assert_eq!(
+        given_value(one, "·engine·slots").expect(one)["engine"]["runs"],
+        "running"
+    );
+    assert_eq!(
+        given_value(two, "·engine·slots").expect(two)["engine"]["runs"],
+        "paused",
+        "{two}"
+    );
     assert!(two.contains("Parse the input first"), "{two}");
     assert!(two.contains("The slot count is stale."), "{two}");
-    let listed = work_from(&three)
+    let listed = work_from(three)
         .into_iter()
         .find(|l| l.contains("·engine·slots"))
         .unwrap_or_else(|| panic!("{three}"));
@@ -16659,16 +16671,34 @@ fn a_work_is_shown_by_one_card_on_the_board_in_an_item_and_in_the_works_since_th
     let wt = s.root.join("worktree-1");
     git(
         &s.root.join("checkout"),
-        &["worktree", "add", "-q", "-b", "work-1", &wt.to_string_lossy(), "origin/main"],
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "work-1",
+            &wt.to_string_lossy(),
+            "origin/main",
+        ],
     );
     write(&wt, "b.txt", "two\n");
     git(&wt, &["add", "-A"]);
     git(&wt, &["commit", "-q", "-m", "work"]);
-    let older = work_on(&mut e, running, "I1", "wf-agents/1-1", "/w/1a", 11, Some("stopped: by hand"));
+    let older = work_on(
+        &mut e,
+        running,
+        "I1",
+        "wf-agents/1-1",
+        "/w/1a",
+        11,
+        Some("stopped: by hand"),
+    );
     let latest = work_on(&mut e, running, "I1", "wf-agents/1-2", &wt.to_string_lossy(), 12, None);
     let done = work_on(&mut e, finished, "E1", "wf-agents/2-1", "/w/2", 13, Some("done"));
-    e.db.write(Actor::Engine, |tx| record_round(tx, done, 1, "M2", &json!({}), "merged"))
-        .unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        record_round(tx, done, 1, "M2", &json!({}), "merged")
+    })
+    .unwrap();
     let arch = architect_work_at(&mut e, "U1");
     let m = engine::next_message(&mut e, arch).unwrap().text;
     let board = given_value(&m, "·engine·board").expect(&m);
@@ -16713,7 +16743,11 @@ fn a_work_is_shown_by_one_card_on_the_board_in_an_item_and_in_the_works_since_th
     for k in card {
         assert_eq!(state[k], row[k], "{k}\n{item}");
     }
-    assert_eq!(state["changed_files"], json!({ "total": 1, "files": ["b.txt"] }), "{item}");
+    assert_eq!(
+        state["changed_files"],
+        json!({ "total": 1, "files": ["b.txt"] }),
+        "{item}"
+    );
     assert_eq!(item["named_work"]["work"], older, "{item}");
     assert_eq!(item["named_work"]["branch"], "wf-agents/1-1");
     assert_eq!(item["named_work"]["pr"], 11);
@@ -16739,7 +16773,9 @@ fn the_slots_name_the_works_that_hold_them_and_the_cells_are_named_on_an_older_f
     // An older flow version: the current flow with one more cell of the engineer's graph, `20`, a copy of Implement.
     let current: String =
         e.db.conn()
-            .query_row("SELECT compiled FROM flow_versions WHERE id = ?1", [e.flow_now], |r| r.get(0))
+            .query_row("SELECT compiled FROM flow_versions WHERE id = ?1", [e.flow_now], |r| {
+                r.get(0)
+            })
             .unwrap();
     let mut flow: Value = serde_json::from_str(&current).unwrap();
     let graph = flow["graphs"]
@@ -16758,15 +16794,17 @@ fn the_slots_name_the_works_that_hold_them_and_the_cells_are_named_on_an_older_f
     cell["id"] = json!("20");
     cell["title"] = json!("Old implement");
     graph["cells"].as_array_mut().unwrap().push(cell);
-    let version: i64 = e
-        .db
-        .write(Actor::Engine, |tx| {
+    let version: i64 =
+        e.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO flow_versions (digest, compiled) VALUES ('an-older-flow', ?1)",
                 [flow.to_string()],
             )?;
             let v = tx.last_insert_rowid();
-            tx.execute("UPDATE works SET flow_version = ?1, at = '20' WHERE id = ?2", params![v, old])?;
+            tx.execute(
+                "UPDATE works SET flow_version = ?1, at = '20' WHERE id = ?2",
+                params![v, old],
+            )?;
             Ok(v)
         })
         .unwrap();
@@ -16801,7 +16839,13 @@ fn the_slots_name_the_works_that_hold_them_and_the_cells_are_named_on_an_older_f
         .map(|h| (h["work"].as_i64().unwrap(), h["at"].as_str().unwrap().to_string()))
         .collect();
     holders.sort();
-    assert_eq!(holders, [(running, "I1".to_string()), (old, "20".to_string())], "{slots}");
+    assert_eq!(
+        holders,
+        [(running, "I1".to_string()), (old, "20".to_string())],
+        "{slots}"
+    );
+    // The work waiting for the architect at A2 holds none.
+    assert!(holders.iter().all(|h| h.0 != asking), "{slots}");
     assert_eq!(slots["used"], 2, "{slots}");
     let board = given_value(&m, "·engine·board").expect(&m);
     assert_eq!(board["items"][format!("#{a}")]["holds_slot"], true);
@@ -16809,8 +16853,15 @@ fn the_slots_name_the_works_that_hold_them_and_the_cells_are_named_on_an_older_f
     assert_eq!(board["items"][format!("#{c}")]["holds_slot"], true);
     let cells = given_value(&m, "·engine·cells").expect(&m);
     assert_eq!(cells["flow"]["I1"]["title"], "Implement", "{cells}");
-    assert!(cells["flow"]["A2"]["holds_slot"].as_str().unwrap().starts_with("no"), "{cells}");
-    assert_eq!(cells["older_flow_versions"][version.to_string()]["20"]["title"], "Old implement", "{cells}");
+    assert!(
+        cells["flow"]["A2"]["holds_slot"].as_str().unwrap().starts_with("no"),
+        "{cells}"
+    );
+    assert_eq!(
+        cells["older_flow_versions"][version.to_string()]["20"]["title"],
+        "Old implement",
+        "{cells}"
+    );
     assert_eq!(cells["flow"].get("20"), None);
     // Every cell the board shows a work at is named, by the current flow or by the version the work stands on.
     for (_, row) in board["items"].as_object().unwrap() {
@@ -16894,7 +16945,15 @@ fn the_release_of_a_work_the_architect_stopped_comes_with_the_note_and_what_the_
     let wt = s.root.join("worktree-release");
     git(
         &s.root.join("checkout"),
-        &["worktree", "add", "-q", "-b", "work-r", &wt.to_string_lossy(), "origin/main"],
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "work-r",
+            &wt.to_string_lossy(),
+            "origin/main",
+        ],
     );
     write(&wt, "api.ts", "changed\n");
     let work = work_on(&mut e, item, "I1", "wf-agents/1-1", &wt.to_string_lossy(), 12, None);
@@ -16945,7 +17004,11 @@ fn the_release_of_a_work_the_architect_stopped_comes_with_the_note_and_what_the_
             "the why it was stopped: {given}"
         );
         assert_eq!(given["material"]["worktree"]["path"], &*wt.to_string_lossy(), "{given}");
-        assert_eq!(given["material"]["worktree"]["uncommitted"], json!(["?? api.ts"]), "{given}");
+        assert_eq!(
+            given["material"]["worktree"]["uncommitted"],
+            json!(["?? api.ts"]),
+            "{given}"
+        );
     }
     let _ = std::fs::remove_dir_all(&s.root);
 }
@@ -16975,9 +17038,8 @@ fn a_matter_of_a_work_comes_with_the_words_said_in_its_group_that_the_architect_
     say(&mut e, w1, "Keep the title.");
     say(&mut e, w2, "Lex first.");
     let arch = architect_work_at(&mut e, "H7");
-    let matter: i64 = e
-        .db
-        .write(Actor::Engine, |tx| {
+    let matter: i64 =
+        e.db.write(Actor::Engine, |tx| {
             record_round(tx, w1, 1, "I1", &json!({}), "done")?;
             let m = db::queue_matter(
                 tx,

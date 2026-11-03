@@ -505,6 +505,21 @@ mod tests {
         Ok(())
     }
 
+    /// A database with one work of project p's architect at H5 and no round.
+    fn architect_work_db() -> Db {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'H5', 'p')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        db
+    }
+
     /// A database with a work of project p's architect, whose batch (after its rethink, round 3) holds the rounds that
     /// name observations: round 5 merges a report into 15 and closes 3, rounds 6 and 7 are searches, and a change
     /// collected in round 5 folds 7 and 40 into an item; a batch before the rethink merged into 99 and found 98. The
@@ -573,12 +588,18 @@ mod tests {
         assert_eq!(o15["what"], "The slot count is stale. ".repeat(20), "the whole text");
         assert_eq!(
             o15["named_because"],
-            json!(["a report of this batch was merged into it", "a search of this batch found it"]),
+            json!([
+                "a report of this batch was merged into it",
+                "a search of this batch found it"
+            ]),
             "{o15}"
         );
         assert_eq!(
             named["observations"]["O7"]["named_because"],
-            json!(["a change of this batch folds it into an item", "a search of this batch found it"])
+            json!([
+                "a change of this batch folds it into an item",
+                "a search of this batch found it"
+            ])
         );
         assert_eq!(named["left_out"]["count"], 6, "{named}");
         assert_eq!(named["left_out"]["observations"][0], "O28");
@@ -610,14 +631,7 @@ mod tests {
         );
         assert!(named.get("left_out").is_none());
         // A work that names none gives none.
-        let empty = Db::in_memory().unwrap();
-        empty
-            .conn()
-            .execute_batch(
-                "INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}');
-                 INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'H5', 'p');",
-            )
-            .unwrap();
+        let empty = architect_work_db();
         assert_eq!(observations_named(empty.conn(), 1).unwrap(), None);
     }
 
@@ -634,13 +648,7 @@ mod tests {
         assert_eq!(first, (&json!("R1-5"), &json!(1), &json!(15)));
         assert_eq!(second, (&json!("R1-5"), &json!(2), &json!(3)));
         // A batch that made none gives none.
-        let none = Db::in_memory().unwrap();
-        none.conn()
-            .execute_batch(
-                "INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}');
-                 INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'H5', 'p');",
-            )
-            .unwrap();
+        let none = architect_work_db();
         assert_eq!(batch_observation_changes(none.conn(), 1).unwrap(), None);
     }
 
@@ -656,7 +664,10 @@ mod tests {
         });
         db.write(Actor::Engine, |tx| {
             tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
-            tx.execute("INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'D2')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'D2')",
+                [],
+            )?;
             round(tx, 2, "D2", &json!({ "outcome": design }), Some("done"), 1)?;
             for (kind, what) in [("open_question", "Q1"), ("open_question", "Q2"), ("failure", "F")] {
                 tx.execute(
@@ -748,12 +759,8 @@ mod tests {
     // waits at that row. Four cells, counted by hand.
     #[test]
     fn a_cell_is_told_with_whether_a_work_standing_at_it_holds_a_slot() {
-        let row = |name: &str, waits: bool| {
-            json!({ "name": name, "if": [], "to": "E1", "waits": waits, "interject": false, "main": false, "common": false })
-        };
-        let base = |id: &str, kind: &str, title: &str, rows: Vec<Value>| {
-            json!({ "id": id, "kind": kind, "gate": false, "title": title, "inputs": [], "rows": rows })
-        };
+        let row = |name: &str, waits: bool| json!({ "name": name, "if": [], "to": "E1", "waits": waits, "interject": false, "main": false, "common": false });
+        let base = |id: &str, kind: &str, title: &str, rows: Vec<Value>| json!({ "id": id, "kind": kind, "gate": false, "title": title, "inputs": [], "rows": rows });
         let mut implement = base("I1", "agent", "Implement", vec![row("done", false)]);
         implement["stage"] = json!("build");
         let mut ask = base("A2", "engine", "To the architect", vec![row("answered", false)]);
@@ -831,7 +838,14 @@ mod tests {
         let out = Command::new("git")
             .arg("-C")
             .arg(dir)
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "init.defaultBranch=main",
+            ])
             .args(["-c", "commit.gpgsign=false"])
             .args(args)
             .output()

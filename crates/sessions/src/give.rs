@@ -714,7 +714,10 @@ mod tests {
     // engine did not compute, says nothing.
     #[test]
     fn a_value_that_came_back_is_the_value_now_and_the_one_between_is_no_longer_current() {
-        let (a, b) = (json!({ "engine": { "runs": "running" } }), json!({ "engine": { "runs": "paused" } }));
+        let (a, b) = (
+            json!({ "engine": { "runs": "running" } }),
+            json!({ "engine": { "runs": "paused" } }),
+        );
         let record = |address: &str, v: &Value| json!({ "conditional": [{ "address": address, "hash": hash(v), "given": true }] });
         let first = round(2, record("R1-2·engine·slots", &a), Some(json!({})), 0);
         let second = round(4, record("R1-4·engine·slots", &b), Some(json!({})), 0);

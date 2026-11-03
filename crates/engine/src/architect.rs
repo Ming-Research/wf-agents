@@ -8428,28 +8428,48 @@ mod tests {
     // matter of its work saying which matter's material held it.
     #[test]
     fn a_work_s_words_before_its_matter_are_the_matter_s_material_and_the_groups_mark_what_was_given() {
-        let db = talk_db();
+        let mut db = talk_db();
         let conn = db.conn();
         let of_work_one = group_said(conn, "p", 60, Some(1), Some(200), false).unwrap();
         assert_eq!(said_texts(&of_work_one), ["Keep the title."], "{of_work_one:?}");
         assert!(of_work_one[0].get("given_with").is_none());
         // The words of the other work, and of after the matter was queued, are not the matter's.
-        assert_eq!(said_texts(&group_said(conn, "p", 60, Some(2), Some(200), false).unwrap()), ["Lex first."]);
+        assert_eq!(
+            said_texts(&group_said(conn, "p", 60, Some(2), Some(200), false).unwrap()),
+            ["Lex first."]
+        );
         assert_eq!(
             said_texts(&group_said(conn, "p", 60, Some(1), None, false).unwrap()),
             ["Keep the title.", "Later."]
         );
         // What was read before 60 is not unread.
-        assert_eq!(said_texts(&group_said(conn, "p", 0, Some(1), Some(200), false).unwrap()), ["Use Dialog.", "Keep the title."]);
+        assert_eq!(
+            said_texts(&group_said(conn, "p", 0, Some(1), Some(200), false).unwrap()),
+            ["Use Dialog.", "Keep the title."]
+        );
         // The groups' reading: every work's words, the ones that came before matter 1 (work 1's, handled in round 3 of
         // work 3) marked, those of another work and those that came after it not.
         let all = group_said(conn, "p", 60, None, None, true).unwrap();
         assert_eq!(said_texts(&all), ["Keep the title.", "Lex first.", "Later."]);
         assert_eq!(all[0]["given_with"], json!({ "matter": 1, "round": "R3-3" }), "{all:?}");
-        assert!(all[1].get("given_with").is_none() && all[2].get("given_with").is_none(), "{all:?}");
+        assert!(
+            all[1].get("given_with").is_none() && all[2].get("given_with").is_none(),
+            "{all:?}"
+        );
         // A matter not handled yet gave the architect nothing.
-        db.conn().execute("UPDATE architect_matters SET handled_work = NULL, handled_round = NULL", []).unwrap();
-        assert!(group_said(conn, "p", 60, None, None, true).unwrap()[0].get("given_with").is_none());
+        db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE architect_matters SET handled_work = NULL, handled_round = NULL",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(
+            group_said(db.conn(), "p", 60, None, None, true).unwrap()[0]
+                .get("given_with")
+                .is_none()
+        );
     }
 
     // The item changes waiting for a review are those of every architect work of the project that has not ended, this
@@ -8497,11 +8517,20 @@ mod tests {
         let waiting = unreviewed_changes(db.conn(), "p", 1).unwrap();
         assert_eq!(waiting.len(), 2, "{waiting:?}");
         assert_eq!(
-            (&waiting[0]["batch_of_work"], &waiting[0]["this_batch"], &waiting[0]["kind"], &waiting[0]["items"]),
+            (
+                &waiting[0]["batch_of_work"],
+                &waiting[0]["this_batch"],
+                &waiting[0]["kind"],
+                &waiting[0]["items"]
+            ),
             (&json!(1), &json!(true), &json!("hold"), &json!(["#5"]))
         );
         assert_eq!(
-            (&waiting[1]["batch_of_work"], &waiting[1]["this_batch"], &waiting[1]["items"]),
+            (
+                &waiting[1]["batch_of_work"],
+                &waiting[1]["this_batch"],
+                &waiting[1]["items"]
+            ),
             (&json!(2), &json!(false), &json!(["#6", "#7", "#8"]))
         );
         assert_eq!(held_by_batches(db.conn()).unwrap(), BTreeSet::from([5, 6, 7, 8, 20]));
