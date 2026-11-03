@@ -738,20 +738,38 @@ struct Stretch {
 
 /// How many findings a review's return leaves open, as the merge's judge reads them: those of its columns that found
 /// something or could not verify, a column of either with no finding listed counting one; and at a re-review, the
-/// findings of the round before it holds not fixed or insists on.
+/// findings of the round before it holds not fixed or insists on. A finding is counted once by its number, however
+/// many of these places hold it: one still open is both in its column and held not fixed, and one defect that concerns
+/// several columns has one number in each.
 fn open_findings(review: &Value) -> i64 {
-    let columns = review["columns"].as_array().map_or(0, |cs| {
-        cs.iter()
-            .filter(|c| matches!(c["verdict"].as_str(), Some("findings" | "cannot_verify")))
-            .map(|c| c["findings"].as_array().map_or(1, |f| f.len().max(1)) as i64)
-            .sum::<i64>()
-    });
-    let again = review["previous"].as_array().map_or(0, |p| {
-        p.iter()
-            .filter(|x| matches!(x["verdict"].as_str(), Some("not_fixed" | "insist")))
-            .count() as i64
-    });
-    columns + again
+    let mut numbered: BTreeSet<&str> = BTreeSet::new();
+    let mut unnumbered: i64 = 0;
+    let columns = review["columns"].as_array().into_iter().flatten();
+    for c in columns.filter(|c| matches!(c["verdict"].as_str(), Some("findings" | "cannot_verify"))) {
+        let findings = c["findings"].as_array().filter(|f| !f.is_empty());
+        let Some(findings) = findings else {
+            unnumbered += 1;
+            continue;
+        };
+        for f in findings {
+            match f["fid"].as_str() {
+                Some(fid) => {
+                    numbered.insert(fid);
+                }
+                None => unnumbered += 1,
+            }
+        }
+    }
+    let previous = review["previous"].as_array().into_iter().flatten();
+    for p in previous.filter(|x| matches!(x["verdict"].as_str(), Some("not_fixed" | "insist"))) {
+        match p["fid"].as_str() {
+            Some(fid) => {
+                numbered.insert(fid);
+            }
+            None => unnumbered += 1,
+        }
+    }
+    numbered.len() as i64 + unnumbered
 }
 
 /// The words of a notice of the engine's about a work, as the bubble of the stage the work was at says them, which do
@@ -1405,6 +1423,30 @@ fn plans(conn: &Connection, project: &str) -> Result<Vec<ConversationEntry>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Item #276: the findings a review leaves open are counted once each by their numbers: a finding still open is both
+    // in its column and held not fixed, and one defect that concerns two columns has one number in each. A column that
+    // could not verify, or found something with no finding listed, counts one; a finding closed counts none.
+    #[test]
+    fn the_findings_a_review_leaves_open_are_counted_once_each() {
+        let finding = |fid: &str| serde_json::json!({ "fid": fid, "where": "w", "what": "x", "fix": "y" });
+        let review = serde_json::json!({
+            "columns": [
+                { "id": "1", "verdict": "findings", "findings": [finding("R1"), finding("R2")] },
+                { "id": "2", "verdict": "findings", "findings": [finding("R2")] },
+                { "id": "3", "verdict": "cannot_verify", "reason": "r" },
+                { "id": "4", "verdict": "pass" }
+            ],
+            "previous": [
+                { "fid": "R1", "verdict": "not_fixed", "reason": "Still there." },
+                { "fid": "R3", "verdict": "insist", "reason": "It is wrong." },
+                { "fid": "R4", "verdict": "closed" }
+            ]
+        });
+        // R1, R2, R3, and the column not verified.
+        assert_eq!(open_findings(&review), 4);
+        assert_eq!(open_findings(&serde_json::json!({ "columns": [] })), 0);
+    }
 
     // A conversation gives its latest entries and every older one something waits on, and says where it left the others
     // out, each run by the entry given after it, so that the runs add up to all that was left out.

@@ -2765,6 +2765,223 @@ fn an_answer_fixed_again_with_no_new_commit_sends_the_review_back_to_the_finding
     );
 }
 
+/// The rows of the table the newest round of the fix of `work` was given, as its record keeps them.
+fn fix_table(e: &Engine, work: i64) -> Vec<Value> {
+    let text: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(input, '$.engine.table') FROM rounds
+                 WHERE work = ?1 AND cell = 'T6' AND transition = 'done' ORDER BY n DESC LIMIT 1",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    serde_json::from_str(&text).unwrap()
+}
+
+// Item #276: the table review sees the change again with no fix between, as after a new design. Its first review
+// found R1 in one column, R2 (one defect) in two, R3 in a fourth, and could not verify a fifth. The re-review lists
+// every column; it answers R1 and R2, which still hold, not_fixed and writes them again under their numbers in their
+// columns, answers R3, which no longer holds, closed, and answers the column it could not verify in the table. Handed in
+// first with R1 in no column and R3 still in its column, it is sent back once, saying both. The fix is then given one
+// row for each finding, R1 with what the review said of it under `also`, R2 with its second column and what the review
+// said; and the next review answers R2 in one row of `previous`.
+#[test]
+fn a_re_review_with_no_fix_before_it_answers_what_still_holds_and_the_fix_answers_each_finding_once() {
+    let s = setup("still-holds");
+    let mut agents = scripts();
+    let listed: Arc<Mutex<Vec<String>>> = Arc::default();
+    let kept = listed.clone();
+    agents.insert(
+        "T4",
+        Box::new(move |r: &Request, n: usize| {
+            let mut ids = kept.lock().unwrap();
+            if ids.is_empty() {
+                *ids = columns(&r.prompt);
+            }
+            let evidence = json!({ "files": [], "ran": [], "nodes": [] });
+            let finding = |fid: &str, what: &str| json!({ "fid": fid, "where": "the pull request", "what": what, "fix": "Say more." });
+            let found = |id: &str, findings: Vec<Value>| json!({ "id": id, "verdict": "findings", "evidence": evidence, "findings": findings });
+            let pass = |id: &str| json!({ "id": id, "verdict": "pass", "evidence": evidence });
+            // The columns by their places in the table: R1 in the first, R2 in the second and third, R3 in the fourth.
+            let table = |first: bool, r1: bool, r3: bool| -> Vec<Value> {
+                ids.iter()
+                    .map(String::as_str)
+                    .enumerate()
+                    .map(|(i, id)| match i {
+                        0 if r1 => found(id, vec![finding("R1", "It says too little.")]),
+                        1 => found(id, vec![finding("R2", "It names no test.")]),
+                        2 => found(id, vec![finding("R2", "Same as R2.")]),
+                        3 if r3 => found(id, vec![finding("R3", "It has a typo.")]),
+                        4 if first => json!({ "id": id, "verdict": "cannot_verify", "reason": "No run to read." }),
+                        _ => pass(id),
+                    })
+                    .collect()
+            };
+            let still = |fid: &str| json!({ "fid": fid, "verdict": "not_fixed", "reason": format!("{fid} is unchanged.") });
+            match n {
+                1 => (
+                    vec![("outcome.no_adversarial", "stands")],
+                    vec![("outcome.columns", json!(table(true, true, true)))],
+                ),
+                // R1 left out of its column, and R3 closed but left in its column.
+                2 => (
+                    Vec::new(),
+                    vec![
+                        ("outcome.columns", json!(table(false, false, true))),
+                        (
+                            "outcome.previous",
+                            json!([still("R1"), still("R2"), { "fid": "R3", "verdict": "closed" }]),
+                        ),
+                    ],
+                ),
+                3 => (
+                    Vec::new(),
+                    vec![
+                        ("outcome.columns", json!(table(false, true, false))),
+                        (
+                            "outcome.previous",
+                            json!([still("R1"), still("R2"), { "fid": "R3", "verdict": "closed" }]),
+                        ),
+                    ],
+                ),
+                _ => (
+                    Vec::new(),
+                    vec![(
+                        "outcome.previous",
+                        json!([{ "fid": "R1", "verdict": "closed" }, { "fid": "R2", "verdict": "closed" }]),
+                    )],
+                ),
+            }
+        }),
+    );
+    agents.insert(
+        "T6",
+        fix_answering(vec![json!([
+            { "answer": "fixed", "id": "F1", "commit": "HEAD" },
+            { "answer": "fixed", "id": "F2", "commit": "HEAD" }
+        ])]),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let log = || said.lock().unwrap().join("\n");
+    step_until(&mut e, item, &said, "the first review sending the work to the fix", |e| {
+        state(e, item).is_some_and(|(_, at, _)| at == "T6")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    // No fix runs: the review looks at the change again, every column listed, as after a new design.
+    let changed = json!({ "plan": { "review": "changed", "adversarial": "skipped" } });
+    seed_round(&mut e, work, "T7", &json!({}), &changed, "review_first", "T4");
+    step_until(&mut e, item, &said, "the review clearing the work", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "clear")
+    });
+    let all = listed.lock().unwrap().clone();
+    assert!(all.len() > 5, "{all:?}");
+    // Sent back once, with both problems; then taken.
+    let why = why_sent_back(&e, work, "T4");
+    assert_eq!(why.len(), 1, "{why:?}\n{}", log());
+    for want in [
+        "previous_matches_columns (previous): R1 is answered not_fixed or insist, and no column holds it",
+        "previous_matches_columns (previous): R3 is answered closed or withdraw, and a column still holds it",
+    ] {
+        assert!(why[0].contains(want), "{want}\n{}", why[0]);
+    }
+    assert_eq!(transitions(&e, item, "T4"), ["done", "done", "done"], "{}", log());
+    // The fix had one row for each finding still open, and none for the one closed.
+    let rows = fix_table(&e, work);
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(
+        (&rows[0]["row"], &rows[0]["from"], &rows[0]["fid"], &rows[0]["column"]),
+        (&json!("F1"), &json!("T4·columns[findings]"), &json!("R1"), &json!(all[0]))
+    );
+    assert_eq!(
+        rows[0]["also"],
+        json!([{ "from": "T4·previous[not_fixed]", "verdict": "not_fixed", "reason": "R1 is unchanged." }])
+    );
+    assert_eq!(
+        (&rows[1]["row"], &rows[1]["fid"], &rows[1]["column"]),
+        (&json!("F2"), &json!("R2"), &json!(all[1]))
+    );
+    assert_eq!(
+        rows[1]["also"],
+        json!([
+            { "from": "T4·columns[findings]", "column": all[2], "what": "Same as R2." },
+            { "from": "T4·previous[not_fixed]", "verdict": "not_fixed", "reason": "R2 is unchanged." }
+        ])
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #276: a fix that could not verify a finding leaves where it stands to the re-review, which answers it by that:
+// closed, withdraw, or not_fixed with the evidence it needs. The re-review looks at the disputes only, with no column to
+// answer, so a finding it holds still open is in no column, and the checks take all three answers; the fix is then
+// given the one still open.
+#[test]
+fn a_finding_the_fix_could_not_verify_is_answered_by_where_it_stands() {
+    let s = setup("fix-could-not-verify");
+    let mut agents = scripts();
+    agents.insert(
+        "T4",
+        Box::new(|r: &Request, n: usize| {
+            let previous = match n {
+                1 => {
+                    let ids = columns(&r.prompt);
+                    let evidence = json!({ "files": [], "ran": [], "nodes": [] });
+                    let last = ids.len() - 1;
+                    let cols: Vec<Value> = ids
+                        .iter()
+                        .enumerate()
+                        .map(|(i, id)| {
+                            if i < last {
+                                return json!({ "id": id, "verdict": "pass", "evidence": evidence });
+                            }
+                            let findings: Vec<Value> = ["R1", "R2", "R3"]
+                                .iter()
+                                .map(|f| json!({ "fid": f, "where": "the pull request", "what": "It says too little.", "fix": "Say more." }))
+                                .collect();
+                            json!({ "id": id, "verdict": "findings", "evidence": evidence, "findings": findings })
+                        })
+                        .collect();
+                    return (
+                        vec![("outcome.no_adversarial", "stands")],
+                        vec![("outcome.columns", json!(cols))],
+                    );
+                }
+                2 => json!([
+                    { "fid": "R1", "verdict": "closed" },
+                    { "fid": "R2", "verdict": "withdraw" },
+                    { "fid": "R3", "verdict": "not_fixed", "reason": "Needs the log of a run on the head: run ci with the test named." }
+                ]),
+                _ => json!([{ "fid": "R3", "verdict": "closed" }]),
+            };
+            (Vec::new(), vec![("outcome.previous", previous)])
+        }),
+    );
+    let unverified = |id: &str| json!({ "answer": "cannot_verify", "id": id, "reason": "No run shows it." });
+    agents.insert(
+        "T6",
+        fix_answering(vec![
+            json!([unverified("F1"), unverified("F2"), unverified("F3")]),
+            json!([{ "answer": "fixed", "id": "F1", "commit": "HEAD" }]),
+        ]),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the review clearing the work", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "clear")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(why_sent_back(&e, work, "T4").is_empty(), "{log}");
+    assert_eq!(transitions(&e, item, "T4"), ["done", "done", "done"], "{log}");
+    // The second fix was given the finding still open, and only it.
+    let rows = fix_table(&e, work);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (&rows[0]["from"], &rows[0]["fid"]),
+        (&json!("T4·previous[not_fixed]"), &json!("R3"))
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Whatever the fix answers to a row a side raised, and the code does not change, that side looks at it again: every
 // answer the flow gives is tried, so an answer added later cannot be left out. The review looks at the rows it raised and
 // adversarial testing, which has run in this work, stays skipped; adversarial testing looks at the rows it raised, and

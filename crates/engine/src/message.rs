@@ -1074,6 +1074,9 @@ fn columns_line(columns: &[(String, String)], x: &Conditional, renumbered: bool)
 pub struct ReviewColumns {
     pub columns: Vec<(String, String)>,
     pub renumbered: bool,
+    /// Whether every column of the table is listed: at a review that looks at what changed, and at one of disputes only
+    /// whose columns changed; not at one of disputes only given the columns the last review could not verify.
+    pub all: bool,
 }
 
 /// The columns the table review answers, each with its number, for the review of this round. A re-review that looks
@@ -1168,6 +1171,7 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
         None => ReviewColumns {
             columns: numbered,
             renumbered: false,
+            all: true,
         },
     }
 }
@@ -1187,11 +1191,13 @@ fn narrowed(numbered: Vec<(String, String)>, last: &Unverified) -> ReviewColumns
         ReviewColumns {
             columns: numbered.into_iter().filter(|(id, _)| last.ids.contains(id)).collect(),
             renumbered: false,
+            all: false,
         }
     } else {
         ReviewColumns {
             columns: numbered,
             renumbered: true,
+            all: true,
         }
     }
 }
@@ -1627,6 +1633,7 @@ mod tests {
     // A review of disputes only is given the columns the last review could not verify while each of their numbers
     // stands for the words it had when that review was given it; a column put before one of them, which moves it to
     // another number, and a record that kept no words, list every column and say so. Nothing unverified gives none.
+    // Whether every column is listed is said with them, for the checks of the review's return (item #276).
     #[test]
     fn a_review_of_disputes_only_is_narrowed_while_its_numbers_stand_for_the_same_words() {
         let now = pairs(&[("1", "one"), ("2", "two"), ("3", "three"), ("4", "four")]);
@@ -1640,7 +1647,8 @@ mod tests {
             kept,
             ReviewColumns {
                 columns: pairs(&[("2", "two"), ("4", "four")]),
-                renumbered: false
+                renumbered: false,
+                all: false,
             }
         );
         // A column was added before them: number 4 is "three" now, and was "four".
@@ -1650,17 +1658,18 @@ mod tests {
             all,
             ReviewColumns {
                 columns: inserted.clone(),
-                renumbered: true
+                renumbered: true,
+                all: true,
             }
         );
         // One number that stands for the same words does not make up for another that does not.
         let mixed = narrowed(inserted.clone(), &last(&["1", "4"], &[("1", "one"), ("4", "four")]));
-        assert!(mixed.renumbered && mixed.columns == inserted);
+        assert!(mixed.renumbered && mixed.all && mixed.columns == inserted);
         // A number the columns no longer have, and a record without the words.
         let gone = narrowed(now.clone(), &last(&["9"], &[("9", "nine")]));
-        assert!(gone.renumbered && gone.columns == now);
+        assert!(gone.renumbered && gone.all && gone.columns == now);
         let unrecorded = narrowed(now.clone(), &last(&["2"], &[]));
-        assert!(unrecorded.renumbered && unrecorded.columns == now);
+        assert!(unrecorded.renumbered && unrecorded.all && unrecorded.columns == now);
         // The last review verified everything: none.
         assert_eq!(narrowed(now, &last(&[], &[])), ReviewColumns::default());
     }

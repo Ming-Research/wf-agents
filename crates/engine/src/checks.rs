@@ -41,6 +41,9 @@ pub struct Ctx<'a> {
     /// The worktree's HEAD when the round started.
     pub head_start: Option<String>,
     pub columns: &'a [(String, String)],
+    /// Whether `columns` are every column of the review table, as the message listed them
+    /// ([`crate::message::ReviewColumns::all`]): not at a review of disputes only given the columns it could not verify.
+    pub all_columns: bool,
     /// The rows of the cell's numbered table as this round was given them, each with its number.
     pub table: &'a [Value],
     pub interjections: &'a [Value],
@@ -306,6 +309,34 @@ fn previous_problems(due: &[String], given: &[String]) -> Problems {
         &id_misses(due, given).missing,
         |x| format!("no row for {x}, a finding of the last review"),
         |xs| format!("no row for {xs}, findings of the last review"),
+    );
+    problems
+}
+
+/// What is wrong with how a re-review's answers to its findings of last time (`previous`, each a finding's number and
+/// its verdict) agree with the findings its columns hold now (`in_columns`): a finding closed or withdrawn that a column
+/// still holds; and, when the review lists every column (`all`), a finding still open (not_fixed or insisted on) that no
+/// column holds by its number. A review of disputes only lists only the columns it could not verify, where a finding
+/// still open has no column to be in. Each kind is said once with all its findings.
+fn previous_columns_problems(previous: &[(String, String)], in_columns: &[String], all: bool) -> Problems {
+    let open = previous
+        .iter()
+        .filter(|(fid, v)| all && matches!(v.as_str(), "not_fixed" | "insist") && !in_columns.contains(fid))
+        .map(|(fid, _)| fid);
+    let gone = previous
+        .iter()
+        .filter(|(fid, v)| matches!(v.as_str(), "closed" | "withdraw") && in_columns.contains(fid))
+        .map(|(fid, _)| fid);
+    let mut problems = Problems::default();
+    problems.about(
+        &once(open),
+        |x| format!("{x} is answered not_fixed or insist, and no column holds it: write it again under its number in its column"),
+        |xs| format!("{xs} are answered not_fixed or insist, and no column holds them: write each again under its number in its column"),
+    );
+    problems.about(
+        &once(gone),
+        |x| format!("{x} is answered closed or withdraw, and a column still holds it as a finding"),
+        |xs| format!("{xs} are answered closed or withdraw, and a column still holds them as findings"),
     );
     problems
 }
@@ -1034,6 +1065,14 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                     .filter_map(|p| p["fid"].as_str().map(str::to_string)),
             );
             previous_problems(&due, &strs(v)).into_result()
+        }
+        "previous_matches_columns" => {
+            let previous: Vec<(String, String)> = items(v)
+                .iter()
+                .filter_map(|p| Some((p["fid"].as_str()?.to_string(), p["verdict"].as_str()?.to_string())))
+                .collect();
+            let in_columns = strs(at_path(&c.unwrapped, "columns.findings.fid").as_ref());
+            previous_columns_problems(&previous, &in_columns, c.all_columns).into_result()
         }
         "unverified_decided" => {
             // The columns the engineer could not verify either: rows of the fix since the last review that came from
@@ -3101,6 +3140,54 @@ mod tests {
         // Rows nobody asked for, and rows twice, are no concern of this check.
         assert!(previous_problems(&due, &ids(&["F1", "F2", "F3", "F3", "X"])).is_empty());
         assert!(previous_problems(&[], &[]).is_empty());
+    }
+
+    // Item #276: a re-review's answers to its findings of last time agree with its columns. Where it lists every
+    // column, a finding answered not_fixed or insist is in a column under its number, and one answered closed or
+    // withdraw is in none; each kind is said once with all its findings, in one send-back. A review of disputes only,
+    // which lists only the columns it could not verify, has no column for a finding still open, which is no problem
+    // there; a finding it closed that a column holds still is.
+    #[test]
+    fn the_answers_to_last_times_findings_agree_with_the_columns() {
+        let previous = |xs: &[(&str, &str)]| -> Vec<(String, String)> {
+            xs.iter().map(|(f, v)| (f.to_string(), v.to_string())).collect()
+        };
+        let answered = previous(&[
+            ("R1", "not_fixed"),
+            ("R2", "insist"),
+            ("R3", "closed"),
+            ("R4", "withdraw"),
+            ("R5", "not_fixed"),
+        ]);
+        // R5 is in two columns; a new finding R9 is in one.
+        let agree = ids(&["R1", "R2", "R5", "R5", "R9"]);
+        assert!(previous_columns_problems(&answered, &agree, true).is_empty());
+        // R1 and R2 left out of the columns, R3 and R4 kept in them.
+        let disagree = ids(&["R3", "R4", "R5", "R9"]);
+        assert_eq!(
+            said(previous_columns_problems(&answered, &disagree, true)),
+            [
+                "R1, R2 are answered not_fixed or insist, and no column holds them: write each again under its number \
+                 in its column",
+                "R3, R4 are answered closed or withdraw, and a column still holds them as findings",
+            ]
+        );
+        assert_eq!(
+            said(previous_columns_problems(&previous(&[("R1", "insist"), ("R3", "closed")]), &ids(&["R3"]), true)),
+            [
+                "R1 is answered not_fixed or insist, and no column holds it: write it again under its number in its \
+                 column",
+                "R3 is answered closed or withdraw, and a column still holds it as a finding",
+            ]
+        );
+        // A review of disputes only: no column holds the findings still open, and that is no problem.
+        assert!(previous_columns_problems(&answered, &[], false).is_empty());
+        assert_eq!(
+            said(previous_columns_problems(&answered, &ids(&["R4"]), false)),
+            ["R4 is answered closed or withdraw, and a column still holds it as a finding"]
+        );
+        // The first review answers nothing of last time.
+        assert!(previous_columns_problems(&[], &agree, true).is_empty());
     }
 
     #[test]

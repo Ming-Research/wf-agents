@@ -271,6 +271,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         given,
         mut interjections,
         columns,
+        all_columns,
         table,
         decisions,
         number,
@@ -599,6 +600,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 unwrapped: g.unwrap(&out),
                 head_start: head.clone(),
                 columns: &columns,
+                all_columns,
                 table: &table,
                 interjections: &interjections,
                 main: main.as_deref(),
@@ -768,6 +770,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         unwrapped: g.unwrap(&output),
         head_start: head.clone(),
         columns: &columns,
+        all_columns,
         table: &table,
         interjections: &interjections,
         main: main.as_deref(),
@@ -898,6 +901,8 @@ struct Composed {
     /// The interjections waiting for the line.
     interjections: Vec<Value>,
     columns: Vec<(String, String)>,
+    /// Whether `columns` are every column of the review table ([`message::ReviewColumns::all`]).
+    all_columns: bool,
     /// The rows of the cell's numbered table, each with its number.
     table: Vec<Value>,
     /// The item's decisions the round is given, each with its number, for a cell that reads them
@@ -982,6 +987,7 @@ fn compose(
     let message::ReviewColumns {
         columns,
         renumbered: columns_renumbered,
+        all: all_columns,
     } = message::columns(e, w, g, cell, item);
     let table = inputs::table(&gathered);
     let decisions = inputs::decisions_given(&gathered);
@@ -1026,6 +1032,7 @@ fn compose(
         given,
         interjections,
         columns,
+        all_columns,
         table,
         decisions,
         number,

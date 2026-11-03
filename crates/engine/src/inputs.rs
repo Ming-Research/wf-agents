@@ -2,6 +2,7 @@
 //! configuration, what the engine computes and what rows recorded. Each value keeps where it came from, which is
 //! what an agent's message addresses it by.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use db::rusqlite::ToSql;
@@ -634,26 +635,78 @@ fn source(
 
 /// The rows of a cell's numbered table: each finding, column, test, conflict, check and entry its sources hold now,
 /// numbered with the table's prefix in the order of its sources, each saying where it came from (the cell and the
-/// path) besides what it holds; none when the cell has no numbered table or nothing to put in it.
+/// path) besides what it holds; none when the cell has no numbered table or nothing to put in it. A finding or a test
+/// is one thing to answer however many places of one cell hold it, as a finding still open is both in its column and
+/// in what the review said of the fix: it is one row, as its first place gives it, and each other place is under
+/// `also`, with where it came from and what it says that the first does not.
 pub fn table(gathered: &[Gathered]) -> Vec<Value> {
     let Some(x) = gathered.iter().find(|x| x.input.numbered.is_some()) else {
         return Vec::new();
     };
     let prefix = x.input.numbered.clone().unwrap_or_default();
-    let mut rows = Vec::new();
+    let mut rows: Vec<Map<String, Value>> = Vec::new();
+    // The row each finding or test of a cell took, by the cell and its number or name.
+    let mut taken: HashMap<(String, String), usize> = HashMap::new();
     for p in &x.parts {
         let Origin::Place { cell, path, .. } = &p.origin else {
             continue;
         };
+        let from = Value::String(format!("{cell}·{path}"));
         for entry in entries(path, &p.value) {
-            let mut row = Map::new();
-            row.insert("row".into(), Value::String(format!("{prefix}{}", rows.len() + 1)));
-            row.insert("from".into(), Value::String(format!("{cell}·{path}")));
-            row.extend(entry);
-            rows.push(Value::Object(row));
+            let key = known_by(path, &entry).map(|k| (cell.clone(), k.to_string()));
+            match key.as_ref().and_then(|k| taken.get(k).map(|&i| (&k.1, i))) {
+                Some((name, i)) => {
+                    let again = also(&rows[i], &from, entry, name);
+                    if let Value::Array(places) = rows[i].entry("also").or_insert_with(|| Value::Array(Vec::new())) {
+                        places.push(again);
+                    }
+                }
+                None => {
+                    if let Some(k) = key {
+                        taken.insert(k, rows.len());
+                    }
+                    let mut row = Map::from_iter([("from".to_string(), from.clone())]);
+                    row.extend(entry);
+                    rows.push(row);
+                }
+            }
         }
     }
-    rows
+    rows.into_iter()
+        .enumerate()
+        .map(|(i, rest)| {
+            let mut row = Map::from_iter([("row".to_string(), Value::String(format!("{prefix}{}", i + 1)))]);
+            row.extend(rest);
+            Value::Object(row)
+        })
+        .collect()
+}
+
+/// What an entry of a table's source is one thing to answer by, whatever place of its cell holds it: a finding's
+/// number, or a test's name (`test` where a cell says what it holds of a test, `name` in a list of tests). Anything
+/// else has none, and is a row of its own: a column not verified, a conflict, a check (whose `name` two runs may
+/// share), an entry.
+fn known_by<'a>(path: &str, entry: &'a Map<String, Value>) -> Option<&'a str> {
+    let tests = path.ends_with("new_tests") || path.ends_with("guard_tests");
+    let name = if tests { entry.get("name") } else { None };
+    entry
+        .get("fid")
+        .or_else(|| entry.get("test"))
+        .or(name)
+        .and_then(Value::as_str)
+}
+
+/// Another place of a row's finding or test, as the row's `also` holds it: where it came from, and each field whose
+/// value the row does not have, the number or name it is known by (`key`) left out.
+fn also(row: &Map<String, Value>, from: &Value, entry: Map<String, Value>, key: &str) -> Value {
+    let mut place = Map::from_iter([("from".to_string(), from.clone())]);
+    for (k, v) in entry {
+        let names_it = ["fid", "test", "name"].contains(&k.as_str()) && v == key;
+        if !names_it && row.get(&k) != Some(&v) {
+            place.insert(k, v);
+        }
+    }
+    Value::Object(place)
 }
 
 /// What a row of a numbered table is known by outside it: a finding's number, or a test's name.
@@ -1175,11 +1228,9 @@ mod tests {
         assert_eq!(at_path(&x, "nothing"), None);
     }
 
-    // A numbered table holds a row for each finding, column not verified, test that went wrong, conflict and check not
-    // green, numbered across its sources in their order, each saying where it came from.
-    #[test]
-    fn a_numbered_table_numbers_every_row_across_its_sources() {
-        let place = |cell: &str, path: &str, value: Value| Part {
+    /// A source of a numbered table: what `path` of `cell` holds.
+    fn place(cell: &str, path: &str, value: Value) -> Part {
+        Part {
             origin: Origin::Place {
                 round: RoundId::new(1, 9),
                 first: RoundId::new(1, 9),
@@ -1187,9 +1238,12 @@ mod tests {
                 path: path.into(),
             },
             value,
-        };
-        let finding = |fid: &str| json!({ "fid": fid, "where": "w", "what": "x", "fix": "y" });
-        let g = Gathered {
+        }
+    }
+
+    /// The fix's numbered table, as the engine gathers it, from `parts`.
+    fn numbered(parts: Vec<Part>) -> Gathered {
+        Gathered {
             input: CompiledInput {
                 id: None,
                 name: None,
@@ -1201,55 +1255,61 @@ mod tests {
                 newest: false,
                 unanswered: false,
             },
-            parts: vec![
-                place(
-                    "T4",
-                    "columns[findings]",
-                    json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding("R1"), finding("R2")] }]),
-                ),
-                place(
-                    "T5",
-                    "columns[findings]",
-                    json!([{ "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding("R3")] }]),
-                ),
-                place(
-                    "T4",
-                    "columns[cannot_verify]",
-                    json!([{ "id": "3", "verdict": "cannot_verify", "reason": "r" }]),
-                ),
-                place(
-                    "T1",
-                    "new_tests",
-                    json!([
-                        { "name": "fails_before", "on_head": "green", "on_base": "red" },
-                        { "name": "passes_before", "on_head": "green", "on_base": "green" },
-                        { "name": "not_reached", "on_head": "green", "on_base": "not_run" }
-                    ]),
-                ),
-                place(
-                    "T1",
-                    "guard_tests",
-                    json!([
-                        { "name": "guard", "on_head": "green", "on_base": "green" },
-                        { "name": "guard_not_reached", "on_head": "green", "on_base": "not_run" }
-                    ]),
-                ),
-                place(
-                    "T2",
-                    "result[conflict]",
-                    json!({ "kind": "conflict", "files": ["a.rs"] }),
-                ),
-                place(
-                    "T2",
-                    "result[red]",
-                    json!({ "kind": "red", "checks": [
-                        { "name": "check", "result": "red", "run": "u" },
-                        { "name": "other", "result": "green", "run": "v" }
-                    ] }),
-                ),
-            ],
+            parts,
             value: None,
-        };
+        }
+    }
+
+    // A numbered table holds a row for each finding, column not verified, test that went wrong, conflict and check not
+    // green, numbered across its sources in their order, each saying where it came from.
+    #[test]
+    fn a_numbered_table_numbers_every_row_across_its_sources() {
+        let finding = |fid: &str| json!({ "fid": fid, "where": "w", "what": "x", "fix": "y" });
+        let g = numbered(vec![
+            place(
+                "T4",
+                "columns[findings]",
+                json!([
+                    { "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding("R1"), finding("R2")] },
+                    { "id": "5", "verdict": "findings", "evidence": {}, "findings": [finding("R3")] }
+                ]),
+            ),
+            place(
+                "T4",
+                "columns[cannot_verify]",
+                json!([{ "id": "3", "verdict": "cannot_verify", "reason": "r" }]),
+            ),
+            place(
+                "T1",
+                "new_tests",
+                json!([
+                    { "name": "fails_before", "on_head": "green", "on_base": "red" },
+                    { "name": "passes_before", "on_head": "green", "on_base": "green" },
+                    { "name": "not_reached", "on_head": "green", "on_base": "not_run" }
+                ]),
+            ),
+            place(
+                "T1",
+                "guard_tests",
+                json!([
+                    { "name": "guard", "on_head": "green", "on_base": "green" },
+                    { "name": "guard_not_reached", "on_head": "green", "on_base": "not_run" }
+                ]),
+            ),
+            place(
+                "T2",
+                "result[conflict]",
+                json!({ "kind": "conflict", "files": ["a.rs"] }),
+            ),
+            place(
+                "T2",
+                "result[red]",
+                json!({ "kind": "red", "checks": [
+                    { "name": "check", "result": "red", "run": "u" },
+                    { "name": "other", "result": "green", "run": "v" }
+                ] }),
+            ),
+        ]);
         let rows = table(std::slice::from_ref(&g));
         let ids: Vec<&str> = rows.iter().filter_map(|r| r["row"].as_str()).collect();
         assert_eq!(ids, ["F1", "F2", "F3", "F4", "F5", "F6", "F7"]);
@@ -1257,13 +1317,122 @@ mod tests {
             (&rows[0]["from"], &rows[0]["column"], &rows[0]["fid"]),
             (&json!("T4·columns[findings]"), &json!("2"), &json!("R1"))
         );
-        assert_eq!(rows[2]["from"], "T5·columns[findings]");
+        assert_eq!((&rows[2]["column"], &rows[2]["fid"]), (&json!("5"), &json!("R3")));
         assert_eq!((&rows[3]["column"], rows[3].get("id")), (&json!("3"), None));
         assert_eq!(rows[4]["name"], "passes_before");
         assert_eq!(rows[5]["files"], json!(["a.rs"]));
         assert_eq!((&rows[6]["kind"], &rows[6]["name"]), (&json!("red"), &json!("check")));
         assert_eq!(row_key(&rows[0]), Some("R1"));
         assert_eq!(row_key(&rows[4]), Some("passes_before"));
+        assert!(rows.iter().all(|r| r.get("also").is_none()), "{rows:?}");
+    }
+
+    // Item #276: a finding or a test that several places of one cell hold is one row, as its first place gives it, with
+    // each other place under `also`: a finding still open in its column and said not fixed or insisted on, a finding
+    // written in two columns, a red test adversarial testing also insisted on. What has no number or name (a column not
+    // verified, a conflict, a check, even two checks of one name, an entry) is a row each, and so is a name another cell
+    // gives; the rows are numbered after.
+    #[test]
+    fn a_finding_or_a_test_several_places_of_a_cell_hold_is_one_row() {
+        let finding = |fid: &str, what: &str| json!({ "fid": fid, "where": "w", "what": what, "fix": "y" });
+        let basis = json!({ "kind": "judgment" });
+        let g = numbered(vec![
+            place(
+                "T4",
+                "columns[findings]",
+                json!([
+                    { "id": "2", "verdict": "findings", "evidence": {}, "findings": [finding("R1", "x"), finding("R2", "z")] },
+                    { "id": "4", "verdict": "findings", "evidence": {}, "findings": [finding("R2", "Same as R2.")] }
+                ]),
+            ),
+            place(
+                "T4",
+                "columns[cannot_verify]",
+                json!([{ "id": "3", "verdict": "cannot_verify", "reason": "r" }]),
+            ),
+            place(
+                "T4",
+                "previous[not_fixed]",
+                json!([{ "fid": "R1", "verdict": "not_fixed", "reason": "Still there." }]),
+            ),
+            place(
+                "T4",
+                "previous[insist]",
+                json!([{ "fid": "R2", "verdict": "insist", "reason": "It is wrong.", "basis": basis }]),
+            ),
+            place(
+                "T1",
+                "new_tests",
+                json!([{ "name": "red", "on_head": "red", "on_base": "red" }]),
+            ),
+            // A test that happens to be named as a finding of the review is another cell's, and another row.
+            place(
+                "T1",
+                "guard_tests",
+                json!([{ "name": "R1", "on_head": "green", "on_base": "red" }]),
+            ),
+            place(
+                "T1",
+                "previous[insist]",
+                json!([{ "test": "red", "verdict": "insist", "reason": "It is right.", "basis": basis }]),
+            ),
+            place(
+                "T2",
+                "result[conflict]",
+                json!({ "kind": "conflict", "files": ["a.rs"] }),
+            ),
+            place(
+                "T2",
+                "result[red]",
+                json!({ "kind": "red", "checks": [
+                    { "name": "test", "result": "red", "run": "u" },
+                    { "name": "test", "result": "red", "run": "v" }
+                ] }),
+            ),
+            place(
+                "A4",
+                "next.change",
+                json!({ "what": "Rename it.", "asked_in": "R1-2" }),
+            ),
+        ]);
+        let rows = table(std::slice::from_ref(&g));
+        let ids: Vec<&str> = rows.iter().filter_map(|r| r["row"].as_str()).collect();
+        assert_eq!(ids, ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9"]);
+        let keys: Vec<Option<&str>> = rows.iter().map(row_key).collect();
+        assert_eq!(
+            keys,
+            [Some("R1"), Some("R2"), None, Some("red"), Some("R1"), None, Some("test"), Some("test"), None]
+        );
+        // The finding still open: its column's row, with what the review said of the fix.
+        assert_eq!(
+            rows[0],
+            json!({ "row": "F1", "from": "T4·columns[findings]", "column": "2", "fid": "R1", "where": "w",
+                    "what": "x", "fix": "y", "also": [
+                        { "from": "T4·previous[not_fixed]", "verdict": "not_fixed", "reason": "Still there." }
+                    ] })
+        );
+        // The finding in two columns and insisted on: its second column with what it says there, and the insisting.
+        assert_eq!(
+            rows[1]["also"],
+            json!([
+                { "from": "T4·columns[findings]", "column": "4", "what": "Same as R2." },
+                { "from": "T4·previous[insist]", "verdict": "insist", "reason": "It is wrong.", "basis": basis }
+            ])
+        );
+        // The red test adversarial testing insisted on.
+        assert_eq!(
+            (&rows[3]["from"], &rows[3]["also"]),
+            (
+                &json!("T1·new_tests"),
+                &json!([{ "from": "T1·previous[insist]", "verdict": "insist", "reason": "It is right.", "basis": basis }])
+            )
+        );
+        // The rows with no number or name, and the other cell's: no `also`.
+        for i in [2, 4, 5, 6, 7, 8] {
+            assert!(rows[i].get("also").is_none(), "{}", rows[i]);
+        }
+        assert_eq!((&rows[6]["run"], &rows[7]["run"]), (&json!("u"), &json!("v")));
+        assert_eq!(rows[8]["from"], "A4·next.change");
     }
 
     // What the branch did since a head is given with its merges marked, the files the work itself changed and the
