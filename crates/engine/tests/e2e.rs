@@ -5716,6 +5716,161 @@ fn an_engineer_s_question_is_answered_through_its_crux_and_ways() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The cell that handed in the round of a work that words said to it were handed in with; none while they wait. The
+/// words are found by their text.
+fn delivered_at(e: &Engine, work: i64, text: &str) -> Option<String> {
+    e.db.conn()
+        .query_row(
+            "SELECT r.cell FROM interjections j JOIN rounds r ON r.work = j.work AND r.n = j.delivered_round
+             WHERE j.work = ?1 AND j.text = ?2",
+            params![work, text],
+            |r| r.get(0),
+        )
+        .ok()
+}
+
+/// The matters that are an engineer's question, each with whether it is in the architect's queue and whether it was
+/// handled.
+fn questions_of_engineers(e: &Engine) -> Vec<(bool, bool)> {
+    matters(e)
+        .into_iter()
+        .filter(|m| m.0 == "engineer_question")
+        .map(|m| (m.1, m.2))
+        .collect()
+}
+
+/// The engine of a test whose item's work asks its architect from adversarial testing (`T1`), a cell of the adversarial
+/// line, while words wait for the engineer's line: the work is put at `T1` once its implementation is done, `words`
+/// says the words to it, and the engine takes steps until the question's cell (`A2`) has had its first turn. Gives the
+/// engine, what it said and the work.
+fn t1_asks_with_words_waiting(
+    s: &Setup,
+    words: impl FnOnce(&mut Engine, i64),
+) -> (Engine, Arc<Mutex<Vec<String>>>, i64) {
+    let mut agents = scripts();
+    agents.insert("T1", asks_about_a_gap("The test paths do not name the page's tests."));
+    let reply = json!({ "text": "Leave the page's tests out.", "why": "They are another work's." });
+    agents.insert(
+        "H3",
+        Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.reply", reply.clone())])),
+    );
+    let (mut e, said, item) = start(s, agents);
+    step_to(&mut e, item, "T7");
+    let (work, _, _) = state(&e, item).unwrap();
+    // The step of choosing what runs next leaves a record of the plan, which adversarial testing is given.
+    e.step_work(work).unwrap();
+    move_to(&mut e, work, "T1");
+    words(&mut e, work);
+    let asked = steps_until(&mut e, 10, |e| {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'A2'",
+                [work],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap()
+            > 0
+    });
+    assert!(asked, "{}", said.lock().unwrap().join("\n"));
+    (e, said, work)
+}
+
+// A question asked from a line other than the engineer's is not withdrawn for words that wait for the engineer's line:
+// the cell the work goes back to when it is withdrawn, adversarial testing here, hears only its own line's words, so
+// withdrawing it would leave the words where they were and the question unanswered. The question stays with the
+// architect, who replies, the work goes back to the cell that asked, and the words are still waiting, which the
+// engineer's line hears at its next round.
+#[test]
+fn a_question_asked_from_another_line_is_not_withdrawn_for_words_waiting_for_the_engineer() {
+    let s = setup("ask-off-line");
+    let text = "Halt every work on a red check.";
+    let (mut e, said, work) = t1_asks_with_words_waiting(&s, |e, work| owner_says(e, work, text));
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(question_took(&e, work), None, "{log}");
+    assert_eq!(questions_of_engineers(&e), [(true, false)], "{log}");
+    let replied = steps_until(&mut e, 80, |e| question_took(e, work).is_some());
+    let log = said.lock().unwrap().join("\n");
+    assert!(replied, "{log}");
+    assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
+    let path = path_of(&e, work);
+    let at = path.iter().rposition(|c| c == "A2").unwrap();
+    assert!(path[at + 1..].iter().all(|c| c == "T1"), "{path:?}\n{log}");
+    assert_eq!(delivered_at(&e, work, text), None, "{log}");
+    // The work goes on at the engineer's line, whose next round is given the words.
+    move_to(&mut e, work, "A4");
+    e.step_work(work).unwrap();
+    assert_eq!(delivered_at(&e, work, text).as_deref(), Some("A4"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The notice that an item the work depended on was cancelled, which a question asked from the engineer's line is
+// withdrawn for, is the same: from another line the question stays with the architect.
+#[test]
+fn a_question_asked_from_another_line_is_not_withdrawn_for_a_cancelled_item_s_notice() {
+    let s = setup("ask-off-line-cancelled");
+    let (mut e, said, work) = t1_asks_with_words_waiting(&s, |e, work| {
+        // An item in no queue, which the notice names as the one cancelled.
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'Parse it', 'No parser.', 'Needed.', 'change', 'l')",
+                [],
+            )?;
+            let cancelled = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text, cancelled_item)
+                 VALUES (?1, 'engineer', 'architect', 'An item it depended on was cancelled.', ?2)",
+                params![work, cancelled],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(question_took(&e, work), None, "{log}");
+    assert_eq!(questions_of_engineers(&e), [(true, false)], "{log}");
+    let replied = steps_until(&mut e, 80, |e| question_took(e, work).is_some());
+    let log = said.lock().unwrap().join("\n");
+    assert!(replied, "{log}");
+    assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A question asked from the engineer's line is still withdrawn for words that come while it waits: the cell the work
+// goes back to is on the engineer's line, hears them, and chooses the way on.
+#[test]
+fn a_question_asked_from_the_engineer_s_line_is_withdrawn_for_words_that_come_while_it_waits() {
+    let s = setup("ask-on-line");
+    let mut agents = scripts();
+    agents.insert("R1", asks_about_a_gap("The work holds two separate changes."));
+    let (mut e, said, item) = start(&s, agents);
+    let asked = |e: &mut Engine| -> bool {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work WHERE w.item = ?1 AND r.cell = 'A2'",
+                [item],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap()
+            > 0
+    };
+    assert!(steps_until(&mut e, 10, asked), "{}", said.lock().unwrap().join("\n"));
+    let (work, _, _) = state(&e, item).unwrap();
+    assert_eq!(question_took(&e, work), None);
+    let text = "Halt every work on a red check.";
+    owner_says(&mut e, work, text);
+    let withdrawn = steps_until(&mut e, 10, |e| question_took(e, work).is_some());
+    let log = said.lock().unwrap().join("\n");
+    assert!(withdrawn, "{log}");
+    assert_eq!(question_took(&e, work).as_deref(), Some("interjection"), "{log}");
+    assert_eq!(questions_of_engineers(&e), [(false, false)], "{log}");
+    let heard = steps_until(&mut e, 10, |e| delivered_at(e, work, text).is_some());
+    let log = said.lock().unwrap().join("\n");
+    assert!(heard, "{log}");
+    assert_eq!(delivered_at(&e, work, text).as_deref(), Some("A4"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Capability reports: an agent says the system lacks what its work needs, a defect of the system and not of the agent.
 
 /// A first round of the item's work that asks the architect about a capability gap, saying what, with no kind.

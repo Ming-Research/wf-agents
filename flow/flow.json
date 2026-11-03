@@ -3208,15 +3208,15 @@
     },
     "values": {
       "came_by": "How the work came to choose the way on.",
-      "cancelled": "Whether an item the work's item depended on was cancelled, and the work has not taken it up yet.",
+      "cancelled": "Whether an item the work's item depended on was cancelled, and the line the work stands on has not taken it up yet.",
       "deliver": "Whether the item delivers a change or a report.",
       "design_card_disputed": "Whether the owner chose another option on a current decision card of the work, or disagreed with one.",
       "due": "Whether a matter in the project's queue is due for its architect, which starts a work of it.",
       "entry": "How the work came to the understanding question: the architect's first work on the project, or another new session.",
       "fixes_before": "How many earlier reviews of the batch found something to fix.",
       "gates": "Whether the items depended on are merged, and whether every open question of the work's design has its answer.",
-      "held": "Where the question the work put to an architect stands: replied, handed to a related project's architect, waited past its limit of the architect's time, its architect gone, an item the work depended on cancelled, or something said to the work",
-      "interjection": "Whether an interjection for the engineer is waiting to be delivered.",
+      "held": "Where the question the work put to an architect stands: replied, handed to a related project's architect, waited past its limit of the architect's time, its architect gone, an item the work depended on cancelled, or something said to the line the work stands on",
+      "interjection": "Whether an interjection for the line the work stands on is waiting to be delivered.",
       "must_wait": "Whether the architect's reply has the work stop now for items not yet merged.",
       "next_in_batch": "Whether the batch goes on, waits while the owner talks, goes to review, is done, or is done with nothing to rethink: no matter handled and no item changed since the last rethink.",
       "report": "What kind of report the matter is: one an engineer handed in beside its work, a report's what to do next, an engineer's answer to what the architect said to its work, flow feedback, or a fault of wf-agents forwarded to the architect.",
@@ -3800,7 +3800,7 @@
         ]
       },
       "held": {
-        "says": "reply or hand-over; architect's time; an item cancelled; what was said",
+        "says": "reply or hand-over; architect's time; an item cancelled; what was said to the line the work stands on",
         "stores": [
           "blockers",
           "architect_queue",
@@ -3810,7 +3810,7 @@
         ]
       },
       "interjection": {
-        "says": "an interjection for the engineer not handed in yet",
+        "says": "an interjection for the line the work stands on not handed in yet",
         "stores": [
           "interjections"
         ]
@@ -11242,7 +11242,7 @@
               ],
               "counts": "interjections",
               "interject": true,
-              "note": "What was said to the work takes it on to choose the way on: the question leaves the architect's queue."
+              "note": "What was said to the line the work stands on takes it on to choose the way on, and the cell it goes back to hears it: the question leaves the architect's queue."
             }
           ],
           "inenums": {
@@ -11265,11 +11265,11 @@
               ],
               [
                 "cancelled",
-                "An item this work's item depended on was cancelled, and the work has not taken it up yet"
+                "An item this work's item depended on was cancelled, and the line the work stands on (the asker's) has not taken it up yet"
               ],
               [
                 "interjection",
-                "The owner or the architect said something to the work, which it has not taken up yet"
+                "The owner or the architect said something to the line the work stands on (the asker's), which it has not taken up yet. Words for another line do not count: the cell the work goes back to would not hear them"
               ]
             ]
           }
@@ -11949,7 +11949,7 @@
                 "name": "question",
                 "title": "Question",
                 "type": "text",
-                "desc": "Short, a few sentences, in `owner.language`: what you need decided or told and why, readable on its own; options and your pick when they help. The owner asks for more when it needs it"
+                "desc": "The owner reads this, in `owner.language`, to decide or tell something with no one to translate it, as `format:common` says a field the owner reads is written. Start with what is to be decided or told and what it changes for the work, in the owner's words. Name no cell, field, row or other internal unless the decision is about it. Give each option's consequence, then which you recommend and why. Assume the owner has not seen the design: put details last, as a link. Keep it short"
               }
             ]
           }
@@ -14861,7 +14861,7 @@
             "What the question needs, judge from what it says. A defect or a root outside the work is fixed where it lies, by an item, made when there is none, or by a message to its project's architect, and not worked around in the work. A duplicate is the same thing, not the same code; when the asking work's item is merged away, what is useful on its branch and the owner's rulings on its decision cards go to the item kept by an interjection. A capability gap, the system lacking what the work needs (a tool, an input, a permission, a rule that says enough, data it cannot reach), is a defect of the system and not of the agent: unblock the work first, by the first way that works, a way around within the rules said in the reply, what only the owner can give (a credential, a configuration in the data directory) by pausing the work until the owner has given it, else an item that fixes it, which the work's item depends on, blocking, and the reply's waits name; then take the gap in as a report is: an item that covers it takes it, else an observation, merged into the same one when it is recorded already. A flow anomaly the engine reports, the way the engineer chose not fitting, is such a gap of the flow: the reply says which way fits. A question that need not touch other items or the structure changes nothing: the reply says whom to ask.",
             "Reply to the engineer concretely enough to carry on from: if sub-items were split off, say plainly that the work must redesign for the part that remains; if it must stop now and wait for other items to deliver, list them in the reply's waits, while a parallel dependency is enough for what it waits for only before merging; if the work should not be done, cancel its item and pause the work. Name an item this batch creates by its key: the engine puts its number there once it is made. The reply goes at once, or, when your item changes are what it says, once the review lets them be made; if an item it names is not made after all, it does not go out, and the question comes back to you with why.",
             "Works start in the order you give: first the items the owner queued, then each project's items by their rank. A new item goes last among its project's items, and moving one puts it first, last, or just before or after another item of its project. An item starts once every item it depends on by a blocking dependency is merged; a parallel one lets it start before. Hold an item that should not start yet for another reason, and put an item others need before them.",
-            "What only the owner can decide about the work (a measured slowdown to accept, a safety guarantee, the work's direction), the reply has the engineer put to the owner as an open question of its design, and go on with the option it recommends: the merge waits for the answer. An engineer that asked waits for your reply, so you never ask the owner about its question and wait; an open question of an engineer's design waits for nothing, and is yours to answer by the plan, the policy and the owner's earlier decisions. When one is left to the owner (a rule of the project that leaves it to the owner, a safety guarantee, the work's direction), do not answer it and do not reply that you will not: any reply is kept as the answer. Ask the owner instead: the question short, with no answer in it and a markdown link to the design it is about, since the owner reads it away from the design. The matter then waits for the owner out of your queue and comes back here with the owner's reply; reply to the engineer by it, writing the decision down so that the work can go on, and saying plainly where it goes against the design. What only the owner can do (a credential, a permission, a configuration in the data directory, another machine), pause the work in effects, saying what the owner must do and where, and reply that it goes on once the owner has done it and started it. What belongs to a related project's architect, hand to it with the reply's hand_over, saying why and, in its text, what you found."
+            "What only the owner can decide about the work (a measured slowdown to accept, a safety guarantee, the work's direction), the reply has the engineer put to the owner as an open question of its design, and go on with the option it recommends: the merge waits for the answer. An engineer that asked waits for your reply, so you never ask the owner about its question and wait; an open question of an engineer's design waits for nothing, and is yours to answer by the plan, the policy and the owner's earlier decisions. When one is left to the owner (a rule of the project that leaves it to the owner, a safety guarantee, the work's direction), do not answer it and do not reply that you will not: any reply is kept as the answer. Ask the owner instead: the question written as its field says, with a markdown link to the design it is about, since the owner reads it away from the design. The matter then waits for the owner out of your queue and comes back here with the owner's reply; reply to the engineer by it, writing the decision down so that the work can go on, and saying plainly where it goes against the design. What only the owner can do (a credential, a permission, a configuration in the data directory, another machine), pause the work in effects, saying what the owner must do and where, and reply that it goes on once the owner has done it and started it. What belongs to a related project's architect, hand to it with the reply's hand_over, saying why and, in its text, what you found."
           ],
           "out": [
             {

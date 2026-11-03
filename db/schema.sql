@@ -673,11 +673,13 @@ CREATE TABLE interjections (
   delivered_round INTEGER,
   -- For the notice that an item this work's item depended on was cancelled: that item; NULL for anything else said.
   -- The cells where the work waits (`A2`, `A6`, `M1`) take such a notice to choose the way on by a row of their own,
-  -- as an item they waited for that will never deliver. Read by: the engine's value `cancelled`.
+  -- as an item they waited for that will never deliver, when it is for the line the work stands on: a question asked
+  -- from another line is not withdrawn for it, since the cell the work goes back to would not hear it. Read by: the
+  -- engine's values `cancelled` and `held`.
   cancelled_item INTEGER REFERENCES items(id),
   -- 1 for a word that needs no answer and changes no way on, as the owner confirming every decision of a design card:
   -- the line's next round is given it, and a work standing at an engine step is not taken by it to choose the way on.
-  -- Read by: the engine's value `interjection`.
+  -- Read by: the engine's values `interjection`, `cancelled` and `held`, which leave such words out.
   informs INTEGER NOT NULL DEFAULT 0 CHECK (informs IN (0, 1)),
   -- For what the owner said in the work's group to its project's architect: that architect's matter, which holds the
   -- words. Said to the architect alone, the engineer is given it as a word that needs no answer (informs); said to

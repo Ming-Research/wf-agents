@@ -682,6 +682,29 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
     assert!(crux.rows.iter().all(|r| r.name != "ask_owner"));
 }
 
+// What is put to the owner is written for the owner, who reads it with no one to translate it: the description of the
+// question the ways (`H3`) ask the owner says so, which brings the rule for a field the owner reads to it, and no text
+// of the flow asks for a question with no answer in it, since the architect's recommendation belongs in it.
+#[test]
+fn the_question_put_to_the_owner_is_written_for_the_owner_to_decide_by() {
+    let c = compiled();
+    let ways = c.graph("architect").unwrap().cell("H3").unwrap();
+    let forms = &ways.schema.as_ref().unwrap()["properties"]["outcome"]["anyOf"];
+    let to_owner = forms
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|a| a["properties"]["ask"]["oneOf"].as_array())
+        .flatten()
+        .find(|b| b["properties"]["to"]["const"] == "owner")
+        .expect("the ways may ask the owner");
+    let question = to_owner["properties"]["question"]["description"].as_str().unwrap();
+    assert!(question.contains("The owner reads this"), "{question}");
+    for no in ["no answer in it", "with no answer"] {
+        assert!(!FLOW.contains(no), "the flow asks for a question with {no}");
+    }
+}
+
 // A matter that comes again and again is not queued while the facts it would carry are those of the last one the
 // architect handled, since it would only come to the same end, as the flow says of each: slots free, while the free
 // slots and the items ready are the same; what was said in the groups, the owner's words and what the engineers told
