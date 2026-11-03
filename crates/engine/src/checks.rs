@@ -3199,7 +3199,15 @@ mod tests {
         ];
         let reported = |t: &str| !t.starts_with("gone");
         assert_eq!(
-            said(conditions_problems(&wanted, &rows, false, reported, unreported, &[], found)),
+            said(conditions_problems(
+                &wanted,
+                &rows,
+                false,
+                reported,
+                unreported,
+                &[],
+                found
+            )),
             [
                 "X9 is not an acceptance condition".to_string(),
                 "no row for acceptance condition A3".to_string(),
@@ -3628,10 +3636,18 @@ mod tests {
             { "test": "two", "result": "unread", "why": why },
         ] });
         let earlier = json!({ "tests": [row("one", "passed", &[("e", "one", "passed")])] });
-        let problems = said(results_vs_runs(&rows, &[unread.clone(), earlier], &[], &seps(), |_| Vec::new()));
+        let problems = said(results_vs_runs(&rows, &[unread.clone(), earlier], &[], &seps(), |_| {
+            Vec::new()
+        }));
         assert_eq!(problems, [unread_on_head(&ids(&["two"]), why)]);
-        assert!(problems[0].contains(why) && problems[0].contains("ask the architect"), "{problems:?}");
-        assert!(!problems[0].contains("together with the tests of the test table"), "{problems:?}");
+        assert!(
+            problems[0].contains(why) && problems[0].contains("ask the architect"),
+            "{problems:?}"
+        );
+        assert!(
+            !problems[0].contains("together with the tests of the test table"),
+            "{problems:?}"
+        );
         // An unread run before a later one that read its results but left the test out: the test is to be named.
         let read = json!({ "tests": [row("one", "passed", &[("e", "one", "passed")])] });
         assert_eq!(
