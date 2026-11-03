@@ -11608,7 +11608,8 @@ fn a_design_departing_from_the_owner_s_decision_waits_for_the_owner_s_ruling_bef
     let other =
         e.db.write(Actor::Owner, |tx| {
             tx.execute(
-                "INSERT INTO items (project, title, problem, why, level) VALUES ('p', 'Another', 'x', 'y', 'l')",
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'Another', 'x', 'y', 'change', 'l')",
                 [],
             )?;
             Ok(tx.last_insert_rowid())
