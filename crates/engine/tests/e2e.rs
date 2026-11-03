@@ -5833,6 +5833,42 @@ fn a_question_asked_from_another_line_is_not_withdrawn_for_words_waiting_for_the
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A question asked from another line, kept for words that wait for the engineer's line, is still withdrawn by the rows
+// that come after the words in `held`: here its architect is gone, which says nothing of the line. The work goes back to
+// the cell that asked, and the words are not taken by it.
+#[test]
+fn a_question_asked_from_another_line_is_withdrawn_when_its_architect_is_gone_though_words_wait() {
+    let s = setup("ask-off-line-gone");
+    let text = "Keep the page's tests out of this change.";
+    let (mut e, said, work) = t1_asks_with_words_waiting(&s, |e, work| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
+                params![work, text],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    });
+    assert_eq!(question_took(&e, work), None);
+    // The architect of a project the engine does not know, the cell's own work alone going on.
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE blockers SET project = 'gone' WHERE work = ?1 AND ended IS NULL",
+            [work],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    advance_until(&mut e, work, |e| question_took(e, work).is_some());
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(question_took(&e, work).as_deref(), Some("holder_gone"), "{log}");
+    assert_eq!(questions_of_engineers(&e), [(false, false)], "{log}");
+    assert_eq!(e.work(work).unwrap().pos.at, "T1", "{log}");
+    assert_eq!(delivered_at(&e, work, text), None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A question asked from the engineer's line is still withdrawn for words that come while it waits: the cell the work
 // goes back to is on the engineer's line, hears them, and chooses the way on.
 #[test]
