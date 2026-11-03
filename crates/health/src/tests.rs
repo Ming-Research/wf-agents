@@ -36,7 +36,7 @@ fn seeded() -> Db {
         Ok(())
     })
     .unwrap();
-    // Rounds, tool runs, changes, blockers, matters and samples are history, which no trigger tracks.
+    // Rounds, tool runs, changes and samples are history, which no trigger tracks.
     db.conn()
         .execute_batch(&format!(
             "WITH RECURSIVE n(k) AS (SELECT 0 UNION ALL SELECT k + 1 FROM n WHERE k < 99999)
@@ -64,14 +64,6 @@ fn seeded() -> Db {
                  json_object('id', k % 2000 + 1, 'project', 'p', 'paused', CASE WHEN k % 200 = 101 THEN 'held' END),
                  json_object('id', k % 2000 + 1, 'project', 'p', 'paused', CASE WHEN k % 200 = 1 THEN 'held' END)
                FROM n;
-             WITH RECURSIVE n(k) AS (SELECT 1 UNION ALL SELECT k + 2 FROM n WHERE k < 1999)
-             INSERT INTO blockers (work, cell, kind, what, holder, at, since, ended, outcome, ended_at)
-               SELECT k, 'I1', 'question', 'w', 'advisor', {START} + k * 4320000, {START} + k * 4320000,
-                 'resolved', '{{}}', {START} + k * 4320000 + 3600000
-               FROM n;
-             WITH RECURSIVE n(k) AS (SELECT 1 UNION ALL SELECT k + 2 FROM n WHERE k < 1999)
-             INSERT INTO architect_matters (project, kind, what, body, at, handled_work, handled_round)
-               SELECT 'p', 'owner_words', 'w', '{{}}', {START} + k * 4320000 - 600000, k, 1 FROM n;
              WITH RECURSIVE n(k) AS (SELECT 0 UNION ALL SELECT k + 1 FROM n WHERE k < 10079)
              INSERT INTO samples (measure, project, at, value)
                SELECT m.name, m.project, {END} - 7 * {DAY} + k * 60000, k % 7
@@ -80,6 +72,21 @@ fn seeded() -> Db {
                         UNION ALL SELECT 'works.running', '' UNION ALL SELECT 'queue.oldest', 'p') m;"
         ))
         .unwrap();
+    // Blockers and matters are state, written as the engine writes them; a matter is handled by a round seeded above.
+    db.write(Actor::Engine, |tx| {
+        tx.execute_batch(&format!(
+            "WITH RECURSIVE n(k) AS (SELECT 1 UNION ALL SELECT k + 2 FROM n WHERE k < 1999)
+             INSERT INTO blockers (work, cell, kind, what, holder, at, since, ended, outcome, ended_at)
+               SELECT k, 'I1', 'question', 'w', 'advisor', {START} + k * 4320000, {START} + k * 4320000,
+                 'resolved', '{{}}', {START} + k * 4320000 + 3600000
+               FROM n;
+             WITH RECURSIVE n(k) AS (SELECT 1 UNION ALL SELECT k + 2 FROM n WHERE k < 1999)
+             INSERT INTO architect_matters (project, kind, what, body, at, handled_work, handled_round)
+               SELECT 'p', 'owner_words', 'w', '{{}}', {START} + k * 4320000 - 600000, k, 1 FROM n;"
+        ))?;
+        Ok(())
+    })
+    .unwrap();
     db
 }
 
