@@ -501,6 +501,137 @@ error[E0599]: no method named `rounds_mark` found
         );
     }
 
+    // The files wf-agents' own fast CI uploaded on a run where a test file did not compile and a page test failed (#269),
+    // cut to a few testcases each: nextest's JUnit of the units that compiled, the units not built, and vitest's JUnit.
+    // Each name, as an agent writes it, is given the result of its own test.
+    #[test]
+    fn the_results_wf_agents_fast_ci_uploads_give_each_name_its_test() {
+        let rust = r#"<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="3" skipped="0" failures="0" errors="0" uuid="82d63cd6-f1b8-414b-9c31-77acf0a1f9be" timestamp="2026-11-03T19:43:21.068+00:00" time="4.895">
+    <testsuite name="config::title_width" tests="1" skipped="0" errors="0" failures="0">
+        <testcase name="each_character_is_counted_as_its_east_asian_width_class_says" classname="config::title_width" timestamp="2026-11-03T19:43:21.069+00:00" time="0.006"/>
+    </testsuite>
+    <testsuite name="config" tests="1" skipped="0" errors="0" failures="0">
+        <testcase name="tests::a_project_merges_onto_what_it_extends" classname="config" timestamp="2026-11-03T19:43:21.069+00:00" time="0.006"/>
+    </testsuite>
+    <testsuite name="engine::e2e" tests="1" skipped="0" errors="0" failures="0">
+        <testcase name="building_a_message_writes_nothing" classname="engine::e2e" timestamp="2026-11-03T19:43:21.075+00:00" time="4.887"/>
+    </testsuite>
+</testsuites>"#;
+        let unbuilt = r#"<testsuites>
+  <testsuite name="config::probe_broken" tests="0" errors="1">
+    <error message="not built">error[E0308]: mismatched types
+ --&gt; crates/config/tests/probe_broken.rs:5:18
+  |
+5 |     let n: u32 = &quot;not a number&quot;;
+  |            ---   ^^^^^^^^^^^^^^ expected `u32`, found `&amp;str`
+</error>
+  </testsuite>
+</testsuites>"#;
+        let page = r#"<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="4" failures="1" errors="0" time="0.038510988">
+    <testsuite name="src/probe.test.ts" timestamp="2026-11-03T19:43:31.574Z" hostname="runnervm48cm3" tests="1" failures="1" errors="0" skipped="0" time="0.010965329">
+        <testcase classname="src/probe.test.ts" name="the probe &gt; fails on purpose in the probe" time="0.009069242">
+            <failure message="expected 1 to be 2 // Object.is equality" type="AssertionError">
+AssertionError: expected 1 to be 2 // Object.is equality
+ ❯ src/probe.test.ts:6:15
+            </failure>
+        </testcase>
+    </testsuite>
+    <testsuite name="src/side.test.tsx" timestamp="2026-11-03T19:43:31.577Z" hostname="runnervm48cm3" tests="1" failures="0" errors="0" skipped="0" time="0.021864793">
+        <testcase classname="src/side.test.tsx" name="the head of the one-to-one with an architect &gt; shows each hold with its source, its reason and a Release, and the owner&apos;s Hold new starts while they hold none" time="0.02">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/system.test.ts" timestamp="2026-11-03T19:43:31.579Z" hostname="runnervm48cm3" tests="2" failures="0" errors="0" skipped="1" time="0.005680866">
+        <testcase classname="src/system.test.ts" name="the System view &gt; asks for the weeks of its period in the owner’s time zone" time="0">
+            <skipped/>
+        </testcase>
+        <testcase classname="src/system.test.ts" name="the System view &gt; sums the weeks and the merges" time="0.003816229">
+        </testcase>
+    </testsuite>
+</testsuites>"#;
+        let run = read(&[
+            file("page.xml", page),
+            file("rust-1.xml", rust),
+            file("unbuilt.xml", unbuilt),
+        ])
+        .unwrap();
+        let named = names(&[
+            "each_character_is_counted_as_its_east_asian_width_class_says",
+            "tests::a_project_merges_onto_what_it_extends",
+            "engine::e2e building_a_message_writes_nothing",
+            "the System view > sums the weeks and the merges",
+            "sums the weeks and the merges",
+            "fails on purpose in the probe",
+            "shows each hold with its source, its reason and a Release, and the owner's Hold new starts while they hold \
+             none",
+            "asks for the weeks of its period in the owner’s time zone",
+            "a_probe_that_does_not_compile",
+        ]);
+        let got = rows(&named, Ok(&run), &seps());
+        let results: Vec<(&str, Vec<String>)> = got
+            .iter()
+            .map(|r| {
+                let matched = matched_of(r).iter().map(|(t, _)| t.whole()).collect();
+                (r["result"].as_str().unwrap_or_default(), matched)
+            })
+            .collect();
+        assert_eq!(
+            results,
+            [
+                (
+                    "passed",
+                    vec![
+                        "config::title_width each_character_is_counted_as_its_east_asian_width_class_says".to_string()
+                    ]
+                ),
+                (
+                    "passed",
+                    vec!["config tests::a_project_merges_onto_what_it_extends".to_string()]
+                ),
+                (
+                    "passed",
+                    vec!["engine::e2e building_a_message_writes_nothing".to_string()]
+                ),
+                (
+                    "passed",
+                    vec!["src/system.test.ts the System view > sums the weeks and the merges".to_string()]
+                ),
+                (
+                    "passed",
+                    vec!["src/system.test.ts the System view > sums the weeks and the merges".to_string()]
+                ),
+                (
+                    "failed",
+                    vec!["src/probe.test.ts the probe > fails on purpose in the probe".to_string()]
+                ),
+                (
+                    "passed",
+                    vec![
+                        "src/side.test.tsx the head of the one-to-one with an architect > shows each hold with its \
+                         source, its reason and a Release, and the owner's Hold new starts while they hold none"
+                            .to_string()
+                    ]
+                ),
+                (
+                    "not_run",
+                    vec![
+                        "src/system.test.ts the System view > asks for the weeks of its period in the owner’s time zone"
+                            .to_string()
+                    ]
+                ),
+                ("not_built", vec![]),
+            ]
+        );
+        assert_eq!(got[2]["time"], "4.887");
+        assert_eq!(got[5]["ended"], "failure");
+        assert_eq!(
+            got[8]["why"],
+            "no test the run reported is named so, and these units were not built: config::probe_broken: \
+             error[E0308]: mismatched types"
+        );
+    }
+
     // A name's result from those of its tests: any failed is failed, each skipped is not run, else passed; no test, none.
     #[test]
     fn a_name_s_result_is_combined_from_its_tests() {
