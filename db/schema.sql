@@ -693,11 +693,13 @@ CREATE TABLE interjections (
   delivered_round INTEGER,
   -- For the notice that an item this work's item depended on was cancelled: that item; NULL for anything else said.
   -- The cells where the work waits (`A2`, `A6`, `M1`) take such a notice to choose the way on by a row of their own,
-  -- as an item they waited for that will never deliver. Read by: the engine's value `cancelled`.
+  -- as an item they waited for that will never deliver, when it is for the line the work stands on: a question asked
+  -- from another line is not withdrawn for it, since the cell the work goes back to would not hear it. Read by: the
+  -- engine's values `cancelled` and `held`.
   cancelled_item INTEGER REFERENCES items(id),
   -- 1 for a word that needs no answer and changes no way on, as the owner confirming every decision of a design card:
   -- the line's next round is given it, and a work standing at an engine step is not taken by it to choose the way on.
-  -- Read by: the engine's value `interjection`.
+  -- Read by: the engine's values `interjection`, `cancelled` and `held`, which leave such words out.
   informs INTEGER NOT NULL DEFAULT 0 CHECK (informs IN (0, 1)),
   -- For what the owner said in the work's group to its project's architect: that architect's matter, which holds the
   -- words. Said to the architect alone, the engineer is given it as a word that needs no answer (informs); said to
@@ -990,9 +992,10 @@ CREATE TABLE observations (
   id INTEGER PRIMARY KEY,
   -- The project it belongs to.
   project TEXT NOT NULL,
-  -- What is wrong, as a short phrase in English of at most 20 characters, spaces not counted, as the architect wrote it
-  -- when it recorded it; NULL for one recorded before observations had titles. Read by: the owner's interface, which
-  -- leads each row of a list of observations with it.
+  -- What is wrong, as a short phrase in the owner's language, at most `items.title_max` wide, spaces not counted and a
+  -- character of East Asian wide or full width counting 2, as the architect wrote it when it recorded it; NULL for one
+  -- recorded before observations had titles, which may be in English and of the width then allowed. Read by: the
+  -- owner's interface, which leads each row of a list of observations with it.
   title TEXT,
   -- What it is, why it is worth doing, and what happens if it is not done.
   what TEXT NOT NULL,

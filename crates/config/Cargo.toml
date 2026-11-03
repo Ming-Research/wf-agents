@@ -14,6 +14,8 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 toml = "1.1.8"
 # Edits a file of the configuration in place, its comments and layout kept, for what the owner changes on the page.
 toml_edit = "0.25.17"
+# How many columns a character takes when shown (a Chinese character takes two), for the longest a title may be.
+unicode-width = "0.2.3"
 
 [lints]
 workspace = true
