@@ -794,6 +794,23 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
     }
     let crux = c.graph("architect").unwrap().cell("H2").unwrap();
     assert!(crux.rows.iter().all(|r| r.name != "ask_owner"));
+    // What they ask the owner is written for the owner, who reads it with no one to translate it: the description of
+    // the question says so, which brings the rule for a field the owner reads to it, and no text of the flow asks for a
+    // question with no answer in it, since the architect's recommendation belongs in it.
+    let forms = &ways.schema.as_ref().unwrap()["properties"]["outcome"]["anyOf"];
+    let to_owner = forms
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|a| a["properties"]["ask"]["oneOf"].as_array())
+        .flatten()
+        .find(|b| b["properties"]["to"]["const"] == "owner")
+        .expect("the ways may ask the owner");
+    let question = to_owner["properties"]["question"]["description"].as_str().unwrap();
+    assert!(question.contains("The owner reads this"), "{question}");
+    for no in ["no answer in it", "with no answer"] {
+        assert!(!FLOW.contains(no), "the flow asks for a question with {no}");
+    }
 }
 
 // A matter that comes again and again is not queued while the facts it would carry are those of the last one the
