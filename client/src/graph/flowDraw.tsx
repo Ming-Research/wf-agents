@@ -377,7 +377,7 @@ export type Marks = {
   changed: Set<string>;
   /// On a work's page, with a round chosen: the arrows it came in by and left by.
   lit?: Ways;
-  /// On a work's page: the cell the halo goes round, where a round runs or has just run (`haloAt`).
+  /// On a work's page: the cell the halo goes round, the cell its stage works at (`course`'s `working`).
   halo?: string | null;
   /// The rows a line of the panel's From or To lights: the line under the pointer and the lines picked.
   rows?: RowAt[];
@@ -521,7 +521,7 @@ function Lacks({ lacks, x, y }: { lacks: Lack[]; x: number; y: number }) {
   );
 }
 
-/// The halo round the cell a round runs at, so that the eye finds it at any zoom: three arcs of colour running round
+/// The halo round the cell a stage works at, so that the eye finds it at any zoom: three arcs of colour running round
 /// the cell (the styles say how it moves).
 /// `small` draws it for the legend.
 export function Halo({ box, round, small = false }: { box: Box; round: boolean; small?: boolean }) {

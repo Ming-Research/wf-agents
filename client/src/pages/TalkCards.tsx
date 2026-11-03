@@ -149,7 +149,7 @@ function StageFolds({
 /// The bubble of a stage a work entered, in the engineer's look as the work's own voice, posted when the work came in
 /// and updated in place (`LiveBubble`): its head the stage and which time the work is at it, its mark, when the work
 /// came in, its rounds and, once over, how long it took and what it cost; the mark, while the work is at it, the work's
-/// own as the list of conversations shows it (`StateMark`, the running halo while a round runs), once over how it ended
+/// own as the list of conversations shows it (`StateMark`, the running halo while a stage works), once over how it ended
 /// (`ToneMark`); its one line, while the work is at it what happens now in the owner's words, who is at work, what
 /// holds it and what it waits for, live and as the head of the group says it, with no cell's title, its rounds' link
 /// leading to the cell, and what the engine told of the work meanwhile under it; once over, how it ended and why in
@@ -427,7 +427,7 @@ function ArchitectHead({
 /// A matter of the architect's, as one bubble of the architect's of one line, with no one named, posted when it took
 /// the matter up and updated in place (`LiveBubble`), standing at its latest change: its head names its kind, what it is about, then where it stands as
 /// a mark (back in the queue, held by the owner's ask, done or withdrawn; while in hand the architect's own, as its
-/// one-to-one's row shows it: the running halo while a round of it runs, its own trouble while held); its line, in
+/// one-to-one's row shows it: the running halo while it works, its own trouble while held); its line, in
 /// words: while in hand what happens now, as a stage's line says it; once done what came of it (`matterResult`), and
 /// under the line what it changed, one to a line, each by number and title and leading to it, one shape for every
 /// result and every matter (`ResultLine`, `ResultThings`); once withdrawn, why; what it asks, whole, on hovering and in
@@ -473,7 +473,7 @@ export function MatterBubble({
     c !== null && architect !== null ? (
       <StateMark
         state={liveState(architect, status)}
-        words={c.running !== null ? t(stands.key) : (held?.name ?? undefined)}
+        words={c.working !== null ? t(stands.key) : (held?.name ?? undefined)}
       />
     ) : (
       <ToneMark mark={stands.mark} tone={stands.tone} words={t(stands.key)} />

@@ -4,14 +4,16 @@
 // moves and zooms as one. Over its top left corner, which flow is shown and, to review a change, which one it is
 // compared with; a comparison marks the cells added and changed in every graph and lists what changed.
 
-import { ActionList, ActionMenu, Button, Flash, Heading, Label, Radio, Select, TextInput } from '@primer/react';
+import { ActionList, ActionMenu, Button, Flash, Heading, Label, Radio, Select } from '@primer/react';
 import { useMemo, useState } from 'react';
 
 import type { Compiled, FlowAt, FlowDiff, FlowSnapshot, FlowSource, FlowVersion, FlowView } from '../api';
 import { Loaded } from '../components';
+import { useDraft } from '../drafts';
 import { FlowScreen } from '../flow/FlowScreen';
 import type { Graph } from '../graph/FlowChart';
 import { type Resource, useResource, useStatus } from '../live';
+import { DraftInput } from '../parts';
 import { href, navigate, type Route } from '../route';
 import { t, tn } from '../text';
 import { SEP } from '../voices';
@@ -26,7 +28,7 @@ function versionLabel(v: FlowVersion, current: number | null): string {
 }
 
 /// What to compare the shown flow with: another stored version, or the flow at a ref of a project's checkout.
-function CompareBox({ r, versions, shown, current, onClose }: {
+export function CompareBox({ r, versions, shown, current, onClose }: {
   r: FlowRoute;
   versions: FlowVersion[];
   shown: number | null;
@@ -38,13 +40,17 @@ function CompareBox({ r, versions, shown, current, onClose }: {
   const [against, setAgainst] = useState<'version' | 'ref'>(r.project !== null ? 'ref' : 'version');
   const [to, setTo] = useState<number>(shown ?? versions[0]?.id ?? 0);
   const [project, setProject] = useState<string>(r.project ?? '');
-  const [ref, setRef] = useState<string>(r.ref ?? '');
+  // The ref typed is a draft (kept while the box is closed and opened again, and across a reload); until the owner types
+  // in it, it shows the ref the flow shown is compared at.
+  const refDraft = useDraft('flow-compare-ref', r.ref ?? '');
+  const ref = refDraft.text;
   const list = sources.data ?? [];
   const chosen = list.find((s) => s.project === project) ?? list[0];
   const show = () => {
     if (against === 'version') go({ ...r, version: to, project: null, ref: null, snapshot: null, from, graph: null, cell: null });
     else if (chosen && ref.trim() !== '') {
       go({ ...r, version: null, project: chosen.project, ref: ref.trim(), snapshot: null, from, graph: null, cell: null });
+      refDraft.clear();
     }
     onClose();
   };
@@ -97,14 +103,13 @@ function CompareBox({ r, versions, shown, current, onClose }: {
             </option>
           ))}
         </Select>
-        <TextInput
+        <DraftInput
+          draft={refDraft}
           size="small"
           list="flow-refs"
-          value={ref}
           disabled={against !== 'ref'}
           placeholder={t('compare_ref_hint')}
           aria-label={t('compare_ref_hint')}
-          onChange={(e) => setRef(e.target.value)}
         />
         <datalist id="flow-refs">
           {(chosen?.refs ?? []).map((x) => (

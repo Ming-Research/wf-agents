@@ -14,7 +14,10 @@ export type Standing = (typeof STANDINGS)[number];
 
 /// Where a work stands now; none once it is over. What needs the owner comes first: the engine's stop, then what the
 /// owner is to give, then a pause, then what others are to give. A work held only because every work is paused stands
-/// where it would without the pause, as the works list says it.
+/// where it would without the pause: its place answers where the work is stuck and who is to step in, and the bar says
+/// that every work is paused, once for all of them, while the works' lists and marks say it of each work. A work that
+/// waits to run a failed round again waits for nothing of the owner's or of other works': it stands with the ready,
+/// whose next round is due when the wait ends.
 export function standingOf(w: WorkSummary, status: Status | null): Standing | null {
   const c = course(w, status);
   if (c.over) return null;
@@ -23,6 +26,7 @@ export function standingOf(w: WorkSummary, status: Status | null): Standing | nu
   if (waits?.kind === 'answer' || waits?.kind === 'ruling') return 'you';
   if ((c.held === 'you' || c.held === 'architect') && !c.releasing) return 'paused';
   if (waits?.kind === 'architect') return 'architect';
+  if (waits?.kind === 'retry') return 'ready';
   if (waits !== null) return 'items';
   return c.running !== null ? 'running' : 'ready';
 }

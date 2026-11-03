@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import type {
+  ArchitectStanding,
   CompiledCell,
   CompiledGraph,
   CompiledRow,
@@ -22,8 +23,9 @@ import type {
   Use,
   WorkSummary,
 } from './api';
-import { controls, course, heldName, heldWords } from './components';
-import { held, runningWords, StartOver, startOverWords, stepWhyNot, waitOf } from './course';
+import { architectNow } from './architect';
+import { controls, course, heldName, heldWords, liveState } from './components';
+import { held, nowWords, runningWords, StartOver, startOverWords, stepWhyNot, waitOf, waitsWords } from './course';
 import { standingWords } from './pages/System';
 import { cellTab, cellTabs, cellWhere, numbered } from './flow/CellPanel';
 import { inputName } from './flow/CellGiven';
@@ -56,9 +58,6 @@ import { centredAt, draggedBy, LEAST, mapGeom, mapOf, mapShown, viewFrame, zoomT
 import {
   ASKING,
   chart,
-  HALO_HOLD,
-  HALO_STEP,
-  haloAt,
   letterOf,
   lineArrows,
   MAIN,
@@ -70,9 +69,10 @@ import {
   roundArrows,
   taken,
   ways,
+  workingAt,
 } from './graph/flowModel';
 import { layStores, storeLinks, storeUses } from './graph/stores';
-import { coalesced, connect, FLUSH_MS, named, REOPEN_MS } from './live';
+import { coalesced, connect, FLUSH_MS, named, REOPEN_MS, useStatus } from './live';
 import { parse as parseMarkdown } from './markdown';
 import { anchored } from './item/Shapes';
 import { askedTo, cardOfKey, cardRuling, currentCard, firstSentence } from './pages/Decide';
@@ -100,12 +100,12 @@ import {
 import { addressesByNumber, atPath, modelName, RoundTold } from './pages/RoundView';
 import { startedText } from './pages/Usage';
 import { helperThread } from './pages/Work';
-import { roundsShown } from './pages/WorkChart';
+import { roundsShown, workMarks } from './pages/WorkChart';
 import { catalog, type Key, t, tn } from './messages';
 import { href, parse, type Route } from './route';
 import { chars, messageParts, placeSchema, shape, shareWords, spent, tokens } from './round';
 import { type Draft, draftOf, settingsChange, settingsProblems, shellWord, signInCommand, unchanged } from './pages/Settings';
-import { tiersAllowed } from './pages/TalkHead';
+import { tiersAllowed, WorkState as HeadState } from './pages/TalkHead';
 import { coloursOf } from './roles';
 import { spendTable } from './spend';
 import { axisTicks, gapsOf, type SessionRow, usageOf } from './usage';
@@ -212,7 +212,7 @@ describe('the addresses', () => {
 });
 
 describe('how a work goes on', () => {
-  const work = (extra: Partial<WorkSummary>): WorkSummary => ({
+  const work = (extra: Partial<WorkSummary> = {}): WorkSummary => ({
     id: 5,
     item: 1,
     title: 't',
@@ -242,7 +242,7 @@ describe('how a work goes on', () => {
     open_design_cards: 0,
     ...extra,
   });
-  const status = (extra: Partial<Status>): Status => ({
+  const status = (extra: Partial<Status> = {}): Status => ({
     paused: false,
     keep_warm: true,
     started: [],
@@ -453,6 +453,288 @@ describe('how a work goes on', () => {
       /It starts with no pause: only a pause of yours carries over\.$/,
     );
   });
+
+  // What the page marks as working, worked out once from the work and the engine's status, and what each place that shows
+  // it takes from there: the icon of the state, the architect's state, the running mark in the head of the group, the
+  // halo and ring on the chart. A round that runs at a cell of the flow, as a work reads while it runs there.
+  const open = (cell = 'A3', tool = false) => ({ n: 9, cell, started_at: 1, tool, line: 'engineer' });
+  const halted = { kind: 'offline', until: 9, why: 'no network' };
+
+  // The engine steps every work that waits whenever another work moves, to look whether what it waits for came, and that
+  // step writes no round; the status names the work among those the engine steps all the same.
+  it("does not take the engine's step of a work that waits for a round running", () => {
+    const waiting = [
+      work({ state: 'waiting', waits: { kind: 'row', cell: 'A3', row: 'wait' } }),
+      work({ state: 'waiting', waits: { kind: 'retry' } }),
+      work({ state: 'waiting', waits: { kind: 'items', items: [3] } }),
+      // What it waited for came and the next round has not started.
+      work({ state: 'waiting', waits: null }),
+      // At the cell that asks, whose round stays open while the ask waits for its answer.
+      work({ state: 'asking', waits: { kind: 'answer', ask: 3 }, running: open() }),
+      work({ state: 'asking', waits: { kind: 'architect', matter: 4 }, running: open() }),
+    ];
+    for (const running of [[], [5], [3, 5], [5, 7], []]) {
+      const s = status({ running });
+      for (const w of waiting) {
+        const c = course(w, s);
+        expect([c.running, c.working, liveState(w, s)], `${w.state} ${JSON.stringify(w.waits)} ${running}`).toEqual([
+          null,
+          null,
+          w.state,
+        ]);
+      }
+    }
+    // The ask answered: the work reads ready with nothing to wait for, and the engine's step takes the answer in.
+    const answered = work({ state: 'ready', waits: null, running: open() });
+    const s = status({ running: [5] });
+    expect([course(answered, s).running, course(answered, s).working, liveState(answered, s)]).toEqual([
+      'goes_on',
+      'A3',
+      'running',
+    ]);
+    // A work that waits to run a failed round again says so in words, and is a tag beside its cell, not a mark that moves.
+    const retry = waiting[1];
+    expect(waitsWords({ kind: 'retry' })).toBe('waiting to run the failed round again');
+    expect(nowWords(course(retry, s), retry)).toBe('waiting for its failed round to run again');
+    expect(waitOf(course(retry, s), retry, s)).toEqual({
+      tag: 'waiting to retry',
+      why: 'waiting to run the failed round again',
+    });
+  });
+
+  // The owner saw the mark go out and come back, and jump about, while the architect waited for the owner's words: the
+  // engine steps the waiting architect at every other work's move.
+  it('marks a work that waits for the owner by one still tag at every status event: no halo, no other cell marked', () => {
+    const listens = work({
+      graph: 'architect',
+      item: null,
+      at: 'a',
+      state: 'waiting',
+      waits: { kind: 'row', cell: 'a', row: 'listens' },
+    });
+    const seen = new Set<string>();
+    for (const running of [[], [5], [], [5, 7], [7], [5], []]) {
+      const s = status({ running });
+      // The rounds are read again as new arrays of the same rounds.
+      const rounds = [round(1, 's', 'took', 'started'), round(2, 'a', 'took', 'listens')];
+      const m = workMarks(graph, view, listens, rounds, course(listens, s), s);
+      expect(m.halo).toBeNull();
+      expect([...m.overlays].filter(([, o]) => o.running)).toEqual([]);
+      expect(m.overlays.get('a')).toMatchObject({ current: true, running: false, waits: { tag: 'waiting' } });
+      seen.add(JSON.stringify([m.halo, [...m.overlays]]));
+    }
+    expect(seen.size).toBe(1);
+  });
+
+  it('keeps the halo on the cell a stage works at whatever is read again, and moves it to the next stage with no gap', () => {
+    const rounds = [round(1, 's', 'took', 'started'), round(2, 'a', 'running', null)];
+    const halo = (w: WorkSummary, s: Status, read: RoundSummary[] = rounds) =>
+      workMarks(graph, view, w, read, course(w, s), s).halo;
+    const onA = work({ at: 'a', state: 'running', running: open('a') });
+    const s = status({ running: [5] });
+    expect(halo(onA, s)).toBe('a');
+    const ring = workMarks(graph, view, onA, rounds, course(onA, s), s).overlays.get('a');
+    expect(ring).toMatchObject({ current: true, running: true, waits: null });
+    // No rounds read yet, a hundred, the older ones, the rounds round one that was not in the list: the halo is of the
+    // work and the engine's status, and the rounds the page holds do not move it.
+    const many = Array.from({ length: 100 }, (_, i) => round(i + 3, 'b', 'took', 'done'));
+    for (const read of [[], many, [many[0]], many.slice(40, 60), [...many].reverse()]) {
+      expect(halo(onA, s, read)).toBe('a');
+    }
+    // The status read again, or changed by the steps of other works: it does not go out and begin again.
+    for (const running of [[5], [5, 8], [8, 5], [5, 8, 9], [5]]) expect(halo(onA, status({ running }))).toBe('a');
+    // The round at a ends and the work is at b, its next step due: the halo is on b at once, none off in between, and
+    // stays when the step begins; at no time is it on two cells, being one cell's name.
+    const onB = work({ at: 'b', state: 'ready' });
+    const stepB = work({ at: 'b', state: 'running', running: open('b') });
+    expect([halo(onA, s), halo(onB, status()), halo(stepB, status({ running: [5] }))]).toEqual(['a', 'b', 'b']);
+    // Between the step that ended and the next, the works as last read still show the round at a, and the halo stays.
+    expect(halo(onA, status())).toBe('a');
+  });
+
+  it('centres the chart only when the cell a stage works at changes, not when the status or the rounds are read again', () => {
+    const key = (w: WorkSummary, s: Status) => {
+      const at = workingAt([workMarks(graph, view, w, [], course(w, s), s)], [graph.name]);
+      return at === null ? null : `${at.graph ?? ''}/${at.cell}`;
+    };
+    const onA = work({ at: 'a', state: 'running', running: open('a') });
+    const keys = [[5], [5, 8], [8, 5], [5], [5, 7, 8]].map((running) => key(onA, status({ running })));
+    expect(new Set(keys)).toEqual(new Set(['engineer/a']));
+    // The next stage: another cell. A work that waits, or one held back, is centred on nothing new.
+    expect(key(work({ at: 'b', state: 'ready' }), status())).toBe('engineer/b');
+    expect(key(work({ at: 'a', state: 'waiting', waits: { kind: 'retry' } }), status({ running: [5] }))).toBeNull();
+    expect(key(onA, status({ paused: true }))).toBeNull();
+  });
+
+  // Where a stage works, and where none does, for every state a work is read in and every way the engine can be.
+  it('marks no stage as working while the work waits, is held back, is halted or over, or the engine is out of reach', () => {
+    const waitsAt = { kind: 'row', cell: 'A3', row: 'wait' } as const;
+    const rows: Array<[string, Partial<WorkSummary>, Status | null, string | null]> = [
+      ['ready, the engine reachable', {}, status(), 'A3'],
+      ['ready, its step in flight', {}, status({ running: [5] }), 'A3'],
+      ['a round the last step left open', { state: 'running', running: open() }, status(), 'A3'],
+      ['a round that runs', { state: 'running', running: open('X1') }, status({ running: [5] }), 'X1'],
+      ['a tool under way, the step over', { state: 'running', running: open('X1', true) }, status(), 'X1'],
+      ['a round of a work the owner paused, still running', { state: 'paused', paused: 'x', paused_by: 'owner', running: open() }, status({ running: [5] }), 'A3'],
+      ['Pause all, the owner started the work', {}, status({ paused: true, started: [5] }), 'A3'],
+      ['paused by the owner', { state: 'paused', paused: 'x', paused_by: 'owner' }, status(), null],
+      ['paused by the architect', { state: 'paused', paused: 'x', paused_by: 'architect' }, status(), null],
+      ['halted by the engine', { state: 'halted', paused: 'x', paused_by: 'engine' }, status(), null],
+      ['Pause all', {}, status({ paused: true }), null],
+      ['Pause all, the round left open', { state: 'running', running: open() }, status({ paused: true }), null],
+      ['every work halted', {}, status({ halt: halted }), null],
+      ['waiting for a free slot', {}, status({ waiting_for_slot: [5] }), null],
+      ['waiting', { state: 'waiting', waits: waitsAt }, status({ running: [5] }), null],
+      ['waiting to retry', { state: 'waiting', waits: { kind: 'retry' } }, status({ running: [5] }), null],
+      ['asking', { state: 'asking', waits: { kind: 'answer', ask: 3 }, running: open() }, status({ running: [5] }), null],
+      ['ready with a blocker open, no step in flight', { state: 'ready', waits: waitsAt }, status(), null],
+      ['done', { state: 'done' }, status({ running: [5] }), null],
+      ['ended', { state: 'ended', ended: 'x' }, status(), null],
+      ['ready, the engine out of reach', {}, null, null],
+      ['a round open, the engine out of reach', { state: 'running', running: open() }, null, null],
+      ['a tool under way, the engine out of reach', { state: 'running', running: open('X1', true) }, null, null],
+    ];
+    for (const [name, extra, s, at] of rows) {
+      const w = work(extra);
+      const c = course(w, s);
+      expect(c.working, name).toBe(at);
+      expect(liveState(w, s) === 'running', name).toBe(at !== null);
+      expect(workMarks(graph, view, w, [], c, s).halo, name).toBe(at);
+    }
+  });
+
+  // The words and the icon of a work said apart: the icon was a ring at rest for a work whose words said it was paused
+  // by Pause all.
+  it('says paused, in every place that shows a state, for exactly the works whose words say paused', () => {
+    const states: Array<Partial<WorkSummary>> = [
+      { state: 'ready' },
+      { state: 'ready', waits: { kind: 'items', items: [3] } },
+      { state: 'waiting', waits: { kind: 'row', cell: 'A3', row: 'wait' } },
+      { state: 'waiting', waits: { kind: 'retry' } },
+      { state: 'asking', waits: { kind: 'answer', ask: 3 }, running: open() },
+      { state: 'running', running: open() },
+      { state: 'paused', paused: 'x', paused_by: 'owner' },
+      { state: 'paused', paused: 'x', paused_by: 'architect' },
+      { state: 'halted', paused: 'x', paused_by: 'engine' },
+    ];
+    let paused = 0;
+    for (const extra of states) {
+      for (const all of [false, true]) {
+        for (const started of [false, true]) {
+          for (const running of [false, true]) {
+            for (const slot of [false, true]) {
+              for (const halt of [null, halted]) {
+                const s = status({
+                  paused: all,
+                  started: started ? [5] : [],
+                  running: running ? [5] : [],
+                  waiting_for_slot: slot ? [5] : [],
+                  halt,
+                });
+                const w = work(extra);
+                const c = course(w, s);
+                const says = nowWords(c, w).startsWith('paused');
+                const name = `${JSON.stringify(extra)} ${JSON.stringify(s)}`;
+                expect(liveState(w, s) === 'paused', name).toBe(says);
+                if (says) paused += 1;
+              }
+            }
+          }
+        }
+      }
+    }
+    // The table does say paused for some and not for others.
+    expect(paused).toBeGreaterThan(50);
+    // Every work paused: a work ready, waiting or asking is paused, as its words say; its round still running goes on.
+    const all = status({ paused: true });
+    for (const state of ['ready', 'waiting', 'asking'] as const) {
+      const w = work({ state, waits: state === 'ready' ? null : { kind: 'answer', ask: 3 } });
+      expect([liveState(w, all), heldName(course(w, all)).name]).toEqual(['paused', 'paused by Pause all']);
+    }
+    expect(liveState(work({}), status({ paused: true, running: [5] }))).toBe('running');
+    expect(liveState(work({}), status({ paused: true, started: [5] }))).toBe('running');
+  });
+
+  // The icon, the architect's state, the head's running mark and the halo are worked out from what the work is doing,
+  // so they come and go together.
+  it('shows a stage as working by the icon, the architect, the head and the chart together, or by none of them', () => {
+    const rows: Array<[string, Partial<WorkSummary>, Status | null]> = [
+      ['ready', {}, status()],
+      ['ready, its step in flight', {}, status({ running: [5] })],
+      ['a round that runs', { state: 'running', running: open() }, status({ running: [5] })],
+      ['a tool under way', { state: 'running', running: open('X1', true) }, status()],
+      ['waiting', { state: 'waiting', waits: { kind: 'row', cell: 'A3', row: 'wait' } }, status({ running: [5] })],
+      ['waiting to retry', { state: 'waiting', waits: { kind: 'retry' } }, status({ running: [5] })],
+      ['asking', { state: 'asking', waits: { kind: 'answer', ask: 3 }, running: open() }, status({ running: [5] })],
+      ['paused by the owner', { state: 'paused', paused: 'x', paused_by: 'owner' }, status()],
+      ['paused, its round still running', { state: 'paused', paused: 'x', paused_by: 'owner', running: open() }, status({ running: [5] })],
+      ['halted by the engine', { state: 'halted', paused: 'x', paused_by: 'engine' }, status()],
+      ['Pause all', {}, status({ paused: true })],
+      ['every work halted', {}, status({ halt: halted })],
+      ['waiting for a free slot', {}, status({ waiting_for_slot: [5] })],
+      ['the engine out of reach', {}, null],
+      ['done', { state: 'done' }, status()],
+    ];
+    let working = 0;
+    for (const [name, extra, s] of rows) {
+      const w = work(extra);
+      const c = course(w, s);
+      const on = c.working !== null;
+      if (on) working += 1;
+      expect(liveState(w, s) === 'running', `${name}: the icon`).toBe(on);
+      const architect: ArchitectStanding = {
+        project: 'p',
+        works: [{ work: { ...w, graph: 'architect', item: null }, handling: null, listens: false }],
+        queue: [],
+        asking: false,
+      };
+      expect(architectNow(architect, s).state === 'running', `${name}: the architect`).toBe(on);
+      const head = renderToStaticMarkup(createElement(HeadState, { w, status: s }));
+      expect(head.includes('running-mark'), `${name}: the head`).toBe(on);
+      expect(workMarks(graph, view, w, [], c, s).halo !== null, `${name}: the halo`).toBe(on);
+    }
+    expect(working).toBe(5);
+  });
+
+  // The engine takes a retry's wait only in a step of its own, and takes no step of a work that is held back (the owner
+  // may ask for one with Step, which runs the cell at once once the wait is over). The wait the interface reads from the
+  // rounds ends only when the next round opens, which a held work never does: shown as a wait, it would hide Step for
+  // good, say "then it waits for its failed round" of a work that waits for nothing, and put a tag over "paused".
+  it('does not say a work that is held back waits to run a failed round again, nor take Step from it', () => {
+    const retry = { kind: 'retry' } as const;
+    const rows: Array<[string, Partial<WorkSummary>, Status]> = [
+      ['paused by the owner', { state: 'paused', paused: 'x', paused_by: 'owner', waits: retry }, status()],
+      ['paused by the architect', { state: 'paused', paused: 'x', paused_by: 'architect', waits: retry }, status()],
+      ['Pause all', { state: 'waiting', waits: retry }, status({ paused: true })],
+    ];
+    for (const [name, extra, s] of rows) {
+      const w = work(extra);
+      const c = course(w, s);
+      expect(controls(c, s).step, `${name}: Step`).toBe(true);
+      expect(nowWords(c, w), `${name}: the live line`).not.toContain('failed round');
+      expect(waitOf(c, w, s)?.tag, `${name}: the tag`).not.toBe('waiting to retry');
+    }
+  });
+
+  // A work the owner started that waits for a free slot is not paused any more: its words say it is started, so the
+  // icon must not be the paused ring beside them (the same fault as Pause all's ring beside "paused by Pause all").
+  it('draws the icon of a work the owner started that waits for a free slot as its words say, not as paused', () => {
+    for (const waiting_for_slot of [[], [5]]) {
+      const s = status({ releasing: [5], waiting_for_slot });
+      const w = work({ state: 'paused', paused: 'x', paused_by: 'owner' });
+      const says = nowWords(course(w, s), w).startsWith('paused');
+      expect(says, `words ${JSON.stringify(s.waiting_for_slot)}`).toBe(false);
+      expect(liveState(w, s) === 'paused', `icon ${JSON.stringify(s.waiting_for_slot)}`).toBe(says);
+    }
+  });
+
+  // A blocker that stays open while the round it came from goes on (an ask put to the owner by a round that continues)
+  // is a wait of the owner's, and a round that runs still is a round that runs.
+  it('keeps a round running that runs while a blocker is open', () => {
+    const w = work({ state: 'running', waits: { kind: 'answer', ask: 3 }, running: open('A3') });
+    const s = status({ running: [5] });
+    expect([course(w, s).running, liveState(w, s)]).toEqual(['goes_on', 'running']);
+  });
 });
 
 describe('the formats', () => {
@@ -500,6 +782,45 @@ describe('events', () => {
     expect(named({ kind: 'ready' })).toEqual([]);
     expect(named({ kind: 'ask', ask: 4, work: 2 })).toEqual(['works', 'work:2', 'item:*', 'messages', 'system']);
     expect(named({ kind: 'owner_message', message: 7, work: 2 })).toEqual(['messages', 'work:2', 'system']);
+  });
+
+  // While the stream is cut off the page cannot tell what the engine does: the status it held from before would keep a
+  // work marked as working that nothing works at.
+  it('give no status while the event stream is cut off, and the status again once events come', () => {
+    vi.useFakeTimers();
+    const opened: Source[] = [];
+    class Source {
+      static readonly CLOSED = 2;
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((m: { data: string; lastEventId: string }) => void) | null = null;
+      constructor() {
+        opened.push(this);
+      }
+    }
+    vi.stubGlobal('EventSource', Source);
+    const Probe = () => createElement('span', null, useStatus()?.slots ?? 'none');
+    const read = () => renderToStaticMarkup(createElement(Probe));
+    const told = JSON.stringify({ kind: 'status', status: { slots: 4 } });
+    try {
+      connect();
+      expect(read()).toBe('<span>none</span>');
+      opened[0].onmessage?.({ data: told, lastEventId: '' });
+      expect(read()).toBe('<span>4</span>');
+      // Cut off, the browser opens it again itself: the status held from before is not the engine's now.
+      opened[0].readyState = 0;
+      opened[0].onerror?.();
+      expect(read()).toBe('<span>none</span>');
+      opened[0].onmessage?.({ data: told, lastEventId: '' });
+      expect(read()).toBe('<span>4</span>');
+    } finally {
+      // Left as a stream the browser gave up on leaves it, so that the next test opens its own.
+      opened[0].readyState = Source.CLOSED;
+      opened[0].onerror?.();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
   });
 
   // A stream the browser gave up on (answered with an error while wf-agents run restarts behind a proxy) left the page
@@ -1245,34 +1566,6 @@ describe('the chart of a flow', () => {
     expect(pick({ 'data-edge': 'c:b->c:z', 'data-sheet': '0' })).toBeNull();
     expect(pick({ 'data-node': 'c:b', 'data-sheet': '0' })).toEqual({ kind: 'cell', graph: 'engineer', cell: 'b' });
     expect(pick({ 'data-store': 'cards' })).toEqual({ kind: 'store', store: 'cards' });
-  });
-});
-
-describe("the halo on a work's chart", () => {
-  const flash = (n: number, cell: string, seen: number) => ({ n, cell, seen });
-  it('stays on a round too short to be seen running, then on the cell the work waits at', () => {
-    // A tool's round, over in milliseconds, the work then waiting at a for Step.
-    const at = (now: number) => haloAt([flash(3, 't', 1000)], now, { at: 'a', runs: false, newest: 3 });
-    expect(at(1000)).toEqual({ cell: 't', next: 1000 + HALO_STEP });
-    expect(at(1000 + HALO_STEP)).toEqual({ cell: 'a', next: 1000 + HALO_HOLD });
-    expect(at(1000 + HALO_HOLD)).toEqual({ cell: null, next: null });
-  });
-
-  it('goes through rounds that came in together in order, and stays on the one that runs', () => {
-    const both = [flash(3, 't', 1000), flash(4, 'a', 1000)];
-    const at = (now: number) => haloAt(both, now, { at: 'a', runs: true, newest: 4 });
-    expect(at(1000)).toEqual({ cell: 't', next: 1000 + HALO_STEP });
-    expect(at(1000 + HALO_STEP)).toEqual({ cell: 'a', next: null });
-    expect(at(60_000).cell).toBe('a');
-    // A newer round still running takes it from an older one's hold once that has had its least.
-    const later = [flash(3, 't', 1000), flash(4, 'a', 1200)];
-    expect(haloAt(later, 1300, { at: 'a', runs: true, newest: 4 }).cell).toBe('t');
-    expect(haloAt(later, 1000 + HALO_STEP, { at: 'a', runs: true, newest: 4 }).cell).toBe('a');
-  });
-
-  it('is on the cell a round runs at, and nowhere while none does, when no round came in', () => {
-    expect(haloAt([], 0, { at: 'a', runs: true, newest: 7 })).toEqual({ cell: 'a', next: null });
-    expect(haloAt([], 0, { at: 'a', runs: false, newest: 7 })).toEqual({ cell: null, next: null });
   });
 });
 
