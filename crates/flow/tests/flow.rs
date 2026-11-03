@@ -1360,6 +1360,56 @@ fn every_sample_takes_its_row() {
     assert_eq!(n, 38);
 }
 
+// The acceptance takes a condition met by a job of the CI or by reading the change, besides tests and measurements, and
+// the conditions table takes a row of either kind beside the others; a kind that is none of these, a row of the CI
+// naming no job, and a reading naming neither where nor what fit no schema.
+#[test]
+fn the_acceptance_and_the_conditions_table_take_a_ci_job_and_a_reading_of_the_diff() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let fits = |cell: &str, sample: &Value, place: &str, value: Value| -> Result<String, String> {
+        let mut x = sample.clone();
+        x["outcome"][place] = value;
+        let given: Map<String, Value> = samples[cell][0]["given"].as_object().cloned().unwrap_or_default();
+        g.take(cell, &x, &given).map(|r| r.name.clone())
+    };
+    let design = &samples["D2"][0]["json"];
+    let acceptance = |by: &str| {
+        serde_json::json!([
+            { "by": "test", "id": "A1", "condition": "It works." },
+            { "by": by, "id": "A2", "condition": "The page passes its check." }
+        ])
+    };
+    assert_eq!(fits("D2", design, "acceptance", acceptance("ci")).unwrap(), "first");
+    assert_eq!(fits("D2", design, "acceptance", acceptance("diff")).unwrap(), "first");
+    let e = fits("D2", design, "acceptance", acceptance("by_hand")).unwrap_err();
+    assert!(e.contains("does not fit the schema"), "{e}");
+    // Of the conditions table, adversarial testing's and the engineer's alike.
+    let sample = &samples["T1"][0]["json"];
+    let conditions = |rows: Value| fits("T1", sample, "conditions", rows);
+    let ci_job = serde_json::json!({ "how": "ci_job", "id": "A1", "jobs": ["lint"], "steps": ["npm run check:ui"] });
+    let read_diff =
+        serde_json::json!({ "how": "read_diff", "id": "A2", "where": "flow/flow.json", "what": "The rule." });
+    assert_eq!(
+        conditions(serde_json::json!([ci_job, read_diff])).unwrap(),
+        "for_engineer"
+    );
+    // The steps may be left out, and the whole CI is a job.
+    let whole = serde_json::json!({ "how": "ci_job", "id": "A1", "jobs": ["check"] });
+    assert_eq!(conditions(serde_json::json!([whole])).unwrap(), "for_engineer");
+    for bad in [
+        serde_json::json!({ "how": "ci_job", "id": "A1", "jobs": [] }),
+        serde_json::json!({ "how": "ci_job", "id": "A1", "steps": ["npm run check:ui"] }),
+        serde_json::json!({ "how": "read_diff", "id": "A2", "where": "flow/flow.json" }),
+        serde_json::json!({ "how": "read_diff", "id": "A2", "what": "The rule." }),
+        serde_json::json!({ "how": "by_hand", "id": "A2" }),
+    ] {
+        let e = conditions(serde_json::json!([bad.clone()])).unwrap_err();
+        assert!(e.contains("does not fit the schema"), "{bad}: {e}");
+    }
+}
+
 // A return with its form outside the field it sits in fits no schema; a recorded value changes the row taken.
 #[test]
 fn a_sample_that_does_not_fit_or_takes_another_row_is_found() {

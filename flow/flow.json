@@ -199,6 +199,42 @@
           ]
         },
         {
+          "value": "ci",
+          "desc": "This condition is verified by a job or a command of the project's CI, such as a check that runs the whole CI or one command in one of its jobs, and not by a test that can be named",
+          "fields": [
+            {
+              "name": "id",
+              "title": "Number",
+              "type": "text",
+              "desc": "Its number, such as A1; tests and measurements refer to it"
+            },
+            {
+              "name": "condition",
+              "title": "Condition",
+              "type": "text",
+              "desc": "One sentence stating the condition that must hold, so that it is clearly true or false, naming the CI job or the command that must be green; no \"about\" or \"roughly\""
+            }
+          ]
+        },
+        {
+          "value": "diff",
+          "desc": "This condition can only be verified by reading the change, such as a statement about what a text says or what a file holds, which no test can prove",
+          "fields": [
+            {
+              "name": "id",
+              "title": "Number",
+              "type": "text",
+              "desc": "Its number, such as A1; tests and measurements refer to it"
+            },
+            {
+              "name": "condition",
+              "title": "Condition",
+              "type": "text",
+              "desc": "One sentence stating the condition that must hold, so that it is clearly true or false by reading the change; no \"about\" or \"roughly\""
+            }
+          ]
+        },
+        {
           "value": "report_answer",
           "desc": "Only for a work that delivers a report: the condition is a question the report must answer, and the review judges whether it does",
           "fields": [
@@ -476,7 +512,7 @@
     "done_conditions": {
       "$ref": "conditions",
       "optional": true,
-      "desc": "Only when the design chose no dedicated adversarial testing; not when it chose some. When the implementation is done, one row per acceptance condition, naming the test or measurement that meets it, none left out; after a fix, only the rows that changed: the engine merges them into the previous ones"
+      "desc": "Only when the design chose no dedicated adversarial testing; not when it chose some. When the implementation is done, one row per acceptance condition, naming the test, measurement, CI job or reading of the diff that meets it, none left out; after a fix, only the rows that changed: the engine merges them into the previous ones"
     },
     "deviations": {
       "name": "deviations",
@@ -767,6 +803,64 @@
                 "title": "Pass criterion",
                 "type": "text",
                 "desc": "The criterion: what measured result passes"
+              }
+            ]
+          },
+          {
+            "value": "ci_job",
+            "desc": "A job of the CI, or a command run in one, verifies this condition: use it when the condition is the whole CI or one of its commands passing, and no test can be named",
+            "fields": [
+              {
+                "name": "id",
+                "title": "Condition number",
+                "type": "text",
+                "desc": "The acceptance condition's number"
+              },
+              {
+                "name": "jobs",
+                "title": "CI jobs",
+                "type": "list",
+                "desc": "The checks of this work's CI runs that verify it, by the names the CI results give them. A name no recorded run has is sent back",
+                "item": {
+                  "type": "text",
+                  "desc": "The check's name, as the CI result gives it"
+                },
+                "min": 1
+              },
+              {
+                "name": "steps",
+                "title": "Commands",
+                "type": "list",
+                "desc": "The commands of those jobs that the condition points to, each as it is written in a file of the branch; leave the list empty if the condition is the job as a whole. A command found in no file of the branch is sent back",
+                "optional": true,
+                "item": {
+                  "type": "text",
+                  "desc": "One command, as one line of text"
+                }
+              }
+            ]
+          },
+          {
+            "value": "read_diff",
+            "desc": "Only reading the change verifies this condition: use it when no test or CI job can prove it, such as what a text says; the review reads it itself",
+            "fields": [
+              {
+                "name": "id",
+                "title": "Condition number",
+                "type": "text",
+                "desc": "The acceptance condition's number"
+              },
+              {
+                "name": "where",
+                "title": "Where to read",
+                "type": "text",
+                "desc": "The file, or the part of the diff, to read"
+              },
+              {
+                "name": "what",
+                "title": "What the reading shows",
+                "type": "text",
+                "desc": "What is to be found there that proves the condition"
               }
             ]
           },
@@ -3586,7 +3680,8 @@
       "free_slots": "The free slots, and the machines with room, as each machine's session manager reports.",
       "project_guide": "The project's AGENTS.md, and the index of its records (each file's path and first line), with the full text of the files the item cites.",
       "local_commits": "The bundle of the work's local commits the session manager made (git bundle).",
-      "review_base": "What a review reviews, by commits the work's worktree has: main as fetched (`origin/<main>`), which is the pull request's base, the commit of main the branch was cut from or last took main in at, the head under review, the git command that reads the change between them, and at a re-review the head the last table review looked at.",
+      "review_base": "What a review reviews, by commits the work's worktree has: main as fetched (`origin/<main>`), which is the pull request's base, the commit of main the branch was cut from or last took main in at, the head under review, the merges of main into the branch since it was cut (an empty list if it never took main in), the git command that reads the change between them, and at a re-review the head the last table review looked at with the merges since it.",
+      "since_adversarial": "What the branch did since adversarial testing last answered: the commits after the head its last round ended at (the last commit it wrote tests in, or else the head it began at), newest first, the merges marked; the files the work itself changed in them, without what merging main brought; the rounds of the fix that answered since; none before its first answer.",
       "existing_work": "What already exists for the item, as pointers to read: its earlier works here, with how far each got, why it ended and the queries that read their rounds, returns, decision cards and asks of the owner, and what each asked the architect and had withdrawn when it ended; where an imported item came from; the branch taken over, with the git commands that show what it adds beyond main; the PR kept, with the gh commands for its description, comments, reviews and checks.",
       "constitution": "The project's constitution, as its configuration names it.",
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its records.",
@@ -3813,7 +3908,8 @@
         ],
         "inputs": [
           "local_commits",
-          "review_base"
+          "review_base",
+          "since_adversarial"
         ]
       },
       "recorded": {
@@ -4609,7 +4705,7 @@
           "name": "review_table",
           "desc": "Which columns the engine lists for the table review:",
           "text": [
-            "The review table is the list the engine puts in the question for the review: one number per column, one row of answer per column. Below is which columns the engine lists. At a re-review it lists only the columns to review this time: when reviewing what changed, the columns the changed part concerns; when looking at disputes only, the columns the last review could not verify, by their numbers, and none when it verified them all.",
+            "The review table is the list the engine puts in the question for the review: one number per column, one row of answer per column. Below is which columns the engine lists. At a re-review after a change it lists all the columns, and each is answered whether or not the change touches it; when looking at disputes only, it lists only the columns the last review could not verify, by their numbers, and none when it verified them all (if the columns changed since, so that a number no longer stands for the same column, it lists all of them and says so).",
             "Every work that delivers a change has these columns:",
             "The change matches the design: it does everything the design says, and nothing more.",
             "The implementation is correct: its behaviour is general, with no path special to one test, example, customer or measurement, and no fallback that hides an unsupported feature; correctness is judged against an independent reference, not against the code's own earlier output.",
@@ -4617,14 +4713,15 @@
             "A measured slowdown: always a finding, however small; only the owner can accept a slowdown. When nothing was measured (the design decided without measuring and no measurement ran), this column rests on the design's reason that no measurement was needed: pass when that reason holds for the change as made, a finding that asks for the measurement when it does not; never cannot be verified for want of a measurement.",
             "Replies were followed: the replies of the advisor, the architect and the owner on this work, and each way on the engineer chose; a reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding.",
             "Repository hygiene: anything added at the root, and any change to the project's AGENTS.md, was agreed by the owner; a dependency's version that moved says which version and why, and that version is on its repository's main; no local paths, machine addresses or credentials; each new file can say whom it is for and when it will be removed; ported code keeps its license notice; one place defines a thing, the others point to it; the documents changed with the code, and the PR description covers every file of the diff.",
+            "Cost under load: the code the change adds or alters that runs per event, per round, per work or per request, and the hot paths outside the diff that call a function the change alters. How does the cost grow when their number, and the data they touch, double? No measurement is needed to answer. Cost that grows with the load more than the work needs is a finding.",
             "Tests and checks changed without a column of their own: compare each test, check or expected result the diff changes with its version before; one removed, skipped, narrowed, regenerated or weakened without a technical reason is a finding.",
             "The review list in the project's configuration: one column per entry.",
             "A work that delivers a change also has columns made from the work itself:",
-            "One column per acceptance condition: can it be checked; is the evidence there, does it come from the head to be merged, and does it hold.",
+            "One column per acceptance condition: can it be checked; is the evidence there, does it come from the head to be merged, and does it hold. A condition the table meets with a CI job is judged by that job's result on the head to be merged, and by whether each command in its steps runs in the job it names, not only is written in a file of the branch (one that does not is a finding); one it meets by a read of the diff, by reading the diff where the row says; for either, if a test could prove the condition instead, that is a finding.",
             "One column per judgment in the research and design: the work stands; and for each check answered \"no\" (a gap in what is under test, unsure facts, architectural burden, cross-project dependency, splitting) that ran, its reason.",
-            "One column per workaround and per design change: does its reason hold, and did the design change with it.",
-            "One column per test or check removed, skipped or relaxed: compared with before, is there a technical reason; a compiler limitation, a timeout or an unimplemented feature is no reason.",
-            "One column per new test, and per test extended to test more: take the other side on its running time. Do other tests already catch what it catches, could it be smaller or faster, could it be folded into another test? If the writer's reasons can be knocked down, it is a finding.",
+            "One column per workaround and per design change, in the implementation and in each fix: does its reason hold, and did the design change with it.",
+            "One column per test or check removed, skipped or relaxed, in the implementation and in each fix: compared with before, is there a technical reason; a compiler limitation, a timeout or an unimplemented feature is no reason.",
+            "One column per new test, and per test extended to test more, whoever added it (the implementation, a fix or adversarial testing; a test is listed once): take the other side on its running time. Do other tests already catch what it catches, could it be smaller or faster, could it be folded into another test? If the writer's reasons can be knocked down, it is a finding.",
             "A work that delivers a report has another table: one column per acceptance condition, for which section of the report answers it and whether the answer is right; whether the evidence supports the conclusions; whether the approaches compared ran under the same conditions (the same load, machine, versions and settings); whether a conclusion claims more than was measured; whether it can be reproduced (the measurement code and commands are in the repository and rerun as written); whether \"what to do next\" holds; and, as for a change, one column per judgment in the research and design."
           ]
         }
@@ -6012,7 +6109,7 @@
           "prompt": [
             "This round only designs. If you need to measure, you may write measurement code, put it in `research/`, commit it locally and run it with measure; the measurement code stays on this work's branch; change no other file. Choose one of the approaches compared; if an open question was answered otherwise, follow the answer, and if the owner changed the acceptance, write it as changed; say in what point it beats each of the others, covering every one not chosen. If only a measurement can decide, measure first and judge the results yourself; if you measured with measure, say how the results shaped the choice; if you decided by reading the engine's records (with query, gh or the database), say what you read and how it decided the choice; if neither, why no measurement was needed. Then write the design itself: how it solves the problem, until it is clear, with code before and after and diagrams if useful; for a change to language rules, a checker or a library interface, give the code after the change and show how the problem's example is accepted after it; then where it changes, what it leaves out, and its constraints and pitfalls.",
             "Write the alternatives you set aside and why into the design. What you are not sure of, and cannot settle by measuring or reading, is an open question of the design: each says what is uncertain, the options and the one you recommend. Go on by what you recommend; an open question does not stop the work, but the merge waits for its answer.",
-            "Write the acceptance conditions to test at the end, each one sentence of plain language, saying whether a test or a measurement meets it; if they are locked already, write them as locked, and if you think they must change, first ask the advisor and write them as the reply says. If you cannot choose, ask, saying where it is stuck and what is missing to decide. When designing again after sub-items were split off: the design still covers the whole work, and each part says who carries it, this work itself or which sub-item. When this work was split off, take what the parent's design gives it as it stands."
+            "Write the acceptance conditions to test at the end, each one sentence of plain language, saying whether a test, a measurement, a job or command of the CI (`ci`) or only a reading of the change (`diff`) meets it, and using the last two only where no test can prove the condition; if they are locked already, write them as locked, and if you think they must change, first ask the advisor and write them as the reply says. If you cannot choose, ask, saying where it is stuck and what is missing to decide. When designing again after sub-items were split off: the design still covers the whole work, and each part says who carries it, this work itself or which sub-item. When this work was split off, take what the parent's design gives it as it stands."
           ],
           "promptBy": {
             "by": "deliver",
@@ -6253,7 +6350,7 @@
             }
           ],
           "prompt": [
-            "By the project's design goal, think it through again from first principles: what does the problem need at bottom, and does your solution make sense? Is there a better design: more elegant, with a better structure in the code; more complete, covering all it should; truer to the intent of the design, in line with the project's design goal, its constitution and its references? Think again in earnest; do not answer for the sake of answering. If there is, say what is better about it and what must change; if not, say which approaches you considered this time and why the present one is best.",
+            "By the project's design goal, think it through again from first principles: what does the problem need at bottom, and does your solution make sense? Is there a better design: more elegant, with a better structure in the code; more complete, covering all it should; truer to the intent of the design, in line with the project's design goal, its constitution and its references? Think again in earnest; do not answer for the sake of answering. If there is, say what is better about it and what must change; if not, say which approaches you considered this time and why the present one is best. Ask one thing more: of the code this design adds, which parts run per event, per round, per work or per request? How much does each run do, and how does the cost grow when their number and the data they touch double? Answer it without measuring, in `why`, whichever way you go; a cost that grows more than the work needs is a better design to find (`found`).",
             "Go through the constitution article by article against this design, as one who wants to find the article it breaks, the articles it says it does not touch among them. A design that breaks one is found wanting, whatever it would cost to change."
           ],
           "out": [
@@ -7470,6 +7567,16 @@
               ]
             },
             {
+              "name": "What the branch did since you last answered",
+              "what": "At a re-check, what the branch did since the head your last round ended at (the last commit you wrote tests in, or else the head you began at): the commits after it, newest first, those that merge (main taken in, say) marked; the files the work itself changed in them, without what merging main brought; and the rounds of the fix that answered since. A branch rewritten since says so. None at the first round",
+              "from": [
+                {
+                  "engine": "since_adversarial"
+                }
+              ],
+              "maybe": true
+            },
+            {
               "name": "The latest fix",
               "what": "The table the latest fix answered, each row with its number and what it held (a finding, a test, a conflict, a red check with its run and the end of its log), and the fix's answer to each, such as test_wrong, advisor_ruled after asking the advisor, or fixed_outside_commit for a fix in no commit; none if never fixed",
               "from": [
@@ -7496,14 +7603,14 @@
             }
           ],
           "prompt": [
-            "You only write tests: change only files in the test paths the project's configuration names, not the implementation; if you think the implementation is wrong, write a test that turns red, and the engineer fixes it. Every acceptance condition must be met by a test: one the engineer wrote that really tests the condition can be used as it is; otherwise write one. Then dig for corner cases; if the project's configuration names places to attack, attack them. Each test names the independent reference its verdict rests on, such as a specification, or an established implementation the project is compared with. New tests are of two kinds, handed in apart: new-behaviour tests test what this change brings, so they should fail before the change, or what they test does not exist before it; old-behaviour tests guard old behaviour the change must not alter, so they should pass before and after it; for an optimization or a refactoring, for instance, they check the meaning against the reference. Tests the engineer added or extended go by the kind the engineer gave in the test changes. Run every new test, the engineer's and yours, once after the change with ci and once before it with ci_before: for the run before, the engine puts the test files on the code before the change, so you need not set it up. The latest run of ci_before that reported a test counts: when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those). If a test of yours gives a result before the change that does not fit its kind (a new-behaviour test that passes before the change, an old-behaviour test that fails or cannot run before it), fix it in this round and run it again yourself; do not hand it to the engineer. A test ci_before did not reach, its job having stopped at an earlier red test, is not_run before the change, whatever its kind; the table review judges it. If a test of yours is red after the change, first check the test itself against its reference; if it is wrong, fix it and run it again; hand in only what is still red after that, for the engineer to fix. For each test you write, give how long it runs on its own, as ci reports, and show it is worth that time: it catches errors no other test catches, and cannot be made smaller or faster or folded into another test. Places you suspect are wrong but cannot write a test for, such as something that only shows on a particular machine or is unstable under concurrency, go into suspects, for the review. For an acceptance condition you cannot write a test for, ask, saying which one and why it cannot be tested. If you asked someone, carry on with this round when the reply comes.",
-            "At a re-check, hand in only what this round did: only the rows of the condition table that changed, only the directions newly tried, only the new tests run in this round. The latest fix's table gives each row it answered with its number, what it held (a test of yours, for the rows you raised) and the engineer's answer to it. For each test the engineer called test_wrong, answer one row: withdraw or insist; to insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result; for one the engineer answered advisor_ruled, withdraw it by the advisor's ruling. A row the engineer answered fixed_outside_commit is a fix in no commit: check what it says and run again what it concerns."
+            "You only write tests: change only files in the test paths the project's configuration names, not the implementation; if you think the implementation is wrong, write a test that turns red, and the engineer fixes it. Every acceptance condition must be met by a test: one the engineer wrote that really tests the condition can be used as it is; otherwise write one. Then dig for corner cases; if the project's configuration names places to attack, attack them. Each test names the independent reference its verdict rests on, such as a specification, or an established implementation the project is compared with. New tests are of two kinds, handed in apart: new-behaviour tests test what this change brings, so they should fail before the change, or what they test does not exist before it; old-behaviour tests guard old behaviour the change must not alter, so they should pass before and after it; for an optimization or a refactoring, for instance, they check the meaning against the reference. Tests the engineer added or extended go by the kind the engineer gave in the test changes. Run every new test, the engineer's and yours, once after the change with ci and once before it with ci_before: for the run before, the engine puts the test files on the code before the change, so you need not set it up. The latest run of ci_before that reported a test counts: when any of the files that run put on the code before the change changed after it, run ci_before again (list in a run only the files of the tests it is for, so that a file changed later sends back only those). If a test of yours gives a result before the change that does not fit its kind (a new-behaviour test that passes before the change, an old-behaviour test that fails or cannot run before it), fix it in this round and run it again yourself; do not hand it to the engineer. A test ci_before did not reach, its job having stopped at an earlier red test, is not_run before the change, whatever its kind; the table review judges it. If a test of yours is red after the change, first check the test itself against its reference; if it is wrong, fix it and run it again; hand in only what is still red after that, for the engineer to fix. For each test you write, give how long it runs on its own, as ci reports, and show it is worth that time: it catches errors no other test catches, and cannot be made smaller or faster or folded into another test. Places you suspect are wrong but cannot write a test for, such as something that only shows on a particular machine or is unstable under concurrency, go into suspects, for the review. An acceptance condition that is itself a job or a command of the CI, or that only a reading of the change can prove, is met in the condition table by a row of kind `ci_job` (the jobs, as the CI results of this work name them, and the commands the condition points to) or `read_diff` (where to read, and what the reading shows), not by a test; ask only for a condition that none of these fits, saying which one and why. If you asked someone, carry on with this round when the reply comes.",
+            "At a re-check, hand in only what this round did: only the rows of the condition table that changed, only the directions newly tried, only the new tests run in this round. What the branch did since you last answered is in your input: its commits (a merge, such as main taken in, is marked, and what main brought is not the work's change), the files the work itself changed in them and the rounds of the fix; test what they changed. The latest fix's table gives each row it answered with its number, what it held (a test of yours, for the rows you raised) and the engineer's answer to it. For each test the engineer called test_wrong, answer one row: withdraw or insist; to insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result; for one the engineer answered advisor_ruled, withdraw it by the advisor's ruling. A row the engineer answered fixed_outside_commit is a fix in no commit: check what it says and run again what it concerns."
           ],
           "out": [
             {
               "$ref": "conditions",
               "optional": true,
-              "desc": "Which test or measurement meets each acceptance condition. The first time, the whole table, one row per acceptance condition, none left out; at a re-check only the rows that changed, the engine merging them into the previous ones"
+              "desc": "Which test, measurement, CI job or reading of the diff meets each acceptance condition. The first time, the whole table, one row per acceptance condition, none left out; at a re-check only the rows that changed, the engine merging them into the previous ones"
             },
             {
               "name": "directions",
@@ -8166,10 +8273,20 @@
             },
             {
               "name": "The change under review",
-              "what": "What you review, by commits the worktree has: main as fetched (`origin/<main>`, the pull request's base), the commit of main the branch was cut from or last took main in at, the head under review, the git command that reads the change between them, and at a re-review the head the last review looked at",
+              "what": "What you review, by commits the worktree has: main as fetched (`origin/<main>`, the pull request's base), the commit of main the branch was cut from or last took main in at, the head under review, the merges of main into the branch since it was cut (an empty list if it never took main in), and the git command that reads the change between them",
               "from": [
                 {
                   "engine": "review_base"
+                }
+              ]
+            },
+            {
+              "name": "CI on this work",
+              "what": "The CI on this work: the latest run of the fast CI (the tool ci), of the full CI on the draft and of the tests on the code before the change (the tool ci_before), each with the head it ran on, its result and the links to its runs; and the head last pushed, which is the head under review",
+              "from": [
+                {
+                  "db": "work_ci",
+                  "by": "work"
                 }
               ]
             },
@@ -8197,7 +8314,7 @@
             }
           ],
           "prompt": [
-            "You are the reviewer of this work, and took no part in doing it. This round is a blind review: do not look yet at how the engineer thought; read neither the design in the item's research, the PR description, the research notes, so that what you find is your own. Review only this change: do not rerun tests already green, and add no new style demands; where the change merges main, review how the PR's own change changed, not what main brought. For each finding, say where it is, what the problem is and how you suggest fixing it; if you find nothing, hand in an empty list; do not make up findings to have some. The next round gives you the design, the reasons of the research and the results of adversarial testing, to review again against the review table; this round's findings go along unchanged. If you asked someone, carry on with this round's review when the reply comes."
+            "You are the reviewer of this work, and took no part in doing it. This round is a blind review: do not look yet at how the engineer thought; read neither the design in the item's research, the PR description, the research notes, so that what you find is your own. Your only tool is `gh`, with no `query`: the CI results of the head under review are in your input, and what is green there you do not run again. Review only this change: add no new style demands; where the change merges main (the merges are listed in your input), review how the PR's own change changed, not what main brought. For each finding, say where it is, what the problem is and how you suggest fixing it; if you find nothing, hand in an empty list; do not make up findings to have some. The next round gives you the design, the reasons of the research and the results of adversarial testing, to review again against the review table; this round's findings go along unchanged. If you asked someone, carry on with this round's review when the reply comes."
           ],
           "promptBy": {
             "by": "work",
@@ -8289,7 +8406,7 @@
             },
             {
               "name": "The change",
-              "what": "What the change is, by commits the worktree has: main as fetched (`origin/<main>`, the pull request's base), the commit of main the branch was cut from or last took main in at, the head, and the git command that reads the change between them",
+              "what": "What the change is, by commits the worktree has: main as fetched (`origin/<main>`, the pull request's base), the commit of main the branch was cut from or last took main in at, the head, the merges of main into the branch since it was cut (an empty list if it never took main in), and the git command that reads the change between them",
               "from": [
                 {
                   "engine": "review_base"
@@ -8644,7 +8761,7 @@
             },
             {
               "name": "The change under review",
-              "what": "What you review, by commits the worktree has: main as fetched (`origin/<main>`, the pull request's base), the commit of main the branch was cut from or last took main in at, the head under review, the git command that reads the change between them, and at a re-review the head the last review looked at",
+              "what": "What you review, by commits the worktree has: main as fetched (`origin/<main>`, the pull request's base), the commit of main the branch was cut from or last took main in at, the head under review, the merges of main into the branch since it was cut (an empty list if it never took main in), the git command that reads the change between them, and at a re-review the head the last table review looked at with the merges of main since it",
               "from": [
                 {
                   "engine": "review_base"
@@ -8677,7 +8794,7 @@
             {
               "$ref": "review_columns",
               "optional": true,
-              "desc": "The review table, its columns listed by the review_table rule: one row for each column the engine lists in the question, none left out. At a re-review the engine lists only the columns to review this time: when reviewing what changed, the columns the changed part concerns; when looking at disputes only, the columns the last review could not verify, and when there are none this is left out"
+              "desc": "The review table, its columns listed by the review_table rule: one row for each column the engine lists in the question, none left out. At a re-review after a change the engine lists all the columns, and each is answered whether or not the change touches it; when looking at disputes only, it lists the columns the last review could not verify (all of them if the columns changed since), and when there are none this is left out"
             },
             {
               "name": "withdrawn",
