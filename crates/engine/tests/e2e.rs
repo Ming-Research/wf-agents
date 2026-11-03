@@ -8218,6 +8218,87 @@ fn a_member_that_needs_the_owner_goes_back_to_the_queue_while_the_rest_of_its_gr
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Item #228, from the adversarial tests. A cell that answers for one matter alone (here the answer to the owner's words)
+// is sent back when an item change names another matter, with the reason, and the change is not kept under the matter
+// it named: the round that follows hands it in without the name, and it is made and kept under the matter in hand.
+// Reference: the schema of `architect_item_changes.matter`, which holds a matter of the table (a number out of it fails
+// the key), and the design's rule that in a cell of a single matter `matter` can only be that one.
+#[test]
+fn a_change_that_names_another_matter_at_a_cell_of_one_matter_is_sent_back_and_not_kept() {
+    let s = setup("stray-matter");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            let mut change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
+                                     "reason": "An action." });
+            if n == 1 {
+                change["matter"] = json!(9999);
+            }
+            let effects = if n > 2 {
+                json!({})
+            } else {
+                json!({ "item_changes": [change] })
+            };
+            (Vec::new(), vec![("outcome.effects", effects)])
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let ok = json!({ "change": 1, "verdict": "ok", "why": "Sound." });
+            (Vec::new(), vec![("outcome.review", json!([ok]))])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Name the parser's item.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rejected: Vec<String> = engine::query_json(
+        e.db.conn(),
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H8' AND rejected IS NOT NULL ORDER BY n",
+        &[&arch],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["rejected"].to_string())
+    .collect();
+    assert_eq!(rejected.len(), 1, "{rejected:?}\n{log}");
+    assert!(
+        rejected[0].contains("item change 1 comes of matter 9999, which is not the matter in hand"),
+        "{}",
+        rejected[0]
+    );
+    let kept: Vec<(i64, String, String)> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT matter, state, change FROM architect_item_changes ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    assert_eq!(kept.len(), 1, "{kept:?}\n{log}");
+    assert_ne!(kept[0].0, 9999, "{kept:?}");
+    assert_eq!(kept[0].1, "made", "{kept:?}");
+    assert!(!kept[0].2.contains("matter"), "{kept:?}");
+    let title: String =
+        e.db.conn()
+            .query_row("SELECT title FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(title, "Write the parser", "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Item #228, from the adversarial tests. Two members of a group sent back for the owner in one round: the matter picked
 // is closed alone by that round and its engineer told, and each of the two is taken later on its own, by a round of its
 // own, closed there and its engineer told once. Reference: acceptance condition A11 (a member sent back is not closed or
