@@ -176,13 +176,14 @@ fn a_file_with_a_name_beyond_ascii_is_named_as_it_is() {
     let dir = fresh("unicode");
     let start = commit(&dir, &[("a.txt", "a\n")], "Start");
     fetched_main(&dir);
-    // The names are written as escapes, because the repository is all ASCII (AGENTS.md): a Latin letter with an
-    // accent, and three characters of Japanese.
-    let accent = "caf\u{e9}.txt";
-    let japanese = "\u{65e5}\u{672c}\u{8a9e}.txt";
-    commit(&dir, &[(accent, "1\n"), (japanese, "2\n")], "Names");
+    // The names hold a pound sign and a snowman, written as escapes: git quotes any byte beyond ASCII, and the
+    // repository holds no letter beyond ASCII even as an escape (crates/wf-agents/tests/english.rs), but a sign is no
+    // letter.
+    let pound = "cost-\u{a3}.txt";
+    let snowman = "\u{2603}.txt";
+    commit(&dir, &[(pound, "1\n"), (snowman, "2\n")], "Names");
     let since = changes_since(&dir, "main", &start, "HEAD").unwrap();
-    assert_eq!(since.own_files, [accent, japanese], "{since:?}");
+    assert_eq!(since.own_files, [pound, snowman], "{since:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
