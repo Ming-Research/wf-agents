@@ -10,14 +10,19 @@
 //! search, the owner's Start, the answers to who interjected): a round that asked for tools and got their results, or
 //! a return sent back, has begun it; coming to a cell, or standing at an engine's cell that has not run, has not.
 //!
-//! The returns later cells will read are the newest own answer of each cell off the detours, as the cells read each
-//! other by id and the engine's own steps read returns by their cell, and the work's last return, which the cell it
+//! The returns later cells will read are the newest own answer of each cell off the detours that the new version reads
+//! from where the work stands ([`read_from`]): the cells the work can still come to, those they read by id, through an
+//! input or a database view, and those the engine's own code reads by id; and the work's last return, which the cell it
 //! goes to reads by where it came from. Earlier returns of the detours, and an agent's earlier returns in a form every
 //! return shares (asking, running tools), are read only so and are not counted. A return is what the cell's schema in
 //! the work's own version takes: what the engine records of a row it took itself, with no return (an ask withdrawn, a
 //! turn waited for, a session begun afresh), is none. Each counts by what its cell takes in the new version: its
 //! outcome alone for an agent's ([`outcome_only`]).
 
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::LazyLock;
+
+use flow::format::Src;
 use flow::{CompiledCell, CompiledGraph, Position};
 use serde_json::{Value, json};
 
@@ -71,7 +76,7 @@ fn decide(old: &CompiledGraph, new: &CompiledGraph, pos: &Position, rounds: &[Ro
     let serving = serving(pos);
     // The first return of the work's main way that does not fit: the cell it is the answer of, or for the last
     // return at a detour, the cell the detour serves, is done again.
-    for (i, r) in read_later(old, new, rounds) {
+    for (i, r) in read_later(old, new, pos, rounds) {
         let Some(why) = misfit(new, r) else { continue };
         let cell = r.cell.as_deref().unwrap_or_default();
         let main = if detour(old, cell) { serving } else { cell };
@@ -244,14 +249,26 @@ fn changed(old: &CompiledGraph, new: &CompiledGraph, id: &str) -> Option<&'stati
 }
 
 /// The returns later cells will read, each with its index in `rounds`, oldest first: the newest own answer of each
-/// cell the new version has off its detours, and the work's last return.
-fn read_later<'r>(old: &CompiledGraph, new: &CompiledGraph, rounds: &'r [Round]) -> Vec<(usize, &'r Round)> {
+/// cell off its detours that the new version reads from where the work stands ([`read_from`]), and the work's last
+/// return.
+fn read_later<'r>(
+    old: &CompiledGraph,
+    new: &CompiledGraph,
+    pos: &Position,
+    rounds: &'r [Round],
+) -> Vec<(usize, &'r Round)> {
+    let read = read_from(new, pos);
     let returns: Vec<(usize, &Round)> = rounds.iter().enumerate().filter(|(_, r)| is_return(old, r)).collect();
     let mut out: Vec<(usize, &Round)> = returns.last().copied().into_iter().collect();
     let mut seen: Vec<&str> = Vec::new();
     for &(i, r) in returns.iter().rev() {
         let cell = r.cell.as_deref().unwrap_or_default();
-        if seen.contains(&cell) || new.cell(cell).is_none() || detour(new, cell) || !own_answer(old, new, r) {
+        if seen.contains(&cell)
+            || !read.contains(cell)
+            || new.cell(cell).is_none()
+            || detour(new, cell)
+            || !own_answer(old, new, r)
+        {
             continue;
         }
         seen.push(cell);
@@ -262,6 +279,103 @@ fn read_later<'r>(old: &CompiledGraph, new: &CompiledGraph, rounds: &'r [Round])
     out.sort_by_key(|(i, _)| *i);
     out
 }
+
+/// The cells whose returns the engine's own code reads by their id, beside any input, by graph, whatever cell the work
+/// is at: the engineer's start (where its branch came from), its understanding, its design, its merge, its watch of
+/// main and its end; the architect's look at its queue and its pick, its understanding of the project, the owner's
+/// talk, its policy written and taken into effect, and the cells whose answers say what a matter became.
+const READ_BY_CODE: [(&str, &[&str]); 2] = [
+    (crate::ENGINEER, &["S1", "R1", "D2", "M2", "L1", "E1"]),
+    (crate::ARCHITECT, &["Q0", "Q1", "U1", "H8", "H12", "E1", "P2", "P12"]),
+];
+
+/// The cells whose answers the version whose graph is `g` reads from where a work stands at `pos` on: each cell the
+/// work can still come to by the rows of `g`, from the cell it stands at and the cells it goes back to (those it
+/// stopped at and those that wait for an answer, where every row to `@stopped`, `@caller`, `@asker` or `@self` leads);
+/// each cell those cells read by its id, through an input's place or a database view that names it; and each cell the
+/// engine's own code reads by its id ([`READ_BY_CODE`]). A place at `@stopped` or `@caller` reads the cells it goes
+/// back to; one at `@from`, the work's last return, which counts wherever the work stands.
+fn read_from(g: &CompiledGraph, pos: &Position) -> BTreeSet<String> {
+    let back: Vec<&str> = pos.stopped.iter().chain(&pos.callers).map(String::as_str).collect();
+    let mut reached: BTreeSet<&str> = BTreeSet::new();
+    let mut todo: Vec<&str> = std::iter::once(pos.at.as_str()).chain(back.iter().copied()).collect();
+    while let Some(id) = todo.pop() {
+        let Some(c) = g.cell(id) else { continue };
+        if !reached.insert(c.id.as_str()) {
+            continue;
+        }
+        for r in &c.rows {
+            if r.to.starts_with('@') {
+                todo.extend(back.iter().copied());
+            } else {
+                todo.push(r.to.as_str());
+            }
+        }
+    }
+    let mut read: BTreeSet<String> = reached.iter().map(|c| c.to_string()).collect();
+    for c in reached.iter().filter_map(|id| g.cell(id)) {
+        for src in c.inputs.iter().flat_map(|x| &x.from) {
+            match src {
+                Src::Place(at, _) if at == "@stopped" || at == "@caller" => {
+                    read.extend(back.iter().map(|b| b.to_string()));
+                }
+                Src::Place(at, _) if !at.starts_with('@') => {
+                    read.insert(at.clone());
+                }
+                Src::Db { relation, .. } => {
+                    read.extend(NAMED.get(relation).into_iter().flatten().cloned());
+                }
+                _ => {}
+            }
+        }
+    }
+    let code = READ_BY_CODE.iter().filter(|(graph, _)| *graph == g.name).flat_map(|(_, cells)| cells.iter());
+    read.extend(code.map(|c| c.to_string()));
+    read
+}
+
+/// The words each view of the database names in quotes, through the views it reads, by its name: among them the cells
+/// whose rounds it reads, as `cell IN ('M2', ...)`. Read once from the schema the program is built with; its comments,
+/// which may hold a quote, are left out.
+static NAMED: LazyLock<BTreeMap<String, BTreeSet<String>>> = LazyLock::new(|| {
+    let conn = db::rusqlite::Connection::open_in_memory().expect("a database in memory opens");
+    conn.execute_batch(db::SCHEMA).expect("the schema the program is built with loads");
+    let mut st = conn
+        .prepare("SELECT name, sql FROM sqlite_schema WHERE type = 'view'")
+        .expect("the schema's views are read");
+    let views: BTreeMap<String, String> = st
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .expect("the schema's views are read")
+        .filter_map(Result::ok)
+        .map(|(name, sql)| {
+            let code: Vec<&str> = sql.lines().map(|l| l.split("--").next().unwrap_or_default()).collect();
+            (name, code.join("\n"))
+        })
+        .collect();
+    let quoted = |sql: &str| -> Vec<String> { sql.split('\'').skip(1).step_by(2).map(str::to_string).collect() };
+    let reads = |sql: &str| -> Vec<String> {
+        sql.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .filter(|w| views.contains_key(*w))
+            .map(str::to_string)
+            .collect()
+    };
+    let mut named = BTreeMap::new();
+    for name in views.keys() {
+        let mut seen = BTreeSet::new();
+        let mut words = BTreeSet::new();
+        let mut todo = vec![name.clone()];
+        while let Some(v) = todo.pop() {
+            if !seen.insert(v.clone()) {
+                continue;
+            }
+            let sql = &views[&v];
+            words.extend(quoted(sql));
+            todo.extend(reads(sql));
+        }
+        named.insert(name.clone(), words);
+    }
+    named
+});
 
 /// Whether a round handed in a return: it took a row and its cell's schema in the work's own version takes its output.
 fn is_return(old: &CompiledGraph, r: &Round) -> bool {
@@ -665,6 +779,15 @@ mod tests {
         }
     }
 
+    // A view names the cells whose rounds it reads in quotes, as the item's problem names R1; its comments, which hold
+    // quotes of their own, are left out.
+    #[test]
+    fn a_view_names_the_cells_it_reads() {
+        let problem = &NAMED["item_problem"];
+        assert!(problem.contains("R1"), "{problem:?}");
+        assert!(problem.iter().all(|w| !w.contains(' ')), "{problem:?}");
+    }
+
     // An agent's return whose fields beside the outcome no longer fit the new version counts all the same: what it told
     // the owner and its side reports were acted on as its round ended, and no later row reads them.
     #[test]
@@ -755,8 +878,9 @@ mod tests {
     }
 
     // A work never goes back past a round whose effect cannot be undone: an engineer's work whose pull request merged
-    // and whose answer from before the merge no longer fits is stuck, with that cell for the owner's Start; one that
-    // goes back to a cell after its merge goes back.
+    // and whose answer from before the merge no longer fits is stuck, with that cell for the owner's Start, whether it
+    // waits for main's checks or writes what it learned; one that goes back to a cell after its merge goes back. An
+    // answer from before the merge that no cell the work can still come to reads takes no part: it moves.
     #[test]
     fn a_merged_work_never_goes_back_before_its_merge() {
         let old = engineer();
@@ -767,6 +891,36 @@ mod tests {
             ran(2, "M2", "merged", sample("M2", "merged")),
             ran(3, "L1", "green", sample("L1", "green")),
         ];
+        match plan(&old, &new, &at("L1"), &rounds[..2]) {
+            Plan::Stuck { why, back_to } => {
+                assert!(
+                    why.ends_with("going back to cell R1 would do round R1-2 again, which merged the pull request"),
+                    "{why}"
+                );
+                assert_eq!(back_to.as_deref(), Some("R1"));
+            }
+            other => panic!("{other:?}"),
+        }
+        // A version whose cell L2 goes on by its own rows alone, which no cell after it reads the answer of R2 in.
+        let mut alone = old.clone();
+        cell(&mut alone, "L2").rows.retain(|r| !r.common);
+        let done = [
+            ran(1, "R2", "stands", sample("R2", "stands")),
+            ran(2, "D2", "first", sample("D2", "first")),
+            ran(3, "M2", "merged", sample("M2", "merged")),
+            ran(4, "L1", "green", sample("L1", "green")),
+        ];
+        let mut r2 = alone.clone();
+        needs_after(&mut r2, "R2", "answer");
+        assert!(!read_from(&r2, &at("L2")).contains("R2"));
+        assert_eq!(plan(&old, &r2, &at("L2"), &done), Plan::Move);
+        // The design, which L2 reads, would be done again before the merge.
+        let mut d2 = alone.clone();
+        needs_after(&mut d2, "D2", "chosen");
+        match plan(&old, &d2, &at("L2"), &done) {
+            Plan::Stuck { back_to, .. } => assert_eq!(back_to.as_deref(), Some("D2")),
+            other => panic!("{other:?}"),
+        }
         assert_eq!(
             plan(&old, &new, &at("L2"), &rounds),
             Plan::Stuck {
