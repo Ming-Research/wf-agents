@@ -729,6 +729,94 @@ fn commits_come_onto_main_by_the_flow_by_hand_or_by_the_engine_s_revert() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// A commit on main counts by its committer time, whatever the order of the times along main: main's newest commit
+// was made before the ten minutes, and the two commits under it that came without the flow were made within them, so
+// a reading that stopped at the first commit made before the period, as git's `--since` does, would find neither. The
+// flow's merge between them is not one of them.
+#[test]
+fn a_commit_on_main_counts_by_its_committer_time_whatever_its_order_on_main() {
+    let mut s = Seed::new();
+    let dir = std::env::temp_dir().join(format!("health-order-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    git(&dir, &["init", "-q"], T0);
+    let commit = |message: &str, at: i64| {
+        git(&dir, &["commit", "-q", "--allow-empty", "-m", message], at);
+        git(&dir, &["rev-parse", "HEAD"], at)
+    };
+    // Along main, the oldest first: made an hour before, at 125 s, at 300 s by the flow, at 420 s, and the newest
+    // made 5 minutes before T0, as a commit made earlier and pushed by hand last would be.
+    commit("start", T0 - 60 * M);
+    commit("By hand", T0 + 125_000);
+    let merge = commit("Merge PR 1", T0 + 300_000);
+    commit("By hand again", T0 + 420_000);
+    commit("Made earlier, pushed last", T0 - 5 * M);
+    let mut log = MainLog::GIT_LOG.to_vec();
+    log.push("HEAD");
+    let main = MainLog::parse(&git(&dir, &log, T0)).unwrap();
+    let i = s.item("p", false, T0 - 60 * M);
+    let w = s.work(Some(i), "engineer", None);
+    s.round(R {
+        work: w,
+        cell: "M2",
+        started: T0 + 300_000,
+        ended: Some(T0 + 305_000),
+        transition: Some("merged"),
+        output: Some(json!({ "result": { "kind": "merged", "merge_commit": merge } })),
+        ..R::default()
+    });
+    let read = Scope {
+        main: Some(&main),
+        ..p()
+    };
+    assert_eq!(
+        s.minutes("main.direct_pushes", read),
+        ten(&[(2, 1.0), (7, 1.0)], Some(0.0))
+    );
+    // From 90 s up to 450 s: the commits at 125 s and 420 s.
+    assert_eq!(s.whole("main.direct_pushes", read), Some(2.0));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// A merge the flow recorded whose commit main does not hold is judged when its round ended no later than main's newest
+// commit was made, the end at that very moment included, and not 1 ms later; a merge whose commit main holds is not one,
+// nor is another project's. Main's commits are given as git gives them, its newest made at 300 s.
+#[test]
+fn a_merge_ending_as_main_s_newest_commit_was_made_is_judged() {
+    let mut s = Seed::new();
+    let (on, tip) = ("a".repeat(40), "b".repeat(40));
+    let log = format!(
+        "{tip} {}\n{on} {}\n",
+        (T0 + 300_000) / 1000,
+        (T0 + 60_000) / 1000
+    );
+    let main = MainLog::parse(&log).unwrap();
+    let (i, j) = (s.item("p", false, T0 - 60 * M), s.item("q", false, T0 - 60 * M));
+    let (w, v) = (s.work(Some(i), "engineer", None), s.work(Some(j), "engineer", None));
+    let merged = |work: i64, commit: &str, ended: i64| R {
+        work,
+        cell: "M2",
+        started: ended - 1_000,
+        ended: Some(ended),
+        transition: Some("merged"),
+        output: Some(json!({ "result": { "kind": "merged", "merge_commit": commit } })),
+        ..R::default()
+    };
+    s.round(merged(w, &on, T0 + 120_000));
+    s.round(merged(w, &"c".repeat(40), T0 + 300_000));
+    s.round(merged(w, &"d".repeat(40), T0 + 300_001));
+    s.round(merged(v, &"e".repeat(40), T0 + 200_000));
+    let read = Scope {
+        main: Some(&main),
+        ..p()
+    };
+    assert_eq!(s.minutes("merge.not_on_main", read), ten(&[(5, 1.0)], Some(0.0)));
+    assert_eq!(s.whole("merge.not_on_main", read), Some(1.0));
+    // The newest commit came without the flow; the other is the merge the flow recorded.
+    assert_eq!(s.minutes("main.direct_pushes", read), ten(&[(5, 1.0)], Some(0.0)));
+    assert_eq!(s.minutes("items.merged", p()), ten(&[(2, 1.0), (5, 2.0)], Some(0.0)));
+}
+
 // Every measure of the registry gives a series over seeded records, of its unit and with a point at each step.
 #[test]
 fn every_measure_gives_a_series() {
