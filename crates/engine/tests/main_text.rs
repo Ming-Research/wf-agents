@@ -405,3 +405,84 @@ fn a_tag_named_like_main_does_not_hold_back_the_fetch_of_main() {
     config::fetch_main(&r.project).unwrap();
     assert_eq!(config::main_commit(&r.project).unwrap(), branch);
 }
+
+/// The Markdown files under `dir` of the checkout by a walk that follows links to directories and does not go into a
+/// directory it is already in (a loop), each as its path from the checkout's root and its text, in the order of the
+/// paths.
+#[cfg(unix)]
+fn walk_without_loops(checkout: &Path, dir: &Path, ancestors: &[PathBuf], out: &mut Vec<(String, String)>) {
+    let here = std::fs::canonicalize(checkout.join(dir)).unwrap();
+    let mut ancestors = ancestors.to_vec();
+    ancestors.push(here);
+    for entry in std::fs::read_dir(checkout.join(dir)).unwrap() {
+        let rel = dir.join(entry.unwrap().file_name());
+        let full = checkout.join(&rel);
+        if full.is_dir() {
+            if !ancestors.contains(&std::fs::canonicalize(&full).unwrap()) {
+                walk_without_loops(checkout, &rel, &ancestors, out);
+            }
+        } else if rel.extension().is_some_and(|x| x == "md") {
+            out.push((
+                rel.to_string_lossy().into_owned(),
+                std::fs::read_to_string(&full).unwrap(),
+            ));
+        }
+    }
+    out.sort();
+}
+
+// Links to directories that are not a loop are all followed, however many lead to the same directory: the files of a
+// directory two or three links reach are in the index under each of those paths, and a link to a link to a directory
+// too; only a link that leads back into a directory the walk is in is an error, also when it goes by a sibling
+// directory. Reference: a walk of the checkout's files that follows directory links and keeps out of the directories it
+// is in, which finds the same files.
+#[cfg(unix)]
+#[test]
+fn links_to_the_same_directory_are_all_followed_and_only_a_way_back_is_a_loop() {
+    let r = Repos::new("diamond");
+    let checkout = &r.checkout;
+    write(checkout, "shared/s.md", "# Shared\n");
+    write(checkout, "shared/inner/i.md", "# Inner\n");
+    write(checkout, "design/own.md", "# Own\n");
+    write(checkout, "design/sub/deep.md", "# Deep\n");
+    for (link, target) in [
+        ("design/x", "../shared"),
+        ("design/y", "../shared"),
+        ("design/sub/z", "../../shared"),
+        // A link to a link to a directory, and a link to a directory inside a linked directory.
+        ("design/c", "x"),
+        ("design/inner-link", "x/inner"),
+    ] {
+        std::os::unix::fs::symlink(target, checkout.join(link)).unwrap();
+    }
+    git(checkout, &["add", "-A"]);
+    git(checkout, &["commit", "-q", "-m", "diamond"]);
+    git(checkout, &["push", "-q", "origin", "HEAD:main"]);
+    let commit = config::main_commit(&r.project).unwrap();
+    let mut want = Vec::new();
+    walk_without_loops(checkout, Path::new("design"), &[], &mut want);
+    assert!(want.len() >= 9, "{want:?}");
+    assert_eq!(config::files_at(checkout, &commit, "design").unwrap(), want);
+    let g = config::project_guide_at(checkout, &commit, &["design/".to_string()], "").unwrap();
+    let index: Vec<(String, String)> = g["records"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string()))
+        .collect();
+    let first = |(path, text): &(String, String)| (path.clone(), text.lines().next().unwrap().to_string());
+    assert_eq!(index, want.iter().map(first).collect::<Vec<_>>());
+
+    // A way back by a sibling directory: design/a leads to other, whose link leads to design again.
+    write(checkout, "other/o.md", "# Other\n");
+    std::os::unix::fs::symlink("../other", checkout.join("design/a")).unwrap();
+    std::os::unix::fs::symlink("../design", checkout.join("other/back")).unwrap();
+    git(checkout, &["add", "-A"]);
+    git(checkout, &["commit", "-q", "-m", "a way back"]);
+    git(checkout, &["push", "-q", "origin", "HEAD:main"]);
+    let commit = config::main_commit(&r.project).unwrap();
+    let why = config::files_at(checkout, &commit, "design").unwrap_err();
+    assert!(why.contains("back") && why.contains(&commit), "{why}");
+    let why = config::project_guide_at(checkout, &commit, &["design/".to_string()], "").unwrap_err();
+    assert!(why.contains("back") && why.contains(&commit), "{why}");
+}
