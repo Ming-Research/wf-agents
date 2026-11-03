@@ -5779,18 +5779,33 @@ fn t1_asks_with_words_waiting(
 // the cell the work goes back to when it is withdrawn, adversarial testing here, hears only its own line's words, so
 // withdrawing it would leave the words where they were and the question unanswered. The question stays with the
 // architect, who replies, the work goes back to the cell that asked, and the words are still waiting, which the
-// engineer's line hears at its next round.
+// engineer's line hears at its next round. Both kinds of words wait here, a word and the notice that an item the work
+// depended on was cancelled, which the question is withdrawn for by a row of its own, so that one wrong count of either
+// withdraws it.
 #[test]
 fn a_question_asked_from_another_line_is_not_withdrawn_for_words_waiting_for_the_engineer() {
     let s = setup("ask-off-line");
     let text = "The design's open question is answered: keep the page's tests out.";
-    // The architect's answer to an open question of the design, as it reaches the engineer's line: not the owner's
-    // word, which would be a matter of its own for the architect.
+    let notice = "An item it depended on was cancelled.";
     let (mut e, said, work) = t1_asks_with_words_waiting(&s, |e, work| {
-        e.db.write(Actor::Architect, |tx| {
+        e.db.write(Actor::Engine, |tx| {
+            // The architect's answer to an open question of the design, as it reaches the engineer's line: not the
+            // owner's word, which would be a matter of its own for the architect.
             tx.execute(
                 "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
                 params![work, text],
+            )?;
+            // The item the notice names as cancelled, on which no work starts.
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level, cancelled)
+                 VALUES ('p', 'Parse it', 'No parser.', 'Needed.', 'change', 'l', 'Not needed.')",
+                [],
+            )?;
+            let cancelled = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text, cancelled_item)
+                 VALUES (?1, 'engineer', 'architect', ?2, ?3)",
+                params![work, notice, cancelled],
             )?;
             Ok(())
         })
@@ -5806,44 +5821,15 @@ fn a_question_asked_from_another_line_is_not_withdrawn_for_words_waiting_for_the
     let path = path_of(&e, work);
     let at = path.iter().rposition(|c| c == "A2").unwrap();
     assert!(path[at + 1..].iter().all(|c| c == "T1"), "{path:?}\n{log}");
-    assert_eq!(delivered_at(&e, work, text), None, "{log}");
+    for words in [text, notice] {
+        assert_eq!(delivered_at(&e, work, words), None, "{words}\n{log}");
+    }
     // The work goes on at the engineer's line, whose next round is given the words.
     move_to(&mut e, work, "A4");
     e.step_work(work).unwrap();
-    assert_eq!(delivered_at(&e, work, text).as_deref(), Some("A4"), "{log}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// The notice that an item the work depended on was cancelled, which a question asked from the engineer's line is
-// withdrawn for, is the same: from another line the question stays with the architect.
-#[test]
-fn a_question_asked_from_another_line_is_not_withdrawn_for_a_cancelled_item_s_notice() {
-    let s = setup("ask-off-line-cancelled");
-    let (mut e, said, work) = t1_asks_with_words_waiting(&s, |e, work| {
-        // The item the notice names as cancelled, on which no work starts.
-        e.db.write(Actor::Engine, |tx| {
-            tx.execute(
-                "INSERT INTO items (project, title, problem, why, deliver, level, cancelled)
-                 VALUES ('p', 'Parse it', 'No parser.', 'Needed.', 'change', 'l', 'Not needed.')",
-                [],
-            )?;
-            let cancelled = tx.last_insert_rowid();
-            tx.execute(
-                "INSERT INTO interjections (work, line, speaker, text, cancelled_item)
-                 VALUES (?1, 'engineer', 'architect', 'An item it depended on was cancelled.', ?2)",
-                params![work, cancelled],
-            )?;
-            Ok(())
-        })
-        .unwrap();
-    });
-    let log = said.lock().unwrap().join("\n");
-    assert_eq!(question_took(&e, work), None, "{log}");
-    assert_eq!(questions_of_engineers(&e), [(true, false)], "{log}");
-    let replied = steps_until(&mut e, 80, |e| question_took(e, work).is_some());
-    let log = said.lock().unwrap().join("\n");
-    assert!(replied, "{log}");
-    assert_eq!(question_took(&e, work).as_deref(), Some("answered"), "{log}");
+    for words in [text, notice] {
+        assert_eq!(delivered_at(&e, work, words).as_deref(), Some("A4"), "{words}\n{log}");
+    }
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
