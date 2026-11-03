@@ -8117,6 +8117,18 @@ fn two_members_sent_back_for_the_owner_are_each_taken_later_on_their_own() {
         )
     });
     let (mut e, said, reports, arch) = group_found(&s, &ids, take_in, |_| ());
+    // The three are one group before the round that takes it in sends two back.
+    let led = |e: &Engine| -> Vec<Option<i64>> {
+        e.db.conn()
+            .prepare("SELECT group_lead FROM architect_matters WHERE kind = 'report' ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let first = reports[0].1;
+    assert_eq!(led(&e), [None, Some(first), Some(first)]);
     assert!(
         steps_until(&mut e, 200, |e| architect_work_done(e, arch)),
         "{}",
@@ -8137,6 +8149,8 @@ fn two_members_sent_back_for_the_owner_are_each_taken_later_on_their_own() {
         rounds.0 < rounds.1 && rounds.0 < rounds.2 && rounds.1 != rounds.2,
         "{rounds:?}\n{log}"
     );
+    // The two sent back left the group, and none is left in one.
+    assert_eq!(led(&e), [None, None, None], "{log}");
     // The matter picked is closed alone by the round that took the group in.
     assert_eq!(
         closed_by(&e, arch, "H5")
