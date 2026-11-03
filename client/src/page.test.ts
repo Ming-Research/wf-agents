@@ -401,6 +401,15 @@ describe('how a work goes on', () => {
     expect(controls(course(work({ state: 'ended', ended: 'x' }), status({})), status({})).pause).toBe(false);
   });
 
+  it('keeps the tag on the chart in step with the head for a work waiting for a slot under Pause all', () => {
+    // The head names Pause all, and the work does not go on when a slot comes free: the tag must not say that it does.
+    const w = work({});
+    const all = status({ paused: true, waiting_for_slot: [5] });
+    const c = course(w, all);
+    expect(c.held).toBe('all');
+    expect(waitOf(c, w, all)?.tag).not.toBe('waiting for a free slot');
+  });
+
   // Start over is an icon button beside a work's Start, Pause and Step, only while a work on an item goes on, saying
   // on hovering what it does; its question says what follows: the round under way cut off while one runs, the new work
   // and what it takes over, and whether it starts paused.

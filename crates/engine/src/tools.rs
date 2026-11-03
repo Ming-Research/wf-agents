@@ -562,8 +562,10 @@ fn ci(
             tb.as_ref().map(|(t, b)| (t.as_str(), b.as_str())),
             pr.get(),
         )?;
-        if pr.replace(Some(n)) != Some(n) {
+        // Known only once written: an attempt whose write failed leaves it unknown, and the next writes it.
+        if pr.get() != Some(n) {
             record_push(e, w, None, Some(n)).map_err(Failure::other)?;
+            pr.set(Some(n));
         }
         // A pull request that was open already, one a work took over among them, keeps the base it was opened with.
         hub::ensure_base(e.github(), &repo(project), n, &project.main)?;
@@ -875,8 +877,9 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<
                 Some((title.as_str(), body.as_str())),
                 None,
             )?;
-            pr.set(Some(n));
+            // Known only once written, as in `ci`.
             record_push(e, w, None, Some(n)).map_err(Failure::other)?;
+            pr.set(Some(n));
             // The pull request found open from the branch, when a run that stopped had opened it, keeps its base.
             hub::ensure_base(e.github(), &repo(&project), n, &project.main)?;
         }
