@@ -8,7 +8,6 @@ use engine::hub::{Gh, GitHub};
 // GitHub said counts. The reference is the contract of the failure kind `rejected`: GitHub reached, and the request
 // itself refused.
 #[test]
-#[ignore = "held back for one run, so that the red test beside it is not cancelled"]
 fn an_input_that_reads_like_a_refusal_does_not_make_a_failed_dispatch_a_refused_one() {
     let logs = std::env::temp_dir().join(format!("wf-agents-gh-dispatch-{}", std::process::id()));
     let gh = Gh::new(logs);
