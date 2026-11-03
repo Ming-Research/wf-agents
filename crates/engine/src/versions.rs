@@ -329,7 +329,10 @@ fn read_from(g: &CompiledGraph, pos: &Position) -> BTreeSet<String> {
             }
         }
     }
-    let code = READ_BY_CODE.iter().filter(|(graph, _)| *graph == g.name).flat_map(|(_, cells)| cells.iter());
+    let code = READ_BY_CODE
+        .iter()
+        .filter(|(graph, _)| *graph == g.name)
+        .flat_map(|(_, cells)| cells.iter());
     read.extend(code.map(|c| c.to_string()));
     read
 }
@@ -339,7 +342,8 @@ fn read_from(g: &CompiledGraph, pos: &Position) -> BTreeSet<String> {
 /// which may hold a quote, are left out.
 static NAMED: LazyLock<BTreeMap<String, BTreeSet<String>>> = LazyLock::new(|| {
     let conn = db::rusqlite::Connection::open_in_memory().expect("a database in memory opens");
-    conn.execute_batch(db::SCHEMA).expect("the schema the program is built with loads");
+    conn.execute_batch(db::SCHEMA)
+        .expect("the schema the program is built with loads");
     let mut st = conn
         .prepare("SELECT name, sql FROM sqlite_schema WHERE type = 'view'")
         .expect("the schema's views are read");
