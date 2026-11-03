@@ -7673,23 +7673,22 @@
           "inputs": [
             {
               "name": "The design",
-              "what": "The design's description; none on the light route, where the plan takes its place",
+              "what": "The design's description; on the light route, which writes no design, the plan of the fix the review found sound. A work that turned to the normal route after a plan has both: the design governs, and the plan is only its history, which the review may not have found sound",
               "from": [
                 [
                   "D2",
                   "design"
-                ]
-              ],
-              "maybe": true
-            },
-            {
-              "name": "The plan and its review",
-              "what": "On the light route, the plan of the fix the review found sound, and that review; none on the normal route",
-              "from": [
+                ],
                 [
                   "F1",
-                  "plan"
-                ],
+                  "plan[planned]"
+                ]
+              ]
+            },
+            {
+              "name": "The review of the plan",
+              "what": "On the light route, the review that found the plan sound; none for a work that went the normal route from its start",
+              "from": [
                 [
                   "F2",
                   "review"
@@ -7899,7 +7898,7 @@
             },
             {
               "name": "The design",
-              "what": "The design's description; on the light route, which writes no design, the plan of the fix the review found sound",
+              "what": "The design's description; on the light route, which writes no design, the plan of the fix the review found sound. A work that turned to the normal route after a plan has both: the design governs, and the plan is only its history, which the review may not have found sound",
               "from": [
                 [
                   "D2",
@@ -8948,23 +8947,22 @@
             },
             {
               "name": "The design",
-              "what": "The design's description; none on the light route, where the plan takes its place",
+              "what": "The design's description; on the light route, which writes no design, the plan of the fix you found sound. A work that turned to the normal route after a plan has both: the design governs, and the plan is only its history, which the review may not have found sound",
               "from": [
                 [
                   "D2",
                   "design"
-                ]
-              ],
-              "maybe": true
-            },
-            {
-              "name": "The plan, its review and like fixes",
-              "what": "On the light route, the plan of the fix you found sound, your review of it, and the history of like fixes gathered for it; none on the normal route",
-              "from": [
+                ],
                 [
                   "F1",
-                  "plan"
-                ],
+                  "plan[planned]"
+                ]
+              ]
+            },
+            {
+              "name": "Your review of the plan and like fixes",
+              "what": "On the light route, your review that found the plan sound, and the history of like fixes gathered for it; none for a work that went the normal route from its start",
+              "from": [
                 [
                   "F2",
                   "review"
@@ -9950,7 +9948,7 @@
             },
             {
               "name": "The design",
-              "what": "The design's description; on the light route, which writes no design, the plan of the fix the review found sound",
+              "what": "The design's description; on the light route, which writes no design, the plan of the fix the review found sound. A work that turned to the normal route after a plan has both: the design governs, and the plan is only its history, which the review may not have found sound",
               "from": [
                 [
                   "D2",
@@ -11035,7 +11033,7 @@
           "inputs": [
             {
               "name": "The design",
-              "what": "The design as it was merged; on the light route, which writes no design, the plan of the fix the review found sound",
+              "what": "The design as it was merged; on the light route, which writes no design, the plan of the fix the review found sound. A work that turned to the normal route after a plan has both: the design governs, and the plan is only its history, which the review may not have found sound",
               "from": [
                 [
                   "D2",
