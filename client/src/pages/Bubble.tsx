@@ -96,7 +96,7 @@ export function Bubble({ who, right = false, wide = false, ask, entry, head, aft
 /// A thing that runs and then ends, said as one bubble of one line (ours, one part for every such thing: a stage a work
 /// entered, an architect's matter, a version of its plan, its policy): `who` says it, in its bubble's look; over the
 /// line its head, every bubble's (`BubbleHead`: who, what it is about, how it stands as a state's mark, the running
-/// halo while a round of it runs, when it began, and links to where more of it is); the line itself, packed, in words
+/// halo while it works, when it began, and links to where more of it is); the line itself, packed, in words
 /// and with nothing before them (`line`): while it goes on what happens now, once over what came of it; after them the
 /// gist of what was said last, cut where the line ends; the whole line said on hovering (`title`); and under the line
 /// what more there is.

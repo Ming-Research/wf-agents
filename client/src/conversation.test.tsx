@@ -57,7 +57,7 @@ import { t } from './text';
 
 /// How an architect stands as its mark says it, from what its page read: the page's read turned into the lean one the
 /// mark is worked out from.
-const architectMark = (a: Architect, s: Status) => markOfStanding(standing(a), s);
+const architectMark = (a: Architect, s: Status | null) => markOfStanding(standing(a), s);
 
 /// The flow's lines with their colours, as the interface serves them, which every bubble and avatar is drawn in.
 const LINES: GraphLines[] = [
@@ -71,10 +71,15 @@ const LINES: GraphLines[] = [
   { graph: 'architect', lines: [{ name: 'architect', desc: 'The architect', colour: 'purple' }] },
 ];
 
+// The engine's status as the page holds it, which a test sets when what it draws depends on the engine (none: the page
+// cannot reach it, as before the event stream opens).
+const engine = vi.hoisted(() => ({ status: null as Status | null }));
+
 // The lines are read for the whole page once; whatever else is read alike is not read yet.
 vi.mock('./live', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./live')>()),
   useShared: (_key: string, path: string) => (path === '/api/v1/flows/lines' ? LINES : undefined),
+  useStatus: () => engine.status,
 }));
 
 const ask = (id: number, body: JsonValue, answer: JsonValue | null = null): OwnerAsk => ({
@@ -950,15 +955,28 @@ describe('the marks of the list of conversations', () => {
   it('marks a work’s group by how its work stands now, and nothing before the works are read', () => {
     const works = [work(5, { graph: 'engineer', state: 'running' }), work(6, { graph: 'engineer', state: 'ended' })];
     expect(workMark(5, works, status({ running: [5] }))).toBe('running');
-    // A round left open that the engine runs no more: ready, its next round closing it first.
-    expect(workMark(5, works, status())).toBe('ready');
+    // A round its last step left open, which the next step of the engine closes first: the work goes on, so it runs;
+    // where the engine cannot take it up (out of reach, or halted), it is ready.
+    expect(workMark(5, works, status())).toBe('running');
+    expect(workMark(5, works, null)).toBe('ready');
+    expect(workMark(5, works, status({ halt: { kind: 'offline', until: 1, why: 'x' } }))).toBe('ready');
     expect(workMark(6, works, status())).toBe('ended');
     // What it waited for came, and the engine holds it for a free slot: it says so, not ready. So does a paused work
     // the engine names, whose pause is asked to be lifted; paused and not named, it is paused.
     const answered = [work(8, { graph: 'engineer', state: 'ready' }), work(9, { graph: 'engineer', state: 'waiting' })];
     expect(workMark(8, answered, status({ waiting_for_slot: [8, 9] }))).toBe('waiting_for_slot');
     expect(workMark(9, answered, status({ waiting_for_slot: [8, 9] }))).toBe('waiting_for_slot');
-    expect(workMark(8, answered, status())).toBe('ready');
+    // Its next step due, the engine takes it: it runs; the engine out of reach, it is ready; a work that waits does not
+    // run whether the engine steps it or not.
+    expect(workMark(8, answered, status())).toBe('running');
+    expect(workMark(8, answered, null)).toBe('ready');
+    expect(workMark(9, answered, status({ running: [9] }))).toBe('waiting');
+    // Every work paused: a work that is ready, waits or has asked is paused, as its words say; a round of it still
+    // running goes on to its end.
+    expect(workMark(8, answered, status({ paused: true }))).toBe('paused');
+    expect(workMark(9, answered, status({ paused: true }))).toBe('paused');
+    expect(workMark(8, answered, status({ paused: true, running: [8] }))).toBe('running');
+    expect(workMark(8, answered, status({ paused: true, started: [8] }))).toBe('running');
     const paused = [work(8, { graph: 'engineer', state: 'paused', paused: 'x', paused_by: 'owner' })];
     expect(workMark(8, paused, status({ waiting_for_slot: [8] }))).toBe('waiting_for_slot');
     expect(workMark(8, paused, status())).toBe('paused');
@@ -990,15 +1008,31 @@ describe('the marks of the list of conversations', () => {
     const stopped = architect([work(10, { state: 'paused', paused: 'the owner paused it', paused_by: 'owner' })]);
     expect(marked(stopped, status())).toMatchObject({ state: 'paused', icon: 'pause', says: 'paused by you' });
     expect(architectMark(going, status({ paused: true })).state).toBe('paused');
-    // Between rounds: ready.
-    expect(architectMark(going, status())).toEqual({ state: 'ready', words: 'between rounds' });
-    // Waiting for the owner's next words, its answer having left the talk open: waiting.
-    const listening = { ...going, works: going.works.map((w, i) => (i === 0 ? { ...w, listens: true } : w)) };
-    expect(marked(listening, status())).toMatchObject({ state: 'waiting', icon: 'clock', says: 'waiting for your next words' });
-    expect(architectMark(listening, status({ running: [10] })).state).toBe('running');
+    // Between rounds the engine takes its next one: working; where it cannot (the page cannot reach the engine, or the
+    // engine has halted), ready.
+    expect(architectMark(going, status())).toEqual({ state: 'running', words: 'working' });
+    expect(architectMark(going, null)).toEqual({ state: 'ready', words: 'between rounds' });
+    expect(architectMark(going, status({ halt: { kind: 'usage_limit', until: 9, why: 'x' } }))).toEqual({
+      state: 'ready',
+      words: 'between rounds',
+    });
+    // Waiting for the owner's next words, its answer having left the talk open: waiting, whether the engine steps it
+    // to look for the owner's words or not.
+    const waiting = architect([
+      work(10, { state: 'waiting', at: 'Q0', waits: { kind: 'row', cell: 'Q0', row: 'listens' } }),
+      work(9, { state: 'done', at: 'E2' }),
+    ]);
+    const listening = { ...waiting, works: waiting.works.map((w, i) => (i === 0 ? { ...w, listens: true } : w)) };
+    for (const running of [[], [10], [3, 10], []]) {
+      expect(marked(listening, status({ running }))).toMatchObject({
+        state: 'waiting',
+        icon: 'clock',
+        says: 'waiting for your next words',
+      });
+    }
     // A question of its own pinned for the owner's reply: asking while it neither runs nor is held back.
     expect(marked(architect([], { asks: [asked] }), status())).toMatchObject({ state: 'asking', icon: 'question', says: 'asking' });
-    expect(architectMark({ ...going, asks: [asked] }, status()).state).toBe('asking');
+    expect(architectMark({ ...going, asks: [asked] }, null).state).toBe('asking');
     expect(architectMark({ ...listening, asks: [asked] }, status()).state).toBe('asking');
     expect(architectMark({ ...going, asks: [asked] }, status({ running: [10] })).state).toBe('running');
     expect(architectMark({ ...stopped, asks: [asked] }, status()).state).toBe('paused');
@@ -1159,8 +1193,30 @@ describe("a work's group as a chat", () => {
     const running = work({ state: 'running', paused: null, paused_by: null, waits: null, running: { n: 73, cell: 'T4', started_at: 1, tool: false, line: 'review' } });
     const c = course(running, null);
     expect(nowWords({ ...c, running: 'goes_on' }, running)).toBe('the review is at work');
-    // The running mark in the head, after the stage it is about; the line holds words alone.
-    const live = bubble(now, running);
+    // The running mark in the head, after the stage it is about; the line holds words alone. The engine runs the round,
+    // as its status says; without the status (the engine out of reach) the page cannot tell, and the work is ready.
+    const outOfReach = bubble(now, running);
+    expect(outOfReach).toContain('<span class="talk-card-kind talk-about">Merge</span><span class="state-mark state-mark-neutral" title="ready"');
+    expect(outOfReach).not.toContain('running-mark');
+    engine.status = {
+      paused: false,
+      running: [5],
+      stepping: [],
+      started: [],
+      releasing: [],
+      waiting_for_slot: [],
+      stopping: [],
+      architects_started: [],
+      flow_version: 2,
+      halt: null,
+    } as unknown as Status;
+    const live = (() => {
+      try {
+        return bubble(now, running);
+      } finally {
+        engine.status = null;
+      }
+    })();
     const head = live.slice(live.indexOf('talk-bubble-head'), live.indexOf('talk-when'));
     expect(head).toContain('<span class="talk-card-kind talk-about">Merge</span><span class="state-mark state-mark-accent" title="running"');
     expect(head).toContain('running-mark');
@@ -1172,6 +1228,48 @@ describe("a work's group as a chat", () => {
     expect(bubble({ ...now, events: ['Passed the limit its project sets on fixes.'] }, work())).toContain(
       'Passed the limit its project sets on fixes.',
     );
+  });
+
+  // Its mark was a ring at rest, ready, while its words said "paused by Pause all".
+  it('marks the stage the work is at paused while every work is paused, as its words say, and running only while it goes on', () => {
+    const now = stage({ stage: 'merge', first: 72, last: 72, current: true, ended_at: null, outcome: null, notes: [] });
+    const ready = work({ state: 'ready', paused: null, paused_by: null, waits: null });
+    const engineAs = (extra: Record<string, unknown>) =>
+      ({
+        paused: false,
+        running: [],
+        stepping: [],
+        started: [],
+        releasing: [],
+        waiting_for_slot: [],
+        stopping: [],
+        architects_started: [],
+        flow_version: 2,
+        halt: null,
+        ...extra,
+      }) as unknown as Status;
+    const drawn = (s: Status | null) => {
+      engine.status = s;
+      try {
+        const html = bubble(now, ready);
+        return { html, head: html.slice(html.indexOf('talk-bubble-head'), html.indexOf('talk-when')) };
+      } finally {
+        engine.status = null;
+      }
+    };
+    const all = drawn(engineAs({ paused: true }));
+    expect(all.head).toContain('state-mark-attention" title="paused"');
+    expect(all.head).toContain('octicon-pause');
+    expect(all.head).not.toContain('running-mark');
+    expect(all.html).toContain('<span class="live-line-now">paused by Pause all</span>');
+    // The owner started the work, or the engine takes its next step: it runs.
+    expect(drawn(engineAs({ paused: true, started: [5] })).head).toContain('running-mark');
+    expect(drawn(engineAs({})).head).toContain('running-mark');
+    // The engine out of reach, or every work halted: ready, a ring at rest.
+    for (const s of [null, engineAs({ halt: { kind: 'offline', until: 1, why: 'x' } })]) {
+      expect(drawn(s).head).toContain('state-mark-neutral" title="ready"');
+      expect(drawn(s).head).not.toContain('running-mark');
+    }
   });
 
   it('keeps the live line and the head in step for a work waiting for a free slot or stopping', () => {

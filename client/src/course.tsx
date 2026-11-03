@@ -27,6 +27,8 @@ export function waitsWords(w: Waits): string {
         : t('waits_architect_of', { id: w.matter, project: w.project });
     case 'items':
       return t('waits_items', { items: w.items.map((i) => `#${i}`).join(', ') });
+    case 'retry':
+      return t('waits_retry');
     default:
       return t('waits_row', { cell: w.cell, row: w.row });
   }
@@ -87,8 +89,8 @@ export function holdsWords(c: Course, w: WorkSummary): string | null {
 }
 
 /// What a work waits for, as the words after "waits for", with no cell or row of the flow named: the owner's answer or
-/// ruling, an architect's reply, the items it depends on, or, at a row that waits for none of these, what its next
-/// round names.
+/// ruling, an architect's reply, the items it depends on, the failed round it runs again, or, at a row that waits for
+/// none of these, what its next round names.
 function waitsFor(w: Waits): string {
   switch (w.kind) {
     case 'answer':
@@ -101,6 +103,8 @@ function waitsFor(w: Waits): string {
         : t('now_for_architect_of', { id: w.matter, project: w.project });
     case 'items':
       return t('now_for_items', { items: w.items.map((i) => `#${i}`).join(', ') });
+    case 'retry':
+      return t('now_for_retry');
     default:
       return t('now_for_row');
   }
@@ -442,7 +446,9 @@ export function waitOf(c: Course, w: WorkSummary, status: Status | null): Wait |
           ? t('wait_architect')
           : kind === 'items'
             ? t('wait_items')
-            : t('wait_row');
+            : kind === 'retry'
+              ? t('wait_retry')
+              : t('wait_row');
     return { tag, why: waitsWords(c.waits) };
   }
   if (c.releasing) return { tag: t('wait_slot'), why };

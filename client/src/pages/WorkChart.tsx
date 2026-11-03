@@ -1,13 +1,13 @@
 // What a work's page and an architect's page share, each drawn once here so that a change to one is a change to both:
-// the chart of the work shown, with what the rounds listed did marked on it and the halo going round the cell a round
-// runs at; the window floating over its right side, the page's panel in tabs over what is open on the chart; and the
+// the chart of the work shown, with what the rounds listed did marked on it and the halo going round the cell a stage
+// works at; the window floating over its right side, the page's panel in tabs over what is open on the chart; and the
 // panel's rounds tab, one list of rounds for both pages, of one work or of the architect's works, scrolling to read more
 // at its ends where more are left, with only the rounds sent back or failed when a work's page was opened on them, and
 // the marks that open it so in a list.
 
 import { ReplyIcon, XCircleIcon, XIcon } from '@primer/octicons-react';
 import { CounterLabel, IconButton, Label, UnderlineNav } from '@primer/react';
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
 import type { Compiled, CompiledGraph, FlowView, GraphView, RoundSummary, Status, WorkSummary } from '../api';
 import { type Course, course, OutcomeBadge } from '../components';
@@ -15,7 +15,7 @@ import { SessionIcon, waitOf } from '../course';
 import { useDockHead } from '../flow/Dock';
 import { FlowScreen } from '../flow/FlowScreen';
 import { cost, duration, roundName, time } from '../format';
-import { chart, type Flash, haloAt, overlays, roundArrows, taken } from '../graph/flowModel';
+import { chart, overlays, roundArrows, taken } from '../graph/flowModel';
 import { useActivity, useStatus } from '../live';
 import { badged, sessionMarkWords, spent, startedSession, tookWords } from '../round';
 import { centredTop, endsNear, inSight } from '../rounds';
@@ -383,15 +383,11 @@ export function ChartPanel<T extends string>({ label, tabs, current, onTab, onCl
   );
 }
 
-/// Whether a round of a work runs now: the engine takes its step, or, at a tool cell, its tool is under way.
-function runsNow(w: WorkSummary, c: Course): boolean {
-  return c.running !== null || w.running?.tool === true;
-}
-
 /// What a work's chart marks: what the rounds placed on it did at each cell, of the work or of the architect's works
-/// its list holds, and the cell the work is at, whether a round runs there and why the work waits there while none
-/// does; the cell the halo goes round; how many times those rounds took each arrow; and the arrows the round chosen
-/// came in by and left by.
+/// its list holds, and the cell the work is at, whether a stage works there and why the work waits there while none
+/// does; the cell the halo goes round, the cell the stage works at (`working`) and no other; how many times those rounds
+/// took each arrow; and the arrows the round chosen came in by and left by. What it marks of the work comes from the
+/// work and the status alone: the rounds placed on the chart say what the work did, never where it works now.
 export function workMarks(
   g: CompiledGraph,
   v: GraphView,
@@ -399,14 +395,13 @@ export function workMarks(
   rounds: RoundSummary[],
   c: Course,
   status: Status | null,
-  halo: string | null,
   round: RoundKey | null = null,
   flow: Compiled | null = null,
 ) {
   const model = chart(g, v, flow?.engine ?? null);
   return {
-    overlays: overlays(rounds, w.at, { running: runsNow(w, c), waits: waitOf(c, w, status) }),
-    halo,
+    overlays: overlays(rounds, w.at, { running: c.working !== null, waits: waitOf(c, w, status) }),
+    halo: c.working,
     taken: taken(model, g, rounds),
     lit: round !== null ? roundArrows(model, g, rounds, round) : undefined,
     added: new Set<string>(),
@@ -414,51 +409,8 @@ export function workMarks(
   };
 }
 
-/// The rounds kept for the halo to go round, the newest: more than ever come in between two reads.
-const FLASHES_KEPT = 32;
-
-/// The cell the halo goes round on a work's chart (`haloAt`): each round new since the page last read the work's
-/// rounds counts as just run, so that a round of a tool or an engine step, over in milliseconds, is seen; the rounds
-/// there at the first read do not.
-export function useHalo(w: WorkSummary | null, rounds: RoundSummary[], c: Course | null): string | null {
-  const [flashes, setFlashes] = useState<Flash[]>([]);
-  const known = useRef<{ work: number; rounds: Set<number> } | null>(null);
-  const [, setTick] = useState(0);
-  const id = w?.id ?? null;
-  useEffect(() => {
-    if (id === null) return;
-    const k = known.current;
-    if (k === null || k.work !== id) {
-      known.current = { work: id, rounds: new Set(rounds.map((r) => r.n)) };
-      setFlashes([]);
-      return;
-    }
-    const seen = Date.now();
-    const fresh = rounds.filter((r) => !k.rounds.has(r.n)).sort((a, b) => a.n - b.n);
-    for (const r of fresh) k.rounds.add(r.n);
-    const more = fresh.flatMap((r) => (r.cell !== null ? [{ n: r.n, cell: r.cell, seen }] : []));
-    if (more.length > 0) setFlashes((f) => [...f, ...more].slice(-FLASHES_KEPT));
-  }, [id, rounds]);
-  const newest = rounds.reduce<number | null>((m, r) => (m === null || r.n > m ? r.n : m), null);
-  const { cell, next } = haloAt(flashes, Date.now(), {
-    at: w?.at ?? null,
-    runs: w !== null && c !== null && runsNow(w, c),
-    newest,
-  });
-  // Moves on when the halo is due to.
-  useEffect(() => {
-    if (next === null) return;
-    const timer = setTimeout(() => setTick((x) => x + 1), Math.max(0, next - Date.now()) + 20);
-    return () => clearTimeout(timer);
-  }, [next]);
-  return cell;
-}
-
 /// What the bare graph marks: nothing.
 const BARE = { overlays: null, taken: null, added: new Set<string>(), changed: new Set<string>() };
-
-/// No rounds, for the halo while no work is shown.
-const NO_ROUNDS: RoundSummary[] = [];
 
 /// The chart of a work's page or an architect's: the graph of the work shown filling the window, as its flow version has
 /// it (for the architect, its latest work), with the rounds listed placed on it and the cell the work is at, opening on
@@ -489,10 +441,6 @@ export function WorkChart({ compiled, view, graph, w, rounds, cell, round, onCel
   const v = view.graphs.find((x) => x.name === name);
   const graphs = useMemo(() => (g && v ? [{ g, view: v }] : []), [g, v]);
   const c = w !== null ? course(w, status) : null;
-  // The halo goes round the rounds of the work shown that come in.
-  const id = w?.id ?? null;
-  const own = useMemo(() => (id !== null ? rounds.filter((r) => r.work === id) : NO_ROUNDS), [rounds, id]);
-  const halo = useHalo(w, own, c);
   if (!g || !v) return <p className="muted page">{t('chart_no_graph', { graph: name })}</p>;
   const roundCell = round !== null ? (rounds.find((x) => sameRound(x, round))?.cell ?? null) : null;
   return (
@@ -501,7 +449,7 @@ export function WorkChart({ compiled, view, graph, w, rounds, cell, round, onCel
       compiled={compiled}
       graphs={graphs}
       legend={w !== null ? 'work' : 'flow'}
-      marks={[w !== null && c !== null ? workMarks(g, v, w, rounds, c, status, halo, round, compiled) : BARE]}
+      marks={[w !== null && c !== null ? workMarks(g, v, w, rounds, c, status, round, compiled) : BARE]}
       cell={cell}
       onCell={(x) => onCell(x)}
       start={roundCell ?? w?.at ?? null}

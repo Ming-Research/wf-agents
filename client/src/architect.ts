@@ -159,16 +159,17 @@ export const standing = (a: Architect): ArchitectStanding => ({
   asking: a.asks.some((x) => x.answer === null),
 });
 
-/// How an architect stands now, as the head of its one-to-one says it: a round of it running; held back while it works
-/// (paused by the owner, with every work or by itself, or stopped by the engine or by itself); waiting for the owner's
-/// next words, having answered the owner's words with the talk left open; between rounds; or, with no work of it
-/// running, held back by every work paused while matters wait for it, else idle with nothing in its queue or about to
-/// take up the matters waiting.
+/// How an architect stands now, as the head of its one-to-one says it: working, where a round of it runs or its next
+/// round is due and the engine takes it (`course`'s `working`, which a work's mark is worked out from alike); held back
+/// while it works (paused by the owner, with every work or by itself, or stopped by the engine or by itself); waiting
+/// for the owner's next words, having answered the owner's words with the talk left open; between rounds, while the
+/// engine is out of reach or has halted; or, with no work of it running, held back by every work paused while matters
+/// wait for it, else idle with nothing in its queue or about to take up the matters waiting.
 export function architectNow(a: ArchitectStanding, status: Status | null): Standing {
   const state = architectState(a.works, a.queue);
   if (state.kind === 'working') {
     const c = course(state.work, status);
-    if (c.running !== null) {
+    if (c.working !== null) {
       return { state: 'running', words: c.running === 'step' ? runningWords(c) : t('talk_architect_working') };
     }
     if (c.held !== null) return { state: c.held === 'engine' ? 'halted' : 'paused', words: heldName(c).name };
