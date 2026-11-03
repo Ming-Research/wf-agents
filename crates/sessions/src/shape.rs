@@ -111,8 +111,9 @@ impl Shape {
     /// Two shapes taken together, as alternatives of one value: the types of both, the fields of both, a field both
     /// have taken together too, the items of both lists taken together, and the branches of both unions that fix the
     /// same field, branch by branch; of no type when either is, as it may be anything, and of no branches when either
-    /// has none. Of the shapes that may be an object, the fields all of them require are required, and no other field
-    /// is refused only when none of them takes one.
+    /// has none. A field one lists and the other does not has no type when the other is an object that takes other
+    /// fields, as it takes that field of any type. Of the shapes that may be an object, the fields all of them require
+    /// are required, and no other field is refused only when none of them takes one.
     pub fn merged(&self, b: &Shape) -> Shape {
         let a = self;
         let types = match (&a.types, &b.types) {
@@ -128,10 +129,24 @@ impl Shape {
             _ => None,
         };
         let fields = if a.fields.is_some() || b.fields.is_some() {
-            let mut fs = a.fields.clone().unwrap_or_default();
+            // A field one side does not list is of any type there when that side is an object that takes other
+            // fields, so the merged field has no type; when the side takes no other field or is no object, the
+            // field is only the other side's.
+            let open = |s: &Shape| s.takes_object() && !s.closed;
+            let mut fs: Vec<(String, Shape)> = a
+                .fields
+                .iter()
+                .flatten()
+                .map(|(k, v)| match b.field(k) {
+                    None if open(b) => (k.clone(), Shape::default()),
+                    _ => (k.clone(), v.clone()),
+                })
+                .collect();
             for (k, v) in b.fields.iter().flatten() {
                 match fs.iter_mut().find(|(n, _)| n == k) {
+                    // Both list it.
                     Some((_, x)) => *x = x.merged(v),
+                    None if open(a) => fs.push((k.clone(), Shape::default())),
                     None => fs.push((k.clone(), v.clone())),
                 }
             }

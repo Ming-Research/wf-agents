@@ -10,12 +10,10 @@ use std::process::Command;
 /// clean.
 pub use sessions::worktree::{create_worktree, git, head, is_clean, remove_worktree, resolve, take_over_worktree};
 
-fn lines(s: &str) -> Vec<String> {
-    s.lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(str::to_string)
-        .collect()
+/// The file names git wrote with `-z`: separated by NUL, as written, with no quoting or escapes (without `-z` git
+/// quotes a name that holds a tab, a quote, a backslash or a character outside ASCII).
+fn names(s: &str) -> Vec<String> {
+    s.split('\0').filter(|n| !n.is_empty()).map(str::to_string).collect()
 }
 
 /// Whether `a` is `b` or an ancestor of it.
@@ -38,23 +36,31 @@ fn main_merged_into(dir: &Path, rev: &str, main: &str) -> Result<String, String>
 
 /// The files changed from one commit to another.
 pub fn changed(dir: &Path, from: &str, to: &str) -> Result<Vec<String>, String> {
-    Ok(lines(&git(dir, &["diff", "--name-only", &format!("{from}..{to}")])?))
+    Ok(names(&git(dir, &["diff", "--name-only", "-z", &format!("{from}..{to}")])?))
 }
 
 /// The files among `paths` that differ between two commits, a file taken away included, and a file moved to another
-/// name counted at the name it had: the paths are taken as they are written, with no pattern in them.
+/// name counted at the name it had: the paths are taken as they are written, with no pattern in them, and told as
+/// they were written (git's `-z` output holds no quoting or escapes). No path names no file, where git itself reads
+/// an empty list as every path; a commit the clone does not have is an error.
 pub fn changed_among(dir: &Path, from: &str, to: &str, paths: &[String]) -> Result<Vec<String>, String> {
     let range = format!("{from}..{to}");
+    if paths.is_empty() {
+        // Still ask git about the range, so that a commit it lacks is told as an error.
+        git(dir, &["rev-list", "--max-count=0", range.as_str()])?;
+        return Ok(Vec::new());
+    }
     let mut args = vec![
         "--literal-pathspecs",
         "diff",
         "--name-only",
+        "-z",
         "--no-renames",
         range.as_str(),
         "--",
     ];
     args.extend(paths.iter().map(String::as_str));
-    Ok(lines(&git(dir, &args)?))
+    Ok(names(&git(dir, &args)?))
 }
 
 /// The files the work itself changed from one commit to another: those changed between them that `to` also changes
@@ -72,8 +78,8 @@ pub fn own_changes(dir: &Path, main: &str, from: &str, to: &str) -> Result<Vec<S
 
 /// The files changed in the worktree against a commit, committed or not, untracked files included.
 pub fn changed_since(dir: &Path, from: &str) -> Result<Vec<String>, String> {
-    let mut out = lines(&git(dir, &["diff", "--name-only", from])?);
-    out.extend(lines(&git(dir, &["ls-files", "--others", "--exclude-standard"])?));
+    let mut out = names(&git(dir, &["diff", "--name-only", "-z", from])?);
+    out.extend(names(&git(dir, &["ls-files", "-z", "--others", "--exclude-standard"])?));
     out.sort();
     out.dedup();
     Ok(out)
@@ -129,7 +135,7 @@ pub fn catch_up(dir: &Path, main: &str) -> Result<Result<String, Vec<String>>, S
     ) {
         Ok(_) => Ok(Ok(head(dir)?)),
         Err(_) => {
-            let files = lines(&git(dir, &["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default());
+            let files = names(&git(dir, &["diff", "--name-only", "-z", "--diff-filter=U"]).unwrap_or_default());
             let _ = git(dir, &["merge", "--abort"]);
             Ok(Err(files))
         }
