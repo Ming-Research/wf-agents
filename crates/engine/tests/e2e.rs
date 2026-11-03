@@ -7524,6 +7524,396 @@ fn a_search_that_found_nothing_comes_back_as_none() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// A side report of one of project p's engineers, as the engine queues one: the engineer's work on an item of its own,
+/// held so that nothing runs it, handed the report in at its round 1. Gives the work and the matter.
+fn side_report(e: &mut Engine, text: &str) -> (i64, i64) {
+    let v = e.flow_now;
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level)
+             VALUES ('p', 'Parse it', 'No parser.', 'Needed.', 'change', 'l')",
+            [],
+        )?;
+        let item = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, paused, paused_by)
+             VALUES (?1, ?2, 'engineer', 'I1', 'held for the test', 'owner')",
+            params![item, v],
+        )?;
+        let work = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+             VALUES (?1, 1, 'I1', '{}', '{}', 'done', 'c', 1, 1)",
+            [work],
+        )?;
+        let m = db::Matter {
+            project: "p".into(),
+            kind: "report".into(),
+            detail: Some("other".into()),
+            what: format!("A side report: {text}"),
+            body: json!({ "report": { "kind": "other", "what": text, "urgent": false } }),
+            item: Some(item),
+            raised: Some((work, 1)),
+        };
+        Ok((work, db::queue_matter(tx, &m)?))
+    })
+    .unwrap()
+}
+
+/// The scripts of an architect's work over three side reports (`ids` are their matters, once they are queued): `Q1`
+/// picks the first with the other two, `H4` finds what each is in its one round, and `H5` is `take_in`, the architect's
+/// first rounds only: later rounds, on matters alone, hand in what the engine fills in.
+fn grouping(ids: &Arc<Mutex<Vec<i64>>>, take_in: Script) -> BTreeMap<&'static str, Script> {
+    let mut agents = scripts();
+    let given = ids.clone();
+    agents.insert(
+        "Q1",
+        Box::new(move |_: &Request, n: usize| {
+            let ids = given.lock().unwrap();
+            if n > 1 {
+                return (Vec::new(), vec![("outcome.pick.matter", json!(ids[1]))]);
+            }
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.pick.matter", json!(ids[0])),
+                    ("outcome.pick.with", json!(&ids[1..])),
+                ],
+            )
+        }),
+    );
+    let given = ids.clone();
+    agents.insert(
+        "H4",
+        Box::new(move |_: &Request, n: usize| {
+            let ids = given.lock().unwrap();
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let others: Vec<Value> = ids[1..]
+                .iter()
+                .map(|m| json!({ "matter": m, "what": format!("What {m} is."), "grounds": "Read it.", "sure": "checked" }))
+                .collect();
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.finding.what", json!(format!("What {} is.", ids[0]))),
+                    ("outcome.with", json!(others)),
+                ],
+            )
+        }),
+    );
+    agents.insert("H5", take_in);
+    agents
+}
+
+/// Project p's architect over three side reports of three works, held so that nothing runs them, with an observation
+/// to merge into: the engine, what it said and the works of the reports with their matters. The scripts are those of
+/// [`grouping`] with `take_in` and the changes `on` makes to them; the numbers of the matters are put in `ids` for them.
+fn reported(
+    s: &Setup,
+    ids: &Arc<Mutex<Vec<i64>>>,
+    take_in: Script,
+    on: impl FnOnce(&mut BTreeMap<&'static str, Script>),
+) -> (Engine, Arc<Mutex<Vec<String>>>, Vec<(i64, i64)>) {
+    let mut agents = grouping(ids, take_in);
+    on(&mut agents);
+    let (mut e, said) = engine(s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Architect, |tx| {
+        tx.execute(
+            "INSERT INTO observations (project, what, source) VALUES ('p', 'Parsing large files is slow.', 'A report.')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let reports: Vec<(i64, i64)> = [
+        "The parser is slow on large files.",
+        "The lexer is slow on large files.",
+        "The parser lacks a link to its documentation.",
+    ]
+    .iter()
+    .map(|text| side_report(&mut e, text))
+    .collect();
+    *ids.lock().unwrap() = reports.iter().map(|r| r.1).collect();
+    (e, said, reports)
+}
+
+/// Whether any round of a work was sent a message with `text` in it.
+fn was_sent(e: &Engine, work: i64, text: &str) -> bool {
+    let mut st = e.db.conn().prepare("SELECT input FROM rounds WHERE work = ?1").unwrap();
+    let inputs: Vec<String> = st
+        .query_map([work], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect();
+    inputs.iter().any(|i| {
+        db::put_back(e.db.conn(), &serde_json::from_str(i).unwrap())["message"]
+            .as_str()
+            .is_some_and(|m| m.contains(text))
+    })
+}
+
+/// What the round of a cell that handed in its return closed: the matters it handled, by their numbers.
+fn closed_by(e: &Engine, work: i64, cell: &str) -> Vec<i64> {
+    let mut st = e
+        .db
+        .conn()
+        .prepare(
+            "SELECT m.id FROM architect_matters m JOIN rounds r ON r.work = m.handled_work AND r.n = m.handled_round
+                 WHERE m.handled_work = ?1 AND r.cell = ?2 ORDER BY m.id",
+        )
+        .unwrap();
+    st.query_map(params![work, cell], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+// Item #228: side reports about one thing are picked together and taken in by one round of each cell. The architect
+// picks one and names two more with it, finds what each is in one round and takes each in in one round, which closes
+// the three; each one's engineer is told what became of its own report, the one recorded as an observation, the one
+// reported once more on another, the one nothing came of, and an observation is recorded under the name of the matter
+// it came of. The queue the pick is made from gives each report an excerpt of its text.
+#[test]
+fn side_reports_picked_together_are_found_and_taken_in_by_one_round_each() {
+    let s = setup("group");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), Vec::new());
+        }
+        let ids = given.lock().unwrap();
+        let record = json!({ "kind": "new", "title": "Slow parse", "what": "The parser is slow.", "tags": [],
+                             "source": "Side reports.", "refs": [], "reason": "Recorded." });
+        let again = json!({ "kind": "merge", "into": 1, "matter": ids[1], "seen": "Seen in the lexer.", "refs": [],
+                            "reason": "The same slowness." });
+        let others = json!([
+            { "matter": ids[1], "way": "merged", "why": "Seen already." },
+            { "matter": ids[2], "way": "nothing", "why": "Nothing to do." }
+        ]);
+        (
+            vec![("outcome.take.way", "new_observation")],
+            vec![
+                ("outcome.take.why", json!("Not recorded yet.")),
+                ("outcome.with", others),
+                ("outcome.effects", json!({ "observation_changes": [record, again] })),
+            ],
+        )
+    });
+    let (mut e, said, reports) = reported(&s, &ids, take_in, |_| ());
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 120, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let path = path_of(&e, arch);
+    let count = |cell: &str| path.iter().filter(|c| *c == cell).count();
+    assert_eq!((count("Q1"), count("H4"), count("H5")), (1, 1, 1), "{path:?}\n{log}");
+    let at = path.iter().position(|c| c == "Q1").expect(&log);
+    assert_eq!(
+        &path[at..at + 7],
+        ["Q1", "Q2", "H4", "Q0", "Q2", "H5", "B1"],
+        "{path:?}\n{log}"
+    );
+    // The queue was given with an excerpt of each report's text, to the cell that plans and the one that picks.
+    assert!(was_sent(&e, arch, "\"excerpt\""), "{log}");
+    assert!(was_sent(&e, arch, "The lexer is slow on large files."), "{log}");
+    // One round closed the three, the two named with the first showing it: each matter is a row of the work's handled
+    // matters, and the batch counts each.
+    assert_eq!(closed_by(&e, arch, "H5"), matters, "{log}");
+    let led: Vec<Option<i64>> =
+        e.db.conn()
+            .prepare("SELECT group_lead FROM architect_matters WHERE kind = 'report' ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+    assert_eq!(led, [None, Some(matters[0]), Some(matters[0])], "{log}");
+    let in_view: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM work_handled WHERE work = ?1 AND cell = 'H5' AND kind = 'report'",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(in_view, 3, "{log}");
+    // The first is recorded as the observation 2 under its own name, the second reported once more on observation 1
+    // under its own, and the third is nothing.
+    let source: String =
+        e.db.conn()
+            .query_row("SELECT source FROM observations WHERE id = 2", [], |r| r.get(0))
+            .unwrap();
+    assert!(source.ends_with(&format!("(matter {})", matters[0])), "{source}");
+    let (times, refs): (i64, String) =
+        e.db.conn()
+            .query_row("SELECT times_reported, refs FROM observations WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!(times, 2, "{log}");
+    assert!(
+        refs.contains(&format!("Reported again (matter {}): Seen in the lexer.", matters[1])),
+        "{refs}"
+    );
+    // Each engineer is told one line, of its own report only.
+    let told = |work: i64| -> Vec<String> {
+        e.db.conn()
+            .prepare("SELECT text FROM interjections WHERE work = ?1 AND speaker = 'architect'")
+            .unwrap()
+            .query_map([work], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let (first, second, third) = (told(reports[0].0), told(reports[1].0), told(reports[2].0));
+    assert_eq!(
+        (first.len(), second.len(), third.len()),
+        (1, 1, 1),
+        "{first:?} {second:?} {third:?}"
+    );
+    assert!(first[0].contains("recorded as observation O2"), "{}", first[0]);
+    assert!(!first[0].contains("once more"), "{}", first[0]);
+    assert!(
+        second[0].contains("reported once more on observation O1") && !second[0].contains("recorded as"),
+        "{}",
+        second[0]
+    );
+    assert!(third[0].contains("nothing to take in: Nothing to do"), "{}", third[0]);
+    // The cell that takes the group in was given what the cell before found for each of the three.
+    let back = message_at(&e, arch, "H5", false);
+    let listed = work_from(&back).into_iter().next().unwrap_or_default();
+    assert!(
+        listed.contains("·H4·finding") && listed.contains("·H4·with"),
+        "{listed}\n{back}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A group falls apart when the cell that takes it in asks the owner: only the matter picked waits for the answer, out
+// of the queue, and the others are matters of the queue on their own again, in no group and going on at no cell.
+#[test]
+fn a_group_falls_apart_when_the_owner_is_asked_about_its_first_matter() {
+    let s = setup("group-asks");
+    let ask: Script = Box::new(|_: &Request, n: usize| {
+        if n == 1 {
+            return asks_the_owner("Should these reports wait for the parser?");
+        }
+        (Vec::new(), Vec::new())
+    });
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let (mut e, said, reports) = reported(&s, &ids, ask, |_| ());
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 120, |e| path_of(e, arch).iter().any(|c| c == "A3")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let state = |m: i64| -> (Option<i64>, Option<String>, Option<i64>, Option<String>, Option<i64>) {
+        e.db.conn()
+            .query_row(
+                "SELECT asked, resume_cell, group_lead, goes_on_at, handled_round FROM architect_matters WHERE id = ?1",
+                [m],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap()
+    };
+    let lead = state(matters[0]);
+    assert!(lead.0.is_some(), "{lead:?}\n{log}");
+    assert_eq!(
+        (lead.1.as_deref(), lead.3, lead.4),
+        (Some("H5"), None, None),
+        "{lead:?}\n{log}"
+    );
+    for m in &matters[1..] {
+        assert_eq!(state(*m), (None, None, None, None, None), "matter {m}\n{log}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The group does not fall apart between the cell that finds what its matters are and the cell that takes them in,
+// though the owner speaks in between and the architect's session starts anew: the owner's words are answered first,
+// then the same group is taken in, by the cell given what was found for each matter of it.
+#[test]
+fn a_group_goes_on_to_its_second_cell_after_the_owner_s_words_and_a_new_session() {
+    let s = setup("group-between");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), Vec::new());
+        }
+        let ids = given.lock().unwrap();
+        let others: Vec<Value> = ids[1..]
+            .iter()
+            .map(|m| json!({ "matter": m, "way": "nothing", "why": "Nothing to do." }))
+            .collect();
+        (
+            vec![("outcome.take.way", "nothing")],
+            vec![("outcome.with", json!(others))],
+        )
+    });
+    let (mut e, said, reports) = reported(&s, &ids, take_in, |agents| {
+        agents.insert(
+            "H8",
+            Box::new(|_: &Request, _: usize| {
+                (
+                    vec![("outcome.answer", "done")],
+                    vec![
+                        ("outcome.answer.reply", json!("I see.")),
+                        ("outcome.answer.why", json!("Nothing to change.")),
+                    ],
+                )
+            }),
+        );
+    });
+    let arch = e.step(None).unwrap().work.unwrap();
+    let found = |e: &mut Engine| path_of(e, arch).last().map(String::as_str) == Some("H4");
+    assert!(steps_until(&mut e, 120, found), "{}", said.lock().unwrap().join("\n"));
+    // The matter picked goes on at its second cell; the others wait for it, picked with it.
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let on: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT goes_on_at FROM architect_matters WHERE id = ?1",
+                [matters[0]],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(on.as_deref(), Some("H5"));
+    age_architect(&mut e, 90 * 60_000);
+    say(&mut e, "Carry on.");
+    assert!(
+        steps_until(&mut e, 160, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, arch);
+    let count = |cell: &str| path.iter().filter(|c| *c == cell).count();
+    assert_eq!((count("H4"), count("H5"), count("H8")), (1, 1, 1), "{path:?}\n{log}");
+    let at = |cell: &str| path.iter().position(|c| c == cell).expect(&log);
+    assert!(at("H4") < at("H8") && at("H8") < at("H5"), "{path:?}\n{log}");
+    assert_eq!(closed_by(&e, arch, "H5"), matters, "{log}");
+    let back = message_at(&e, arch, "H5", false);
+    let listed = work_from(&back).into_iter().next().unwrap_or_default();
+    assert!(
+        listed.contains("·H4·finding") && listed.contains("·H4·with"),
+        "{listed}\n{back}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 /// What an agent's round of an architect saw as it ran: its request, and in its working directory the text of
 /// `src/lib.txt`, the commit it stood at and whether a file left there earlier was still there.
 struct Saw {

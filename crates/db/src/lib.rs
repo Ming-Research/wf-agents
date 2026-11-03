@@ -104,6 +104,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0065.sql"),
     include_str!("../../../db/migrations/0066.sql"),
     include_str!("../../../db/migrations/0067.sql"),
+    include_str!("../../../db/migrations/0068.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1520,6 +1521,59 @@ mod tests {
             )
             .unwrap();
         assert_eq!(recorded, 1);
+        let new = Db::in_memory().unwrap();
+        assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
+    }
+
+    // Taken to version 68, a database keeps each matter of the architects as it was, none of them in a group, with the
+    // views over them, takes a matter into a group and refuses a group led by a matter that is not there; the table made
+    // afresh is tracked again, and comes out as a new one.
+    #[test]
+    fn a_database_taken_to_version_68_keeps_its_matters_and_takes_groups() {
+        let mut old = at_version(67);
+        old.write(Actor::Engine, |tx| {
+            for (what, goes_on_at) in [("first", None), ("second", Some("H5"))] {
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, detail, what, body, at, goes_on_at)
+                     VALUES ('p', 'report', 'other', ?1, '{}', 7, ?2)",
+                    params![what, goes_on_at],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        let one = |db: &Db, q: &str| -> String { db.conn().query_row(q, [], |r| r.get(0)).unwrap() };
+        assert_eq!(
+            one(
+                &old,
+                "SELECT group_concat(id || what || coalesce(goes_on_at, '-') || coalesce(group_lead, '-'), ' ')
+                 FROM architect_matters"
+            ),
+            "1first-- 2secondH5-"
+        );
+        // The view over the matters still reads them.
+        assert_eq!(one(&old, "SELECT count(*) || '' FROM architect_queue"), "2");
+        // A matter is put in the group the other leads, the change recorded by the triggers made afresh; a lead that is no
+        // matter is refused.
+        old.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE architect_matters SET group_lead = 1 WHERE id = 2", [])?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            one(
+                &old,
+                "SELECT count(*) || '' FROM changes
+                 WHERE table_name = 'architect_matters' AND json_extract(new_row, '$.group_lead') = 1"
+            ),
+            "1"
+        );
+        let refused = old.write(Actor::Engine, |tx| {
+            tx.execute("UPDATE architect_matters SET group_lead = 99 WHERE id = 1", [])?;
+            Ok(())
+        });
+        assert!(refused.is_err());
         let new = Db::in_memory().unwrap();
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
     }
