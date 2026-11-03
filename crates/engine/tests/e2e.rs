@@ -11524,6 +11524,133 @@ fn the_board_lists_each_hold_and_the_owner_releases_any_of_them() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Item #239: an architect work the engine stops, here because the flow version it ran on can no longer be gone on
+// with, leaves behind no hold to set the project straight, and takes nothing else: the owner's hold, the architect's
+// own hold and a hold of another project all stay.
+#[test]
+fn an_architect_work_taken_over_releases_only_its_projects_hold_to_set_straight() {
+    let s = setup("takeover-holds");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let work = architect_work_at(&mut e, "H10");
+    // The work ran on a flow version where its cell was another.
+    let now = e.flow_now;
+    let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
+    renamed(
+        f.graphs.iter_mut().find(|g| g.name == engine::ARCHITECT).unwrap(),
+        "H10",
+    );
+    let text = f.json();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (digest, compiled) VALUES ('older', ?1)",
+            [&text],
+        )?;
+        let v = tx.last_insert_rowid();
+        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![work, v])?;
+        Ok(())
+    })
+    .unwrap();
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
+    e.db.write(Actor::Architect, |tx| {
+        db::hold_starts(tx, "p", db::HoldReason::Architect, Some("Wrong order."))?;
+        db::hold_starts(tx, "p", db::HoldReason::SetStraight, None)?;
+        db::hold_starts(tx, "q", db::HoldReason::SetStraight, None)
+    })
+    .unwrap();
+    e.pass(&Go::default()).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let ended: Option<String> =
+        e.db.conn()
+            .query_row("SELECT ended FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap();
+    assert!(ended.is_some_and(|w| w.starts_with("stopped")), "{log}");
+    let rows: Vec<(String, String)> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT project, reason FROM dispatch_holds ORDER BY project, reason")
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let row = |p: &str, r: &str| (p.to_string(), r.to_string());
+    assert_eq!(
+        rows,
+        [row("p", "architect"), row("p", "owner"), row("q", "set_straight")],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: the owner may release their hold while the architect's round is going on, and the architect's actions of
+// that round, a release of its own hold that is not there and a hold, still go through: the owner's row is gone as the
+// owner released it, the architect's own row stands, and the round is not sent back for an action that found nothing.
+#[test]
+fn the_owner_releasing_in_the_middle_of_an_architect_round_leaves_its_actions_working() {
+    let s = setup("owner-releases-mid-round");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, _: usize| {
+            // The owner releases their hold while the architect is answering.
+            let mut db = db::Db::open(&path).unwrap();
+            db.write(Actor::Owner, |tx| {
+                db::release_starts(tx, "p", db::HoldReason::Owner).map(|_| ())
+            })
+            .unwrap();
+            let release = json!({ "kind": "release_starts", "reason": "Nothing to hold any more." });
+            let hold = json!({ "kind": "hold_starts", "reason": "The plan is wrong." });
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("Let go, then hold.")),
+                    ("outcome.effects", json!({ "actions": [release, hold] })),
+                ],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
+    say(&mut e, "Release and hold.");
+    let started = e.step(None).unwrap();
+    let arch = started.work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(hold_reasons(&e), ["architect"], "{log}");
+    let changes: Vec<(String, String, bool)> = {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT actor, json_extract(coalesce(new_row, old_row), '$.reason'), new_row IS NULL FROM changes
+                     WHERE table_name = 'dispatch_holds' ORDER BY id",
+                )
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let row = |a: &str, r: &str, gone: bool| (a.to_string(), r.to_string(), gone);
+    assert_eq!(
+        changes,
+        [
+            row("owner", "owner", false),
+            row("owner", "owner", true),
+            row("architect", "architect", false)
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // With every work paused, the owner steps a project's architect: the first step starts a work of the architect, paused
 // by the owner, and runs its first round; each later step runs the work's next round, as a step of the work by its id
 // does, and the work stays paused in the owner's hands. With nothing to start a work for, a step runs nothing.
