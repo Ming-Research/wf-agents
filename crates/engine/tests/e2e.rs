@@ -17903,6 +17903,84 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The note the owner leaves with the Start of a work the architect stopped reaches the architect by each way the engine
+// lifts that pause: the page's Start, which the loop carries out from what it keeps in memory, and the command line's
+// `resume`, which waits in the outbox with the note; and it is told with the speaker the caller declared. A Start with
+// no note after a Start with one leaves none, by either way: nothing of the earlier note stays.
+#[test]
+fn a_note_with_the_owner_s_start_reaches_the_architect_by_the_page_s_way_and_by_the_command_line_s() {
+    let s = setup("own-release-note-ways");
+    let (mut e, said, _) = start(&s, scripts());
+    let c = api::Control::default();
+    c.set_paused(false);
+    let work = turn(&mut e, &c).work.unwrap();
+    let stop = |e: &mut Engine, why: &str| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",
+                params![work, format!("{}: {why}", db::STOPPED_BY_ARCHITECT)],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    };
+    let told = |e: &Engine| -> Vec<(Option<String>, Option<String>)> {
+        let mut st = e
+            .db
+            .conn()
+            .prepare(
+                "SELECT body ->> 'note', body ->> 'speaker' FROM architect_matters
+                 WHERE kind = 'owner_words' AND detail = 'release' ORDER BY id",
+            )
+            .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
+    };
+    let note = |text: &str, who: &str| db::StartNote::declared(Some(text), Some(who)).unwrap().unwrap();
+    c.set_paused(true);
+    // The page's way: the note stays with the request in memory until the loop lifts the pause.
+    stop(&mut e, "it waits for the parser");
+    c.start(api::Fresh::Work(work), false, Some(note("The parser is in.", "delegate")));
+    turns(&mut e, &c, 1);
+    assert_eq!(paused_by(&e, work), None, "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(
+        told(&e),
+        [(Some("The parser is in.".to_string()), Some("delegate".to_string()))]
+    );
+    // The command line's way: the note waits in the outbox, and the engine lifts the pause from there.
+    stop(&mut e, "it waits for the lexer");
+    e.db.write(Actor::Owner, |tx| {
+        db::ask_resume(tx, work, Actor::Owner, Some(&note("The lexer is in.", "owner")))
+    })
+    .unwrap();
+    turns(&mut e, &c, 1);
+    assert_eq!(paused_by(&e, work), None, "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(told(&e).len(), 2, "{:?}", told(&e));
+    assert_eq!(
+        told(&e)[1],
+        (Some("The lexer is in.".to_string()), Some("owner".to_string()))
+    );
+    // A Start with no note, after one that left a note, by either way.
+    stop(&mut e, "it waits for the checker");
+    c.start(api::Fresh::Work(work), false, Some(note("Replaced.", "owner")));
+    c.start(api::Fresh::Work(work), false, None);
+    turns(&mut e, &c, 1);
+    stop(&mut e, "it waits for the printer");
+    e.db.write(Actor::Owner, |tx| {
+        db::ask_resume(tx, work, Actor::Owner, Some(&note("Replaced.", "owner")))?;
+        db::ask_resume(tx, work, Actor::Owner, None)
+    })
+    .unwrap();
+    turns(&mut e, &c, 1);
+    let all = told(&e);
+    assert_eq!(all.len(), 4, "{all:?}");
+    assert_eq!(all[2], (None, None), "{all:?}");
+    assert_eq!(all[3], (None, None), "{all:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // While every work is paused, a work the pause holds waits on it: its session is kept warm as the session manager's
 // rules say, unless the owner switched keeping warm off, which holds across restarts; a work the owner started runs,
 // and is kept warm as any work that goes on is, for its going on.
