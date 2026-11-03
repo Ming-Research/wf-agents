@@ -2264,6 +2264,22 @@ pub enum FieldKind {
     Any,
 }
 
+/// What a return handed in on an earlier flow version may hold at a field instead, which a work carrying such a return
+/// still moves with to the version that says so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "was", rename_all = "snake_case")]
+pub enum FieldEarlier {
+    /// The return may lack the field.
+    Absent,
+    /// The return may hold a value of another kind there, for a list one of items of `item`, or lack the field when
+    /// `absent`.
+    Kind {
+        kind: FieldKind,
+        item: Option<FieldKind>,
+        absent: bool,
+    },
+}
+
 /// A field of a return, with whatever reads it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Field {
@@ -2275,6 +2291,8 @@ pub struct Field {
     pub item: Option<FieldKind>,
     pub desc: Option<String>,
     pub optional: bool,
+    /// What a return handed in on an earlier flow version may hold here instead; none when only what it is now.
+    pub earlier: Option<FieldEarlier>,
     /// For a list, the fewest items it holds.
     pub min: Option<u64>,
     /// For one of a fixed set of values: each value, with what it means when the flow says.

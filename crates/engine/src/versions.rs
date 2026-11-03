@@ -858,17 +858,42 @@ mod tests {
         g
     }
 
+    /// A design as one handed in before item #247: its articles in a text, and no answers to the item's decisions.
+    fn design_before_247() -> Value {
+        let mut design = sample("D2", "first");
+        design["outcome"]["articles"] = json!("It keeps Article 1: it names no project.");
+        design["outcome"].as_object_mut().unwrap().remove("item_decisions");
+        design
+    }
+
+    // Whether a round handed in a return is judged by what its cell took in the work's own version, as one handed in
+    // then or carried from a version before it: a design that version took only as carried still counts, and the work
+    // goes back to design again when the version the engine runs no longer takes it.
+    #[test]
+    fn a_return_its_own_version_took_only_as_carried_counts() {
+        let mut old = engineer();
+        let mut new = old.clone();
+        cell(&mut old, "D2").carried = before_247().cell("D2").unwrap().schema.clone();
+        cell(&mut new, "D2").carried = None;
+        let design = design_before_247();
+        let took = old.cell("D2").unwrap();
+        assert!(!flow::valid(took.schema.as_ref().unwrap(), &design));
+        assert!(flow::valid(took.carried_schema().unwrap(), &design));
+        match plan(&old, &new, &at("D3"), &[ran(1, "D2", "first", design)]) {
+            Plan::GoBack { to, .. } => assert_eq!(to, "D2"),
+            other => panic!("{other:?}"),
+        }
+    }
+
     // Item #247 had the design answer the constitution's articles in rows and each decision of its item, and its review
     // try each claim. A work under way carries a design and a review handed in before: it moves where it stands, at the
     // review or past it, its design not done again. A version that took them only as they are handed in now would send
-    // it back to its design.
+    // it back to its design. This holds the flow's own marks of D2 and D3 (`earlier`), and is removed with them.
     #[test]
     fn a_work_carrying_a_design_from_before_its_rows_moves() {
         let old = before_247();
         let new = engineer();
-        let mut design = sample("D2", "first");
-        design["outcome"]["articles"] = json!("It keeps Article 1: it names no project.");
-        design["outcome"].as_object_mut().unwrap().remove("item_decisions");
+        let design = design_before_247();
         let mut review = sample("D3", "present_best");
         review["outcome"].as_object_mut().unwrap().remove("claims");
         for (id, ret) in [("D2", &design), ("D3", &review)] {

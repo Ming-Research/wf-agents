@@ -1677,11 +1677,82 @@ fn a_return_that_does_not_fit_says_where() {
     assert!(e.ends_with("outcome must be an object, and is a string"), "{e}");
 }
 
+// A field may name what a return handed in on an earlier flow version held there (`earlier`): absent, or another shape,
+// which may itself be left out; a field inside a list's items as well. What such a return is held to when a work moves
+// (`carried`) takes it as well as the field now; what an agent is held to is the schema as it would be without the
+// marks, which refuses a return of the earlier shape, saying where. A cell no field of which names one has no `carried`.
+#[test]
+fn what_a_field_was_earlier_is_carried_and_never_handed_in_now() {
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    let note =
+        serde_json::json!({ "name": "note", "title": "Note", "type": "text", "desc": "A note on the approaches" });
+    let d1 = v["flows"][0]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|n| n["id"] == "D1")
+        .unwrap();
+    d1["out"].as_array_mut().unwrap().push(note);
+    let plain = flow::compile(&v.to_string(), &context()).unwrap_or_else(|e| panic!("{e}"));
+    let out = v["flows"][0]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|n| n["id"] == "D1")
+        .unwrap()["out"]
+        .as_array_mut()
+        .unwrap();
+    out[0]["earlier"] = serde_json::json!({ "type": "text", "optional": true });
+    let bad = out[0]["item"]["fields"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|f| f["name"] == "bad")
+        .unwrap();
+    bad["earlier"] = "absent".into();
+    out[1]["earlier"] = "absent".into();
+    let marked = flow::compile(&v.to_string(), &context()).unwrap_or_else(|e| panic!("{e}"));
+    let (was, is) = (
+        plain.graph("engineer").unwrap().cell("D1").unwrap(),
+        marked.graph("engineer").unwrap().cell("D1").unwrap(),
+    );
+    assert_eq!(is.schema, was.schema);
+    assert!(was.carried.is_none());
+    let carried = is.carried.as_ref().unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let mut now = samples["D1"].iter().find(|s| s["row"] == "done").unwrap()["json"].clone();
+    now["outcome"]["note"] = "Two of them are alike.".into();
+    let mut no_bad = now.clone();
+    for row in no_bad["outcome"]["options"].as_array_mut().unwrap() {
+        row.as_object_mut().unwrap().shift_remove("bad");
+    }
+    let mut text = now.clone();
+    text["outcome"]["options"] = "Two ways, compared in a text.".into();
+    text["outcome"].as_object_mut().unwrap().shift_remove("note");
+    let mut neither = text.clone();
+    neither["outcome"].as_object_mut().unwrap().shift_remove("options");
+    assert!(flow::valid(carried, &now));
+    for old in [&no_bad, &text, &neither] {
+        assert!(
+            flow::valid(carried, old),
+            "{old}: {:?}",
+            flow::misfits(carried, old, "")
+        );
+        assert!(!flow::valid(is.schema.as_ref().unwrap(), old), "{old}");
+    }
+    let g = marked.graph("engineer").unwrap();
+    let e = g.take("D1", &text, &Map::new()).unwrap_err();
+    assert!(e.contains("outcome.options must be a list, and is a string"), "{e}");
+    assert!(e.contains("outcome has no note"), "{e}");
+    let e = g.take("D1", &no_bad, &Map::new()).unwrap_err();
+    assert!(e.contains("outcome.options[0] has no bad"), "{e}");
+}
+
 // Item #247 had the design answer the constitution's articles in rows, where it had written them in a text, and each
 // decision of its item (`item_decisions`), and had its review try each claim (`claims`). A design and a review handed in
 // before, which works under way carry, still fit those cells as returns carried from an earlier version, so that such a
 // work moves to this one where it stands; handed in now, they are refused, saying what is missing. A return handed in
-// now is carried too, and a cell no field of which names what it was earlier carries what it takes now.
+// now is carried too. This holds the flow's own marks of D2 and D3 (`earlier`), and is removed with them.
 #[test]
 fn a_design_from_before_its_rows_is_carried_and_one_handed_in_now_needs_them() {
     let c = compiled();

@@ -13073,7 +13073,7 @@ fn design_before_247(g: &mut flow::CompiledGraph) {
 // and the wait for a ruling read. A work under way when it came carries a design handed in before: it moves to the
 // version the engine runs where it stands, at the review, and does not come to cell V1 to design again; the review
 // tries the item's decision against the design as it is, and the wait finds no departure in it and lets the work go on
-// to implement.
+// to implement. This holds the flow's own marks of D2 and D3 (`earlier`), and is removed with them.
 #[test]
 fn a_work_carrying_a_design_from_before_its_rows_moves_and_goes_on_to_implement() {
     let s = setup("design-before-rows");

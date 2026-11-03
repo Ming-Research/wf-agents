@@ -2250,6 +2250,40 @@ mod tests {
         assert_eq!(p.texts(), ["decision L1 of the item is not tried"]);
     }
 
+    // A design handed in before the design answered in rows (item #247), which a work under way carries, wrote its
+    // articles in a text and answered no decision: its review finds no passage near an article or a decision without
+    // being sent back, since the design claims nothing of either that a passage bears on; a passage it quotes is still
+    // one of the design's own sections, and every article and decision is still tried.
+    #[test]
+    fn a_review_of_a_design_from_before_its_rows_may_find_no_passage_near() {
+        let articles = vec!["Article 1. Independent".to_string()];
+        let plan = json!({
+            "design": { "solution": "Do A.", "where": "x", "excluded": "x", "pitfalls": "x" },
+            "acceptance": [],
+            "articles": "It keeps Article 1: it names no project.",
+        });
+        let claims = Claims {
+            sections: plan_sections("D2", &plan),
+            claimed: plan["articles"].as_array().cloned(),
+            answered: plan_answers(&plan, &[]),
+            listed: crate::decisions::listed("Decisions:\nDecision (2026-11-01, owner): A."),
+        };
+        assert_eq!((claims.claimed.is_none(), claims.answered.is_empty()), (true, true));
+        let near = rows(json!([{ "article": "Article 1", "verdict": "none_near", "why": "None." }]));
+        let decided = rows(json!([{ "decision": "L1", "verdict": "none_near", "why": "None." }]));
+        assert!(claims.problems(&articles, &near, &decided).is_empty());
+        let quoted = rows(json!([{ "decision": "L1", "verdict": "holds", "passage": "Do B.", "why": "x" }]));
+        let p = claims.problems(&articles, &near, &quoted);
+        assert_eq!(p.texts().len(), 1, "{:?}", p.texts());
+        assert!(
+            p.texts()[0].starts_with("decision L1: the passage it quotes"),
+            "{:?}",
+            p.texts()
+        );
+        let p = claims.problems(&articles, &[], &[]);
+        assert_eq!(p.texts().len(), 2, "{:?}", p.texts());
+    }
+
     fn problem(check: &str, field: Option<&str>, text: &str) -> Problem {
         Problem {
             check: check.to_string(),

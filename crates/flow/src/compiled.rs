@@ -217,7 +217,8 @@ pub struct CompiledCell {
     pub schema: Option<Value>,
     /// What a return a work carries from an earlier flow version must be for the work to move to this one without
     /// doing the cell again: the schema, with what each field names as it was earlier (`earlier`) taken too; none when
-    /// no field names it, and the schema is that. No agent is given it.
+    /// no field names it, and the schema is that, and in a flow version stored before fields named it. No agent is
+    /// given it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub carried: Option<Value>,
     pub rows: Vec<CompiledRow>,
@@ -978,7 +979,12 @@ impl Schemas<'_> {
         }
         for f in fs {
             props.insert(f.name.clone(), self.field(f));
-            let absent = self.carried && f.earlier == Some(Earlier::Absent);
+            let absent = self.carried
+                && match &f.earlier {
+                    Some(Earlier::Absent) => true,
+                    Some(Earlier::Shape(was)) => was.optional,
+                    None => false,
+                };
             if !f.optional && !absent {
                 required.push(json!(f.name));
             }

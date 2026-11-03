@@ -183,9 +183,11 @@ pub struct RawField {
     /// The fewest items a list holds.
     pub min: Option<u32>,
     /// What a return handed in on an earlier flow version may hold here instead, for a work that carries it to move to
-    /// this version without doing the cell again: `absent`, for a field it did not have, or the field's shape then. No
-    /// agent is asked for it: a return handed in now holds the field as it is now. It is taken out of the flow once no
-    /// work under way carries such a return.
+    /// this version without doing the cell again: `absent`, for a field it did not have, or the field's shape then
+    /// (which may itself be optional). No agent is asked for it: a return handed in now holds the field as it is now.
+    /// A field of a cell's own answer only, never one every agent's return has, nor a list's item absent; no row's
+    /// condition reads it, and the engine's code and checks that read it take what it was earlier as well. It is taken
+    /// out of the flow once no work under way carries such a return.
     pub earlier: Option<RawEarlier>,
 }
 
