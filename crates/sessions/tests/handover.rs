@@ -194,3 +194,86 @@ fn the_ledgers_subagent_rows_pay_no_rent_when_read_back() {
     let j = handover::of_round(db.conn(), 1, 3).unwrap();
     assert!(not_yet(&j, 0.20, 0.275), "{j:?}");
 }
+
+/// Writes the calls of an architect's CLI session `cli` that goes on across two works, each work with a row of its own
+/// in the sessions table under the same CLI session, as the schema says the architect's line keeps it: work 1's round
+/// opens at 10,000 tokens and makes five calls at 50,000 (the first on `first_model`, the opening writing for an hour
+/// when `hour`); work 2's round makes `calls` calls at 110,000. Works 1 and 2 are made once; returns work 2's round.
+fn across_works(db: &mut Db, cli: &str, hour: bool, first_model: Option<&str>, calls: i64) -> (i64, i64) {
+    db.write(Actor::Engine, |tx| {
+        let works: i64 = tx.query_row("SELECT count(*) FROM works", [], |r| r.get(0))?;
+        if works == 0 {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for _ in 0..2 {
+                tx.execute(
+                    "INSERT INTO works (flow_version, graph, at) VALUES (1, 'architect', 'U1')",
+                    [],
+                )?;
+            }
+        }
+        let mut rounds = Vec::new();
+        for work in [1, 2] {
+            tx.execute(
+                "INSERT INTO sessions (work, line, cli, cli_session, ended) VALUES (?1, ?2, 'claude', ?3, 1)",
+                params![work, format!("architect-{cli}"), cli],
+            )?;
+            let session = tx.last_insert_rowid();
+            let n: i64 = tx.query_row(
+                "SELECT coalesce(max(n), 0) + 1 FROM rounds WHERE work = ?1",
+                [work],
+                |r| r.get(0),
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, session, input, config_commit, model, started_at)
+                 VALUES (?1, ?2, 'U1', ?3, '{}', 'c', ?4, ?2)",
+                params![work, n, session, SONNET],
+            )?;
+            rounds.push((work, n));
+        }
+        let keep = |(work, n): (i64, i64), seq: i64, model: Option<&str>, read: i64, written_1h: i64| {
+            tx.execute(
+                "INSERT INTO round_calls (work, round, seq, message, model, input, read, written_5m, written_1h,
+                                          output, subagent, at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, 0, ?7, 10, 0, ?2)",
+                params![work, n, seq, format!("{cli}-{work}-{seq}"), model, read, written_1h],
+            )
+        };
+        let opening_1h = if hour { 1_000 } else { 0 };
+        keep(rounds[0], 1, first_model, 10_000 - opening_1h, opening_1h)?;
+        for seq in 2..=6 {
+            keep(rounds[0], seq, None, 50_000, 0)?;
+        }
+        for seq in 1..=calls {
+            keep(rounds[1], seq, None, 110_000, 0)?;
+        }
+        Ok(rounds[1])
+    })
+    .unwrap()
+}
+
+// The architect's CLI session goes on across works, so its opening is its first call in the first work, and the rent
+// of a round in the next work counts that round's own calls only, past that opening (the design's rule and pitfalls).
+// On Sonnet 5.5, a round at 110,000 past an opening of 10,000 pays $0.01 a call against a buy of $0.275: NotYet at its
+// 27th call ($0.27), Due at its 28th ($0.28). Taking the opening from the second work's first call would pay nothing;
+// carrying work 1's rent ($0.02) over would be due at the 27th. The session's hour's write in work 1 prices the buy for
+// an hour in work 2 ($0.44), and a call of work 1 on a model with no prices leaves work 2's round judged.
+#[test]
+fn an_architects_session_across_works_pays_rent_by_the_round_past_its_first_works_opening() {
+    let mut db = Db::in_memory().unwrap();
+    let r27 = across_works(&mut db, "a27", false, None, 27);
+    let r28 = across_works(&mut db, "a28", false, None, 28);
+    let hour = across_works(&mut db, "hour", true, None, 28);
+    let unpriced = across_works(&mut db, "unpriced", false, Some("a-model-with-no-prices"), 28);
+    let at = |(w, n): (i64, i64)| handover::of_round(db.conn(), w, n).unwrap();
+    assert!(not_yet(&at(r27), 0.27, 0.275), "{:?}", at(r27));
+    let due = at(r28);
+    assert!(
+        matches!(&due, Some(Judged::Due { rent, buy }) if (rent - 0.28).abs() < 1e-9 && (buy - 0.275).abs() < 1e-9),
+        "{due:?}"
+    );
+    assert!(not_yet(&at(hour), 0.28, 0.44), "{:?}", at(hour));
+    assert!(at(unpriced).is_some_and(|j| j.due()), "{:?}", at(unpriced));
+    // The watch of the round about to start in work 2 starts from the same opening, having paid nothing.
+    let start = handover::rent_in(db.conn(), "a28", SONNET, (2, r28.1 + 1)).unwrap();
+    assert_eq!((start.opening, start.rent), (Some(10_000), 0.0));
+}
