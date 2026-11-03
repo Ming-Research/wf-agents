@@ -662,6 +662,46 @@ describe('how a work goes on', () => {
     }
     expect(working).toBe(5);
   });
+
+  // The engine takes a retry's wait only in a step of its own, and takes no step of a work that is held back (the owner
+  // may ask for one with Step, which runs the cell at once once the wait is over). The wait the interface reads from the
+  // rounds ends only when the next round opens, which a held work never does: shown as a wait, it would hide Step for
+  // good, say "then it waits for its failed round" of a work that waits for nothing, and put a tag over "paused".
+  it('does not say a work that is held back waits to run a failed round again, nor take Step from it', () => {
+    const retry = { kind: 'retry' } as const;
+    const rows: Array<[string, Partial<WorkSummary>, Status]> = [
+      ['paused by the owner', { state: 'paused', paused: 'x', paused_by: 'owner', waits: retry }, status()],
+      ['paused by the architect', { state: 'paused', paused: 'x', paused_by: 'architect', waits: retry }, status()],
+      ['Pause all', { state: 'waiting', waits: retry }, status({ paused: true })],
+    ];
+    for (const [name, extra, s] of rows) {
+      const w = work(extra);
+      const c = course(w, s);
+      expect(controls(c, s).step, `${name}: Step`).toBe(true);
+      expect(nowWords(c, w), `${name}: the live line`).not.toContain('failed round');
+      expect(waitOf(c, w, s)?.tag, `${name}: the tag`).not.toBe('waiting to retry');
+    }
+  });
+
+  // A work the owner started that waits for a free slot is not paused any more: its words say it is started, so the
+  // icon must not be the paused ring beside them (the same fault as Pause all's ring beside "paused by Pause all").
+  it('draws the icon of a work the owner started that waits for a free slot as its words say, not as paused', () => {
+    for (const waiting_for_slot of [[], [5]]) {
+      const s = status({ releasing: [5], waiting_for_slot });
+      const w = work({ state: 'paused', paused: 'x', paused_by: 'owner' });
+      const says = nowWords(course(w, s), w).startsWith('paused');
+      expect(says, `words ${JSON.stringify(s.waiting_for_slot)}`).toBe(false);
+      expect(liveState(w, s) === 'paused', `icon ${JSON.stringify(s.waiting_for_slot)}`).toBe(says);
+    }
+  });
+
+  // A blocker that stays open while the round it came from goes on (an ask put to the owner by a round that continues)
+  // is a wait of the owner's, and a round that runs still is a round that runs.
+  it('keeps a round running that runs while a blocker is open', () => {
+    const w = work({ state: 'running', waits: { kind: 'answer', ask: 3 }, running: open('A3') });
+    const s = status({ running: [5] });
+    expect([course(w, s).running, liveState(w, s)]).toEqual(['goes_on', 'running']);
+  });
 });
 
 describe('the formats', () => {
