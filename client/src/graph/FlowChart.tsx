@@ -44,7 +44,7 @@ import {
   styleOf,
 } from './flowDraw';
 import { besides, type Laid, layoutChart } from './flowLayout';
-import { actionWords, type Chart, chart as build, MAIN, type Move } from './flowModel';
+import { actionWords, type Chart, chart as build, MAIN, type Move, workingAt } from './flowModel';
 import { mapOf, Minimap } from './Minimap';
 import { layStores, storeLinks, StoresSvg, storeSize } from './stores';
 import { type Rect, Viewer, type ViewerHandle } from './Viewer';
@@ -747,17 +747,13 @@ export function FlowChart(props: FlowChartProps) {
         : null;
     viewer.current.start(READABLE, around);
   }, [current, placed, start, startGraph]);
-  // The cell a round runs at now, in its graph; the chart centres on it when it is another than the one it centred on
+  // The cell a stage works at now, in its graph; the chart centres on it when it is another than the one it centred on
   // last, the one it opened on included.
   const centred = useRef<string | null>(start);
-  const running = useMemo(() => {
-    for (const [i, m] of marks.entries()) {
-      for (const [cell, o] of m.overlays ?? []) {
-        if (o.current && o.running) return { graph: graphs[i]?.g.name, cell };
-      }
-    }
-    return null;
-  }, [marks, graphs]);
+  const running = useMemo(
+    () => workingAt(marks, graphs.map((x) => x.g.name)),
+    [marks, graphs],
+  );
   const runningKey = running !== null ? `${running.graph ?? ''}\u0000${running.cell}` : null;
   useEffect(() => {
     if (running === null || current === null || placed === null || !viewer.current) return;

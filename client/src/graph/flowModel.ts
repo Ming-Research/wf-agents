@@ -741,11 +741,12 @@ export type Overlay = {
   waits: Wait | null;
 };
 
-/// How the work goes on now at the cell it is at: whether the engine runs a round of it, and why it waits, if it does.
+/// How the work goes on now at the cell it is at: whether a stage works there (`course`'s `working`), and why it waits,
+/// if it does.
 export type Now = { running: boolean; waits: Wait | null };
 
 /// What the work's rounds did at each cell; `at` is the cell the work is at, where it goes on as `now` says. A round
-/// still open is running only while the engine runs it, or a tool of it is under way.
+/// still open is running only while the stage works, which is not a fact of the rounds.
 export function overlays(rounds: RoundSummary[], at: string | null, now: Now): Map<string, Overlay> {
   const out = new Map<string, Overlay>();
   const get = (cell: string) => {
@@ -772,42 +773,20 @@ export function overlays(rounds: RoundSummary[], at: string | null, now: Now): M
   return out;
 }
 
-/// A round the halo goes round on a work's chart: its number, its cell, and when the page first saw it, in
-/// milliseconds.
-export type Flash = { n: number; cell: string; seen: number };
-
-/// How long the halo stays on the cell of a round the page saw come in, counted from when it saw it; and the least it
-/// stays on each of several that came in together.
-export const HALO_HOLD = 1500;
-export const HALO_STEP = 500;
-
-/// Where the halo goes round at `now`, and when that next changes (none when it does not). The rounds the page saw come
-/// in (`flashes`, oldest first) each take it in order, for at least HALO_STEP and the last until HALO_HOLD after it was
-/// seen, so that a round over before the page could show it running is seen; the newest round while a round of the
-/// work runs (`runs`) keeps it as long as it runs; after the last round that ended, it lands on the cell the work is
-/// at, `at`, for the rest of the hold. Otherwise it is on `at` while a round runs there, and nowhere while none does.
-export function haloAt(
-  flashes: Flash[],
-  now: number,
-  where: { at: string | null; runs: boolean; newest: number | null },
-): { cell: string | null; next: number | null } {
-  const { at, runs, newest } = where;
-  const steps: Array<{ cell: string; from: number; to: number }> = [];
-  let prev = -Infinity;
-  flashes.forEach((f, i) => {
-    const from = Math.max(f.seen, prev + HALO_STEP);
-    prev = from;
-    const running = runs && f.n === newest;
-    const lands = i === flashes.length - 1 && !running && at !== null && at !== f.cell;
-    const to = running ? Infinity : lands ? from + HALO_STEP : Math.max(from + HALO_STEP, f.seen + HALO_HOLD);
-    steps.push({ cell: f.cell, from, to });
-    if (lands && at !== null) steps.push({ cell: at, from: to, to: Math.max(to + HALO_STEP, f.seen + HALO_HOLD) });
-  });
-  // Each round gives the halo up when the next takes it.
-  for (let i = 0; i + 1 < steps.length; i++) steps[i].to = Math.min(steps[i].to, steps[i + 1].from);
-  const on = steps.find((s) => s.from <= now && now < s.to);
-  const next = Math.min(...steps.flatMap((s) => [s.from, s.to]).filter((x) => x > now));
-  return { cell: on !== undefined ? on.cell : runs ? at : null, next: Number.isFinite(next) ? next : null };
+/// The cell the chart centres on, and the graph it is in: the cell of the work whose stage works now, found from the
+/// overlays of the graphs drawn (`graphs`, one name for each), none while no stage works. The chart centres on it when it
+/// is another than the one it centred on last, so that, like the halo, it follows the stage and nothing else: not the
+/// events that tell the engine's steps, nor a read of the same rounds again.
+export function workingAt(
+  marks: ReadonlyArray<{ overlays?: Map<string, Overlay> | null }>,
+  graphs: ReadonlyArray<string | undefined>,
+): { graph: string | undefined; cell: string } | null {
+  for (const [i, m] of marks.entries()) {
+    for (const [cell, o] of m.overlays ?? []) {
+      if (o.current && o.running) return { graph: graphs[i], cell };
+    }
+  }
+  return null;
 }
 
 /// The arrows of the chart that draw the row each round took, by the round's place among the rounds placed on the
