@@ -23782,8 +23782,8 @@ fn the_reviews_and_a_re_check_are_told_what_the_branch_took_in_and_did_since() {
     // again; both rounds list the input.
     let first_round = message_at(&e, work, "T1", false);
     assert_eq!(
-        given_value(&first_round, "config:test_paths"),
-        Some(json!(["tests/"])),
+        given(&input_at(&e, work, "T1", false), "config:test_paths"),
+        Some(true),
         "{first_round}"
     );
     for message in [&first_round, &m] {

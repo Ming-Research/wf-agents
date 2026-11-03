@@ -79,39 +79,6 @@ pub fn own_changes(dir: &Path, main: &str, from: &str, to: &str) -> Result<Vec<S
     Ok(all.into_iter().filter(|f| own.contains(f)).collect())
 }
 
-/// Which of `files`, as they are at HEAD, hold one of `words` as a whole word (`git grep -F -w`: the words are fixed
-/// text, and a match ends at a word boundary), in git's order. The paths are taken as written, with no pattern in them,
-/// and told as they were written. No word, or no file, names no file; a word that no file holds is no error, though git
-/// exits with 1 for it.
-pub fn grep_files(dir: &Path, words: &[String], files: &[String]) -> Result<Vec<String>, String> {
-    if words.is_empty() || files.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut args = vec!["--literal-pathspecs", "grep", "-l", "-z", "-F", "-w"];
-    for word in words {
-        args.extend(["-e", word.as_str()]);
-    }
-    args.extend(["HEAD", "--"]);
-    args.extend(files.iter().map(String::as_str));
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .map_err(|e| format!("git: {e}"))?;
-    let said = String::from_utf8_lossy(&out.stderr);
-    match out.status.code() {
-        Some(0) => Ok(names(&String::from_utf8_lossy(&out.stdout))
-            .into_iter()
-            // Git names a file of a commit as `<commit>:<path>`: the path is what follows that prefix, colons in it
-            // included, since `-z` ends each name with NUL and not with a colon.
-            .map(|n| n.strip_prefix("HEAD:").map_or(n.clone(), str::to_string))
-            .collect()),
-        Some(1) if said.trim().is_empty() => Ok(Vec::new()),
-        _ => Err(format!("git grep: {}", said.trim())),
-    }
-}
-
 /// One commit of a branch, as the log of its first parents gives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Commit {
@@ -435,56 +402,6 @@ mod tests {
         assert_eq!(run(&dir, &["log", "-1", "--format=%s", &first]), "Measurement 1");
         assert!(commit_over(&dir, "no-such-commit", "x").is_err());
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    // Item #274: the files that hold a word are told, as HEAD has them and as written (a colon, brackets and a star in a
-    // path are no pattern and no separator); a word held by a longer word is not held; a word no file holds is no
-    // error, and a commit git cannot read is.
-    #[test]
-    fn the_files_that_hold_a_word_are_told_as_they_are_written() {
-        let dir = std::env::temp_dir().join(format!("wf-agents-grep-files-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        run(&dir, &["init", "-q"]);
-        commit(
-            &dir,
-            &[
-                ("tests/a:b.rs", "fn word() {}\n"),
-                ("tests/[x]*.rs", "fn word() {}\n"),
-                ("tests/other.rs", "fn word_longer() {}\nfn other() {}\n"),
-            ],
-            "Start",
-        );
-        // A change that is not committed is not what HEAD has.
-        std::fs::write(dir.join("tests/other.rs"), "fn word() {}\n").unwrap();
-        let w = |words: &[&str]| words.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let all = w(&["tests/a:b.rs", "tests/[x]*.rs", "tests/other.rs"]);
-        assert_eq!(
-            grep_files(&dir, &w(&["word"]), &all).unwrap(),
-            ["tests/[x]*.rs", "tests/a:b.rs"]
-        );
-        // Only among the files given, and the longer word holds `word_longer`, not `word`.
-        assert_eq!(
-            grep_files(&dir, &w(&["word"]), &w(&["tests/a:b.rs", "tests/other.rs"])).unwrap(),
-            ["tests/a:b.rs"]
-        );
-        // Any of the words, and none held is an empty list, not an error.
-        assert_eq!(
-            grep_files(&dir, &w(&["nothing", "word_longer"]), &all).unwrap(),
-            ["tests/other.rs"]
-        );
-        assert!(grep_files(&dir, &w(&["nothing"]), &all).unwrap().is_empty());
-        // No word and no file name no file, without asking git.
-        assert!(grep_files(&dir, &[], &all).unwrap().is_empty());
-        assert!(grep_files(&dir, &w(&["word"]), &[]).unwrap().is_empty());
-        // A repository with no commit has no HEAD to read: that is git's error, not an answer.
-        let empty = std::env::temp_dir().join(format!("wf-agents-grep-files-empty-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&empty);
-        std::fs::create_dir_all(&empty).unwrap();
-        run(&empty, &["init", "-q"]);
-        assert!(grep_files(&empty, &w(&["word"]), &all).is_err());
-        let _ = std::fs::remove_dir_all(&dir);
-        let _ = std::fs::remove_dir_all(&empty);
     }
 
     fn run(dir: &Path, args: &[&str]) -> String {
