@@ -199,3 +199,64 @@ fn the_view_gives_a_row_for_each_problem_and_none_for_a_round_without_problems()
         ]
     );
 }
+
+// A return with many problems is read in the order they were found, `position` counting as a number (the eleventh after
+// the tenth, not after the second), and a column that is valid JSON of another shape than the engine writes gives no
+// row and no error, since one such row would make every query of the view fail. The reference is SQLite's own rule for
+// `json_each` over an array (its `key` is the index) and the check of `rounds.rejected` that it is valid JSON.
+#[test]
+fn the_view_keeps_the_order_of_many_problems_and_reads_a_column_of_another_shape() {
+    let conn = new_database();
+    let many: Vec<String> = (0..13)
+        .map(|i| {
+            format!(
+                r#"{{"check":"columns_answered","field":"columns.id","text":"column {i} is not answered"}}"#
+            )
+        })
+        .collect();
+    round(
+        &conn,
+        1,
+        1,
+        None,
+        Some(&format!(r#"{{"check":"x","problems":[{}]}}"#, many.join(","))),
+    );
+    // Valid JSON the engine does not write for a return sent back: no row, and the view still answers.
+    for (n, odd) in [
+        r#""text""#,
+        "3",
+        "null",
+        "[]",
+        r#"{"problems":[]}"#,
+        r#"{"check":"x","problems":null}"#,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        round(&conn, 2, n as i64 + 1, None, Some(odd));
+    }
+    let found = problems(&conn);
+    assert_eq!(found.len(), 13, "{found:?}");
+    for (i, p) in found.iter().enumerate() {
+        assert_eq!(
+            p,
+            &row(
+                1,
+                1,
+                i as i64,
+                "columns_answered",
+                Some("columns.id"),
+                &format!("column {i} is not answered")
+            )
+        );
+    }
+    // The position is a number, so that it orders by value in any query.
+    let kinds: Vec<String> = conn
+        .prepare("SELECT DISTINCT typeof(position) FROM sent_back_problems")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect();
+    assert_eq!(kinds, ["integer"]);
+}
