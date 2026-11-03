@@ -1146,9 +1146,11 @@ impl<'s> Graph<'s> {
             .map(|(c, _)| c.id.as_str())
             .collect();
         ensure!(loose.is_empty(), "a cell in no block: {loose:?}");
+        // The rows of the rounds section count too: the compiler gives them to every agent's cell.
         let counted: BTreeSet<&str> = cells
             .iter()
             .flat_map(|c| c.rows.iter().filter_map(|r| r.counts.as_deref()))
+            .chain(flow.rounds.iter().flat_map(|r| r.counters()))
             .collect();
         // The total time is measured, not counted: no row counts it, and every other counter has a row that does.
         let time = flow.limits.counters.iter().find(|c| c.time).map(|c| c.name.as_str());

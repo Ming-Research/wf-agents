@@ -792,6 +792,21 @@ case!(
     }
 );
 
+// The same for where the history is: a cell given it is given how to gather history, so that a new gatherer cannot miss
+// the rule that holds the check of paths. T4 is on no line the rule is given to, and names none.
+case!(
+    a_cell_given_where_the_history_is_without_the_rule_for_gathering_it,
+    "cell `T4` is given history_sources without the rule history that goes with it",
+    |v| {
+        let input = json!({
+            "name": "Where the history is",
+            "what": "The database's read-only address and the project's checkout",
+            "from": [{ "engine": "history_sources" }]
+        });
+        node(v, "T4")["inputs"].as_array_mut().unwrap().push(input);
+    }
+);
+
 // An owner's cell that rules by buttons has one for each value of its ruling, in order, each saying what it does and
 // what happens next, so that the owner's page shows every value the cell takes, as the flow says it; one whose answer
 // is no ruling has none.
@@ -837,5 +852,100 @@ case!(
     "engine.steps.merge names cell `merging`, which no graph has",
     |v| {
         v["engine"]["steps"]["merge"] = json!("Puts the PR in the merge queue, as cell `merging` says.");
+    }
+);
+
+// A row of the rounds section that runs again is bounded and ends in a pause: a kind of failed run run again with no
+// bound, with a bound of none or with no pause, a pause that is no pause, a step run again with no backoff or whose
+// pause is the engine's other one, a bound on a kind that is not run again, and a counter the flow has not, or that
+// no row counts, or that a row counts which waits.
+case!(
+    a_failed_run_run_again_with_no_bound,
+    "rounds.failed.kinds[transient] runs again with no bound",
+    |v| {
+        obj(&mut graph(v)["rounds"]["failed"]["kinds"][2]).remove("inRow");
+    }
+);
+case!(
+    a_failed_run_run_again_with_a_bound_of_none,
+    "rounds.failed.kinds[transient] runs again with no bound",
+    |v| {
+        graph(v)["rounds"]["failed"]["kinds"][2]["inRow"] = json!(0);
+    }
+);
+case!(
+    a_failed_run_run_again_with_no_pause,
+    "rounds.failed.kinds[transient] runs again with no bound",
+    |v| {
+        obj(&mut graph(v)["rounds"]["failed"]["kinds"][2]).remove("then");
+    }
+);
+case!(a_bound_that_ends_in_no_pause, "unknown variant `wait`", |v| {
+    graph(v)["rounds"]["failed"]["kinds"][2]["then"] = json!("wait");
+});
+case!(
+    a_bound_on_a_kind_that_is_not_run_again,
+    "rounds.failed.kinds[flagged] has inRow or then",
+    |v| {
+        graph(v)["rounds"]["failed"]["kinds"][3]["inRow"] = json!(2);
+    }
+);
+case!(
+    a_step_run_again_with_no_backoff,
+    "rounds.engine[step_network] runs again with no bound",
+    |v| {
+        graph(v)["rounds"]["engine"][2]["backoff"] = json!([]);
+    }
+);
+case!(
+    a_step_run_again_with_no_bound,
+    "rounds.engine[step_network] runs again with no bound",
+    |v| {
+        obj(&mut graph(v)["rounds"]["engine"][2]).remove("inRow");
+    }
+);
+case!(
+    a_step_run_again_that_also_pauses,
+    "rounds.engine[step_network] runs again, and its pause is the row for being taken too often",
+    |v| {
+        graph(v)["rounds"]["engine"][2]["pauses"] = json!(true);
+    }
+);
+case!(
+    a_row_of_the_rounds_that_counts_a_counter_the_flow_has_not,
+    "rounds section: no such counter, or one the engine measures: nothing",
+    |v| {
+        graph(v)["rounds"]["failed"]["kinds"][2]["counts"] = json!("nothing");
+    }
+);
+case!(
+    a_row_of_the_rounds_that_waits_and_counts,
+    "rounds.failed.kinds[offline] waits for someone, and a row that waits counts nothing",
+    |v| {
+        graph(v)["rounds"]["failed"]["kinds"][1]["counts"] = json!("retries");
+    }
+);
+case!(
+    a_counter_that_only_the_rounds_would_count,
+    "a counter no row counts: [\"sent_back\"]",
+    |v| {
+        obj(&mut graph(v)["rounds"]["sentBack"]).remove("counts");
+    }
+);
+
+// The step run again is bounded on every side of its case, not only on its backoff: with no pause to end in, or with a
+// bound of none, it is refused as a kind of failed run is.
+case!(
+    a_step_run_again_with_no_pause,
+    "rounds.engine[step_network] runs again with no bound",
+    |v| {
+        obj(&mut graph(v)["rounds"]["engine"][2]).remove("then");
+    }
+);
+case!(
+    a_step_run_again_with_a_bound_of_none,
+    "rounds.engine[step_network] runs again with no bound",
+    |v| {
+        graph(v)["rounds"]["engine"][2]["inRow"] = json!(0);
     }
 );
