@@ -260,10 +260,7 @@ fn a_group_is_picked_by_the_pick_answered_for_by_two_cells_and_taken_apart_by_th
         let row = g.cell(id).unwrap().rows.iter().find(|r| r.name == "ask_owner").unwrap();
         assert!(row.actions.iter().any(|d| d.name() == "dissolve_group"), "{id}");
     }
-    let ret = |outcome: Value| {
-        serde_json::json!({ "outcome": outcome, "side_reports": [], "tell_owner": [], "progress": "p",
-                            "flow_feedback": "none" })
-    };
+    let ret = |outcome: Value| serde_json::json!({ "outcome": outcome, "tell_owner": [], "progress": "p", "flow_feedback": "none" });
     let takes = |cell: &str, outcome: Value| -> Result<String, String> {
         g.take(cell, &ret(outcome), &Map::new()).map(|r| r.name.clone())
     };

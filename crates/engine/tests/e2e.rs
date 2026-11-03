@@ -7607,6 +7607,13 @@ fn grouping(ids: &Arc<Mutex<Vec<i64>>>, take_in: Script) -> BTreeMap<&'static st
     agents
 }
 
+/// What [`reported`] gives: the engine, what it said, and the work and the matter of each side report.
+type Reported = (Engine, Arc<Mutex<Vec<String>>>, Vec<(i64, i64)>);
+
+/// What a matter stands as: the ask that holds it, the cell it goes back to with the answer, the matter that leads its
+/// group, the cell it goes on at and the round that handled it.
+type MatterState = (Option<i64>, Option<String>, Option<i64>, Option<String>, Option<i64>);
+
 /// Project p's architect over three side reports of three works, held so that nothing runs them, with an observation
 /// to merge into: the engine, what it said and the works of the reports with their matters. The scripts are those of
 /// [`grouping`] with `take_in` and the changes `on` makes to them; the numbers of the matters are put in `ids` for them.
@@ -7615,7 +7622,7 @@ fn reported(
     ids: &Arc<Mutex<Vec<i64>>>,
     take_in: Script,
     on: impl FnOnce(&mut BTreeMap<&'static str, Script>),
-) -> (Engine, Arc<Mutex<Vec<String>>>, Vec<(i64, i64)>) {
+) -> Reported {
     let mut agents = grouping(ids, take_in);
     on(&mut agents);
     let (mut e, said) = engine(s, agents);
@@ -7819,7 +7826,7 @@ fn a_group_falls_apart_when_the_owner_is_asked_about_its_first_matter() {
     );
     let log = said.lock().unwrap().join("\n");
     let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
-    let state = |m: i64| -> (Option<i64>, Option<String>, Option<i64>, Option<String>, Option<i64>) {
+    let state = |m: i64| -> MatterState {
         e.db.conn()
             .query_row(
                 "SELECT asked, resume_cell, group_lead, goes_on_at, handled_round FROM architect_matters WHERE id = ?1",
@@ -7901,9 +7908,15 @@ fn a_group_goes_on_to_its_second_cell_after_the_owner_s_words_and_a_new_session(
     let log = said.lock().unwrap().join("\n");
     let path = path_of(&e, arch);
     let count = |cell: &str| path.iter().filter(|c| *c == cell).count();
-    assert_eq!((count("H4"), count("H5"), count("H8")), (1, 1, 1), "{path:?}\n{log}");
-    let at = |cell: &str| path.iter().position(|c| c == cell).expect(&log);
-    assert!(at("H4") < at("H8") && at("H8") < at("H5"), "{path:?}\n{log}");
+    assert_eq!((count("H4"), count("H5")), (1, 1), "{path:?}\n{log}");
+    // The first round at the owner's words is the one that finds the session would start anew, which sends the work back
+    // to understand the project; the second answers the words. The group is taken in after both.
+    assert_eq!(rows_at(&e, arch, "H8"), ["session_anew", "done"], "{path:?}\n{log}");
+    let at = |cell: &str| path.iter().rposition(|c| c == cell).expect(&log);
+    assert!(
+        at("H4") < at("S1") && at("S1") < at("H8") && at("H8") < at("H5"),
+        "{path:?}\n{log}"
+    );
     assert_eq!(closed_by(&e, arch, "H5"), matters, "{log}");
     let back = message_at(&e, arch, "H5", false);
     let listed = work_from(&back).into_iter().next().unwrap_or_default();

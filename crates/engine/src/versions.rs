@@ -281,8 +281,7 @@ mod tests {
         Handed {
             round: RoundId::new(1, n),
             cell: cell.into(),
-            output: json!({ "outcome": outcome, "side_reports": [], "tell_owner": [], "progress": "p",
-                            "flow_feedback": "none" }),
+            output: json!({ "outcome": outcome, "tell_owner": [], "progress": "p", "flow_feedback": "none" }),
         }
     }
 
