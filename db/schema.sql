@@ -992,9 +992,10 @@ CREATE TABLE observations (
   id INTEGER PRIMARY KEY,
   -- The project it belongs to.
   project TEXT NOT NULL,
-  -- What is wrong, as a short phrase in English of at most 20 characters, spaces not counted, as the architect wrote it
-  -- when it recorded it; NULL for one recorded before observations had titles. Read by: the owner's interface, which
-  -- leads each row of a list of observations with it.
+  -- What is wrong, as a short phrase in the owner's language, at most `items.title_max` wide, spaces not counted and a
+  -- character of East Asian wide or full width counting 2, as the architect wrote it when it recorded it; NULL for one
+  -- recorded before observations had titles, which may be in English and of the width then allowed. Read by: the
+  -- owner's interface, which leads each row of a list of observations with it.
   title TEXT,
   -- What it is, why it is worth doing, and what happens if it is not done.
   what TEXT NOT NULL,

@@ -47,21 +47,40 @@ pub fn lifted(g: &CompiledGraph, cell: &CompiledCell, mut out: Value) -> Value {
     out
 }
 
+/// A return as the engine takes it, and what was done to it that the round records.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Taken {
+    pub out: Value,
+    /// Whether its form was taken from the JSON text of it.
+    pub from_text: bool,
+    /// The paths of the nulls left out because they were fields of a form other than the one the return is, as
+    /// `outcome.ask`; a field the cell lets a return leave out is not among them.
+    pub foreign_nulls: Vec<String>,
+}
+
 /// A return as the engine takes it, whichever way it came (the command line's, the last attempt of a run it gave up on,
 /// closed, repaired or handed in again): its form taken from the JSON text of it when the agent wrote it so
 /// ([`form_from_text`]), each field every return holds that it wrote inside the field of the forms moved up beside it
-/// ([`lifted`]), and a field the cell lets it leave out that it holds as null left out; with whether its form was taken
-/// from text, which the round records. Every return is taken this way, and the repair of one is checked as it is taken.
-pub fn as_taken(g: &CompiledGraph, cell: &CompiledCell, out: Value) -> (Value, bool) {
+/// ([`lifted`]), and a field the cell lets it leave out that it holds as null left out, as is a null in a field of
+/// another form than the one the return is ([`flow::without_null_options`]); with whether its form was taken from text
+/// and which of those nulls were left out, which the round records. Every return is taken this way, and the repair of
+/// one is checked as it is taken.
+pub fn as_taken(g: &CompiledGraph, cell: &CompiledCell, out: Value) -> Taken {
     let (out, from_text) = match form_from_text(g, &out) {
         Some(taken) => (taken, true),
         None => (out, false),
     };
     let mut out = lifted(g, cell, out);
-    if let Some(s) = &cell.schema {
-        flow::without_null_options(s, &mut out);
+    let foreign_nulls = cell
+        .schema
+        .as_ref()
+        .map(|s| flow::without_null_options(s, &mut out))
+        .unwrap_or_default();
+    Taken {
+        out,
+        from_text,
+        foreign_nulls,
     }
-    (out, from_text)
 }
 
 /// A return whose field the forms are under holds a string holding the JSON of an object, as the model writes it at
@@ -557,22 +576,29 @@ mod tests {
         for after in ["", "}", " }\n", "}]", "}}"] {
             let ret = with(format!("{answer}{after}"));
             assert!(!flow::valid(&schema, &ret));
-            let (taken, from_text) = as_taken(g, cell, ret);
-            assert!(from_text, "{after:?}");
-            assert_eq!(taken["outcome"], answer, "{after:?}");
-            assert!(flow::valid(&schema, &taken), "{taken}");
+            let taken = as_taken(g, cell, ret);
+            assert!(taken.from_text, "{after:?}");
+            assert_eq!(taken.out["outcome"], answer, "{after:?}");
+            assert!(flow::valid(&schema, &taken.out), "{}", taken.out);
         }
         for after in ["}x", ",", "{}", "\"\""] {
             let ret = with(format!("{answer}{after}"));
             assert_eq!(form_from_text(g, &ret), None, "{after:?}");
-            let (taken, from_text) = as_taken(g, cell, ret.clone());
-            assert!(!from_text && taken == ret, "{after:?}");
+            let taken = as_taken(g, cell, ret.clone());
+            assert!(!taken.from_text && taken.out == ret, "{after:?}");
         }
         assert_eq!(form_from_text(g, &with("[1, 2]".into())), None);
         assert_eq!(form_from_text(g, &with("the design".into())), None);
         // A form handed in as an object is taken as it is.
         let mut whole = with(String::new());
         whole["outcome"] = answer;
-        assert_eq!(as_taken(g, cell, whole.clone()), (whole, false));
+        assert_eq!(
+            as_taken(g, cell, whole.clone()),
+            Taken {
+                out: whole,
+                from_text: false,
+                foreign_nulls: Vec::new()
+            }
+        );
     }
 }

@@ -16,6 +16,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use crate::shape::{Shape, required_of};
+
 /// What the engine asks of one round.
 #[derive(Debug, Clone)]
 pub struct Request {
@@ -125,11 +127,32 @@ pub struct Refused {
     pub why: Option<String>,
 }
 
+/// Where a return was read from: only the tool's input has been checked against the schema the command line was given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// The input of the `StructuredOutput` tool, which the command line checked against its schema.
+    Tool,
+    /// The JSON in the text of the run's result, which no check of the command line saw.
+    Text,
+}
+
+impl Source {
+    /// The word the round's record keeps for it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Source::Tool => "tool",
+            Source::Text => "text",
+        }
+    }
+}
+
 /// What a round came to.
 #[derive(Debug, Clone, Default)]
 pub struct Reply {
     /// The return; none when the run handed in nothing that parses.
     pub output: Option<Value>,
+    /// Where the return was read from; none when there is none.
+    pub output_from: Option<Source>,
     /// The CLI's session the round ran in.
     pub session: String,
     pub model: Option<String>,
@@ -586,6 +609,7 @@ impl Claude {
                 stream.end(&mut reply);
                 // Whatever the stream gave before it was stopped is not a return, and the run's own end was not read.
                 reply.output = None;
+                reply.output_from = None;
                 reply.error = Some(why);
                 return reply;
             }
@@ -990,15 +1014,19 @@ fn activity_of_value(v: &Value) -> Option<String> {
 /// of some lines holds (`tell_owner`) is one another line's agents must not hand in, which the schema the CLI gives the
 /// model would otherwise offer them. It holds a return's top-level fields: the short fields every return holds first,
 /// each with only its type, and the field an agent's forms are under last, so that only closing brackets come after
-/// the long answer; that field with the [`shape`] of every form of every agent's cell of the line taken together
-/// ([`merged`]), each object with its fields and each list with its items, down to every value. It refuses what no
-/// agent's cell of the line takes, as far as types and fields tell: an object requires the fields every one of its
+/// the long answer; that field with the [`Shape`] of every form of every agent's cell of the line taken together
+/// ([`Shape::merged`]), each object with its fields and each list with its items, down to every value. It refuses what
+/// no agent's cell of the line takes, as far as types and fields tell: an object requires the fields every one of its
 /// alternatives requires, at the top those every agent's cell of the line requires, and a
 /// field some forms leave out unless the return is one of those forms ([`unless_left_out`]: `progress`, which `tools`
 /// and `search` leave out, so that a return of the architect's `B4` without it, which a trial's engine sent back, is
 /// refused by the command line); and it takes no field beyond those it lists when none of its alternatives does, the
 /// field of the forms included, so that a field written inside the form it does not belong to is refused, and a field
-/// every return holds written inside the field of the forms is too. Each form that has a field no other form of the
+/// every return holds written inside the field of the forms is too. A union below the field of the forms, whose
+/// branches fix one field to a value of their own (a deviation of the kind `surprise` or `workaround`), keeps its
+/// branches in the schema ([`crate::shape::Split`]): a value that fixes the field requires what its branch requires and takes no
+/// field the branch does not take, so that `why` written in a `surprise` is refused naming it, where the fields of all
+/// branches taken together accept it. Each form that has a field no other form of the
 /// line has is told apart by it, and then requires what that form requires and takes no field it does not take
 /// ([`told_apart`]), so that a return of a cell's own answer without a field the answer requires is refused naming it,
 /// as `why` of the engineer's `D2`, which no other form has and which the shape of every form taken together cannot
@@ -1044,8 +1072,9 @@ pub fn envelope(g: &flow::CompiledGraph, line: Option<&str>) -> Value {
     let forms = schemas
         .iter()
         .filter_map(|s| s.get("properties")?.get(&g.within))
-        .map(shape)
-        .reduce(|a, b| merged(&a, &b));
+        .map(Shape::of)
+        .reduce(|a, b| a.merged(&b))
+        .map(|f| f.schema());
     let mut within = serde_json::Map::new();
     within.insert("type".into(), json!("object"));
     within.insert("description".into(), json!(desc));
@@ -1054,7 +1083,12 @@ pub fn envelope(g: &flow::CompiledGraph, line: Option<&str>) -> Value {
             within.insert(k.into(), v.clone());
         }
     }
-    let rules = told_apart(&forms_of(&schemas, &g.within));
+    let mut rules: Vec<Value> = forms
+        .as_ref()
+        .and_then(|f| f.get("allOf")?.as_array())
+        .cloned()
+        .unwrap_or_default();
+    rules.extend(told_apart(&forms_of(&schemas, &g.within)));
     if !rules.is_empty() {
         within.insert("allOf".into(), Value::Array(rules));
     }
@@ -1120,35 +1154,27 @@ fn unless_left_out(within: &str, groups: &[(Vec<String>, Vec<String>)]) -> Optio
     Some(rule)
 }
 
-/// Every form of the agents' cells of a graph, each as its [`shape`], in the order the cells give them: each of the
-/// alternatives of a cell's field of the forms, those with the same fields taken together as one ([`merged`]), as the
-/// `tools` of cells that may run different tools.
-fn forms_of(schemas: &[&Value], within: &str) -> Vec<Value> {
-    let mut out: Vec<(Vec<String>, Value)> = Vec::new();
+/// Every form of the agents' cells of a graph, each as its [`Shape`], in the order the cells give them: each of the
+/// alternatives of a cell's field of the forms, those with the same fields taken together as one ([`Shape::merged`]),
+/// as the `tools` of cells that may run different tools.
+fn forms_of(schemas: &[&Value], within: &str) -> Vec<Shape> {
+    let mut out: Vec<(Vec<String>, Shape)> = Vec::new();
     for s in schemas.iter().filter_map(|s| s.get("properties")?.get(within)) {
         let alts: Vec<&Value> = match ["anyOf", "oneOf"].iter().find_map(|k| s.get(*k)?.as_array()) {
             Some(xs) => xs.iter().collect(),
             None => vec![s],
         };
         for a in alts {
-            let form = shape(a);
-            let mut fields = fields_of(&form);
+            let form = Shape::of(a);
+            let mut fields: Vec<String> = form.field_names().into_iter().map(str::to_string).collect();
             fields.sort();
             match out.iter_mut().find(|(f, _)| *f == fields) {
-                Some((_, x)) => *x = merged(x, &form),
+                Some((_, x)) => *x = x.merged(&form),
                 None => out.push((fields, form)),
             }
         }
     }
     out.into_iter().map(|(_, f)| f).collect()
-}
-
-/// The fields a shape lists, in its order.
-fn fields_of(s: &Value) -> Vec<String> {
-    s.get("properties")
-        .and_then(Value::as_object)
-        .map(|p| p.keys().cloned().collect())
-        .unwrap_or_default()
 }
 
 /// For each form with a field no other form has, the rule that a value of the field of the forms holding one of those
@@ -1158,15 +1184,16 @@ fn fields_of(s: &Value) -> Vec<String> {
 /// 'why', /outcome: must match \"then\" schema", as tried with 2.1.312), where an `anyOf` of the forms is refused with
 /// the faults of every form (some 150 for a return of `D2` without `why` in the engineer's graph). A form all of whose
 /// fields another form has too has no rule. An object a keyword reads says it is one, as in [`unless_left_out`].
-fn told_apart(forms: &[Value]) -> Vec<Value> {
-    let fields: Vec<Vec<String>> = forms.iter().map(fields_of).collect();
+fn told_apart(forms: &[Shape]) -> Vec<Value> {
+    let fields: Vec<Vec<&str>> = forms.iter().map(Shape::field_names).collect();
     let mut rules = Vec::new();
     for (i, form) in forms.iter().enumerate() {
-        let own: Vec<&String> = fields[i]
+        let own: Vec<&str> = fields[i]
             .iter()
+            .copied()
             .filter(|k| fields.iter().enumerate().all(|(j, o)| j == i || !o.contains(k)))
             .collect();
-        let has = |k: &&String| json!({ "type": "object", "required": [k] });
+        let has = |k: &&str| json!({ "type": "object", "required": [k] });
         let when = match own.as_slice() {
             [] => continue,
             [one] => has(one),
@@ -1174,12 +1201,11 @@ fn told_apart(forms: &[Value]) -> Vec<Value> {
         };
         let mut then = serde_json::Map::new();
         then.insert("type".into(), json!("object"));
-        let required = required_of(form);
-        if !required.is_empty() {
-            then.insert("required".into(), json!(required));
+        if !form.required.is_empty() {
+            then.insert("required".into(), json!(form.required));
         }
-        if closed(form) {
-            let taken: serde_json::Map<String, Value> = fields[i].iter().map(|k| (k.clone(), json!({}))).collect();
+        if form.closed {
+            let taken: serde_json::Map<String, Value> = fields[i].iter().map(|k| (k.to_string(), json!({}))).collect();
             then.insert("properties".into(), Value::Object(taken));
             then.insert("additionalProperties".into(), json!(false));
         }
@@ -1188,179 +1214,6 @@ fn told_apart(forms: &[Value]) -> Vec<Value> {
         }
     }
     rules
-}
-
-/// The shape of a part of a cell's schema: the type of each value, each object with all its fields, those it requires
-/// and whether it takes no other, and each list with its items, and nothing else; alternatives taken together as one
-/// ([`merged`]). A value with no type of its own takes that of its fixed value or of all its values; a field its object
-/// may leave out may also be null, which the engine takes as the field left out.
-fn shape(s: &Value) -> Value {
-    let Some(o) = s.as_object() else { return json!({}) };
-    let mut out = serde_json::Map::new();
-    if let Some(t) = type_of(o) {
-        out.insert("type".into(), t);
-    }
-    if let Some(ps) = o.get("properties").and_then(Value::as_object) {
-        let required = required_of(s);
-        let fields: serde_json::Map<String, Value> = ps
-            .iter()
-            .map(|(k, p)| {
-                let mut x = shape(p);
-                if !required.contains(&k.as_str()) {
-                    or_null(&mut x);
-                }
-                (k.clone(), x)
-            })
-            .collect();
-        out.insert("properties".into(), Value::Object(fields));
-        let listed: Vec<&String> = ps.keys().filter(|k| required.contains(&k.as_str())).collect();
-        if !listed.is_empty() {
-            out.insert("required".into(), json!(listed));
-        }
-    }
-    if closed(s) {
-        out.insert("additionalProperties".into(), json!(false));
-    }
-    if let Some(it) = o.get("items") {
-        out.insert("items".into(), shape(it));
-    }
-    let alts = ["anyOf", "oneOf"]
-        .iter()
-        .filter_map(|k| o.get(*k)?.as_array())
-        .flatten()
-        .map(shape)
-        .reduce(|a, b| merged(&a, &b));
-    match alts {
-        Some(a) if out.is_empty() => a,
-        Some(a) => merged(&Value::Object(out), &a),
-        None => Value::Object(out),
-    }
-}
-
-/// A schema's own type, or that of its fixed value or of all its values when they share one.
-fn type_of(o: &serde_json::Map<String, Value>) -> Option<Value> {
-    if let Some(t) = o.get("type") {
-        return Some(t.clone());
-    }
-    let values = o
-        .get("const")
-        .into_iter()
-        .chain(o.get("enum").and_then(Value::as_array).into_iter().flatten());
-    let mut types: Vec<&str> = Vec::new();
-    for v in values {
-        let t = match v {
-            Value::Null => "null",
-            Value::Bool(_) => "boolean",
-            Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
-            Value::Number(_) => "number",
-            Value::String(_) => "string",
-            Value::Array(_) => "array",
-            Value::Object(_) => "object",
-        };
-        if !types.contains(&t) {
-            types.push(t);
-        }
-    }
-    match types.as_slice() {
-        [one] => Some(json!(one)),
-        _ => None,
-    }
-}
-
-/// The types a shape's type names, in order.
-fn types(t: &Value) -> Vec<&str> {
-    match t {
-        Value::String(s) => vec![s.as_str()],
-        Value::Array(xs) => xs.iter().filter_map(Value::as_str).collect(),
-        _ => Vec::new(),
-    }
-}
-
-/// A shape that may also be null; one of no type is left as it is, as it may be anything.
-fn or_null(x: &mut Value) {
-    let Some(t) = x.get("type") else { return };
-    let mut ts: Vec<&str> = types(t);
-    if !ts.contains(&"null") {
-        ts.push("null");
-    }
-    let ts = json!(ts);
-    x["type"] = ts;
-}
-
-/// The fields a schema or a shape requires of an object.
-fn required_of(s: &Value) -> Vec<&str> {
-    s.get("required")
-        .and_then(Value::as_array)
-        .map(|r| r.iter().filter_map(Value::as_str).collect())
-        .unwrap_or_default()
-}
-
-/// Whether a schema or a shape takes no field of an object beyond those it lists.
-fn closed(s: &Value) -> bool {
-    s.get("additionalProperties") == Some(&Value::Bool(false))
-}
-
-/// Whether a shape may be an object: it names that type, or none, as it may be anything.
-fn takes_object(s: &Value) -> bool {
-    s.get("type").is_none_or(|t| types(t).contains(&"object"))
-}
-
-/// Two shapes taken together, as alternatives of one value: the types of both, the fields of both, a field both have
-/// taken together too, and the items of both lists taken together; of no type when either is, as it may be anything.
-/// Of the shapes that may be an object, the fields all of them require are required, and no other field is taken when
-/// none of them takes one.
-fn merged(a: &Value, b: &Value) -> Value {
-    let mut out = serde_json::Map::new();
-    if let (Some(x), Some(y)) = (a.get("type"), b.get("type")) {
-        let mut ts: Vec<&str> = types(x);
-        for t in types(y) {
-            if !ts.contains(&t) {
-                ts.push(t);
-            }
-        }
-        out.insert(
-            "type".into(),
-            match ts.as_slice() {
-                [one] => json!(one),
-                _ => json!(ts),
-            },
-        );
-    }
-    let (pa, pb) = (a.get("properties"), b.get("properties"));
-    if pa.is_some() || pb.is_some() {
-        let mut fields = pa.and_then(Value::as_object).cloned().unwrap_or_default();
-        for (k, v) in pb.and_then(Value::as_object).into_iter().flatten() {
-            let x = match fields.get(k) {
-                Some(f) => merged(f, v),
-                None => v.clone(),
-            };
-            fields.insert(k.clone(), x);
-        }
-        out.insert("properties".into(), Value::Object(fields));
-    }
-    let objects: Vec<&Value> = [a, b].into_iter().filter(|s| takes_object(s)).collect();
-    if let Some(first) = objects.first() {
-        let required: Vec<&str> = required_of(first)
-            .into_iter()
-            .filter(|k| objects.iter().all(|s| required_of(s).contains(k)))
-            .collect();
-        if !required.is_empty() {
-            out.insert("required".into(), json!(required));
-        }
-        if objects.iter().all(|s| closed(s)) {
-            out.insert("additionalProperties".into(), json!(false));
-        }
-    }
-    match (a.get("items"), b.get("items")) {
-        (Some(x), Some(y)) => {
-            out.insert("items".into(), merged(x, y));
-        }
-        (Some(x), None) | (None, Some(x)) => {
-            out.insert("items".into(), x.clone());
-        }
-        (None, None) => {}
-    }
-    Value::Object(out)
 }
 
 /// Reads what `claude -p --output-format stream-json` printed: the compactions on the way, and the result at the end.
@@ -1428,7 +1281,13 @@ pub fn read_stream(text: &str, reply: &mut Reply) {
                 }
                 reply.result = v["result"].as_str().map(str::to_string);
                 let structured = v.get("structured_output").filter(|s| !s.is_null()).cloned();
-                reply.output = structured.or_else(|| v["result"].as_str().and_then(json_in));
+                (reply.output, reply.output_from) = match structured {
+                    Some(s) => (Some(s), Some(Source::Tool)),
+                    None => match v["result"].as_str().and_then(json_in) {
+                        Some(s) => (Some(s), Some(Source::Text)),
+                        None => (None, None),
+                    },
+                };
             }
             _ => {}
         }
@@ -1805,7 +1664,7 @@ mod tests {
                     .filter(|c| c.kind == "agent" && c.line.as_deref() == line)
                 {
                     let schema = c.schema.as_ref().unwrap();
-                    let form = shape(&schema["properties"][&g.within]);
+                    let form = Shape::of(&schema["properties"][&g.within]).schema();
                     assert_eq!(beyond(&form, within, ""), None, "cell {}", c.id);
                     for k in schema["properties"].as_object().unwrap().keys() {
                         assert!(s["properties"].get(k).is_some(), "cell {}: {k}", c.id);
@@ -1819,11 +1678,14 @@ mod tests {
     }
 
     /// Where a return does not fit the envelope, as the command line checks it and in its words: a value of a type the
-    /// schema does not name, a field required and missing, or a field its object takes no more of, and what the `then`
-    /// or the `else` of an `if` requires; none when it fits. A value fits `not` when it does not fit what it holds,
-    /// `anyOf` when it fits one of them, and `allOf` when it fits each.
+    /// schema does not name or other than the one it fixes, a field required and missing, or a field its object takes no
+    /// more of, and what the `then` or the `else` of an `if` requires; none when it fits. A value fits `not` when it
+    /// does not fit what it holds, `anyOf` when it fits one of them, and `allOf` when it fits each.
     fn refused(s: &Value, x: &Value, at: &str) -> Option<String> {
         let here = if at.is_empty() { "root" } else { at };
+        if s.get("const").is_some_and(|c| c != x) {
+            return Some(format!("{here}: must be equal to constant"));
+        }
         if let Some(c) = s.get("if") {
             let branch = if refused(c, x, at).is_none() { "then" } else { "else" };
             if let Some(why) = s.get(branch).and_then(|b| refused(b, x, at)) {
@@ -2063,6 +1925,422 @@ mod tests {
         assert!(mixed.contains("is not allowed"), "{mixed}");
     }
 
+    /// The sample returns of the engineer's graph, by cell: one for each row of each cell.
+    fn samples() -> BTreeMap<String, Vec<Value>> {
+        serde_json::from_str(include_str!("../../flow/tests/samples.json")).unwrap()
+    }
+
+    /// The engineer's `I1` return that is done, with its deviations as given.
+    fn done_with(deviations: Value) -> Value {
+        let mut ret = samples()["I1"][2]["json"].clone();
+        ret["outcome"]["deviations"] = deviations;
+        ret
+    }
+
+    // In the engineer's trial a `surprise` row of the deviations carried `why`, which only the other kinds take, eight
+    // times (R227-21 among them): the schema the command line was given took the fields of the three kinds together,
+    // the engine sent the return back and a whole round was spent each time. A union whose branches fix a field now
+    // keeps its branches: a `surprise` with `why` is refused naming `why`, and taken without it; a `workaround` and a
+    // `design_changed` without `why` are refused naming it, and taken with it.
+    #[test]
+    fn a_deviation_with_a_field_of_another_kind_is_refused_by_the_command_line_naming_it() {
+        let f = compiled();
+        let g = f.graph("engineer").unwrap();
+        let s = envelope(g, Some("engineer"));
+        let schema = g.cell("I1").unwrap().schema.clone().unwrap();
+        let row = |kind: &str, why: Option<&str>| {
+            let mut r = json!({ "kind": kind, "what": "A thing" });
+            if let Some(w) = why {
+                r["why"] = json!(w);
+            }
+            done_with(json!([r]))
+        };
+        let with = row("surprise", Some("Because"));
+        assert!(!flow::valid(&schema, &with));
+        assert_eq!(
+            refused(&s, &with, "").as_deref(),
+            Some("/outcome/deviations/0: must NOT have additional properties ('why' is not allowed)")
+        );
+        for (kind, why, taken) in [
+            ("surprise", None, true),
+            ("workaround", None, false),
+            ("workaround", Some("Because"), true),
+            ("design_changed", None, false),
+            ("design_changed", Some("Because"), true),
+        ] {
+            let ret = row(kind, why);
+            assert_eq!(flow::valid(&schema, &ret), taken, "{kind} {why:?}");
+            let refusal = refused(&s, &ret, "");
+            assert_eq!(refusal.is_none(), taken, "{kind} {why:?}: {refusal:?}");
+            if !taken {
+                let refusal = refusal.unwrap();
+                assert!(refusal.contains("'why'"), "{refusal}");
+            }
+        }
+        // Every row of a list is checked, not the first alone.
+        let mixed = done_with(json!([
+            { "kind": "surprise", "what": "A" },
+            { "kind": "workaround", "what": "B", "why": "C" },
+            { "kind": "surprise", "what": "D", "why": "E" },
+        ]));
+        assert_eq!(
+            refused(&s, &mixed, "").as_deref(),
+            Some("/outcome/deviations/2: must NOT have additional properties ('why' is not allowed)")
+        );
+    }
+
+    // `considered` belongs to the branch `present_best` of the design's second look (R242-15 handed it in with `found`):
+    // the command line refuses it with `found`, naming it, and takes it with `present_best`.
+    #[test]
+    fn a_better_design_found_with_the_approaches_considered_is_refused_by_the_command_line() {
+        let f = compiled();
+        let g = f.graph("engineer").unwrap();
+        let s = envelope(g, Some("engineer"));
+        let schema = g.cell("D3").unwrap().schema.clone().unwrap();
+        let mut ret = samples()["D3"][0]["json"].clone();
+        assert_eq!(ret["outcome"]["better"]["verdict"], "present_best");
+        assert_eq!(refused(&s, &ret, ""), None);
+        assert!(flow::valid(&schema, &ret));
+        ret["outcome"]["better"] = json!({
+            "verdict": "found", "what": "A better one", "why": "It is simpler", "considered": ["Another"],
+        });
+        assert!(!flow::valid(&schema, &ret));
+        assert_eq!(
+            refused(&s, &ret, "").as_deref(),
+            Some("/outcome/better: must NOT have additional properties ('considered' is not allowed)")
+        );
+        ret["outcome"]["better"]
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("considered");
+        assert!(flow::valid(&schema, &ret));
+        assert_eq!(refused(&s, &ret, ""), None);
+    }
+
+    // A null in a field of a form the return is not (`ask: null` beside a `brief`, R241-2 and R262-2; `why: null` in a
+    // `surprise`) is refused by the command line, which the agent puts right within its run; a return the command line
+    // did not check reaches the engine with it, which takes it as left out, so that the return fits the cell's schema,
+    // and gives the path of each such null. A null in a field the return's own form requires, a value of nothing but
+    // nulls, and a null in a field the form may leave out (which is left out as ever) are not among them.
+    #[test]
+    fn a_null_in_a_field_of_another_form_is_refused_by_the_command_line_and_left_out_by_the_engine() {
+        let f = compiled();
+        let g = f.graph("engineer").unwrap();
+        let s = envelope(g, Some("engineer"));
+        let schema = g.cell("I1").unwrap().schema.clone().unwrap();
+        let mut surprise = done_with(json!([{ "kind": "surprise", "what": "A thing", "why": null }]));
+        assert!(refused(&s, &surprise, "").is_some_and(|r| r.contains("'why'")));
+        assert!(!flow::valid(&schema, &surprise));
+        assert_eq!(
+            flow::without_null_options(&schema, &mut surprise),
+            ["outcome.deviations[0].why"]
+        );
+        assert!(flow::valid(&schema, &surprise), "{surprise}");
+        // The same two lines of a `brief` of the reader of the history.
+        let reader = envelope(g, Some("librarian"));
+        let brief_schema = g.cell("G1").unwrap().schema.clone().unwrap();
+        let mut brief = samples()["G1"][0]["json"].clone();
+        brief["outcome"]["ask"] = Value::Null;
+        assert!(refused(&reader, &brief, "").is_some_and(|r| r.contains("ask")));
+        assert!(!flow::valid(&brief_schema, &brief));
+        assert_eq!(flow::without_null_options(&brief_schema, &mut brief), ["outcome.ask"]);
+        assert!(flow::valid(&brief_schema, &brief), "{brief}");
+        // What the form requires is not left out.
+        let mut required = done_with(json!([{ "kind": "workaround", "what": "A thing", "why": null }]));
+        assert!(refused(&s, &required, "").is_some());
+        assert_eq!(flow::without_null_options(&schema, &mut required), Vec::<String>::new());
+        assert!(!flow::valid(&schema, &required));
+        // A value of nothing but nulls is no form's.
+        let mut only = samples()["G1"][0]["json"].clone();
+        only["outcome"] = json!({ "ask": null });
+        assert_eq!(
+            flow::without_null_options(&brief_schema, &mut only),
+            Vec::<String>::new()
+        );
+        assert!(!flow::valid(&brief_schema, &only));
+        // A field the form may leave out is taken by the command line as null, left out by the engine, and not told.
+        let mut optional = samples()["I1"][2]["json"].clone();
+        optional["outcome"]["followup"] = Value::Null;
+        assert_eq!(refused(&s, &optional, ""), None);
+        assert!(!flow::valid(&schema, &optional));
+        assert_eq!(flow::without_null_options(&schema, &mut optional), Vec::<String>::new());
+        assert!(optional["outcome"].get("followup").is_none());
+        assert!(flow::valid(&schema, &optional), "{optional}");
+    }
+
+    // Tightening the schema refuses nothing a cell takes: every sample return of the engineer's graph, one for each row
+    // of each agent's cell, is taken by the schema of the line of its cell.
+    #[test]
+    fn every_sample_is_taken_by_the_schema_of_its_line() {
+        let f = compiled();
+        let g = f.graph("engineer").unwrap();
+        let mut taken = 0;
+        for (cell, xs) in samples() {
+            let c = g.cell(&cell).unwrap();
+            if c.kind != "agent" {
+                continue;
+            }
+            let s = envelope(g, c.line.as_deref());
+            for x in xs {
+                assert_eq!(refused(&s, &x["json"], ""), None, "a sample of {cell}: {}", x["json"]);
+                taken += 1;
+            }
+        }
+        assert!(taken >= 20, "{taken}");
+    }
+
+    /// A smallest value of a cell's schema: what it fixes, else its first value or alternative, the fields it
+    /// requires, and as many items as it must hold.
+    fn minimal(s: &Value) -> Value {
+        if let Some(c) = s.get("const") {
+            return c.clone();
+        }
+        if let Some(e) = s.get("enum").and_then(Value::as_array) {
+            return e[0].clone();
+        }
+        if let Some(alts) = ["oneOf", "anyOf"].iter().find_map(|k| s.get(*k)?.as_array()) {
+            return minimal(&alts[0]);
+        }
+        match s.get("type").and_then(Value::as_str) {
+            Some("string") => json!("x"),
+            Some("integer") => json!(1),
+            Some("boolean") => json!(true),
+            Some("array") => {
+                let n = s.get("minItems").and_then(Value::as_u64).unwrap_or(0);
+                Value::Array((0..n).map(|_| minimal(&s["items"])).collect())
+            }
+            _ => {
+                let required = required_of(s);
+                let mut o = serde_json::Map::new();
+                for (k, p) in s.get("properties").and_then(Value::as_object).into_iter().flatten() {
+                    if required.contains(&k.as_str()) {
+                        o.insert(k.clone(), minimal(p));
+                    }
+                }
+                Value::Object(o)
+            }
+        }
+    }
+
+    /// A union in an agent's cell's schema whose branches all fix one field to a value of their own: the fields and
+    /// list items down to it (`None` for an item), the field, and each branch with the value it fixes.
+    struct Union<'a> {
+        at: Vec<Option<&'a str>>,
+        by: &'a str,
+        branches: Vec<(&'a Value, &'a Value)>,
+    }
+
+    /// The value an alternative fixes a field to.
+    fn fixed<'a>(a: &'a Value, k: &str) -> Option<&'a Value> {
+        a.get("properties")?.get(k)?.get("const")
+    }
+
+    /// Every such union in a schema, each with where it is.
+    fn unions<'a>(s: &'a Value, at: &mut Vec<Option<&'a str>>, out: &mut Vec<Union<'a>>) {
+        if let Some(alts) = ["oneOf", "anyOf"].iter().find_map(|k| s.get(*k)?.as_array()) {
+            let first = alts.first().and_then(|a| a.get("properties")?.as_object());
+            let by = first
+                .into_iter()
+                .flatten()
+                .map(|(k, _)| k.as_str())
+                .find(|k| alts.iter().all(|a| fixed(a, k).is_some()));
+            if let Some(by) = by {
+                out.push(Union {
+                    at: at.clone(),
+                    by,
+                    branches: alts.iter().filter_map(|a| Some((fixed(a, by)?, a))).collect(),
+                });
+            }
+            for a in alts {
+                unions(a, at, out);
+            }
+        }
+        if let Some(ps) = s.get("properties").and_then(Value::as_object) {
+            for (k, p) in ps {
+                at.push(Some(k.as_str()));
+                unions(p, at, out);
+                at.pop();
+            }
+        }
+        if let Some(it) = s.get("items") {
+            at.push(None);
+            unions(it, at, out);
+            at.pop();
+        }
+    }
+
+    /// The parts of a cell's schema at the fields and items given, through the alternatives of each part on the way.
+    fn places<'a>(s: &'a Value, at: &[Option<&str>]) -> Vec<&'a Value> {
+        let Some((step, rest)) = at.split_first() else {
+            return vec![s];
+        };
+        let alts: Vec<&Value> = ["oneOf", "anyOf"]
+            .iter()
+            .filter_map(|k| s.get(*k)?.as_array())
+            .flatten()
+            .collect();
+        let parts = if alts.is_empty() { vec![s] } else { alts };
+        let mut out = Vec::new();
+        for part in parts {
+            let next = match step {
+                Some(k) => part.get("properties").and_then(|p| p.get(*k)),
+                None => part.get("items"),
+            };
+            if let Some(n) = next {
+                out.extend(places(n, rest));
+            }
+        }
+        out
+    }
+
+    /// The part of an envelope at the fields and items given.
+    fn down<'a>(s: &'a Value, at: &[Option<&str>]) -> Option<&'a Value> {
+        at.iter().try_fold(s, |s, step| match step {
+            Some(k) => s.get("properties")?.get(*k),
+            None => s.get("items"),
+        })
+    }
+
+    // Each branch of every union of every agent's cell, of every graph, is told apart on its line: a value of the
+    // branch with only the fields the branch requires is taken by the line's schema (so that tightening it refuses
+    // nothing a cell takes, whichever cell the branch is of), and the same value with a field of another branch of the
+    // union, which no cell of the line has in this branch, is refused. The branches are read from the cells' own
+    // schemas, not from the generated one.
+    #[test]
+    fn each_branch_of_every_union_is_told_apart_on_its_line() {
+        let f = compiled();
+        let (mut taken, mut refused_with) = (0, 0);
+        // The places of unions whose branches are not told apart on the line, for the reason below: listed, so that a
+        // union that stops being told apart anywhere else is found by this test.
+        let mut skipped: BTreeSet<String> = BTreeSet::new();
+        for g in &f.graphs {
+            for line in lines_of(g) {
+                let env = envelope(g, line);
+                let cells: Vec<&flow::CompiledCell> = g
+                    .cells
+                    .iter()
+                    .filter(|c| c.kind == "agent" && c.line.as_deref() == line)
+                    .collect();
+                let found: Vec<(&str, Vec<Union<'_>>)> = cells
+                    .iter()
+                    .map(|c| {
+                        let mut out = Vec::new();
+                        unions(c.schema.as_ref().unwrap(), &mut Vec::new(), &mut out);
+                        (c.id.as_str(), out)
+                    })
+                    .collect();
+                for (cell, us) in &found {
+                    for u in us {
+                        let place = || format!("graph {}, cell {cell}, at {:?} by {}", g.name, u.at, u.by);
+                        let sub = down(&env, &u.at).unwrap_or_else(|| panic!("{}: no such part", place()));
+                        for (value, branch) in &u.branches {
+                            let example = minimal(branch);
+                            assert_eq!(
+                                refused(sub, &example, ""),
+                                None,
+                                "{}: {value} taken as {example}",
+                                place()
+                            );
+                            taken += 1;
+                            // The fields this value has in a branch of a cell of the line at this place.
+                            let mut has: BTreeSet<&str> = BTreeSet::new();
+                            for (_, vs) in &found {
+                                for v in vs.iter().filter(|v| v.at == u.at && v.by == u.by) {
+                                    for (w, b) in &v.branches {
+                                        if w == value {
+                                            has.extend(
+                                                b["properties"]
+                                                    .as_object()
+                                                    .into_iter()
+                                                    .flatten()
+                                                    .map(|(k, _)| k.as_str()),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            // Taken with a value that is no such union, a union keeps no branches (the design's merge:
+                            // the line must take what either cell does): `answer` of the architect's `H8` is a union
+                            // by `way`, and of another of its cells a plain object holding `why`. So the branches
+                            // are told apart only where every cell of the line that has a value at this place has
+                            // this union there.
+                            let here = cells
+                                .iter()
+                                .flat_map(|c| places(c.schema.as_ref().unwrap(), &u.at))
+                                .count();
+                            let unions_here = found
+                                .iter()
+                                .flat_map(|(_, vs)| vs)
+                                .filter(|v| v.at == u.at && v.by == u.by)
+                                .count();
+                            if here != unions_here {
+                                skipped.insert(place());
+                            }
+                            let foreign = u
+                                .branches
+                                .iter()
+                                .filter(|(w, _)| w != value && here == unions_here)
+                                .flat_map(|(_, b)| b["properties"].as_object().into_iter().flatten())
+                                .find(|(k, _)| !has.contains(k.as_str()));
+                            if let Some((k, p)) = foreign {
+                                let mut other = example.clone();
+                                other[k] = minimal(p);
+                                assert!(
+                                    refused(sub, &other, "").is_some(),
+                                    "{}: {value} takes {k} of another branch: {other}",
+                                    place()
+                                );
+                                refused_with += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(taken > 20 && refused_with > 5, "{taken} {refused_with}");
+        // The one union whose branches are not told apart on its line: `answer` of the architect's `H8`, a union by
+        // `way` there and a plain object in another cell of the line, so that the merge keeps no branches (it must take
+        // what either cell does). A union that stops being told apart anywhere else, or this one that starts to be,
+        // changes the list and fails here.
+        assert_eq!(
+            skipped.into_iter().collect::<Vec<_>>(),
+            ["graph architect, cell H8, at [Some(\"outcome\"), Some(\"answer\")] by way"]
+        );
+    }
+
+    // A line's schema is the same each time it is made, and from the flow as the engine reads it back from what it
+    // stored, so that it is the same for every cell and every round of the line, which keeps the session's cache.
+    #[test]
+    fn a_lines_schema_is_the_same_each_time_it_is_made() {
+        let f = compiled();
+        let back: flow::Compiled = serde_json::from_str(&f.json()).unwrap();
+        for (g, h) in f.graphs.iter().zip(&back.graphs) {
+            for line in lines_of(g) {
+                let once = envelope(g, line).to_string();
+                assert_eq!(once, envelope(g, line).to_string(), "graph {}", g.name);
+                assert_eq!(once, envelope(h, line).to_string(), "graph {} as stored", g.name);
+            }
+        }
+    }
+
+    // A return says where it was read from: the tool's input, which the command line checked against its schema, or the
+    // JSON in the text of the result, which it did not; none for a run that handed in none.
+    #[test]
+    fn a_return_says_where_it_was_read_from() {
+        let read = |result: &str| {
+            let mut r = Reply::default();
+            read_stream(result, &mut r);
+            (r.output, r.output_from)
+        };
+        let tool = r#"{"type":"result","subtype":"success","result":"Done.","structured_output":{"progress":"p"}}"#;
+        assert_eq!(read(tool), (Some(json!({ "progress": "p" })), Some(Source::Tool)));
+        let text = r#"{"type":"result","subtype":"success","result":"{\"progress\":\"p\"}"}"#;
+        assert_eq!(read(text), (Some(json!({ "progress": "p" })), Some(Source::Text)));
+        let none = r#"{"type":"result","subtype":"success","result":"Nothing to hand in."}"#;
+        assert_eq!(read(none), (None, None));
+        assert_eq!((Source::Tool.name(), Source::Text.name()), ("tool", "text"));
+    }
+
     // The rules that tell the forms apart refuse nothing a cell takes: for each form of each agent's cell of each graph,
     // the rule of every form whose own fields it holds requires no field the form does not require and, when it takes
     // no other field, takes every field the form takes. The engineer's and the architect's lines have such rules.
@@ -2096,8 +2374,8 @@ mod tests {
                 .as_array()
                 .cloned()
                 .unwrap_or_else(|| vec![within.clone()]);
-            for form in alts.iter().map(shape) {
-                let fields = fields_of(&form);
+            for form in alts.iter().map(Shape::of) {
+                let fields = form.field_names();
                 for r in &rules {
                     let when = &r["if"];
                     let names: Vec<&str> = match when.get("anyOf").and_then(Value::as_array) {
@@ -2110,7 +2388,7 @@ mod tests {
                     let then = &r["then"];
                     for k in required_of(then) {
                         assert!(
-                            required_of(&form).contains(&k),
+                            form.required.iter().any(|x| x == k),
                             "graph {}, cell {}: {k} required by {r}",
                             g.name,
                             c.id
@@ -2119,7 +2397,7 @@ mod tests {
                     if closed(then) {
                         for k in &fields {
                             assert!(
-                                then["properties"].get(k).is_some(),
+                                then["properties"].get(*k).is_some(),
                                 "graph {}, cell {}: {k} refused by {r}",
                                 g.name,
                                 c.id
@@ -2129,6 +2407,25 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The types a schema's `type` names, in order.
+    fn types(t: &Value) -> Vec<&str> {
+        match t {
+            Value::String(s) => vec![s.as_str()],
+            Value::Array(xs) => xs.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Whether a schema takes no field of an object beyond those it lists.
+    fn closed(s: &Value) -> bool {
+        s.get("additionalProperties") == Some(&Value::Bool(false))
+    }
+
+    /// Whether a schema may be an object: it names that type, or none, as it may be anything.
+    fn takes_object(s: &Value) -> bool {
+        s.get("type").is_none_or(|t| types(t).contains(&"object"))
     }
 
     /// The first place of a shape where another does not take every value it takes: a type it lacks, a field or the
@@ -2162,54 +2459,6 @@ mod tests {
             (Some(_), None) => Some(format!("{at}[]: no items")),
             _ => None,
         }
-    }
-
-    // A shape keeps only the types of the values, each object with its fields, those it requires and whether it takes
-    // no other, and each list with its items: no value is fixed, and a field its object may leave out may also be null.
-    // Alternatives come together as one: an object requires what all of them require and takes no other field when
-    // none of them does, an alternative that is no object leaving that to the others; a value of no type of its own
-    // takes that of its values.
-    #[test]
-    fn a_shape_keeps_only_the_types_and_the_fields_of_the_values() {
-        let s = json!({
-            "description": "What this round comes to",
-            "anyOf": [
-                { "type": "object", "required": ["reading"], "additionalProperties": false, "properties": {
-                    "reading": { "type": "object", "required": ["direction"], "additionalProperties": false,
-                                 "properties": {
-                        "direction": { "type": "string", "description": "The direction" },
-                        "asks": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-                    } },
-                } },
-                { "type": "object", "required": ["verdict"], "properties": {
-                    "verdict": { "oneOf": [
-                        { "type": "object", "required": ["verdict"], "additionalProperties": false,
-                          "properties": { "verdict": { "const": "holds" } } },
-                        { "type": "object", "required": ["verdict", "kind"], "additionalProperties": false,
-                          "properties": {
-                            "verdict": { "const": "fails" },
-                            "kind": { "enum": ["a", "b"] },
-                        } },
-                    ] },
-                } },
-                { "type": "object", "required": ["reading"], "additionalProperties": false, "properties": {
-                    "reading": { "type": "string" },
-                } },
-            ],
-        });
-        assert_eq!(
-            shape(&s),
-            json!({ "type": "object", "properties": {
-                "reading": { "type": ["object", "string"], "properties": {
-                    "direction": { "type": "string" },
-                    "asks": { "type": ["array", "null"], "items": { "type": "string" } },
-                }, "required": ["direction"], "additionalProperties": false },
-                "verdict": { "type": "object", "properties": {
-                    "verdict": { "type": "string" },
-                    "kind": { "type": "string" },
-                }, "required": ["verdict"], "additionalProperties": false },
-            } })
-        );
     }
 
     // The input of each attempt at a return is rebuilt whole from the pieces the stream's partial messages carry, and
