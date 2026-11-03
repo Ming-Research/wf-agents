@@ -5,7 +5,8 @@ name: ci
 # which then runs exactly them, each to its end, and skips the lint, so that each named test has a result of its own
 # on the code before the change instead of a run that stops at its first red test. The project's configuration names
 # the workflow that does so (`fast`, which is fast.yml where it is set up so, and this one where it is not) and the
-# input that takes the tests (`tests_input`), which both workflows have.
+# input that takes the tests (`tests_input`), which both workflows have. Item 244 makes this workflow run on pushes to
+# main only and drops its input and its named-tests path, which fast.yml has.
 on:
   push:
     branches-ignore:
