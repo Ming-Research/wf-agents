@@ -105,6 +105,12 @@ main {
   color: var(--fgColor-muted);
 }
 
+/* A reason a return was sent back: the engine writes one line for each problem its checks found, and each stays on a
+   line of its own, as a text in a `Flash` or a span would run them together. */
+.reason {
+  white-space: pre-line;
+}
+
 .warn {
   color: var(--fgColor-attention);
 }
