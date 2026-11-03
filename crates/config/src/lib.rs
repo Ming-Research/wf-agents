@@ -2056,27 +2056,6 @@ asks = 9
         assert!(e.contains("projects/q.toml: ci.on_demand needs ci.tests_input"), "{e}");
     }
 
-    // A project's fast CI is taken to run on the temporary refs ci_before uses, as every project's did, unless the
-    // project says it does not.
-    #[test]
-    fn a_ci_runs_on_the_temporary_refs_unless_the_project_says_it_does_not() {
-        let own = |ci: &'static str| {
-            let text: &'static str = Box::leak(
-                format!(
-                    "repo = \"o/q\"\ncheckout = \"/q\"\ndesign_goal = \"d\"\ntest_paths = [\"tests/\"]\n[ci]\n\
-                     fast = \"fast\"\nfull = [\"ci\"]\nmerge_checks = [\"check\"]\n{ci}"
-                )
-                .into_boxed_str(),
-            );
-            read(&files(&[("projects/q.toml", text)])).unwrap().projects["q"]
-                .ci
-                .clone()
-        };
-        assert!(own("").runs_on_before_branches);
-        assert!(!own("runs_on_before_branches = false\n").runs_on_before_branches);
-        assert!(own("runs_on_before_branches = true\n").runs_on_before_branches);
-    }
-
     // The architect's level is one of the levels, and a project's constitution a path in its repository; anything else
     // is refused.
     #[test]

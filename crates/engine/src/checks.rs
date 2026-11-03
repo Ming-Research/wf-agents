@@ -1274,9 +1274,6 @@ fn measure_problems(verdict: &str, ran: bool) -> Problems {
     problems
 }
 
-/// What is wrong with the acceptance conditions a return gives back: a work that delivers a change hands in a
-/// `report_answer` condition (`report_answer`), and the conditions are locked and differ from the locked ones with no
-/// ruling of the owner since (`unlocked`); the two are independent.
 /// The checks that are not green in the runs of the tool `ci` on `sha` that decide whether the head is green, from the
 /// results of the tool, the newest first: the latest run on the head and, beside it, the latest that ran tests. Where
 /// the CI runs on demand a run that only ran the lint (`push.run` is `lint`, as when the call only hands in the PR's
@@ -1298,6 +1295,9 @@ fn red_checks_of_head(runs: &[Value], sha: &str) -> Option<Vec<String>> {
     Some(red)
 }
 
+/// What is wrong with the acceptance conditions a return gives back: a work that delivers a change hands in a
+/// `report_answer` condition (`report_answer`), and the conditions are locked and differ from the locked ones with no
+/// ruling of the owner since (`unlocked`); the two are independent.
 fn acceptance_problems(report_answer: bool, unlocked: bool) -> Problems {
     let mut problems = Problems::default();
     if report_answer {
