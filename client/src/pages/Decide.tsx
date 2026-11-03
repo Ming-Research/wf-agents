@@ -26,7 +26,7 @@ import { toneVariant } from '../components';
 import { DocList } from '../document';
 import { useDraft } from '../drafts';
 import { duration, time } from '../format';
-import { postJson } from '../http';
+import { postJson, SPEAKER } from '../http';
 import { OptionBoxes } from '../item/Shapes';
 import { isObj, label, Labelled, str, words, type Obj } from '../labelled';
 import { reread, useNow } from '../live';
@@ -481,7 +481,7 @@ export function CardRule({ c, picked, recommended }: { c: DesignCard; picked: st
     const question = text.trim();
     if (question === '' || asked === null) return;
     draft.send(
-      () => postJson(`/api/v1/works/${c.work}/say`, { text: question, to: asked, design_card: c.id }),
+      () => postJson(`/api/v1/works/${c.work}/say`, { text: question, speaker: SPEAKER, to: asked, design_card: c.id }),
       () => reread('messages', 'architect', 'work:*'),
     );
   };

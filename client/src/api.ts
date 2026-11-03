@@ -56,12 +56,17 @@ started: Array<number>,
  */
 releasing: Array<number>,
 /**
- * The works whose wait is over, the owner's or the architect's answer come or what their row waited for, that
- * wait on, holding no slot, until their machine has a slot free, as the engine's last step of each found: each
- * then goes on before any new work starts. A work's state on the page is waiting for a free slot while it is
- * named here.
+ * The works that go on once their machine has a slot free, before any new work starts: those whose wait is over,
+ * the owner's or the architect's answer come or what their row waited for, that wait on, holding no slot, as the
+ * engine's last step of each found, and the paused works whose pause is asked to be lifted. A work's state on the
+ * page is waiting for a free slot while it is named here.
  */
 waiting_for_slot: Array<number>,
+/**
+ * The works asked to stop, by a cancel of their item or a start over, that the engine has not stopped yet, as it
+ * waits for the step of each to end. A work's state on the page is stopping while it is named here.
+ */
+stopping: Array<number>,
 /**
  * The projects whose architect the owner started since every work was last paused: its works go on whatever the
  * global state.
@@ -138,7 +143,7 @@ export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "stat
 /**
  * Where a work stands.
  */
-export type WorkState = "running" | "ready" | "asking" | "waiting" | "waiting_for_slot" | "paused" | "halted" | "done" | "ended";
+export type WorkState = "running" | "ready" | "asking" | "waiting" | "waiting_for_slot" | "paused" | "halted" | "stopping" | "done" | "ended";
 
 /**
  * The round of a work that is running.
@@ -882,6 +887,16 @@ count: number, };
  */
 export type WorkSaid = { text: string,
 /**
+ * Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect; kept with the
+ * words wherever they go: the architect's matter, the answer to an engineer's question, or the engineer alone.
+ */
+speaker: string,
+/**
+ * The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them,
+ * kept with the words wherever they go; the page sends none.
+ */
+relayed?: Array<string>,
+/**
  * engineer (the default), architect (the default of a question about a decision card) or both.
  */
 to?: string,
@@ -907,6 +922,15 @@ export type ProjectsSaid = {
  */
 key: string, text: string,
 /**
+ * Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect.
+ */
+speaker: string,
+/**
+ * The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+ * the page sends none.
+ */
+relayed?: Array<string>,
+/**
  * The project whose architect it is for; none for every architect of the group.
  */
 to?: string,
@@ -920,6 +944,16 @@ images: Array<ImageSent>, };
  * question of the architect's they reply to, when the box replies to one.
  */
 export type ArchitectSaid = { text: string,
+/**
+ * Who the caller declares to speak: `owner` at the page, `delegate` for a session that speaks for the owner. The
+ * architect's record of a decision says which was declared; the engine cannot tell it from who speaks.
+ */
+speaker: string,
+/**
+ * The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+ * the page sends none.
+ */
+relayed?: Array<string>,
 /**
  * The item it is about, if any.
  */
@@ -973,6 +1007,15 @@ export type ForwardNew = { project: string | null, };
  * The owner's answer to an ask of the owner, as the page and the command line hand it in.
  */
 export type Answer = { text: string,
+/**
+ * Who the caller declares to answer, `owner` or `delegate`, as for the words said to one architect.
+ */
+speaker: string,
+/**
+ * The parts of the answer a delegate declares to be the owner's own words, each found letter for letter in it; the
+ * page sends none.
+ */
+relayed?: Array<string>,
 /**
  * For what the architect is asked: why it was decided this way.
  */
@@ -1479,7 +1522,7 @@ records: string | null,
  */
 ci_fast: string, ci_full: Array<string>, merge_checks: Array<string>,
 /**
- * Its constitution, a path in its checkout; none when it has none.
+ * Its constitution, a path in its repository as its main has it; none when it has none.
  */
 constitution: string | null,
 /**
@@ -1643,11 +1686,11 @@ policy: PolicyInForce | null,
  */
 notebook: Array<NotebookSection>,
 /**
- * The project's constitution, which the architect judges by with the policy: its path in the project's checkout,
- * as the configuration names it, and its text there now, empty when it cannot be read; none when the project names
- * none.
+ * The project's constitution, which the architect judges by with the policy, as the project's main has it: its
+ * path in the project's repository, as the configuration names it, with its text and the commit it was read at, or
+ * why it could not be read; none when the project names none.
  */
-constitution: NamedText | null, };
+constitution: MainText | null, };
 
 /**
  * One work of an architect.
@@ -2253,8 +2296,8 @@ export type CellInputOf = { "kind": "input", input: number, source: number, } | 
 
 /**
  * What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
- * project's settings, guide and rules, as its configuration and its checkout have them, and what each table and view
- * of the database holds.
+ * project's settings and rules, as its configuration has them, its guide, as its main has it in its checkout as the
+ * engine last fetched it, and what each table and view of the database holds.
  */
 export type InputsNow = { projects: Array<ProjectNow>,
 /**
@@ -2271,11 +2314,24 @@ export type ProjectNow = { project: string,
  */
 settings: Array<NamedText>,
 /**
- * The project's AGENTS.md as its checkout has it now.
+ * The commit of the project's main its AGENTS.md and the index of its records were read at: `origin/<main>` in its
+ * checkout as the engine last fetched it. None when main has no commit there.
+ */
+commit: string | null,
+/**
+ * When that commit was committed, in milliseconds since the epoch, which shows how new the text is.
+ */
+committed_at: number | null,
+/**
+ * Why they could not be read, in a sentence; none when they were. Then `agents_md` and `records` are empty.
+ */
+error: string | null,
+/**
+ * The project's AGENTS.md as its main has it at `commit`.
  */
 agents_md: string,
 /**
- * The index of its records as its checkout has it now: each file's path with its first line. The full text of
+ * The index of its records as its main has it at `commit`: each file's path with its first line. The full text of
  * the files an item cites is added for each item.
  */
 records: Array<NamedText>,
@@ -2288,6 +2344,32 @@ rules: Array<NamedText>, };
  * A name with a text.
  */
 export type NamedText = { name: string, text: string, };
+
+/**
+ * A file of a project as its main has it: read at a commit of `origin/<main>` in its checkout, as the engine last
+ * fetched it, never from the checkout's files.
+ */
+export type MainText = {
+/**
+ * Its path in the project's repository.
+ */
+name: string,
+/**
+ * The commit it was read at; none when main has no commit in the checkout.
+ */
+commit: string | null,
+/**
+ * When that commit was committed, in milliseconds since the epoch, which shows how new the text is.
+ */
+committed_at: number | null,
+/**
+ * Its text; empty when `error` is set.
+ */
+text: string,
+/**
+ * Why it could not be read, in a sentence that names the file and the commit; none when it was.
+ */
+error: string | null, };
 
 /**
  * What a cell hands back, as a tree of fields.

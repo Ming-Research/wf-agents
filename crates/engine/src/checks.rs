@@ -44,6 +44,9 @@ pub struct Ctx<'a> {
     /// The rows of the cell's numbered table as this round was given them, each with its number.
     pub table: &'a [Value],
     pub interjections: &'a [Value],
+    /// The commit of the project's main the round was pinned to, which its inputs that read the project's files were
+    /// read at; none for a round of a cell with none.
+    pub main: Option<&'a str>,
 }
 
 /// What a row a fix answered by its number in the table it was given is known by outside the table: a finding's
@@ -174,16 +177,16 @@ pub(crate) fn fail<T>(why: impl Into<String>) -> Result<T, Problems> {
 
 /// How the ids a return gave differ from the ids the engine listed.
 #[derive(Debug, PartialEq)]
-struct IdMisses {
+pub(crate) struct IdMisses {
     /// Given, and not listed; each once, in the order given.
-    unknown: Vec<String>,
+    pub(crate) unknown: Vec<String>,
     /// Given more than once, listed or not; each once, in the order of its first appearance.
-    twice: Vec<String>,
+    pub(crate) twice: Vec<String>,
     /// Listed, and not given; in the order listed.
-    missing: Vec<String>,
+    pub(crate) missing: Vec<String>,
 }
 
-fn id_misses<S: AsRef<str>>(want: &[S], given: &[String]) -> IdMisses {
+pub(crate) fn id_misses<S: AsRef<str>>(want: &[S], given: &[String]) -> IdMisses {
     let mut unknown: Vec<String> = Vec::new();
     let mut twice: Vec<String> = Vec::new();
     let mut seen: BTreeSet<&str> = BTreeSet::new();

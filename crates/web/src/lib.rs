@@ -553,16 +553,16 @@ async fn architect_panel(
     Query(q): Query<OfProject>,
 ) -> Result<Json<api::ArchitectPanel>, Fail> {
     let (project, c) = architect_of(&app, &q)?;
-    // The project's constitution, the file its configuration names in its checkout, as the architect reads it.
-    let constitution = c.projects.get(&project).and_then(|p| {
-        p.constitution.as_ref().map(|path| api::NamedText {
-            name: path.display().to_string(),
-            text: std::fs::read_to_string(p.checkout.join(path)).unwrap_or_default(),
-        })
-    });
-    read(&app, move |conn, _| api::architect_panel(conn, &project, constitution))
-        .await
-        .map(Json)
+    let configured = c.projects.get(&project).cloned();
+    read(&app, move |conn, _| {
+        // The project's constitution, the file its configuration names, as its main has it in its checkout as the
+        // engine last fetched it, as the architect reads it; a file that cannot be read says why in its own field and
+        // takes nothing else from the page. It is read here, off the threads that serve requests, because it runs git.
+        let constitution = configured.as_ref().and_then(api::constitution_now);
+        api::architect_panel(conn, &project, constitution)
+    })
+    .await
+    .map(Json)
 }
 
 /// How every project's architect stands, one entry for each project of the configuration as committed, in the order of
@@ -787,9 +787,10 @@ async fn say_to_architect(
     let (project, _) = project_of(&app, &q)?;
     decide(&app, move |db| {
         let images = api::images(&s.images)?;
+        let speaker = db::Declared::parse(&s.speaker, s.relayed.as_deref().unwrap_or_default())?;
         match s.reply_to {
-            Some(ask) => api::reply_to_question(db, &project, ask, &s.text, &images),
-            None => db::say_to_architect(db, &project, s.item, None, &s.text, &images),
+            Some(ask) => api::reply_to_question(db, &project, ask, &s.text, &images, speaker),
+            None => db::say_to_architect(db, &project, s.item, None, &s.text, &images, speaker),
         }
     })
     .await

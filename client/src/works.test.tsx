@@ -44,6 +44,7 @@ const status = (extra: Partial<Status> = {}): Status =>
     started: [],
     releasing: [],
     waiting_for_slot: [],
+    stopping: [],
     stepping: [],
     architects_started: [],
     flow_version: 2,

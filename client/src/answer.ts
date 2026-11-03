@@ -9,6 +9,7 @@
 import { createContext, useContext } from 'react';
 
 import type { JsonValue, OwnerAsk } from './api';
+import { SPEAKER } from './http';
 import { isObj, type Obj } from './labelled';
 import { t } from './messages';
 
@@ -75,7 +76,7 @@ export function askAnswer(pick: string, text: string, back: boolean, images = fa
   const words = text.trim();
   const answer = pick !== '' ? `${t('answer_chosen', { option: pick })}${words !== '' ? ` ${words}` : ''}` : words;
   if (answer === '' && !images) return null;
-  return back ? { text: answer, to: 'architect' } : { text: answer };
+  return back ? { text: answer, speaker: SPEAKER, to: 'architect' } : { text: answer, speaker: SPEAKER };
 }
 
 /// Whether an ask of an engineer's that the owner holds can be handed back to the architect with the owner's answer.

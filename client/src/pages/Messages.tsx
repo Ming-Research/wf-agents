@@ -136,7 +136,7 @@ import {
 import { useActions } from '../course';
 import { type Draft, useDraft } from '../drafts';
 import { cost, time } from '../format';
-import { postJson } from '../http';
+import { postJson, SPEAKER } from '../http';
 import { imagesSent, saysSomething } from '../images';
 import { isObj, label, str, words } from '../labelled';
 import { reread, useResource, useShared, useStatus } from '../live';
@@ -420,7 +420,7 @@ export function QuestionAnswer({ work, matter }: { work: number; matter: number 
         placeholder={t('conv_answer_words')}
         ready={ready}
         send={() => {
-          if (ready) post(`/api/v1/works/${work}/say`, { text: draft.text.trim(), question: matter });
+          if (ready) post(`/api/v1/works/${work}/say`, { text: draft.text.trim(), speaker: SPEAKER, question: matter });
         }}
       />
     </div>
@@ -1020,13 +1020,17 @@ export function Composer({ c, w, reply = null, onSent }: {
     const sentImages = imagesSent(images);
     draft.send(
       () => {
-        if (c.kind === 'work') return postJson(`/api/v1/works/${c.work ?? 0}/say`, { text: said, to, images: sentImages });
+        if (c.kind === 'work') {
+          return postJson(`/api/v1/works/${c.work ?? 0}/say`, { text: said, speaker: SPEAKER, to, images: sentImages });
+        }
         if (c.kind === 'projects') {
           return Promise.all(
             sendTo.map((x) =>
               postJson(
                 '/api/v1/projects/say',
-                x === 'all' ? { key: c.key, text: said, images: sentImages } : { key: c.key, text: said, to: x, images: sentImages },
+                x === 'all'
+                  ? { key: c.key, text: said, speaker: SPEAKER, images: sentImages }
+                  : { key: c.key, text: said, speaker: SPEAKER, to: x, images: sentImages },
               ),
             ),
           );
