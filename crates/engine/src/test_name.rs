@@ -244,7 +244,10 @@ mod tests {
         let title = "a round picked beside a chart > shows on the architect's page the same way";
         assert_eq!(in_files(&dir, &both, title).unwrap(), Some(vec![page.clone()]));
         // Only the files given are looked in.
-        assert_eq!(in_files(&dir, &[rust.clone()], title).unwrap(), Some(Vec::new()));
+        assert_eq!(
+            in_files(&dir, std::slice::from_ref(&rust), title).unwrap(),
+            Some(Vec::new())
+        );
         assert_eq!(in_files(&dir, &[], title).unwrap(), Some(Vec::new()));
         // A name that leaves no word after its last separator is not looked for, as `on_branch` does not.
         assert_eq!(in_files(&dir, &both, "a title that ends in a stop.").unwrap(), None);
