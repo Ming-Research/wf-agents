@@ -899,8 +899,8 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
     );
 }
 
-// Every agent's cell but the reader of the history's, whose task says all it does, is given the general rules and the
-// project's design goal; every engineer's cell and the advisor's are given the engineering standards; no cell has an
+// Every agent's cell but the reader of the history's, whose task and rule `history` say all it does, is given the
+// general rules and the project's design goal; every engineer's cell and the advisor's are given the engineering standards; no cell has an
 // input that only says to read something itself; and the forms every return shares say how a return is written. A rule
 // given to a line cannot be named by a cell again.
 #[test]
@@ -936,6 +936,73 @@ fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
         e.contains("a cell names a rule every cell of its line is given: I1"),
         "{e}"
     );
+}
+
+// The history of the files a change touches is gathered once, by the reader of the history, between the blind review
+// and the table review. The table review is given it and may have more looked up; the blind review is given neither,
+// and a re-review reaches the table review by another row, not by the gathering.
+#[test]
+fn the_history_of_the_changed_files_is_gathered_between_the_two_reviews() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let to = |cell: &str, row: &str| {
+        let rows = &g.cell(cell).unwrap().rows;
+        rows.iter().find(|r| r.name == row).unwrap().to.clone()
+    };
+    assert_eq!(to("T3", "done"), "G3");
+    assert_eq!(to("G3", "done"), "T4");
+    for cell in ["T1", "T2", "T7"] {
+        assert_eq!(to(cell, "review_again"), "T4", "{cell}");
+    }
+    let gather = g.cell("G3").unwrap();
+    assert_eq!(
+        (gather.line.as_deref(), gather.stage.as_deref()),
+        (Some("librarian"), Some("test"))
+    );
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let blocks = v["flows"][0]["blocks"].as_array().unwrap();
+    let develop = blocks.iter().find(|b| b["name"] == "develop").unwrap();
+    assert!(develop["nodes"].as_array().unwrap().iter().any(|n| *n == "G3"));
+    let brief = flow::format::Src::Place("G3".into(), "brief".into());
+    let table = g.cell("T4").unwrap();
+    let input = table.inputs.iter().find(|i| i.from == [brief.clone()]).unwrap();
+    assert!(input.maybe, "a re-review may come to it with no gathering run");
+    assert!(table.prompt.iter().any(|p| p.contains("records as dropped")));
+    let blind = g.cell("T3").unwrap();
+    assert!(!blind.inputs.iter().any(|i| i.from.contains(&brief)));
+    assert!(!format!("{:?} {:?}", blind.prompt, blind.prompt_by).contains("dropped"));
+    // The table review can have more looked up, the blind review cannot.
+    let history = serde_json::json!({
+        "side_reports": [], "flow_feedback": "none", "outcome": { "history": "Was this approach dropped?" }
+    });
+    assert_eq!(g.take("T4", &history, &Map::new()).unwrap().name, "history");
+    let e = g.take("T3", &history, &Map::new()).unwrap_err();
+    assert!(e.contains("does not fit the schema"), "{e}");
+}
+
+// What every gatherer of history is told is one rule of the flow, which the reader's line gives to every cell of it and
+// the architect's look-up names: the contract is written once, and what a gatherer does with a path is in it.
+#[test]
+fn what_every_gatherer_is_told_is_one_rule_with_the_check_of_paths() {
+    let opening = "You gather the history an agent needs before it works.";
+    assert_eq!(FLOW.matches(opening).count(), 1);
+    let c = compiled();
+    for (graph, id) in [
+        ("engineer", "G1"),
+        ("engineer", "G2"),
+        ("engineer", "G3"),
+        ("engineer", "X5"),
+        ("architect", "X5"),
+    ] {
+        let g = c.graph(graph).unwrap();
+        let cell = g.cell(id).unwrap();
+        let used = cell.rules.iter().find(|r| r.name == "history").unwrap();
+        assert_eq!(used.shared, graph == "engineer", "{graph} {id}");
+        assert!(!cell.prompt.iter().any(|p| p.starts_with(opening)), "{graph} {id}");
+        let rule = g.rules.iter().find(|r| r.name == "history").unwrap();
+        assert!(rule.text[0].starts_with(opening), "{graph} {id}");
+        assert!(rule.text.iter().any(|t| t.contains("`(gone)`")), "{graph} {id}");
+    }
 }
 
 // A field the flow lets a return leave out that the agent wrote as null is taken as left out, and the return fits; a
@@ -1208,7 +1275,10 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
             }
         }
     }
-    assert_eq!(helpers, ["G1", "G2", "X5", "T1", "T3", "T4", "A1", "B2", "X2", "X5"]);
+    assert_eq!(
+        helpers,
+        ["G1", "G2", "X5", "T1", "T3", "G3", "T4", "A1", "B2", "X2", "X5"]
+    );
 }
 
 // The architect tells the owner what the engineer does and no more: what only the owner can do (starting a work the
