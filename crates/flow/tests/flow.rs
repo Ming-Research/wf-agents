@@ -61,7 +61,11 @@ fn the_cells_a_work_moves_by_are_as_the_reference_has_them() {
     let g = c.graph("engineer").unwrap();
     let r: Value = serde_json::from_str(include_str!("reference.json")).unwrap();
     let want = r["moves"].as_object().cloned().unwrap_or_default();
-    let have: Map<String, Value> = g.cells.iter().map(|c| (c.id.clone(), Value::from(moves_by(c)))).collect();
+    let have: Map<String, Value> = g
+        .cells
+        .iter()
+        .map(|c| (c.id.clone(), Value::from(moves_by(c))))
+        .collect();
     let changed: Vec<&String> = have.keys().filter(|k| want.get(*k) != have.get(*k)).collect();
     let gone: Vec<&String> = want.keys().filter(|k| !have.contains_key(*k)).collect();
     assert!(
@@ -1637,7 +1641,11 @@ fn walked(g: &flow::CompiledGraph, steps: &[(Value, Map<String, Value>)]) -> Vec
 /// The engine's choice of what runs next with no adversarial testing, the full CI not yet green on the draft, and the
 /// review as `review_round` says.
 fn full_ci_next(review_round: &str) -> (Value, Map<String, Value>) {
-    let given = [("full_ci", "not_green"), ("review_round", review_round), ("interjection", "no")];
+    let given = [
+        ("full_ci", "not_green"),
+        ("review_round", review_round),
+        ("interjection", "no"),
+    ];
     (
         serde_json::json!({ "plan": { "review": "all", "adversarial": "skipped" } }),
         given.iter().map(|(k, v)| (k.to_string(), Value::from(*v))).collect(),
@@ -1711,8 +1719,8 @@ fn a_light_work_plans_in_place_of_the_design_and_goes_straight_to_the_table_revi
     assert_eq!(
         normal,
         [
-            "S1", "G1", "R1", "R2", "G2", "D1", "D2", "D3", "D4", "D6", "D7", "D8", "D9", "D10", "D11", "I1", "T7", "T2",
-            "T3", "G3", "T4", "M1"
+            "S1", "G1", "R1", "R2", "G2", "D1", "D2", "D3", "D4", "D6", "D7", "D8", "D9", "D10", "D11", "I1", "T7",
+            "T2", "T3", "G3", "T4", "M1"
         ]
     );
     // The plan the review found sound is locked as the design's acceptance is, with the implementer's new session.
@@ -1722,11 +1730,20 @@ fn a_light_work_plans_in_place_of_the_design_and_goes_straight_to_the_table_revi
     // The review of the plan and the table review are one line, and the table review starts no session of its own, so
     // it goes on in the session that reviewed the plan; the blind review always starts its own.
     let (f2, t4, t3) = (g.cell("F2").unwrap(), g.cell("T4").unwrap(), g.cell("T3").unwrap());
-    assert_eq!((f2.line.as_deref(), t4.line.as_deref()), (Some("review"), Some("review")));
+    assert_eq!(
+        (f2.line.as_deref(), t4.line.as_deref()),
+        (Some("review"), Some("review"))
+    );
     assert!(!t4.new_session && t4.fresh_session.is_empty());
     assert!(t3.new_session);
     for cell in ["T1", "T2", "T7"] {
-        let row = g.cell(cell).unwrap().rows.iter().find(|r| r.name == "review_first").unwrap();
+        let row = g
+            .cell(cell)
+            .unwrap()
+            .rows
+            .iter()
+            .find(|r| r.name == "review_first")
+            .unwrap();
         assert_eq!(row.to, "T3", "{cell}");
         assert!(row.actions.iter().any(|d| d.name() == "open_session"), "{cell}");
     }
@@ -1768,7 +1785,11 @@ fn a_light_work_turns_to_the_normal_route_by_rows_that_count_it() {
     let normal = Map::from_iter([("route_taken".to_string(), Value::from("normal"))]);
     assert_eq!(g.take("R1", &ret, &normal).unwrap().name, "done");
     let r1 = g.cell("R1").unwrap();
-    assert!(r1.checks.iter().any(|c| c.check == "route_given" && c.at.as_deref() == Some("route")));
+    assert!(
+        r1.checks
+            .iter()
+            .any(|c| c.check == "route_given" && c.at.as_deref() == Some("route"))
+    );
 }
 
 // The architect's line says its session expires with the CLI's prompt cache, so that every cell on it carries that, and

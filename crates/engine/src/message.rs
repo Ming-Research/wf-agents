@@ -1063,7 +1063,9 @@ pub fn columns(
             // The light route has a plan its review found sound in place of the judgment that the work stands, and the
             // plan's tests in place of adversarial testing.
             if crate::values::light_route(e, w, g, item).unwrap_or(false) {
-                cols.push("The plan the review found sound: does the change keep to it, and do nothing beyond it?".into());
+                cols.push(
+                    "The plan the review found sound: does the change keep to it, and do nothing beyond it?".into(),
+                );
                 cols.push(
                     "The plan's tests: for a bug fix, is a regression test red on the code before the change by \
                      ci_before and green after it by ci; for a feature, does each acceptance condition have a test?"

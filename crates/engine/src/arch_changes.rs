@@ -171,7 +171,9 @@ fn route_unfit(route: &str, deliver: &str) -> Option<String> {
         "bugfix" | "feature" => Some(format!(
             "it gives the route {route} to an item that delivers a {deliver}: only a change goes the light route"
         )),
-        other => Some(format!("there is no route \"{other}\": a route is normal, bugfix or feature")),
+        other => Some(format!(
+            "there is no route \"{other}\": a route is normal, bugfix or feature"
+        )),
     }
 }
 
@@ -421,11 +423,11 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                     // An item the batch creates delivers what its change says; any other, what it holds.
                     let deliver = match delivers.get(&id) {
                         Some(d) => d.clone(),
-                        None => e
-                            .db
-                            .conn()
-                            .query_row("SELECT deliver FROM items WHERE id = ?1", [id], |r| r.get(0))
-                            .map_err(sql)?,
+                        None => {
+                            e.db.conn()
+                                .query_row("SELECT deliver FROM items WHERE id = ?1", [id], |r| r.get(0))
+                                .map_err(sql)?
+                        }
                     };
                     if let Some(why) = route_unfit(text(c, "text").trim(), &deliver) {
                         bad(why);
@@ -979,7 +981,10 @@ mod tests {
             Some("there is no route \"light\": a route is normal, bugfix or feature")
         );
         assert_eq!(route_of(&json!({ "kind": "create_item" })), "normal");
-        assert_eq!(route_of(&json!({ "kind": "create_item", "route": "feature" })), "feature");
+        assert_eq!(
+            route_of(&json!({ "kind": "create_item", "route": "feature" })),
+            "feature"
+        );
         let mut db = Db::in_memory().unwrap();
         let made = |db: &mut Db, deliver: &str, route: &str| {
             db.write(Actor::Architect, |tx| {

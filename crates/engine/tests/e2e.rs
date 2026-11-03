@@ -1223,23 +1223,12 @@ fn ran_to_its_end(e: &mut Engine, item: i64, said: &Arc<Mutex<Vec<String>>>) -> 
     panic!("the work did not end:\n{}", said.lock().unwrap().join("\n"));
 }
 
-/// The rows a work's rounds took, each as `cell:row`, in order; a round sent back took none.
-fn rows_taken(e: &Engine, work: i64) -> Vec<String> {
-    cells_of(e, work)
+/// The rows a work's rounds took, each as `cell:row`, in order.
+fn rows_said(e: &Engine, work: i64) -> Vec<String> {
+    rows_taken(e, work)
         .into_iter()
         .filter_map(|(cell, row)| Some(format!("{cell}:{}", row?)))
         .collect()
-}
-
-/// How many of a work's rounds took a row that counts `counter`.
-fn counted(e: &Engine, work: i64, counter: &str) -> i64 {
-    e.db.conn()
-        .query_row(
-            "SELECT count(*) FROM rounds WHERE work = ?1 AND counts = ?2",
-            params![work, counter],
-            |r| r.get(0),
-        )
-        .unwrap()
 }
 
 /// The scripts of a bug fix on the light route. The research says the work goes the light route, at its second round:
@@ -1251,7 +1240,11 @@ fn light_scripts() -> BTreeMap<&'static str, Script> {
     s.insert(
         "R1",
         Box::new(|_: &Request, n: usize| {
-            let route = if n == 1 { Vec::new() } else { vec![("outcome.route", "light")] };
+            let route = if n == 1 {
+                Vec::new()
+            } else {
+                vec![("outcome.route", "light")]
+            };
             (route, Vec::new())
         }),
     );
@@ -1319,7 +1312,7 @@ fn a_bug_fix_goes_the_light_route_from_its_start_to_main() {
     marked(&mut e, item, "bugfix");
     let work = ran_to_its_end(&mut e, item, &said);
     let log = said.lock().unwrap().join("\n");
-    let rows = rows_taken(&e, work);
+    let rows = rows_said(&e, work);
     let wanted = [
         "R1:light",
         "G4:done",
@@ -1345,7 +1338,10 @@ fn a_bug_fix_goes_the_light_route_from_its_start_to_main() {
     // The research that said nothing of the route was sent back for it, once.
     let back = why_sent_back(&e, work, "R1");
     assert_eq!(back.len(), 1, "{back:?}");
-    assert!(back[0].contains("say in route whether the work goes the light route"), "{back:?}");
+    assert!(
+        back[0].contains("say in route whether the work goes the light route"),
+        "{back:?}"
+    );
     // The plan found sound locked its acceptance, from the plan's round.
     let (acceptance, locked_at): (String, i64) =
         e.db.conn()
@@ -1410,7 +1406,7 @@ fn a_plan_sent_back_a_third_time_turns_the_work_to_the_normal_route() {
     let (mut e, said, item) = start(&s, agents);
     marked(&mut e, item, "feature");
     let work = ran_to_its_end(&mut e, item, &said);
-    let rows = rows_taken(&e, work);
+    let rows = rows_said(&e, work);
     let wanted = [
         "R1:light",
         "G4:done",
@@ -13706,14 +13702,20 @@ fn a_report_marked_for_the_light_route_is_sent_back() {
         rejected[0].contains(
             "item change 1 (create_item): it gives the route bugfix to an item that delivers a report: only a change \
              goes the light route"
-        ) && rejected[0].contains("item change 2 (edit_item): it gives the route feature to an item that delivers a report"),
+        ) && rejected[0]
+            .contains("item change 2 (edit_item): it gives the route feature to an item that delivers a report"),
         "{rejected:?}"
     );
     let routes: Vec<(String, String)> =
         engine::query_json(e.db.conn(), "SELECT deliver, route FROM items ORDER BY id", &[], 10)
             .unwrap()
             .iter()
-            .map(|r| (r["deliver"].as_str().unwrap().to_string(), r["route"].as_str().unwrap().to_string()))
+            .map(|r| {
+                (
+                    r["deliver"].as_str().unwrap().to_string(),
+                    r["route"].as_str().unwrap().to_string(),
+                )
+            })
             .collect();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(

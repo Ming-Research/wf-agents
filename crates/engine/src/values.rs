@@ -225,15 +225,14 @@ const TO_NORMAL: &str = "route_to_normal";
 /// longer turns a work under way. A work that took a row counting `route_to_normal`, or that wrote a design (cell
 /// `D2`), as a redesign from the light route does, goes the normal route for good.
 pub fn light_route(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item) -> Result<bool, String> {
-    let turned: i64 = e
-        .db
-        .conn()
-        .query_row(
-            "SELECT count(*) FROM rounds WHERE work = ?1 AND counts = ?2",
-            db::rusqlite::params![w.id, TO_NORMAL],
-            |r| r.get(0),
-        )
-        .map_err(|e| e.to_string())?;
+    let turned: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND counts = ?2",
+                db::rusqlite::params![w.id, TO_NORMAL],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
     if turned > 0 || !answered(e, w, g, "D2")?.is_empty() {
         return Ok(false);
     }

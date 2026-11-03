@@ -1261,9 +1261,9 @@ fn route_problems(light: bool, given: Option<&Value>) -> Problems {
             "the item is marked a bug fix or a feature: say in route whether the work goes the light route (light) or \
              turns to the normal route (to_normal)",
         ),
-        (false, Some(_)) => problems.push(
-            "the work goes the normal route, and only the item's route lightens a work: leave route out",
-        ),
+        (false, Some(_)) => {
+            problems.push("the work goes the normal route, and only the item's route lightens a work: leave route out")
+        }
         _ => {}
     }
     problems
