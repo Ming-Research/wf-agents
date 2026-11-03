@@ -156,7 +156,7 @@ jobs:
           npm ci
           npm run build
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test at
-      # 60 s and writes its JUnit. The tests Read the names selected, each to its end.
+      # 60 s and writes its JUnit: the Rust tests the step Read the names selected, each to its end.
       #
       # Nextest builds every test binary in one cargo command, and runs none when one does not compile (its exit code
       # 101). Only then are the units that did compile found, by building again past the failure: `cargo build --tests
@@ -166,9 +166,9 @@ jobs:
       # compiler gave for it, or else that a unit it depends on did not compile. The named tests of the units built are
       # run again, selected by target with --workspace, so that cargo resolves the features as for the whole workspace
       # and compiles nothing again: one run when no library's tests failed to compile; else one for the other targets
-      # and one for the libraries that compiled; and, apart, any target named as one that did not compile in another
-      # package. The step is red still. The way runs only when a unit does not compile: whoever changes it makes one
-      # fail on a branch and reads the artifact.
+      # and one for the libraries that compiled; and, apart, by its package, which may compile some again, any target
+      # with the name of one that did not compile in another package. The step is red still. This is done only when a
+      # unit does not compile: whoever changes it makes one fail on a branch and reads the artifact.
       - name: Test
         if: ${{ steps.names.outputs.rust == 'true' }}
         run: |
