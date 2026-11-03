@@ -638,7 +638,8 @@ type ByHands = Arc<Mutex<Vec<ByHand>>>;
 
 /// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
 /// request keeps the base it was opened with until it is set, a merge, once `merging` lets it through, squashes the
-/// branch onto the pull request's base, and closing a pull request that merged fails, as `gh pr close` does. A workflow
+/// branch onto the pull request's base and fails for a pull request that is not open, as `gh pr ready` does, and closing a
+/// pull request that merged fails, as `gh pr close` does. A workflow
 /// run by hand is recorded in `by_hand`, and its run has a log and an artifact `measurement`.
 struct FakeHub {
     origin: PathBuf,
@@ -860,6 +861,15 @@ impl GitHub for FakeHub {
 
     fn rerun(&self, repo: &str, sha: &str, workflow: &str) -> Result<Vec<CheckRun>, Failure> {
         self.checks(repo, sha, workflow)
+    }
+
+    fn merge_commit(&self, _repo: &str, pr: i64) -> Result<Option<String>, Failure> {
+        self.prs
+            .lock()
+            .unwrap()
+            .get(&pr)
+            .map(|p| p.merged_as.clone())
+            .ok_or_else(|| Failure::other("no such PR"))
     }
 
     fn merge(&self, repo: &str, pr: i64) -> Result<String, Failure> {
