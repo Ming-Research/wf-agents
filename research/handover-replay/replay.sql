@@ -27,7 +27,7 @@ WITH RECURSIVE
 -- starts anew only between rounds; 'round', as 'any', but the rent counts only the calls of the round under way, so that
 -- a session comes due only in a round that has itself paid the buy; and what a session started anew without a hand-over writes to the cache: 'opening',
 -- its new opening; 'whole', the whole context, as much as a hand-over at the most.
-given(handover, counted, rebuild, rule, restart) AS (VALUES (3000, 'turns', 'whole', 'boundary', 'whole')),
+given(handover, counted, rebuild, rule, restart) AS (VALUES (3000, 'turns', 'whole', 'round', 'whole')),
 -- What a million tokens cost each model, in US dollars, as crates/sessions/src/cost.rs has it: a read from the cache,
 -- a write to it kept five minutes or an hour, and output; a call of Haiku 5.5 over 100,000 tokens at its higher prices.
 prices(model, above, read, w5, w1, output) AS (VALUES
