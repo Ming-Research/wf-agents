@@ -1002,7 +1002,7 @@ pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, roun
     if red.iter().all(|c| known.contains(c)) {
         return Ok(json!({ "main": { "kind": "known_red" } }));
     }
-    let _ = git::git(&wt, &["fetch", "-q", "origin", &project.main]);
+    let _ = git::git(&wt, &["fetch", "-q", "origin", &config::main_refspec(&project.main)]);
     let before = git::resolve(&wt, &format!("{merged}^1")).ok_or("main's commit before the merge is not known here")?;
     let earlier = match attempts(e, round, "watch_main", &json!({ "before": before }), || {
         full_checks(e, &project, &before).map(|c| checks_json(&c))

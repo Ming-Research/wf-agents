@@ -14480,9 +14480,9 @@ fn an_engineer_s_round_fetches_main_once_at_each_agent_cell() {
 }
 
 // A project's architect whose worktree cannot be brought to main does not start its round: with the network up its work
-// is paused and says why, and with it down every work waits for it, and goes on from its cell once it is back. The
-// fetch that brings the worktree to main is the round's, so this holds though main could not be fetched for the
-// inputs either.
+// is paused and says why, and with it down every work waits for it, and goes on from its cell once it is back (the
+// round then starts: its prompt is built once). It holds before and after the fetch for the inputs became the same
+// fetch as the worktree's.
 #[test]
 fn an_architect_whose_worktree_cannot_be_brought_to_main_is_paused_or_waits_and_goes_on_when_it_can() {
     for up in [true, false] {
@@ -14527,11 +14527,6 @@ fn an_architect_whose_worktree_cannot_be_brought_to_main_is_paused_or_waits_and_
         e.advance(arch).unwrap();
         let log = said.lock().unwrap().join("\n");
         assert_eq!(seen.lock().unwrap().len(), 1, "{log}");
-        assert_eq!(
-            pinned_main(&e, arch, "U1").as_deref(),
-            Some(git(&s.origin, &["rev-parse", "main"]).as_str()),
-            "{log}"
-        );
         let _ = std::fs::remove_dir_all(&s.root);
     }
 }

@@ -1253,7 +1253,11 @@ pub fn worktrees(dir: &Path) -> PathBuf {
 /// that name is not a fallback: no step updates it.
 pub fn main_commit(p: &Project) -> Result<String, String> {
     let main = p.main_ref();
-    let out = git_bytes(&p.checkout, &["rev-parse", "--verify", &format!("{main}^{{commit}}")])
+    // By the ref's full name, which a tag or branch of the checkout named like it does not shadow.
+    let out = git_bytes(
+        &p.checkout,
+        &["rev-parse", "--verify", &format!("refs/remotes/{main}^{{commit}}")],
+    )
         .map_err(|x| format!("{main} is not in the checkout {}: {x}", p.checkout.display()))?;
     Ok(String::from_utf8_lossy(&out).trim().to_string())
 }
@@ -1268,11 +1272,18 @@ pub fn committed_at(p: &Project, commit: &str) -> Result<i64, String> {
         .map_err(|_| format!("git show {commit}: no commit time in {:?}", out.trim()))
 }
 
+/// What `git fetch origin` is given to bring the remote's branch `main` to `origin/<main>`: the full names of both
+/// ends. The bare name would be looked up among the remote's tags as well, and a tag of that name would be fetched in
+/// the branch's place, leaving `origin/<main>` where it was.
+pub fn main_refspec(main: &str) -> String {
+    format!("+refs/heads/{main}:refs/remotes/origin/{main}")
+}
+
 /// Brings the project's `origin/<main>` in its checkout to the remote's main now (`git fetch`). It moves that ref only:
 /// no file of the checkout changes. Fetches in one checkout take turns ([`shared_git::git`]), so that works taking
 /// their steps at the same time all succeed, as git turns a fetch down that moves a ref another has just moved.
 pub fn fetch_main(p: &Project) -> Result<(), String> {
-    shared_git::git(&p.checkout, &["fetch", "-q", "origin", &p.main])
+    shared_git::git(&p.checkout, &["fetch", "-q", "origin", &main_refspec(&p.main)])
         .map(|_| ())
         .map_err(|x| {
             format!(
@@ -1306,16 +1317,58 @@ pub fn read_at(p: &Project, commit: &str, path: &Path) -> Result<String, String>
 /// The most links one path is followed through: a loop of links ends in an error, not a hang.
 const MAX_LINKS: usize = 16;
 
-/// The git object of the file `path` names at `commit` of the repository at `repo`. Git stores a link as a file that
-/// holds the path it points to, and a read of the checkout's files followed it, at the end of the path and in the
-/// middle of it alike, so links are followed here too: the path is walked one name at a time from the root, and a name
-/// that is a link is replaced by the path it points to, however many links lead to the file. A target outside the
-/// repository, a loop, a path that is not there, a name in the middle that is no directory and a path that is no file
-/// are errors that say which.
-fn blob_object(repo: &Path, commit: &str, path: &str) -> Result<String, String> {
+/// What a path names at a commit.
+enum Found {
+    /// Nothing: this path, as far as it was walked, is not in the directory that should hold it.
+    Missing(String),
+    /// A file, as the git object that holds its text.
+    File(String),
+    /// A directory, as its git tree object, and the path it was reached at (empty for the repository's root).
+    Dir { tree: String, at: String },
+}
+
+/// An entry of a directory at a commit.
+struct Entry {
+    mode: String,
+    kind: String,
+    object: String,
+    name: String,
+}
+
+/// The entries of a git tree object, by their names exactly: no name is read as a pattern.
+fn list_tree(repo: &Path, tree: &str) -> Result<Vec<Entry>, String> {
+    let listed = git(repo, &["ls-tree", "-z", tree])?;
+    let mut out = Vec::new();
+    // Each entry is `<mode> <type> <object>\t<name>`.
+    for entry in listed.split('\0').filter(|e| !e.is_empty()) {
+        let (meta, name) = entry
+            .split_once('\t')
+            .ok_or_else(|| format!("git ls-tree gave {entry:?}"))?;
+        let mut m = meta.split(' ');
+        let mut next = || m.next().unwrap_or_default().to_string();
+        out.push(Entry {
+            mode: next(),
+            kind: next(),
+            object: next(),
+            name: name.to_string(),
+        });
+    }
+    Ok(out)
+}
+
+/// What `path` names at `commit` of the repository at `repo`. Git stores a link as a file that holds the path it points
+/// to, and a read of the checkout's files followed it, at the end of the path and in the middle of it alike, so links
+/// are followed here too: the path is walked one name at a time from the root, each name looked up in its directory's
+/// entries by that name exactly (git's pathspecs, which give `*`, `[` and `:` a meaning, are not used), and a name that
+/// is a link is replaced by the path it points to, however many links lead to the file. A target outside the
+/// repository, a loop, a name in the middle that is no directory and an entry that is neither a file, a link nor a
+/// directory are errors that say which.
+fn resolve(repo: &Path, commit: &str, path: &str) -> Result<Found, String> {
     use std::collections::VecDeque;
-    // The directories walked so far, real ones at the commit, and the names still to walk.
-    let mut walked: Vec<String> = Vec::new();
+    let root = git(repo, &["rev-parse", "--verify", &format!("{commit}^{{tree}}")])?;
+    // The directories walked so far, real ones at the commit: their names, and their trees after the root's.
+    let mut names: Vec<String> = Vec::new();
+    let mut trees = vec![root.trim().to_string()];
     let mut ahead: VecDeque<String> = path.split('/').map(str::to_string).collect();
     // The last link followed and the path it points to, which a name that leaves the repository after it is blamed on.
     let mut via: Option<(String, String)> = None;
@@ -1324,7 +1377,8 @@ fn blob_object(repo: &Path, commit: &str, path: &str) -> Result<String, String> 
         match name.as_str() {
             "" | "." => continue,
             ".." => {
-                if walked.pop().is_some() {
+                if names.pop().is_some() {
+                    trees.pop();
                     continue;
                 }
                 return Err(match via {
@@ -1334,52 +1388,59 @@ fn blob_object(repo: &Path, commit: &str, path: &str) -> Result<String, String> 
             }
             _ => {}
         }
-        walked.push(name);
-        let at = walked.join("/");
-        let listed = git(repo, &["ls-tree", "-z", commit, "--", &at])?;
-        let entry = listed
-            .split('\0')
-            .find(|e| !e.is_empty())
-            .ok_or_else(|| format!("path '{at}' does not exist in '{commit}'"))?;
-        // The entry is `<mode> <type> <object>\t<path>`.
-        let (meta, _) = entry
-            .split_once('\t')
-            .ok_or_else(|| format!("git ls-tree gave {entry:?} for {at}"))?;
-        let mut m = meta.split(' ');
-        let (mode, kind, object) = (m.next(), m.next(), m.next().unwrap_or_default());
-        if mode == Some("120000") {
+        let at = if names.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{name}", names.join("/"))
+        };
+        let here = trees.last().map(String::as_str).unwrap_or_default();
+        let Some(entry) = list_tree(repo, here)?.into_iter().find(|e| e.name == name) else {
+            return Ok(Found::Missing(at));
+        };
+        if entry.mode == "120000" {
             followed += 1;
             if followed > MAX_LINKS {
                 return Err(format!(
                     "{path} is a link that leads through more than {MAX_LINKS} links at {commit}"
                 ));
             }
-            let target = String::from_utf8(git_bytes(repo, &["cat-file", "blob", object])?)
+            let target = String::from_utf8(git_bytes(repo, &["cat-file", "blob", &entry.object])?)
                 .map_err(|_| format!("the link {at} does not hold a path"))?;
             if target.starts_with('/') {
                 return Err(format!("the link {at} points outside the repository, to {target}"));
             }
             // The link stands where its name stood: its target is read from the directory that held it.
-            walked.pop();
-            for name in target.split('/').rev() {
-                ahead.push_front(name.to_string());
+            for part in target.split('/').rev() {
+                ahead.push_front(part.to_string());
             }
             via = Some((at, target));
-        } else if kind == Some("blob") && ahead.iter().all(String::is_empty) {
-            return Ok(object.to_string());
-        } else if kind == Some("blob") {
-            return Err(format!("{at} is a file, not a directory, at {commit}"));
-        } else if kind != Some("tree") {
+        } else if entry.kind == "tree" {
+            names.push(name);
+            trees.push(entry.object);
+        } else if entry.kind != "blob" {
             return Err(format!("{at} is not a file at {commit}"));
+        } else if ahead.is_empty() {
+            return Ok(Found::File(entry.object));
+        } else {
+            return Err(format!("{at} is a file, not a directory, at {commit}"));
         }
     }
-    // The names ran out on a directory, or on the root.
-    if walked.is_empty() {
-        return Err(format!(
+    Ok(Found::Dir {
+        tree: trees.pop().unwrap_or_default(),
+        at: names.join("/"),
+    })
+}
+
+/// The git object of the file `path` names at `commit`; an error that says why when it names none.
+fn blob_object(repo: &Path, commit: &str, path: &str) -> Result<String, String> {
+    match resolve(repo, commit, path)? {
+        Found::File(object) => Ok(object),
+        Found::Missing(at) => Err(format!("path '{at}' does not exist in '{commit}'")),
+        Found::Dir { at, .. } if at.is_empty() => Err(format!(
             "{path} leads to the repository's root, which is not a file at {commit}"
-        ));
+        )),
+        Found::Dir { at, .. } => Err(format!("{at} is not a file at {commit}")),
     }
-    Err(format!("{} is not a file at {commit}", walked.join("/")))
 }
 
 /// What a project says of itself as one commit has it, which agents are given as the project guide: its AGENTS.md,
@@ -1392,56 +1453,89 @@ pub fn project_guide_at(
     design: &[String],
     cites: &str,
 ) -> Result<serde_json::Value, String> {
-    let dirs: Vec<&str> = design.iter().filter(|d| d.ends_with('/')).map(String::as_str).collect();
-    let mut args = vec!["ls-tree", "-r", "-z", commit, "--", "AGENTS.md"];
-    args.extend(dirs.iter().copied());
-    let listed = git(repo, &args)?;
-    let blobs = listed_blobs(repo, commit, &listed, |path| {
-        path == "AGENTS.md" || (path.ends_with(".md") && dirs.iter().any(|d| path.starts_with(d)))
-    })?;
-    let mut texts = blob_texts(repo, &blobs.iter().map(|b| b.1.as_str()).collect::<Vec<_>>())?.into_iter();
-    let mut agents = String::new();
-    let mut nodes = Vec::new();
-    for (path, _) in &blobs {
-        let text = texts.next().unwrap_or_default();
-        if path == "AGENTS.md" {
-            agents = text;
-        } else {
-            nodes.push((path.clone(), text));
-        }
+    let agents = match resolve(repo, commit, "AGENTS.md")
+        .map_err(|x| format!("AGENTS.md cannot be read at {commit} in {}: {x}", repo.display()))?
+    {
+        Found::File(object) => blob_texts(repo, &[object.as_str()])?.pop().unwrap_or_default(),
+        Found::Missing(_) => String::new(),
+        Found::Dir { .. } => return Err(format!("AGENTS.md is not a file at {commit} in {}", repo.display())),
+    };
+    let mut found = BTreeMap::new();
+    for dir in design.iter().filter(|d| d.ends_with('/')) {
+        records_under(repo, commit, dir, &mut found)?;
     }
-    Ok(guide(agents, nodes, cites))
+    let objects: Vec<&str> = found.values().map(String::as_str).collect();
+    let texts = blob_texts(repo, &objects)?;
+    Ok(guide(agents, found.keys().cloned().zip(texts).collect(), cites))
 }
 
-/// The files of a listing of `git ls-tree -r -z`, each as its path and the git object that holds its text, for the
-/// paths `keep` accepts. A link is a file whose text is the file's it points to ([`blob_object`]); an entry that is
-/// neither a file nor a link, as a submodule, is left out.
-fn listed_blobs(
+/// Adds to `found` the Markdown files under the directory `dir` of a commit, each as its path and the git object that
+/// holds its text; a directory that is not there adds none. The files are those a walk of the checkout found, so a
+/// link is followed as that walk followed it: a link to a file is a file at the link's path, a link to a directory is
+/// that directory at the link's path, and a link that cannot be followed is an error that names it, never left out
+/// without a word.
+fn records_under(
     repo: &Path,
     commit: &str,
-    listed: &str,
-    keep: impl Fn(&str) -> bool,
-) -> Result<Vec<(String, String)>, String> {
-    let mut out = Vec::new();
-    // Each entry is `<mode> <type> <object>\t<path>`.
+    dir: &str,
+    found: &mut BTreeMap<String, String>,
+) -> Result<(), String> {
+    let dir = dir.trim_end_matches('/');
+    let at = resolve(repo, commit, dir)
+        .map_err(|x| format!("{dir} cannot be read at {commit} in {}: {x}", repo.display()))?;
+    if let Found::Dir { tree, .. } = at {
+        let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+        walk_records(repo, commit, &prefix, &tree, 0, found)?;
+    }
+    Ok(())
+}
+
+/// The Markdown files of the directory `tree` stands for at the path `prefix`, added to `found`
+/// ([`records_under`]); `depth` counts the links to directories it was reached through.
+fn walk_records(
+    repo: &Path,
+    commit: &str,
+    prefix: &str,
+    tree: &str,
+    depth: usize,
+    found: &mut BTreeMap<String, String>,
+) -> Result<(), String> {
+    if depth > MAX_LINKS {
+        return Err(format!(
+            "{prefix} leads through more than {MAX_LINKS} links to directories at {commit}"
+        ));
+    }
+    let listed = git(repo, &["ls-tree", "-r", "-z", tree])?;
+    // Each entry is `<mode> <type> <object>\t<path>`, the path from `tree`.
     for entry in listed.split('\0') {
-        let Some((meta, path)) = entry.split_once('\t') else {
+        let Some((meta, rel)) = entry.split_once('\t') else {
             continue;
         };
         let mut m = meta.split(' ');
-        let (mode, kind, object) = (m.next(), m.next(), m.next());
-        if kind != Some("blob") || !keep(path) {
+        let (mode, kind, object) = (m.next(), m.next(), m.next().unwrap_or_default());
+        let path = format!("{prefix}{rel}");
+        if kind != Some("blob") {
             continue;
         }
-        let object = match (mode, object) {
-            (Some("120000"), _) => blob_object(repo, commit, path)
-                .map_err(|x| format!("{path} cannot be read at {commit} in {}: {x}", repo.display()))?,
-            (_, Some(object)) => object.to_string(),
-            _ => continue,
-        };
-        out.push((path.to_string(), object));
+        if mode != Some("120000") {
+            if path.ends_with(".md") {
+                found.insert(path, object.to_string());
+            }
+            continue;
+        }
+        let fail = |x: String| format!("{path} cannot be read at {commit} in {}: {x}", repo.display());
+        match resolve(repo, commit, &path).map_err(fail)? {
+            Found::File(object) if path.ends_with(".md") => {
+                found.insert(path, object);
+            }
+            Found::Dir { tree, .. } => walk_records(repo, commit, &format!("{path}/"), &tree, depth + 1, found)?,
+            Found::Missing(at) if path.ends_with(".md") => {
+                return Err(fail(format!("path '{at}' does not exist in '{commit}'")));
+            }
+            Found::File(_) | Found::Missing(_) => {}
+        }
     }
-    Ok(out)
+    Ok(())
 }
 
 /// The project guide of an AGENTS.md and the files of the records, each by its path: the index in the order of the
@@ -1467,12 +1561,13 @@ fn guide(agents: String, mut nodes: Vec<(String, String)>, cites: &str) -> serde
 
 /// The Markdown files under a directory of a repository as one commit has them, each by its path, in the order of the
 /// paths: read with git, so that neither the worktree's files nor what it committed beyond that commit change them.
+/// Links are followed as [`records_under`] says.
 pub fn files_at(repo: &Path, commit: &str, dir: &str) -> Result<Vec<(String, String)>, String> {
-    let dir = format!("{}/", dir.trim_end_matches('/'));
-    let listed = git(repo, &["ls-tree", "-r", "-z", commit, "--", &dir])?;
-    let blobs = listed_blobs(repo, commit, &listed, |path| path.ends_with(".md"))?;
-    let texts = blob_texts(repo, &blobs.iter().map(|b| b.1.as_str()).collect::<Vec<_>>())?;
-    Ok(blobs.into_iter().map(|b| b.0).zip(texts).collect())
+    let mut found = BTreeMap::new();
+    records_under(repo, commit, dir, &mut found)?;
+    let objects: Vec<&str> = found.values().map(String::as_str).collect();
+    let texts = blob_texts(repo, &objects)?;
+    Ok(found.into_keys().zip(texts).collect())
 }
 
 /// The texts of git objects of a repository, in the order of their names, read by one run of git.

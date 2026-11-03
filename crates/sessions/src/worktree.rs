@@ -15,7 +15,7 @@ pub use config::shared_git::git;
 
 /// Fetches main and makes a worktree on a new branch from it; gives the commit it starts from.
 pub fn create_worktree(checkout: &Path, dir: &Path, branch: &str, main: &str) -> Result<String, String> {
-    git(checkout, &["fetch", "-q", "origin", main])?;
+    git(checkout, &["fetch", "-q", "origin", &config::main_refspec(main)])?;
     let base = format!("origin/{main}");
     let d = dir.to_string_lossy();
     git(checkout, &["worktree", "add", "-q", "-b", branch, &d, &base])?;
@@ -49,7 +49,7 @@ pub fn take_over_worktree(checkout: &Path, dir: &Path, branch: &str) -> Result<S
 /// commit it stands at. A directory there that is no worktree, such as the empty one an architect worked in before it
 /// had a worktree, gives way to it.
 pub fn at_main(checkout: &Path, dir: &Path, main: &str) -> Result<String, String> {
-    git(checkout, &["fetch", "-q", "origin", main])?;
+    git(checkout, &["fetch", "-q", "origin", &config::main_refspec(main)])?;
     let base = format!("origin/{main}");
     if dir.join(".git").exists() {
         git(dir, &["checkout", "-q", "--force", "--detach", &base])?;
