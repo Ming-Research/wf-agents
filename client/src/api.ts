@@ -68,8 +68,9 @@ waiting_for_slot: Array<number>,
  */
 architects_started: Array<string>,
 /**
- * The works the engine is taking a step of now, in the order of their ids: the round of each runs, beside the
- * others. While every work is paused they are the last rounds before the pause, unless the owner asked for them.
+ * The works the engine is taking a step of now, in the order of their ids, beside one another. A step is not
+ * always a round: a work that waits is stepped only to see whether what it waits for came, and that step writes
+ * no round. While every work is paused they are the last steps before the pause, unless the owner asked for them.
  */
 running: Array<number>,
 /**
@@ -164,9 +165,10 @@ line: string | null, };
 export type PausedBy = "owner" | "engine" | "architect";
 
 /**
- * What a work waits for: once it comes, the work goes on by itself, unless it is paused.
+ * What a work waits for: once it comes, the work goes on by itself, unless it is paused. Every wait of the engine
+ * that writes no round is read as one of these, or as the engine's halt or a wait for a free slot in its status.
  */
-export type Waits = { "kind": "answer", ask: number, } | { "kind": "ruling", design_card: number, } | { "kind": "architect", matter: number, project?: string, } | { "kind": "items", items: Array<number>, } | { "kind": "row", cell: string, row: string, };
+export type Waits = { "kind": "answer", ask: number, } | { "kind": "ruling", design_card: number, } | { "kind": "architect", matter: number, project?: string, } | { "kind": "items", items: Array<number>, } | { "kind": "row", cell: string, row: string, } | { "kind": "retry" };
 
 /**
  * A work as a list shows it: what it works on, where it stands and what it has cost.

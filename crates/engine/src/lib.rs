@@ -94,7 +94,10 @@ pub const VERSION: &str = env!("WF_AGENTS_COMMIT");
 pub enum Advance {
     /// A round or step ended: the work moved on, or its return was sent back to be done again.
     Moved,
-    /// The work waits: for the owner, for other works, or for its turn.
+    /// The work waits: for the owner, for other works, or for its turn. A step that ends so writes no round, and the
+    /// owner's page must be able to read the wait: from the work's row (`api` reads `waits`), from the engine's halt
+    /// (`status.halt`) or as a wait for a free slot (`status.waiting_for_slot`). A new kind of wait needs its own read
+    /// there, or the page shows the work as running while it only waits.
     Waits(String),
     /// What the work waited for came, and it waits on, holding no slot, since the loop granted its step none: its
     /// machine had no slot free.

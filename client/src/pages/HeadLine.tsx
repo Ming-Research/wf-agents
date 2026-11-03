@@ -54,7 +54,7 @@ export function State({ w, c }: { w: WorkSummary; c: Course }) {
   }
   const why = held(c, w);
   const parts: ReactNode[] = [];
-  if (c.running !== null) {
+  if (c.working !== null) {
     parts.push(<Running key="running" words={runningWords(c)} since={w.running?.started_at ?? null} />);
   } else if (why !== null) {
     parts.push(<Held key="held" c={c} why={why} />);
@@ -73,8 +73,8 @@ export function State({ w, c }: { w: WorkSummary; c: Course }) {
       </LabelLink>,
     );
   }
-  if (c.slot && c.running === null) parts.push(<WorkBadge key="slot" state="waiting_for_slot" />);
-  if (c.running === null && why === null && waits === null && !c.slot) {
+  if (c.slot && c.working === null) parts.push(<WorkBadge key="slot" state="waiting_for_slot" />);
+  if (c.working === null && why === null && waits === null && !c.slot) {
     parts.push(
       c.started ? (
         <StateChip key="ready" tone="neutral">

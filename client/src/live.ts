@@ -211,10 +211,16 @@ export function useOnline(): boolean {
   return useSyncExternalStore(subscribe, () => state.online);
 }
 
-/// The engine's status, as last told; the same when the page is drawn apart from a browser, as its tests draw it.
+/// The engine's status, as last told, while the event stream is open; none while it is cut off or has not opened, since
+/// the page cannot tell then what the engine does: the bar says the engine is offline, and no work is marked as working.
+/// The same when the page is drawn apart from a browser, as its tests draw it.
 export function useStatus(): Status | null {
-  const now = () => state.status;
-  return useSyncExternalStore(subscribe, now, now);
+  return useSyncExternalStore(subscribe, onlineStatus, onlineStatus);
+}
+
+/// The status of the engine while the stream is open, else none.
+function onlineStatus(): Status | null {
+  return state.online ? state.status : null;
 }
 
 /// How many times what `key` names has changed, everything read again included.

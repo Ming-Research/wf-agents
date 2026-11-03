@@ -55,7 +55,9 @@ function Waits({ d, w }: { d: ItemDetail; w: WorkSummary }) {
           ? 'progress_waiting_for_slot'
           : state === 'asking'
             ? 'progress_asking'
-            : 'progress_ready';
+            : state === 'paused'
+              ? 'course_all_why'
+              : 'progress_ready';
   return <p className="step-waits muted">{t(key)}</p>;
 }
 
