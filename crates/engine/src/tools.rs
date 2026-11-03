@@ -186,13 +186,12 @@ pub fn gh_refusal(allow: &[String], args: &[String]) -> Option<String> {
             allow.join(", ")
         ));
     }
-    if args.first().is_some_and(|a| a == "api") {
-        if let Some(w) = args
+    if args.first().is_some_and(|a| a == "api")
+        && let Some(w) = args
             .iter()
             .find(|a| API_WRITES.iter().any(|x| a == x || a.starts_with(&format!("{x}="))))
-        {
-            return Some(format!("gh api may only read: {w} makes it write"));
-        }
+    {
+        return Some(format!("gh api may only read: {w} makes it write"));
     }
     None
 }
@@ -734,13 +733,14 @@ fn ci_before(
     })
 }
 
+/// What a measure request asks for: a workflow the project lists, and the inputs given to it, each as its name and its
+/// value.
+type MeasureAsked<'a> = (&'a config::MeasureWorkflow, Vec<(String, String)>);
+
 /// The workflow a measure request asks for among those the project lists, with its inputs as `name=value` lines taken
 /// apart; or why the request cannot run: the project lists no workflow, it does not list this one, or an input is not
 /// one the workflow takes, is given twice or is not a `name=value` line.
-fn measure_request<'a>(
-    listed: &'a [config::MeasureWorkflow],
-    req: &Value,
-) -> Result<(&'a config::MeasureWorkflow, Vec<(String, String)>), String> {
+fn measure_request<'a>(listed: &'a [config::MeasureWorkflow], req: &Value) -> Result<MeasureAsked<'a>, String> {
     if listed.is_empty() {
         return Err(NO_MEASURE.to_string());
     }
