@@ -63,13 +63,14 @@ const UNCHECKED: [&str; 18] = [
 ];
 
 /// The commands that read the committed configuration before they open the database.
-const CHECKED: [&str; 6] = [
+const CHECKED: [&str; 7] = [
     "item add --project p --title t --problem x --why y --level l",
     "anomalies",
     "message 1",
     "run --once",
     "hold --why x",
     "release",
+    "flow cost",
 ];
 
 /// A path under the temporary directory that is not there.
@@ -964,5 +965,117 @@ fn history_in_full_gives_every_round_of_a_work() {
     assert_eq!(rounds[0]["name"], "R1-1");
     assert_eq!(rounds[10_001]["name"], "R1-10002");
     assert_eq!(rounds[10_001]["cell"], "C10002");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The flows of the data directory `dir`'s database for `flow cost`: version 1, the flow built into the command with a
+/// cell `Z1` its engineer's graph lacks and a graph `policy` it lacks, and version 2, the flow built into the command;
+/// and the works on them, as the engine leaves them. Work 1 stands at `Z1` after a round at `R1`; work 2, paused by
+/// the owner, at `Z1` with no round; work 3 at `R2` with no round; work 4 of the graph `policy`; work 5, the
+/// architect's, at its first cell on version 2; work 6 ended, and work 7 done.
+fn flows_and_works(dir: &Path) {
+    let committed = config::committed(dir).unwrap();
+    let built = engine::compile_for(&committed.config).unwrap();
+    let mut older = built.clone();
+    let engineer = older.graphs.iter_mut().find(|g| g.name == "engineer").unwrap();
+    let mut gone = engineer.cell("R2").unwrap().clone();
+    gone.id = "Z1".into();
+    engineer.cells.push(gone);
+    let mut policy = older.graph("architect").unwrap().clone();
+    policy.name = "policy".into();
+    older.graphs.push(policy);
+    let mut base = db::Db::open(&config::database(dir)).unwrap();
+    base.write(db::Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'older', ?1), (2, ?2, ?3)",
+            [older.json(), built.digest(), built.json()],
+        )?;
+        tx.execute_batch(
+            r#"INSERT INTO items (id, project, title, problem, why, deliver, level) VALUES
+                   (1, 'p', 'Back', 'x', 'y', 'change', 'l'), (2, 'p', 'Stuck', 'x', 'y', 'change', 'l'),
+                   (3, 'p', 'Moves', 'x', 'y', 'change', 'l'), (4, 'p', 'Over', 'x', 'y', 'change', 'l');
+               INSERT INTO works (id, item, flow_version, graph, at, project, paused, paused_by, ended) VALUES
+                   (1, 1, 1, 'engineer', 'Z1', NULL, NULL, NULL, NULL),
+                   (2, 2, 1, 'engineer', 'Z1', NULL, 'Held.', 'owner', NULL),
+                   (3, 3, 1, 'engineer', 'R2', NULL, NULL, NULL, NULL),
+                   (4, NULL, 1, 'policy', 'P1', 'p', NULL, NULL, NULL),
+                   (5, NULL, 2, 'architect', 'Q0', 'p', NULL, NULL, NULL),
+                   (6, 4, 1, 'engineer', 'Z1', NULL, NULL, NULL, 'over'),
+                   (7, NULL, 2, 'architect', 'E2', 'p', NULL, NULL, NULL);
+               INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+               VALUES (1, 1, 'R1', '{}', '{}', 'done', 'c', 1, 1), (7, 1, 'E2', '{}', '{}', 'done', 'c', 1, 1);"#,
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+// `flow cost` tells what installing a flow would do with each work that is neither ended nor done, the works told by
+// what happens to them and the paused marked, and writes nothing. Worked out by hand from `flows_and_works`: work 1 goes
+// back through V1 to the cell it walked, which it does again; work 2 walked no cell the version has and stays stuck at
+// V1; work 4's graph is gone, so it ends; work 3 moves and work 5 is on the version already; works 6 and 7 are not told.
+// A branch's flow on the standard input, which the database has no version of, is told as the next version, and work 5
+// moves to it.
+#[test]
+fn flow_cost_tells_what_installing_a_flow_does_with_each_work_and_writes_nothing() {
+    let dir = data_directory("flow-cost");
+    engine::database::create(&dir).unwrap();
+    flows_and_works(&dir);
+    let path = config::database(&dir);
+    let before = (entries(&dir), std::fs::read(&path).unwrap());
+    let out = printed(&dir, "flow cost");
+    assert_eq!(
+        out,
+        format!(
+            "Installing the flow built into this command on {}: it is flow version 2, which the database has.
+Each work that is neither ended nor done, as it next goes on (one paused, once it is started):
+Goes back through a cell to a cell it does again (1):
+  work 1 (item 1: Back), on version 1 at Z1: through V1 back to R1, doing round R1-1 again: cell Z1 is gone
+Stays stuck at a cell, paused (1):
+  work 2 (item 2: Stuck), on version 1 at Z1, paused by the owner: at V1: cell Z1 is gone, and the version has none \
+of the cells the work walked; the owner's Start looks again
+Ends (1):
+  work 4 (the architect's policy setting for p), on version 1 at P1: the version has no graph policy
+Moves where it stands (1):
+  work 3 (item 3: Moves), on version 1 at R2
+On version 2 already (1):
+  work 5 (the architect of p), on version 2 at Q0
+",
+            dir.display()
+        )
+    );
+    // A branch's flow, as `git show` writes it.
+    let flow = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../flow/flow.json")).unwrap();
+    let title = "\"title\": \"Whether something is under test\"";
+    assert!(flow.contains(title));
+    let branch = flow.replacen(title, "\"title\": \"Whether anything is under test\"", 1);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wf-agents"))
+        .args(["flow", "cost", "-", "--data"])
+        .arg(&dir)
+        .env("GIT_CEILING_DIRECTORIES", std::env::temp_dir())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::io::Write::write_all(&mut child.stdin.take().unwrap(), branch.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        out.starts_with(&format!(
+            "Installing the flow on the standard input on {}: it becomes flow version 3.\n",
+            dir.display()
+        )),
+        "{out}"
+    );
+    assert!(
+        out.contains(
+            "Moves where it stands (2):\n  work 3 (item 3: Moves), on version 1 at R2\n  work 5 (the architect of p), \
+             on version 2 at Q0\n"
+        ),
+        "{out}"
+    );
+    assert_eq!((entries(&dir), std::fs::read(&path).unwrap()), before);
     let _ = std::fs::remove_dir_all(&dir);
 }

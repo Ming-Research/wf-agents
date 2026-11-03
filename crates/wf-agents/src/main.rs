@@ -2,6 +2,7 @@
 
 mod owner;
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -311,6 +312,20 @@ enum FlowCommand {
         #[arg(long)]
         schema: Option<PathBuf>,
     },
+    /// What installing a flow would do with each work that goes on: which move, which go back to which cell and why,
+    /// which are stuck and which end.
+    ///
+    /// Each work of the data directory that is neither ended nor done, paused works included, is told as the engine
+    /// brings it up when it next goes on: it moves where it stands, goes back through its graph's cell for a work on an
+    /// older version to a cell it does again, stays there stuck, or ends. The flow is compiled and checked against the
+    /// data directory's committed configuration as the engine would at its start, and each work is judged by the
+    /// engine's own decisions on the database opened only to read, as it is: nothing is written, so it runs beside a
+    /// running engine, and before a branch's flow is merged.
+    Cost {
+        /// The flow to install: a file, as a branch's `flow/flow.json` (`-` reads it from the standard input, as `git
+        /// show <branch>:flow/flow.json` writes it); by default, the one built into the command.
+        flow: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -325,6 +340,9 @@ fn main() -> ExitCode {
     let result = match cli.command {
         None => Ok(()),
         Some(Command::Flow(FlowCommand::Check { flow, schema })) => flow_check(&flow, schema.as_deref()),
+        Some(Command::Flow(FlowCommand::Cost { flow })) => {
+            data(cli.data.as_deref()).and_then(|d| print(flow_cost(d, flow.as_deref())))
+        }
         Some(Command::Config(ConfigCommand::Check)) => data(cli.data.as_deref()).and_then(config_check),
         Some(c) => data(cli.data.as_deref()).and_then(|d| owners(d, c)),
     };
@@ -392,6 +410,133 @@ fn flow_check(flow: &Path, schema: Option<&Path>) -> Result<(), String> {
     }
     println!("digest {}", compiled.digest());
     Ok(())
+}
+
+/// What installing a flow would do with each work of the data directory `d` that is neither ended nor done
+/// ([`engine::Engine::flow_cost`]): the flow `flow`, or the one built into the command, compiled and checked against
+/// the committed configuration as the engine would at its start, and each work judged on the database opened only to
+/// read. The works are told by what happens to them, those that do work again first.
+fn flow_cost(d: &Path, flow: Option<&Path>) -> Result<String, String> {
+    let (text, named) = match flow {
+        None => (flow::FLOW.to_string(), "the flow built into this command".to_string()),
+        Some(p) if p == Path::new("-") => {
+            let mut text = String::new();
+            std::io::stdin()
+                .read_to_string(&mut text)
+                .map_err(|e| format!("the standard input: {e}"))?;
+            (text, "the flow on the standard input".to_string())
+        }
+        Some(p) => (read(p)?, p.display().to_string()),
+    };
+    let committed = config::committed(d).map_err(|e| e.to_string())?;
+    let compiled = engine::compile_flow_for(&text, &committed.config)?;
+    let github = engine::hub::Gh::new(d.join("logs"));
+    let mut e = engine::Engine::trying(
+        d,
+        committed,
+        compiled,
+        Box::new(engine::agent::Claude),
+        Box::new(github),
+    )?;
+    let cost = e.flow_cost()?;
+    let at: i64 =
+        e.db.conn()
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .map_err(|x| x.to_string())?;
+    let v = cost.version;
+    let mut out = if cost.stored {
+        format!(
+            "Installing {named} on {}: it is flow version {v}, which the database has.\n",
+            d.display()
+        )
+    } else {
+        format!("Installing {named} on {}: it becomes flow version {v}.\n", d.display())
+    };
+    if at < db::VERSION {
+        out.push_str(&format!(
+            "The database is at version {at}, older than this command's ({}): it is read as it is, before the engine \
+             migrates it.\n",
+            db::VERSION
+        ));
+    }
+    out.push_str("Each work that is neither ended nor done, as it next goes on (one paused, once it is started):\n");
+    let mut groups: [(String, Vec<String>); 6] = [
+        ("Goes back through a cell to a cell it does again".into(), Vec::new()),
+        ("Stays stuck at a cell, paused".into(), Vec::new()),
+        ("Ends".into(), Vec::new()),
+        ("Cannot be worked out".into(), Vec::new()),
+        ("Moves where it stands".into(), Vec::new()),
+        (format!("On version {v} already"), Vec::new()),
+    ];
+    for c in &cost.works {
+        let who = work_named(c);
+        let (group, line) = match &c.effect {
+            Ok(engine::flow_cost::Effect::GoesBack {
+                through,
+                to,
+                why,
+                from,
+                redone,
+            }) => {
+                let again = match (from, redone) {
+                    (Some(from), 1) => format!("doing round {from} again"),
+                    (Some(from), n) => format!("doing round {from} and the {} after it again", n - 1),
+                    (None, _) => "doing no round again".to_string(),
+                };
+                (0, format!("{who}: through {through} back to {to}, {again}: {why}"))
+            }
+            Ok(engine::flow_cost::Effect::Stuck { at, why, back_to }) => {
+                let then = match back_to {
+                    Some(t) => format!("; the owner's Start takes it back to {t} all the same"),
+                    None => "; the owner's Start looks again".to_string(),
+                };
+                (1, format!("{who}: at {at}: {why}{then}"))
+            }
+            Ok(engine::flow_cost::Effect::Ends { why, taken_over }) => {
+                let then = if *taken_over {
+                    "; a new work takes its item over"
+                } else {
+                    ""
+                };
+                (2, format!("{who}: {why}{then}"))
+            }
+            Err(why) => (3, format!("{who}: {why}")),
+            Ok(engine::flow_cost::Effect::Moves) => (4, who),
+            Ok(engine::flow_cost::Effect::Stays) => (5, who),
+        };
+        groups[group].1.push(line);
+    }
+    if cost.works.is_empty() {
+        out.push_str("(none)\n");
+    }
+    for (heading, lines) in groups.iter().filter(|(_, lines)| !lines.is_empty()) {
+        out.push_str(&format!("{heading} ({}):\n", lines.len()));
+        for l in lines {
+            out.push_str(&format!("  {l}\n"));
+        }
+    }
+    Ok(out)
+}
+
+/// A work as the cost of a flow tells it: its id, what it works on, the version and cell it stands at, and who paused
+/// it while it is paused.
+fn work_named(c: &engine::flow_cost::WorkCost) -> String {
+    let w = &c.work;
+    let on = match (w.item, &c.title) {
+        (Some(item), Some(title)) => format!("item {item}: {title}"),
+        (Some(item), None) => format!("item {item}"),
+        (None, _) => w.of_architect(),
+    };
+    let paused = match (w.paused.as_deref(), w.paused_by.as_deref()) {
+        (None, _) => "",
+        (p, by) if db::stopped_by_architect(p, by) => ", stopped by the architect",
+        (_, Some("owner")) => ", paused by the owner",
+        _ => ", paused by the engine",
+    };
+    format!(
+        "work {} ({on}), on version {} at {}{paused}",
+        w.id, w.flow_version, w.pos.at
+    )
 }
 
 fn data(dir: Option<&Path>) -> Result<&Path, String> {

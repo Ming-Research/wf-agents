@@ -22,6 +22,7 @@ pub mod backup;
 pub mod blockers;
 pub mod database;
 pub mod ending;
+pub mod flow_cost;
 pub mod git;
 pub mod hub;
 pub mod limits;
@@ -409,6 +410,34 @@ impl Engine {
         Ok(Engine::on(shared, db, data, flow_now))
     }
 
+    /// The engine made only to read, as [`Engine::reading`] is, running the flow `compiled` ([`compile_flow_for`]) in
+    /// place of the one built into it, as the version an engine built with it would store it as: the version of its
+    /// digest when the database has one, else the next the database gives. For working out what installing it would do
+    /// with each work ([`flow_cost`]), beside an engine that may be running. The database is read as it is, also when it
+    /// is older than this wf-agents ([`database::open_read_only_unmigrated`]), as it stands before the engine that would
+    /// run the flow migrates it. Steps on it fail.
+    pub fn trying(
+        data: &Path,
+        config: config::Committed,
+        compiled: Compiled,
+        agents: Box<dyn Agents>,
+        github: Box<dyn GitHub>,
+    ) -> Result<Engine, String> {
+        let (db, _) = database::open_read_only_unmigrated(data)?;
+        let flow_now: i64 = db
+            .conn()
+            .query_row(
+                "SELECT coalesce((SELECT id FROM flow_versions WHERE digest = ?1),
+                                 (SELECT coalesce(max(id), 0) + 1 FROM flow_versions))",
+                [compiled.digest()],
+                |r| r.get(0),
+            )
+            .map_err(|e| format!("the flow versions: {e}"))?;
+        let flows = BTreeMap::from([(flow_now, Arc::new(compiled))]);
+        let shared = Shared::new(config, flows, agents, github, Hooks::default());
+        Ok(Engine::on(shared, db, data, flow_now))
+    }
+
     /// Says what the engine does or what went wrong, where its hooks say.
     pub fn say(&self, text: &str) {
         (self.shared.hooks.say)(text);
@@ -508,16 +537,26 @@ impl Engine {
         Ok(versions::plan(&old, &new, &w.pos, &rounds, |r| in_effect(&old, r)))
     }
 
+    /// The cell of a work's graph in the version the engine runs that a work on an older version comes to when that
+    /// version cannot take it on where it stands (the graph's `version`): none when the version lacks the graph, or the
+    /// graph that cell, where the work ends instead ([`Engine::bring_back`]).
+    fn version_cell(&self, w: &Work) -> Result<Option<String>, String> {
+        Ok(self
+            .flow(self.flow_now)?
+            .graph(&w.graph)
+            .and_then(|g| g.version.clone()))
+    }
+
     /// Brings a work on an older flow version that the version the engine runs cannot take on where it stands to its
-    /// graph's cell for that (its `version`), in one write: on the new version, standing there, with the cell it goes
-    /// back to (`to`; none when it can go back to none) as where it stopped, and no cell waiting for an answer; the round
-    /// it was in cut off, and the question it had out withdrawn, saying why. What it answered, asked and was told stays.
-    /// Then that cell's step runs at once ([`steps::bring_up`]), which keeps it there when it is `stuck`. A work whose
-    /// graph the version lacks, or lacks that cell, ends instead, as no cell of the version can run it, and is taken
-    /// over as a work started over is ([`Engine::take_over`]).
+    /// graph's cell for that ([`Engine::version_cell`]), in one write: on the new version, standing there, with the cell
+    /// it goes back to (`to`; none when it can go back to none) as where it stopped, and no cell waiting for an answer;
+    /// the round it was in cut off, and the question it had out withdrawn, saying why. What it answered, asked and was
+    /// told stays. Then that cell's step runs at once ([`steps::bring_up`]), which keeps it there when it is `stuck`. A
+    /// work whose graph the version lacks, or lacks that cell, ends instead, as no cell of the version can run it, and is
+    /// taken over as a work started over is ([`Engine::take_over`]).
     fn bring_back(&mut self, w: &Work, to: Option<&str>, why: &str, stuck: bool) -> Result<(), String> {
         let (id, from, now) = (w.id, w.flow_version, self.flow_now);
-        let Some(cell) = self.flow(now)?.graph(&w.graph).and_then(|g| g.version.clone()) else {
+        let Some(cell) = self.version_cell(w)? else {
             return self.take_over(w, why);
         };
         let left = match to {
@@ -1585,9 +1624,15 @@ pub struct Stepped {
 /// The flow built into this engine, compiled against the database it makes, when `config` fits it; otherwise every
 /// problem the configuration has with the flow, one to a line.
 pub fn compile_for(config: &config::Config) -> Result<Compiled, String> {
+    compile_flow_for(flow::FLOW, config)
+}
+
+/// The flow `text` compiled as [`compile_for`] compiles the one built into this engine, when `config` fits it: what an
+/// engine built with that flow would run, as another branch's flow is.
+pub fn compile_flow_for(text: &str, config: &config::Config) -> Result<Compiled, String> {
     let relations = db::relations(db::SCHEMA).map_err(|e| format!("the database definition: {e}"))?;
     let tables = db::index_of(db::SCHEMA).map_err(|e| format!("the database definition: {e}"))?;
-    let compiled = flow::compile(flow::FLOW, &flow::Context { relations, tables }).map_err(|e| e.to_string())?;
+    let compiled = flow::compile(text, &flow::Context { relations, tables }).map_err(|e| e.to_string())?;
     let problems = config.check(&compiled);
     if !problems.is_empty() {
         return Err(problems.join("\n"));

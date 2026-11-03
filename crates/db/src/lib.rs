@@ -390,6 +390,18 @@ impl Db {
     /// fails. A file that does not exist or is empty is no database, as for [`Db::open`]; one not at this wf-agents'
     /// version is refused, since its shape is not the one read.
     pub fn open_read_only(path: &Path) -> Result<Db> {
+        match Db::open_read_only_unmigrated(path)? {
+            (_, at) if at < VERSION => Err(Error::Older(at)),
+            (db, _) => Ok(db),
+        }
+    }
+
+    /// Opens the database at `path` only to read it, as [`Db::open_read_only`] does, also when it is older than this
+    /// wf-agents: it is read as it is, unmigrated, for a reader that must see it before the engine that migrates it
+    /// runs, as one that works out what installing a flow would do. A table a migration since its version changed may
+    /// not read as this wf-agents reads it, and such a read fails, saying what it lacks. Gives the database's version
+    /// with it; a newer database, or a file that is none, is refused.
+    pub fn open_read_only_unmigrated(path: &Path) -> Result<(Db, i64)> {
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let conn = connect(path, flags)?;
         conn.busy_timeout(Duration::from_secs(10))?;
@@ -398,19 +410,18 @@ impl Db {
         if at == 0 {
             return Err(refusal(&conn)?);
         }
-        if !up_to_date(at, VERSION)? {
-            return Err(Error::Older(at));
-        }
+        up_to_date(at, VERSION)?;
         let writer: Current = Arc::new(Mutex::new(None));
         register(&conn, "wf_tx", &writer, |w| w.tx)?;
         register(&conn, "wf_at", &writer, |w| w.at)?;
         register(&conn, "wf_actor", &writer, |w| w.actor.name())?;
-        Ok(Db {
+        let db = Db {
             conn,
             writer,
             watch: Arc::default(),
             listener: None,
-        })
+        };
+        Ok((db, at))
     }
 
     /// A new database in memory.
@@ -2442,10 +2453,17 @@ mod tests {
     type Open = fn(&Path) -> Result<Db>;
 
     /// The ways a database is opened to be used, each with a name for the failure message.
-    const OPENS: [(&str, Open); 2] = [("open", Db::open), ("open_read_only", Db::open_read_only)];
+    const OPENS: [(&str, Open); 3] = [
+        ("open", Db::open),
+        ("open_read_only", Db::open_read_only),
+        ("open_read_only_unmigrated", |p| {
+            Db::open_read_only_unmigrated(p).map(|(db, _)| db)
+        }),
+    ];
 
     // A database from a newer wf-agents, or a file that is not one, is not touched, however it is opened; one older
-    // than this wf-agents is not migrated by an open that only reads.
+    // than this wf-agents is not migrated by an open that only reads: the one for it refuses it, the one that reads it
+    // unmigrated reads it as it is and says its version.
     #[test]
     fn a_newer_or_foreign_database_is_refused() {
         let path = temp("newer");
@@ -2470,6 +2488,16 @@ mod tests {
             .pragma_update(None, "user_version", VERSION - 1)
             .unwrap();
         assert!(matches!(Db::open_read_only(&older), Err(Error::Older(v)) if v == VERSION - 1));
+        let (db, at) = Db::open_read_only_unmigrated(&older).unwrap();
+        assert_eq!(at, VERSION - 1);
+        let works: i64 = db
+            .conn()
+            .query_row("SELECT count(*) FROM works", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(works, 0);
+        assert!(db.conn().execute("DELETE FROM works", []).is_err());
+        drop(db);
+        assert_eq!(version_of(&Connection::open(&older).unwrap()).unwrap(), VERSION - 1);
     }
 
     // Opening makes nothing, however it is done: a path with no file gets none, and a file with nothing in it is no
