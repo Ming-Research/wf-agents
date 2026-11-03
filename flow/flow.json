@@ -2944,7 +2944,7 @@
     {
       "name": "ci_before",
       "desc": "Runs the tests you list on the code before the change: the engine puts these tests' files on the code before the change, runs them, and gives you the result of each check and of each test. Nothing goes onto this work's branch",
-      "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, and commits that to a temporary branch. It runs the project's fast CI workflow on the branch with the listed tests (its configuration's tests_input), which runs exactly them, each to its end. A project whose fast CI takes no tests to run cannot run them on their own: nothing is pushed, and the tool refuses, saying so. It waits for the run to finish, reads from the logs what became of each listed test, downloads the logs of red checks and deletes the temporary branch",
+      "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, and commits that to a temporary branch. Where the project's fast CI takes the tests to run (its configuration's tests_input), the engine runs that workflow on the branch with the listed tests, which runs exactly them, each to its end. Otherwise the push runs the whole fast CI, which stops a job at its first red test, where the project's configuration says its CI runs on those branches (runs_on_before_branches, true unless set); where it says it does not, nothing is pushed, and the tool refuses, saying so. It waits for the run to finish, reads from the logs what became of each listed test, downloads the logs of red checks and deletes the temporary branch",
       "in": [
         {
           "name": "head",
@@ -2987,6 +2987,22 @@
               "value": "ran",
               "desc": "It ran on the code before the change",
               "fields": [
+                {
+                  "name": "run",
+                  "title": "What ran",
+                  "type": "enum",
+                  "desc": "What the run was",
+                  "values": [
+                    [
+                      "named",
+                      "Exactly the tests listed, each to its end"
+                    ],
+                    [
+                      "whole",
+                      "The whole fast CI the push to the temporary branch ran, since the project's CI takes no tests to run: a job stops at its first red test, and a test it did not reach is not run"
+                    ]
+                  ]
+                },
                 {
                   "$ref": "checks"
                 },
@@ -3062,7 +3078,7 @@
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed: the head is not pushed, a file is not on this head, a file is outside the test paths, or the project's fast CI takes no tests to run on their own"
+                  "desc": "Which check failed: the head is not pushed, a file is not on this head, a file is outside the test paths, or the project's fast CI takes no tests to run on their own and does not run on the temporary branches the tests are put on"
                 }
               ]
             }

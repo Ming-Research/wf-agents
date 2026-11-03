@@ -547,9 +547,16 @@ pub struct Ci {
     /// The input of the fast CI's workflow that takes the tests to run, their names separated by spaces, when it has
     /// one: given it, the workflow runs exactly those tests, every one to its end, and the ci_before tool runs it so on
     /// its temporary ref, which the workflow's own runs on push leave alone; none when it has no such input, and
-    /// ci_before then refuses to run, since the fast CI cannot run the tests it lists on their own.
+    /// ci_before then pushes the temporary ref and waits for the whole run the push makes, as
+    /// `runs_on_before_branches` says it does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests_input: Option<String>,
+    /// Whether the fast CI runs when the engine pushes the temporary ref (`wf-agents-before/...`) that ci_before puts
+    /// the code before the change on. Read only where `tests_input` is none: ci_before then waits for the run the push
+    /// makes, and for it to end it reads each listed test's result from its logs. Set to false where the CI ignores
+    /// those refs, so that ci_before refuses at once, saying so, instead of waiting for a run that does not come.
+    #[serde(default = "runs_on_before_branches_default", skip_serializing_if = "is_true")]
+    pub runs_on_before_branches: bool,
     /// The artifact a red run of the fast CI uploads with the files the code generates, such as types generated
     /// from other types, each at its path in the repository: the ci tool puts those that differ from the head in the
     /// work's worktree, for the engineer to commit; none when the CI uploads none.
@@ -561,6 +568,16 @@ pub struct Ci {
     /// Off, the pushes of a work's branch run both, and the tools only wait for those runs.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub on_demand: bool,
+}
+
+/// A project that does not say otherwise has its fast CI run on the temporary refs, as every project's did before the
+/// setting existed.
+fn runs_on_before_branches_default() -> bool {
+    true
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
 }
 
 /// The settings the flow reads from a project, as `{"config": name}` inputs name them.
@@ -2010,6 +2027,27 @@ asks = 9
         assert!(!own("").unwrap().projects["q"].ci.on_demand);
         let e = own("on_demand = true\n").unwrap_err().to_string();
         assert!(e.contains("projects/q.toml: ci.on_demand needs ci.tests_input"), "{e}");
+    }
+
+    // A project's fast CI is taken to run on the temporary refs ci_before uses, as every project's did, unless the
+    // project says it does not.
+    #[test]
+    fn a_ci_runs_on_the_temporary_refs_unless_the_project_says_it_does_not() {
+        let own = |ci: &'static str| {
+            let text: &'static str = Box::leak(
+                format!(
+                    "repo = \"o/q\"\ncheckout = \"/q\"\ndesign_goal = \"d\"\ntest_paths = [\"tests/\"]\n[ci]\n\
+                     fast = \"fast\"\nfull = [\"ci\"]\nmerge_checks = [\"check\"]\n{ci}"
+                )
+                .into_boxed_str(),
+            );
+            read(&files(&[("projects/q.toml", text)])).unwrap().projects["q"]
+                .ci
+                .clone()
+        };
+        assert!(own("").runs_on_before_branches);
+        assert!(!own("runs_on_before_branches = false\n").runs_on_before_branches);
+        assert!(own("runs_on_before_branches = true\n").runs_on_before_branches);
     }
 
     // The architect's level is one of the levels, and a project's constitution a path in its repository; anything else

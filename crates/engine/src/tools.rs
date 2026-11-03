@@ -277,6 +277,44 @@ fn dispatch_failed(f: Failure) -> Failure {
     }
 }
 
+/// What a wait for the run that a push to a temporary branch should make is told when none came: the project's CI may
+/// not run on those branches, which its configuration then says.
+const BEFORE_HINT: &str = "If the project's CI does not run on the temporary branches the code before the change is \
+                           put on, set runs_on_before_branches = false or name tests_input in its configuration";
+
+fn no_run_on_before_branch(f: Failure) -> Failure {
+    if f.kind != "ci_did_not_start" {
+        return f;
+    }
+    Failure {
+        kind: f.kind,
+        what: format!("{}. {BEFORE_HINT}", f.what),
+    }
+}
+
+/// The checks of the fast CI on the code before the change, which is `commit` on the temporary `branch`: the run of
+/// the tests `listed` that the engine makes by hand where the workflow takes them (`named` is its input), else the
+/// run the push of the commit made.
+fn before_checks(
+    github: &dyn hub::GitHub,
+    project: &config::Project,
+    branch: &str,
+    commit: &str,
+    named: Option<&str>,
+    listed: &str,
+) -> Result<Vec<CheckRun>, Failure> {
+    let (repo, fast) = (repo(project), project.ci.fast.as_str());
+    match named {
+        Some(input) => {
+            github
+                .dispatch(&repo, fast, branch, &[(input, listed)])
+                .map_err(dispatch_failed)?;
+            github.checks(&repo, commit, fast)
+        }
+        None => github.checks(&repo, commit, fast).map_err(no_run_on_before_branch),
+    }
+}
+
 /// The fast CI on a commit of a work's branch, and what it ran: the engine's own run of the fast workflow with the
 /// tests named when the project's CI runs on demand, and then only the run of that workflow this made, never one that
 /// was there before; else the run the push of the commit made, the whole of the fast CI.
@@ -777,18 +815,18 @@ fn ci_before(
         .as_array()
         .map(|ts| ts.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
         .unwrap_or_default();
-    // The fast CI runs exactly the named tests, each to its end, by hand on the temporary branch, which its own runs on
-    // push leave alone. Where it takes no tests to run, nothing runs on the branch, and a push would wait for a run
-    // that does not come: this refuses before it pushes.
-    let Some(input) = project.ci.tests_input.as_deref() else {
+    // Where the fast CI takes the tests to run, it runs exactly the named ones, each to its end, by hand on the
+    // temporary branch; else the push runs the whole of it, which stops at a job's first red test. A push runs it only
+    // where the project says its fast CI runs on those branches: else nothing would run and the wait for a run would be
+    // in vain, so this refuses before it pushes.
+    let named = project.ci.tests_input.as_deref();
+    if named.is_none() && !project.ci.runs_on_before_branches {
         return refused(
-            "The project's fast CI takes no tests to run on their own (its configuration names no tests_input), so \
-             it cannot run the tests you list on the code before the change; nothing was pushed"
+            "The project's fast CI does not run on the temporary branches the code before the change is put on (its \
+             configuration sets runs_on_before_branches to false) and takes no tests to run on their own (it names \
+             no tests_input), so it cannot run the tests you list there; nothing was pushed"
                 .to_string(),
         );
-    };
-    if tests.is_empty() {
-        return refused("No test is listed to run on the code before the change".to_string());
     }
     let listed = tests.join(" ");
     let branch = format!("{BEFORE}/{}-{}-{n}", round.work, round.n);
@@ -796,11 +834,7 @@ fn ci_before(
     attempts(e, round, "ci_before", req, |e| {
         let commit = git::files_onto(&wt, &files, &sha, &base).map_err(Failure::other)?;
         hub::push(&wt, &commit, &refname, true)?;
-        let ran = e
-            .github()
-            .dispatch(&repo(project), &project.ci.fast, &branch, &[(input, listed.as_str())])
-            .map_err(dispatch_failed)
-            .and_then(|()| e.github().checks(&repo(project), &commit, &project.ci.fast));
+        let ran = before_checks(e.github(), project, &branch, &commit, named, &listed);
         let logs: Vec<Result<String, String>> = ran
             .iter()
             .flatten()
@@ -814,6 +848,7 @@ fn ci_before(
         let checks = ran?;
         Ok(json!({ "ran": {
             "verdict": "ran",
+            "run": if named.is_some() { "named" } else { "whole" },
             "checks": checks_json(&checks),
             "tests": test_results(&tests, &logs),
         } }))
@@ -1453,6 +1488,11 @@ mod ci_on_demand {
         coming: Vec<Run>,
         /// What a run of a workflow made by hand holds.
         makes: BTreeMap<String, Made>,
+        /// What a run of a workflow that a push makes holds: a commit with no run of it gets one when it is looked for,
+        /// as a push to a branch the workflow runs on does.
+        on_push: BTreeMap<String, Made>,
+        /// The log of every job, where the tests ended are read from.
+        log: Option<String>,
         /// The head of a branch, where no repository tells.
         heads: BTreeMap<String, String>,
         dispatched: Vec<Dispatch>,
@@ -1517,6 +1557,16 @@ mod ci_on_demand {
         /// What a run of the workflow made by hand holds from now on.
         fn makes(&self, workflow: &str, checks: &[(&str, &str)]) {
             self.state().makes.insert(workflow.to_string(), made(checks));
+        }
+
+        /// What a run of the workflow that a push makes holds from now on.
+        fn on_push(&self, workflow: &str, checks: &[(&str, &str)]) {
+            self.state().on_push.insert(workflow.to_string(), made(checks));
+        }
+
+        /// The log every job of a run has.
+        fn logs(&self, log: &str) {
+            self.state().log = Some(log.to_string());
         }
 
         fn at(&self, branch: &str, sha: &str) {
@@ -1585,6 +1635,18 @@ mod ci_on_demand {
                 if let Some(r) = newest {
                     return Ok(r.checks.clone());
                 }
+                if s.coming.is_empty() && after.is_none() && s.on_push.contains_key(workflow) {
+                    s.made += 1;
+                    let id = s.made;
+                    let checks = checks_of(workflow, id, &s.on_push[workflow]);
+                    s.seen.push(Run {
+                        id,
+                        sha: sha.to_string(),
+                        workflow: workflow.to_string(),
+                        checks,
+                    });
+                    continue;
+                }
                 if s.coming.is_empty() {
                     return Err(Failure {
                         kind: "ci_did_not_start",
@@ -1594,6 +1656,13 @@ mod ci_on_demand {
                 let next = s.coming.remove(0);
                 s.seen.push(next);
             }
+        }
+
+        fn job_log(&self, _repo: &str, _check: &CheckRun) -> Result<String, Failure> {
+            self.state()
+                .log
+                .clone()
+                .ok_or_else(|| Failure::other("no job logs here"))
         }
 
         fn latest_run_id(&self, _repo: &str, sha: &str, workflow: &str) -> Result<Option<i64>, Failure> {
@@ -2006,21 +2075,95 @@ timeout_ms = 1000
         assert_eq!(v["push"]["run"], "lint", "{v}");
     }
 
-    // A project whose fast CI takes no tests to run cannot have them run on the code before the change: the tool
-    // refuses, saying so, before it pushes anything or runs anything; one that does, runs them there.
+    /// The project's `[ci]` where the fast CI takes no tests to run on their own.
+    const NO_TESTS_INPUT: &str = "fast = \"ci\"\nfull = [\"ci\"]\nmerge_checks = [\"check\"]\n";
+
+    // A project whose fast CI takes no tests to run and says it does not run on the temporary branches cannot have the
+    // tests run on the code before the change: the tool refuses, saying so, before it pushes anything or runs anything.
     #[test]
-    fn the_tool_ci_before_refuses_a_project_whose_fast_ci_takes_no_tests_and_pushes_nothing() {
+    fn the_tool_ci_before_refuses_a_project_whose_fast_ci_does_not_run_there_and_pushes_nothing() {
         let mut r = rig_with(
             "tool-ci-before-refused",
-            "fast = \"ci\"\nfull = [\"ci\"]\nmerge_checks = [\"check\"]\n",
+            &format!("{NO_TESTS_INPUT}runs_on_before_branches = false\n"),
         );
         let v = r.ci_before(&["a_test"]);
         assert_eq!(v["ran"]["verdict"], "refused", "{v}");
         let why = v["ran"]["why"].as_str().unwrap();
-        assert!(why.contains("takes no tests to run"), "{why}");
+        assert!(
+            why.contains("runs_on_before_branches") && why.contains("tests_input"),
+            "{why}"
+        );
         assert!(r.runs.dispatched().is_empty());
         let branches = git::git(&r.origin, &["branch", "--list", "--format=%(refname:short)"]).unwrap();
         assert!(!branches.contains(BEFORE), "something was pushed:\n{branches}");
+    }
+
+    // A project whose fast CI takes no tests to run and does not say it stays off the temporary branches has the
+    // tests run there as it always had: the push is the run, nothing is run by hand, and each test named is read from
+    // the logs of the whole run, which says what ran.
+    #[test]
+    fn the_tool_ci_before_waits_for_the_push_run_of_a_project_that_takes_no_tests_input() {
+        let mut r = rig_with("tool-ci-before-whole", NO_TESTS_INPUT);
+        r.runs.on_push("ci", &[("test 1 of 1", "red")]);
+        r.runs.logs(
+            "        PASS [   0.007s] (1/2) engine tools::tests::a_test\n\
+                     FAIL [   0.010s] (2/2) engine tools::tests::b_test\n",
+        );
+        let v = r.ci_before(&["a_test", "b_test", "c_test"]);
+        assert_eq!(v["ran"]["verdict"], "ran", "{v}");
+        assert_eq!(v["ran"]["run"], "whole");
+        assert!(r.runs.dispatched().is_empty(), "nothing is run by hand");
+        let got: Vec<(&str, &str)> = v["ran"]["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| (t["test"].as_str().unwrap(), t["result"].as_str().unwrap()))
+            .collect();
+        assert_eq!(got, [("a_test", "passed"), ("b_test", "failed"), ("c_test", "not_run")]);
+        // The temporary branch is gone once the run is read.
+        let branches = git::git(&r.origin, &["branch", "--list", "--format=%(refname:short)"]).unwrap();
+        assert!(!branches.contains(BEFORE), "the branch was left:\n{branches}");
+    }
+
+    // Where no run comes for the push, the failure tells which two settings of the project's configuration to look at.
+    #[test]
+    fn the_checks_before_the_change_without_a_push_run_name_the_settings_to_change() {
+        let runs = Runs::new(None);
+        let p = project(false, None);
+        let failure = before_checks(&runs, &p, "before/1-1-0", HEAD, None, "a_test").unwrap_err();
+        assert_eq!(failure.kind, "ci_did_not_start");
+        assert!(
+            failure.what.contains("runs_on_before_branches") && failure.what.contains("tests_input"),
+            "{}",
+            failure.what
+        );
+        // Any other failure, and a run that came, are as they were.
+        runs.on_push("fast", &[("lint", "green")]);
+        let checks = before_checks(&runs, &p, "before/1-1-0", HEAD, None, "a_test").unwrap();
+        assert_eq!(results(&checks), [("lint", "green")]);
+        assert!(runs.dispatched().is_empty());
+        let other = no_run_on_before_branch(Failure::network("gh: down".to_string()));
+        assert_eq!((other.kind, other.what.as_str()), ("network_or_api", "gh: down"));
+    }
+
+    // A project whose fast CI takes the tests to run has them run by hand on the temporary branch, exactly them, and
+    // the tool says so; the switch is not read.
+    #[test]
+    fn the_tool_ci_before_runs_the_named_tests_by_hand_for_a_project_that_takes_a_tests_input() {
+        let mut r = rig_with(
+            "tool-ci-before-named",
+            &format!("{ON_DEMAND}runs_on_before_branches = false\n"),
+        );
+        r.runs.makes("fast", &[("lint", "green"), ("fast", "green")]);
+        let v = r.ci_before(&["a_test"]);
+        assert_eq!(v["ran"]["verdict"], "ran", "{v}");
+        assert_eq!(v["ran"]["run"], "named");
+        let [(workflow, branch, inputs)] = &r.runs.dispatched()[..] else {
+            panic!("one run by hand: {:?}", r.runs.dispatched());
+        };
+        assert_eq!(workflow, "fast");
+        assert!(branch.starts_with(BEFORE), "{branch}");
+        assert_eq!(inputs, &[("tests".to_string(), "a_test".to_string())]);
     }
 
     // No head merges on the fast CI's word. With the fast CI green on the head and no run of the full CI, the merge
