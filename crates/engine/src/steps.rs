@@ -465,7 +465,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // A work asked to stop while its round ran, to start over or by its item's cancel, hands in nothing: its round stays
     // open, with what it cost kept on it, for the loop to cut off once this step has ended, since only the loop does what
     // the engine does to a work from outside its step. So for a round the run guard stopped: the work is not run again.
-    if reply.stopped.is_none() && db::stop_asked(e.db.conn(), w.id).map_err(sql)? {
+    if db::stop_asked(e.db.conn(), w.id).map_err(sql)? {
         let usage = ended.usage.as_ref().map(Value::to_string);
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
