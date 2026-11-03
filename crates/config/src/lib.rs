@@ -1529,7 +1529,9 @@ fn walk_records(
             }
             Found::Dir { tree, .. } => {
                 if on_path.contains(&tree) {
-                    return Err(fail("it leads back into a directory it is read through, a loop of links".into()));
+                    return Err(fail(
+                        "it leads back into a directory it is read through, a loop of links".into(),
+                    ));
                 }
                 on_path.push(tree.clone());
                 walk_records(repo, commit, &format!("{path}/"), &tree, on_path, found)?;
@@ -2132,7 +2134,10 @@ asks = 9
         run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rings"]);
         let commit = run(&["rev-parse", "HEAD"]).trim().to_string();
         let why = files_at(&dir, &commit, "design").unwrap_err();
-        assert!(why.contains("design/a") && why.contains("loop of links") && why.contains(&commit), "{why}");
+        assert!(
+            why.contains("design/a") && why.contains("loop of links") && why.contains(&commit),
+            "{why}"
+        );
         let why = project_guide_at(&dir, &commit, &["design/".to_string()], "").unwrap_err();
         assert!(why.contains("design/a") && why.contains("loop of links"), "{why}");
         // A link to a directory that is no ancestor of the walk is followed, and its files are found where it stands.
@@ -2143,7 +2148,11 @@ asks = 9
         run(&["add", "-A"]);
         run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "no rings"]);
         let commit = run(&["rev-parse", "HEAD"]).trim().to_string();
-        let found: Vec<String> = files_at(&dir, &commit, "design").unwrap().into_iter().map(|f| f.0).collect();
+        let found: Vec<String> = files_at(&dir, &commit, "design")
+            .unwrap()
+            .into_iter()
+            .map(|f| f.0)
+            .collect();
         assert_eq!(found, ["design/deeper/two.md", "design/one.md", "design/sub/two.md"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
