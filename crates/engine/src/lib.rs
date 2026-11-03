@@ -1281,11 +1281,12 @@ impl Engine {
     }
 
     /// Takes the minute's sample of what the engine knows that no record holds, once a minute ([`health::record`]):
-    /// the processor time its process used since the sample before, as a share of the time since (none at its first
-    /// sample, which has nothing before it); the reads of the owner's page served since (`reads`, which the page's
-    /// server adds to); the works holding a slot and those with a step running; and how long the oldest matter of each
-    /// project's architect's queue has waited. Gives whether it took one: a time in a minute already sampled takes
-    /// none, and leaves the page's reads to the next.
+    /// the processor time its process used since the sample before, as a share of the time since, and the reads of the
+    /// owner's page served since (`reads`, which the page's server adds to), both kept under the minute of the sample
+    /// before, when that time began; the works holding a slot and those with a step running; and how long the oldest
+    /// matter of each project's architect's queue has waited. The first sample has no time before it: it keeps no
+    /// processor time, and leaves the reads served until then to the next. Gives whether it took one: a time in a
+    /// minute already sampled takes none, and leaves the page's reads to the next.
     pub fn beat(&mut self, now: i64, reads: &health::PageReads) -> Result<bool, String> {
         let at = health::minute(now);
         if lock(&self.shared.beat).minute == Some(at) {
@@ -1299,9 +1300,10 @@ impl Engine {
             last.minute = Some(at);
             last.cpu.replace((cpu, now))
         };
-        let (read, read_ms) = reads.take();
+        let (read, read_ms) = if since.is_some() { reads.take() } else { (0, 0.0) };
         let beat = health::Beat {
             at: now,
+            since: since.map(|(_, then)| then),
             cpu: since
                 .filter(|(_, then)| now > *then)
                 .map(|(before, then)| (cpu - before) / (now - then) as f64),

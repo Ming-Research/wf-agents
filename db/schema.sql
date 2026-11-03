@@ -692,13 +692,12 @@ CREATE TABLE samples (
   measure TEXT NOT NULL,
   -- The project it is of; '' for the engine's own.
   project TEXT NOT NULL DEFAULT '',
-  -- What of the project or the engine it is of, when a measure has several; '' when it has one.
-  subject TEXT NOT NULL DEFAULT '',
-  -- The start of the minute it was taken in, and its value.
+  -- The start of the minute it is kept under, and its value: for a state, the minute it was taken in; for an amount
+  -- over the time since the sample before, the minute that time began in.
   at INTEGER NOT NULL,
   value REAL NOT NULL,
   -- In this order, so that a measure's samples of a project over a period are read by their time.
-  PRIMARY KEY (measure, project, at, subject)
+  PRIMARY KEY (measure, project, at)
 ) STRICT;
 
 CREATE TABLE reverts (
@@ -1173,6 +1172,8 @@ CREATE INDEX rounds_by_end ON rounds (ended_at);
 -- The merge by the flow, if any, whose commit is a given one: the health numbers tell a commit on main the flow merged
 -- from one that came onto it without the flow by it. A statement uses it only when it writes the expression as here.
 CREATE INDEX rounds_merge_commit ON rounds (json_extract(output, '$.result.merge_commit')) WHERE transition = 'merged';
+-- The samples of a measure within a time, of every project together.
+CREATE INDEX samples_by_time ON samples (measure, at);
 -- The tools a round ran.
 CREATE INDEX tool_runs_by_round ON tool_runs (work, round);
 -- The rounds a cell's and a graph's lines are computed from.
@@ -1197,14 +1198,17 @@ CREATE INDEX outbox_by_run_after ON outbox (run_after);
 CREATE INDEX architect_matters_waiting ON architect_matters (project) WHERE handled_round IS NULL;
 -- The matters of a kind that came within a time, which the health numbers read a period by.
 CREATE INDEX architect_matters_by_kind ON architect_matters (kind, at);
+-- The matters a round handled, which the health numbers read from the rounds that ended within a time.
+CREATE INDEX architect_matters_by_handling ON architect_matters (handled_work, handled_round);
 -- Where each fault of wf-agents was forwarded: to each project's architect once.
 CREATE UNIQUE INDEX architect_matters_by_notice ON architect_matters (notice, project) WHERE notice IS NOT NULL;
 -- The entries of each talk with the owner.
 CREATE INDEX talk_entries_by_talk ON talk_entries (matter);
 -- The open blocker of each task: one at most.
 CREATE UNIQUE INDEX blockers_open ON blockers (work) WHERE ended IS NULL;
--- The blockers raised before a time, which the health numbers read a period by.
+-- The blockers raised within a time, and those that ended after a time, which the health numbers read a period by.
 CREATE INDEX blockers_by_time ON blockers (at);
+CREATE INDEX blockers_by_end ON blockers (ended_at);
 -- The item changes of a batch still waiting for its review.
 CREATE INDEX architect_item_changes_collected ON architect_item_changes (work) WHERE state = 'collected';
 -- A project's observations.

@@ -5412,19 +5412,22 @@ fn since_last_work(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
     Ok(out)
 }
 
-/// A health number as the architect is given it: in minutes for a time, to the cent for money, to three places for a
-/// part, and whole for a count or tokens unless a median falls between two.
+/// A health number as the architect is given it, in the unit of its measure: to the cent for money, to three places
+/// for a part, and whole for a time in milliseconds, a count or tokens unless a median falls between two. A time is
+/// given in milliseconds whatever its size, so that a small one, such as how long the page's reads took, is not rounded
+/// away, and its unit and the names that end in `_ms` say the same.
 fn health_value(unit: health::Unit, v: f64) -> Value {
     let to = |places: i32, x: f64| {
         let k = 10f64.powi(places);
         (x * k).round() / k
     };
     match unit {
-        health::Unit::Ms => json!(to(1, v / 60_000.0)),
         health::Unit::Usd => json!(to(2, v)),
         health::Unit::Ratio | health::Unit::Share => json!(to(3, v)),
-        health::Unit::Count | health::Unit::Tokens if (v - v.round()).abs() < 1e-9 => json!(v.round() as i64),
-        health::Unit::Count | health::Unit::Tokens => json!(to(1, v)),
+        health::Unit::Ms | health::Unit::Count | health::Unit::Tokens if (v - v.round()).abs() < 1e-9 => {
+            json!(v.round() as i64)
+        }
+        health::Unit::Ms | health::Unit::Count | health::Unit::Tokens => json!(to(1, v)),
     }
 }
 
@@ -5512,12 +5515,7 @@ fn numbers(e: &Engine, project: &str, main: Option<&str>) -> Result<Value, Strin
         }
         let mut entry = Map::new();
         entry.insert("what".into(), json!(m.what));
-        let unit = if m.unit == health::Unit::Ms {
-            "minutes"
-        } else {
-            m.unit.name()
-        };
-        entry.insert("unit".into(), json!(unit));
+        entry.insert("unit".into(), json!(m.unit.name()));
         entry.extend(both(&s));
         if let (Some(by), None) = (m.by.name(), s.not_measured) {
             let mut split = Map::new();

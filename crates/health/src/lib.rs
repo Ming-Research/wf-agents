@@ -14,8 +14,9 @@
 //! An event falls in the point that holds the moment it was done: a round when it ended, a merge when it merged, an
 //! item when it was made, a commit on main when it was made by its committer time; the one exception is what a round
 //! cost, which falls when the round started, as the System view counts it. A stop is a span: it counts once, in the
-//! point it started in, and lasts in each point for the part of it there, one still open lasting until now. A point
-//! runs from its start up to its end, which belongs to the next.
+//! point it started in, and lasts in each point for the part of it there, one still open lasting until now. An amount
+//! the engine samples over the time between two of its samples (its CPU, the page's reads) falls in the minute that
+//! time began. A point runs from its start up to its end, which belongs to the next.
 
 mod records;
 mod round;

@@ -101,12 +101,13 @@ pub(crate) fn failed(r: &Reader<'_>, project: Option<&str>, from: i64, to: i64) 
         .collect())
 }
 
-/// The owner's words to each architect that a round handled, each with how long they waited for that round's end.
+/// The owner's words to each architect that a round handled, each with how long they waited for that round's end: read
+/// from the rounds that ended in the time, to the matters each handled.
 pub(crate) fn owner_reply(r: &Reader<'_>, project: Option<&str>, from: i64, to: i64) -> Result<Vec<Fact>, String> {
     r.rows(
-        "SELECT x.ended_at, x.ended_at - m.at FROM architect_matters m
-           CROSS JOIN rounds x ON x.work = m.handled_work AND x.n = m.handled_round
-         WHERE m.kind = 'owner_words' AND m.at < ?3 AND x.ended_at >= ?2 AND x.ended_at < ?3
+        "SELECT x.ended_at, x.ended_at - m.at FROM rounds x
+           CROSS JOIN architect_matters m ON m.handled_work = x.work AND m.handled_round = x.n
+         WHERE x.ended_at >= ?2 AND x.ended_at < ?3 AND m.kind = 'owner_words'
            AND (?1 IS NULL OR m.project = ?1)",
         args(project, from, to),
         |row| Ok(Fact::event(row.get(0)?, "", row.get::<_, i64>(1)? as f64)),
@@ -114,12 +115,25 @@ pub(crate) fn owner_reply(r: &Reader<'_>, project: Option<&str>, from: i64, to: 
 }
 
 /// Each time a work stood stopped, waiting for someone, as a span from when it stopped to when it went on, or now: a
-/// blocker, by its kind, and a pause of a work not ended, as `paused`.
+/// blocker, by its kind, and a pause of a work not ended, as `paused`. The blockers that stood stopped at some time
+/// in the period are read in three parts, none from the start of the history: those raised in it; those raised before
+/// it and still open, few as the works are; and those raised before it that ended after it began.
 pub(crate) fn stops(r: &Reader<'_>, project: Option<&str>, from: i64, to: i64) -> Result<Vec<Fact>, String> {
-    let sql = format!(
-        "SELECT b.at, b.ended_at, b.kind FROM blockers b JOIN works w ON w.id = b.work LEFT JOIN items i ON i.id = w.item
-         WHERE b.at < ?3 AND (b.at >= ?2 OR b.ended_at IS NULL OR b.ended_at > ?2) AND {PROJECT_OF_WORK}"
-    );
+    // Each part by its own index: a term written `+b.at` is one SQLite reads no index by, which would read the
+    // blockers raised before the period from the first.
+    let part = |index: &str, within: &str| {
+        format!(
+            "SELECT b.at, b.ended_at, b.kind FROM blockers b INDEXED BY {index} CROSS JOIN works w ON w.id = b.work
+               LEFT JOIN items i ON i.id = w.item
+             WHERE {within} AND {PROJECT_OF_WORK}"
+        )
+    };
+    let sql = [
+        part("blockers_by_time", "b.at >= ?2 AND b.at < ?3"),
+        part("blockers_open", "b.ended IS NULL AND +b.at < ?2"),
+        part("blockers_by_end", "b.ended_at > ?2 AND +b.at < ?2"),
+    ]
+    .join(" UNION ALL ");
     let mut out = r.rows(&sql, args(project, from, to), |row| {
         let until: Option<i64> = row.get(1)?;
         Ok(Fact::span(

@@ -406,7 +406,6 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     "checkout": project.checkout,
                     "merge_commit": merged,
                     "worktrees": config::worktrees(&ctx.data),
-                    "round": ctx.round.n,
                 }),
             )?;
         }
@@ -793,14 +792,13 @@ fn notify_owner(e: &Engine, text: &str) -> Result<(), String> {
 }
 
 /// Opens a PR that reverts a merge, merges it, and records the revert (`reverts`): the check of main that called for it,
-/// by its work and the round in `args`, the merge reverted, the revert's PR and the commit its merge put on main. The
-/// record is written after the merge and before the outbox lets the action go, in another write: should the engine
-/// stop between the two, the action is carried out again and opens a second revert.
+/// the work's latest round at cell `L1` that found main broken by the merge, in which the action was put in the outbox;
+/// the merge reverted, the revert's PR and the commit its merge put on main. The revert is carried out whatever the
+/// records hold, since main stays broken until it is: with no such check to record it by, the engine says so and
+/// records nothing. The record is written after the merge and before the outbox lets the action go, in another write:
+/// should the engine stop between the two, the action is carried out again and opens a second revert.
 fn revert(e: &Engine, work: Option<i64>, args: &Value) -> Result<(), String> {
     let s = |k: &str| args[k].as_str().unwrap_or_default().to_string();
-    let (Some(work), Some(round)) = (work, args["round"].as_i64()) else {
-        return Err("a revert of a merge names no check of main to record it by".into());
-    };
     let (main, sha) = (s("main"), s("merge_commit"));
     let checkout = PathBuf::from(s("checkout"));
     let short: String = sha.chars().take(10).collect();
@@ -823,6 +821,29 @@ fn revert(e: &Engine, work: Option<i64>, args: &Value) -> Result<(), String> {
     let result = revert_in(e, &dir, &s("repo"), &main, &sha, &branch);
     let _ = git::remove_worktree(&checkout, &dir);
     let (pr, commit) = result?;
+    let check: Option<i64> = match work {
+        Some(w) => e
+            .db
+            .conn()
+            .query_row(
+                &format!(
+                    "SELECT max(n) FROM rounds WHERE work = ?1 AND cell IN {}
+                       AND json_extract(output, '$.main.kind') = 'broken_by_merge'",
+                    db::cells_sql(crate::ENGINEER, &["L1"])
+                ),
+                [w],
+                |r| r.get(0),
+            )
+            .map_err(sql)?,
+        None => None,
+    };
+    let (Some(work), Some(round)) = (work, check) else {
+        e.say(&format!(
+            "the revert of {sha} merged as {commit} (PR {pr}), but no check of main found the merge broke it, so the \
+             revert is not recorded"
+        ));
+        return Ok(());
+    };
     // History, which no trigger tracks, written as the outbox's own rows are.
     e.db.conn()
         .execute(

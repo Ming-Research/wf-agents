@@ -163,14 +163,36 @@ fn every_measure_reads_a_week_by_index_however_long_the_history() {
     ] {
         assert!(folded.iter().any(|(name, n)| *name == m && *n > 0), "{m}: {folded:?}");
     }
-    // A statement that reads the rounds whole is found so.
+    // A statement that reads the rounds whole is found so; so is one that reads the blockers raised before a time, from
+    // the first, and one that reads a measure's samples of every time.
     let whole = plan(conn, "SELECT count(*) FROM rounds r WHERE r.cell = 'I1'", &[]);
     assert!(whole.iter().any(|s| scans_large(s)), "{whole:?}");
+    let before = plan(conn, "SELECT count(*) FROM blockers b WHERE b.at < 5", &[]);
+    assert!(before.iter().any(|s| from_the_start(s)), "{before:?}");
+    let ever = plan(
+        conn,
+        "SELECT count(*) FROM samples WHERE measure = 'queue.oldest' AND value > 0",
+        &[],
+    );
+    assert!(ever.iter().any(|s| from_the_start(s)), "{ever:?}");
     for (name, sql, args) in &ran {
         for step in plan(conn, sql, args) {
             assert!(!scans_large(&step), "{name} reads a large table whole: {step}\n{sql}");
+            assert!(!from_the_start(&step), "{name} reads from the start of the history: {step}\n{sql}");
         }
     }
+}
+
+/// Whether a step of a plan reads an index from its first entry: up to a bound with none below it, as reading what
+/// came before a time does, or the samples of a measure with no time at all. Either reads more the longer the history.
+fn from_the_start(step: &str) -> bool {
+    let Some(rest) = step.strip_prefix("SEARCH ") else {
+        return false;
+    };
+    let within = rest.split_once('(').map_or("", |(_, c)| c);
+    let up_to_only = within.contains('<') && !within.contains('>');
+    let samples_untimed = rest.starts_with("samples ") && !within.contains("at>");
+    up_to_only || samples_untimed
 }
 
 /// Whether a step of a plan reads one of the large tables whole, as SQLite names a table it reads: by its name, or by

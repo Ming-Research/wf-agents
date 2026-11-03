@@ -14735,7 +14735,8 @@ fn the_numbers_count_up_to_the_round_that_gives_them() {
 
 // Item 231, A7: the engine reverts a merge that broke main as the check of main after it calls for it, its action in the
 // outbox with the arguments cell L1's row `revert_merge` writes, and records the revert: the check that called for it,
-// the merge reverted, the revert's pull request and the commit its merge put on main. That commit came onto main by the
+// which the engine finds as the work's latest check that found main broken, the merge reverted, the revert's pull
+// request and the commit its merge put on main. That commit came onto main by the
 // engine, so the commits that came onto main without the flow are the setup's first one alone, neither the merge by the
 // flow nor its revert; and every merge the flow recorded is on main.
 #[test]
@@ -14772,7 +14773,6 @@ fn the_engine_records_its_revert_of_a_merge_that_broke_main() {
                 "checkout": checkout,
                 "merge_commit": broken,
                 "worktrees": config::worktrees(&s.data),
-                "round": 2,
             });
             tx.execute(
                 "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, 'revert_merge', ?2, 0)",
@@ -14943,9 +14943,10 @@ fn page_read(port: u16, path: &str) -> String {
     out
 }
 
-// Item 231: once a minute the engine samples what no record holds: the reads the page served since the sample before,
-// the slots held, the works running, each project's oldest wait in its queue, and its CPU from its second sample on,
-// which has one before it to be measured from. A second sample in the same minute writes nothing.
+// Item 231: once a minute the engine samples what no record holds: the slots held, the works running and each
+// project's oldest wait in its queue under the sample's minute; and the reads the page served and its CPU since the
+// sample before, under the minute of that one, from its second sample on, which has one before it to be measured from.
+// A second sample in the same minute writes nothing.
 #[test]
 fn the_engine_samples_what_no_record_holds_once_a_minute() {
     let s = setup("beat");
@@ -14981,8 +14982,6 @@ fn the_engine_samples_what_no_record_holds_once_a_minute() {
             .unwrap()
     };
     let first = BTreeMap::from([
-        ("page.reads:".to_string(), 0.0),
-        ("page.read_ms:".to_string(), 0.0),
         ("slots.used:".to_string(), 0.0),
         ("works.running:".to_string(), 0.0),
         ("queue.oldest:p".to_string(), 90_000.0),
@@ -14995,12 +14994,15 @@ fn the_engine_samples_what_no_record_holds_once_a_minute() {
     assert!(!e.beat(t + 20_000, &reads).unwrap());
     assert_eq!(sampled(&e, health::minute(t)), first);
     assert!(e.beat(t + 60_000, &reads).unwrap());
+    // The reads and the CPU from the first sample on fall in its minute, in which the reads were made.
+    let then = sampled(&e, health::minute(t));
+    assert_eq!(then["page.reads:"], 3.0, "{then:?}");
+    assert!(then["page.read_ms:"] > 0.0, "{then:?}");
+    assert!(then["engine.cpu:"] >= 0.0, "{then:?}");
+    assert_eq!(then.len(), 6, "{then:?}");
     let next = sampled(&e, health::minute(t) + 60_000);
-    assert_eq!(next["page.reads:"], 3.0, "{next:?}");
-    assert!(next["page.read_ms:"] > 0.0, "{next:?}");
-    assert!(next["engine.cpu:"] >= 0.0, "{next:?}");
     assert_eq!(next["queue.oldest:p"], 150_000.0, "{next:?}");
-    assert_eq!(next.len(), 6, "{next:?}");
+    assert_eq!(next.len(), 3, "{next:?}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
