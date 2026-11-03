@@ -668,12 +668,14 @@ pub fn pause(db: &mut Db, work: i64, why: Option<&str>) -> Result<String, String
         .map(str::trim)
         .filter(|w| !w.is_empty())
         .unwrap_or(db::PAUSED_BY_OWNER);
+    let found: Option<(Option<String>, Option<String>)> = db
+        .conn()
+        .query_row("SELECT paused, ended FROM works WHERE id = ?1", [work], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .optional()
+        .map_err(sql)?;
     db.write(Actor::Owner, |tx| {
-        let found: Option<(Option<String>, Option<String>)> = tx
-            .query_row("SELECT paused, ended FROM works WHERE id = ?1", [work], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-            .optional()?;
         match found {
             None => Err(db::Error::Abort(format!("no work {work}"))),
             Some((_, Some(_))) => Err(db::Error::Abort(format!("work {work} has ended"))),
