@@ -23652,11 +23652,11 @@ fn the_reviews_and_a_re_check_are_told_what_the_branch_took_in_and_did_since() {
     assert_eq!(before["merges_since_last_review"], json!([]), "{before}");
 
     // The work's own commit, then main's change taken in by a merge, then the work's second commit.
-    let own = commit_file(&wt, "src/own.txt", "own early_test\n", "The work's own change");
+    let own = commit_file(&wt, "src/own.txt", "own\n", "The work's own change");
     main_moves_on(&s.root, &[("src/main-only.txt", "main\n")], "Main's change");
     merge_main(&wt);
     let merge = git(&wt, &["rev-parse", "HEAD"]);
-    let second = commit_file(&wt, "src/own2.txt", "own two fix_test\n", "The work's second change");
+    let second = commit_file(&wt, "src/own2.txt", "own two\n", "The work's second change");
     e.db.write(Actor::Engine, |tx| {
         tx.execute("UPDATE works SET pushed_head = ?2 WHERE id = ?1", params![work, second])?;
         Ok(())
@@ -23703,13 +23703,11 @@ fn the_reviews_and_a_re_check_are_told_what_the_branch_took_in_and_did_since() {
         "for_engineer",
         "T6",
     );
-    // What implementing wrote in an earlier round: one test the head has in a file the work changed, and one it has in
-    // none. The fix that follows writes no row for either.
+    // What implementing wrote in an earlier round: one test. The fix that follows writes no row for it.
     let implemented = returned(json!({
         "head": own, "deviations": [],
         "test_changes": [
-            { "change": "extended", "test": "early_test", "catches": "c", "kind": "new_behaviour", "time": "1s", "worth": "w" },
-            { "change": "extended", "test": "ghost_test", "catches": "c", "kind": "new_behaviour", "time": "1s", "worth": "w" }
+            { "change": "extended", "test": "early_test", "catches": "c", "kind": "new_behaviour", "time": "1s", "worth": "w" }
         ]
     }));
     seed_round(&mut e, work, "I1", &json!({}), &implemented, "done", "T6");
@@ -23745,10 +23743,10 @@ fn the_reviews_and_a_re_check_are_told_what_the_branch_took_in_and_did_since() {
     assert_eq!(since["own_files"], json!(["src/own.txt", "src/own2.txt"]), "{since}");
     assert_eq!(since["fix_rounds"], json!([fixed_in]), "{since}");
 
-    // Item #274: the re-check is given the tests the engineer changed as the head has them, from every round that
-    // wrote test changes (the fix's rows do not hide the earlier round's), with the test one of them names that the head
-    // does not have apart, the weakened one, and the project's test paths; and no longer the two lists of added and
-    // extended tests that were read from the latest return of each cell.
+    // Item #274: the re-check is given the tests the engineer changed, from every round that wrote test changes (the
+    // fix's rows do not hide the earlier round's), the weakened one, the test files the work changed (none under the
+    // test paths here), and the project's test paths; and no longer the two lists of added and extended tests that were
+    // read from the latest return of each cell.
     let tests = given_value(&m, "·engine·tests_changed").expect(&m);
     let named = |list: &Value| -> Vec<(String, String)> {
         list.as_array()
@@ -23768,11 +23766,6 @@ fn the_reviews_and_a_re_check_are_told_what_the_branch_took_in_and_did_since() {
             (implemented_in.clone(), "early_test".to_string()),
             (fixed_in.clone(), "fix_test".to_string())
         ],
-        "{tests}"
-    );
-    assert_eq!(
-        named(&tests["not_at_head"]),
-        [(implemented_in.clone(), "ghost_test".to_string())],
         "{tests}"
     );
     assert_eq!(tests["weakened"][0]["test"], "old_test", "{tests}");
