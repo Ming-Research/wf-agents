@@ -9,6 +9,11 @@ name: fast
 # The engine's ci_before tool runs it too, on its temporary branches `wf-agents-before/...`, which hold the code before
 # a change with the tests of the change put on it. On those it runs exactly the tests listed, and skips the lint: the
 # lint would check the code before the change against the page's types of now, and say nothing of the tests.
+#
+# GitHub runs this workflow on a branch by the file of it the branch holds, and refuses to on one made before this file
+# took a request to run by hand. The engine then runs it with main's CI files: ci on a temporary branch
+# `wf-agents-main-ci/...` holding the work's head with them, where the lint runs as on the work's branch, and ci_before
+# on its own temporary branch.
 on:
   workflow_dispatch:
     inputs:

@@ -14,6 +14,7 @@ on:
     branches-ignore:
       - 'wf-agents-before/**'
       - 'wf-agents-measure/**'
+      - 'wf-agents-main-ci/**'
     paths:
       - .github/workflows/measure.yml
   workflow_dispatch:
