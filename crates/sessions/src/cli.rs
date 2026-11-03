@@ -2059,11 +2059,11 @@ mod tests {
         assert!(!flow::valid(&brief_schema, &only));
         // A field the form may leave out is taken by the command line as null, left out by the engine, and not told.
         let mut optional = samples()["I1"][2]["json"].clone();
-        optional["outcome"]["new_tests"] = Value::Null;
+        optional["outcome"]["followup"] = Value::Null;
         assert_eq!(refused(&s, &optional, ""), None);
         assert!(!flow::valid(&schema, &optional));
         assert_eq!(flow::without_null_options(&schema, &mut optional), Vec::<String>::new());
-        assert!(optional["outcome"].get("new_tests").is_none());
+        assert!(optional["outcome"].get("followup").is_none());
         assert!(flow::valid(&schema, &optional), "{optional}");
     }
 

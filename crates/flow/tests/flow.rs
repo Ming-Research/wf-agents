@@ -1275,7 +1275,7 @@ fn a_return_that_does_not_fit_in_several_places_says_every_place() {
     let expected = [
         "the return does not fit the schema of I1 in 6 places:",
         "outcome has no head",
-        r#"outcome.test_changes[0].change is "bogus", and must be one of "added", "removed", "skipped", "relaxed""#,
+        r#"outcome.test_changes[0].change is "bogus", and must be one of "added", "extended", "removed", "skipped", "relaxed""#,
         "outcome.deviations[0] has why, which is not one of its fields: kind, what",
         "outcome.deviations[1] has why, which is not one of its fields: kind, what",
         "outcome.deviations[2] has why, which is not one of its fields: kind, what",
@@ -1579,4 +1579,125 @@ fn only_the_architects_line_expires_with_the_cache() {
     strip(&mut stored);
     let old: flow::Compiled = serde_json::from_value(stored).unwrap();
     assert!(old.graphs.iter().all(|g| g.cells.iter().all(|x| !x.cache_expiry)));
+}
+
+/// The sample return of a row of a cell of the engineer's graph, and what the row was given.
+fn sample(cell: &str, row: &str) -> (Value, Map<String, Value>) {
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let s = samples[cell].iter().find(|s| s["row"] == row).unwrap();
+    (s["json"].clone(), s["given"].as_object().cloned().unwrap_or_default())
+}
+
+/// A cell of the engineer's graph as `flow/flow.json` writes it.
+fn written(id: &str) -> Value {
+    let flow: Value = serde_json::from_str(FLOW).unwrap();
+    flow["flows"][0]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == id)
+        .unwrap_or_else(|| panic!("no cell {id}"))
+        .clone()
+}
+
+// Item #217, R231-21: a design that decided by reading the engine's records has an answer of its own, with a field that
+// says what it read, beside `not_measured` and `measured`; each answer takes its own field and no other's.
+#[test]
+fn a_design_can_say_it_decided_by_reading_the_records() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let (first, given) = sample("D2", "first");
+    assert_eq!(g.take("D2", &first, &given).unwrap().name, "first");
+    let measure = |x: Value| {
+        let mut ret = first.clone();
+        ret["outcome"]["measure"] = x;
+        g.take("D2", &ret, &given)
+    };
+    let read = serde_json::json!({ "verdict": "from_records", "read": "The rounds of the item in the database." });
+    assert_eq!(measure(read).unwrap().name, "first");
+    let not_measured = serde_json::json!({ "verdict": "not_measured", "why": "Nothing here is slow." });
+    assert_eq!(measure(not_measured).unwrap().name, "first");
+    // `from_records` has no `why`, and without its own `read` it is not an answer.
+    let e = measure(serde_json::json!({ "verdict": "from_records", "why": "x" })).unwrap_err();
+    assert!(e.contains("outcome.measure"), "{e}");
+}
+
+// Item #217, R232-45: the inputs that give the locked acceptance say how it changes, and the advisor's field says that
+// what it holds replaces all of it. The ways: the advisor's `new_acceptance`, and a design after the owner disagreed;
+// not an edit of the item's text.
+#[test]
+fn the_inputs_say_how_the_locked_acceptance_changes_and_the_advisors_field_says_it_replaces_all() {
+    for (id, name) in [
+        ("D2", "Whether the acceptance is locked"),
+        ("I1", "Locked acceptance"),
+        ("T6", "Locked acceptance"),
+    ] {
+        let cell = written(id);
+        let input = cell["inputs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["name"] == name)
+            .unwrap();
+        let what = input["what"].as_str().unwrap();
+        for said in [
+            "new_acceptance, which replaces all of them (a condition it does not list is dropped)",
+            "disagreed with a decision of the design or chose another option",
+            "Editing the item's text, by the architect or the owner, does not change them",
+            "use ask to the advisor",
+        ] {
+            assert!(what.contains(said), "{id} {name}: {said}\n{what}");
+        }
+        assert!(!what.contains("acceptance_change"), "{id}: {what}");
+    }
+    let advisor = written("A1");
+    let field = advisor["out"][0]["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "new_acceptance")
+        .unwrap();
+    let desc = field["desc"].as_str().unwrap();
+    assert!(
+        desc.contains("They replace all the locked conditions") && desc.contains("a condition not listed is dropped"),
+        "{desc}"
+    );
+}
+
+// Item #217, R241-28: an engineer writes a test once, as a row of the test changes with its kind and its two results,
+// or as an `extended` row for a test that was there and tests more; the forms of implementing and of fixing have no
+// tables of the same tests beside it.
+#[test]
+fn a_test_is_written_once_in_the_test_changes_and_the_forms_have_no_tables_of_it() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    for cell in ["I1", "T6"] {
+        let (done, given) = sample(cell, "done");
+        let mut once = done.clone();
+        once["outcome"]["test_changes"] = serde_json::json!([
+            { "change": "extended", "test": "every_sample_takes_its_row", "catches": "c", "kind": "new_behaviour",
+              "on_head": "green", "on_base": "red", "time": "1s", "worth": "w" },
+            { "change": "added", "test": "a_new_one", "catches": "c", "kind": "old_behaviour",
+              "on_head": "green", "on_base": "green", "time": "1s", "worth": "w" },
+        ]);
+        assert_eq!(g.take(cell, &once, &given).unwrap().name, "done", "{cell}");
+        // Both results are left out when the design chose adversarial testing, which runs the tests.
+        let mut bare = once.clone();
+        for row in bare["outcome"]["test_changes"].as_array_mut().unwrap() {
+            let row = row.as_object_mut().unwrap();
+            row.shift_remove("on_head");
+            row.shift_remove("on_base");
+        }
+        assert_eq!(g.take(cell, &bare, &given).unwrap().name, "done", "{cell}");
+        // A result the form does not have is refused, and so is a table of the old forms.
+        let mut wrong = once.clone();
+        wrong["outcome"]["test_changes"][0]["on_base"] = "maybe".into();
+        assert!(g.take(cell, &wrong, &given).unwrap_err().contains("on_base"), "{cell}");
+        for table in ["new_tests", "guard_tests"] {
+            let mut old = once.clone();
+            old["outcome"][table] = serde_json::json!([]);
+            let e = g.take(cell, &old, &given).unwrap_err();
+            assert!(e.contains(table), "{cell} {table}: {e}");
+        }
+    }
 }

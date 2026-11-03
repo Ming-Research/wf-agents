@@ -42,6 +42,7 @@ mod reminders;
 pub mod schedule;
 mod steps;
 mod test_name;
+mod test_tables;
 mod tools;
 mod unparsed;
 mod values;

@@ -788,6 +788,18 @@ pub fn engine_input(
             .next()
             .and_then(|r| r.input.get("engine").and_then(|x| x.get("table")).cloned())
             .filter(|t| t.as_array().is_some_and(|rows| !rows.is_empty())),
+        // The engineer's tests with their two results, read from the test changes of implementing and fixing, oldest
+        // round first so that a test written again has its later row. Nothing is written back to a return.
+        "new_tests" | "guard_tests" => {
+            let mut returns = Vec::new();
+            for cell in crate::test_tables::CELLS {
+                returns.extend(returns_holding(e, w, g, cell, "test_changes")?);
+            }
+            returns.sort_by_key(|(round, _)| *round);
+            let tables = crate::test_tables::accumulated(returns.iter().map(|(_, ret)| ret));
+            let rows = tables.table(name).to_vec();
+            (!rows.is_empty()).then_some(Value::Array(rows))
+        }
         // What a review reviews, by commits the worktree has: main as it has it fetched, the pull request's base, the
         // commit of main the branch was cut from or last took main in at, the head under review, and at a re-review
         // the head the last table review looked at.
