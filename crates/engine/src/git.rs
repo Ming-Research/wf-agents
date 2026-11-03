@@ -54,6 +54,53 @@ pub fn own_changes(dir: &Path, main: &str, from: &str, to: &str) -> Result<Vec<S
     Ok(all.into_iter().filter(|f| own.contains(f)).collect())
 }
 
+/// The lines the work itself adds and removes at `rev`, against main as merged into `rev`, as the text of a diff with
+/// nothing in it that main's changes elsewhere move: no blob ids and no line numbers. What main does in another place
+/// of a file the work changed, or in a file the work did not, does not show in it; two commits have the same text
+/// exactly when the work's own lines are the same in both. The text is bytes, since a line that is not UTF-8 would
+/// otherwise be read as another that is not.
+pub fn own_lines(dir: &Path, main: &str, rev: &str) -> Result<Vec<u8>, String> {
+    let fork = main_merged_into(dir, rev, main)?;
+    let range = format!("{fork}..{rev}");
+    // The options are fixed, so that no setting of the user's git changes the text. `--binary` carries the change of a
+    // binary file, which its blob ids alone would otherwise stand for; `--no-renames` makes a renamed file its removal
+    // and its addition, so that a rename is a change.
+    let args = [
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-renames",
+        "--binary",
+        "-U0",
+        range.as_str(),
+    ];
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .map_err(|e| format!("git: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "git {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let mut text = Vec::with_capacity(out.stdout.len());
+    for line in out.stdout.split(|b| *b == b'\n') {
+        // The blob ids on both sides change whenever main changes the file.
+        if line.starts_with(b"index ") {
+            continue;
+        }
+        // A hunk's line numbers and the function name after them change with what main adds above.
+        text.extend_from_slice(if line.starts_with(b"@@") { &b"@@"[..] } else { line });
+        text.push(b'\n');
+    }
+    Ok(text)
+}
+
 /// The files changed in the worktree against a commit, committed or not, untracked files included.
 pub fn changed_since(dir: &Path, from: &str) -> Result<Vec<String>, String> {
     let mut out = lines(&git(dir, &["diff", "--name-only", from])?);
@@ -167,6 +214,7 @@ fn commit_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn paths_are_matched_by_directory_name_and_segment() {
@@ -235,6 +283,150 @@ mod tests {
             vec!["design/a.md", "src/x.txt"]
         );
         assert!(own_changes(&dir, "main", "HEAD", "HEAD").unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A repository with `files` committed on main, and `origin/main` standing at main, on branch `work` forked from it.
+    fn forked(name: &str, files: &[(&str, &str)]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("wf-agents-own-lines-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q"]);
+        commit(&dir, files, "Start");
+        run(&dir, &["update-ref", "refs/remotes/origin/main", "main"]);
+        run(&dir, &["checkout", "-q", "-b", "work"]);
+        dir
+    }
+
+    /// Main moves on by a commit that writes `files`, and the fetched main with it; the work stays on its branch.
+    fn main_moves_on(dir: &Path, files: &[(&str, &str)]) {
+        run(dir, &["checkout", "-q", "main"]);
+        commit(dir, files, "Main's change");
+        run(dir, &["update-ref", "refs/remotes/origin/main", "main"]);
+        run(dir, &["checkout", "-q", "work"]);
+    }
+
+    /// Merges the fetched main where it conflicts, leaving the merge to be finished by the commit that resolves it.
+    fn merge_in_conflict(dir: &Path) {
+        let who = ["-c", "user.name=t", "-c", "user.email=t@t"];
+        assert!(git(dir, &[&who[..], &["merge", "-q", "--no-edit", "origin/main"]].concat()).is_err());
+    }
+
+    // What main does elsewhere in a file the work changed, or in files the work did not, is not the work's own change:
+    // the work's own lines are the same before and after a clean merge of main, though the diff from the fork point is
+    // not, since its blob ids and line numbers move with main.
+    #[test]
+    fn a_clean_merge_of_main_leaves_the_works_own_lines_as_they_were() {
+        let text: String = (1..=30).map(|n| format!("line {n}\n")).collect();
+        let worked = text.replace("line 20\n", "line 20, the work's\n");
+        let moved = format!("new 1\nnew 2\nnew 3\n{text}");
+        let dir = forked("clean", &[("a.txt", text.as_str()), ("b.txt", "b\n")]);
+        let start = run(&dir, &["rev-parse", "HEAD"]);
+        let before = commit(&dir, &[("a.txt", worked.as_str())], "The work");
+        // Main adds lines above the work's, in the same file, and changes a file the work did not.
+        main_moves_on(&dir, &[("a.txt", moved.as_str()), ("b.txt", "main's b\n")]);
+        let main = run(&dir, &["rev-parse", "main"]);
+        run(&dir, &["merge", "-q", "--no-edit", "origin/main"]);
+
+        let lines_before = own_lines(&dir, "main", &before).unwrap();
+        let lines_after = own_lines(&dir, "main", "HEAD").unwrap();
+        let shown = String::from_utf8(lines_before.clone()).unwrap();
+        assert!(
+            shown.contains("+line 20, the work's") && !shown.contains("b.txt"),
+            "{shown}"
+        );
+        assert_eq!(lines_before, lines_after);
+        // The diff from the fork point, which the engine hashed before, is not the same.
+        assert_ne!(
+            git(&dir, &["diff", &format!("{start}..{before}")]).unwrap(),
+            git(&dir, &["diff", &format!("{main}..HEAD")]).unwrap()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Whatever changes a line the work adds or removes, a file it adds or removes, or a binary file it changes is a
+    // change of its own lines, however small and by whatever means: a conflict resolved by writing another line, a
+    // line's whitespace, a file's name, a binary file's bytes, and a file that main deleted, with the work's change.
+    #[test]
+    fn a_change_of_what_the_work_itself_adds_or_removes_changes_its_own_lines() {
+        let differ = |case: &str, dir: &Path, before: &str| {
+            let was = own_lines(dir, "main", before).unwrap();
+            let now = own_lines(dir, "main", "HEAD").unwrap();
+            assert!(!was.is_empty(), "{case}: the work has no lines of its own at the start");
+            assert_ne!(was, now, "{case}");
+            let _ = std::fs::remove_dir_all(dir);
+        };
+
+        // A conflict resolved by writing another line.
+        let dir = forked("conflict", &[("a.txt", "1\n2\n3\n")]);
+        let before = commit(&dir, &[("a.txt", "1\nthe work's\n3\n")], "The work");
+        main_moves_on(&dir, &[("a.txt", "1\nmain's\n3\n")]);
+        merge_in_conflict(&dir);
+        commit(&dir, &[("a.txt", "1\nresolved\n3\n")], "Merge main");
+        differ("conflict resolved", &dir, &before);
+
+        // A change of whitespace only.
+        let dir = forked("blank", &[("a.txt", "1\n2\n")]);
+        let before = commit(&dir, &[("a.txt", "1\nx = 1\n2\n")], "The work");
+        commit(&dir, &[("a.txt", "1\nx  = 1\n2\n")], "Whitespace");
+        differ("whitespace", &dir, &before);
+
+        // A file the work added, renamed with its content as it was.
+        let dir = forked("added", &[("a.txt", "a\n")]);
+        let before = commit(&dir, &[("added.txt", "content\n")], "The work");
+        run(&dir, &["mv", "added.txt", "renamed.txt"]);
+        commit(&dir, &[], "Rename");
+        differ("added file renamed", &dir, &before);
+
+        // A file of main's, renamed by the work.
+        let dir = forked("moved", &[("a.txt", "a\n"), ("old.txt", "old content\n")]);
+        run(&dir, &["mv", "old.txt", "moved.txt"]);
+        let before = commit(&dir, &[], "The work moves it");
+        run(&dir, &["mv", "moved.txt", "moved-again.txt"]);
+        commit(&dir, &[], "Rename");
+        differ("renamed file renamed", &dir, &before);
+
+        // A binary file whose bytes changed; git shows only blob ids for it without `--binary`.
+        let dir = forked("binary", &[("a.txt", "a\n")]);
+        let bytes = |tail: u8| std::fs::write(dir.join("img.bin"), [0u8, 1, 2, tail]).unwrap();
+        run(&dir, &["checkout", "-q", "main"]);
+        bytes(9);
+        run(&dir, &["add", "-A"]);
+        run(&dir, &["commit", "-q", "-m", "A binary file"]);
+        run(&dir, &["update-ref", "refs/remotes/origin/main", "main"]);
+        run(&dir, &["checkout", "-q", "work"]);
+        run(&dir, &["merge", "-q", "--ff-only", "main"]);
+        bytes(3);
+        run(&dir, &["add", "-A"]);
+        run(&dir, &["commit", "-q", "-m", "The work"]);
+        let before = run(&dir, &["rev-parse", "HEAD"]);
+        bytes(4);
+        run(&dir, &["add", "-A"]);
+        run(&dir, &["commit", "-q", "-m", "Other bytes"]);
+        differ("binary file", &dir, &before);
+
+        // A file the work changed, which main deleted: the work's change goes with it.
+        let dir = forked("deleted", &[("a.txt", "a\n"), ("b.txt", "b\n")]);
+        let before = commit(&dir, &[("b.txt", "b, the work's\n")], "The work");
+        run(&dir, &["checkout", "-q", "main"]);
+        run(&dir, &["rm", "-q", "b.txt"]);
+        run(&dir, &["commit", "-q", "-m", "Main deletes b"]);
+        run(&dir, &["update-ref", "refs/remotes/origin/main", "main"]);
+        run(&dir, &["checkout", "-q", "work"]);
+        merge_in_conflict(&dir);
+        run(&dir, &["rm", "-q", "b.txt"]);
+        run(&dir, &["commit", "-q", "-m", "Merge main"]);
+        differ("file deleted by main", &dir, &before);
+    }
+
+    // A commit that cannot be found has no own lines to give: the caller is told, not given an empty text that equals
+    // that of a work with no change.
+    #[test]
+    fn the_own_lines_of_a_commit_that_is_not_there_are_an_error() {
+        let dir = forked("missing", &[("a.txt", "a\n")]);
+        commit(&dir, &[("a.txt", "a\nb\n")], "The work");
+        assert!(own_lines(&dir, "main", "0123456789abcdef0123456789abcdef01234567").is_err());
+        assert!(own_lines(&dir, "elsewhere", "HEAD").is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
