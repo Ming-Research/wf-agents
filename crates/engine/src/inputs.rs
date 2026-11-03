@@ -1389,11 +1389,7 @@ mod tests {
                     { "name": "test", "result": "red", "run": "v" }
                 ] }),
             ),
-            place(
-                "A4",
-                "next.change",
-                json!({ "what": "Rename it.", "asked_in": "R1-2" }),
-            ),
+            place("A4", "next.change", json!({ "what": "Rename it.", "asked_in": "R1-2" })),
         ]);
         let rows = table(std::slice::from_ref(&g));
         let ids: Vec<&str> = rows.iter().filter_map(|r| r["row"].as_str()).collect();
@@ -1401,7 +1397,17 @@ mod tests {
         let keys: Vec<Option<&str>> = rows.iter().map(row_key).collect();
         assert_eq!(
             keys,
-            [Some("R1"), Some("R2"), None, Some("red"), Some("R1"), None, Some("test"), Some("test"), None]
+            [
+                Some("R1"),
+                Some("R2"),
+                None,
+                Some("red"),
+                Some("R1"),
+                None,
+                Some("test"),
+                Some("test"),
+                None
+            ]
         );
         // The finding still open: its column's row, with what the review said of the fix.
         assert_eq!(

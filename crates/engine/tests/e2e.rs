@@ -2864,9 +2864,13 @@ fn a_re_review_with_no_fix_before_it_answers_what_still_holds_and_the_fix_answer
     );
     let (mut e, said, item) = start(&s, agents);
     let log = || said.lock().unwrap().join("\n");
-    step_until(&mut e, item, &said, "the first review sending the work to the fix", |e| {
-        state(e, item).is_some_and(|(_, at, _)| at == "T6")
-    });
+    step_until(
+        &mut e,
+        item,
+        &said,
+        "the first review sending the work to the fix",
+        |e| state(e, item).is_some_and(|(_, at, _)| at == "T6"),
+    );
     let (work, _, _) = state(&e, item).unwrap();
     // No fix runs: the review looks at the change again, every column listed, as after a new design.
     let changed = json!({ "plan": { "review": "changed", "adversarial": "skipped" } });
@@ -2891,7 +2895,12 @@ fn a_re_review_with_no_fix_before_it_answers_what_still_holds_and_the_fix_answer
     assert_eq!(rows.len(), 2, "{rows:?}");
     assert_eq!(
         (&rows[0]["row"], &rows[0]["from"], &rows[0]["fid"], &rows[0]["column"]),
-        (&json!("F1"), &json!("T4·columns[findings]"), &json!("R1"), &json!(all[0]))
+        (
+            &json!("F1"),
+            &json!("T4·columns[findings]"),
+            &json!("R1"),
+            &json!(all[0])
+        )
     );
     assert_eq!(
         rows[0]["also"],

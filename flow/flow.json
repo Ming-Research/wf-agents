@@ -1387,7 +1387,7 @@
               },
               {
                 "$ref": "findings",
-                "desc": "The findings in this column, one per row; the engineer answers each. One defect that concerns several columns has one number, written in each of them; after the first, its row may say only \"Same as R1\", and the engineer answers it once"
+                "desc": "The findings in this column, one per row; the engineer answers each. One defect that concerns several columns has one number, written in each of them, as one that is both wrong in the implementation and overturns a judgment of the research or the design; after the first, its row may say only \"Same as R1\", and the engineer answers it once"
               }
             ]
           },

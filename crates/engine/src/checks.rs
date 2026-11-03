@@ -3173,7 +3173,11 @@ mod tests {
             ]
         );
         assert_eq!(
-            said(previous_columns_problems(&previous(&[("R1", "insist"), ("R3", "closed")]), &ids(&["R3"]), true)),
+            said(previous_columns_problems(
+                &previous(&[("R1", "insist"), ("R3", "closed")]),
+                &ids(&["R3"]),
+                true
+            )),
             [
                 "R1 is answered not_fixed or insist, and no column holds it: write it again under its number in its \
                  column",
