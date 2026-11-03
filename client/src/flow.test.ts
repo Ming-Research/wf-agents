@@ -134,13 +134,17 @@ function limitsOf(m: Measures): Limits {
 /// history is gathered, with cells of a new line beside the research and the design, which measured 83.1; and for the
 /// architect graph's length of a row, on the flow where the ways (`H3`) may ask the owner about an open question (CI run
 /// 41490267882), a row more from them to the owner's cell, which measured 2722 over 94 rows (the run, bends, far rows and
-/// what is beside a cell stayed within their limits: 6237, 2.39, 44 and 22.1).
+/// what is beside a cell stayed within their limits: 6237, 2.39, 44 and 22.1); and for the architect graph's far rows, on
+/// the flow where the cell that takes a group of reports in sends a member that needs the owner back to the queue
+/// (`release_members`, a node more of what the cell does every time, beside it) and the architect's cells are given a
+/// group of reports to answer for, which measured far 114 and beside each 43.1 (CI run 41578624134; the length of a
+/// row, the run and the bends stayed within their limits).
 /// Before cells were laid out so, on the flow of 6e258c1 (CI run 40855485231), the engineer graph measured rows 42384,
 /// run 1046, bends 214, far 388, beside 5522, and the architect graph rows 82062, run 1731, bends 286, far 198, beside
 /// 1539.
 const MOST: Record<string, Limits> = {
   engineer: { rowLength: 634, run: 2162, bendsPerArrow: 1.71, far: 722, besideEach: 91.4 },
-  architect: { rowLength: 2994, run: 7315, bendsPerArrow: 3.18, far: 107, besideEach: 32.3 },
+  architect: { rowLength: 2994, run: 7315, bendsPerArrow: 3.18, far: 126, besideEach: 47.5 },
 };
 const engine = compiled.engine;
 const graphs = compiled.graphs.map((g) => {
