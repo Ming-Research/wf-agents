@@ -1076,6 +1076,65 @@ mod tests {
         assert_eq!(held.as_deref(), Some("Held."));
     }
 
+    // A merge whose re-pointed dependencies close a cycle in the state the write sees (validation did not see it: a
+    // cancel earlier in the batch had taken the links of an item with a work going on out of its state, but the write
+    // leaves them) is refused whole: the absorbed item keeps its links, is not cancelled, and the kept item's
+    // approach is not changed; the change after it is made.
+    #[test]
+    fn a_merge_that_closes_a_cycle_is_refused_whole_and_the_absorbed_item_is_left_as_it_was() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Owner, |tx| {
+            for title in ["parser", "lexer", "tokens"] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, approach, deliver, level)
+                     VALUES ('p', ?1, 'x', 'y', 'kept', 'change', 'l')",
+                    [title],
+                )?;
+            }
+            // The parser depends on the lexer, and the tokens on the parser.
+            db::add_dependency(tx, 1, 2, "its lexer", "blocking")?;
+            db::add_dependency(tx, 3, 1, "its parser", "parallel")?;
+            Ok(())
+        })
+        .unwrap();
+        let changes = [
+            // The lexer is merged into the tokens: the parser would depend on the tokens, which depend on the parser.
+            json!({ "kind": "merge", "keep": "3", "absorbed": ["2"], "reason": "r" }),
+            json!({ "kind": "hold", "item": "1", "reason": "Held." }),
+        ];
+        let written = db
+            .write(Actor::Architect, |tx| {
+                write_all(tx, &changes, &BTreeMap::new()).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        let refused: Vec<(usize, bool)> = written
+            .refused
+            .iter()
+            .map(|(i, why)| (*i, why.contains("cannot depend on")))
+            .collect();
+        assert_eq!(refused, [(0, true)], "{written:?}");
+        let mut st = db
+            .conn()
+            .prepare("SELECT item, depends_on FROM item_links ORDER BY item, depends_on")
+            .unwrap();
+        let links: Vec<(i64, i64)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        assert_eq!(links, [(1, 2), (3, 1)]);
+        let cancelled: Option<String> = db
+            .conn()
+            .query_row("SELECT cancelled FROM items WHERE id = 2", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(cancelled, None);
+        let held: Option<String> = db
+            .conn()
+            .query_row("SELECT held FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(held.as_deref(), Some("Held."));
+    }
+
     // The architect's cancellation of an item, and its merge of one item into another, ask the engine's loop to cancel
     // the item whose work goes on, which it does once the work has no step in flight; the work on the item kept goes on.
     #[test]
