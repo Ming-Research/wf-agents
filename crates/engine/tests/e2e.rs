@@ -13421,7 +13421,7 @@ fn slots_free_matters(e: &Engine) -> i64 {
         .unwrap()
 }
 
-#[cfg(any())]
+/// The reasons of the holds on project p's new starts, in order.
 fn hold_reasons(e: &Engine) -> Vec<String> {
     let mut st =
         e.db.conn()
@@ -13479,7 +13479,6 @@ fn no_matter_of_free_slots_is_queued_while_every_work_is_paused() {
 
 // Item #239: a hold of the owner's on the project stops the matter of free slots as well, for the new starts it stops
 // are the only thing that matter could lead to. Released, the matter is queued as it always was.
-#[cfg(any())]
 #[test]
 fn no_matter_of_free_slots_is_queued_while_the_owner_holds_the_project() {
     let s = setup("slots-free-owner-hold");
@@ -13509,7 +13508,6 @@ fn no_matter_of_free_slots_is_queued_while_the_owner_holds_the_project() {
 // Item #239: while the owner holds a project's new starts, a work already running goes on to its merge, and no other
 // item of the project starts, though a slot is free; once the owner releases the hold, the waiting item starts. The
 // hold is the owner's, written as the owner, and stands whatever the architect does.
-#[cfg(any())]
 #[test]
 fn an_owner_hold_lets_the_running_work_merge_and_starts_the_next_item_only_once_released() {
     let s = setup("owner-hold-merge");
@@ -13572,7 +13570,6 @@ fn an_owner_hold_lets_the_running_work_merge_and_starts_the_next_item_only_once_
 // Item #239: the architect's hold and its release leave the owner's hold alone. With the owner's hold in place, the
 // architect holds new starts in its effects: its own row is written beside the owner's, as the architect; it releases
 // its own, and only its own: the owner's stays, and the board of its later cells still lists it.
-#[cfg(any())]
 #[test]
 fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_beside_it() {
     let s = setup("architect-and-owner-hold");
@@ -13670,7 +13667,6 @@ fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_besid
 // Item #239: the board of a cell that can hold or release new starts lists each hold on the project with its reason,
 // since when and why, whoever holds, and has no such key while nothing holds; the owner's release of any reason takes
 // its row, and one of a reason not there is refused saying so.
-#[cfg(any())]
 #[test]
 fn the_board_lists_each_hold_and_the_owner_releases_any_of_them() {
     let s = setup("board-holds");
@@ -13723,7 +13719,6 @@ fn the_board_lists_each_hold_and_the_owner_releases_any_of_them() {
 // Item #239: an architect work the engine stops, here because the flow version it ran on can no longer be gone on
 // with, leaves behind no hold to set the project straight, and takes nothing else: the owner's hold, the architect's
 // own hold and a hold of another project all stay.
-#[cfg(any())]
 #[test]
 fn an_architect_work_taken_over_releases_only_its_projects_hold_to_set_straight() {
     let s = setup("takeover-holds");
@@ -13784,7 +13779,6 @@ fn an_architect_work_taken_over_releases_only_its_projects_hold_to_set_straight(
 // Item #239: the owner may release their hold while the architect's round is going on, and the architect's actions of
 // that round, a release of its own hold that is not there and a hold, still go through: the owner's row is gone as the
 // owner released it, the architect's own row stands, and the round is not sent back for an action that found nothing.
-#[cfg(any())]
 #[test]
 fn the_owner_releasing_in_the_middle_of_an_architect_round_leaves_its_actions_working() {
     let s = setup("owner-releases-mid-round");
