@@ -11998,7 +11998,8 @@ fn a_batch_removes_a_dependency_and_the_review_makes_it() {
 
 // A change that removes a dependency the items do not have then is sent back, with every other reason, and nothing is
 // made: one removed twice, one never made, one a cancel of the batch took away, and one of an item another project's
-// architect changes, which is the project's own business to remove.
+// architect changes, which is the project's own business to remove. A dependency made after a cancel still closes a
+// cycle with a dependency the cancel took away, since the write may leave it.
 #[test]
 fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
     let s = setup("remove-dependency-refused");
@@ -12018,6 +12019,9 @@ fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
                 { "kind": "cancel", "item": "3", "goes": "Not needed.", "reason": "r" },
                 { "kind": "remove_dependency", "item": "1", "on": "3", "reason": "r" },
                 { "kind": "remove_dependency", "item": "5", "on": "2", "reason": "r" },
+                // The tokens depend on item 4, and the cancel of the tokens takes that away only when no work goes on
+                // them: the write may leave it, so this closes a cycle all the same.
+                { "kind": "add_dependency", "item": "4", "on": "3", "dependency": "blocking", "reason": "r" },
             ]);
             (
                 Vec::new(),
@@ -12030,7 +12034,7 @@ fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
     let parser = an_item(&mut e);
     let lexer = a_ready_item(&mut e, "Lex it");
     let tokens = a_ready_item(&mut e, "Name tokens");
-    a_ready_item(&mut e, "Do it later");
+    let later = a_ready_item(&mut e, "Do it later");
     let other =
         e.db.write(Actor::Owner, |tx| {
             tx.execute(
@@ -12042,6 +12046,7 @@ fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
             db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
             db::add_dependency(tx, parser, tokens, "its tokens", "parallel")?;
             db::add_dependency(tx, other, lexer, "its lexer", "parallel")?;
+            db::add_dependency(tx, tokens, later, "its later part", "parallel")?;
             Ok(other)
         })
         .unwrap();
@@ -12064,16 +12069,88 @@ fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
     ] {
         assert!(rejected[0].contains(reason), "{reason}\n{rejected:?}");
     }
+    assert!(
+        rejected[0].contains("the items' dependencies close a cycle"),
+        "{rejected:?}"
+    );
     // The first change is sound, and the cancel is: neither is named.
     assert!(!rejected[0].contains("item change 1 "), "{rejected:?}");
     assert!(!rejected[0].contains("item change 4 "), "{rejected:?}");
     // Nothing was made: the dependencies stand and the item is not cancelled.
-    assert_eq!(links_of(&e), [(1, 2), (1, 3), (5, 2)], "{log}");
+    assert_eq!(links_of(&e), [(1, 2), (1, 3), (3, 4), (5, 2)], "{log}");
     let cancelled: Option<String> =
         e.db.conn()
             .query_row("SELECT cancelled FROM items WHERE id = 3", [], |r| r.get(0))
             .unwrap();
     assert_eq!(cancelled, None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The review drops the removal of a dependency and keeps the change that reverses it. Each was valid in the state the
+// batch gave, but with the removal left out the reversal closes a cycle: the reversal alone is left out, saying why, the
+// batch is made, and the work of the architect does not fail.
+#[test]
+fn a_reversal_is_left_out_when_the_review_drops_the_removal_it_needed() {
+    let s = setup("remove-dependency-dropped");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, _: usize| {
+            // The parser (1) depends on the lexer (2); the batch turns that around.
+            let changes = json!([
+                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
+                { "kind": "add_dependency", "item": "2", "on": "1", "dependency": "blocking", "reason": "r" },
+                { "kind": "hold", "item": "1", "reason": "Held." },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let rows = json!([
+                { "change": 1, "verdict": "drop", "why": "The parser needs the lexer." },
+                { "change": 2, "verdict": "ok", "why": "Sound." },
+                { "change": 3, "verdict": "ok", "why": "Sound." },
+            ]);
+            (Vec::new(), vec![("outcome.review", rows)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    e.db.write(Actor::Owner, |tx| db::add_dependency(tx, parser, lexer, "its lexer", "blocking"))
+        .unwrap();
+    say(&mut e, "Turn the parser and the lexer around.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rows = engine::query_json(
+        e.db.conn(),
+        "SELECT state, json_extract(outcome, '$.what') AS why FROM architect_item_changes ORDER BY id",
+        &[],
+        10,
+    )
+    .unwrap();
+    let states: Vec<&str> = rows.iter().map(|r| r["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["dropped", "dropped", "made"], "{rows:?}\n{log}");
+    let why = rows[1]["why"].as_str().unwrap();
+    assert!(why.contains("item 2 cannot depend on 1"), "{why}");
+    // The dependency stands, and the change after the refused one was made.
+    assert_eq!(links_of(&e), [(parser, lexer)], "{log}");
+    let held: Option<String> =
+        e.db.conn()
+            .query_row("SELECT held FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(held.as_deref(), Some("Held."), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
