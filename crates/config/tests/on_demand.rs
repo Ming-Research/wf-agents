@@ -136,7 +136,10 @@ fn the_switch_for_the_temporary_refs_is_true_by_default_and_kept() {
     assert!(read_ci("default", "").runs_on_before_branches);
     // The shared file names a tests_input, which the setting is not read beside, and that is no mistake.
     assert!(!read_ci("false", "runs_on_before_branches = false\n").runs_on_before_branches);
-    let both = read_ci("both", "on_demand = true\nfast = \"fast\"\nruns_on_before_branches = false\n");
+    let both = read_ci(
+        "both",
+        "on_demand = true\nfast = \"fast\"\nruns_on_before_branches = false\n",
+    );
     assert!(both.on_demand && !both.runs_on_before_branches);
     // Set in the file a project extends, and not said by the project, it holds.
     let shared = SHARED.replace("[limits]", "runs_on_before_branches = false\n[limits]");
