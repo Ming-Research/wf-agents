@@ -17428,7 +17428,7 @@ macro_rules! random_events {
 }
 
 // Random sequences of events (asks of the advisor and the architect, hand-overs between them and between two related
-// projects' architects, the architects' replies, flow anomalies, interjections, cancels, ends and takeovers by a new
+// projects' architects, the architects' replies, flow anomalies, interjections, cancels, ends and works brought to a new
 // flow version) leave every chain of blockers closed after each event: every stopped task has
 // exactly one open blocker, raised at the cell it stopped at and held by the holder of the cell it stands at; every
 // open blocker's holder exists, in whichever project; no ended task has an open blocker; the items waited for form no

@@ -600,6 +600,38 @@ case!(an_interjection_at_an_engine_step_with_no_counter, "no counter", |v| {
     obj(row(v, "M1", "interjection")).remove("counts");
 });
 
+// The cell a work on an older flow version comes to is a cell of the graph, which the engine brings a work to and no
+// row does, and whose rows only take it back to where it stopped or keep it there; only an engine's cell pauses a work
+// by a row.
+case!(
+    a_cell_for_an_older_version_that_is_not_there,
+    "no such cell for a work on an older flow version",
+    |v| {
+        graph(v)["version"] = json!("V9");
+    }
+);
+case!(
+    a_row_from_the_cell_for_an_older_version_to_another_cell,
+    "whose rows go back to where the work stopped or keep it there: V1",
+    |v| {
+        row(v, "V1", "went_back")["to"] = json!("T1");
+    }
+);
+case!(
+    a_row_into_the_cell_for_an_older_version,
+    "no row leads to the cell for a work on an older flow version",
+    |v| {
+        row(v, "T6", "done")["to"] = json!("V1");
+    }
+);
+case!(
+    a_row_of_an_agent_s_cell_that_pauses,
+    "only an engine's cell has a row that pauses the work: I1",
+    |v| {
+        rows(v, "I1")[0]["pauses"] = json!(true);
+    }
+);
+
 // Every row into a block goes to an entry.
 case!(
     a_row_into_the_asking_part_past_the_cells_that_are_asked,
