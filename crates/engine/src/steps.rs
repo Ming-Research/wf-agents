@@ -11,7 +11,7 @@ use crate::failed::{self, Failed};
 use crate::inputs::{self, Gathered, at_path};
 use crate::message;
 use crate::work::{self, Ended, Item, Round, RoundId, Work};
-use crate::{ARCHITECT, Advance, Engine, OBSERVER, actions, architect, checks, git, tools, values, watch};
+use crate::{ARCHITECT, Advance, Engine, OBSERVER, PICKER, actions, architect, checks, git, tools, values, watch};
 use sessions::{Held, Plan};
 
 fn sql(e: impl std::fmt::Display) -> String {
@@ -272,6 +272,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         mut interjections,
         columns,
         table,
+        decisions,
         number,
         msg,
         whole,
@@ -432,6 +433,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         },
     });
     pin.record(&mut input["engine"]);
+    // The item's decisions as numbered for this round, which a later cell's check reads a number of it by.
+    if let Some(d) = &decisions {
+        input["engine"]["decisions"] = d.clone();
+    }
     // Where the owner's images were given, by their attachments, and those only referred to.
     if !msg.images.is_empty() {
         input["images"] = msg.record_images();
@@ -598,7 +603,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 interjections: &interjections,
                 main: main.as_deref(),
             };
-            checks::run(&ctx)
+            checks::run(&ctx).map_err(|problems| checks::reason(&problems))
         };
         let r = crate::unparsed::recover(e, &req, &reply, round, cell, &accepts);
         let mut record = r.record;
@@ -734,9 +739,10 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         })
         .map_err(sql)?;
     }
-    let row = match g.take(&cell.id, &output, &given) {
+    let row = match g.take_or_places(&cell.id, &output, &given) {
         Ok(r) => r.clone(),
-        Err(why) => {
+        Err(not_taken) => {
+            let problems: Vec<checks::Problem> = not_taken.places.iter().map(checks::Problem::format).collect();
             return reject(
                 e,
                 w,
@@ -746,7 +752,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                     output: Some(output),
                     ..ended
                 },
-                json!({ "format": why }),
+                checks::record("format", not_taken.text, &problems),
             );
         }
     };
@@ -766,7 +772,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         interjections: &interjections,
         main: main.as_deref(),
     };
-    if let Err(why) = checks::run(&ctx) {
+    if let Err(problems) = checks::run(&ctx) {
         return reject(
             e,
             w,
@@ -776,7 +782,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
                 output: Some(output),
                 ..ended
             },
-            json!({ "check": why }),
+            checks::record("check", checks::reason(&problems), &problems),
         );
     }
     finish(e, w, g, cell, round, output, &row, ended, &ids, head_after, &given)
@@ -856,7 +862,8 @@ pub fn cell_request(
 /// The level an agent's round at a cell runs at, its name with what it is and its CLI: the item's, or one above for the
 /// advisor, which is the engineer with a higher model; for the architect, the review of its item changes and the new
 /// architects that read a policy, the level the installation names for the architect; for the search of
-/// observations, the level it names for the observer.
+/// observations, the level it names for the observer; for the pick of the architect's next matter, the level it names
+/// for the picker.
 pub fn level_of(
     e: &Engine,
     g: &CompiledGraph,
@@ -866,6 +873,7 @@ pub fn level_of(
     let name = match item {
         Some(i) => e.config.config.level_of_line(&i.level, &crate::line_of(g, cell)),
         None if cell.line.as_deref() == Some(OBSERVER) => e.config.config.observer_level(),
+        None if cell.line.as_deref() == Some(PICKER) => e.config.config.picker_level(),
         None => e.config.config.architect_level(),
     };
     let (level, cli) = e
@@ -892,6 +900,9 @@ struct Composed {
     columns: Vec<(String, String)>,
     /// The rows of the cell's numbered table, each with its number.
     table: Vec<Value>,
+    /// The item's decisions the round is given, each with its number, for a cell that reads them
+    /// ([`inputs::decisions_given`]).
+    decisions: Option<Value>,
     /// The round it will be.
     number: RoundId,
     msg: message::Message,
@@ -968,8 +979,12 @@ fn compose(
     } else {
         Vec::new()
     };
-    let columns = message::columns(e, w, g, cell, item);
+    let message::ReviewColumns {
+        columns,
+        renumbered: columns_renumbered,
+    } = message::columns(e, w, g, cell, item);
     let table = inputs::table(&gathered);
+    let decisions = inputs::decisions_given(&gathered);
     let context = message::Context {
         e,
         w,
@@ -981,6 +996,7 @@ fn compose(
         gathered: &gathered,
         given: &given,
         columns: &columns,
+        columns_renumbered,
         table: &table,
         held: &held,
         registry: &registry,
@@ -1011,6 +1027,7 @@ fn compose(
         interjections,
         columns,
         table,
+        decisions,
         number,
         msg,
         whole,
@@ -1045,7 +1062,7 @@ fn reject(
     ended: Ended,
     why: Value,
 ) -> Result<Advance, String> {
-    e.say(&format!("{round} sent back: {why}"));
+    e.say(&format!("{round} sent back: {}", db::without_problems(&why)));
     let ended = Ended {
         rejected: Some(why),
         transition: None,
@@ -1394,7 +1411,7 @@ pub fn engine(
         Some("merge") => tools::merge(e, w, needed(&item, w)?, round)?,
         Some("watch_main") => tools::watch_main(e, w, g, needed(&item, w)?, round)?,
         Some("end_work") | Some("end_architect_work") | Some("stop_work") => json!({}),
-        Some("look_at_queue") => architect::look_at_queue(e, w, cell)?,
+        Some("look_at_queue") => architect::look_at_queue(e, w, g, cell, round)?,
         Some(other) => return Err(format!("no such engine step: {other}")),
         None => json!({}),
     };

@@ -130,22 +130,72 @@ impl From<Vec<String>> for Problems {
     }
 }
 
-/// Adds the lines a check's problems make in the reason a return is sent back with, `check (place): problem`, one
-/// for each problem; a line already there is not added again.
-fn render(lines: &mut Vec<String>, check: &str, at: Option<&str>, found: &Problems) {
-    for why in found.texts() {
-        let line = format!("{check} ({}): {why}", at.unwrap_or("the return"));
-        if !lines.contains(&line) {
-            lines.push(line);
+/// One problem of a return that is sent back, with the check that found it and the field it is about: what
+/// `rounds.rejected` keeps under `problems`, one entry each, so that returns sent back can be counted by check and by
+/// field.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Problem {
+    /// The check's name; `format` for a return that does not fit the schema of its cell, which no check is named.
+    pub check: String,
+    /// The check's `at` in the flow (`columns[pass].evidence`), or for `format` the path in the schema with a list's
+    /// items written `[]` (`columns[].evidence`); none for a check about the return as a whole, and for a refusal
+    /// about no field.
+    pub field: Option<String>,
+    /// What is wrong, and how to put it right.
+    pub text: String,
+}
+
+impl Problem {
+    /// A place of a return that does not fit its cell's schema.
+    pub fn format(place: &flow::Misfit) -> Problem {
+        Problem {
+            check: "format".to_string(),
+            field: place.field.clone(),
+            text: place.text.clone(),
         }
+    }
+
+    /// The line this problem makes in the text a return is sent back with, `check (place): problem`.
+    fn line(&self) -> String {
+        format!(
+            "{} ({}): {}",
+            self.check,
+            self.field.as_deref().unwrap_or("the return"),
+            self.text
+        )
     }
 }
 
-/// Runs every check of the cell that applies to the return; gives every reason it fails, every problem of every
-/// check: a return is sent back once with all that can be found, since each send-back costs a round.
-pub fn run(c: &Ctx<'_>) -> Result<(), String> {
+/// The text a return that failed checks is sent back with: a line for each problem, in the order found. The only
+/// place this line is made.
+pub fn reason(problems: &[Problem]) -> String {
+    problems.iter().map(Problem::line).collect::<Vec<_>>().join("\n")
+}
+
+/// What `rounds.rejected` keeps for a return sent back: under `kind` (`check` or `format`) the text it was sent back
+/// with, and then under `problems` each problem, `{check, field, text}`. The text comes first; what reads it reads it
+/// by `kind` ([`db::sent_back_text`]).
+pub fn record(kind: &str, text: String, problems: &[Problem]) -> Value {
+    let mut sent = serde_json::Map::new();
+    sent.insert(kind.to_string(), Value::String(text));
+    sent.insert(
+        "problems".to_string(),
+        Value::Array(
+            problems
+                .iter()
+                .map(|p| serde_json::json!({ "check": p.check, "field": p.field, "text": p.text }))
+                .collect(),
+        ),
+    );
+    Value::Object(sent)
+}
+
+/// Runs every check of the cell that applies to the return; gives every problem of every check, each once, in the
+/// order found: a return is sent back once with all that can be found, since each send-back costs a round.
+/// [`reason`] makes the text it is sent back with.
+pub fn run(c: &Ctx<'_>) -> Result<(), Vec<Problem>> {
     let form = form_of(c.g, c.cell, c.output);
-    let mut lines: Vec<String> = Vec::new();
+    let mut found: Vec<Problem> = Vec::new();
     for ch in &c.cell.checks {
         let top = ch.at.as_deref().map(|a| a.split(['.', '[']).next().unwrap_or_default());
         let form_field = top.filter(|t| c.cell.forms.iter().any(|f| f.field.as_deref() == Some(*t)));
@@ -157,14 +207,25 @@ pub fn run(c: &Ctx<'_>) -> Result<(), String> {
             continue;
         }
         let value = ch.at.as_deref().and_then(|a| at_path(&c.unwrapped, a));
-        if let Err(found) = one(c, &ch.check, ch.at.as_deref(), value.as_ref()) {
-            render(&mut lines, &ch.check, ch.at.as_deref(), &found);
+        if let Err(problems) = one(c, &ch.check, ch.at.as_deref(), value.as_ref()) {
+            add(&mut found, &ch.check, ch.at.as_deref(), &problems);
         }
     }
-    if lines.is_empty() {
-        Ok(())
-    } else {
-        Err(lines.join("\n"))
+    if found.is_empty() { Ok(()) } else { Err(found) }
+}
+
+/// Adds the problems a check found to those found so far, each as a [`Problem`] of that check and place. A problem
+/// whose line is there already, from this check or another, is the same problem and is not added again.
+fn add(found: &mut Vec<Problem>, check: &str, at: Option<&str>, problems: &Problems) {
+    for text in problems.texts() {
+        let p = Problem {
+            check: check.to_string(),
+            field: at.map(str::to_string),
+            text: text.clone(),
+        };
+        if !found.iter().any(|q| q.line() == p.line()) {
+            found.push(p);
+        }
     }
 }
 
@@ -435,7 +496,18 @@ impl Ctx<'_> {
         Ok(last_return(self.e, self.w, self.g, cell, path)?.and_then(|r| at_path(&r, path)))
     }
 
-    /// The acceptance conditions in force: those locked on the item, or else those the design handed in.
+    /// The plan of the work a review of it tries: the cell that wrote it, its return as the rows read it, and the
+    /// decisions of the item its round was given, numbered as that round had them; the newest design. None before any.
+    fn plan_reviewed(&self) -> Result<Option<(String, Value, Vec<Value>)>, String> {
+        let Some(r) = self.accepted("D2")?.into_iter().next() else {
+            return Ok(None);
+        };
+        let plan = r.output.as_ref().map(|o| self.g.unwrap(o)).unwrap_or(Value::Null);
+        Ok(Some(("D2".to_string(), plan, crate::inputs::decisions_of(&r))))
+    }
+
+    /// The acceptance conditions in force: those locked on the item, or else those the latest design handed in, or on
+    /// the light route the latest plan.
     fn acceptance(&self) -> Result<Vec<Value>, String> {
         let locked: Option<String> = self
             .e
@@ -445,10 +517,18 @@ impl Ctx<'_> {
                 r.get(0)
             })
             .map_err(|e| e.to_string())?;
-        match work::json_col(locked) {
-            Some(Value::Array(xs)) => Ok(xs),
-            _ => Ok(items(self.last("D2", "acceptance")?.as_ref())),
+        if let Some(Value::Array(xs)) = work::json_col(locked) {
+            return Ok(xs);
         }
+        let mut written: Vec<(RoundId, Value)> = Vec::new();
+        for (cell, path) in [("D2", "acceptance"), ("F1", "plan.acceptance")] {
+            let returns = crate::inputs::returns_holding(self.e, self.w, self.g, cell, path)?;
+            if let Some((round, conditions)) = returns.iter().find_map(|(r, x)| Some((*r, at_path(x, path)?))) {
+                written.push((round, conditions));
+            }
+        }
+        let newest = written.into_iter().max_by_key(|(r, _)| *r).map(|(_, v)| v);
+        Ok(items(newest.as_ref()))
     }
 
     /// The results of the ci and ci_before runs of this work, newest first: the tool, the head it ran on, and its
@@ -528,6 +608,42 @@ impl Ctx<'_> {
             .query_row("SELECT pushed_head FROM works WHERE id = ?1", [self.w.id], |r| r.get(0))
             .map_err(|e| e.to_string())
     }
+
+    /// The names of the checks of the CI runs recorded for this work, newest run first: those of the fast CI (a `ci`
+    /// run keeps them under `push`) and of the full CI (an attempt keeps its first run's under `first`, a run again
+    /// its list as it is). A run that did not get as far as its checks has none.
+    fn ci_jobs(&self) -> Result<Vec<String>, String> {
+        let mut runs = self.ci_runs("ci")?;
+        runs.extend(self.ci_runs("full_ci")?);
+        Ok(check_names(&runs))
+    }
+}
+
+/// The names of the checks in the recorded results of CI runs, each once, in the order the runs give them.
+fn check_names(runs: &[Value]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for run in runs {
+        let checks = run
+            .pointer("/push/checks")
+            .or_else(|| run.get("first"))
+            .or(run.is_array().then_some(run));
+        for check in items(checks) {
+            if let Some(name) = check["name"].as_str()
+                && !names.iter().any(|n| n == name)
+            {
+                names.push(name.to_string());
+            }
+        }
+    }
+    names
+}
+
+/// Whether some file of the branch at HEAD holds `text` as it is written: how a command a condition points to is
+/// looked for, as a test's name is.
+fn text_on_branch(worktree: &Path, text: &str) -> Result<(), String> {
+    git::git(worktree, &["grep", "-q", "-F", "-e", text, "HEAD"])
+        .map(|_| ())
+        .map_err(|_| format!("the step {text} is not in any file of the branch"))
 }
 
 fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), Problems> {
@@ -540,6 +656,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             };
             research_problems(clean, &outside).into_result()
         }
+        "route_given" => route_problems(values::light_route(c.e, c.w)?, v).into_result(),
         "design_paths_unchanged" => {
             let wt = c.wt()?;
             let Some(start) = &c.head_start else { return Ok(()) };
@@ -676,6 +793,10 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             crate::cards::check(&handed, &revised, &current, &earlier).or_else(fail)
         }
         "acceptance_matches_locked" => {
+            // A plan that turns the work to the normal route hands in no conditions.
+            if v.is_none() {
+                return Ok(());
+            }
             let given = items(v);
             let report_answer = c.item()?.deliver == "change" && given.iter().any(|a| a["by"] == "report_answer");
             let locked: Option<String> =
@@ -705,14 +826,9 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 return fail("the head was not pushed with ci");
             }
             let runs = c.ci_runs("ci")?;
-            let Some(run) = runs.iter().find(|r| r["push"]["head"] == sha.as_str()) else {
+            let Some(red) = red_checks_of_head(&runs, &sha) else {
                 return fail("no fast CI run on the head");
             };
-            let red: Vec<String> = items(run["push"].get("checks"))
-                .iter()
-                .filter(|x| x["result"] != "green")
-                .map(|x| x["name"].as_str().unwrap_or_default().to_string())
-                .collect();
             if red.is_empty() {
                 Ok(())
             } else {
@@ -759,7 +875,21 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 .collect();
             let recheck = c.cell.id == "T1" && !c.accepted("T1")?.is_empty();
             let wt = c.wt()?;
-            conditions_problems(&wanted, &rows, recheck, |t| test_name::on_branch(wt, t)).into_result()
+            // The CI runs recorded are looked up only for a row that names a job.
+            let jobs = if rows.iter().any(|r| r["how"] == "ci_job") {
+                c.ci_jobs()?
+            } else {
+                Vec::new()
+            };
+            conditions_problems(
+                &wanted,
+                &rows,
+                recheck,
+                |t| test_name::on_branch(wt, t),
+                &jobs,
+                |s| text_on_branch(wt, s),
+            )
+            .into_result()
         }
         "new_test_results" | "guard_test_results" => {
             if c.last("D11", "adversarial")?.is_some_and(|a| a["verdict"] == "needed") {
@@ -925,10 +1055,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         }
         "no_adversarial_when_due" => {
             let first = c.accepted("T4")?.is_empty();
-            let chose = c.last("D11", "T1")?.is_some_and(|a| a["verdict"] == "needed");
+            let chose = c.last("D11", "adversarial")?.is_some_and(|a| a["verdict"] == "needed");
             let ran = !c.accepted("T1")?.is_empty();
             let kind = values::value(c.e, c.w, c.g, c.item, "work")?;
-            let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran;
+            // The light route has no design to choose adversarial testing or not, and no judgment of that choice.
+            let light = values::light_route(c.e, c.w)?;
+            let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran && !light;
             let verdict = v.and_then(|x| x["verdict"].as_str());
             match (due, first, verdict) {
                 (true, true, None) => fail(
@@ -1040,8 +1172,330 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let speakers: Vec<String> = speakers.into_iter().collect();
             speaker_problems(&speakers, &strs(v)).into_result()
         }
+        "constitution_covered" => {
+            let project = match c.item {
+                Some(i) => i.project.clone(),
+                None => crate::architect::project_of(c.w)?.to_string(),
+            };
+            let articles = articles(c.e, &project, c.main)?;
+            constitution_problems(&articles, &items(v)).into_result()
+        }
+        // A plan of the work answers each decision of its item, a passage it quotes found in its own sections.
+        "decisions_answered" => {
+            let listed = crate::decisions::listed(c.item()?.approach.as_deref().unwrap_or_default());
+            let sections = plan_sections(&c.cell.id, &c.unwrapped);
+            decisions_problems(&listed, &items(v), &sections).into_result()
+        }
+        // A review of a plan tries each claim the plan makes against the passage of the plan's sections most likely to
+        // refute it.
+        "claims_answered" => {
+            let Some((cell, plan, given)) = c.plan_reviewed()? else {
+                return fail("there is no plan of the work to review");
+            };
+            let project = c.item()?.project.clone();
+            let articles = articles(c.e, &project, c.main)?;
+            let claims = Claims {
+                sections: plan_sections(&cell, &plan),
+                claimed: plan.get("articles").and_then(Value::as_array).cloned(),
+                answered: plan_answers(&plan, &given),
+                listed: crate::decisions::listed(c.item()?.approach.as_deref().unwrap_or_default()),
+            };
+            let tried = v.cloned().unwrap_or(Value::Null);
+            claims
+                .problems(&articles, &items(tried.get("articles")), &items(tried.get("decisions")))
+                .into_result()
+        }
+        "claims_fit_verdict" => {
+            let tried = v.cloned().unwrap_or(Value::Null);
+            let verdict = c.unwrapped.pointer(REVIEW_VERDICT).and_then(Value::as_str);
+            verdict_problems(&refuted(&tried), verdict).into_result()
+        }
         other => crate::architect::check(c, other, at, v),
     }
+}
+
+/// Where a review of a design says whether a better design is found, in its return.
+const REVIEW_VERDICT: &str = "/better/verdict";
+
+/// The articles of a project's constitution, in its order: its level-two headings that start with "Article". They are
+/// counted in the constitution at the commit of main the round was pinned to (`main`), the one its agent was given, so
+/// that the count is of the articles the agent read.
+pub(crate) fn articles(e: &Engine, project: &str, main: Option<&str>) -> Result<Vec<String>, String> {
+    let Some(text) = crate::architect::constitution(e, project, main)? else {
+        return Ok(Vec::new());
+    };
+    Ok(text
+        .lines()
+        .filter_map(|line| line.strip_prefix("## "))
+        .filter(|h| h.trim_start().to_lowercase().starts_with("article"))
+        .map(|h| h.trim().to_string())
+        .collect())
+}
+
+/// Whether a row names an article: by its number, as "Article 2", or by its title.
+pub(crate) fn names_article(principle: &str, article: &str) -> bool {
+    let p = principle.to_lowercase();
+    let a = article.to_lowercase();
+    let (number, title) = a.split_once('.').unwrap_or((a.as_str(), ""));
+    let number = number.trim();
+    let by_number = p
+        .match_indices(number)
+        .any(|(i, _)| !p[i + number.len()..].chars().next().is_some_and(|c| c.is_ascii_digit()));
+    let title = title.trim();
+    by_number || (!title.is_empty() && p.contains(title))
+}
+
+/// What is wrong with the articles of a project's constitution a table covers (`rows`, one for each article of
+/// `articles`, in its order): a table with the wrong number of rows, and nothing else, since which row is for which
+/// article is told by position; otherwise every row that names another article than its own.
+pub(crate) fn constitution_problems(articles: &[String], rows: &[Value]) -> Problems {
+    let mut problems = Problems::default();
+    if rows.len() != articles.len() {
+        problems.push(format!(
+            "there is one row for each article of the project's constitution, {} of them, and there are {}",
+            articles.len(),
+            rows.len()
+        ));
+        return problems;
+    }
+    for (i, (row, article)) in rows.iter().zip(articles).enumerate() {
+        let named = row["article"].as_str().unwrap_or_default();
+        if !names_article(named, article) {
+            problems.push(format!(
+                "row {} is for \"{article}\", in the constitution's order, and names \"{named}\"",
+                i + 1
+            ));
+        }
+    }
+    problems
+}
+
+/// A text on one line, each run of white space one space: how a passage quoted from a plan is compared with it.
+fn flat(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The sections of a plan of the work that a passage of a claim about it is quoted from, by the cell that writes the
+/// plan (`cell`) and its return (`plan`), each on one line: for a design (`D2`), its solution, where it changes, what it
+/// leaves out, its pitfalls and each of its acceptance conditions. Not what the plan claims of itself (why, its claims
+/// of the constitution and of the item's decisions): a claim is tried against the plan, never against a claim.
+fn plan_sections(cell: &str, plan: &Value) -> Vec<String> {
+    let places: &[&str] = match cell {
+        "D2" => &[
+            "/design/solution",
+            "/design/where",
+            "/design/excluded",
+            "/design/pitfalls",
+        ],
+        _ => &[],
+    };
+    let mut out: Vec<String> = places
+        .iter()
+        .filter_map(|p| plan.pointer(p).and_then(Value::as_str))
+        .map(flat)
+        .collect();
+    out.extend(
+        items(plan.get("acceptance"))
+            .iter()
+            .filter_map(|a| a["condition"].as_str())
+            .map(flat),
+    );
+    out
+}
+
+/// What a plan's sections are called, in a reason.
+const SECTIONS: &str = "the plan's own sections (a design's solution, where it changes, what it leaves out, its \
+                        pitfalls and its acceptance conditions; not why, nor its claims)";
+
+/// Whether a passage is found in a plan's sections as it stands, each run of white space one space.
+fn quoted_in(passage: &str, sections: &[String]) -> bool {
+    let p = flat(passage);
+    !p.is_empty() && sections.iter().any(|s| s.contains(&p))
+}
+
+/// What a plan answered of each decision of the item, by the line of the decision as its round was given it: the
+/// verdict of its row (`follows`, `departs` or `not_concerned`). A line is the key, since the numbers are the round's own
+/// and a decision recorded since moves those after it.
+fn plan_answers(plan: &Value, given: &[Value]) -> Vec<(String, String)> {
+    items(plan.get("item_decisions"))
+        .iter()
+        .filter_map(|row| {
+            let id = row["decision"].as_str()?.trim();
+            let line = given.iter().find(|g| g["decision"] == id)?["line"].as_str()?;
+            Some((line.to_string(), row["verdict"].as_str()?.to_string()))
+        })
+        .collect()
+}
+
+/// What is wrong with how a plan answers the decisions of its item (`rows`) against those the round was given
+/// (`listed`): a number that is none of them, one answered twice, one not answered, and a passage it quotes, to follow
+/// one or to depart from it, that is not found as it stands in the plan's sections (`sections`).
+fn decisions_problems(listed: &[Value], rows: &[Value], sections: &[String]) -> Problems {
+    let want: Vec<String> = listed
+        .iter()
+        .filter_map(|l| l["decision"].as_str().map(str::to_string))
+        .collect();
+    let given: Vec<String> = rows
+        .iter()
+        .map(|r| r["decision"].as_str().unwrap_or_default().trim().to_string())
+        .collect();
+    let misses = id_misses(&want, &given);
+    let mut problems = Problems::default();
+    problems.about(
+        &misses.unknown,
+        |x| format!("\"{x}\" is no decision of the item you were given: answer each by its number"),
+        |xs| format!("{xs} are no decisions of the item you were given: answer each by its number"),
+    );
+    problems.about(
+        &misses.twice,
+        |x| format!("decision {x} is answered twice"),
+        |xs| format!("decisions {xs} are answered twice"),
+    );
+    problems.about(
+        &misses.missing,
+        |x| format!("decision {x} of the item is not answered"),
+        |xs| format!("decisions {xs} of the item are not answered"),
+    );
+    for (row, id) in rows.iter().zip(&given) {
+        if !matches!(row["verdict"].as_str(), Some("follows" | "departs")) {
+            continue;
+        }
+        let passage = row["passage"].as_str().unwrap_or_default();
+        if !quoted_in(passage, sections) {
+            problems.push(format!(
+                "decision {id}: the passage it quotes, \"{passage}\", is not found as it stands in {SECTIONS}: quote it \
+                 letter for letter"
+            ));
+        }
+    }
+    problems
+}
+
+/// What a review of a plan tries its claims against: the plan's sections, its rows of the constitution (none for a plan
+/// that has no list of them), what it answered of each decision of the item by the decision's line, and the decisions
+/// the review's round was given.
+struct Claims {
+    sections: Vec<String>,
+    claimed: Option<Vec<Value>>,
+    answered: Vec<(String, String)>,
+    listed: Vec<Value>,
+}
+
+impl Claims {
+    /// What is wrong with how a review tries the plan's claims: its rows of the articles (`articles` of the
+    /// constitution, `rows` one each in its order) and of the decisions of the item (`decisions`, one each by its
+    /// number), each with the passage of the plan's sections most likely to refute the claim, found there as it stands;
+    /// none near only where the plan says it does not touch the article, or that the decision does not concern it.
+    fn problems(&self, articles: &[String], rows: &[Value], decisions: &[Value]) -> Problems {
+        let mut problems = constitution_problems(articles, rows);
+        // Which article a row is for is told by its place, which a table of the wrong length does not tell.
+        let placed = rows.len() == articles.len();
+        for (i, row) in rows.iter().enumerate() {
+            let n = i + 1;
+            let named = row["article"].as_str().unwrap_or_default();
+            match row["verdict"].as_str() {
+                Some("none_near") => {
+                    let claim = self
+                        .claimed
+                        .as_ref()
+                        .and_then(|c| c.get(i))
+                        .and_then(|c| c["verdict"].as_str());
+                    if placed && self.claimed.is_some() && claim != Some("untouched") {
+                        problems.push(format!(
+                            "article row {n} ({named}): the plan claims it keeps it, so a passage of its sections bears \
+                             on the claim: quote the one most likely to refute it, not none_near"
+                        ));
+                    }
+                }
+                _ => self.passage(&mut problems, &format!("article row {n} ({named})"), row),
+            }
+        }
+        let want: Vec<String> = self
+            .listed
+            .iter()
+            .filter_map(|l| l["decision"].as_str().map(str::to_string))
+            .collect();
+        let given: Vec<String> = decisions
+            .iter()
+            .map(|r| r["decision"].as_str().unwrap_or_default().trim().to_string())
+            .collect();
+        let misses = id_misses(&want, &given);
+        problems.about(
+            &misses.unknown,
+            |x| format!("\"{x}\" is no decision of the item you were given: answer each by its number"),
+            |xs| format!("{xs} are no decisions of the item you were given: answer each by its number"),
+        );
+        problems.about(
+            &misses.twice,
+            |x| format!("decision {x} is tried twice"),
+            |xs| format!("decisions {xs} are tried twice"),
+        );
+        problems.about(
+            &misses.missing,
+            |x| format!("decision {x} of the item is not tried"),
+            |xs| format!("decisions {xs} of the item are not tried"),
+        );
+        for (row, id) in decisions.iter().zip(&given) {
+            if row["verdict"] != "none_near" {
+                self.passage(&mut problems, &format!("decision {id}"), row);
+                continue;
+            }
+            let line = self
+                .listed
+                .iter()
+                .find(|l| l["decision"] == id.as_str())
+                .and_then(|l| l["line"].as_str());
+            let answer = line.and_then(|l| self.answered.iter().find(|(x, _)| x == l).map(|(_, v)| v.as_str()));
+            if let Some(a) = answer.filter(|a| *a != "not_concerned") {
+                problems.push(format!(
+                    "decision {id}: the plan says it {a} it, so a passage of its sections bears on the claim: quote the \
+                     one most likely to refute it, not none_near"
+                ));
+            }
+        }
+        problems
+    }
+
+    /// The passage a row of a review quotes, which must be found in the plan's sections as it stands.
+    fn passage(&self, problems: &mut Problems, what: &str, row: &Value) {
+        let passage = row["passage"].as_str().unwrap_or_default();
+        if !quoted_in(passage, &self.sections) {
+            problems.push(format!(
+                "{what}: the passage it quotes, \"{passage}\", is not found as it stands in {SECTIONS}: quote the plan, \
+                 letter for letter, not a claim about it"
+            ));
+        }
+    }
+}
+
+/// The claims a review found refuted, each as its row says it: an article the plan contradicts, a decision the plan's
+/// answer to is wrong.
+fn refuted(tried: &Value) -> Vec<String> {
+    let mut out: Vec<String> = items(tried.get("articles"))
+        .iter()
+        .filter(|r| r["verdict"] == "contradicted")
+        .map(|r| format!("the claim of {}", r["article"].as_str().unwrap_or("an article")))
+        .collect();
+    out.extend(
+        items(tried.get("decisions"))
+            .iter()
+            .filter(|r| r["verdict"] == "wrong")
+            .map(|r| format!("the answer to decision {}", r["decision"].as_str().unwrap_or("?"))),
+    );
+    out
+}
+
+/// What is wrong with a review's verdict (`verdict`, the better design's) beside the claims it found refuted: a claim
+/// refuted is where the plan must change, so the verdict says a better one is found.
+fn verdict_problems(refuted: &[String], verdict: Option<&str>) -> Problems {
+    let mut problems = Problems::default();
+    if !refuted.is_empty() && verdict != Some("found") {
+        problems.push(format!(
+            "{} is refuted, which is where the design must change: the verdict is found, with what must change",
+            refuted.join(", ")
+        ));
+    }
+    problems
 }
 
 /// What is wrong with the kinds of the tests in a table of new tests (`new`) or of guard tests: each test the engineer
@@ -1226,14 +1680,19 @@ fn cover_problems(wanted: &[String], ids: &[String], recheck: bool) -> Problems 
 }
 
 /// What is wrong with a table of condition rows (`rows`) against the acceptance conditions in force (`wanted`): what
-/// [`cover_problems`] says about their ids, and each test a row of kind tested names that is not on the branch
-/// (`on_branch` says, with the reason when not). With no condition in force the rows are no rows of any condition, so
-/// their tests are not looked for.
+/// [`cover_problems`] says about their ids; each test a row of kind tested names that is not on the branch
+/// (`on_branch` says, with the reason when not); and, for a row of kind ci_job, each job that is not a check of a CI
+/// run recorded for the work (`ci`; when none is recorded, that once, since any name would pass) and each step that is
+/// not text in a file of the branch (`step_on_branch` says). A row of kind read_diff names nothing the engine can look
+/// up: the table review reads it. With no condition in force the rows are no rows of any condition, so what they name
+/// is not looked for.
 fn conditions_problems(
     wanted: &[String],
     rows: &[Value],
     recheck: bool,
     on_branch: impl Fn(&str) -> Result<(), String>,
+    ci: &[String],
+    step_on_branch: impl Fn(&str) -> Result<(), String>,
 ) -> Problems {
     let ids: Vec<String> = rows
         .iter()
@@ -1246,6 +1705,28 @@ fn conditions_problems(
     for r in rows.iter().filter(|r| r["how"] == "tested") {
         for t in strs(r.get("tests")) {
             if let Err(why) = on_branch(&t) {
+                problems.push(why);
+            }
+        }
+    }
+    // A job or step several rows name is said once, as `push` keeps a problem word for word the same once.
+    for r in rows.iter().filter(|r| r["how"] == "ci_job") {
+        if ci.is_empty() {
+            problems.push("no CI run of this work has recorded its checks, so a ci_job row cannot name a job");
+        } else {
+            for job in strs(r.get("jobs")) {
+                if !ci.contains(&job) {
+                    problems.push(format!(
+                        "the job {job} is not a check of any CI run of this work; the checks recorded are: {}",
+                        ci.join(", ")
+                    ));
+                }
+            }
+        }
+        for step in strs(r.get("steps")) {
+            if step.trim().is_empty() || step.contains('\n') {
+                problems.push("a step names one command, written as one line of text");
+            } else if let Err(why) = step_on_branch(&step) {
                 problems.push(why);
             }
         }
@@ -1279,6 +1760,27 @@ fn measure_problems(verdict: &str, ran: bool) -> Problems {
     problems
 }
 
+/// The checks that are not green in the runs of the tool `ci` on `sha` that decide whether the head is green, from the
+/// results of the tool, the newest first: the latest run on the head and, beside it, the latest that ran tests. Where
+/// the CI runs on demand a run that only ran the lint (`push.run` is `lint`, as when the call only hands in the PR's
+/// text) is made after the run that ran the tests and must not hide it, as a red test run would be on the same head.
+/// A run that does not say what it ran is one of the whole of the fast CI. None when no run is on the head.
+fn red_checks_of_head(runs: &[Value], sha: &str) -> Option<Vec<String>> {
+    let mut on_head = runs.iter().filter(|r| r["push"]["head"] == sha);
+    let latest = on_head.clone().next()?;
+    let tests = on_head.find(|r| r["push"]["run"] != "lint");
+    let mut red: Vec<String> = Vec::new();
+    for run in [Some(latest), tests].into_iter().flatten() {
+        for check in items(run["push"].get("checks")) {
+            let name = check["name"].as_str().unwrap_or_default().to_string();
+            if check["result"] != "green" && !red.contains(&name) {
+                red.push(name);
+            }
+        }
+    }
+    Some(red)
+}
+
 /// What is wrong with the acceptance conditions a return gives back: a work that delivers a change hands in a
 /// `report_answer` condition (`report_answer`), and the conditions are locked and differ from the locked ones with no
 /// ruling of the owner since (`unlocked`); the two are independent.
@@ -1289,6 +1791,25 @@ fn acceptance_problems(report_answer: bool, unlocked: bool) -> Problems {
     }
     if unlocked {
         problems.push(LOCKED_ACCEPTANCE);
+    }
+    problems
+}
+
+/// What is wrong with the route the research said, `given`, for a work that goes the light route (`light`) or not:
+/// only the item's route lightens a work, and its engineer only turns it heavier. A work goes the light route by its
+/// item's mark before its research first answers, and by its research's answer after, so the words name the work's
+/// route, not the item's mark, which may have changed since.
+fn route_problems(light: bool, given: Option<&Value>) -> Problems {
+    let mut problems = Problems::default();
+    match (light, given) {
+        (true, None) => problems.push(
+            "the work goes the light route: say in route whether it goes on the light route (light) or turns to the \
+             normal route (to_normal)",
+        ),
+        (false, Some(_)) => {
+            problems.push("the work goes the normal route, and only the item's route lightens a work: leave route out")
+        }
+        _ => {}
     }
     problems
 }
@@ -1563,6 +2084,289 @@ fn base_matches_run(name: &str, said: Option<&str>, ran: &Value) -> Problems {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn rows(v: Value) -> Vec<Value> {
+        v.as_array().cloned().unwrap_or_default()
+    }
+
+    // A design answers each decision of its item by its number, once each, and a passage it quotes to follow one or to
+    // depart from one is from the design's own sections, found as it stands but for runs of white space; every problem
+    // is said at once. A passage of why, which is a claim about the design and none of its sections, is not found.
+    #[test]
+    fn a_design_answers_each_decision_of_its_item_from_its_own_sections() {
+        let listed = crate::decisions::listed(
+            "Decisions:\n- Decision (2026-11-03, owner): One path.\nDecision (2026-11-03, owner): Two.\n\
+             Decision (2026-11-03, architect): Three.",
+        );
+        let plan = json!({
+            "why": "It keeps one path for every work.",
+            "design": { "solution": "Keep one path\nfor every work.", "where": "flow.json", "excluded": "None.", "pitfalls": "None." },
+            "acceptance": [{ "by": "test", "id": "A1", "condition": "The light way is its own path." }],
+        });
+        let sections = plan_sections("D2", &plan);
+        let fine = rows(json!([
+            { "decision": "L1", "verdict": "follows", "passage": "Keep one path  for every work." },
+            { "decision": "L2", "verdict": "departs", "passage": "The light way is its own path.", "instead": "Better." },
+            { "decision": "L3", "verdict": "not_concerned", "why": "It is about the page." },
+        ]));
+        assert!(decisions_problems(&listed, &fine, &sections).is_empty());
+        let wrong = rows(json!([
+            { "decision": "L1", "verdict": "follows", "passage": "It keeps one path for every work." },
+            { "decision": "L1", "verdict": "not_concerned", "why": "x" },
+            { "decision": "L4", "verdict": "not_concerned", "why": "x" },
+            { "decision": "L2", "verdict": "departs", "passage": "", "instead": "Better." },
+        ]));
+        let found = decisions_problems(&listed, &wrong, &sections);
+        let t = found.texts();
+        assert_eq!(t.len(), 5, "{t:?}");
+        assert!(t[0].starts_with("\"L4\" is no decision of the item"), "{t:?}");
+        assert!(t[1].starts_with("decision L1 is answered twice"), "{t:?}");
+        assert!(t[2].starts_with("decision L3 of the item is not answered"), "{t:?}");
+        assert!(
+            t[3].starts_with("decision L1: the passage it quotes, \"It keeps one path"),
+            "{t:?}"
+        );
+        assert!(t[4].starts_with("decision L2: the passage it quotes, \"\""), "{t:?}");
+        // An item with no decision is answered by an empty list, and by nothing else.
+        assert!(decisions_problems(&[], &[], &sections).is_empty());
+        let t = decisions_problems(&[], &fine[..1], &sections);
+        assert_eq!(t.texts().len(), 1, "{:?}", t.texts());
+    }
+
+    // The review of a design tries each claim against the passage of the design's own sections most likely to refute
+    // it. W268's design claimed that a project not configured goes on as before; its solution said so of `ci`, and also
+    // that `ci_before` refuses at once when no tests_input is configured. A review that leaves an article out, quotes the
+    // claim itself instead of the design, answers none near for an article the design says it keeps, or finds the claim
+    // contradicted and still says the present design is best, is sent back; one that quotes the passage on ci_before,
+    // says the claim is contradicted and finds a better design, is taken.
+    #[test]
+    fn a_review_tries_each_claim_of_a_design_against_its_own_sections() {
+        let articles = vec![
+            "Article 1. Independent".to_string(),
+            "Article 2. Information".to_string(),
+        ];
+        let ci = "`ci` stays as it was for a project that names no on_demand.";
+        let ci_before = "`ci_before`: with no tests_input configured it refuses at once and says why (this has \
+                         nothing to do with on_demand, and takes effect at once).";
+        let plan = json!({
+            "design": { "solution": format!("{ci}\n\n{ci_before}"), "where": "tools.rs", "excluded": "None.", "pitfalls": "None." },
+            "acceptance": [{ "by": "test", "id": "A2", "condition": "ci_before refuses with no tests_input." }],
+            "articles": [
+                { "article": "Article 1", "verdict": "keeps", "claim": "A project not configured goes on as before." },
+                { "article": "Article 2", "verdict": "untouched", "why": "It changes no input." },
+            ],
+            "item_decisions": [],
+        });
+        let claims = Claims {
+            sections: plan_sections("D2", &plan),
+            claimed: plan["articles"].as_array().cloned(),
+            answered: plan_answers(&plan, &[]),
+            listed: Vec::new(),
+        };
+        let left_out = rows(json!([{ "article": "Article 1", "verdict": "holds", "passage": ci, "why": "x" }]));
+        let p = claims.problems(&articles, &left_out, &[]);
+        assert_eq!(p.texts().len(), 1, "{:?}", p.texts());
+        assert!(p.texts()[0].contains("one row for each article"), "{:?}", p.texts());
+        let claim_quoted = rows(json!([
+            { "article": "Article 1", "verdict": "holds", "passage": "A project not configured goes on as before.", "why": "It says so." },
+            { "article": "Article 2", "verdict": "none_near", "why": "None." },
+        ]));
+        let p = claims.problems(&articles, &claim_quoted, &[]);
+        assert_eq!(p.texts().len(), 1, "{:?}", p.texts());
+        assert!(
+            p.texts()[0].starts_with("article row 1 (Article 1): the passage it quotes"),
+            "{:?}",
+            p.texts()
+        );
+        let near = rows(json!([
+            { "article": "Article 1", "verdict": "none_near", "why": "None." },
+            { "article": "Article 2", "verdict": "none_near", "why": "None." },
+        ]));
+        let p = claims.problems(&articles, &near, &[]);
+        assert_eq!(p.texts().len(), 1, "{:?}", p.texts());
+        assert!(
+            p.texts()[0].starts_with("article row 1 (Article 1): the plan claims it keeps it"),
+            "{:?}",
+            p.texts()
+        );
+        let contradicted = json!({
+            "articles": [
+                { "article": "Article 1", "verdict": "contradicted", "passage": ci_before, "why": "Unconfigured projects are refused." },
+                { "article": "Article 2", "verdict": "none_near", "why": "None." },
+            ],
+            "decisions": [],
+        });
+        assert!(
+            claims
+                .problems(&articles, &rows(contradicted["articles"].clone()), &[])
+                .is_empty()
+        );
+        let p = verdict_problems(&refuted(&contradicted), Some("present_best"));
+        assert_eq!(p.texts().len(), 1, "{:?}", p.texts());
+        assert!(
+            p.texts()[0].starts_with("the claim of Article 1 is refuted"),
+            "{:?}",
+            p.texts()
+        );
+        assert!(verdict_problems(&refuted(&contradicted), Some("found")).is_empty());
+        assert!(verdict_problems(&[], Some("present_best")).is_empty());
+    }
+
+    // A review tries the design's answer to each decision of the item by the decision's line, not its number: a
+    // decision recorded between the design and its review moves the numbers, and the design's answer stays with its
+    // line. None near is for a decision the design said does not concern it, or one it never answered; every decision
+    // the review's round was given is tried, once.
+    #[test]
+    fn a_review_reads_the_design_s_answers_by_the_line_of_each_decision() {
+        let (a, b) = ("Decision (2026-11-01, owner): A.", "Decision (2026-11-02, owner): B.");
+        let plan = json!({
+            "design": { "solution": "Do A.", "where": "x", "excluded": "x", "pitfalls": "x" },
+            "acceptance": [],
+            "item_decisions": [{ "decision": "L1", "verdict": "follows", "passage": "Do A." }],
+        });
+        let given = crate::decisions::listed(&format!("Decisions:\n{a}"));
+        let claims = Claims {
+            sections: plan_sections("D2", &plan),
+            claimed: Some(Vec::new()),
+            answered: plan_answers(&plan, &given),
+            listed: crate::decisions::listed(&format!("Decisions:\n{b}\n{a}")),
+        };
+        let tried = |l1: &str, l2: &str| {
+            rows(json!([
+                { "decision": "L1", "verdict": l1, "passage": "Do A.", "why": "x" },
+                { "decision": "L2", "verdict": l2, "passage": "Do A.", "why": "x" },
+            ]))
+        };
+        let p = claims.problems(&[], &[], &tried("none_near", "none_near"));
+        assert_eq!(
+            p.texts(),
+            [
+                "decision L2: the plan says it follows it, so a passage of its sections bears on the claim: quote the \
+              one most likely to refute it, not none_near"
+            ]
+        );
+        assert!(claims.problems(&[], &[], &tried("none_near", "holds")).is_empty());
+        let p = claims.problems(&[], &[], &tried("holds", "holds")[1..]);
+        assert_eq!(p.texts(), ["decision L1 of the item is not tried"]);
+    }
+
+    fn problem(check: &str, field: Option<&str>, text: &str) -> Problem {
+        Problem {
+            check: check.to_string(),
+            field: field.map(str::to_string),
+            text: text.to_string(),
+        }
+    }
+
+    // The text a return is sent back with is a line for each problem, `check (field): text`, the return standing for a
+    // problem of no field, joined by a new line in the order given; the record keeps that text under its key and then
+    // each problem as `{check, field, text}`, a problem of no field with null, and the same text and problems are in
+    // the record whatever the key. The lines are written here by the form the owner and the agent have always read.
+    #[test]
+    fn the_text_a_return_is_sent_back_with_and_the_record_of_its_problems_say_the_same() {
+        let problems = [
+            problem(
+                "evidence_holds",
+                Some("columns[pass].evidence"),
+                "a.rs is not in the worktree",
+            ),
+            problem("columns_answered", Some("columns.id"), "column 2 is not answered"),
+            problem("no_field", None, "it is wrong"),
+        ];
+        let text = "evidence_holds (columns[pass].evidence): a.rs is not in the worktree\n\
+                    columns_answered (columns.id): column 2 is not answered\n\
+                    no_field (the return): it is wrong";
+        assert_eq!(reason(&problems), text);
+        assert_eq!(reason(&problems[..1]), text.lines().next().unwrap());
+        assert_eq!(reason(&[]), "");
+        for key in ["check", "format"] {
+            let record = record(key, text.to_string(), &problems);
+            // The text first, then the problems: text readers and the pause quote the column in that order.
+            assert_eq!(
+                record.as_object().unwrap().keys().collect::<Vec<_>>(),
+                [key, "problems"]
+            );
+            assert_eq!(record[key], text);
+            assert_eq!(
+                record["problems"],
+                json!([
+                    { "check": "evidence_holds", "field": "columns[pass].evidence", "text": "a.rs is not in the worktree" },
+                    { "check": "columns_answered", "field": "columns.id", "text": "column 2 is not answered" },
+                    { "check": "no_field", "field": null, "text": "it is wrong" },
+                ])
+            );
+            assert_eq!(db::sent_back_text(&record), Some(text));
+        }
+    }
+
+    // A place of a return that does not fit its cell's schema is a problem of the check `format`, with the path the
+    // place is about, or none for the return as a whole and for a refusal about no field, as the record keeps it.
+    #[test]
+    fn a_place_that_does_not_fit_is_a_problem_of_the_check_format() {
+        let at = flow::Misfit {
+            field: Some("columns[].evidence".to_string()),
+            text: "columns[3] has no evidence".to_string(),
+        };
+        let whole = flow::Misfit {
+            field: None,
+            text: "no row of D2 takes the return".to_string(),
+        };
+        assert_eq!(
+            Problem::format(&at),
+            problem("format", Some("columns[].evidence"), "columns[3] has no evidence")
+        );
+        assert_eq!(
+            Problem::format(&whole),
+            problem("format", None, "no row of D2 takes the return")
+        );
+        let record = record("format", whole.text.clone(), &[Problem::format(&whole)]);
+        assert_eq!(
+            record,
+            json!({
+                "format": "no row of D2 takes the return",
+                "problems": [{ "check": "format", "field": null, "text": "no row of D2 takes the return" }]
+            })
+        );
+    }
+
+    /// A result of the tool `ci`: the head it pushed, what it ran and its checks.
+    fn pushed(head: &str, run: Option<&str>, checks: &[(&str, &str)]) -> Value {
+        let checks: Vec<Value> = checks.iter().map(|(n, r)| json!({ "name": n, "result": r })).collect();
+        let mut push = json!({ "verdict": "pushed", "head": head, "checks": checks });
+        if let Some(run) = run {
+            push["run"] = json!(run);
+        }
+        json!({ "push": push })
+    }
+
+    // The head is green only if the latest run that ran tests is: a run of the lint alone, made later to hand in the
+    // PR's text, does not stand for them. Runs of another head, and a lint-only run that is itself red, are as ever.
+    #[test]
+    fn a_lint_only_run_does_not_hide_a_red_test_run_on_the_same_head() {
+        let red_tests = pushed("h", Some("named_and_lint"), &[("lint", "green"), ("fast", "red")]);
+        let lint_green = pushed("h", Some("lint"), &[("lint", "green"), ("fast", "green")]);
+        // The newest run is first.
+        let runs = [lint_green.clone(), red_tests.clone()];
+        assert_eq!(red_checks_of_head(&runs, "h"), Some(vec!["fast".to_string()]));
+        // A later run that ran the tests and passed covers the red one.
+        let green_tests = pushed("h", Some("named_and_lint"), &[("lint", "green"), ("fast", "green")]);
+        let runs = [lint_green.clone(), green_tests.clone(), red_tests.clone()];
+        assert_eq!(red_checks_of_head(&runs, "h"), Some(vec![]));
+        // A head that only the lint has run is green on it; red on it, it is not.
+        assert_eq!(red_checks_of_head(std::slice::from_ref(&lint_green), "h"), Some(vec![]));
+        let lint_red = pushed("h", Some("lint"), &[("lint", "red")]);
+        let runs = [lint_red, green_tests.clone()];
+        assert_eq!(red_checks_of_head(&runs, "h"), Some(vec!["lint".to_string()]));
+        // A run that does not say what it ran is the whole of the fast CI; the red run of another head is not the head's.
+        let old = pushed("h", None, &[("test 1 of 3", "red")]);
+        assert_eq!(
+            red_checks_of_head(&[lint_green.clone(), old], "h"),
+            Some(vec!["test 1 of 3".to_string()])
+        );
+        let elsewhere = pushed("g", Some("named_and_lint"), &[("fast", "red")]);
+        assert_eq!(red_checks_of_head(&[lint_green, elsewhere], "h"), Some(vec![]));
+        assert_eq!(red_checks_of_head(&[], "h"), None);
+    }
 
     #[test]
     fn a_log_names_a_test_failing_only_on_a_line_that_says_so() {
@@ -2020,27 +2824,29 @@ mod tests {
         assert!(columns_problems(&[], &[]).is_empty());
     }
 
-    // The reason a return is sent back with is one line for each problem, `check (place): problem`; a line already
-    // there is not added again, and a check with one problem gives the line it always gave.
+    // The reason a return is sent back with is one line for each problem, `check (place): problem`; a problem whose
+    // line is there already is not added again, and a check with one problem gives the line it always gave. Each
+    // problem keeps its check and its place.
     #[test]
     fn a_check_with_several_problems_gives_a_line_for_each_and_one_with_a_single_problem_the_line_it_gave() {
-        let mut lines = Vec::new();
-        render(
-            &mut lines,
+        let mut found = Vec::new();
+        add(
+            &mut found,
             "columns_answered",
             Some("columns.id"),
             &Problems::from("column 4 is not answered"),
         );
-        assert_eq!(lines, ["columns_answered (columns.id): column 4 is not answered"]);
-        render(
-            &mut lines,
+        let line = "columns_answered (columns.id): column 4 is not answered";
+        assert_eq!(reason(&found), line);
+        add(
+            &mut found,
             "table_answered",
             None,
             &Problems::from(vec!["a is answered twice".to_string(), "no answer for b".to_string()]),
         );
         // The same check twice, and a problem twice in one check, add nothing.
-        render(
-            &mut lines,
+        add(
+            &mut found,
             "columns_answered",
             Some("columns.id"),
             &Problems::from(vec![
@@ -2049,13 +2855,19 @@ mod tests {
             ]),
         );
         assert_eq!(
-            lines,
+            found,
             [
-                "columns_answered (columns.id): column 4 is not answered",
-                "table_answered (the return): a is answered twice",
-                "table_answered (the return): no answer for b",
+                problem("columns_answered", Some("columns.id"), "column 4 is not answered"),
+                problem("table_answered", None, "a is answered twice"),
+                problem("table_answered", None, "no answer for b"),
             ]
         );
+        let lines = [
+            line,
+            "table_answered (the return): a is answered twice",
+            "table_answered (the return): no answer for b",
+        ];
+        assert_eq!(reason(&found), lines.join("\n"));
         let mut p = Problems::default();
         assert!(p.is_empty());
         p.push("a");
@@ -2165,7 +2977,7 @@ mod tests {
             }
         };
         assert_eq!(
-            said(conditions_problems(&wanted, &rows, false, on_branch)),
+            said(conditions_problems(&wanted, &rows, false, on_branch, &[], found)),
             [
                 "X9 is not an acceptance condition",
                 "no row for acceptance condition A3",
@@ -2174,7 +2986,91 @@ mod tests {
             ]
         );
         // With no condition in force, only that is said: their tests are not looked for.
-        assert_eq!(said(conditions_problems(&[], &rows, false, on_branch)), [NO_ACCEPTANCE]);
+        assert_eq!(
+            said(conditions_problems(&[], &rows, false, on_branch, &[], found)),
+            [NO_ACCEPTANCE]
+        );
+    }
+
+    /// A step as the branch's files have it, or not.
+    fn found(step: &str) -> Result<(), String> {
+        if step.starts_with("gone") {
+            Err(format!("the step {step} is not in any file of the branch"))
+        } else {
+            Ok(())
+        }
+    }
+
+    // A row of kind ci_job is accepted when each job is a check of a CI run recorded for the work and each step is text
+    // in a file of the branch; what is not is said, all of it in one call and with the other problems of the table,
+    // each job or step once, however many rows name it. With no CI run recorded nothing can be named, said once. A row
+    // of kind read_diff names nothing the engine looks up.
+    #[test]
+    fn a_ci_job_row_names_jobs_recorded_and_steps_on_the_branch_and_what_is_not_is_said_together() {
+        let wanted = ids(&["A1", "A2", "A3", "A4"]);
+        let ci = ids(&["lint", "test 1 of 3", "check"]);
+        let ok = |_: &str| -> Result<(), String> { Ok(()) };
+        let good = [
+            json!({ "id": "A1", "how": "ci_job", "jobs": ["lint"], "steps": ["npm run check:ui"] }),
+            json!({ "id": "A2", "how": "ci_job", "jobs": ["check", "test 1 of 3"], "steps": [] }),
+            json!({ "id": "A3", "how": "read_diff", "where": "gone_file", "what": "gone_text" }),
+            json!({ "id": "A4", "how": "ci_job", "jobs": ["check"] }),
+        ];
+        assert!(conditions_problems(&wanted, &good, false, ok, &ci, found).is_empty());
+        // Jobs that were never run, steps that are in no file, and a condition left without a row, together.
+        let bad = [
+            json!({ "id": "A1", "how": "ci_job", "jobs": ["lint", "build"], "steps": ["gone one", "npm run check:ui"] }),
+            json!({ "id": "A2", "how": "ci_job", "jobs": ["build"], "steps": ["gone one", " ", "a\nb"] }),
+            json!({ "id": "X9", "how": "tested", "tests": ["gone_test"] }),
+        ];
+        let on_branch = |t: &str| {
+            if t.starts_with("gone") {
+                Err(format!("the test {t} is not on the branch"))
+            } else {
+                Ok(())
+            }
+        };
+        assert_eq!(
+            said(conditions_problems(&wanted, &bad, false, on_branch, &ci, found)),
+            [
+                "X9 is not an acceptance condition",
+                "no row for acceptance conditions A3, A4",
+                "the test gone_test is not on the branch",
+                "the job build is not a check of any CI run of this work; the checks recorded are: lint, test 1 of 3, check",
+                "the step gone one is not in any file of the branch",
+                "a step names one command, written as one line of text"
+            ]
+        );
+        // No CI run recorded: any job name would pass, so it is one problem and not one for each job.
+        assert_eq!(
+            said(conditions_problems(&wanted, &good, false, ok, &[], found)),
+            ["no CI run of this work has recorded its checks, so a ci_job row cannot name a job"]
+        );
+        // A recheck of a row that changed is judged by what it names alone.
+        let one = [json!({ "id": "A2", "how": "ci_job", "jobs": ["nothing"], "steps": [] })];
+        assert_eq!(
+            said(conditions_problems(&wanted, &one, true, ok, &ci, found)),
+            [
+                "the job nothing is not a check of any CI run of this work; the checks recorded are: lint, test 1 of 3, check"
+            ]
+        );
+    }
+
+    // A ci_job row's jobs are read from what the tools recorded: the fast CI keeps its checks under `push`, the full CI
+    // its first run's under `first` and a run again its list as it is; a run that failed or was refused has none.
+    #[test]
+    fn the_names_of_the_checks_of_every_recorded_ci_run_are_read_from_each_tools_record() {
+        let check = |n: &str| json!({ "name": n, "result": "green", "run": "u" });
+        let fast =
+            json!({ "push": { "verdict": "pushed", "head": "h", "checks": [check("lint"), check("test 1 of 3")] } });
+        let first = json!({ "first": [check("lint"), check("full only")] });
+        let again = json!([check("again only")]);
+        let refused = json!({ "push": { "verdict": "refused", "why": "w" } });
+        let failed = json!({ "failed": { "kind": "other", "what": "w" } });
+        assert_eq!(
+            check_names(&[fast, first, again, refused, failed]),
+            ["lint", "test 1 of 3", "full only", "again only"]
+        );
     }
 
     // Rows that name conditions where none is in force are no rows of any condition, so that nothing else is said of
@@ -2617,6 +3513,28 @@ mod tests {
         );
         assert!(research_problems(true, &ids(&["research/a.md", "research/b/c.md"])).is_empty());
         assert!(research_problems(true, &[]).is_empty());
+    }
+
+    // A work on the light route says whether it goes that way, and a work on the normal route says nothing of the
+    // route: the engineer cannot lighten a work its item does not mark.
+    #[test]
+    fn the_research_says_the_route_only_on_the_light_route() {
+        let light = json!({ "verdict": "light", "why": "The root is in one function." });
+        let to_normal = json!({ "verdict": "to_normal", "why": "It changes an interface." });
+        assert!(route_problems(true, Some(&light)).is_empty());
+        assert!(route_problems(true, Some(&to_normal)).is_empty());
+        assert!(route_problems(false, None).is_empty());
+        assert_eq!(
+            said(route_problems(true, None)),
+            [
+                "the work goes the light route: say in route whether it goes on the light route (light) or turns to \
+                 the normal route (to_normal)"
+            ]
+        );
+        assert_eq!(
+            said(route_problems(false, Some(&light))),
+            ["the work goes the normal route, and only the item's route lightens a work: leave route out"]
+        );
     }
 
     #[test]

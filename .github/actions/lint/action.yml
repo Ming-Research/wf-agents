@@ -1,0 +1,86 @@
+name: lint
+description: Everything of the CI that checks the code without running its Rust tests, for the workflows ci and fast
+
+# The steps of the job `lint`, written once for the two workflows that run it (ci.yml and fast.yml). The repository is
+# checked out before this runs. A red format check or a stale generated file leaves the files the code makes of itself
+# in the artifact `page-types`, each at its path in the repository: the engine's ci tool puts those that differ from
+# the head in the work's worktree, the project's configuration naming the artifact (`generated_artifact`).
+runs:
+  using: composite
+  steps:
+    # Installs the toolchain rust-toolchain.toml pins, with its components.
+    - run: rustup toolchain install
+      shell: bash
+    - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: 24.21.0
+        cache: npm
+        cache-dependency-path: client/package-lock.json
+    # Formatting first: it needs no build, so a misformatted push fails in seconds.
+    - name: Format
+      id: format
+      run: cargo fmt --all --check
+      shell: bash
+    # The page's TypeScript types are generated from the Rust types; the page is checked against what they generate
+    # now, and the step that compares them fails when that differs from the committed file. The same run writes the
+    # flow as the engine stores it, which the page's tests read.
+    - name: Generate the page's types and the flow its tests read
+      run: WF_AGENTS_GENERATE=1 cargo test -p api --locked --test typescript
+      shell: bash
+    - name: Install the page's dependencies
+      working-directory: client
+      run: npm ci
+      shell: bash
+    - name: Type-check the page
+      working-directory: client
+      run: npm run typecheck
+      shell: bash
+    - name: Lint the page
+      working-directory: client
+      run: npm run lint
+      shell: bash
+    # Every colour, size and spacing in the page's styles is a token, as its UI spec says (client/ui-spec.md); the
+    # tests of the next step leave this to it.
+    - name: Check the page against its UI spec
+      working-directory: client
+      run: npm run check:ui
+      shell: bash
+    - name: Test the page
+      working-directory: client
+      run: npm test
+      shell: bash
+    # Before any cargo step that compiles the crate the page is built into.
+    - name: Build the page
+      working-directory: client
+      run: npm run build
+      shell: bash
+    - name: Lint
+      run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      shell: bash
+    - name: The page's types are current
+      id: types
+      run: git diff --exit-code -- client/src/api.ts
+      shell: bash
+    # What the Rust types generate, to commit when the step before fails, at its path in the repository.
+    - name: Keep what the Rust types generate
+      if: always() && steps.types.outcome == 'failure'
+      run: |
+        mkdir -p "$RUNNER_TEMP/generated/client/src"
+        cp client/src/api.ts "$RUNNER_TEMP/generated/client/src/"
+      shell: bash
+    # What rustfmt makes of the files, to commit when the format check fails, so that no one rewrites by hand what a
+    # tool rewrites: the tree is formatted here, and each file that changed is kept at its path in the repository.
+    - name: Keep what rustfmt makes of the files
+      if: always() && steps.format.outcome == 'failure'
+      run: |
+        cargo fmt --all
+        mkdir -p "$RUNNER_TEMP/generated"
+        git diff --name-only -z | xargs -0 -I{} cp --parents {} "$RUNNER_TEMP/generated"
+      shell: bash
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      if: always() && (steps.types.outcome == 'failure' || steps.format.outcome == 'failure')
+      with:
+        name: page-types
+        path: ${{ runner.temp }}/generated
+        if-no-files-found: ignore

@@ -199,10 +199,24 @@ pub struct Agents {
     /// lowest level when none is named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub librarian: Option<String>,
+    /// The level the pick of the architect's next matter runs at (the line `picker`), by its name among the levels; the
+    /// lowest level when none is named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picker: Option<String>,
     /// The context, in tokens, past which a line's session is replaced by a new one at the line's next round: the
     /// prompt of the last call of the session's latest round, as recorded.
     #[serde(default = "context_limit")]
     pub context_limit: u64,
+    /// The context, in tokens, past which the architect's session ends before the next matter it takes afresh (cell
+    /// `Q0`), so that a new session takes that matter: every round of a session reads the whole session again, and the
+    /// architect's rounds each add little to a long one.
+    #[serde(default = "architect_context_limit")]
+    pub architect_context_limit: u64,
+    /// How long, in seconds, the architect's understanding of a project (cell `U1`) holds: a new session of the
+    /// architect's within it goes on from the notebook the understanding wrote, and one past it understands the project
+    /// again.
+    #[serde(default = "understanding_life")]
+    pub understanding_life: u64,
     /// The least time, in seconds, between two matters of slots free for one project's architect (cell `S0`'s
     /// `queue_slots_free`): one that found nothing to start does not come back at once.
     #[serde(default = "slots_free_wait")]
@@ -215,6 +229,14 @@ pub struct Agents {
 
 fn context_limit() -> u64 {
     500_000
+}
+
+fn architect_context_limit() -> u64 {
+    150_000
+}
+
+fn understanding_life() -> u64 {
+    21_600
 }
 
 fn slots_free_wait() -> u64 {
@@ -300,6 +322,7 @@ fn read_only() -> Vec<String> {
         "architect",
         "architect_review",
         "observer",
+        "picker",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -563,7 +586,8 @@ fn default_main() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ci {
-    /// The workflow that runs on each push of a work's branch: the fast CI the ci tool waits for.
+    /// The workflow of the fast CI, which the ci tool waits for: it runs on each push of a work's branch, or, with
+    /// `on_demand`, when the tool runs it.
     pub fast: String,
     /// The workflows that make up the full CI, those of downstream projects included, each as owner/name:workflow
     /// or, for this project's own, its name.
@@ -573,14 +597,61 @@ pub struct Ci {
     /// The input of the fast CI's workflow that takes the tests to run, their names separated by spaces, when it has
     /// one: given it, the workflow runs exactly those tests, every one to its end, and the ci_before tool runs it so on
     /// its temporary ref, which the workflow's own runs on push leave alone; none when it has no such input, and
-    /// ci_before then waits for the whole fast CI its push runs.
+    /// ci_before then pushes the temporary ref and waits for the whole run the push makes, as
+    /// `runs_on_before_branches` says it does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests_input: Option<String>,
+    /// Whether the fast CI runs when the engine pushes the temporary ref (`wf-agents-before/...`) that ci_before puts
+    /// the code before the change on. Read only where `tests_input` is none: ci_before then waits for the run the push
+    /// makes, and for it to end it reads each listed test's result from its logs. Set to false where the CI ignores
+    /// those refs, so that ci_before refuses at once, saying so, instead of waiting for a run that does not come.
+    #[serde(default = "runs_on_before_branches_default", skip_serializing_if = "is_true")]
+    pub runs_on_before_branches: bool,
     /// The artifact a red run of the fast CI uploads with the files the code generates, such as types generated
     /// from other types, each at its path in the repository: the ci tool puts those that differ from the head in the
     /// work's worktree, for the engineer to commit; none when the CI uploads none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generated_artifact: Option<String>,
+    /// Whether the fast CI runs only when the engine asks for it: the ci tool then runs the fast workflow by hand on
+    /// the work's branch with the tests named (`tests_input`, which must be set), and the full CI, which no push of a
+    /// work's branch is to run, is run by hand too, by the tools that need it, when the commit has no run of it yet.
+    /// Off, the pushes of a work's branch run both, and the tools only wait for those runs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub on_demand: bool,
+    /// The workflows the measure tool may run, each with what it takes and gives; none when the project has no
+    /// measurement workflow, and the measure tool then refuses and says so. The tool runs a workflow on a temporary ref
+    /// under `wf-agents-measure/` and finds its run by the ref's commit and the workflow's name, so the project's
+    /// workflows that run on push, the fast CI and a measurement workflow itself among them, must ignore branches under
+    /// `wf-agents-measure/`; else the push starts the fast CI as well, and a push run of the measurement workflow could
+    /// be taken for the one dispatched. Left out of the settings an agent is shown when empty, which they read as
+    /// `none`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measure: Vec<MeasureWorkflow>,
+}
+
+/// A workflow of a project that the measure tool runs by hand on a temporary ref of the code to measure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MeasureWorkflow {
+    /// The workflow's file name, such as `measure.yml`.
+    pub workflow: String,
+    /// The names of the inputs it takes; the tool refuses an input not named here.
+    #[serde(default)]
+    pub inputs: Vec<String>,
+    /// The name of the artifact it uploads with what it measured, which the tool downloads beside the jobs' logs; none
+    /// when it uploads none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<String>,
+}
+
+/// A project that does not say otherwise has its fast CI run on the temporary refs, as every project's did before the
+/// setting existed.
+fn runs_on_before_branches_default() -> bool {
+    true
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
 }
 
 /// The settings the flow reads from a project, as `{"config": name}` inputs name them.
@@ -1048,6 +1119,11 @@ impl Config {
         {
             problems.push(format!("install.toml: agents.librarian names no level: {l}"));
         }
+        if let Some(p) = &self.install.agents.picker
+            && !self.install.agents.levels.contains_key(p)
+        {
+            problems.push(format!("install.toml: agents.picker names no level: {p}"));
+        }
         if let Some(h) = &self.install.items.highest_level
             && !self.install.agents.levels.contains_key(h)
         {
@@ -1075,6 +1151,34 @@ impl Config {
                 if !self.projects.contains_key(o) {
                     problems.push(format!("projects/{name}.toml: no such project: {o}"));
                 }
+            }
+            // A run on demand is run with the tests to run, which the workflow takes as the input `tests_input` names.
+            if p.ci.on_demand && p.ci.tests_input.is_none() {
+                problems.push(format!(
+                    "projects/{name}.toml: ci.on_demand needs ci.tests_input, the input of the fast workflow that takes \
+                     the tests to run"
+                ));
+            }
+            // The input is passed by name to the workflow it runs: an empty name is no input.
+            if p.ci.tests_input.as_deref().is_some_and(|i| i.trim().is_empty()) {
+                problems.push(format!(
+                    "projects/{name}.toml: ci.tests_input is empty; it names the workflow's input"
+                ));
+            }
+            // The fast workflow is run by hand with the tests named, and its green means those tests passed. As one of
+            // the full CI's workflows (named alone or with this project's repository) it would give a merge a check
+            // the whole CI never ran.
+            if p.ci.on_demand
+                && p.ci
+                    .full
+                    .iter()
+                    .any(|w| *w == p.ci.fast || *w == format!("{}:{}", p.repo, p.ci.fast))
+            {
+                problems.push(format!(
+                    "projects/{name}.toml: ci.on_demand needs ci.fast to be a workflow other than the full CI's \
+                     (ci.full names {})",
+                    p.ci.fast
+                ));
             }
             let mut tags = BTreeSet::new();
             for t in &p.observation_tags {
@@ -1193,6 +1297,18 @@ impl Config {
     pub fn observer_level(&self) -> String {
         match &self.install.agents.observer {
             Some(o) => o.clone(),
+            None => self
+                .levels_in_order()
+                .first()
+                .map(|n| n.to_string())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The level the pick of the architect's next matter runs at: the one the installation names, or else the lowest.
+    pub fn picker_level(&self) -> String {
+        match &self.install.agents.picker {
+            Some(p) => p.clone(),
             None => self
                 .levels_in_order()
                 .first()
@@ -1795,6 +1911,7 @@ asks = 9
             "architect",
             "architect_review",
             "observer",
+            "picker",
             "review",
             "advisor",
             "librarian",
@@ -1981,6 +2098,29 @@ asks = 9
         assert!(read(&m).is_err());
     }
 
+    // The CI runs on demand only where the fast workflow takes the tests to run: off unless set, and set without the
+    // input that names them, it is refused.
+    #[test]
+    fn a_ci_on_demand_needs_the_input_that_takes_the_tests_to_run() {
+        let own = |ci: &'static str| {
+            let text: &'static str = Box::leak(
+                format!(
+                    "repo = \"o/q\"\ncheckout = \"/q\"\ndesign_goal = \"d\"\ntest_paths = [\"tests/\"]\n[ci]\n\
+                     fast = \"fast\"\nfull = [\"ci\"]\nmerge_checks = [\"check\"]\n{ci}"
+                )
+                .into_boxed_str(),
+            );
+            read(&files(&[("projects/q.toml", text)]))
+        };
+        // The project that extends the shared file, which names the input, does not run on demand unless it says so.
+        assert!(!read(&files(&[])).unwrap().projects["p"].ci.on_demand);
+        let c = own("tests_input = \"tests\"\non_demand = true\n").unwrap();
+        assert!(c.projects["q"].ci.on_demand);
+        assert!(!own("").unwrap().projects["q"].ci.on_demand);
+        let e = own("on_demand = true\n").unwrap_err().to_string();
+        assert!(e.contains("projects/q.toml: ci.on_demand needs ci.tests_input"), "{e}");
+    }
+
     // The architect's level is one of the levels, and a project's constitution a path in its repository; anything else
     // is refused.
     #[test]
@@ -2072,6 +2212,63 @@ asks = 9
                 ("project.oracles".to_string(), "none".to_string()),
             ]
         );
+    }
+
+    // A project lists the workflows its measure tool runs as `[[ci.measure]]` tables. One that lists none reads as
+    // `none` in the settings an agent is shown, one that lists some as the list; a table with a field the list does
+    // not know, or with no workflow, is refused.
+    #[test]
+    fn a_project_lists_the_workflows_the_measure_tool_runs() {
+        const MEASURING: &str = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
+            [[ci.measure]]\nworkflow = \"measure.yml\"\ninputs = [\"command\", \"base\"]\nartifact = \"measurement\"\n\
+            [[ci.measure]]\nworkflow = \"other.yml\"\n";
+        const SETTING: &str = "`project.ci.measure`";
+        let none = read(&files(&[])).unwrap();
+        assert!(none.projects["p"].ci.measure.is_empty());
+        assert_eq!(
+            none.named_settings("p", SETTING),
+            [("project.ci.measure".to_string(), "none".to_string())]
+        );
+        let c = read(&files(&[("projects/q.toml", MEASURING)])).unwrap();
+        assert_eq!(
+            c.projects["q"].ci.measure,
+            [
+                MeasureWorkflow {
+                    workflow: "measure.yml".to_string(),
+                    inputs: vec!["command".to_string(), "base".to_string()],
+                    artifact: Some("measurement".to_string()),
+                },
+                MeasureWorkflow {
+                    workflow: "other.yml".to_string(),
+                    inputs: Vec::new(),
+                    artifact: None,
+                },
+            ]
+        );
+        assert_eq!(
+            c.named_settings("q", SETTING),
+            [(
+                "project.ci.measure".to_string(),
+                "[{\"workflow\":\"measure.yml\",\"inputs\":[\"command\",\"base\"],\"artifact\":\"measurement\"},\
+                 {\"workflow\":\"other.yml\",\"inputs\":[]}]"
+                    .to_string()
+            )]
+        );
+        for (table, word) in [
+            ("workflow = \"m.yml\"\ncolour = \"red\"", "colour"),
+            ("inputs = [\"command\"]", "workflow"),
+        ] {
+            let project =
+                format!("extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n[[ci.measure]]\n{table}\n");
+            let project: &'static str = Box::leak(project.into_boxed_str());
+            let e = read(&files(&[("projects/q.toml", project)])).unwrap_err();
+            assert!(
+                e.problems
+                    .iter()
+                    .any(|p| p.contains("projects/q.toml") && p.contains(word)),
+                "{e}"
+            );
+        }
     }
 
     // The engine reads the last commit; the working tree's changes count only once committed.

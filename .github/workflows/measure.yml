@@ -1,0 +1,141 @@
+name: measure
+
+# Times a command in three checkouts within one run: the code to compare with (the base), a second checkout of the same
+# commit (the twin, the control) and the code measured (this run's commit, the candidate). A pair is one timing of each
+# of the three, in an order that rotates from pair to pair, so that no side always runs first. The twin's time over the
+# base's is the run's own noise; the candidate's time over the base's is a change only where it lies beyond that. The
+# workflow gives the raw times and the ratios, and no verdict: the engineer draws it, by the rules it works under.
+#
+# The engine's tool measure runs it by hand on a temporary ref when the project's configuration lists it (`ci.measure`
+# in the project's settings), takes the artifact and the jobs' logs, and deletes the ref. A push that changes this file
+# runs it as well, timing `true` against the commit before, so that a change to it is run before it is merged.
+on:
+  push:
+    branches-ignore:
+      - 'wf-agents-before/**'
+      - 'wf-agents-measure/**'
+    paths:
+      - .github/workflows/measure.yml
+  workflow_dispatch:
+    inputs:
+      command:
+        description: The command to time, run with bash in the root of each of the three checkouts
+        required: true
+      base:
+        description: The commit to compare with, as a commit id or the name of a branch of the repository
+        required: true
+      pairs:
+        description: How many pairs to time, each a timing of the base, its twin and the candidate
+        required: false
+        default: '5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: measure-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      # A push gives no inputs: the run it makes times `true` in two pairs against the commit before.
+      COMMAND: ${{ inputs.command || 'true' }}
+      BASE: ${{ inputs.base || 'HEAD^' }}
+      PAIRS: ${{ inputs.pairs || '2' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Time the command
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/measurement"
+          mkdir -p "$out"
+          resolve() {
+            git rev-parse --verify --quiet "$1^{commit}" || git rev-parse --verify --quiet "origin/$1^{commit}"
+          }
+          base_sha=$(resolve "$BASE") || { echo "::error::$BASE is not a commit of this repository"; exit 1; }
+          candidate_sha=$(git rev-parse HEAD)
+          if ! [[ "$PAIRS" =~ ^[0-9]+$ ]] || [ "$((10#$PAIRS))" -lt 1 ]; then
+            echo "::error::pairs is a number above zero, not '$PAIRS'"
+            exit 1
+          fi
+          PAIRS=$((10#$PAIRS))
+          {
+            echo "base $base_sha"
+            echo "candidate $candidate_sha"
+            echo "command $COMMAND"
+            echo "pairs $PAIRS"
+            echo "runner $(uname -srm), $(nproc) processors"
+          } > "$out/context.txt"
+          git worktree add --detach -q "$RUNNER_TEMP/base" "$base_sha"
+          git worktree add --detach -q "$RUNNER_TEMP/twin" "$base_sha"
+          git worktree add --detach -q "$RUNNER_TEMP/candidate" "$candidate_sha"
+          runs="$out/runs.tsv"
+          pairs="$out/pairs.tsv"
+          printf 'pair\tposition\tside\tseconds\n' > "$runs"
+          printf 'pair\tbase_s\ttwin_s\tcandidate_s\ttwin_over_base\tcandidate_over_base\n' > "$pairs"
+          : > "$out/command.log"
+          # Runs the command in the checkout named, and leaves its wall-clock seconds in $elapsed.
+          elapsed=0
+          time_in() {
+            local start end
+            start=$(date +%s.%N)
+            if ! (cd "$RUNNER_TEMP/$1" && bash -c "$COMMAND") >> "$out/command.log" 2>&1; then
+              echo "::error::the command failed in the $1 checkout; the end of its output follows"
+              tail -n 50 "$out/command.log"
+              return 1
+            fi
+            end=$(date +%s.%N)
+            elapsed=$(awk -v a="$start" -v b="$end" 'BEGIN { printf "%.6f", b - a }')
+          }
+          sides=(base twin candidate)
+          for ((i = 1; i <= PAIRS; i++)); do
+            for ((k = 0; k < 3; k++)); do
+              side=${sides[$(((i - 1 + k) % 3))]}
+              time_in "$side"
+              printf -v "t_$side" '%s' "$elapsed"
+              printf '%s\t%s\t%s\t%s\n' "$i" "$((k + 1))" "$side" "$elapsed" >> "$runs"
+            done
+            awk -v i="$i" -v b="$t_base" -v w="$t_twin" -v c="$t_candidate" \
+              'BEGIN { printf "%s\t%.6f\t%.6f\t%.6f\t%.4f\t%.4f\n", i, b, w, c, w / b, c / b }' >> "$pairs"
+          done
+          cat "$out/context.txt"
+          echo
+          cat "$runs"
+          echo
+          cat "$pairs"
+      - name: The measurement is whole
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/measurement"
+          # A header and a row for each pair, with the three times above zero and the two ratios; and a row for each of
+          # the three timings of each pair.
+          awk -F'\t' -v pairs="$PAIRS" '
+            NR == 1 && ($1 != "pair" || $2 != "base_s" || $3 != "twin_s" || $4 != "candidate_s" || NF != 6) { bad = "header" }
+            NR > 1 {
+              rows++
+              if (NF != 6 || $2 <= 0 || $3 <= 0 || $4 <= 0 || $5 <= 0 || $6 <= 0) { bad = "row " NR }
+            }
+            END {
+              if (rows != pairs) { bad = rows " rows for " pairs " pairs" }
+              if (bad != "") { print "pairs.tsv is not whole: " bad > "/dev/stderr"; exit 1 }
+            }
+          ' "$out/pairs.tsv"
+          awk -F'\t' -v pairs="$PAIRS" '
+            NR > 1 { rows++; if (NF != 4 || $4 <= 0) { bad = "row " NR } }
+            END {
+              if (rows != 3 * pairs) { bad = rows " rows for " pairs " pairs" }
+              if (bad != "") { print "runs.tsv is not whole: " bad > "/dev/stderr"; exit 1 }
+            }
+          ' "$out/runs.tsv"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: measurement
+          path: ${{ runner.temp }}/measurement
+          if-no-files-found: ignore

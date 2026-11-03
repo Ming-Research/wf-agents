@@ -251,6 +251,9 @@ pub struct Context<'a> {
     /// The values the engine knows and rows recorded, which pick the lines the prompt adds.
     pub given: &'a Map<String, Value>,
     pub columns: &'a [(String, String)],
+    /// Whether the columns are all listed because the numbers a review of disputes only was to look at changed under
+    /// it (`renumbered` of [`ReviewColumns`]).
+    pub columns_renumbered: bool,
     /// The rows of the cell's numbered table, each with its number, as [`crate::inputs::table`] makes them.
     pub table: &'a [Value],
     pub held: &'a Held,
@@ -406,11 +409,13 @@ impl Context<'_> {
         if ["interrupted", "failed", "error"].iter().any(|k| rej.get(k).is_some()) {
             return None;
         }
-        let reason = rej
-            .as_object()
-            .and_then(|o| o.values().next())
-            .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string))
-            .unwrap_or_default();
+        // The text under `check` or `format`, by name: `problems` follows it, and is not the reason.
+        let reason = db::sent_back_text(rej).map(str::to_string).unwrap_or_else(|| {
+            rej.as_object()
+                .and_then(|o| o.values().next())
+                .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string))
+                .unwrap_or_default()
+        });
         Some((r.id, reason))
     }
 
@@ -771,7 +776,7 @@ impl Context<'_> {
                 .list
                 .iter()
                 .find(|x| x.address == *a)
-                .and_then(|x| columns_line(self.columns, x))
+                .and_then(|x| columns_line(self.columns, x, self.columns_renumbered))
             {
                 out.line(&line);
                 out.line("");
@@ -894,6 +899,9 @@ const TASK: &str = "task:";
 /// How the address of the columns of a cell's review table begins: `columns:<cell>`.
 const COLUMNS: &str = "columns:";
 
+/// The row of the review of the plan (cell `F2`) that finds the plan sound.
+const PLAN_SOUND: &str = "sound";
+
 /// A message as it is written, line by line, with the large parts the round's record keeps once.
 #[derive(Default)]
 struct Writer {
@@ -1000,32 +1008,84 @@ fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool) -> Op
     })
 }
 
+/// What the column of an acceptance condition adds about the rows of the conditions table that name no test. The engine
+/// looks a CI job up among the checks recorded and a command up as text in the branch's files, and cannot tell where a
+/// command runs, so the review is told to: a CI job is judged by its result on the head to be merged and by whether
+/// each command runs in the job named; a read of the diff by reading it; and for either, whether a test could have
+/// proved the condition.
+const ACCEPTANCE_PROOFS: &str = "If the table meets it with a CI job (`ci_job`), read that job's result on this \
+                                 head, and check that each command in its `steps` runs in the job it names, not only \
+                                 that the command is written in a file of the branch; one that does not is a finding. \
+                                 If with a read of the diff (`read_diff`), read the diff at its `where` yourself. \
+                                 For either, if a test could prove the condition instead, that is a finding.";
+
+/// The columns of the acceptance conditions, one for each. Only a work that delivers a change has a conditions table
+/// whose rows the review judges, so only its columns say how (`ACCEPTANCE_PROOFS`); a report's conditions are answered
+/// by the report.
+fn acceptance_columns(acceptance: &Value, report: bool) -> Vec<String> {
+    let proofs = if report {
+        String::new()
+    } else {
+        format!(" {ACCEPTANCE_PROOFS}")
+    };
+    acceptance
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .map(|a| {
+            format!(
+                "Acceptance condition {}: {} Can it be checked; is the evidence there, does it come from the head to be merged, and does it hold?{proofs}",
+                a["id"].as_str().unwrap_or("?"),
+                a["condition"].as_str().unwrap_or_default()
+            )
+        })
+        .collect()
+}
+
+/// What a message says when a review of disputes only is given all the columns, not those it could not verify.
+const COLUMNS_CHANGED: &str = "The columns changed since your last review, so all of them are listed, not only the \
+                               ones you could not verify.";
+
 /// The line that says which columns a review answers this round, by their numbers: written when the message does not
 /// give the columns' text whole (`x`, the columns as the message holds them: referred to, or given as what changed),
 /// since the review answers every column of `columns` whether or not a change touches it, and its session cannot read
-/// them off the message. None when the message gives them whole, as at a session's first review.
-fn columns_line(columns: &[(String, String)], x: &Conditional) -> Option<String> {
-    (!x.given || x.changes).then(|| {
+/// them off the message. None when the message gives them whole, as at a session's first review. When the columns
+/// changed under a review of disputes only (`renumbered`), the line begins by saying so, and is written even when the
+/// columns are given whole.
+fn columns_line(columns: &[(String, String)], x: &Conditional, renumbered: bool) -> Option<String> {
+    let ids = (!x.given || x.changes).then(|| {
         let ids: Vec<&str> = columns.iter().map(|(id, _)| id.as_str()).collect();
         format!(
             "Columns to answer this round, one row each, whether or not the change touches them: {}.",
             ids.join(", ")
         )
-    })
+    });
+    match (renumbered.then_some(COLUMNS_CHANGED), ids) {
+        (Some(note), Some(ids)) => Some(format!("{note} {ids}")),
+        (Some(note), None) => Some(note.to_string()),
+        (None, ids) => ids,
+    }
+}
+
+/// The columns a table review answers, each with its number, and whether they are all listed because the numbers a
+/// review of disputes only was to look at no longer stand for the same columns.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReviewColumns {
+    pub columns: Vec<(String, String)>,
+    pub renumbered: bool,
 }
 
 /// The columns the table review answers, each with its number, for the review of this round. A re-review that looks
 /// at disputes only has the columns the last review could not verify, by their numbers, and none when it verified
-/// them all; one that looks at what changed has them all, since which columns a change concerns is not worked out in
-/// this version. A work on no item reviews nothing.
-pub fn columns(
-    e: &Engine,
-    w: &Work,
-    g: &CompiledGraph,
-    cell: &CompiledCell,
-    item: Option<&Item>,
-) -> Vec<(String, String)> {
-    let Some(item) = item else { return Vec::new() };
+/// them all, provided each of those numbers still stands for the words it had when the last review was given it (its
+/// record keeps them); if one does not, as when a column was added before it, all the columns are listed and the
+/// message says so. One that looks at what changed has them all, since which columns a change concerns is not worked
+/// out in this version. A work on no item reviews nothing.
+pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, item: Option<&Item>) -> ReviewColumns {
+    let Some(item) = item else {
+        return ReviewColumns::default();
+    };
     let rule = |name: &str| {
         g.rules
             .iter()
@@ -1034,15 +1094,16 @@ pub fn columns(
             .unwrap_or_default()
     };
     let mut cols: Vec<String> = Vec::new();
-    // At a re-review of disputes only, the columns the last table review could not verify.
-    let mut only: Option<Vec<String>> = None;
+    // At a re-review of disputes only, the columns the last table review could not verify, by number and with the
+    // words they had then.
+    let mut only: Option<Unverified> = None;
     if cell.id == "T4" {
         let review = crate::inputs::last_return(e, w, g, "T7", "plan")
             .ok()
             .flatten()
             .and_then(|r| crate::inputs::at_path(&r, "plan.review"));
         if review.as_ref().and_then(Value::as_str) == Some("disputes") {
-            only = Some(unverified_last(e, w, g));
+            only = Some(last_unverified(e, w, g));
         }
         let project = e.config.config.projects.get(&item.project);
         cols.extend(fixed_columns(&rule("review_table"), item.deliver == "report"));
@@ -1052,15 +1113,26 @@ pub fn columns(
             }
         }
         let acceptance = item.acceptance.clone().unwrap_or(Value::Null);
-        for a in acceptance.as_array().cloned().unwrap_or_default() {
-            cols.push(format!(
-                    "Acceptance condition {}: {} Can it be checked; is the evidence there, does it come from the head to be merged, and does it hold?",
-                    a["id"].as_str().unwrap_or("?"),
-                    a["condition"].as_str().unwrap_or_default()
-                ));
-        }
+        cols.extend(acceptance_columns(&acceptance, item.deliver == "report"));
         if item.deliver != "report" {
-            cols.push("The research's judgment that the work stands: does its reason hold?".into());
+            // The columns of what ran: the judgment that the work stands when it was judged (cell `R2`), and on the
+            // light route a plan its review found sound (cell `F2`), with the plan's tests in place of adversarial
+            // testing. A work redesigned from the light route has the plan and no judgment; one turned before its plan
+            // was found sound has the judgment and no plan.
+            let ran = |c: &str| crate::inputs::answered(e, w, g, c).unwrap_or_default();
+            if !ran("R2").is_empty() {
+                cols.push("The research's judgment that the work stands: does its reason hold?".into());
+            }
+            if ran("F2").iter().any(|r| r.transition.as_deref() == Some(PLAN_SOUND)) {
+                cols.push(
+                    "The plan the review found sound: does the change keep to it, and do nothing beyond it?".into(),
+                );
+                cols.push(
+                    "The plan's tests: for a bug fix, is a regression test red on the code before the change by \
+                     ci_before and green after it by ci; for a feature, does each acceptance condition have a test?"
+                        .into(),
+                );
+            }
             for (c, what) in [
                 ("D5", "a gap in what is under test"),
                 ("D6", "unsure facts"),
@@ -1083,51 +1155,114 @@ pub fn columns(
                     ));
                 }
             }
-            let changes = crate::inputs::last_return(e, w, g, "I1", "deviations").ok().flatten();
-            for d in changes
-                .and_then(|r| r["deviations"].as_array().cloned())
-                .unwrap_or_default()
-            {
-                if d["kind"] != "surprise" {
-                    cols.push(format!(
-                        "The {} \"{}\": does its reason hold, and did the design change with it?",
-                        d["kind"].as_str().unwrap_or_default().replace('_', " "),
-                        d["what"].as_str().unwrap_or_default()
-                    ));
+            cols.extend(engineer_columns(e, w, g));
+        }
+    }
+    let numbered: Vec<(String, String)> = cols
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| ((i + 1).to_string(), c))
+        .collect();
+    match only {
+        Some(last) => narrowed(numbered, &last),
+        None => ReviewColumns {
+            columns: numbered,
+            renumbered: false,
+        },
+    }
+}
+
+/// The columns of a review of disputes only: those the last review could not verify, if each of their numbers stands
+/// for the same words as when that review was given it. A number stands for the same column when the words it has
+/// now are the words it had then; a record that lacks them (a flow version before the record kept the columns) cannot
+/// say. If any number does not, all the columns are listed, and the review is told so; the numbers are not guessed
+/// at.
+fn narrowed(numbered: Vec<(String, String)>, last: &Unverified) -> ReviewColumns {
+    let words = |cols: &[(String, String)], id: &str| cols.iter().find(|(i, _)| i == id).map(|(_, c)| c.clone());
+    let same = last
+        .ids
+        .iter()
+        .all(|id| words(&last.then, id).is_some_and(|before| words(&numbered, id) == Some(before)));
+    if same {
+        ReviewColumns {
+            columns: numbered.into_iter().filter(|(id, _)| last.ids.contains(id)).collect(),
+            renumbered: false,
+        }
+    } else {
+        ReviewColumns {
+            columns: numbered,
+            renumbered: true,
+        }
+    }
+}
+
+/// The columns made from what the engineer and adversarial testing handed in, in the order their returns came: for
+/// each return of the implementation (`I1`), of the fixes (`T6`) and of adversarial testing (`T1`), oldest first, the
+/// workarounds and design changes it reported, the tests it added, and the tests it removed, skipped or relaxed; the
+/// tests adversarial testing wrote are the columns of new tests, named as its. A test is listed once, by the first
+/// return that added it, so that a later return adds columns at the end and moves none. Each cell's rounds are read
+/// once.
+fn engineer_columns(e: &Engine, w: &Work, g: &CompiledGraph) -> Vec<String> {
+    let mut returns: Vec<(RoundId, &str, Value)> = Vec::new();
+    for (cell, path) in [("I1", "test_changes"), ("T6", "test_changes"), ("T1", "wrote")] {
+        for (round, ret) in crate::inputs::returns_holding(e, w, g, cell, path).unwrap_or_default() {
+            returns.push((round, cell, ret));
+        }
+    }
+    returns.sort_by_key(|(round, _, _)| *round);
+    let new_test = |name: &str, by: &str| {
+        format!(
+            "The new test {name}{by}: take the other side on its running time. Do other tests already catch what it catches, could it be smaller or faster, could it be folded into another test?"
+        )
+    };
+    let mut cols: Vec<String> = Vec::new();
+    let mut added: Vec<String> = Vec::new();
+    for (_, cell, ret) in &returns {
+        if *cell == "T1" {
+            for t in ret["wrote"]["tests"].as_array().into_iter().flatten() {
+                let name = t["name"].as_str().unwrap_or_default();
+                if !added.iter().any(|a| a == name) {
+                    added.push(name.to_string());
+                    cols.push(new_test(name, ", written by adversarial testing"));
                 }
             }
-            // A return of a flow version before the answer was flat holds the test changes under end.
-            let done = crate::inputs::last_return(e, w, g, "I1", "test_changes").ok().flatten();
-            for t in done
-                .and_then(|r| {
-                    r.get("test_changes")
-                        .or_else(|| r["end"].get("test_changes"))
-                        .and_then(Value::as_array)
-                        .cloned()
-                })
-                .unwrap_or_default()
-            {
-                let name = t["test"].as_str().unwrap_or_default();
-                match t["change"].as_str() {
-                        Some("added") => cols.push(format!(
-                            "The new test {name}: take the other side on its running time. Do other tests already catch what it catches, could it be smaller or faster, could it be folded into another test?"
-                        )),
-                        Some("extended") => cols.push(format!(
-                            "The extended test {name}: take the other side on its running time now. Do other tests already catch what it catches more, could it be smaller or faster, could it be folded into another test?"
-                        )),
-                        Some(c) => cols.push(format!(
-                            "The test {name}, {c}: compared with before, is there a technical reason?"
-                        )),
-                        None => {}
-                    }
+            continue;
+        }
+        let mut one = Vec::new();
+        for d in ret["deviations"].as_array().into_iter().flatten() {
+            if d["kind"] != "surprise" {
+                one.push(format!(
+                    "The {} \"{}\": does its reason hold, and did the design change with it?",
+                    d["kind"].as_str().unwrap_or_default().replace('_', " "),
+                    d["what"].as_str().unwrap_or_default()
+                ));
+            }
+        }
+        // A return of a flow version before the answer was flat holds the test changes under end.
+        let changes = ret.get("test_changes").or_else(|| ret["end"].get("test_changes"));
+        for t in changes.and_then(Value::as_array).into_iter().flatten() {
+            let name = t["test"].as_str().unwrap_or_default();
+            match t["change"].as_str() {
+                Some("added") if !added.iter().any(|a| a == name) => {
+                    added.push(name.to_string());
+                    one.push(new_test(name, ""));
+                }
+                Some("extended") => one.push(format!(
+                    "The extended test {name}: take the other side on its running time now. Do other tests already catch what it catches more, could it be smaller or faster, could it be folded into another test?"
+                )),
+                Some("added") | None => {}
+                Some(c) => one.push(format!(
+                    "The test {name}, {c}: compared with before, is there a technical reason?"
+                )),
+            }
+        }
+        for c in one {
+            if !cols.contains(&c) {
+                cols.push(c);
             }
         }
     }
-    cols.into_iter()
-        .enumerate()
-        .map(|(i, c)| ((i + 1).to_string(), c))
-        .filter(|(id, _)| only.as_ref().is_none_or(|o| o.contains(id)))
-        .collect()
+    cols
 }
 
 /// The columns of the review table its rule writes out: for a change, the lines after the rule's opening two up to the
@@ -1149,18 +1284,63 @@ fn fixed_columns(table: &[String], report: bool) -> Vec<String> {
     table.iter().take(list).skip(2).cloned().collect()
 }
 
-/// The numbers of the columns the last table review that handed in a table could not verify.
-pub(crate) fn unverified_last(e: &Engine, w: &Work, g: &CompiledGraph) -> Vec<String> {
-    let last = crate::inputs::returns_holding(e, w, g, "T4", "columns")
+/// The columns the last table review that handed in a table could not verify.
+struct Unverified {
+    /// Their numbers.
+    ids: Vec<String>,
+    /// The columns that review was given, each with its number and its words, as its round's record keeps them; none
+    /// when the record does not keep them.
+    then: Vec<(String, String)>,
+}
+
+/// The last table review that handed in a table: its round, and its columns' answers.
+fn last_table(e: &Engine, w: &Work, g: &CompiledGraph) -> Option<(RoundId, Value)> {
+    crate::inputs::returns_holding(e, w, g, "T4", "columns")
         .unwrap_or_default()
         .into_iter()
-        .find_map(|(_, r)| crate::inputs::at_path(&r, "columns"));
-    last.and_then(|c| c.as_array().cloned())
-        .unwrap_or_default()
-        .iter()
+        .find_map(|(round, r)| crate::inputs::at_path(&r, "columns").map(|c| (round, c)))
+}
+
+/// The numbers of the columns a table's answers could not verify.
+fn cannot_verify(table: &Value) -> Vec<String> {
+    table
+        .as_array()
+        .into_iter()
+        .flatten()
         .filter(|c| c["verdict"] == "cannot_verify")
         .filter_map(|c| c["id"].as_str().map(str::to_string))
         .collect()
+}
+
+/// The columns the last table review that handed in a table could not verify, with the columns it was given.
+fn last_unverified(e: &Engine, w: &Work, g: &CompiledGraph) -> Unverified {
+    let Some((round, table)) = last_table(e, w, g) else {
+        return Unverified {
+            ids: Vec::new(),
+            then: Vec::new(),
+        };
+    };
+    // The columns are recorded as a list of pairs, a number and its words.
+    let then = crate::work::rounds_at(e.db.conn(), w.id, "T4")
+        .unwrap_or_default()
+        .into_iter()
+        .find(|r| r.id == round)
+        .and_then(|r| r.input["engine"]["columns"].as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|pair| Some((pair[0].as_str()?.to_string(), pair[1].as_str()?.to_string())))
+        .collect();
+    Unverified {
+        ids: cannot_verify(&table),
+        then,
+    }
+}
+
+/// The numbers of the columns the last table review that handed in a table could not verify.
+pub(crate) fn unverified_last(e: &Engine, w: &Work, g: &CompiledGraph) -> Vec<String> {
+    last_table(e, w, g)
+        .map(|(_, table)| cannot_verify(&table))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -1180,9 +1360,10 @@ mod tests {
         f.graph(crate::ENGINEER).unwrap().clone()
     }
 
-    // The review table's fixed columns are the lines of its rule up to the project's review list, the column of tests
-    // and checks changed without one of their own the last, and a report has its own table; a flow version with a
-    // column fewer before the review list still gives its own columns and its report's table.
+    // The review table's fixed columns are the lines of its rule up to the project's review list, the column of cost
+    // under load before the column of tests and checks changed without one of their own, which is the last, and a
+    // report has its own table without the column of cost under load; a flow version with a column fewer before the
+    // review list still gives its own columns and its report's table.
     #[test]
     fn the_review_table_gives_its_columns_by_their_words() {
         let g = graph();
@@ -1193,20 +1374,140 @@ mod tests {
             .map(|r| r.text.clone())
             .unwrap();
         let change = fixed_columns(&table, false);
-        assert_eq!(change.len(), 7, "{change:?}");
+        assert_eq!(change.len(), 8, "{change:?}");
         assert!(change[0].starts_with("The change matches the design"), "{}", change[0]);
+        assert!(change[6].starts_with("Cost under load"), "{}", change[6]);
         assert!(
-            change[6].starts_with("Tests and checks changed without"),
+            change[7].starts_with("Tests and checks changed without"),
             "{}",
-            change[6]
+            change[7]
         );
         let report = fixed_columns(&table, true);
         assert_eq!(report.len(), 1);
         assert!(report[0].starts_with("A work that delivers a report"), "{}", report[0]);
+        assert!(!report[0].contains("Cost under load"), "{}", report[0]);
+        // A flow version before the column of tests changed, and one before the column of cost under load.
         let mut older = table.clone();
-        older.remove(8);
-        assert_eq!(fixed_columns(&older, false), change[..6].to_vec());
+        older.remove(9);
+        assert_eq!(fixed_columns(&older, false), change[..7].to_vec());
         assert_eq!(fixed_columns(&older, true), report);
+        let mut oldest = table.clone();
+        oldest.remove(8);
+        let no_load = fixed_columns(&oldest, false);
+        assert_eq!(no_load.len(), 7, "{no_load:?}");
+        assert!(
+            no_load[6].starts_with("Tests and checks changed without"),
+            "{}",
+            no_load[6]
+        );
+        assert_eq!(fixed_columns(&oldest, true), report);
+    }
+
+    // What the flow's texts promise the review and the design check to do, read from the compiled flow once:
+    // - the rule and the field of the table review's answer say alike that a re-review after a change lists all the
+    //   columns, each answered whether or not the change touches it, and neither says the engine lists only the columns
+    //   a change concerns;
+    // - the column of cost under load asks how the cost grows when the number of runs and the data they touch double,
+    //   reaches the hot paths outside the diff, asks for no measurement and names no project, and the design check
+    //   asks the same question;
+    // - the column of an acceptance condition and the rule tell the review how to judge the rows the engine can only
+    //   look up by text: for a CI job, its result, and whether each command runs in the job named, not merely is
+    //   written in a file of the branch; for a reading of the diff, to read it; and for either, whether a test could
+    //   have proved the condition.
+    #[test]
+    fn the_flows_texts_say_what_the_review_and_the_design_check_do() {
+        let g = graph();
+        let table = g.rules.iter().find(|r| r.name == "review_table").unwrap().text.clone();
+        let rule = table.join("\n");
+        let field = g.cell("T4").unwrap().schema.as_ref().unwrap().to_string();
+        for (place, text) in [("the review_table rule", &rule), ("the field", &field)] {
+            assert!(
+                text.contains("lists all the columns, and each is answered whether or not the change touches it"),
+                "{place}: {text}"
+            );
+            assert!(
+                !text.contains("the columns the changed part concerns"),
+                "{place}: {text}"
+            );
+            assert!(
+                !text.contains("only the columns to review this time"),
+                "{place}: {text}"
+            );
+        }
+        for want in [
+            "(`ci_job`), read that job's result on this head",
+            "each command in its `steps` runs in the job it names, not only that the command is written in a file of the branch; one that does not is a finding",
+            "(`read_diff`), read the diff at its `where` yourself",
+            "For either, if a test could prove the condition instead, that is a finding.",
+        ] {
+            assert!(ACCEPTANCE_PROOFS.contains(want), "{want}: {ACCEPTANCE_PROOFS}");
+        }
+        for want in [
+            "that job's result on the head to be merged",
+            "each command in its steps runs in the job it names",
+            "for either, if a test could prove the condition instead, that is a finding",
+        ] {
+            assert!(rule.contains(want), "{want}: {rule}");
+        }
+        let column = fixed_columns(&table, false)
+            .into_iter()
+            .find(|c| c.starts_with("Cost under load"))
+            .unwrap();
+        for word in [
+            "per event",
+            "per round",
+            "per work",
+            "per request",
+            "outside the diff",
+            "double",
+            "No measurement",
+        ] {
+            assert!(column.contains(word), "{word}: {column}");
+        }
+        let design = g.cell("D3").unwrap().prompt.join("\n");
+        for word in [
+            "per event",
+            "per round",
+            "per work",
+            "per request",
+            "double",
+            "without measuring",
+        ] {
+            assert!(design.contains(word), "{word}: {design}");
+        }
+        for text in [&column, &design] {
+            for project in ["wf-agents", "whitefoot", "Whitefoot", "SQLite", "sqlite"] {
+                assert!(!text.contains(project), "{project}: {text}");
+            }
+        }
+    }
+
+    // A change's column of an acceptance condition tells the review how to judge a job of the CI and a reading of the
+    // diff; a report's does not, since a report has no conditions table with such rows.
+    #[test]
+    fn only_a_changes_acceptance_column_tells_how_to_judge_ci_job_and_read_diff_rows() {
+        let acceptance = json!([{ "id": "A1", "by": "test", "condition": "It works." }]);
+        let change = acceptance_columns(&acceptance, false);
+        let report = acceptance_columns(&acceptance, true);
+        assert_eq!(change.len(), 1);
+        assert_eq!(report.len(), 1);
+        assert!(
+            change[0].starts_with("Acceptance condition A1: It works."),
+            "{}",
+            change[0]
+        );
+        assert!(change[0].ends_with(ACCEPTANCE_PROOFS), "{}", change[0]);
+        assert!(
+            report[0].starts_with("Acceptance condition A1: It works."),
+            "{}",
+            report[0]
+        );
+        assert!(
+            !report[0].contains("ci_job") && !report[0].contains("read_diff"),
+            "{}",
+            report[0]
+        );
+        assert!(acceptance_columns(&Value::Null, false).is_empty());
     }
 
     // The forms every return shares hold every tool and every role any cell has, and show a return's shape and the
@@ -1294,14 +1595,73 @@ mod tests {
         };
         let said = "Columns to answer this round, one row each, whether or not the change touches them: 1, 2, 4.";
         // Referred to, and given as what changed.
-        assert_eq!(columns_line(&columns, &held(false, false)).as_deref(), Some(said));
-        assert_eq!(columns_line(&columns, &held(true, true)).as_deref(), Some(said));
+        assert_eq!(
+            columns_line(&columns, &held(false, false), false).as_deref(),
+            Some(said)
+        );
+        assert_eq!(columns_line(&columns, &held(true, true), false).as_deref(), Some(said));
         // Given whole.
-        assert_eq!(columns_line(&columns, &held(true, false)), None);
+        assert_eq!(columns_line(&columns, &held(true, false), false), None);
         // One column reads as a sentence too.
         assert_eq!(
-            columns_line(&columns[..1], &held(false, false)).as_deref(),
+            columns_line(&columns[..1], &held(false, false), false).as_deref(),
             Some("Columns to answer this round, one row each, whether or not the change touches them: 1.")
         );
+        // Columns that changed under a review of disputes only are said so first, whether the line lists them or the
+        // message gives them whole.
+        let changed = format!("{COLUMNS_CHANGED} {said}");
+        assert_eq!(
+            columns_line(&columns, &held(false, false), true).as_deref(),
+            Some(changed.as_str())
+        );
+        assert_eq!(
+            columns_line(&columns, &held(true, false), true).as_deref(),
+            Some(COLUMNS_CHANGED)
+        );
+    }
+
+    fn pairs(xs: &[(&str, &str)]) -> Vec<(String, String)> {
+        xs.iter().map(|(i, c)| (i.to_string(), c.to_string())).collect()
+    }
+
+    // A review of disputes only is given the columns the last review could not verify while each of their numbers
+    // stands for the words it had when that review was given it; a column put before one of them, which moves it to
+    // another number, and a record that kept no words, list every column and say so. Nothing unverified gives none.
+    #[test]
+    fn a_review_of_disputes_only_is_narrowed_while_its_numbers_stand_for_the_same_words() {
+        let now = pairs(&[("1", "one"), ("2", "two"), ("3", "three"), ("4", "four")]);
+        let last = |ids: &[&str], then: &[(&str, &str)]| Unverified {
+            ids: ids.iter().map(|i| i.to_string()).collect(),
+            then: pairs(then),
+        };
+        // The same words: only the disputed columns, the table review's list as it was given then being a subset.
+        let kept = narrowed(now.clone(), &last(&["2", "4"], &[("2", "two"), ("4", "four")]));
+        assert_eq!(
+            kept,
+            ReviewColumns {
+                columns: pairs(&[("2", "two"), ("4", "four")]),
+                renumbered: false
+            }
+        );
+        // A column was added before them: number 4 is "three" now, and was "four".
+        let inserted = pairs(&[("1", "one"), ("2", "new"), ("3", "two"), ("4", "three"), ("5", "four")]);
+        let all = narrowed(inserted.clone(), &last(&["4"], &[("4", "four")]));
+        assert_eq!(
+            all,
+            ReviewColumns {
+                columns: inserted.clone(),
+                renumbered: true
+            }
+        );
+        // One number that stands for the same words does not make up for another that does not.
+        let mixed = narrowed(inserted.clone(), &last(&["1", "4"], &[("1", "one"), ("4", "four")]));
+        assert!(mixed.renumbered && mixed.columns == inserted);
+        // A number the columns no longer have, and a record without the words.
+        let gone = narrowed(now.clone(), &last(&["9"], &[("9", "nine")]));
+        assert!(gone.renumbered && gone.columns == now);
+        let unrecorded = narrowed(now.clone(), &last(&["2"], &[]));
+        assert!(unrecorded.renumbered && unrecorded.columns == now);
+        // The last review verified everything: none.
+        assert_eq!(narrowed(now, &last(&[], &[])), ReviewColumns::default());
     }
 }

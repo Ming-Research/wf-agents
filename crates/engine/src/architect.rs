@@ -1054,8 +1054,50 @@ pub fn would_wait(e: &Engine, w: &Work, cell: &CompiledCell) -> Result<Option<St
 /// either; a flow version before waited only for the reply, or not at all. The owner's words, a matter back with the reply, the waits and a matter
 /// of two cells come from all the work can take ([`queued`]), never held back by the hold to set the project straight,
 /// which holds back only the matters from the head of the queue on ([`pickable`]).
-pub fn look_at_queue(e: &mut Engine, w: &Work, cell: &CompiledCell) -> Result<Value, String> {
-    look(e.db.conn(), project_of(w)?, w.id, cell, reply_wait(e), db::now())
+pub fn look_at_queue(
+    e: &mut Engine,
+    w: &Work,
+    g: &CompiledGraph,
+    cell: &CompiledCell,
+    round: RoundId,
+) -> Result<Value, String> {
+    let out = look(e.db.conn(), project_of(w)?, w.id, cell, reply_wait(e), db::now())?;
+    end_long_session(e, w, g, &out, round)?;
+    Ok(out)
+}
+
+/// The verdicts of the look at the queue that take a matter afresh: its first cell, or the pick before it.
+const AFRESH: [&str; 4] = ["owner_words", "head", "one", "many"];
+
+/// Before a matter taken afresh, ends the session the architect would take it in when its context is past the
+/// architect's limit (`agents.architect_context_limit`), so that the matter is taken in a new session, which goes on
+/// from the notebook: every round of a session reads the whole session again. A matter of two cells going on at its
+/// second, or back with the owner's reply, keeps its session. The round of the look records the context and the limit
+/// when it ended one (`session_ended`).
+fn end_long_session(e: &mut Engine, w: &Work, g: &CompiledGraph, out: &Value, round: RoundId) -> Result<(), String> {
+    if !AFRESH.contains(&out["queue"]["verdict"].as_str().unwrap_or_default()) {
+        return Ok(());
+    }
+    let sessions::Plan::Going { id, rounds, .. } = plan_at_understanding(e, w, g, db::now())? else {
+        return Ok(());
+    };
+    let limit = e.config.config.install.agents.architect_context_limit;
+    let Some(context) = sessions::choose::context(&rounds) else {
+        return Ok(());
+    };
+    if context <= i64::try_from(limit).unwrap_or(i64::MAX) {
+        return Ok(());
+    }
+    let ended = json!({ "context": context, "limit": limit }).to_string();
+    e.db.write(Actor::Engine, |tx| {
+        sessions::choose::end(tx, id).map_err(db::Error::Abort)?;
+        tx.execute(
+            "UPDATE rounds SET input = json_set(input, '$.session_ended', json(?3)) WHERE work = ?1 AND n = ?2",
+            params![round.work, round.n, ended],
+        )?;
+        Ok(())
+    })
+    .map_err(sql)
 }
 
 /// What the look at the queue of the architect's work `work` finds at `now`, `wait_ms` being the installation's wait
@@ -1193,18 +1235,73 @@ fn batch_next(
 }
 
 /// The matters of the owner's words an architect work's batch handled, oldest first: those a round of the work closed
-/// since the batch began, but for the engine's note of a work the owner started, which holds no word the owner said.
+/// since the batch began, but for the engine's note of a work the owner started, which holds no word the owner said;
+/// and the open questions of a design's departure from a decision of its item that the owner ruled on, in the answer to
+/// an ask that holds the question ([`RULED_BY_OWNER`]): the ruling is a decision on the matter of the one departed from.
 fn words_of_batch(conn: &Connection, work: i64) -> Result<Vec<i64>, String> {
     let from = batch_start(conn, work)?;
     let rows = query_json(
         conn,
-        "SELECT id FROM architect_matters
-         WHERE kind = 'owner_words' AND coalesce(detail, '') <> 'release' AND handled_work = ?1 AND handled_round > ?2
-         ORDER BY id",
+        &format!(
+            "SELECT m.id FROM architect_matters m
+             WHERE m.handled_work = ?1 AND m.handled_round > ?2
+               AND ((m.kind = 'owner_words' AND coalesce(m.detail, '') <> 'release')
+                 OR (m.kind = '{}' AND json_extract(m.body, '$.departs') IS NOT NULL AND {RULED_BY_OWNER}))
+             ORDER BY m.id",
+            crate::open_questions::KIND
+        ),
         &[&work, &from],
         100_000,
     )?;
     Ok(rows.iter().filter_map(|r| r["id"].as_i64()).collect())
+}
+
+/// That the owner answered an ask of kind question that holds the matter `m.id`: the owner's words on it, which the
+/// answer to an open question begins with.
+const RULED_BY_OWNER: &str = "EXISTS (SELECT 1 FROM owner_asks a, json_each(a.body, '$.holds') h
+     WHERE a.answer IS NOT NULL AND json_extract(a.body, '$.kind') = 'question' AND h.value = m.id)";
+
+/// The matters of the batch's owner's words (`batch`) a decision quotes: a matter it quotes, and the open question an ask
+/// of the owner it quotes holds, whose answer is the owner's ruling on it; each once, in the order quoted.
+fn batch_quoted(conn: &Connection, d: &Value, batch: &BTreeSet<i64>) -> Result<Vec<i64>, String> {
+    let mut out: Vec<i64> = Vec::new();
+    for (from, id, _) in decisions::quotes(d) {
+        let matters: Vec<i64> = match from.as_str() {
+            "matter" => vec![id],
+            "ask" => query_json(
+                conn,
+                "SELECT h.value AS m FROM owner_asks a, json_each(a.body, '$.holds') h WHERE a.id = ?1",
+                &[&id],
+                ROWS,
+            )?
+            .iter()
+            .filter_map(|r| r["m"].as_i64())
+            .collect(),
+            _ => Vec::new(),
+        };
+        for m in matters {
+            if batch.contains(&m) && !out.contains(&m) {
+                out.push(m);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// The item an open question of a design's departure from a decision of its item is about, whose decisions the ruling
+/// on it joins; none for any other matter.
+fn departure_item(conn: &Connection, matter: i64) -> Result<Option<i64>, String> {
+    let rows = query_json(
+        conn,
+        &format!(
+            "SELECT item FROM architect_matters
+             WHERE id = ?1 AND kind = '{}' AND json_extract(body, '$.departs') IS NOT NULL",
+            crate::open_questions::KIND
+        ),
+        &[&matter],
+        1,
+    )?;
+    Ok(rows.first().and_then(|r| r["item"].as_i64()))
 }
 
 /// Whether the batch handled owner's words whose decisions are not recorded yet: the cell that records them has not
@@ -1245,14 +1342,40 @@ fn plan_at_understanding(e: &Engine, w: &Work, g: &CompiledGraph, now: i64) -> R
         .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, runs.on(), now)
 }
 
-/// Whether the session the architect's work goes on in is the one its previous work left: a new one, or one the next
-/// round would leave for a new one (past the limit, on another model or account, or let go by the cache), is not, and
-/// understands the project first; a session that goes on never does again, compacted or not.
+/// Whether the architect understands the project as its work goes on: the session it goes on in is the one its
+/// previous work left, or a new one that goes on from the notebook ([`from_notebook`]); a session that goes on never
+/// understands the project again, compacted or not.
 fn understood(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<bool, String> {
-    Ok(matches!(
-        plan_at_understanding(e, w, g, db::now())?,
-        sessions::Plan::Going { .. }
-    ))
+    let now = db::now();
+    match plan_at_understanding(e, w, g, now)? {
+        sessions::Plan::Going { .. } => Ok(true),
+        sessions::Plan::New(why) => from_notebook(e, w, why, now),
+    }
+}
+
+/// Whether a new session of the architect's, started for `why` at `now`, goes on from the notebook: the project's
+/// latest understanding answered less than the understanding's life ago (`agents.understanding_life`), and the owner did
+/// not ask for the new session. One that does not understands the project first.
+fn from_notebook(e: &Engine, w: &Work, why: sessions::Start, now: i64) -> Result<bool, String> {
+    if matches!(why, sessions::Start::Owner) {
+        return Ok(false);
+    }
+    let life = i64::try_from(e.config.config.install.agents.understanding_life)
+        .unwrap_or(i64::MAX / 1000)
+        .saturating_mul(1000);
+    let at: Option<i64> =
+        e.db.conn()
+            .query_row(
+                &format!(
+                    "SELECT max(r.ended_at) FROM rounds r JOIN works x ON x.id = r.work
+                 WHERE x.graph = 'architect' AND x.project = ?1 AND {}",
+                    answered_understanding("r")
+                ),
+                [project_of(w)?],
+                |r| r.get(0),
+            )
+            .map_err(sql)?;
+    Ok(at.is_some_and(|at| now - at < life))
 }
 
 /// How the work came to the understanding question, which only a new session comes to: at the project's first
@@ -1357,8 +1480,9 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, name: &str) -> Result<Opti
 /// Whether the architect's work goes back to understanding the project before a round of the architect's line at a
 /// cell: the round would start a new session there at `now` (the owner asked for one, the last was past the limit, the
 /// model or the login account changed, or the CLI's prompt cache let the last go), past the understanding, and a new
-/// session remembers nothing but the notebook. The matter it had in hand goes back to the queue, and is taken again as
-/// any other.
+/// session remembers nothing but the notebook, which it cannot go on from ([`from_notebook`]). The matter it had in
+/// hand goes back to the queue, and is taken again as any other; a new session that goes on from the notebook opens at
+/// the cell, with the matter in hand.
 ///
 /// The cells it happens at are those with the line's row for it (`session_anew`); a flow version without such rows
 /// names them here. Gives why the session would start afresh, in words; none when the work goes on.
@@ -1388,6 +1512,8 @@ pub fn understand_first(
         .sessions()
         .plan(e.db.conn(), w.id, w.project.as_deref(), cell, limit, runs.on(), now)?;
     Ok(match plan {
+        // A new session that goes on from the notebook is opened at the cell, with the matter in hand.
+        sessions::Plan::New(why) if from_notebook(e, w, why, now)? => None,
         sessions::Plan::New(why) => Some(crate::steps::new_session_why(
             why,
             cell,
@@ -3401,10 +3527,9 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             let (_, project) = architect_work_of(ctx)?;
             let batch: BTreeSet<i64> = words_of_batch(tx, w)?.into_iter().collect();
             for d in items(at) {
-                let matter = decisions::quotes(&d)
-                    .into_iter()
-                    .find(|(from, id, _)| from == "matter" && batch.contains(id))
-                    .map(|q| q.1)
+                let matter = batch_quoted(tx, &d, &batch)?
+                    .first()
+                    .copied()
                     .ok_or("a decision quotes no matter of the owner's words this batch handled")?;
                 let change = decision_change(tx, &project, matter, &d)?;
                 tx.execute(
@@ -3434,34 +3559,6 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
 }
 
 // The architect's checks.
-
-/// The articles of a project's constitution, in its order: its level-two headings that start with "Article". They are
-/// counted in the constitution at the commit of main the round was pinned to (`main`), the one its agent was given, so
-/// that the count is of the articles the agent read.
-fn articles(e: &Engine, project: &str, main: Option<&str>) -> Result<Vec<String>, String> {
-    let Some(text) = constitution(e, project, main)? else {
-        return Ok(Vec::new());
-    };
-    Ok(text
-        .lines()
-        .filter_map(|line| line.strip_prefix("## "))
-        .filter(|h| h.trim_start().to_lowercase().starts_with("article"))
-        .map(|h| h.trim().to_string())
-        .collect())
-}
-
-/// Whether a row names an article: by its number, as "Article 2", or by its title.
-fn names_article(principle: &str, article: &str) -> bool {
-    let p = principle.to_lowercase();
-    let a = article.to_lowercase();
-    let (number, title) = a.split_once('.').unwrap_or((a.as_str(), ""));
-    let number = number.trim();
-    let by_number = p
-        .match_indices(number)
-        .any(|(i, _)| !p[i + number.len()..].chars().next().is_some_and(|c| c.is_ascii_digit()));
-    let title = title.trim();
-    by_number || (!title.is_empty() && p.contains(title))
-}
 
 /// The texts of the owner's words in the asks of the work's project's architect, in the owner's matters and in the
 /// entries of its talks: what a policy may not quote.
@@ -3826,7 +3923,8 @@ fn decision_observation(d: &Value) -> Value {
 /// engineer's are recorded in its work's item. The architect's are recorded in the item each names, a number or the key
 /// of an item the batch creates, or as an observation when it names none; each quotes a matter of the owner's words the
 /// batch handled, and the rows of `looked` that say which hold a decision agree with them: a decision's matters are
-/// those the rows say hold one, and each of those is quoted.
+/// those the rows say hold one, and each of those is quoted. The owner's ruling on where a design departs from a
+/// decision of its item is recorded, as a decision of that item.
 fn decisions_hold(c: &checks::Ctx<'_>, v: Option<&Value>) -> Result<(), Problems> {
     let list = items(v);
     let conn = c.e.db.conn();
@@ -3859,12 +3957,16 @@ fn decisions_hold(c: &checks::Ctx<'_>, v: Option<&Value>) -> Result<(), Problems
     let mut changes: Vec<Value> = collected(conn, c.w.id)?.into_iter().map(|r| r.3).collect();
     let before = changes.len();
     let mut cited: BTreeSet<i64> = BTreeSet::new();
+    // The owner's rulings of the batch on where a design departs from a decision of its item, each with that item: a
+    // decision on the same matter as the one departed from, which goes beside it.
+    let mut ruled: BTreeMap<i64, i64> = BTreeMap::new();
+    for m in &batch {
+        if let Some(item) = departure_item(conn, *m)? {
+            ruled.insert(*m, item);
+        }
+    }
     for (i, d) in list.iter().enumerate() {
-        let from_batch: Vec<i64> = decisions::quotes(d)
-            .into_iter()
-            .filter(|(from, id, _)| from == "matter" && batch.contains(id))
-            .map(|q| q.1)
-            .collect();
+        let from_batch = batch_quoted(conn, d, &batch)?;
         match from_batch.first() {
             Some(m) => changes.push(crate::arch_changes::record_decision_of(project, *m, d)),
             None => problems.push(format!(
@@ -3873,7 +3975,29 @@ fn decisions_hold(c: &checks::Ctx<'_>, v: Option<&Value>) -> Result<(), Problems
                 batch
             )),
         }
+        let named = d.get("item").and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().trim_start_matches('#').parse().ok()))
+        });
+        for m in &from_batch {
+            if let Some(item) = ruled.get(m).filter(|item| named != Some(**item)) {
+                problems.push(format!(
+                    "decision {}: it records the owner's ruling on matter {m}, where a design departs from a decision \
+                     of item {item}: record it in item {item}, beside the decision departed from",
+                    i + 1
+                ));
+            }
+        }
         cited.extend(from_batch);
+    }
+    for (m, item) in &ruled {
+        if !cited.contains(m) {
+            problems.push(format!(
+                "matter {m} is the owner's ruling on where a design departs from a decision of item {item}: record it as \
+                 a decision of item {item}, quoting the owner's words in the ask, that names in replaces the decision it \
+                 replaces, or says that the design's way was turned down and why"
+            ));
+        }
     }
     if let Err(why) = crate::arch_changes::validate_from(c.e, project, &changes, before) {
         problems.push(why);
@@ -3907,10 +4031,6 @@ fn decisions_hold(c: &checks::Ctx<'_>, v: Option<&Value>) -> Result<(), Problems
 pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), Problems> {
     let conn = c.e.db.conn();
     match name {
-        "constitution_covered" => {
-            let articles = articles(c.e, project_of(c.w)?, c.main)?;
-            constitution_problems(&articles, &items(v)).into_result()
-        }
         "fix_not_queued_again" => {
             let fixes = match (at, v) {
                 (Some("fit"), Some(fit)) => items(fit.get("fixes")),
@@ -4091,7 +4211,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
         "changes_valid" => {
             let list = items(v);
             let project = project_of(c.w)?;
-            let batch = words_of_batch(conn, c.w.id)?;
+            let batch: BTreeSet<i64> = words_of_batch(conn, c.w.id)?.into_iter().collect();
             let mut problems: Vec<String> = Vec::new();
             // A change is handed in as a change or as a decision to record, one of the two.
             let mut changes: Vec<Value> = Vec::new();
@@ -4101,9 +4221,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                     (true, false) => changes.push(x["change"].clone()),
                     (false, true) => {
                         let m = x["matter"].as_i64().unwrap_or_default();
-                        let cites = decisions::quotes(&x["decision"])
-                            .iter()
-                            .any(|(from, id, _)| from == "matter" && batch.contains(id));
+                        let cites = !batch_quoted(conn, &x["decision"], &batch)?.is_empty();
                         if !cites {
                             problems.push(format!(
                                 "change {n}: the decision quotes no matter of the owner's words this batch handled"
@@ -4233,6 +4351,33 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             }
             Ok(())
         }
+        "departure_ruled_by_owner" => {
+            if !v.is_some_and(Value::is_object) {
+                return Ok(());
+            }
+            let Some(m) = picked(conn, c.w.id)? else { return Ok(()) };
+            let rows = query_json(
+                conn,
+                "SELECT kind, json_extract(body, '$.departs') AS departs FROM architect_matters WHERE id = ?1",
+                &[&m],
+                1,
+            )?;
+            let Some(row) = rows.first() else { return Ok(()) };
+            departure_problems(
+                m,
+                row["kind"] == crate::open_questions::KIND,
+                &row["departs"],
+                count(
+                    conn,
+                    &format!("SELECT count(*) FROM architect_matters m WHERE m.id = ?1 AND {RULED_BY_OWNER}"),
+                    &[&m],
+                )? > 0,
+                // A reply that hands the question on rules on nothing.
+                v.filter(|r| !r["hand_over"].is_object())
+                    .map(|r| r["departure"].as_str().unwrap_or_default()),
+            )
+            .into_result()
+        }
         "ask_only_on_open_question" => {
             let Some(ask) = v else { return Ok(()) };
             let Some(m) = picked(conn, c.w.id)? else { return Ok(()) };
@@ -4276,28 +4421,48 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
     }
 }
 
-/// What is wrong with the articles of a project's constitution a review's table covers (`rows`, one for each article of
-/// `articles`, in its order): a table with the wrong number of rows, and nothing else, since which row is for which
-/// article is told by position; otherwise every row that names another article than its own.
-fn constitution_problems(articles: &[String], rows: &[Value]) -> Problems {
+/// What is wrong with a reply to matter `m` (an open question when `open_question`, which says where a design departs
+/// from a decision of its item when it holds `departs`, the line and who made it), the owner having answered an ask that
+/// holds it or not (`owner_ruled`): a departure is ruled on only by whoever made the decision, so the architect replies
+/// on its own judgment only where the decision is the architect's own, and otherwise after the owner answered. A reply
+/// that answers says the ruling (`ruling`, its `departure`: whether the departure stands or is turned down), which
+/// decides whether the work may carry on with its design, on a departure and on nothing else; one that hands the
+/// question on (`ruling` none) says none.
+fn departure_problems(
+    m: i64,
+    open_question: bool,
+    departs: &Value,
+    owner_ruled: bool,
+    ruling: Option<&str>,
+) -> Problems {
+    use crate::open_questions::{STANDS, TURNED_DOWN};
     let mut problems = Problems::default();
-    if rows.len() != articles.len() {
+    let departure = open_question && departs.is_object();
+    let answers = ruling.is_some();
+    let ruling = ruling.unwrap_or_default();
+    if departure && answers && ruling != STANDS && ruling != TURNED_DOWN {
         problems.push(format!(
-            "there is one row for each article of the project's constitution, {} of them, and there are {}",
-            articles.len(),
-            rows.len()
+            "matter {m} says the design departs from a decision of its item: say the ruling in the reply's departure, \
+             {STANDS} or {TURNED_DOWN}, as the answer it carries gives it"
         ));
+    }
+    if !departure && !ruling.is_empty() {
+        problems.push(format!(
+            "matter {m} says no design departs from a decision of its item: leave out the reply's departure, which \
+             only a ruling on such a departure says"
+        ));
+    }
+    let by = departs["by"].as_str().unwrap_or_default();
+    if !departure || by == decisions::Source::Architect.as_str() || owner_ruled {
         return problems;
     }
-    for (i, (row, article)) in rows.iter().zip(articles).enumerate() {
-        let named = row["article"].as_str().unwrap_or_default();
-        if !names_article(named, article) {
-            problems.push(format!(
-                "row {} is for \"{article}\", in the constitution's order, and names \"{named}\"",
-                i + 1
-            ));
-        }
-    }
+    problems.push(format!(
+        "matter {m} says the design departs from a decision of the {}: \"{}\". Only whoever made the decision rules on \
+         it: pin it for the owner with an ask, quoting the line and the design's reason, and reply once the owner has \
+         answered",
+        if by.is_empty() { "owner" } else { by },
+        departs["line"].as_str().unwrap_or_default()
+    ));
     problems
 }
 
@@ -4746,7 +4911,7 @@ fn main_at(project: &str, p: &config::Project, main: Option<&str>) -> Result<Str
 /// A project's constitution as its main has it, at the commit `main` pins or else the commit `origin/<main>` is at
 /// now; none only when the project names none. A constitution the project names and its main does not have, or that
 /// cannot be read, is an error that says which file, at which commit.
-fn constitution(e: &Engine, project: &str, main: Option<&str>) -> Result<Option<String>, String> {
+pub(crate) fn constitution(e: &Engine, project: &str, main: Option<&str>) -> Result<Option<String>, String> {
     constitution_of(project, e.config.config.projects.get(project), main)
 }
 
@@ -4842,8 +5007,9 @@ fn spent(e: &Engine, work: i64) -> Result<f64, String> {
         .map_err(sql)
 }
 
-/// A project's items running and queued, each by its number, with its rank, its cell and stage, what it waits for and
-/// who waits for it, each by the kind of its dependency, since when its work runs and what it spent, and its own pause
+/// A project's items running and queued, each by its number, with its rank, its level, what it delivers, the route it
+/// is marked for and the route its latest work goes (`work_routes`), its cell and stage, what it waits for and who
+/// waits for it, each by the kind of its dependency, since when its work runs and what it spent, and its own pause
 /// with who paused it (the owner, the engine or the architect) and why, or why its last work stopped, as one queued
 /// again, and for one with no work running, the items not merged yet that it waits for by
 /// a blocking dependency before it starts, and its place in the owner's start queue; the owner's start queue, the
@@ -4858,7 +5024,9 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
     let end = g.map(|g| g.end.clone()).unwrap_or_default();
     let rows = query_json(
         e.db.conn(),
-        "SELECT i.id AS item, i.title, i.rank, i.held, i.level, i.deliver, w.id AS work, w.at, w.resume_at, w.waiting,
+        "SELECT i.id AS item, i.title, i.rank, i.held, i.level, i.deliver, i.route,
+                (SELECT t.route FROM work_routes t WHERE t.work = w.id) AS route_taken, w.id AS work, w.at,
+                w.resume_at, w.waiting,
                 w.paused, w.paused_by, w.ended, (SELECT min(r.started_at) FROM rounds r WHERE r.work = w.id) AS since,
                 (SELECT json_group_object('#' || l.depends_on, l.kind) FROM item_links l WHERE l.item = i.id)
                   AS waits_for,
@@ -6465,6 +6633,47 @@ fn said_of(conn: &Connection, matter: i64) -> Result<Option<Value>, String> {
     Ok(Some(said))
 }
 
+/// What the owner said ruling on where a design departs from a decision of its item, as the cell that records the
+/// decisions in the owner's words is given it: the owner's answer to the latest ask that holds the open question,
+/// whole, as an ask's answer keeps it (where, when, who the record says spoke, and the parts a delegate declared the
+/// owner's own), the question it answers, the decision departed from (its line, and who made it), the passage of the
+/// design that departs and what it does instead and why, and the item the ruling is a decision of. A decision quotes it
+/// as the words of that ask. None for a matter that is no such question, or one the owner did not answer.
+fn ruling_of(conn: &Connection, matter: i64) -> Result<Option<Value>, String> {
+    let rows = query_json(
+        conn,
+        &format!(
+            "SELECT m.body AS body, m.item AS item, a.id AS ask, a.body AS asked, a.answer AS answer
+             FROM architect_matters m, owner_asks a
+             WHERE m.id = ?1 AND m.kind = '{}' AND json_extract(m.body, '$.departs') IS NOT NULL
+               AND a.answer IS NOT NULL AND json_extract(a.body, '$.kind') = 'question'
+               AND EXISTS (SELECT 1 FROM json_each(a.body, '$.holds') h WHERE h.value = m.id)
+             ORDER BY a.id DESC LIMIT 1",
+            crate::open_questions::KIND
+        ),
+        &[&matter],
+        1,
+    )?;
+    let Some(r) = rows.first() else { return Ok(None) };
+    let (b, answer) = (&r["body"], &r["answer"]);
+    let mut said = json!({
+        "words": answer["text"],
+        "where": "ask",
+        "ask": r["ask"],
+        "at": answer["at"].as_i64().map(utc_minute),
+        "speaker": decisions::Source::declared(answer["speaker"].as_str()).as_str(),
+        "asked": r["asked"]["question"],
+        "departs": b["departs"],
+        "passage": b["passage"],
+        "instead": b["instead"],
+        "item": r["item"],
+    });
+    if !answer["relayed"].is_null() {
+        said["relayed"] = answer["relayed"].clone();
+    }
+    Ok(Some(said))
+}
+
 /// What the architect last said to the owner in the place the owner's words were said, before them: in the group of the
 /// work they were said in, else in the one-to-one with the architect; none in a group of projects, or when it had said
 /// nothing there.
@@ -6488,13 +6697,18 @@ fn reply_before(conn: &Connection, project: &str, body: &Value, at: i64) -> Resu
 }
 
 /// The owner's words the batch handled, each by its matter with what `words_behind_changes` gives of them and how the
-/// architect handled them: the round, the way on it took and the reply it gave. None when the batch handled none. The
-/// input of the cell that records the decisions in them.
+/// architect handled them: the round, the way on it took and the reply it gave; for the owner's ruling on where a design
+/// departs from a decision of its item, what [`ruling_of`] gives of it. None when the batch handled none. The input of
+/// the cell that records the decisions in them.
 fn batch_words(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let mut out = Map::new();
     for m in words_of_batch(conn, w.id)? {
-        let Some(mut said) = said_of(conn, m)? else { continue };
+        let said = match said_of(conn, m)? {
+            Some(s) => Some(s),
+            None => ruling_of(conn, m)?,
+        };
+        let Some(mut said) = said else { continue };
         let handled = query_json(
             conn,
             "SELECT r.work, r.n, r.cell, r.transition, json_extract(r.output, '$.outcome.answer.reply') AS reply
@@ -6609,6 +6823,55 @@ fn changes_touch(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checks::{constitution_problems, names_article};
+
+    // A reply to an open question that says a design departs from a decision someone other than the architect made,
+    // the owner or a delegate, is sent back until the owner has answered an ask that holds it; one that departs from the
+    // architect's own decision, and any other matter, the architect answers by its own judgment.
+    #[test]
+    fn only_whoever_made_a_decision_rules_on_a_departure_from_it() {
+        let stands = Some("stands");
+        let owner = json!({ "decision": "L1", "line": "- Decision (2026-11-03, owner): One path.", "by": "owner" });
+        let p = departure_problems(7, true, &owner, false, stands);
+        assert_eq!(p.texts().len(), 1, "{:?}", p.texts());
+        assert!(
+            p.texts()[0].starts_with(
+                "matter 7 says the design departs from a decision of the owner: \"- Decision (2026-11-03, owner): One \
+                 path.\". Only whoever made the decision rules on it"
+            ),
+            "{:?}",
+            p.texts()
+        );
+        assert!(departure_problems(7, true, &owner, true, stands).is_empty());
+        let delegate = json!({ "line": "Decision (2026-11-03, delegate): Two.", "by": "delegate" });
+        assert_eq!(departure_problems(7, true, &delegate, false, stands).texts().len(), 1);
+        let architect = json!({ "line": "Decision (2026-11-03, architect): Three.", "by": "architect" });
+        assert!(departure_problems(7, true, &architect, false, Some("turned_down")).is_empty());
+        assert!(departure_problems(7, true, &Value::Null, false, Some("")).is_empty());
+        assert!(departure_problems(7, false, &owner, false, Some("")).is_empty());
+    }
+
+    // A reply that answers a departure says whether it stands or is turned down, which the engine reads to let the work
+    // carry on with its design or not; a reply to any other matter says no such ruling; one that hands the question on
+    // rules on nothing. Each problem is reported with the others.
+    #[test]
+    fn a_ruling_on_a_departure_says_whether_it_stands() {
+        let owner = json!({ "decision": "L1", "line": "Decision (2026-11-03, owner): One path.", "by": "owner" });
+        let architect =
+            json!({ "decision": "L2", "line": "Decision (2026-11-03, architect): Two.", "by": "architect" });
+        let says = |p: &Problems, what: &str| p.texts().iter().any(|t| t.contains(what));
+        for ruling in [Some(""), Some("maybe")] {
+            let p = departure_problems(7, true, &architect, false, ruling);
+            assert!(says(&p, "say the ruling in the reply's departure"), "{:?}", p.texts());
+        }
+        let p = departure_problems(7, true, &owner, false, Some(""));
+        assert_eq!(p.texts().len(), 2, "{:?}", p.texts());
+        assert!(departure_problems(7, true, &architect, false, None).is_empty());
+        let p = departure_problems(7, false, &Value::Null, false, Some("stands"));
+        assert!(says(&p, "leave out the reply's departure"), "{:?}", p.texts());
+        let p = departure_problems(7, true, &Value::Null, false, Some("turned_down"));
+        assert!(says(&p, "leave out the reply's departure"), "{:?}", p.texts());
+    }
 
     // The coherence review is given the current decision cards of the project's other items whose works run, by item:
     // the question, the option recommended, and the owner's latest ruling; not the item's own, nor those of a work that

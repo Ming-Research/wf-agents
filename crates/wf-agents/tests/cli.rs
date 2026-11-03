@@ -181,7 +181,19 @@ fn flow_check_passes_the_repository_flow_and_fails_a_broken_one() {
         .unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8(out.stdout).unwrap();
-    assert!(stdout.starts_with("engineer: 41 cells, 229 rows"), "{stdout}");
+    // It prints the engineer graph's size as three positive counts, whatever they are: a count held to a number would
+    // have to be rewritten by every work that changes the flow.
+    let stats = stdout
+        .lines()
+        .next()
+        .and_then(|l| l.strip_prefix("engineer: "))
+        .unwrap_or_default();
+    let counts: Vec<&str> = stats.split(", ").collect();
+    assert!(counts.len() >= 3, "{stdout}");
+    for (count, what) in counts.iter().zip(["cells", "rows", "states"]) {
+        let (n, word) = count.split_once(' ').unwrap_or_default();
+        assert!(n.parse::<usize>().is_ok_and(|n| n > 0) && word == what, "{stdout}");
+    }
     // It says where each line's sessions start anew and how large the forms its returns share are.
     assert!(
         stdout.contains("engineer: format:common ")

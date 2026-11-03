@@ -104,10 +104,15 @@ pub(crate) fn outcome(transition: Option<&str>, rejected: Option<&Value>, ended:
     }
 }
 
-/// Why a round was rejected, in its own words: the text of the one reason it holds; for a failed run, its kind and
-/// what the command line reported.
+/// Why a round was rejected, in its own words: the text of the one reason it holds (for a return sent back, the text
+/// under `check` or `format`, not `problems`); for a failed run, its kind and what the command line reported.
 fn why(rejected: Option<&Value>) -> Option<String> {
-    let (_, v) = rejected?.as_object()?.iter().next()?;
+    let rejected = rejected?;
+    // A return sent back: the text under `check` or `format`, by name, since `problems` follows it.
+    if let Some(text) = db::sent_back_text(rejected) {
+        return Some(text.to_string());
+    }
+    let (_, v) = rejected.as_object()?.iter().next()?;
     Some(match v {
         Value::String(s) => s.clone(),
         Value::Object(f) if f.contains_key("kind") => format!(
@@ -1685,7 +1690,8 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
         blocked.entry(item).or_default().push(on);
     }
     let mut st = conn.prepare(
-        "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled, q.position, i.imported_pr
+        "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled, q.position, i.imported_pr, i.route,
+                (SELECT r.route FROM work_routes r WHERE r.item = i.id ORDER BY r.work DESC LIMIT 1)
          FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id ORDER BY i.id",
     )?;
     let items = st
@@ -1705,6 +1711,8 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
                 title: r.get(2)?,
                 deliver: r.get(3)?,
                 level: r.get(4)?,
+                route: r.get(8)?,
+                route_taken: r.get(9)?,
                 state,
                 cancelled,
                 queued,
@@ -4641,6 +4649,34 @@ mod tests {
         );
         assert!(RoundsWindow::named(Some("R2-7"), Some("R2-8"), None).is_err());
         assert!(RoundsWindow::named(None, None, Some("2-7")).is_err());
+    }
+
+    // Why a round was rejected is the text of the return sent back, which is under `check` or `format` by its name and
+    // not by being the first key, since `problems` follows it and may come first in a column; it is the same for a column
+    // recorded without `problems`, and a failed run says its kind and what the command line reported.
+    #[test]
+    fn a_return_sent_back_says_its_text_and_not_its_problems() {
+        let problems = json!([{ "check": "c", "field": "f", "text": "t" }]);
+        let said = |rejected: Value| why(Some(&rejected));
+        assert_eq!(
+            said(json!({ "check": "c (f): t", "problems": problems })),
+            Some("c (f): t".to_string())
+        );
+        assert_eq!(
+            said(json!({ "problems": problems, "check": "c (f): t" })),
+            Some("c (f): t".to_string())
+        );
+        assert_eq!(
+            said(json!({ "format": "x", "problems": problems })),
+            Some("x".to_string())
+        );
+        assert_eq!(said(json!({ "check": "c (f): t" })), Some("c (f): t".to_string()));
+        assert_eq!(
+            said(json!({ "failed": { "kind": "k", "what": "w" } })),
+            Some("k: w".to_string())
+        );
+        assert_eq!(said(json!({ "interrupted": "i" })), Some("i".to_string()));
+        assert_eq!(why(None), None);
     }
 
     // The round that started a session says why, as the session manager recorded it, and only the first round of each

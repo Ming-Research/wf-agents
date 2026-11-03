@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
@@ -15,22 +15,202 @@ fn compiled() -> flow::Compiled {
     flow::compile(FLOW, &context()).unwrap_or_else(|e| panic!("{e}"))
 }
 
-// The engineer's graph compiles with no finding, and comes out as the generator the flow was designed with worked
-// it out: as many cells, rows, states and places. Item #217 moved `places` from 1233 to 1235, counted by the places of
-// the returns' fields: the test changes of I1 and T6 gained 10 places each (`on_head` and `on_base` in `added`, and
-// the branch `extended` with its place and six fields) and the two tables each of them lost (`new_tests`,
-// `guard_tests`: the field and its `name`, `by`, `on_head` and `on_base`) are 10 places each; D2's `measure` gained
-// the branch `from_records` and its field `read`, 2 places. Cells, rows and states did not change.
+/// Whether each graph of the flow compiled to the cells `source` gives it: a compiled graph has a cell for every node
+/// of the graph of its name in `source`, and no other. The source is the standard, not what the compiler once
+/// produced, and the answer names each cell that is missing or that no node gives.
+fn cells_match_nodes(c: &flow::Compiled, source: &str) -> Result<(), String> {
+    let v: Value = serde_json::from_str(source).unwrap();
+    let mut problems = Vec::new();
+    for f in v["flows"].as_array().unwrap() {
+        let name = f["name"].as_str().unwrap();
+        let nodes: BTreeSet<&str> = f["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["id"].as_str().unwrap())
+            .collect();
+        let Some(g) = c.graph(name) else {
+            problems.push(format!("{name}: the flow has no compiled graph"));
+            continue;
+        };
+        let cells: BTreeSet<&str> = g.cells.iter().map(|x| x.id.as_str()).collect();
+        for id in nodes.difference(&cells) {
+            problems.push(format!("{name}: no cell for the node {id}"));
+        }
+        for id in cells.difference(&nodes) {
+            problems.push(format!("{name}: a cell {id} that is no node"));
+        }
+    }
+    for g in &c.graphs {
+        if !v["flows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["name"] == g.name.as_str())
+        {
+            problems.push(format!("{}: a compiled graph that is no graph of the flow", g.name));
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("\n"))
+    }
+}
+
+// The flow compiles with no finding, and each of its graphs comes out with the cells of its nodes, the engineer's and
+// the architect's. The check is shown to fail for a cell the compiler lost and for one it made up, each named.
 #[test]
-fn the_engineer_graph_compiles_as_its_reference_has_it() {
+fn each_graph_compiles_to_the_cells_of_its_nodes() {
     let c = compiled();
-    let r: Value = serde_json::from_str(include_str!("reference.json")).unwrap();
-    let s = &c.stats[0];
-    let want = |k: &str| r[k].as_u64().unwrap() as usize;
-    assert_eq!(
-        (s.cells, s.rows, s.states, s.places),
-        (want("cells"), want("rows"), want("states"), want("places"))
+    cells_match_nodes(&c, FLOW).unwrap_or_else(|e| panic!("{e}"));
+    let mut lost = c.clone();
+    let gone = lost
+        .graphs
+        .iter_mut()
+        .find(|g| g.name == "engineer")
+        .and_then(|g| g.cells.pop())
+        .unwrap();
+    let e = cells_match_nodes(&lost, FLOW).unwrap_err();
+    assert_eq!(e, format!("engineer: no cell for the node {}", gone.id));
+    let mut made = c.clone();
+    let g = made.graphs.iter_mut().find(|g| g.name == "architect").unwrap();
+    let mut extra = g.cells[0].clone();
+    extra.id = "ZZ".into();
+    g.cells.push(extra);
+    let e = cells_match_nodes(&made, FLOW).unwrap_err();
+    assert_eq!(e, "architect: a cell ZZ that is no node");
+}
+
+/// What of a cell decides whether a work standing at it moves to a new flow version or is taken over, as the engine's
+/// `versions::why_not` compares a cell's two versions: its kind and line, its inputs' ids, names and sources, and its
+/// rows' names, conditions and targets, each in their order; hashed short, the file of the cell in `tests/moves/`.
+fn moves_by(c: &flow::CompiledCell) -> String {
+    let inputs: Vec<Value> = c
+        .inputs
+        .iter()
+        .map(|x| serde_json::json!([x.id, x.name, x.from]))
+        .collect();
+    let rows: Vec<Value> = c
+        .rows
+        .iter()
+        .map(|r| serde_json::json!([r.name, r.conditions, r.to]))
+        .collect();
+    let text = serde_json::json!([c.kind, c.line, inputs, rows]).to_string();
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in text.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+/// Every way the files of `tests/moves/` (file name to content) differ from the hashes the compiler gives the cells
+/// (cell id to hash), each saying the cell and what to write or delete so that an engineer only follows it.
+///
+/// Each cell has a file of its own, and not a line of one file, because git's three-way merge takes changes to
+/// neighbouring lines for a conflict: two works changing neighbouring cells would meet in a file of one line per cell.
+/// A cell added or removed is a file added or removed, which merges. Only two works changing the same cell meet, and
+/// that needs the hash worked out again anyway.
+fn moves_misses(have: &BTreeMap<String, String>, files: &BTreeMap<String, String>) -> Vec<String> {
+    let mut misses = Vec::new();
+    for (id, hash) in have {
+        match files.get(id) {
+            None => misses.push(format!("{id}: no file; write {hash} in crates/flow/tests/moves/{id}")),
+            Some(text) if text.trim_end() != hash => {
+                misses.push(format!("{id}: write {hash} in crates/flow/tests/moves/{id}"));
+            }
+            Some(_) => {}
+        }
+    }
+    for id in files.keys().filter(|id| !have.contains_key(*id)) {
+        misses.push(format!("{id}: no such cell; delete crates/flow/tests/moves/{id}"));
+    }
+    misses
+}
+
+// The parts of each cell of the engineer's graph that decide whether a work standing at it moves to a new flow version
+// are as the file of the cell in `tests/moves/` has them, so that a change of the flow shows in the change's files
+// which cells' works a new version takes over when it is installed, at the cost of a work begun again. The comparison
+// is shown to fail for a hash that differs, a cell with no file and a file with no cell, each naming the cell.
+#[test]
+fn the_cells_a_work_moves_by_are_as_their_files_have_them() {
+    let c = compiled();
+    let have: BTreeMap<String, String> = c
+        .graph("engineer")
+        .unwrap()
+        .cells
+        .iter()
+        .map(|c| (c.id.clone(), moves_by(c)))
+        .collect();
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/moves");
+    let files: BTreeMap<String, String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| {
+            let e = e.unwrap();
+            let name = e.file_name().into_string().expect("a file name that is text");
+            let text = std::fs::read_to_string(e.path()).unwrap_or_else(|x| panic!("{name}: {x}"));
+            (name, text)
+        })
+        .collect();
+    let misses = moves_misses(&have, &files);
+    assert!(
+        misses.is_empty(),
+        "cells whose works a new version takes over:\n{}",
+        misses.join("\n")
     );
+
+    let (id, hash) = have.iter().next().unwrap();
+    let mut changed = files.clone();
+    changed.insert(id.clone(), "0000000000000000\n".into());
+    assert_eq!(
+        moves_misses(&have, &changed),
+        [format!("{id}: write {hash} in crates/flow/tests/moves/{id}")]
+    );
+    let mut missing = files.clone();
+    missing.remove(id);
+    assert_eq!(
+        moves_misses(&have, &missing),
+        [format!("{id}: no file; write {hash} in crates/flow/tests/moves/{id}")]
+    );
+    let mut extra = files.clone();
+    extra.insert("ZZ".into(), "0000000000000000\n".into());
+    assert_eq!(
+        moves_misses(&have, &extra),
+        ["ZZ: no such cell; delete crates/flow/tests/moves/ZZ"]
+    );
+}
+
+// The cells that read the histories and the observations judge what matters in a great many records, so they think:
+// the librarian's five cells and the architect's look-up at high effort, the search of observations at medium, and no
+// cell of any graph at low, which does not think. A line cannot hold low cells beside others, so that the librarian's
+// cell G3 goes with its line.
+#[test]
+fn the_cells_that_read_histories_and_observations_think() {
+    let c = compiled();
+    let effort = |graph: &str, cell: &str| {
+        let found = c.graph(graph).and_then(|g| g.cell(cell));
+        found
+            .unwrap_or_else(|| panic!("no cell {cell} in {graph}"))
+            .effort
+            .clone()
+    };
+    for (graph, cell) in [
+        ("engineer", "G1"),
+        ("engineer", "G2"),
+        ("engineer", "G4"),
+        ("engineer", "G3"),
+        ("engineer", "X5"),
+        ("architect", "X5"),
+    ] {
+        assert_eq!(effort(graph, cell).as_deref(), Some("high"), "{graph} {cell}");
+    }
+    assert_eq!(effort("architect", "X2").as_deref(), Some("medium"));
+    for g in &c.graphs {
+        for cell in &g.cells {
+            assert_ne!(cell.effort.as_deref(), Some("low"), "{} {}", g.name, cell.id);
+        }
+    }
 }
 
 // A stop that comes before the merge is a row of the merge cell, drawn on the chart: it waits there for the engine's
@@ -130,16 +310,14 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 // the plan of what to do next (`N1`), the recording of the decisions in the owner's words, the review of a batch of item
 // changes and whether to plan or check again (`B1`, `B5`, `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds
 // only its matter (`A3`), the tools (`X1`), the observer
-// (`X2`) and the wait for the owner's Start after a pause (`X3`): as many cells, rows and states. No wrap-up, no wait
+// (`X2`) and the wait for the owner's Start after a pause (`X3`). It has no wrap-up, no wait
 // for the owner's reply in a talk, and none of the setting of a policy as a stage of its own (its study, its readings by
 // new architects, the owner's buttons).
 // The owner's words reach the architect only through its queue: no cell of it takes an interjection, and none answers
 // one.
 #[test]
-fn the_architect_graph_compiles_as_its_reference_has_it() {
+fn the_architect_graph_has_no_cell_the_design_left_out() {
     let c = compiled();
-    let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (31, 136, 197));
     let g = c.graph("architect").unwrap();
     for gone in [
         "E1", "H6", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",
@@ -164,12 +342,12 @@ fn the_architect_graph_compiles_as_its_reference_has_it() {
     assert!(c.graph("policy").is_none());
 }
 
-// Every agent's cell of the architect's line but the review of a batch and the observer's search may rewrite sections
-// of the notebook in its own answer, beside its effects, the edit made at once and its size checked; the understanding
-// and the plan must, each its own sections. Each such cell is given the four sections, each an engine input of its own,
-// but the understanding, which writes what the project is now afresh and is given only what is unclear, as questions
-// to settle, and the other section; no cell reads the state of things, the notes, the log or the last plan, which the
-// notebook took the place of.
+// Every agent's cell of the architect's line and of its pick but the review of a batch and the observer's search may
+// rewrite sections of the notebook in its own answer, beside its effects, the edit made at once and its size checked;
+// the understanding and the plan must, each its own sections. Each such cell is given the four sections, each an engine
+// input of its own, but the understanding, which writes what the project is now afresh and is given only what is
+// unclear, as questions to settle, and the other section; no cell reads the state of things, the notes, the log or the
+// last plan, which the notebook took the place of.
 #[test]
 fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     let c = compiled();
@@ -179,7 +357,7 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     let sections = ["project_now", "plan", "unclear", "other"];
     let mut keep = Vec::new();
     for cell in &g.cells {
-        if cell.kind != "agent" || cell.line.as_deref() != Some("architect") {
+        if cell.kind != "agent" || !matches!(cell.line.as_deref(), Some("architect" | "picker")) {
             continue;
         }
         keep.push(cell.id.as_str());
@@ -304,9 +482,16 @@ fn a_group_is_picked_by_the_pick_answered_for_by_two_cells_and_taken_apart_by_th
         let row = g.cell(id).unwrap().rows.iter().find(|r| r.name == "ask_owner").unwrap();
         assert!(row.actions.iter().any(|d| d.name() == "dissolve_group"), "{id}");
     }
-    let ret = |outcome: Value| serde_json::json!({ "outcome": outcome, "tell_owner": [], "progress": "p", "flow_feedback": "none" });
+    // The pick, on a line of its own, tells the owner nothing; the architect's own cells do.
+    let ret = |cell: &str, outcome: Value| {
+        let mut r = serde_json::json!({ "outcome": outcome, "progress": "p", "flow_feedback": "none" });
+        if cell != "Q1" {
+            r["tell_owner"] = serde_json::json!([]);
+        }
+        r
+    };
     let takes = |cell: &str, outcome: Value| -> Result<String, String> {
-        g.take(cell, &ret(outcome), &Map::new()).map(|r| r.name.clone())
+        g.take(cell, &ret(cell, outcome), &Map::new()).map(|r| r.name.clone())
     };
     let refused = |cell: &str, outcome: Value| takes(cell, outcome).unwrap_err().contains("does not fit the schema");
     // The pick names others, or none.
@@ -708,12 +893,13 @@ fn an_ask_carries_no_kind() {
 }
 
 // What only the owner can settle reaches the owner through the architect, never as an engineer's ask of the owner: the
-// engineer's graph has no owner's cell (`A3`), no row leads there, no cell holds a blocker for the owner but `M1`'s
-// ruling, and the architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on only to a
-// related project's architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the architect
-// at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the work's
-// design, and an action only the owner can do to the owner by pausing the work. An open question left to the owner they
-// pin in the owner's one-to-one by an ask, and answer the engineer by the owner's reply.
+// engineer's graph has no owner's cell (`A3`), no row leads there, no cell holds a blocker for the owner but the wait
+// for the ruling on where a design departs from the item's decisions (`D12`), which the architect puts to the owner,
+// and `M1`'s ruling, and the architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on
+// only to a related project's architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the
+// architect at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the
+// work's design, and an action only the owner can do to the owner by pausing the work. An open question left to the
+// owner they pin in the owner's one-to-one by an ask, and answer the engineer by the owner's reply.
 #[test]
 fn what_only_the_owner_can_settle_goes_through_the_architect() {
     let c = compiled();
@@ -729,7 +915,7 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
         .filter(|b| b.holders.iter().any(|h| h == "owner"))
         .map(|b| b.cell.as_str())
         .collect();
-    assert_eq!(held, ["M1"]);
+    assert_eq!(held, ["D12", "M1"]);
     let asking = g.cell("A2").unwrap();
     assert!(asking.rows.iter().all(|r| r.name != "to_owner"));
     assert!(asking.inputs.iter().any(|x| x.name.as_deref() == Some("Flow anomaly")));
@@ -1371,18 +1557,68 @@ fn every_sample_takes_its_row() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let mut n = 0;
+    // The loop below must run: a file with no cell, or a cell with no sample, would pass it having tried nothing.
+    assert!(!samples.is_empty(), "no samples");
     for (cell, xs) in &samples {
+        assert!(!xs.is_empty(), "no sample of {cell}");
         for s in xs {
             let given: Map<String, Value> = s["given"].as_object().cloned().unwrap_or_default();
             let row = g
                 .take(cell, &s["json"], &given)
                 .unwrap_or_else(|e| panic!("{cell}: {e}"));
             assert_eq!(row.name, s["row"].as_str().unwrap(), "a sample of {cell}");
-            n += 1;
         }
     }
-    assert_eq!(n, 38);
+}
+
+// The acceptance takes a condition met by a job of the CI or by reading the change, besides tests and measurements, and
+// the conditions table takes a row of either kind beside the others; a kind that is none of these, a row of the CI
+// naming no job, and a reading naming neither where nor what fit no schema.
+#[test]
+fn the_acceptance_and_the_conditions_table_take_a_ci_job_and_a_reading_of_the_diff() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let fits = |cell: &str, sample: &Value, place: &str, value: Value| -> Result<String, String> {
+        let mut x = sample.clone();
+        x["outcome"][place] = value;
+        let given: Map<String, Value> = samples[cell][0]["given"].as_object().cloned().unwrap_or_default();
+        g.take(cell, &x, &given).map(|r| r.name.clone())
+    };
+    let design = &samples["D2"][0]["json"];
+    let acceptance = |by: &str| {
+        serde_json::json!([
+            { "by": "test", "id": "A1", "condition": "It works." },
+            { "by": by, "id": "A2", "condition": "The page passes its check." }
+        ])
+    };
+    assert_eq!(fits("D2", design, "acceptance", acceptance("ci")).unwrap(), "first");
+    assert_eq!(fits("D2", design, "acceptance", acceptance("diff")).unwrap(), "first");
+    let e = fits("D2", design, "acceptance", acceptance("by_hand")).unwrap_err();
+    assert!(e.contains("does not fit the schema"), "{e}");
+    // Of the conditions table, adversarial testing's and the engineer's alike.
+    let sample = &samples["T1"][0]["json"];
+    let conditions = |rows: Value| fits("T1", sample, "conditions", rows);
+    let ci_job = serde_json::json!({ "how": "ci_job", "id": "A1", "jobs": ["lint"], "steps": ["npm run check:ui"] });
+    let read_diff =
+        serde_json::json!({ "how": "read_diff", "id": "A2", "where": "flow/flow.json", "what": "The rule." });
+    assert_eq!(
+        conditions(serde_json::json!([ci_job, read_diff])).unwrap(),
+        "for_engineer"
+    );
+    // The steps may be left out, and the whole CI is a job.
+    let whole = serde_json::json!({ "how": "ci_job", "id": "A1", "jobs": ["check"] });
+    assert_eq!(conditions(serde_json::json!([whole])).unwrap(), "for_engineer");
+    for bad in [
+        serde_json::json!({ "how": "ci_job", "id": "A1", "jobs": [] }),
+        serde_json::json!({ "how": "ci_job", "id": "A1", "steps": ["npm run check:ui"] }),
+        serde_json::json!({ "how": "read_diff", "id": "A2", "where": "flow/flow.json" }),
+        serde_json::json!({ "how": "read_diff", "id": "A2", "what": "The rule." }),
+        serde_json::json!({ "how": "by_hand", "id": "A2" }),
+    ] {
+        let e = conditions(serde_json::json!([bad.clone()])).unwrap_err();
+        assert!(e.contains("does not fit the schema"), "{bad}: {e}");
+    }
 }
 
 // A return with its form outside the field it sits in fits no schema; a recorded value changes the row taken.
@@ -1539,9 +1775,9 @@ fn an_agent_schema_holds_its_forms_in_outcome() {
 }
 
 // Only the engineer and the architect tell the owner: an agent's cell of a line that helps them (the reader of the
-// history, the review, adversarial testing, the advisor, the review of the architect's batch and the search of
-// observations) has no `tell_owner` in its
-// return, its description does not name one, and nothing is done with it or shown of it there. The helpers of a work
+// history, the review, adversarial testing, the advisor, the review of the architect's batch, the search of
+// observations and the pick of the architect's next matter) has no `tell_owner` in its return, its description does not
+// name one, and nothing is done with it or shown of it there. The helpers of a work
 // still hand in side reports, which the architect reads.
 #[test]
 fn only_the_engineer_and_the_architect_tell_the_owner() {
@@ -1569,7 +1805,9 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
     }
     assert_eq!(
         helpers,
-        ["G1", "G2", "X5", "T1", "T3", "G3", "T4", "A1", "B2", "X2", "X5"]
+        [
+            "G1", "G2", "G4", "F2", "X5", "T1", "T3", "G3", "T4", "A1", "Q1", "B2", "X2", "X5"
+        ]
     );
 }
 
@@ -1709,9 +1947,213 @@ fn a_work_moves_by_its_rows() {
     assert_eq!(l2.rows.iter().find(|r| r.name == "done").unwrap().to, "E1");
 }
 
-// The architect's line says its session expires with the CLI's prompt cache, so that every cell on it carries that, and
-// no cell of any other line does. A flow version stored before lines could say so has no such field in its cells, and
-// reads back with it false.
+/// A cell's return that takes the row `row`, from the samples, given the values of its sample and those of `more`.
+fn sampled(cell: &str, row: &str, more: &[(&str, &str)]) -> (Value, Map<String, Value>) {
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let s = samples[cell].iter().find(|s| s["row"] == row).unwrap();
+    let mut given = s["given"].as_object().cloned().unwrap_or_default();
+    given.extend(more.iter().map(|(k, v)| (k.to_string(), Value::from(*v))));
+    (s["json"].clone(), given)
+}
+
+/// The cells a work stands at from its start, each step a return and the values the cell is given, which must take a
+/// row; the item waiting to start is past.
+fn walked(g: &flow::CompiledGraph, steps: &[(Value, Map<String, Value>)]) -> Vec<String> {
+    let ready = g.cell("S0").unwrap().rows.iter().find(|r| r.name == "ready").unwrap();
+    let mut p = g.step(&g.start_position(), ready).unwrap();
+    let mut at = vec![p.at.clone()];
+    for (ret, given) in steps {
+        let row = g.take(&p.at, ret, given).unwrap_or_else(|e| panic!("{}: {e}", p.at));
+        p = g.step(&p, row).unwrap();
+        at.push(p.at.clone());
+    }
+    at
+}
+
+/// The engine's choice of what runs next with no adversarial testing, the full CI not yet green on the draft, and the
+/// review as `review_round` says.
+fn full_ci_next(review_round: &str) -> (Value, Map<String, Value>) {
+    let given = [
+        ("full_ci", "not_green"),
+        ("review_round", review_round),
+        ("interjection", "no"),
+    ];
+    (
+        serde_json::json!({ "plan": { "review": "all", "adversarial": "skipped" } }),
+        given.iter().map(|(k, v)| (k.to_string(), Value::from(*v))).collect(),
+    )
+}
+
+/// The full CI on the draft, green, before the review as `review_round` says.
+fn full_ci_green(review_round: &str) -> (Value, Map<String, Value>) {
+    (
+        serde_json::json!({ "result": { "kind": "green", "head": "a41c0d2" } }),
+        Map::from_iter([("review_round".to_string(), Value::from(review_round))]),
+    )
+}
+
+// A work whose item is marked a bug fix or a feature goes the light route: from the research it gathers like fixes,
+// plans the fix and has the plan reviewed, then implements, runs the full CI on the draft and goes straight to the
+// table review, never standing at the judgment whether it stands, the design and its checks, adversarial testing or the
+// blind review. A work on the normal route goes through every one of them, as it did before the light route.
+#[test]
+fn a_light_work_plans_in_place_of_the_design_and_goes_straight_to_the_table_review() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let light = walked(
+        g,
+        &[
+            sampled("S1", "started", &[]),
+            sampled("G1", "done", &[]),
+            sampled("R1", "light", &[]),
+            sampled("G4", "done", &[]),
+            sampled("F1", "planned", &[]),
+            sampled("F2", "sound", &[]),
+            sampled("I1", "done", &[]),
+            full_ci_next("table"),
+            full_ci_green("table"),
+            sampled("T4", "done", &[("deliver", "change")]),
+        ],
+    );
+    assert_eq!(
+        light,
+        ["S1", "G1", "R1", "G4", "F1", "F2", "I1", "T7", "T2", "T4", "M1"]
+    );
+    let mut not_needed = sampled("D11", "needed", &[]);
+    not_needed.0["outcome"]["adversarial"]["verdict"] = "not_needed".into();
+    let gathered = (sampled("G4", "done", &[]).0, Map::new());
+    let normal = walked(
+        g,
+        &[
+            sampled("S1", "started", &[]),
+            sampled("G1", "done", &[]),
+            sampled("R1", "done", &[]),
+            sampled("R2", "stands", &[]),
+            sampled("G2", "done", &[]),
+            sampled("D1", "done", &[]),
+            sampled("D2", "first", &[]),
+            sampled("D3", "present_best", &[]),
+            sampled("D4", "no", &[]),
+            sampled("D6", "sure", &[]),
+            sampled("D7", "worth_it", &[]),
+            sampled("D8", "yes", &[]),
+            sampled("D9", "on_its_own", &[]),
+            sampled("D10", "implementation", &[]),
+            not_needed,
+            sampled("D12", "clear", &[]),
+            sampled("I1", "done", &[]),
+            full_ci_next("blind"),
+            full_ci_green("blind"),
+            sampled("T3", "done", &[]),
+            gathered,
+            sampled("T4", "done", &[("deliver", "change")]),
+        ],
+    );
+    assert_eq!(
+        normal,
+        [
+            "S1", "G1", "R1", "R2", "G2", "D1", "D2", "D3", "D4", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "I1",
+            "T7", "T2", "T3", "G3", "T4", "M1"
+        ]
+    );
+    // The plan the review found sound is locked as the design's acceptance is, with the implementer's new session.
+    let sound = g.cell("F2").unwrap().rows.iter().find(|r| r.name == "sound").unwrap();
+    let does: Vec<&str> = sound.actions.iter().map(|d| d.name()).collect();
+    assert_eq!(does, ["open_session", "lock_acceptance"]);
+    // The review of the plan and the table review are one line, and the table review starts no session of its own, so
+    // it goes on in the session that reviewed the plan; the blind review always starts its own.
+    let (f2, t4, t3) = (g.cell("F2").unwrap(), g.cell("T4").unwrap(), g.cell("T3").unwrap());
+    assert_eq!(
+        (f2.line.as_deref(), t4.line.as_deref()),
+        (Some("review"), Some("review"))
+    );
+    assert!(!t4.new_session && t4.fresh_session.is_empty());
+    assert!(t3.new_session);
+    for cell in ["T1", "T2", "T7"] {
+        let row = g
+            .cell(cell)
+            .unwrap()
+            .rows
+            .iter()
+            .find(|r| r.name == "review_first")
+            .unwrap();
+        assert_eq!(row.to, "T3", "{cell}");
+        assert!(row.actions.iter().any(|d| d.name() == "open_session"), "{cell}");
+    }
+}
+
+// A work on the light route turns to the normal route, to be judged whether it stands, when the research, the plan or
+// the review of the plan says it needs it, or when the review sends the plan back a third time, and to design when the
+// way on after a reply or an interjection is a redesign; each of these rows counts `route_to_normal`. A plan sent back before that goes back to be planned again, and counts as a revision.
+#[test]
+fn a_light_work_turns_to_the_normal_route_by_rows_that_count_it() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    for (cell, row, more) in [
+        ("R1", "to_normal", vec![]),
+        ("F1", "to_normal", vec![]),
+        ("F2", "to_normal", vec![]),
+        ("F2", "revised_out", vec![("revisions_before", "two")]),
+    ] {
+        let (ret, given) = sampled(cell, row, &more);
+        let taken = g.take(cell, &ret, &given).unwrap();
+        assert_eq!(
+            (taken.name.as_str(), taken.to.as_str(), taken.counts.as_deref()),
+            (row, "R2", Some("route_to_normal")),
+            "{cell}"
+        );
+    }
+    // The third time the review sends the plan back is told apart from the first two by the engine's value alone.
+    let (ret, given) = sampled("F2", "revise", &[]);
+    let taken = g.take("F2", &ret, &given).unwrap();
+    assert_eq!(
+        (taken.name.as_str(), taken.to.as_str(), taken.counts.as_deref()),
+        ("revise", "F1", Some("plan_revisions"))
+    );
+    let (_, two) = sampled("F2", "revised_out", &[]);
+    assert_eq!(g.take("F2", &ret, &two).unwrap().name, "revised_out");
+    // A work redesigned after a reply or an interjection goes to design either way, and is counted only when it was on
+    // the light route.
+    let redesign = serde_json::json!({
+        "outcome": { "next": { "way": "redesign" } },
+        "tell_owner": [], "side_reports": [], "progress": "progress", "flow_feedback": "none",
+    });
+    for (route, row, counts) in [
+        ("light", "redesign_from_light", Some("route_to_normal")),
+        ("normal", "redesign", None),
+    ] {
+        let given = Map::from_iter(
+            [
+                ("stage", "code"),
+                ("split", "not_split"),
+                ("must_wait", "no"),
+                ("route_taken", route),
+            ]
+            .map(|(k, v)| (k.to_string(), Value::from(v))),
+        );
+        let taken = g.take("A4", &redesign, &given).unwrap();
+        assert_eq!(
+            (taken.name.as_str(), taken.to.as_str(), taken.counts.as_deref()),
+            (row, "D1", counts),
+            "{route}"
+        );
+    }
+    // The research of a work its item does not mark goes the normal route whatever it says of the route; one on the
+    // light route that says nothing of it goes on light, which the engine's check of the research sends back first.
+    let (ret, _) = sampled("R1", "light", &[]);
+    let normal = Map::from_iter([("route_taken".to_string(), Value::from("normal"))]);
+    assert_eq!(g.take("R1", &ret, &normal).unwrap().name, "done");
+    let r1 = g.cell("R1").unwrap();
+    assert!(
+        r1.checks
+            .iter()
+            .any(|c| c.check == "route_given" && c.at.as_deref() == Some("route"))
+    );
+}
+
+// The architect's line and the pick of its next matter say their session expires with the CLI's prompt cache, so that
+// every cell on them carries that, and no cell of any other line does. A flow version stored before lines could say so
+// has no such field in its cells, and reads back with it false.
 #[test]
 fn only_the_architects_line_expires_with_the_cache() {
     let c = compiled();
@@ -1719,7 +2161,12 @@ fn only_the_architects_line_expires_with_the_cache() {
     for g in &c.graphs {
         for x in &g.cells {
             if x.cache_expiry {
-                assert_eq!(x.line.as_deref(), Some("architect"), "{} {}", g.name, x.id);
+                assert!(
+                    matches!(x.line.as_deref(), Some("architect" | "picker")),
+                    "{} {}",
+                    g.name,
+                    x.id
+                );
                 expiring.push((g.name.as_str(), x.id.as_str()));
             }
         }

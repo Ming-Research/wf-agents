@@ -879,6 +879,11 @@ pub struct ItemSummary {
     /// change or report.
     pub deliver: String,
     pub level: String,
+    /// The route its works go, as its creator marked it: normal, or bugfix or feature, which go the light route.
+    pub route: String,
+    /// The route its latest work goes (light, normal, or turned: went light, then turned to the normal route); none
+    /// before a work starts. A work keeps the route its research took, whatever the item's mark became since.
+    pub route_taken: Option<String>,
     pub cancelled: Option<String>,
     pub state: ItemState,
     /// Its place in the dispatch queue, lower first; none when it is not queued.
