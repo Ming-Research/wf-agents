@@ -51,11 +51,14 @@ pub struct Status {
     /// The works the owner started that are still paused, until their machine has a slot free: the engine then lifts
     /// their pause.
     pub releasing: Vec<i64>,
-    /// The works whose wait is over, the owner's or the architect's answer come or what their row waited for, that
-    /// wait on, holding no slot, until their machine has a slot free, as the engine's last step of each found: each
-    /// then goes on before any new work starts. A work's state on the page is waiting for a free slot while it is
-    /// named here.
+    /// The works that go on once their machine has a slot free, before any new work starts: those whose wait is over,
+    /// the owner's or the architect's answer come or what their row waited for, that wait on, holding no slot, as the
+    /// engine's last step of each found, and the paused works whose pause is asked to be lifted. A work's state on the
+    /// page is waiting for a free slot while it is named here.
     pub waiting_for_slot: Vec<i64>,
+    /// The works asked to stop, by a cancel of their item or a start over, that the engine has not stopped yet, as it
+    /// waits for the step of each to end. A work's state on the page is stopping while it is named here.
+    pub stopping: Vec<i64>,
     /// The projects whose architect the owner started since every work was last paused: its works go on whatever the
     /// global state.
     pub architects_started: Vec<String>,
@@ -167,6 +170,10 @@ pub enum WorkState {
     Paused,
     /// The engine stopped it for a problem, which the owner looks at before starting it again.
     Halted,
+    /// A cancel or a start over was asked, and it ends once the step it is in has ended. The works as read never stand
+    /// so: the engine's status names such works (`stopping`), and the page gives a work so named this state in place of
+    /// the one it reads.
+    Stopping,
     /// It reached the end of its graph.
     Done,
     /// It was stopped before its end, for example because its item was cancelled.
@@ -563,6 +570,13 @@ pub struct MarkRead {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct Answer {
     pub text: String,
+    /// Who the caller declares to answer, `owner` or `delegate`, as for the words said to one architect.
+    pub speaker: String,
+    /// The parts of the answer a delegate declares to be the owner's own words, each found letter for letter in it; the
+    /// page sends none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub relayed: Option<Vec<String>>,
     /// For what the architect is asked: why it was decided this way.
     #[serde(default)]
     #[ts(optional)]
@@ -1447,6 +1461,14 @@ pub struct Gap {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct WorkSaid {
     pub text: String,
+    /// Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect; kept with the
+    /// words wherever they go: the architect's matter, the answer to an engineer's question, or the engineer alone.
+    pub speaker: String,
+    /// The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them,
+    /// kept with the words wherever they go; the page sends none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub relayed: Option<Vec<String>>,
     /// engineer (the default), architect (the default of a question about a decision card) or both.
     #[serde(default)]
     #[ts(optional)]
@@ -1470,6 +1492,13 @@ pub struct ProjectsSaid {
     /// The group, by its key.
     pub key: String,
     pub text: String,
+    /// Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect.
+    pub speaker: String,
+    /// The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+    /// the page sends none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub relayed: Option<Vec<String>>,
     /// The project whose architect it is for; none for every architect of the group.
     #[serde(default)]
     #[ts(optional)]
@@ -1484,6 +1513,14 @@ pub struct ProjectsSaid {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct ArchitectSaid {
     pub text: String,
+    /// Who the caller declares to speak: `owner` at the page, `delegate` for a session that speaks for the owner. The
+    /// architect's record of a decision says which was declared; the engine cannot tell it from who speaks.
+    pub speaker: String,
+    /// The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+    /// the page sends none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub relayed: Option<Vec<String>>,
     /// The item it is about, if any.
     #[serde(default)]
     #[ts(optional)]

@@ -56,12 +56,17 @@ started: Array<number>,
  */
 releasing: Array<number>,
 /**
- * The works whose wait is over, the owner's or the architect's answer come or what their row waited for, that
- * wait on, holding no slot, until their machine has a slot free, as the engine's last step of each found: each
- * then goes on before any new work starts. A work's state on the page is waiting for a free slot while it is
- * named here.
+ * The works that go on once their machine has a slot free, before any new work starts: those whose wait is over,
+ * the owner's or the architect's answer come or what their row waited for, that wait on, holding no slot, as the
+ * engine's last step of each found, and the paused works whose pause is asked to be lifted. A work's state on the
+ * page is waiting for a free slot while it is named here.
  */
 waiting_for_slot: Array<number>,
+/**
+ * The works asked to stop, by a cancel of their item or a start over, that the engine has not stopped yet, as it
+ * waits for the step of each to end. A work's state on the page is stopping while it is named here.
+ */
+stopping: Array<number>,
 /**
  * The projects whose architect the owner started since every work was last paused: its works go on whatever the
  * global state.
@@ -138,7 +143,7 @@ export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "stat
 /**
  * Where a work stands.
  */
-export type WorkState = "running" | "ready" | "asking" | "waiting" | "waiting_for_slot" | "paused" | "halted" | "done" | "ended";
+export type WorkState = "running" | "ready" | "asking" | "waiting" | "waiting_for_slot" | "paused" | "halted" | "stopping" | "done" | "ended";
 
 /**
  * The round of a work that is running.
@@ -882,6 +887,16 @@ count: number, };
  */
 export type WorkSaid = { text: string,
 /**
+ * Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect; kept with the
+ * words wherever they go: the architect's matter, the answer to an engineer's question, or the engineer alone.
+ */
+speaker: string,
+/**
+ * The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them,
+ * kept with the words wherever they go; the page sends none.
+ */
+relayed?: Array<string>,
+/**
  * engineer (the default), architect (the default of a question about a decision card) or both.
  */
 to?: string,
@@ -907,6 +922,15 @@ export type ProjectsSaid = {
  */
 key: string, text: string,
 /**
+ * Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect.
+ */
+speaker: string,
+/**
+ * The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+ * the page sends none.
+ */
+relayed?: Array<string>,
+/**
  * The project whose architect it is for; none for every architect of the group.
  */
 to?: string,
@@ -920,6 +944,16 @@ images: Array<ImageSent>, };
  * question of the architect's they reply to, when the box replies to one.
  */
 export type ArchitectSaid = { text: string,
+/**
+ * Who the caller declares to speak: `owner` at the page, `delegate` for a session that speaks for the owner. The
+ * architect's record of a decision says which was declared; the engine cannot tell it from who speaks.
+ */
+speaker: string,
+/**
+ * The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+ * the page sends none.
+ */
+relayed?: Array<string>,
 /**
  * The item it is about, if any.
  */
@@ -973,6 +1007,15 @@ export type ForwardNew = { project: string | null, };
  * The owner's answer to an ask of the owner, as the page and the command line hand it in.
  */
 export type Answer = { text: string,
+/**
+ * Who the caller declares to answer, `owner` or `delegate`, as for the words said to one architect.
+ */
+speaker: string,
+/**
+ * The parts of the answer a delegate declares to be the owner's own words, each found letter for letter in it; the
+ * page sends none.
+ */
+relayed?: Array<string>,
 /**
  * For what the architect is asked: why it was decided this way.
  */

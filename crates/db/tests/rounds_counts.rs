@@ -8,17 +8,17 @@ use db::rusqlite::types::Value;
 use db::rusqlite::{Connection, params, params_from_iter};
 use db::{Db, MIGRATIONS};
 
-/// A database file at version 68, the one before the version that adds `rounds.counts`: made by the first version's
-/// schema and the migrations up to 68, with the foreign keys off as the migrations run.
-fn database_at_version_68(path: &Path) -> Connection {
+/// A database file at version 69, the one before the version that adds `rounds.counts`: made by the first version's
+/// schema and the migrations up to 69, with the foreign keys off as the migrations run.
+fn database_at_version_69(path: &Path) -> Connection {
     let conn = Connection::open(path).unwrap();
     conn.pragma_update(None, "foreign_keys", false).unwrap();
     conn.execute_batch(include_str!("../../../db/migrations/0001.sql"))
         .unwrap();
-    for migration in &MIGRATIONS[..67] {
+    for migration in &MIGRATIONS[..68] {
         conn.execute_batch(migration).unwrap();
     }
-    conn.pragma_update(None, "user_version", 68).unwrap();
+    conn.pragma_update(None, "user_version", 69).unwrap();
     conn
 }
 
@@ -32,11 +32,11 @@ fn rows(conn: &Connection, sql: &str) -> Vec<Vec<Value>> {
         .collect()
 }
 
-/// The columns a round has had since before version 69, in its rows' own order.
+/// The columns a round has had since before version 70, in its rows' own order.
 const ROUND_COLUMNS: &str = "rowid, work, n, cell, session, input, output, transition, rejected, config_commit, model, \
                              usage, compactions, started_at, ended_at";
 
-// A database at version 68 with rounds that fill every column, written in an order the rounds' key does not follow,
+// A database at version 69 with rounds that fill every column, written in an order the rounds' key does not follow,
 // and rows of other tables that point at them, is migrated to now: every round has every column it had, in the order
 // it had, the rows that point at rounds still do, and the database holds together. The migration makes the table of
 // rounds afresh, and which column goes to which, and whether the order and the references are kept, is not what its
@@ -49,7 +49,7 @@ fn the_migration_keeps_every_round_and_what_points_at_it() {
     let before_rounds;
     let before_children;
     {
-        let conn = database_at_version_68(&path);
+        let conn = database_at_version_69(&path);
         conn.execute_batch(
             r#"INSERT INTO flow_versions (id, digest, compiled) VALUES
                  (1, 'd', '{"graphs": [{"name": "engineer", "cells": [{"id": "A4", "rows": [{"name": "ask", "counts": "asks"}]}]}]}');
@@ -99,11 +99,11 @@ fn the_migration_keeps_every_round_and_what_points_at_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// A database at version 68, whose views read the compiled flow for every round, with rounds that ended in no return in
+// A database at version 69, whose views read the compiled flow for every round, with rounds that ended in no return in
 // the shapes of `rounds.rejected` that sit at the edges of how the view of the rows (`round_rows`) reads them (a bound
 // that is false or null, a failed run with no kind or an empty one, an interrupt that is null, an error beside a
 // failed run, the JSON `null`, a kind that is a number, a failed run named like the cut-off row) is migrated to now:
-// the counters and the asks of every work are those the version 68 views gave before the migration. The reference is
+// the counters and the asks of every work are those the version 69 views gave before the migration. The reference is
 // those views, read from the file before it is migrated; the expected lists are worked out by hand from the rows
 // written. It passes before the change too, as the database is then at the version it has.
 #[test]
@@ -121,7 +121,7 @@ fn the_migration_counts_the_odd_shapes_of_a_round_that_ended_in_no_return_as_the
     let asking = "SELECT work, asks FROM work_asking ORDER BY work";
     let before;
     {
-        let conn = database_at_version_68(&path);
+        let conn = database_at_version_69(&path);
         conn.execute(
             "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', ?1)",
             [flow],

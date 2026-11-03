@@ -36,7 +36,8 @@ function Waits({ d, w }: { d: ItemDetail; w: WorkSummary }) {
       </PrimerLink>
     );
   }
-  if (w.paused !== null) {
+  const state = liveState(w, status);
+  if (w.paused !== null && state !== 'stopping' && state !== 'waiting_for_slot') {
     const key =
       w.paused_by === 'architect'
         ? 'progress_stopped_architect'
@@ -45,17 +46,18 @@ function Waits({ d, w }: { d: ItemDetail; w: WorkSummary }) {
           : 'progress_paused';
     return <p className="step-waits warn">{t(key, { why: w.paused })}</p>;
   }
-  const state = liveState(w, status);
   const key =
-    state === 'running'
-      ? 'progress_running'
-      : state === 'waiting'
-        ? 'progress_waiting'
-        : state === 'waiting_for_slot'
-          ? 'progress_waiting_for_slot'
-          : state === 'asking'
-            ? 'progress_asking'
-            : 'progress_ready';
+    state === 'stopping'
+      ? 'progress_stopping'
+      : state === 'running'
+        ? 'progress_running'
+        : state === 'waiting'
+          ? 'progress_waiting'
+          : state === 'waiting_for_slot'
+            ? 'progress_waiting_for_slot'
+            : state === 'asking'
+              ? 'progress_asking'
+              : 'progress_ready';
   return <p className="step-waits muted">{t(key)}</p>;
 }
 

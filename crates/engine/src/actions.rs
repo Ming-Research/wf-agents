@@ -674,11 +674,23 @@ fn line_of(ctx: &Ctx) -> String {
     }
 }
 
+/// What carrying out an action of the outbox came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Carried {
+    /// It is done with, and leaves the outbox.
+    Done,
+    /// Its time has not come, which is no failure: it stays as it is for a later turn of the loop.
+    NotYet,
+}
+
 /// Carries out what is due in the outbox, as only the engine's loop does; an action that fails is tried again later,
-/// waiting longer each time. An action on a work with a job in flight (its start over, the removal of its worktree,
-/// closing its pull request, reverting its merge) waits until the job has ended, since a start over would cut off the
-/// round the job runs and the others take away what it works on; a notice to the owner does not wait. Gives whether
-/// anything was done.
+/// waiting longer each time. An action on a work with a job in flight (its start over, its item's cancel, lifting its
+/// pause, the removal of its worktree, closing its pull request, reverting its merge) waits until the job has ended,
+/// since a start over or a cancel would end the work under the job and the others take away what it works on; a notice
+/// to the owner does not wait. A cancel waits too for a work that took its item over, and lifting a pause for a free
+/// slot; neither counts as anything done, nor as a failure. What is due is read once and carried out in turn, and an
+/// action may take a while, so a request a later word can withdraw or join is read again where it is carried out. Gives
+/// whether anything was done.
 pub fn run_outbox(e: &mut Engine) -> Result<bool, String> {
     let due = query_json(
         e.db.conn(),
@@ -694,31 +706,35 @@ pub fn run_outbox(e: &mut Engine) -> Result<bool, String> {
             continue;
         }
         let args = &row["args"];
+        let text = |k: &str| args[k].as_str().unwrap_or_default();
+        let done = |r: Result<(), String>| r.map(|()| Carried::Done);
         let result = match row["kind"].as_str().unwrap_or_default() {
-            db::START_OVER => e.start_over(
+            db::START_OVER => done(e.start_over(
                 row["work"].as_i64().unwrap_or_default(),
-                args["by"].as_str().unwrap_or_default(),
+                text("by"),
                 args["why"].as_str(),
-            ),
-            "notify" => notify_owner(e, args["text"].as_str().unwrap_or_default()),
+            )),
+            db::CANCEL_ITEM => e.cancel_asked(args["item"].as_i64().unwrap_or_default(), text("why"), text("by")),
+            db::RESUME_WORK => e.resume_asked(row["work"].as_i64().unwrap_or_default(), text("by")),
+            "notify" => done(notify_owner(e, text("text"))),
             "remove_worktree" => {
-                let checkout = PathBuf::from(args["checkout"].as_str().unwrap_or_default());
-                git::remove_worktree(&checkout, Path::new(args["dir"].as_str().unwrap_or_default()))
+                let checkout = PathBuf::from(text("checkout"));
+                done(git::remove_worktree(&checkout, Path::new(text("dir"))))
             }
-            "close_pr" => e
-                .github()
-                .close(
-                    args["repo"].as_str().unwrap_or_default(),
-                    args["pr"].as_i64().unwrap_or_default(),
-                    args["comment"].as_str().unwrap_or_default(),
-                )
-                .map_err(|f| f.what),
-            "revert_merge" => revert(e, args),
+            "close_pr" => done(
+                e.github()
+                    .close(text("repo"), args["pr"].as_i64().unwrap_or_default(), text("comment"))
+                    .map_err(|f| f.what),
+            ),
+            "revert_merge" => done(revert(e, args)),
             other => Err(format!("no such outbox action: {other}")),
         };
+        if matches!(result, Ok(Carried::NotYet)) {
+            continue;
+        }
         did = true;
         match result {
-            Ok(()) => {
+            Ok(_) => {
                 e.db.conn()
                     .execute("DELETE FROM outbox WHERE id = ?1", [id])
                     .map_err(sql)?;

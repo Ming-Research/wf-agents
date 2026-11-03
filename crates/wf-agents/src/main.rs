@@ -63,6 +63,13 @@ enum Command {
         /// The answer.
         #[arg(long)]
         text: String,
+        /// Who answers: `owner`, or `delegate` for a session that speaks for the owner.
+        #[arg(long)]
+        speaker: String,
+        /// A part of the answer that is the owner's own words, found in it letter for letter; for a delegate only, and
+        /// given again for each part. What is not marked stays the delegate's own.
+        #[arg(long)]
+        relayed: Vec<String>,
         /// For what the architect is asked: why it was decided this way.
         #[arg(long)]
         why: Option<String>,
@@ -100,6 +107,13 @@ enum Command {
     Say {
         work: i64,
         text: String,
+        /// Who speaks: `owner`, or `delegate` for a session that speaks for the owner.
+        #[arg(long)]
+        speaker: String,
+        /// A part of the words that is the owner's own, found in them letter for letter; for a delegate only, and given
+        /// again for each part. What is not marked stays the delegate's own.
+        #[arg(long)]
+        relayed: Vec<String>,
         /// engineer, architect or both.
         #[arg(long, default_value = "engineer")]
         to: String,
@@ -114,9 +128,10 @@ enum Command {
         #[arg(long)]
         why: String,
     },
-    /// Lifts a work's pause, as the owner, as its Start on the page does: one the architect stopped is the owner's
-    /// release of it, which the architect is told. It then goes on as every work does, which while every work is
-    /// paused on the page is only once the owner starts it there or lets every work go on.
+    /// Asks to lift a work's pause, as the owner, as its Start on the page does: the running engine lifts it once the
+    /// work's machine has a slot free, and one the architect stopped is the owner's release of it, which the architect
+    /// is told. It then goes on as every work does, which while every work is paused on the page is only once the
+    /// owner starts it there or lets every work go on.
     Resume { work: i64 },
     /// Where each work stands.
     Status,
@@ -211,7 +226,9 @@ enum ItemCommand {
         #[arg(long, value_parser = ["blocking", "parallel"])]
         kind: String,
     },
-    /// Cancels an item, and ends its work.
+    /// Cancels an item. A work that goes on ends once the running engine has finished the step it is in, so while the
+    /// engine does not run the cancel waits for its next start; an item whose merge stands on main, or whose merge comes
+    /// first, is not cancelled.
     Cancel {
         item: i64,
         #[arg(long)]
@@ -225,6 +242,15 @@ enum ArchitectCommand {
     /// when none runs and works go on.
     Say {
         text: String,
+        /// Who speaks: `owner`, or `delegate` for a session that speaks for the owner. The architect's record of a
+        /// decision says which was declared.
+        #[arg(long)]
+        speaker: String,
+        /// A part of the words that is the owner's own, found in them letter for letter; for a delegate only, and given
+        /// again for each part. The architect's record of a decision says which parts were marked, and that nothing
+        /// checked it.
+        #[arg(long)]
+        relayed: Vec<String>,
         /// The project whose architect it is for; it may be left out when the configuration has one project.
         #[arg(long)]
         project: Option<String>,
@@ -454,7 +480,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::Item(ItemCommand::Depend { item, on, needs, kind }) => {
             owner::depend(d, item, &owner::Dependency { on, kind, needs })
         }
-        Command::Item(ItemCommand::Cancel { item, why }) => owner::cancel(d, item, &why),
+        Command::Item(ItemCommand::Cancel { item, why }) => print(owner::cancel(d, item, &why)),
         Command::Queue(QueueCommand::List) => print(owner::queue_list(d)),
         Command::Queue(QueueCommand::Put {
             item,
@@ -473,16 +499,44 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         }
         Command::Asks { all } => print(owner::asks(d, all)),
         Command::Ask { id } => print(owner::ask(d, id)),
-        Command::Answer { ask, text, why, reply } => {
+        Command::Answer {
+            ask,
+            text,
+            speaker,
+            relayed,
+            why,
+            reply,
+        } => {
             let reply: Option<serde_json::Value> = match reply {
                 Some(r) => Some(serde_json::from_str(&r).map_err(|e| format!("--reply: {e}"))?),
                 None => None,
             };
-            print(owner::answer(d, owner::Answer { ask, text, why, reply }))
+            print(owner::answer(
+                d,
+                owner::Answer {
+                    ask,
+                    text,
+                    speaker,
+                    relayed,
+                    why,
+                    reply,
+                },
+            ))
         }
-        Command::Architect(ArchitectCommand::Say { text, project, item }) => {
-            print(owner::say_to_architect(d, project.as_deref(), item, &text))
-        }
+        Command::Architect(ArchitectCommand::Say {
+            text,
+            speaker,
+            relayed,
+            project,
+            item,
+        }) => print(owner::say_to_architect(
+            d,
+            project.as_deref(),
+            item,
+            &text,
+            &speaker,
+            &relayed,
+        )),
         Command::DesignCards { all } => print(owner::design_cards(d, all)),
         Command::DesignCard { id } => print(owner::design_card(d, id)),
         Command::Rule {
@@ -501,7 +555,13 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                 text,
             },
         )),
-        Command::Say { work, text, to } => print(owner::say(d, work, &to, &text)),
+        Command::Say {
+            work,
+            text,
+            speaker,
+            relayed,
+            to,
+        } => print(owner::say(d, work, &to, &text, &speaker, &relayed)),
         Command::Pause { work, why } => print(owner::pause(d, work, &why)),
         Command::Resume { work } => print(owner::resume(d, work)),
         Command::Status => print(owner::status(d)),
@@ -561,6 +621,7 @@ fn status(e: &mut engine::Engine, last: Option<&api::StepTaken>, started_at: i64
         started: Vec::new(),
         releasing: Vec::new(),
         waiting_for_slot: e.waiting_for_slot()?,
+        stopping: db::stopping(e.db.conn()).map_err(|x| x.to_string())?,
         architects_started: Vec::new(),
         running: Vec::new(),
         stepping: Vec::new(),

@@ -350,9 +350,9 @@ impl Ended {
 }
 
 /// Ends a round still open as `e` says; what it cost, when already kept on it and `e` says nothing of it, stays, as for
-/// a round whose work is to be started over, which the takeover cuts off. A round already ended is an error, so that
-/// the transaction it is ended in rolls back: a step whose work was ended from outside it meanwhile, its round cut off,
-/// takes nothing of what it did over the end.
+/// a round whose work is asked to stop, which the end of the work cuts off. A round already ended is an error, so that
+/// the transaction it is ended in rolls back: no work ends while a step of it runs ([`crate::schedule`]), so a step that
+/// finds its round ended is a fault, which pauses the work for the owner to see.
 pub fn finish_round(conn: &Connection, id: RoundId, e: &Ended) -> Result<(), String> {
     let n = conn
         .execute(

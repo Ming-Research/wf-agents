@@ -11,7 +11,7 @@ use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::attachments::{self, Image, Words};
-use crate::{Actor, Db, Error, Result, STOPPED_BY_ARCHITECT, now};
+use crate::{Actor, Db, Error, Result, STOPPED_BY_ARCHITECT, now, withdraw_resume};
 
 /// A matter to queue for a project's architect.
 #[derive(Debug, Clone, Default)]
@@ -62,14 +62,16 @@ pub fn project_of_item(tx: &Transaction<'_>, item: i64) -> Result<Option<String>
 }
 
 /// Lifts a work's pause, in a write made as the owner, as the owner's Start of it does: a work the architect stopped is
-/// then the owner's release of it, which the architect of its project is told as the owner's words. Gives whether the
-/// architect had stopped it.
+/// then the owner's release of it, which the architect of its project is told as the owner's words. A request to lift
+/// the pause still in the outbox goes with it, so that none outlives the pause it was for and lifts a later one. Gives
+/// whether the architect had stopped it.
 pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
     let (paused, by, item): (Option<String>, Option<String>, Option<i64>) =
         tx.query_row("SELECT paused, paused_by, item FROM works WHERE id = ?1", [work], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })?;
     tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work])?;
+    withdraw_resume(tx, work)?;
     let stopped = (by.as_deref() == Some("engine"))
         .then(|| paused.as_deref()?.strip_prefix(STOPPED_BY_ARCHITECT))
         .flatten();
@@ -94,9 +96,131 @@ pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
     Ok(true)
 }
 
+/// Who says the words that come to an architect as the owner's, as the caller declares it: the owner at the page, or a
+/// session that speaks for the owner, a delegate. Every way in declares one. The engine cannot tell them apart, since
+/// both reach it through the same interface, so the declaration is the caller's own: a delegate that declares itself
+/// the owner is not caught. The architect's record of a decision says which was declared; words kept before the
+/// declaration was asked for have none, and are told as unrecorded, never as the owner's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Speaker {
+    Owner,
+    Delegate,
+}
+
+impl Speaker {
+    /// As the records keep it (`speaker` in the body of the owner's words, in the answer to an ask).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Speaker::Owner => "owner",
+            Speaker::Delegate => "delegate",
+        }
+    }
+
+    /// The speaker a request declares, as the page and the command line name it; an error for a name that is neither,
+    /// and for none.
+    pub fn parse(name: &str) -> std::result::Result<Speaker, String> {
+        match name.trim() {
+            "owner" => Ok(Speaker::Owner),
+            "delegate" => Ok(Speaker::Delegate),
+            other => Err(format!(
+                "the speaker, owner or delegate, says who speaks: {}",
+                if other.is_empty() {
+                    "none was given".to_string()
+                } else {
+                    format!("{other} is neither")
+                }
+            )),
+        }
+    }
+}
+
+/// Who a request declares to speak, and which parts of what a delegate says it declares to be the owner's own words
+/// (`relayed`): a delegate's message can hold words the owner said to it, which the engine cannot check, since the owner
+/// said them in the delegate's session and not through the interface. The declaration is the caller's own and is
+/// kept as it was made; a decision that quotes a relayed part is told as the owner's, relayed by the delegate, not
+/// checked, and one that quotes the rest of the message as the delegate's. A speaker alone declares no relayed part.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declared {
+    pub speaker: Speaker,
+    pub relayed: Vec<String>,
+}
+
+impl From<Speaker> for Declared {
+    fn from(speaker: Speaker) -> Declared {
+        Declared {
+            speaker,
+            relayed: Vec::new(),
+        }
+    }
+}
+
+impl Declared {
+    /// What a request declares, by the speaker's name and the relayed parts it gives; an error for a speaker that is
+    /// neither the owner nor a delegate, for none, and for relayed parts declared by anyone but a delegate, since the
+    /// owner at the page relays nothing.
+    pub fn parse(name: &str, relayed: &[String]) -> std::result::Result<Declared, String> {
+        let declared = Declared {
+            speaker: Speaker::parse(name)?,
+            relayed: relayed.to_vec(),
+        };
+        declared.only_a_delegate_relays()?;
+        Ok(declared)
+    }
+
+    /// That nothing is relayed unless a delegate declares it: the owner at the page relays nothing, since it says its
+    /// own words.
+    fn only_a_delegate_relays(&self) -> std::result::Result<(), String> {
+        if self.speaker != Speaker::Delegate && !self.relayed.is_empty() {
+            return Err(format!(
+                "only a delegate relays the owner's words: {} says its own",
+                self.speaker.as_str()
+            ));
+        }
+        Ok(())
+    }
+
+    /// The relayed parts as the record keeps them, a JSON array, once each is found letter for letter in `stored`, the
+    /// text the record keeps (the words after they were trimmed, as they are kept); none when nothing is relayed. An
+    /// error names the part that is blank or is not in the text, and nothing is written then. The one place that
+    /// checks what a caller relays: every way in goes through it.
+    pub fn relayed_in(&self, stored: &str) -> std::result::Result<Option<Value>, String> {
+        self.only_a_delegate_relays()?;
+        if self.relayed.is_empty() {
+            return Ok(None);
+        }
+        for r in &self.relayed {
+            if r.trim().is_empty() {
+                return Err("a relayed part is blank: give the words of the owner's that the message holds".into());
+            }
+            if !stored.contains(r.as_str()) {
+                return Err(format!(
+                    "the relayed part \"{r}\" is not found letter for letter in the words said, which are \
+                     \"{stored}\": give a part of them as it is"
+                ));
+            }
+        }
+        Ok(Some(Value::Array(
+            self.relayed.iter().map(|r| Value::String(r.clone())).collect(),
+        )))
+    }
+
+    /// `body`, an object, with the speaker recorded in it as `speaker` and the relayed parts, if any, as `relayed`;
+    /// `stored` is the text the body keeps the words in.
+    pub fn record(&self, mut body: Value, stored: &str) -> std::result::Result<Value, String> {
+        let relayed = self.relayed_in(stored)?;
+        if let Some(o) = body.as_object_mut() {
+            o.insert("speaker".into(), Value::String(self.speaker.as_str().into()));
+            if let Some(r) = relayed {
+                o.insert("relayed".into(), r);
+            }
+        }
+        Ok(body)
+    }
+}
+
 /// Says something to a project's architect, as the owner: the words, and the images sent with them, come to its queue
 /// as a matter of the kind owner_words, which starts a work of it. Where it was said goes with it: in the conversation
-/// about a work, the work and its item; on an item's page, the item.
+/// about a work, the work and its item; on an item's page, the item. `speaker` is who the caller declares to say it.
 pub fn say_to_architect(
     db: &mut Db,
     project: &str,
@@ -104,7 +228,9 @@ pub fn say_to_architect(
     work: Option<i64>,
     text: &str,
     images: &[Image],
+    speaker: impl Into<Declared>,
 ) -> std::result::Result<String, String> {
+    let speaker: Declared = speaker.into();
     let text = text.trim();
     if text.is_empty() && images.is_empty() {
         return Err("what is said to the architect says something".into());
@@ -113,16 +239,17 @@ pub fn say_to_architect(
         return Err("what is said to an architect names its project".into());
     }
     attachments::check(images)?;
+    let body = match (work, item) {
+        (Some(w), _) => serde_json::json!({ "text": text, "where": "work", "work": w }),
+        (None, Some(_)) => serde_json::json!({ "text": text, "where": "item" }),
+        (None, None) => serde_json::json!({ "text": text, "where": "page" }),
+    };
     let m = Matter {
         project: project.to_string(),
         kind: "owner_words".into(),
         detail: Some("said".into()),
         what: attachments::owner_says(text, images.len()),
-        body: match (work, item) {
-            (Some(w), _) => serde_json::json!({ "text": text, "where": "work", "work": w }),
-            (None, Some(_)) => serde_json::json!({ "text": text, "where": "item" }),
-            (None, None) => serde_json::json!({ "text": text, "where": "page" }),
-        },
+        body: speaker.record(body, text)?,
         item,
         ..Matter::default()
     };
@@ -315,8 +442,8 @@ mod tests {
     #[test]
     fn the_owner_s_words_come_to_the_architect_s_queue() {
         let mut db = Db::in_memory().unwrap();
-        assert!(say_to_architect(&mut db, "p", None, None, "  ", &[]).is_err());
-        assert!(say_to_architect(&mut db, "", None, None, "Go on.", &[]).is_err());
+        assert!(say_to_architect(&mut db, "p", None, None, "  ", &[], Speaker::Owner).is_err());
+        assert!(say_to_architect(&mut db, "", None, None, "Go on.", &[], Speaker::Owner).is_err());
         assert_eq!(
             say_to_architect(
                 &mut db,
@@ -324,7 +451,8 @@ mod tests {
                 None,
                 None,
                 "Put the parser first. It blocks the rest.",
-                &[]
+                &[],
+                Speaker::Owner
             )
             .unwrap(),
             "the architect of p has it as matter 1"
@@ -340,9 +468,95 @@ mod tests {
             .unwrap();
         assert_eq!((project.as_str(), kind.as_str()), ("p", "owner_words"));
         assert_eq!(what, "The owner says: Put the parser first.");
+        // The speaker the caller declared is kept with the words, whatever order the keys are written in.
         assert_eq!(
-            body,
-            r#"{"text":"Put the parser first. It blocks the rest.","where":"page"}"#
+            serde_json::from_str::<Value>(&body).unwrap(),
+            serde_json::json!({
+                "text": "Put the parser first. It blocks the rest.",
+                "where": "page",
+                "speaker": "owner",
+            })
         );
+    }
+
+    // The speaker a request declares goes into the owner's words as it was declared; a request that declares none, or a
+    // name that is neither the owner nor a delegate, is refused.
+    #[test]
+    fn the_speaker_a_request_declares_is_kept_with_the_words() {
+        assert_eq!(Speaker::parse("owner"), Ok(Speaker::Owner));
+        assert_eq!(Speaker::parse(" delegate "), Ok(Speaker::Delegate));
+        assert!(Speaker::parse("").unwrap_err().contains("none was given"));
+        assert!(
+            Speaker::parse("architect")
+                .unwrap_err()
+                .contains("architect is neither")
+        );
+        let mut db = Db::in_memory().unwrap();
+        for speaker in [Speaker::Owner, Speaker::Delegate] {
+            say_to_architect(&mut db, "p", None, Some(3), "Go on.", &[], speaker).unwrap();
+        }
+        let kept: Vec<Option<String>> = db
+            .conn()
+            .prepare("SELECT json_extract(body, '$.speaker') FROM architect_matters ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(kept, [Some("owner".into()), Some("delegate".into())]);
+    }
+
+    // A delegate may declare which parts of what it says are the owner's own words: the parts are kept with the words, as
+    // given, once each is found letter for letter in the words as they are kept (trimmed). A part that is blank or is not
+    // in them, and parts declared by the owner, are refused, and nothing is kept.
+    #[test]
+    fn the_parts_a_delegate_relays_are_kept_with_the_words_once_found_in_them() {
+        let parts = |rs: &[&str]| rs.iter().map(|r| r.to_string()).collect::<Vec<String>>();
+        assert!(Declared::parse("owner", &[]).is_ok());
+        let by_owner = Declared::parse("owner", &parts(&["Go on."]));
+        assert!(by_owner.unwrap_err().contains("only a delegate relays"));
+        assert!(Declared::parse("delegate", &parts(&["Go on."])).is_ok());
+        let mut db = Db::in_memory().unwrap();
+        let mut say = |text: &str, rs: &[&str]| {
+            let by = Declared::parse("delegate", &parts(rs)).unwrap();
+            say_to_architect(&mut db, "p", None, None, text, &[], by)
+        };
+        // The words are kept trimmed, and so is what a part is found in.
+        say("  Yes. Put the parser first.  ", &["Put the parser first."]).unwrap();
+        let text = "Yes. Put the parser first.";
+        assert!(
+            say(text, &["Put the parser first.", " "])
+                .unwrap_err()
+                .contains("blank")
+        );
+        let err = say(text, &["put the parser first."]).unwrap_err();
+        assert!(err.contains("is not found letter for letter"), "{err}");
+        let err = say(text, &["Yes.  Put"]).unwrap_err();
+        assert!(err.contains("is not found letter for letter"), "{err}");
+        // A blank at the edge of a part is not in the trimmed words.
+        assert!(say("  Yes. Put it first.  ", &[" Yes."]).is_err());
+        let rows = |db: &Db| -> i64 {
+            let count = "SELECT count(*) FROM architect_matters";
+            db.conn().query_row(count, [], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(rows(&db), 1);
+        let one = "SELECT body FROM architect_matters";
+        let body: String = db.conn().query_row(one, [], |r| r.get(0)).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&body).unwrap(),
+            serde_json::json!({
+                "text": "Yes. Put the parser first.",
+                "where": "page",
+                "speaker": "delegate",
+                "relayed": ["Put the parser first."],
+            })
+        );
+        // Declared by the owner at the page, nothing is relayed.
+        let owner_relays = Declared {
+            speaker: Speaker::Owner,
+            relayed: vec!["Yes.".into()],
+        };
+        assert!(say_to_architect(&mut db, "p", None, None, "Yes.", &[], owner_relays).is_err());
+        assert_eq!(rows(&db), 1);
     }
 }
