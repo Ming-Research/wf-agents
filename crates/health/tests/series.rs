@@ -785,11 +785,7 @@ fn a_commit_on_main_counts_by_its_committer_time_whatever_its_order_on_main() {
 fn a_merge_ending_as_main_s_newest_commit_was_made_is_judged() {
     let mut s = Seed::new();
     let (on, tip) = ("a".repeat(40), "b".repeat(40));
-    let log = format!(
-        "{tip} {}\n{on} {}\n",
-        (T0 + 300_000) / 1000,
-        (T0 + 60_000) / 1000
-    );
+    let log = format!("{tip} {}\n{on} {}\n", (T0 + 300_000) / 1000, (T0 + 60_000) / 1000);
     let main = MainLog::parse(&log).unwrap();
     let (i, j) = (s.item("p", false, T0 - 60 * M), s.item("q", false, T0 - 60 * M));
     let (w, v) = (s.work(Some(i), "engineer", None), s.work(Some(j), "engineer", None));
