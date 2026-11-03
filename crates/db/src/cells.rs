@@ -47,6 +47,7 @@ const BEFORE: [(&str, &str, &[&str]); 78] = [
     ("engineer", "T1", &["6", "adversarial", "test.adversarial"]),
     ("engineer", "T2", &["7", "full_ci", "test.full_ci"]),
     ("engineer", "T3", &["5", "blind_review", "test.blind_review"]),
+    ("engineer", "G3", &[]),
     ("engineer", "T4", &["5a", "table_review", "test.table_review"]),
     ("engineer", "T5", &["5b", "tree_review", "test.tree_review"]),
     ("engineer", "T6", &["8", "fix", "test.fix"]),

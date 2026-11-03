@@ -4124,6 +4124,23 @@
       "lines": [
         "architect"
       ]
+    },
+    {
+      "name": "history",
+      "desc": "How an agent that gathers history from the items and git works, whatever it gathers it for",
+      "text": [
+        "You gather the history an agent needs before it works. You only select and quote: no summary in your own words beyond a short label per entry, no reasoning, no advice. Every entry carries its source.",
+        "The history is in the database and the repository's git history, and only there: read no document of the repository and no chat log. In the database, read with `sqlite3` at the address you are given: `items` (`problem` says what was wrong, `why` why it mattered, `approach` what was done and why, under the heads `Approach:`, `Decisions:` and `Learned:`, then marked lines: `Decision (` the decisions, each with its date, who decided (owner; `owner relayed by the delegate, not checked`, the owner's own words as a delegate passed them on, which no one checked against what the owner said, though a decision rests on them as the owner's; delegate; unrecorded; or architect), situation, reason, what it replaces and the words it rests on with the record they are in, a quotation of a source other than the line's own saying its source after its date; `Fact (` facts found; `Dropped (` approaches dropped, with why; `Commits:` commits); `item_links`, which item built on which; `observations_all`, findings not made into items yet; `architect_matters`, the owner's own words to the architect (kind `owner_words`), where a decision no marked line records may still stand; `works` and `rounds`, what each work did round by round. In git: `git log --follow -- <file>`, `git log -L :<function>:<file>`, `git show <hash>`. A commit in an item's `Commits:` line leads to its item.",
+        "Search without printing whole texts: select `id`, `title` and a snippet around each match, with several words, English and Chinese, and synonyms. Follow `item_links` from what you find. Choose the items that bear most on the request, at most eight, and read each whole; from each take every passage on the request, the plain text as much as the marked lines. Keep the search small: about twenty-five commands at most.",
+        "The owner's decisions come first. For each matter keep only the latest in force: follow `Replaces:`, and look as well for a later decision on the same matter that says `Replaces: none`, since the marks are not always filled. Say its date, the situation it was made in and its reason; a decision is the latest known as of its date, never true forever.",
+        "A path in the history is the path of the day it was written. Before you hand a brief in, check every file or directory path it names, in a quote or in your own label, against the project's files as the work has them: the directory you run in, with `git ls-files` or `ls`. Keep the quote as it is and put `(gone)` after a path the files do not have; when git shows where it went (`git log --follow --name-status`), say so, as `(gone: moved to <path> in <commit>)`. Leave a path that is there unmarked. Do not drop an entry for its gone path: it is true as history."
+      ],
+      "lines": [
+        "librarian"
+      ],
+      "givenWith": [
+        "history_sources"
+      ]
     }
   ],
   "flows": [
@@ -4173,6 +4190,7 @@
             "T1",
             "T2",
             "T3",
+            "G3",
             "T4",
             "T6",
             "T7",
@@ -4394,6 +4412,7 @@
               "T1",
               "T2",
               "T3",
+              "G3",
               "T4",
               "T6",
               "T7"
@@ -4605,6 +4624,7 @@
                 "D1",
                 "D2",
                 "I1",
+                "T4",
                 "T6"
               ]
             },
@@ -5248,10 +5268,6 @@
             }
           ],
           "prompt": [
-            "You gather the history an agent needs before it works. You only select and quote: no summary in your own words beyond a short label per entry, no reasoning, no advice. Every entry carries its source.",
-            "The history is in the database and the repository's git history, and only there: read no document of the repository and no chat log. In the database, read with `sqlite3` at the address you are given: `items` (`problem` says what was wrong, `why` why it mattered, `approach` what was done and why, under the heads `Approach:`, `Decisions:` and `Learned:`, then marked lines: `Decision (` the decisions, each with its date, who decided (owner; `owner relayed by the delegate, not checked`, the owner's own words as a delegate passed them on, which no one checked against what the owner said, though a decision rests on them as the owner's; delegate; unrecorded; or architect), situation, reason, what it replaces and the words it rests on with the record they are in, a quotation of a source other than the line's own saying its source after its date; `Fact (` facts found; `Dropped (` approaches dropped, with why; `Commits:` commits); `item_links`, which item built on which; `observations_all`, findings not made into items yet; `architect_matters`, the owner's own words to the architect (kind `owner_words`), where a decision no marked line records may still stand; `works` and `rounds`, what each work did round by round. In git: `git log --follow -- <file>`, `git log -L :<function>:<file>`, `git show <hash>`. A commit in an item's `Commits:` line leads to its item.",
-            "Search without printing whole texts: select `id`, `title` and a snippet around each match, with several words, English and Chinese, and synonyms. Follow `item_links` from what you find. Choose the items that bear most on the request, at most eight, and read each whole; from each take every passage on the request, the plain text as much as the marked lines. Keep the search small: about twenty-five commands at most.",
-            "The owner's decisions come first. For each matter keep only the latest in force: follow `Replaces:`, and look as well for a later decision on the same matter that says `Replaces: none`, since the marks are not always filled. Say its date, the situation it was made in and its reason; a decision is the latest known as of its date, never true forever.",
             "This round gathers the history of the problem this item is about: earlier works, related items, observations taken in, and what the owner decided on it."
           ],
           "out": [
@@ -5514,10 +5530,6 @@
             }
           ],
           "prompt": [
-            "You gather the history an agent needs before it works. You only select and quote: no summary in your own words beyond a short label per entry, no reasoning, no advice. Every entry carries its source.",
-            "The history is in the database and the repository's git history, and only there: read no document of the repository and no chat log. In the database, read with `sqlite3` at the address you are given: `items` (`problem` says what was wrong, `why` why it mattered, `approach` what was done and why, under the heads `Approach:`, `Decisions:` and `Learned:`, then marked lines: `Decision (` the decisions, each with its date, who decided (owner; `owner relayed by the delegate, not checked`, the owner's own words as a delegate passed them on, which no one checked against what the owner said, though a decision rests on them as the owner's; delegate; unrecorded; or architect), situation, reason, what it replaces and the words it rests on with the record they are in, a quotation of a source other than the line's own saying its source after its date; `Fact (` facts found; `Dropped (` approaches dropped, with why; `Commits:` commits); `item_links`, which item built on which; `observations_all`, findings not made into items yet; `architect_matters`, the owner's own words to the architect (kind `owner_words`), where a decision no marked line records may still stand; `works` and `rounds`, what each work did round by round. In git: `git log --follow -- <file>`, `git log -L :<function>:<file>`, `git show <hash>`. A commit in an item's `Commits:` line leads to its item.",
-            "Search without printing whole texts: select `id`, `title` and a snippet around each match, with several words, English and Chinese, and synonyms. Follow `item_links` from what you find. Choose the items that bear most on the request, at most eight, and read each whole; from each take every passage on the request, the plain text as much as the marked lines. Keep the search small: about twenty-five commands at most.",
-            "The owner's decisions come first. For each matter keep only the latest in force: follow `Replaces:`, and look as well for a later decision on the same matter that says `Replaces: none`, since the marks are not always filled. Say its date, the situation it was made in and its reason; a decision is the latest known as of its date, never true forever.",
             "This round gathers the history of the code in the areas the research located: start from the files' git history and map its commits to items; what was tried there and dropped, and why, comes first after the owner's decisions."
           ],
           "out": [
@@ -6845,10 +6857,6 @@
             }
           ],
           "prompt": [
-            "You gather the history an agent needs before it works. You only select and quote: no summary in your own words beyond a short label per entry, no reasoning, no advice. Every entry carries its source.",
-            "The history is in the database and the repository's git history, and only there: read no document of the repository and no chat log. In the database, read with `sqlite3` at the address you are given: `items` (`problem` says what was wrong, `why` why it mattered, `approach` what was done and why, under the heads `Approach:`, `Decisions:` and `Learned:`, then marked lines: `Decision (` the decisions, each with its date, who decided (owner; `owner relayed by the delegate, not checked`, the owner's own words as a delegate passed them on, which no one checked against what the owner said, though a decision rests on them as the owner's; delegate; unrecorded; or architect), situation, reason, what it replaces and the words it rests on with the record they are in, a quotation of a source other than the line's own saying its source after its date; `Fact (` facts found; `Dropped (` approaches dropped, with why; `Commits:` commits); `item_links`, which item built on which; `observations_all`, findings not made into items yet; `architect_matters`, the owner's own words to the architect (kind `owner_words`), where a decision no marked line records may still stand; `works` and `rounds`, what each work did round by round. In git: `git log --follow -- <file>`, `git log -L :<function>:<file>`, `git show <hash>`. A commit in an item's `Commits:` line leads to its item.",
-            "Search without printing whole texts: select `id`, `title` and a snippet around each match, with several words, English and Chinese, and synonyms. Follow `item_links` from what you find. Choose the items that bear most on the request, at most eight, and read each whole; from each take every passage on the request, the plain text as much as the marked lines. Keep the search small: about twenty-five commands at most.",
-            "The owner's decisions come first. For each matter keep only the latest in force: follow `Replaces:`, and look as well for a later decision on the same matter that says `Replaces: none`, since the marks are not always filled. Say its date, the situation it was made in and its reason; a decision is the latest known as of its date, never true forever.",
             "This round answers one request: what the agent that asked wants to know. Look only for that, and hand back what bears on it."
           ],
           "out": [
@@ -7960,7 +7968,7 @@
                   "own"
                 ]
               ],
-              "to": "T4",
+              "to": "G3",
               "main": true
             }
           ],
@@ -7973,6 +7981,69 @@
           "inenums": {
             "work": "work_kind"
           }
+        },
+        {
+          "id": "G3",
+          "kind": "agent",
+          "title": "Gather the history of the changed files",
+          "effort": "low",
+          "line": "librarian",
+          "inputs": [
+            {
+              "name": "The item",
+              "what": "The item this work is on: what the change is for",
+              "from": [
+                {
+                  "db": "item_body",
+                  "by": "item"
+                }
+              ]
+            },
+            {
+              "name": "The change",
+              "what": "What the change is, by commits the worktree has: main as fetched (`origin/<main>`, the pull request's base), the commit of main the branch was cut from or last took main in at, the head, and the git command that reads the change between them",
+              "from": [
+                {
+                  "engine": "review_base"
+                }
+              ]
+            },
+            {
+              "name": "Where the history is",
+              "what": "The database's read-only address and the project's checkout",
+              "from": [
+                {
+                  "engine": "history_sources"
+                }
+              ]
+            }
+          ],
+          "prompt": [
+            "This round gathers the history of the files this change touches, for the review that follows. List the files of the change with `git diff --name-only` on the commits you are given, in the directory you run in, and read the item for what the change is for. For each file start from its git history up to the fork point (`git log --follow <fork_point> -- <file>`) and map each commit to its item through the item's `Commits:` line. A `Dropped` line names an approach, a function or a check far more often than a path, so also search the items' text for the names the change uses. Say for each entry which changed file it bears on; what was tried there and dropped, and why, comes first after the owner's decisions. Leave out this work's own item, whose approach the reviewer is given, and every commit after the fork point. A short or empty brief says only that nothing was found, not that nothing was dropped: `Commits:` is in part of the items only, so say in the last line what you searched."
+          ],
+          "out": [
+            {
+              "name": "brief",
+              "title": "The history found",
+              "type": "text",
+              "desc": "At most 1000 words; count them, and if over, shorten the related items first, then the facts. Sections, each entry a label that names the changed file it bears on, a quote and its source (#item, R<work>-<n> or a commit, which the reader can follow with the query tool or git): the owner's decisions in force; approaches dropped, and why; facts and measurements; related items, a line each. End with one line on what you searched."
+            }
+          ],
+          "shown": [
+            "brief"
+          ],
+          "cases": [
+            {
+              "name": "done",
+              "if": [
+                [
+                  "own"
+                ]
+              ],
+              "to": "T4",
+              "main": true
+            }
+          ]
         },
         {
           "id": "T4",
@@ -8090,6 +8161,17 @@
                   "db": "work_open_questions",
                   "by": "work"
                 }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The history of the changed files",
+              "what": "What the history says about the files this change touches, gathered once before the first table review: the owner's decisions and the approaches dropped, each with the changed file it bears on, and a last line on what was searched; none if the gathering did not run. A brief with little in it means little was found, not that nothing was dropped",
+              "from": [
+                [
+                  "G3",
+                  "brief"
+                ]
               ],
               "maybe": true
             },
@@ -8299,7 +8381,8 @@
             "This round is the table review: by the review table listed in the question, one row per column, none left out; for each column say what your judgment rests on: passed, findings, cannot be verified or not applicable; no evidence is no pass. Review only this change: do not rerun tests already green, and add no new style demands; where the change merges main, review how the PR's own change changed, not what main brought. If there was a blind review first, bring each of its findings along unchanged into the column it belongs to, keeping its number; those you withdraw after seeing the design and the reasons go in withdrawn. A measured slowdown is always a finding, never accepted, however small: only the owner can accept a slowdown. When nothing was measured, judge that column by the design's reason that no measurement was needed: pass when it holds for the change as made, a finding asking for the measurement when it does not; never cannot_verify for want of a measurement. When you dispute a fact with the engineer and insist, attach a test or a command, hand in tools first so the engine runs it, and write by the result. At a re-review, answer one row for each of your findings last time; a column you could not verify last time is listed again by its number, and you answer it in the table, judging what the engineer answered: when the engineer could not verify it either, decide it, a pass on what the work shows or a finding that says what evidence is needed, and not cannot_verify again; a finding the advisor, the architect or the owner ruled on is settled by the ruling: for one the engineer answered advisor_ruled, withdraw it and do not insist again. A reply that plainly says to change the design, or that what the work must deliver has changed, but the implementation did not follow, is a finding. If adversarial testing handed in suspects, go and look where they point. Where the fix answered a red check fixed, read its log: a fix that turns the check green without removing what turned it red is a finding. If you asked someone, carry on with this round's review when the reply comes.",
             "Hold the change against the constitution too: a change that breaks an article is a finding, however well it works.",
             "The change follows the answer to each open question of the design: one it goes against is a finding.",
-            "A change that goes against the project's AGENTS.md is a finding."
+            "A change that goes against the project's AGENTS.md is a finding.",
+            "A change that goes back over an approach the history of the changed files records as dropped, or against an owner's decision recorded there, is a finding, unless the design says why the reason it was dropped no longer holds. An empty or short history only says that nothing was found. For a file the change touches that the history does not cover, such as one a fix added, hand in `history` to have it looked up."
           ],
           "promptBy": {
             "by": "deliver",
@@ -18077,11 +18160,10 @@
               ]
             }
           ],
+          "rules": [
+            "history"
+          ],
           "prompt": [
-            "You gather the history an agent needs before it works. You only select and quote: no summary in your own words beyond a short label per entry, no reasoning, no advice. Every entry carries its source.",
-            "The history is in the database and the repository's git history, and only there: read no document of the repository and no chat log. In the database, read with `sqlite3` at the address you are given: `items` (`problem` says what was wrong, `why` why it mattered, `approach` what was done and why, under the heads `Approach:`, `Decisions:` and `Learned:`, then marked lines: `Decision (` the decisions, each with its date, who decided (owner; `owner relayed by the delegate, not checked`, the owner's own words as a delegate passed them on, which no one checked against what the owner said, though a decision rests on them as the owner's; delegate; unrecorded; or architect), situation, reason, what it replaces and the words it rests on with the record they are in, a quotation of a source other than the line's own saying its source after its date; `Fact (` facts found; `Dropped (` approaches dropped, with why; `Commits:` commits); `item_links`, which item built on which; `observations_all`, findings not made into items yet; `architect_matters`, the owner's own words to the architect (kind `owner_words`), where a decision no marked line records may still stand; `works` and `rounds`, what each work did round by round. In git: `git log --follow -- <file>`, `git log -L :<function>:<file>`, `git show <hash>`. A commit in an item's `Commits:` line leads to its item.",
-            "Search without printing whole texts: select `id`, `title` and a snippet around each match, with several words, English and Chinese, and synonyms. Follow `item_links` from what you find. Choose the items that bear most on the request, at most eight, and read each whole; from each take every passage on the request, the plain text as much as the marked lines. Keep the search small: about twenty-five commands at most.",
-            "The owner's decisions come first. For each matter keep only the latest in force: follow `Replaces:`, and look as well for a later decision on the same matter that says `Replaces: none`, since the marks are not always filled. Say its date, the situation it was made in and its reason; a decision is the latest known as of its date, never true forever.",
             "This round answers one request: what the agent that asked wants to know. Look only for that, and hand back what bears on it."
           ],
           "out": [
