@@ -12123,8 +12123,10 @@ fn a_reversal_is_left_out_when_the_review_drops_the_removal_it_needed() {
     quiet(&mut e);
     let parser = an_item(&mut e);
     let lexer = a_ready_item(&mut e, "Lex it");
-    e.db.write(Actor::Owner, |tx| db::add_dependency(tx, parser, lexer, "its lexer", "blocking"))
-        .unwrap();
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")
+    })
+    .unwrap();
     say(&mut e, "Turn the parser and the lexer around.");
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
