@@ -2008,7 +2008,10 @@ mod tests {
             refused(&s, &ret, "").as_deref(),
             Some("/outcome/better: must NOT have additional properties ('considered' is not allowed)")
         );
-        ret["outcome"]["better"].as_object_mut().unwrap().shift_remove("considered");
+        ret["outcome"]["better"]
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("considered");
         assert!(flow::valid(&schema, &ret));
         assert_eq!(refused(&s, &ret, ""), None);
     }
@@ -2049,7 +2052,10 @@ mod tests {
         // A value of nothing but nulls is no form's.
         let mut only = samples()["G1"][0]["json"].clone();
         only["outcome"] = json!({ "ask": null });
-        assert_eq!(flow::without_null_options(&brief_schema, &mut only), Vec::<String>::new());
+        assert_eq!(
+            flow::without_null_options(&brief_schema, &mut only),
+            Vec::<String>::new()
+        );
         assert!(!flow::valid(&brief_schema, &only));
         // A field the form may leave out is taken by the command line as null, left out by the engine, and not told.
         let mut optional = samples()["I1"][2]["json"].clone();
@@ -2162,6 +2168,30 @@ mod tests {
         }
     }
 
+    /// The parts of a cell's schema at the fields and items given, through the alternatives of each part on the way.
+    fn places<'a>(s: &'a Value, at: &[Option<&str>]) -> Vec<&'a Value> {
+        let Some((step, rest)) = at.split_first() else {
+            return vec![s];
+        };
+        let alts: Vec<&Value> = ["oneOf", "anyOf"]
+            .iter()
+            .filter_map(|k| s.get(*k)?.as_array())
+            .flatten()
+            .collect();
+        let parts = if alts.is_empty() { vec![s] } else { alts };
+        let mut out = Vec::new();
+        for part in parts {
+            let next = match step {
+                Some(k) => part.get("properties").and_then(|p| p.get(*k)),
+                None => part.get("items"),
+            };
+            if let Some(n) = next {
+                out.extend(places(n, rest));
+            }
+        }
+        out
+    }
+
     /// The part of an envelope at the fields and items given.
     fn down<'a>(s: &'a Value, at: &[Option<&str>]) -> Option<&'a Value> {
         at.iter().try_fold(s, |s, step| match step {
@@ -2219,10 +2249,24 @@ mod tests {
                                     }
                                 }
                             }
+                            // Taken with a value that is no such union, a union keeps no branches (the design's merge:
+                            // the line must take what either cell does): `answer` of the architect's `H8` is a union
+                            // by `way`, and of another of its cells a plain object holding `why`. So the branches
+                            // are told apart only where every cell of the line that has a value at this place has
+                            // this union there.
+                            let here = cells
+                                .iter()
+                                .flat_map(|c| places(c.schema.as_ref().unwrap(), &u.at))
+                                .count();
+                            let unions_here = found
+                                .iter()
+                                .flat_map(|(_, vs)| vs)
+                                .filter(|v| v.at == u.at && v.by == u.by)
+                                .count();
                             let foreign = u
                                 .branches
                                 .iter()
-                                .filter(|(w, _)| w != value)
+                                .filter(|(w, _)| w != value && here == unions_here)
                                 .flat_map(|(_, b)| b["properties"].as_object().into_iter().flatten())
                                 .find(|(k, _)| !has.contains(k.as_str()));
                             if let Some((k, p)) = foreign {
@@ -2240,7 +2284,7 @@ mod tests {
                 }
             }
         }
-        assert!(taken > 20 && refused_with > 10, "{taken} {refused_with}");
+        assert!(taken > 20 && refused_with > 5, "{taken} {refused_with}");
     }
 
     // A line's schema is the same each time it is made, and from the flow as the engine reads it back from what it

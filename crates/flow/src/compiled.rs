@@ -489,7 +489,11 @@ fn collect(s: &Value, x: &Value, at: &str, out: &mut Vec<String>) {
             let empty = Map::new();
             let props = o.get("properties").and_then(Value::as_object).unwrap_or(&empty);
             let required = o.get("required").and_then(Value::as_array).cloned().unwrap_or_default();
-            for r in required.iter().filter_map(Value::as_str).filter(|r| !xo.contains_key(*r)) {
+            for r in required
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|r| !xo.contains_key(*r))
+            {
                 note(out, format!("{here} has no {r}"));
             }
             if o.get("additionalProperties") == Some(&Value::Bool(false)) {
@@ -532,7 +536,10 @@ fn alternatives(bs: &[Value], x: &Value, at: &str, here: &str, out: &mut Vec<Str
         if bs.iter().all(|b| b["type"] == "object") {
             note(out, format!("{here} must be an object, and is {}", kind_of(x)));
         } else {
-            note(out, format!("{here} is {}, and fits none of its alternatives", kind_of(x)));
+            note(
+                out,
+                format!("{here} is {}, and fits none of its alternatives", kind_of(x)),
+            );
         }
         return;
     };
@@ -660,9 +667,7 @@ fn strip(s: &Value, x: &mut Value, at: &str, foreign: &mut Vec<String>) {
     {
         let other: Vec<String> = xo
             .iter()
-            .filter(|(k, v)| {
-                v.is_null() && !candidates.iter().any(|b| lists(b, k)) && alts.iter().any(|b| lists(b, k))
-            })
+            .filter(|(k, v)| v.is_null() && !candidates.iter().any(|b| lists(b, k)) && alts.iter().any(|b| lists(b, k)))
             .map(|(k, _)| k.clone())
             .collect();
         for k in other {

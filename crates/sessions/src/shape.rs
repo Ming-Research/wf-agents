@@ -45,7 +45,9 @@ impl Shape {
     /// alternatives come together as one ([`Shape::merged`]), and a union whose alternatives are told apart by a fixed
     /// field keeps its branches ([`Split`]).
     pub fn of(s: &Value) -> Shape {
-        let Some(o) = s.as_object() else { return Shape::default() };
+        let Some(o) = s.as_object() else {
+            return Shape::default();
+        };
         let mut out = Shape {
             types: type_of(o),
             closed: s.get("additionalProperties") == Some(&Value::Bool(false)),
@@ -89,11 +91,7 @@ impl Shape {
 
     /// The names of the fields the shape lists, in its order.
     pub fn field_names(&self) -> Vec<&str> {
-        self.fields
-            .iter()
-            .flatten()
-            .map(|(k, _)| k.as_str())
-            .collect()
+        self.fields.iter().flatten().map(|(k, _)| k.as_str()).collect()
     }
 
     /// The field of that name.
@@ -403,7 +401,10 @@ mod tests {
     /// An object that fixes `kind` to a value, with other fields, those it requires and whether it takes no other.
     fn branch(kind: &str, fields: Value, required: Value, closed: bool) -> Value {
         let mut props = json!({ "kind": { "const": kind } });
-        props.as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+        props
+            .as_object_mut()
+            .unwrap()
+            .extend(fields.as_object().unwrap().clone());
         let mut b = json!({ "type": "object", "required": required, "properties": props });
         if closed {
             b["additionalProperties"] = json!(false);
@@ -452,7 +453,10 @@ mod tests {
         assert!(both.get("additionalProperties").is_none());
         // x is in both: it takes `r` of the one and requires `p` of both, and, one of them taking other fields, refuses
         // none; y and z are in one each, and are as that one has them.
-        assert_eq!(then_of(&both, "x"), &json!({ "type": "object", "required": ["kind", "p"] }));
+        assert_eq!(
+            then_of(&both, "x"),
+            &json!({ "type": "object", "required": ["kind", "p"] })
+        );
         assert_eq!(
             then_of(&both, "y"),
             &json!({ "type": "object", "required": ["kind", "q"],
@@ -466,7 +470,8 @@ mod tests {
         // A union taken with a plain object, or with one fixing another field, keeps no branches.
         let plain = json!({ "type": "object", "properties": { "kind": { "type": "string" } } });
         assert!(Shape::of(&a).merged(&Shape::of(&plain)).schema().get("allOf").is_none());
-        let other = json!({ "oneOf": [{ "type": "object", "required": ["by"], "properties": { "by": { "const": "k" } } }] });
+        let other =
+            json!({ "oneOf": [{ "type": "object", "required": ["by"], "properties": { "by": { "const": "k" } } }] });
         assert!(Shape::of(&a).merged(&Shape::of(&other)).schema().get("allOf").is_none());
         // Branches that do not all fix the field, or fix it to the same value, are no union of branches.
         let same = json!({ "oneOf": [
