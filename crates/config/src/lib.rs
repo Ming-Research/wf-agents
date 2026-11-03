@@ -1032,9 +1032,12 @@ impl Config {
                     problems.push(format!("projects/{name}.toml: no such rule: {r} (rules/{r}.md)"));
                 }
             }
-            // The constitution is a file of the project's repository, named by its path from the repository's root.
+            // The constitution is a file of the project's repository, named by its path from the repository's root: a
+            // path that goes up (`..`) or names no file (empty, `.`) is never read ([`read_at`]), so it is refused here.
             if let Some(c) = &p.constitution
-                && (c.as_os_str().is_empty() || !c.is_relative())
+                && (!c.is_relative()
+                    || c.components().any(|x| matches!(x, std::path::Component::ParentDir))
+                    || !c.components().any(|x| matches!(x, std::path::Component::Normal(_))))
             {
                 problems.push(format!(
                     "projects/{name}.toml: constitution is not a path in the project's repository: {}",
@@ -1484,26 +1487,23 @@ fn records_under(repo: &Path, commit: &str, dir: &str, found: &mut BTreeMap<Stri
         } else {
             format!("{dir}/")
         };
-        walk_records(repo, commit, &prefix, &tree, 0, found)?;
+        walk_records(repo, commit, &prefix, &tree, &mut vec![tree.clone()], found)?;
     }
     Ok(())
 }
 
 /// The Markdown files of the directory `tree` stands for at the path `prefix`, added to `found`
-/// ([`records_under`]); `depth` counts the links to directories it was reached through.
+/// ([`records_under`]); `on_path` holds the trees of the directories this walk is in, the one it started from and each
+/// that a link led into, so that a link that leads back into one of them ends the walk in an error at once: it would
+/// otherwise be followed again from the same place, once for every link there is, however many levels deep.
 fn walk_records(
     repo: &Path,
     commit: &str,
     prefix: &str,
     tree: &str,
-    depth: usize,
+    on_path: &mut Vec<String>,
     found: &mut BTreeMap<String, String>,
 ) -> Result<(), String> {
-    if depth > MAX_LINKS {
-        return Err(format!(
-            "{prefix} leads through more than {MAX_LINKS} links to directories at {commit}"
-        ));
-    }
     let listed = git(repo, &["ls-tree", "-r", "-z", tree])?;
     // Each entry is `<mode> <type> <object>\t<path>`, the path from `tree`.
     for entry in listed.split('\0') {
@@ -1527,7 +1527,14 @@ fn walk_records(
             Found::File(object) if path.ends_with(".md") => {
                 found.insert(path, object);
             }
-            Found::Dir { tree, .. } => walk_records(repo, commit, &format!("{path}/"), &tree, depth + 1, found)?,
+            Found::Dir { tree, .. } => {
+                if on_path.contains(&tree) {
+                    return Err(fail("it leads back into a directory it is read through, a loop of links".into()));
+                }
+                on_path.push(tree.clone());
+                walk_records(repo, commit, &format!("{path}/"), &tree, on_path, found)?;
+                on_path.pop();
+            }
             Found::Missing(at) if path.ends_with(".md") => {
                 return Err(fail(format!("path '{at}' does not exist in '{commit}'")));
             }
@@ -1961,10 +1968,21 @@ asks = 9
             c.projects["q"].constitution.as_deref(),
             Some(Path::new("CONSTITUTION.md"))
         );
-        let mut m = files(&[(
-            "projects/q.toml",
-            "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\nconstitution = \"/q/CONSTITUTION.md\"",
-        )]);
+        let mut m = files(&[
+            (
+                "projects/q.toml",
+                "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\nconstitution = \"/q/CONSTITUTION.md\"",
+            ),
+            // Paths no read of the repository can follow: one that goes up, and one that is the root itself.
+            (
+                "projects/up.toml",
+                "extends = [\"common\"]\nrepo = \"o/up\"\ncheckout = \"/up\"\nconstitution = \"../CONSTITUTION.md\"",
+            ),
+            (
+                "projects/root.toml",
+                "extends = [\"common\"]\nrepo = \"o/root\"\ncheckout = \"/root\"\nconstitution = \".\"",
+            ),
+        ]);
         let unnamed = format!("{INSTALL}\n[agents]\narchitect = \"9\"\n");
         m.0.insert("install.toml", Box::leak(unnamed.into_boxed_str()));
         let e = read(&m).unwrap_err();
@@ -1975,6 +1993,12 @@ asks = 9
             ),
             "{e}"
         );
+        for bad in [
+            "projects/up.toml: constitution is not a path in the project's repository: ../CONSTITUTION.md",
+            "projects/root.toml: constitution is not a path in the project's repository: .",
+        ] {
+            assert!(e.to_string().contains(bad), "{bad}: {e}");
+        }
     }
 
     // A project's tags for observations each have a name of their own, and the observer's level is one of the levels.
@@ -2085,6 +2109,42 @@ asks = 9
         );
         assert_eq!(later["cited"], serde_json::json!({}));
         assert!(project_guide_at(&dir, "0000000", &design, "").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Links to directories that lead back into the directory read end the read in an error that names the link, at once:
+    // with two such links (`a -> .`, `b -> .`) a read that followed each again at every level would make about
+    // 2^17 walks before it gave up, which no test waits for, so this test ends only if the loop is seen on the first.
+    #[cfg(unix)]
+    #[test]
+    fn links_that_lead_back_into_the_directory_read_end_in_an_error_at_once() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-link-rings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("design/sub")).unwrap();
+        let run = |args: &[&str]| git(&dir, args).unwrap();
+        run(&["init", "-q"]);
+        std::fs::write(dir.join("design/one.md"), "# One\n").unwrap();
+        std::fs::write(dir.join("design/sub/two.md"), "# Two\n").unwrap();
+        for (link, target) in [("design/a", "."), ("design/b", "."), ("design/sub/up", "..")] {
+            std::os::unix::fs::symlink(target, dir.join(link)).unwrap();
+        }
+        run(&["add", "-A"]);
+        run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rings"]);
+        let commit = run(&["rev-parse", "HEAD"]).trim().to_string();
+        let why = files_at(&dir, &commit, "design").unwrap_err();
+        assert!(why.contains("design/a") && why.contains("loop of links") && why.contains(&commit), "{why}");
+        let why = project_guide_at(&dir, &commit, &["design/".to_string()], "").unwrap_err();
+        assert!(why.contains("design/a") && why.contains("loop of links"), "{why}");
+        // A link to a directory that is no ancestor of the walk is followed, and its files are found where it stands.
+        std::fs::remove_file(dir.join("design/a")).unwrap();
+        std::fs::remove_file(dir.join("design/b")).unwrap();
+        std::fs::remove_file(dir.join("design/sub/up")).unwrap();
+        std::os::unix::fs::symlink("sub", dir.join("design/deeper")).unwrap();
+        run(&["add", "-A"]);
+        run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "no rings"]);
+        let commit = run(&["rev-parse", "HEAD"]).trim().to_string();
+        let found: Vec<String> = files_at(&dir, &commit, "design").unwrap().into_iter().map(|f| f.0).collect();
+        assert_eq!(found, ["design/deeper/two.md", "design/one.md", "design/sub/two.md"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
