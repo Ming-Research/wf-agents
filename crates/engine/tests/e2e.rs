@@ -2511,6 +2511,89 @@ fn a_work_whose_earlier_returns_still_fit_moves() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A round that takes a row keeps the counter the row counts (`rounds.counts`), by the flow the work runs on: the
+// implementer's asking for tools gives `tool_requests`, a row that counts nothing and a round that took no row give
+// none. The expected counter of each round is read from the compiled flow, by its cell and the row it took.
+// The views read the counter from the round, not from the version the work is on now.
+#[test]
+fn a_round_keeps_the_counter_of_the_row_it_took() {
+    let s = setup("round-counts");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "X1");
+    let log = said.lock().unwrap().join("\n");
+    let (work, _, _) = state(&e, item).unwrap();
+    let flow = e.flow(e.flow_now).unwrap();
+    let engineer = flow.graphs.iter().find(|g| g.name == engine::ENGINEER).unwrap();
+    let rounds = engine::query_json(
+        e.db.conn(),
+        "SELECT n, cell, transition, counts, rejected FROM rounds WHERE work = ?1 ORDER BY n",
+        &[&work],
+        1000,
+    )
+    .unwrap();
+    let (mut counting, mut counting_nothing) = (0, 0);
+    for r in &rounds {
+        // A round that ended in no return took a shared row, which the test of `finish_round` checks.
+        if !r["rejected"].is_null() {
+            continue;
+        }
+        let row = r["cell"].as_str().zip(r["transition"].as_str()).map(|(cell, row)| {
+            engineer
+                .cells
+                .iter()
+                .find(|c| c.id == cell)
+                .and_then(|c| c.rows.iter().find(|x| x.name == row))
+                .unwrap_or_else(|| panic!("round {r}: the flow has no row {row} at cell {cell}"))
+        });
+        let expected = row.and_then(|x| x.counts.as_deref());
+        assert_eq!(r["counts"].as_str(), expected, "round {r}\n{log}");
+        match (row, expected) {
+            (Some(_), None) => counting_nothing += 1,
+            (Some(_), Some(_)) => counting += 1,
+            (None, _) => {}
+        }
+    }
+    let tools: Vec<&Value> = rounds.iter().filter(|r| r["transition"] == "tools").collect();
+    assert_eq!(tools.len(), 1, "{rounds:?}\n{log}");
+    assert_eq!(tools[0]["counts"], "tool_requests", "{log}");
+    assert!(counting >= 1 && counting_nothing >= 1, "{rounds:?}");
+    // And it keeps it whatever flow version its work is on afterwards: a work put on a version in which the same row
+    // counts another counter (`tools` as `asks`) keeps the counter of the round it took before, and the counters the
+    // views give do not change with it.
+    let counters = |e: &Engine| -> Vec<(String, i64)> {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT counter, times FROM work_counters WHERE work = ?1 AND counter IN ('asks', 'tool_requests')
+                     ORDER BY counter",
+                )
+                .unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let asked = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT asks FROM work_asking WHERE work = ?1", [work], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(counters(&e), [("tool_requests".to_string(), 1)], "{log}");
+    assert_eq!(asked(&e), 0);
+    older(&mut e, &[work], |g| {
+        let row = g
+            .cells
+            .iter_mut()
+            .find(|c| c.id == "I1")
+            .and_then(|c| c.rows.iter_mut().find(|r| r.name == "tools"))
+            .unwrap();
+        row.counts = Some("asks".into());
+    });
+    assert_eq!(counters(&e), [("tool_requests".to_string(), 1)], "{log}");
+    assert_eq!(asked(&e), 0);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A work on an older flow version whose cell is unchanged, but one of whose earlier returns its cell's schema in the
 // version the engine runs does not take, is taken over when it goes on: it ends, saying the round and where the return
 // does not fit, and a new work takes its item over.
@@ -14206,9 +14289,12 @@ fn a_work_goes_on_while_another_waits_for_its_ci() {
 }
 
 // Two works that run side by side each merge into main through the flow, in the order they came into the project's
-// merge queue. Every change to their state is one transaction recorded in `changes`, the rows of a transaction written
-// at one time by one writer, one after the other; each work's rounds are numbered from one, none twice or missing,
-// and none is left open.
+// merge queue, the work with the larger number coming first: while its merge runs, held at its CI, the other comes,
+// reads that it is behind and records a round saying so, and merges only after the first's merge round ended. The order
+// they came in is read from the times their rounds before the queue ended, the merges' order from main's log and the
+// rounds' times; the `merge_queue` view, whose order is what is tested, is read nowhere here. Every change to their
+// state is one transaction recorded in `changes`, the rows of a transaction written at one time by one writer, one
+// after the other; each work's rounds are numbered from one, none twice or missing, and none is left open.
 #[test]
 fn two_works_side_by_side_merge_in_turn_and_record_every_change_once() {
     let mut agents = scripts();
@@ -14238,33 +14324,102 @@ fn two_works_side_by_side_merge_in_turn_and_record_every_change_once() {
     );
     let (s, mut e, said, first, second) = two_works_with("both-merge", agents, Hooks::default());
     let over = |e: &Engine, item: i64| state(e, item).is_some_and(|w| w.1 == "E1");
-    // The works in the order they came into the merge queue.
-    let mut queued: Vec<i64> = Vec::new();
-    for _ in 0..300 {
-        e.tick().unwrap();
-        let log = said.lock().unwrap().join("\n");
-        let mut st =
-            e.db.conn()
-                .prepare("SELECT work FROM merge_queue WHERE project = 'p'")
-                .unwrap();
-        let queue: Vec<i64> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
-        drop(st);
-        for w in queue {
-            if !queued.contains(&w) {
-                queued.push(w);
+    let said_so_far = || said.lock().unwrap().join("\n");
+    let cell = |e: &Engine, work: i64| -> String {
+        e.db.conn()
+            .query_row("SELECT at FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap()
+    };
+    // The rounds of a work's merge cell, oldest first: the row each took, when it started and when it ended.
+    let merge_rounds = |e: &Engine, work: i64| -> Vec<(Option<String>, i64, Option<i64>)> {
+        let sql = "SELECT transition, started_at, ended_at FROM rounds WHERE work = ?1 AND cell = 'M2' ORDER BY n";
+        let mut st = e.db.conn().prepare(sql).unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    // A work goes on alone until it stands at `until`, not having taken that cell's step.
+    let goes_on_to = |e: &mut Engine, work: i64, until: &str| {
+        for _ in 0..300 {
+            if cell(&*e, work) == until {
+                return;
             }
+            e.advance(work).unwrap();
         }
-        for item in [first, second] {
-            let paused = state(&e, item).and_then(|w| w.2);
-            assert!(paused.is_none(), "{paused:?}\n{log}");
-        }
-        if over(&e, first) && over(&e, second) {
-            break;
-        }
-    }
-    let log = said.lock().unwrap().join("\n");
-    assert!(over(&e, first) && over(&e, second), "{log}");
+    };
+    // The first pass starts both works; `a` began first and has the smaller number.
+    e.tick().unwrap();
     let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    assert!(a < b);
+    // `a` stops short of the merge queue; `b`, which began after it, comes into the queue first.
+    goes_on_to(&mut e, a, "M1");
+    goes_on_to(&mut e, b, "M2");
+    let (at_a, at_b) = (cell(&e, a), cell(&e, b));
+    assert_eq!((at_a.as_str(), at_b.as_str()), ("M1", "M2"), "{}", said_so_far());
+    // `b` merges with its CI held, its merge round open. `a` comes into the queue meanwhile.
+    s.ci.shut();
+    let held = s.ci.came();
+    let only_b = Go {
+        pause: held_but(&[b], &[]),
+        ..Go::default()
+    };
+    let merging = turns_until(&mut e, &only_b, |_| s.ci.came() > held);
+    assert!(merging, "{}", said_so_far());
+    let in_the_queue = turns_until(&mut e, &Go::default(), |e| !merge_rounds(&*e, a).is_empty());
+    let (a_rounds, b_rounds) = (merge_rounds(&e, a), merge_rounds(&e, b));
+    s.ci.open();
+    assert!(in_the_queue, "{}", said_so_far());
+    // `a` read that it is behind and recorded a round saying so, while `b`'s merge round is open still.
+    assert_eq!(
+        a_rounds.iter().map(|r| r.0.as_deref()).collect::<Vec<_>>(),
+        [Some("behind")],
+        "{}",
+        said_so_far()
+    );
+    assert!(
+        b_rounds.len() == 1 && b_rounds[0].0.is_none() && b_rounds[0].2.is_none(),
+        "{b_rounds:?}\n{}",
+        said_so_far()
+    );
+    let finished = turns_until(&mut e, &Go::default(), |e| over(&*e, first) && over(&*e, second));
+    let log = said_so_far();
+    assert!(finished, "{log}");
+    for item in [first, second] {
+        let paused = state(&e, item).and_then(|w| w.2);
+        assert!(paused.is_none(), "{paused:?}\n{log}");
+    }
+    // The order they came into the queue in: when each one's round before it ended, `b`'s the earlier.
+    let entered = |work: i64| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT max(ended_at) FROM rounds WHERE work = ?1 AND cell = 'M1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert!(entered(b) < entered(a), "{} {}\n{log}", entered(b), entered(a));
+    let queued = vec![b, a];
+    // Each merged once, `a` after `b`'s merge round ended; the round in which `a` said it was behind lay within it.
+    let merged_round = |work: i64| -> Vec<(i64, i64)> {
+        merge_rounds(&e, work)
+            .into_iter()
+            .filter(|r| r.0.as_deref() == Some("merged"))
+            .map(|r| (r.1, r.2.unwrap()))
+            .collect()
+    };
+    let (a_merged, b_merged) = (merged_round(a), merged_round(b));
+    assert!(
+        a_merged.len() == 1 && b_merged.len() == 1,
+        "{a_merged:?} {b_merged:?}\n{log}"
+    );
+    let (a_merged, b_merged) = (a_merged[0], b_merged[0]);
+    assert!(a_merged.0 >= b_merged.1, "{a_merged:?} {b_merged:?}\n{log}");
+    assert!(
+        a_rounds[0].1 >= b_merged.0 && a_rounds[0].2.is_some_and(|ended| ended <= b_merged.1),
+        "{a_rounds:?} {b_merged:?}\n{log}"
+    );
     // Merged onto main in the queue's order: the merges, oldest first, by the works whose pull requests they merged.
     let subjects = git(
         &s.root,
@@ -19274,6 +19429,21 @@ fn past_rounds(e: &mut Engine, work: i64, rounds: &[(&str, Option<&str>, Option<
                     rejected.as_ref().map(Value::to_string),
                     at
                 ],
+            )?;
+            // The counter of the row the round took, as the engine keeps it on a round it ended itself: read from the
+            // flow the work is on, by the row the view `round_rows` says the round took.
+            tx.execute(
+                "UPDATE rounds SET counts = (
+                   SELECT json_extract(row.value, '$.counts')
+                   FROM round_rows x
+                   JOIN works w ON w.id = x.work
+                   JOIN flow_versions v ON v.id = w.flow_version
+                   JOIN json_each(v.compiled, '$.graphs') g ON json_extract(g.value, '$.name') = w.graph
+                   JOIN json_each(g.value, '$.cells') c ON json_extract(c.value, '$.id') = x.cell
+                   JOIN json_each(c.value, '$.rows') row ON json_extract(row.value, '$.name') = x.took
+                   WHERE x.work = ?1 AND x.round = ?2)
+                 WHERE work = ?1 AND n = ?2",
+                params![work, i as i64 + 1],
             )?;
         }
         Ok(())
