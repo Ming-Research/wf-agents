@@ -616,8 +616,9 @@ struct ByHand {
 /// The runs by hand the fake GitHub was asked for, in order, which a test reads. A run whose `command` input is `red`
 /// ends red, one whose `command` is `down` fails to start, as GitHub does when it cannot be reached, one whose `command`
 /// is `reject` is refused as GitHub refuses a request that lacks an input the workflow requires, one whose `command` is
-/// `timeout` does not finish in time, and one whose `command` is `flaky` is run, but the first wait for it fails to
-/// reach GitHub.
+/// `timeout` does not finish in time, one whose `command` is `nostart` never gets a run, one whose `command` is `nojobs`
+/// has a run with no job, one whose `command` is `flaky_dispatch` fails to reach GitHub the first time it is asked for,
+/// and one whose `command` is `flaky` is run, but the first wait for it fails to reach GitHub.
 type ByHands = Arc<Mutex<Vec<ByHand>>>;
 
 /// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
@@ -706,6 +707,16 @@ impl GitHub for FakeHub {
                 what: format!("the run of {workflow} on {sha} did not finish in 10800 s"),
             });
         }
+        if command("nostart") {
+            return Err(Failure {
+                kind: "ci_did_not_start",
+                what: format!("no run of {workflow} on {sha} after 600 s"),
+            });
+        }
+        // A run that failed as it started, as GitHub does for a workflow file it cannot read, has no job at all.
+        if command("nojobs") {
+            return Ok(Vec::new());
+        }
         if command("flaky") {
             let mut runs = self.by_hand.lock().unwrap();
             let waits = runs.iter_mut().find(|d| d.commit.as_deref() == Some(sha)).map(|d| {
@@ -736,6 +747,9 @@ impl GitHub for FakeHub {
         let inputs: Vec<(String, String)> = inputs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let down = inputs.contains(&("command".to_string(), "down".to_string()));
         let reject = inputs.contains(&("command".to_string(), "reject".to_string()));
+        // A dispatch that fails to reach GitHub the first time it is made for a branch, and not the second.
+        let flaky = inputs.contains(&("command".to_string(), "flaky_dispatch".to_string()))
+            && !self.by_hand.lock().unwrap().iter().any(|d| d.branch == branch);
         self.by_hand.lock().unwrap().push(ByHand {
             workflow: workflow.to_string(),
             branch: branch.to_string(),
@@ -746,7 +760,7 @@ impl GitHub for FakeHub {
             inputs,
             waits: 0,
         });
-        if down {
+        if down || flaky {
             return Err(Failure::network("GitHub cannot be reached"));
         }
         if reject {
@@ -4476,6 +4490,143 @@ fn a_measurement_is_tried_again_only_by_waiting_for_the_run_it_started() {
     assert_eq!(by_hand.len(), 3, "{by_hand:?}");
     assert_eq!(by_hand[2].waits, 2, "{by_hand:?}");
     assert_eq!(remote_branches(&s), ["refs/heads/main"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A run that never got started, a run with no job to read, and a start that failed once before GitHub was reached are
+// each one result the engineer can read: the first is a measurement that did not run to the end and is not tried again,
+// the second says why it left nothing (it has no run to link to and no log to keep, so the note is all there is to read),
+// and the third is tried again with the same temporary commit, so that no second workflow is started on another one.
+#[test]
+fn a_measurement_with_no_run_or_no_job_says_why_and_a_start_that_failed_once_is_made_again() {
+    let s = setup("measure-edges");
+    lists_a_measurement_workflow(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            write(wt, "src/lib.txt", "old\nfeature\n");
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Add the feature"]);
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            let tools = json!([
+                measure_request(&head, "measure.yml", "command=nostart"),
+                measure_request(&head, "measure.yml", "command=nojobs"),
+                measure_request(&head, "measure.yml", "command=flaky_dispatch"),
+            ]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "X1");
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(ended_at(&e, item, "X1"), [(Some("ran".to_string()), None)], "{log}");
+    let runs = tool_runs(&e, item, "measure");
+    let attempts: Vec<i64> = runs.iter().map(|r| r.0).collect();
+    assert_eq!(attempts, [1, 1, 1, 2], "{runs:?}\n{log}");
+    // A run that never started has run, not to the end, and the note says it did not start.
+    let nostart = &runs[0].1["push"];
+    assert_eq!(
+        (&nostart["verdict"], &nostart["ok"]),
+        (&json!("ran"), &json!("not_run")),
+        "{runs:?}"
+    );
+    assert!(
+        nostart["note"].as_str().is_some_and(|n| n.contains("no run of")),
+        "{runs:?}"
+    );
+    // A run with no job has run, not to the end, and has nothing to link to or keep: it still says why there is nothing.
+    let nojobs = &runs[1].1["push"];
+    assert_eq!(
+        (&nojobs["verdict"], &nojobs["ok"]),
+        (&json!("ran"), &json!("not_run")),
+        "{runs:?}"
+    );
+    assert_eq!(nojobs["files"], json!([]), "{runs:?}");
+    assert!(
+        nojobs["note"].as_str().is_some_and(|n| !n.trim().is_empty()),
+        "a run with no job gave neither a run to link to, a file, nor a note: {nojobs}"
+    );
+    // The start that failed once failed as an attempt, and the next attempt ran the measurement.
+    assert_eq!(runs[2].1["failed"]["kind"], "network_or_api", "{runs:?}");
+    assert_eq!(runs[3].1["push"]["ok"], "ran", "{runs:?}");
+    // The workflow was asked for twice for the last request, on the same branch and the same commit.
+    let by_hand = s.by_hand.lock().unwrap().clone();
+    assert_eq!(by_hand.len(), 4, "{by_hand:?}");
+    assert_eq!(by_hand[2].branch, by_hand[3].branch, "{by_hand:?}");
+    assert!(by_hand[2].commit.is_some(), "{by_hand:?}");
+    assert_eq!(by_hand[2].commit, by_hand[3].commit, "{by_hand:?}");
+    assert_eq!(remote_branches(&s), ["refs/heads/main"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A workflow GitHub refuses to run for ci_before, the tool that runs the fast CI on the tests alone on the code before
+// the change, is what it is for measure: a refusal its engineer reads, not a failed tool of a kind the flow does not
+// name, tried three times. Its reference is the contract of the failure kind `rejected` (it is "never given as a failed
+// tool") and the kinds of failure the flow's cell X1 lists.
+#[test]
+fn a_dispatch_github_refuses_for_ci_before_is_a_refusal_and_not_a_failed_tool() {
+    let s = setup("ci-before-rejected");
+    let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    write(
+        &s.data,
+        "projects/p.toml",
+        &format!("{project}tests_input = \"command\"\n"),
+    );
+    git(&s.data, &["commit", "-q", "-am", "the fast CI takes the tests it runs"]);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            write(wt, "src/lib.txt", "old\nfeature\n");
+            write(wt, "tests/feature.txt", "feature\n");
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Add the feature"]);
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            let tools = json!([
+                { "tool": "ci", "head": head, "tests": ["feature"], "pr": { "title": "Add the feature", "body": "It adds it." } },
+                { "tool": "ci_before", "head": head, "files": ["tests/feature.txt"], "tests": ["reject"] },
+            ]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "X1");
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let runs = tool_runs(&e, item, "ci_before");
+    let listed = [
+        "network_or_api",
+        "ci_did_not_start",
+        "timed_out",
+        "machine_down",
+        "other",
+    ];
+    for r in &runs {
+        if let Some(kind) = r.1["failed"]["kind"].as_str() {
+            assert!(
+                listed.contains(&kind),
+                "a failed tool of the kind {kind}, which the flow does not name: {runs:?}"
+            );
+        }
+    }
+    // Asked for once and not tried again, and the engineer is told what GitHub said.
+    assert_eq!(runs.len(), 1, "{runs:?}\n{log}");
+    assert_eq!(runs[0].1["ran"]["verdict"], "refused", "{runs:?}\n{log}");
+    assert!(
+        runs[0].1["ran"]["why"].as_str().is_some_and(|w| w.contains("HTTP 422")),
+        "{runs:?}"
+    );
+    assert_eq!(s.by_hand.lock().unwrap().len(), 1);
+    // The temporary branch of the tests is gone; the work's own branch, which ci pushed, may be there.
+    let branches = remote_branches(&s);
+    assert!(
+        branches.iter().all(|b| !b.contains("wf-agents-before")),
+        "{branches:?}\n{log}"
+    );
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
