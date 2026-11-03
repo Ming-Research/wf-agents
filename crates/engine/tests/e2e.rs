@@ -14944,6 +14944,62 @@ fn rows_that_do_not_cover_the_words_and_a_suggestion_nothing_records_are_sent_ba
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The rows of `looked` that name a matter twice and name matters that are none of the batch's are sent back once, each
+// kind said with all its matters: two unknown matters in one sentence, the one given twice, and the one with no row.
+// Oracle: the project guide's rule that several ids compared with a list the engine gave go through `id_misses`, which
+// says each kind once with all its ids, and that a check says every problem at once.
+#[test]
+fn rows_that_name_a_matter_twice_and_two_that_are_not_the_batch_s_are_sent_back_with_each_kind_said_once() {
+    let s = setup("looked-kinds");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    let at = path.clone();
+    agents.insert(
+        "B5",
+        Box::new(move |_: &Request, n: usize| {
+            let (a, b) = (matter_with(&at, "integers"), matter_with(&at, "old name"));
+            let row = |m: i64, v: &str| json!({ "matter": m, "verdict": v, "why": "It is read." });
+            let rows = if n == 1 {
+                json!([
+                    row(a, "nothing"),
+                    row(a, "nothing"),
+                    row(987_654, "nothing"),
+                    row(987_655, "nothing")
+                ])
+            } else {
+                json!([row(a, "nothing"), row(b, "nothing")])
+            };
+            (Vec::new(), vec![("outcome.looked", rows)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Yes, the parser takes integers first.");
+    say(&mut e, "Fine, keep the old name.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sent_back = why_sent_back(&e, arch, "B5");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
+    let (a, b) = (matter_with(&path, "integers"), matter_with(&path, "old name"));
+    for part in [
+        "matters 987654, 987655 are none of the owner's words this batch handled".to_string(),
+        format!("matter {a} has more than one row: one row for each"),
+        format!("matter {b}, which this batch handled, has no row"),
+    ] {
+        assert!(sent_back[0].contains(&part), "{part}\n{sent_back:?}");
+    }
+    // The matter given twice is not also said to be none of the batch's, and no suggestion is complained of.
+    assert!(!sent_back[0].contains(&format!("matter {a} is none")), "{sent_back:?}");
+    assert!(!sent_back[0].contains("makes a suggestion"), "{sent_back:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A change of the batch cannot write a line of a decision by hand, whether it makes an item with it or writes an item's
 // approach whole with it; the return is sent back saying the cell that records decisions makes the line. The text of an
 // item that holds a line already can be written again with that line as it is: it is not a line the change writes.
