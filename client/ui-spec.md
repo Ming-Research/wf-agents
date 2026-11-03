@@ -687,8 +687,10 @@ is due and that nothing takes: the engine does not run it, as when it is out of 
 at rest is a true sign that the work does not move. The engine's step of a work that waits, which only looks whether
 what it waits for came and writes no round, is not a round running and does not make the work look like it, and a work
 waiting for a failed round to be run again (the wait before a retry, which grows with each failure) is waiting, the
-clock, not ready, with the words "waiting to run the failed round again". While the page cannot reach the engine, no
-work is marked as working.
+clock, not ready, with the words "waiting to run the failed round again"; a work held back is not given that wait,
+since the engine opens no round of a work held back, which waits for nothing and may be given a Step. A paused work the
+owner started, which waits for a free slot, takes the icon of waiting for a free slot, as its words ("started, waiting
+for a free slot") say, not the paused icon. While the page cannot reach the engine, no work is marked as working.
 
 Instead of an icon worked out apart from the words, which drew a ring at rest for a work whose words said "paused by
 Pause all", and of a halo that came on for every step of the engine that looked at a waiting work, because the owner

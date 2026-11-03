@@ -48,12 +48,15 @@ export function Facts({ rows }: { rows: Array<[ReactNode, ReactNode] | null | fa
 /// or holds the work back) is not running, and the work is ready, its next round closing that round first, as is a work
 /// whose next step is due; a work held back only because every work is paused is paused, as the words say; and a work
 /// the engine's status names as waiting for a free slot, what it waited for come, waits for that slot, though as read it
-/// is ready or still waiting. A state the work's row gives otherwise stands as read.
+/// is ready or still waiting; and a paused work the owner started, which waits for a slot, waits for it as its words say.
+/// A state the work's row gives otherwise stands as read.
 export function liveState(w: WorkSummary, status: Status | null): WorkState {
   const c = course(w, status);
   if (c.over) return w.state;
   if (c.working !== null) return 'running';
   const state = w.state === 'running' ? 'ready' : w.state;
+  // The owner's Start of a paused work waits for a slot: its words say "started", not paused.
+  if (c.releasing && state === 'paused') return 'waiting_for_slot';
   if (state === 'ready' || state === 'waiting' || state === 'asking') {
     if (c.held === 'all') return 'paused';
     if (c.slot) return 'waiting_for_slot';
@@ -155,12 +158,15 @@ export function course(w: WorkSummary, status: Status | null): Course {
     w.waits === null &&
     (w.state === 'ready' || w.state === 'running');
   const working = running !== null || tool ? (w.running?.cell ?? w.at) : goesOn ? w.at : null;
+  // The retry wait the interface reads from the rounds ends only when the next round opens, which the engine never
+  // opens for a work held back: it is no wait of a held work, which waits for nothing and may be given a Step.
+  const retryHeld = held !== null && w.waits?.kind === 'retry';
   return {
     over: false,
     running,
     working,
     held,
-    waits: slot ? null : w.waits,
+    waits: slot || retryHeld ? null : w.waits,
     slot,
     outdated: status !== null && w.flow_version !== status.flow_version,
     started,
