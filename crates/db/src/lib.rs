@@ -124,7 +124,7 @@ pub const MIGRATIONS: &[&str] = &[
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 12] = [
+const UNTRACKED: [&str; 13] = [
     "rounds",
     "tool_runs",
     "pings",
@@ -133,6 +133,7 @@ const UNTRACKED: [&str; 12] = [
     "round_measures",
     "guard_events",
     "samples",
+    "reverts",
     "changes",
     "outbox",
     "contents",

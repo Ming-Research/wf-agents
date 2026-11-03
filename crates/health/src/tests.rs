@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use db::rusqlite::{Connection, params_from_iter};
 use db::{Actor, Db};
 
-use crate::{MINUTE, Reader, Scope, measures, series_read};
+use crate::{MINUTE, MainLog, Reader, Scope, measures, series_read};
 
 /// A day, in milliseconds.
 const DAY: i64 = 86_400_000;
@@ -115,6 +115,12 @@ fn every_measure_reads_a_week_by_index_however_long_the_history() {
         "{rounds} rounds, {changes} changes"
     );
     let (from, to) = (END - 7 * DAY, END);
+    // Main's history: a commit every ten minutes over the last week and the week before it, the newest first, none of
+    // them a merge the flow recorded.
+    let log: String = (0..2016)
+        .map(|k: i64| format!("{k:040x} {}\n", (END - 1_000 - k * 600_000) / 1000))
+        .collect();
+    let main = MainLog::parse(&log).unwrap();
     let mut took = Duration::ZERO;
     let mut ran = Vec::new();
     // How many values each measure folded over the week, of every project together.
@@ -123,6 +129,7 @@ fn every_measure_reads_a_week_by_index_however_long_the_history() {
         Scope {
             project: Some("p"),
             subject: None,
+            main: Some(&main),
         },
         Scope::default(),
     ] {
@@ -151,6 +158,8 @@ fn every_measure_reads_a_week_by_index_however_long_the_history() {
         "items.made",
         "spend.usd",
         "queue.oldest",
+        "merge.not_on_main",
+        "main.direct_pushes",
     ] {
         assert!(folded.iter().any(|(name, n)| *name == m && *n > 0), "{m}: {folded:?}");
     }

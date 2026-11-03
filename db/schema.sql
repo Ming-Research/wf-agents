@@ -701,6 +701,25 @@ CREATE TABLE samples (
   PRIMARY KEY (measure, project, at, subject)
 ) STRICT;
 
+CREATE TABLE reverts (
+  -- Each merge the engine reverted because it broke main: after the check of main after a merge (cell `L1`) found main
+  -- broken by it, the engine opened a pull request that reverts it and merged it into main (the outbox's
+  -- `revert_merge`). Written once the revert is merged, never changed after.
+  -- Read by: the health numbers, which count a commit on main that is a revert apart from one that came onto it
+  -- without the flow.
+  -- The check of main that found it broken: its work, and its round in the work.
+  work INTEGER NOT NULL,
+  round INTEGER NOT NULL,
+  -- The merge reverted, by the full id of its commit on main.
+  merge_commit TEXT NOT NULL,
+  -- The revert's pull request, and the full id of the commit its merge put on main.
+  pr INTEGER NOT NULL,
+  revert_commit TEXT NOT NULL UNIQUE,
+  -- When the revert was merged.
+  at INTEGER NOT NULL,
+  FOREIGN KEY (work, round) REFERENCES rounds (work, n)
+) STRICT;
+
 CREATE TABLE interjections (
   -- What the owner or the architect says to a running work. The engine hands each one to the line it is for: during a
   -- round after the agent's next tool use, or at the front of the next round's input. Rulings on design cards arrive
@@ -786,8 +805,8 @@ CREATE TABLE changes (
 
 CREATE TABLE outbox (
   -- Actions the engine still has to carry out, written in the same transaction as the change that calls for them, so
-  -- a crash loses none. A row is deleted once its action is done; what the action did is in rounds or tool_runs. On
-  -- start the engine first carries out what is left here.
+  -- a crash loses none. A row is deleted once its action is done; what the action did is in rounds, tool_runs or, for
+  -- a revert of a merge, reverts. On start the engine first carries out what is left here.
   -- Read by: the engine.
   id INTEGER PRIMARY KEY,
   -- The work the action is for; NULL for one that belongs to no work.
@@ -1151,6 +1170,9 @@ CREATE INDEX rounds_counts ON rounds (work, counts) WHERE counts IS NOT NULL;
 -- The rounds that started, and those that ended, within a time: the health numbers read a period by them.
 CREATE INDEX rounds_by_start ON rounds (started_at);
 CREATE INDEX rounds_by_end ON rounds (ended_at);
+-- The merge by the flow, if any, whose commit is a given one: the health numbers tell a commit on main the flow merged
+-- from one that came onto it without the flow by it. A statement uses it only when it writes the expression as here.
+CREATE INDEX rounds_merge_commit ON rounds (json_extract(output, '$.result.merge_commit')) WHERE transition = 'merged';
 -- The tools a round ran.
 CREATE INDEX tool_runs_by_round ON tool_runs (work, round);
 -- The rounds a cell's and a graph's lines are computed from.

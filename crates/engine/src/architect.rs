@@ -75,10 +75,11 @@ pub const INPUTS: [&str; 33] = [
     "notebook_other",
 ];
 
-/// The engine's inputs that read the project's files on its main, each as one commit of it has them. A round whose cell
-/// has any of them is pinned to one commit of main (`inputs::pin_main`; for a cell on a project's architect's line, the
-/// commit its worktree is brought to), which every one of them is read at, after one fetch of main.
-pub const MAIN_INPUTS: [&str; 3] = ["constitution", "guide", "cited_nodes"];
+/// The engine's inputs that read the project's main, each as one commit of it has it: its files, or for the numbers its
+/// commits. A round whose cell has any of them is pinned to one commit of main (`inputs::pin_main`; for a cell on a
+/// project's architect's line, the commit its worktree is brought to), which every one of them is read at, after one
+/// fetch of main.
+pub const MAIN_INPUTS: [&str; 5] = ["constitution", "guide", "cited_nodes", "numbers", "policy_signals"];
 
 /// The input that gives what the cell before this one on the matter's path answered of it, as that round's return:
 /// addressed as that return, so that a session that holds it is only referred to it.
@@ -4663,12 +4664,12 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str, main: Option<&
         "cited_nodes" => cited_nodes(e, w, project, main),
         "since_last_work" => since_last_work(e, w, project).map(Some),
         "board" => board(e, project).map(Some),
-        "numbers" => numbers(e, w, project).map(Some),
+        "numbers" => numbers(e, project, main).map(Some),
         "observations_overview" => observations_overview(e, project).map(Some),
         "observation_tags" => Ok(observation_tags(e, project)),
         "levels" => Ok(Some(levels(e))),
         "policy" => policy(e, project),
-        "policy_signals" => policy_signals(e, w, project),
+        "policy_signals" => policy_signals(e, project, main),
         "slots" => slots(e).map(Some),
         "queue" => queue(e, w, project).map(Some),
         "batch" => batch(e, w, project).map(Some),
@@ -5342,28 +5343,47 @@ fn health_point(m: &health::Measure, s: &health::Series, k: usize) -> Value {
     }
 }
 
-/// The numbers the engine measures for a project, each as the architect's work started, so that they hold through the
-/// work, and earlier for the trend: every health number ([`health::measures`]), for the week before the work and the
-/// week before that, split by its subjects where it has them, the numbers nothing records yet listed with why; the
-/// items made, merged and cancelled, and what its items' works and its architect's works spent, for each of the four
-/// weeks before the work one by one; and the size of its design paths and of every file on main.
-fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
+/// The commits on a project's main from the commit a round is pinned to, as the health numbers read them; or why they
+/// could not be read.
+fn main_log(e: &Engine, project: &str, main: Option<&str>) -> Result<health::MainLog, String> {
+    let p = e
+        .config
+        .config
+        .projects
+        .get(project)
+        .ok_or_else(|| format!("no project {project} in the configuration"))?;
+    let commit = main.ok_or_else(|| "the round is pinned to no commit of main".to_string())?;
+    let mut args = health::MainLog::GIT_LOG.to_vec();
+    args.push(commit);
+    health::MainLog::parse(&git::git(&p.checkout, &args)?)
+}
+
+/// The numbers the engine measures for a project, up to the moment they are given (`up_to`, UTC to the minute), the
+/// rounds of the architect's work until then counted, and earlier for the trend: every health number
+/// ([`health::measures`]), for the week before that moment and the week before that, split by its subjects where it
+/// has them, the numbers nothing records yet listed with why; the items made, merged and cancelled, and what its items'
+/// works and its architect's works spent, for each of the four weeks before that moment one by one; and the size of its
+/// design paths and of every file on main. The commits on main are read from `main`, the commit the round is pinned to.
+/// A round is inserted with the input it was given, so the moment the numbers are computed is no later than its start.
+fn numbers(e: &Engine, project: &str, main: Option<&str>) -> Result<Value, String> {
     let conn = e.db.conn();
     let week = 7 * 24 * HOUR;
-    let now = work_start(conn, w.id)?;
+    let now = db::now();
     let measure = |name: &str| health::measure(name).ok_or_else(|| format!("the engine has no health number {name}"));
+    let log = main_log(e, project, main);
     let scope = health::Scope {
         project: Some(project),
         subject: None,
+        main: log.as_ref().ok(),
     };
-    // The four weeks before the work, the earliest first: week k before the work is point 3 - k.
+    // The four weeks before now, the earliest first: week k before now is point 3 - k.
     let by_week = |name: &str| health::series(conn, measure(name)?, &scope, now - 4 * week, now, week);
     let (made, merged, cancelled) = (
         by_week("items.made")?,
         by_week("items.merged")?,
         by_week("items.cancelled")?,
     );
-    let spent = health::series_by_subject(conn, measure("spend.usd")?, Some(project), now - 4 * week, now, week)?;
+    let spent = health::series_by_subject(conn, measure("spend.usd")?, &scope, now - 4 * week, now, week)?;
     let at = |s: &health::Series, k: usize| s.points.get(k).and_then(|p| p.value).unwrap_or(0.0);
     let spent_by = |graph: &str, k: usize| spent.iter().find(|(g, _)| g == graph).map_or(0.0, |(_, s)| at(s, k));
     let usd = |x: f64| (x * 100.0).round() / 100.0;
@@ -5377,7 +5397,7 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
             })
         })
         .collect();
-    // Every health number for the two weeks before the work, the earlier first: point 1 is the week before it.
+    // Every health number for the two weeks before now, the earlier first: point 1 is the week before now.
     let mut measures = Map::new();
     let mut not_measured = Map::new();
     for m in health::measures() {
@@ -5389,6 +5409,11 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         };
         let s = health::series(conn, m, &scope, now - 2 * week, now, week)?;
         if let Some(why) = s.not_measured {
+            // A number of main's commits that could not be read says what kept them from being read.
+            let why = match (&log, matches!(m.source, health::Source::Main(_))) {
+                (Err(unread), true) => format!("{why}: {unread}"),
+                _ => why.to_string(),
+            };
             not_measured.insert(m.name.into(), json!(why));
         }
         let mut entry = Map::new();
@@ -5402,7 +5427,7 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         entry.extend(both(&s));
         if let (Some(by), None) = (m.by.name(), s.not_measured) {
             let mut split = Map::new();
-            for (subject, s) in health::series_by_subject(conn, m, Some(project), now - 2 * week, now, week)? {
+            for (subject, s) in health::series_by_subject(conn, m, &scope, now - 2 * week, now, week)? {
                 if let Some(why) = s.not_measured {
                     not_measured.insert(format!("{} for {by} {subject}", m.name), json!(why));
                 }
@@ -5449,6 +5474,7 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         json!({ "now": back(0), "a_week_ago": back(7), "a_month_ago": back(30) })
     });
     Ok(json!({
+        "up_to": utc_minute(now),
         "size_on_main": size,
         "weeks": weeks,
         "measures": measures,
@@ -5550,11 +5576,11 @@ fn policy(e: &Engine, project: &str) -> Result<Option<Value>, String> {
 /// health number `ci.wait`), with that measure week by week, the latest first; for the last week and the week before;
 /// or now, a week ago and a month ago. None when the engine measures none of them, or before the first policy takes
 /// effect.
-fn policy_signals(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
+fn policy_signals(e: &Engine, project: &str, main: Option<&str>) -> Result<Option<Value>, String> {
     let Some(policy) = policy(e, project)? else {
         return Ok(None);
     };
-    let numbers = numbers(e, w, project)?;
+    let numbers = numbers(e, project, main)?;
     let mut measures: Vec<(String, Value)> = Vec::new();
     let weeks = items(numbers.get("weeks"));
     if let Some(first) = weeks.first().and_then(Value::as_object) {

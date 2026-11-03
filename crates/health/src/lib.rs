@@ -5,21 +5,24 @@
 //! why.
 //!
 //! Most measures are computed from the records as they stand, each time they are read (the rounds, the tool runs, the
-//! blockers, the changes, the architect's matters), so that a definition put right puts their whole history right. A
-//! state of the engine at a moment, which no record holds (its CPU, the page's reads, the slots, the works running, the
-//! architect's queue), the engine samples once a minute into `samples` ([`record`]).
+//! blockers, the changes, the architect's matters), so that a definition put right puts their whole history right. Two
+//! are computed from the records and the commits on a project's main, which the caller reads from git and gives
+//! ([`MainLog`], in [`Scope::main`]). A state of the engine at a moment, which no record holds (its CPU, the page's
+//! reads, the slots, the works running, the architect's queue), the engine samples once a minute into `samples`
+//! ([`record`]).
 //!
 //! An event falls in the point that holds the moment it was done: a round when it ended, a merge when it merged, an
-//! item when it was made; the one exception is what a round cost, which falls when the round started, as the System
-//! view counts it. A stop is a span: it counts once, in the point it started in, and lasts in each point for the part
-//! of it there, one still open lasting until now. A point runs from its start up to its end, which belongs to the next.
+//! item when it was made, a commit on main when it was made by its committer time; the one exception is what a round
+//! cost, which falls when the round started, as the System view counts it. A stop is a span: it counts once, in the
+//! point it started in, and lasts in each point for the part of it there, one still open lasting until now. A point
+//! runs from its start up to its end, which belongs to the next.
 
 mod records;
 mod round;
 mod samples;
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use db::rusqlite::types::Value as Sql;
 use db::rusqlite::{self, Connection, Row, params_from_iter};
@@ -107,11 +110,17 @@ impl By {
 /// What a measure's values are read from, between two times and for one project or all of them.
 pub type Gather = fn(&Reader<'_>, Option<&str>, i64, i64) -> Result<Vec<Fact>, String>;
 
+/// What a measure's values are read from with the commits on the project's main, between two times.
+pub type MainGather = fn(&Reader<'_>, Option<&str>, &MainLog, i64, i64) -> Result<Vec<Fact>, String>;
+
 /// Where a measure's values come from.
 #[derive(Debug, Clone, Copy)]
 pub enum Source {
     /// Computed from the records each time it is read.
     Records(Gather),
+    /// Computed from the records and the commits on the project's main, which the caller gives ([`Scope::main`]); not
+    /// measured when it gives none.
+    Main(MainGather),
     /// Sampled by the engine each minute, its own and no project's.
     Engine,
     /// Sampled by the engine each minute, one value for each project.
@@ -150,15 +159,25 @@ impl Measure {
 
     /// Whether a point with nothing in it is a zero, as a count of events the records hold is, and not a value unknown.
     fn zero_when_empty(&self) -> bool {
-        matches!(self.source, Source::Records(_)) && matches!(self.fold, Fold::Count | Fold::Sum)
+        matches!(self.source, Source::Records(_) | Source::Main(_)) && matches!(self.fold, Fold::Count | Fold::Sum)
+    }
+
+    /// Why it has no values for the scope read, when nothing records them or what it needs was not given.
+    fn unmeasured_in(&self, scope: &Scope<'_>) -> Option<&'static str> {
+        self.not_measured(scope.subject).or_else(|| {
+            (matches!(self.source, Source::Main(_)) && scope.main.is_none()).then_some(MAIN_UNREAD)
+        })
     }
 }
 
 /// Why waiting for a free slot is not among the stops yet.
 const SLOT_UNRECORDED: &str = "a wait for a free slot is kept only in the engine's memory, not in the database";
 
+/// Why a measure of the commits on main has no values when the reader gave none.
+const MAIN_UNREAD: &str = "the commits on the project's main were not read";
+
 /// What the engine measures, each measure once.
-static MEASURES: [Measure; 21] = [
+static MEASURES: [Measure; 23] = [
     Measure {
         name: "merge.broken",
         what: "Merges that broke main, as the check of main after a merge (cell L1) found, which the engine reverted",
@@ -313,10 +332,38 @@ static MEASURES: [Measure; 21] = [
     },
     Measure {
         name: "items.merged",
-        what: "Items merged by the flow (cell M2)",
+        what: "Pull requests the flow merged (cell M2), each merge it recorded, each one commit on main; a merge whose \
+               commit main does not hold counts here too, and again in merge.not_on_main",
         layer: Layer::System,
         unit: Unit::Count,
         source: Source::Records(records::items_merged),
+        fold: Fold::Count,
+        by: By::Nothing,
+        missing: &[],
+        empty: "",
+    },
+    Measure {
+        name: "merge.not_on_main",
+        what: "Merges the flow recorded (cell M2) whose commit is not on the project's main, following its first \
+               parents, by when the round ended; a merge that ended after the newest commit of main read was made is \
+               judged once main has moved on",
+        layer: Layer::System,
+        unit: Unit::Count,
+        source: Source::Main(records::not_on_main),
+        fold: Fold::Count,
+        by: By::Nothing,
+        missing: &[],
+        empty: "",
+    },
+    Measure {
+        name: "main.direct_pushes",
+        what: "Commits that came onto the project's main without the flow, following main's first parents: neither the \
+               merge of a pull request the flow merged (cell M2) nor the engine's revert of a merge that broke main. \
+               Each falls when it was made, by its committer time: for a commit pushed by hand, when it was made, not \
+               when it was pushed; for a merge on GitHub, when it was merged",
+        layer: Layer::Project,
+        unit: Unit::Count,
+        source: Source::Main(records::direct_pushes),
         fold: Fold::Count,
         by: By::Nothing,
         missing: &[],
@@ -412,11 +459,54 @@ pub fn measure(name: &str) -> Option<&'static Measure> {
 }
 
 /// Which values a series reads: one project's, or every project's and the engine's own; and one subject's, or all of
-/// them together.
+/// them together; with the commits on the project's main, for the measures that read them.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Scope<'a> {
     pub project: Option<&'a str>,
     pub subject: Option<&'a str>,
+    pub main: Option<&'a MainLog>,
+}
+
+/// The commits on a project's main, following first parents from the commit read, as git gives them: each by its
+/// full id with when it was made, by its committer time, and when the newest was made.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MainLog {
+    /// Each commit's committer time, in milliseconds, by its full id.
+    at: HashMap<String, i64>,
+    /// The newest commit's committer time, in milliseconds.
+    tip_at: i64,
+}
+
+impl MainLog {
+    /// The git command that gives what [`MainLog::parse`] reads, the commit to read from after it: every commit on
+    /// main's first-parent line, the newest first, as its full id and its committer time in seconds. It reads them all,
+    /// not since a time, since git's `--since` stops at the first commit made before the time, and a commit pushed by
+    /// hand can have been made before one under it.
+    pub const GIT_LOG: [&'static str; 3] = ["log", "--first-parent", "--format=%H %ct"];
+
+    /// The commits of main as [`MainLog::GIT_LOG`] gives them.
+    pub fn parse(log: &str) -> Result<MainLog, String> {
+        let mut at = HashMap::new();
+        let mut tip_at = None;
+        for line in log.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            let made = line
+                .split_once(' ')
+                .and_then(|(id, s)| Some((id, s.trim().parse::<i64>().ok()?)));
+            let Some((id, seconds)) = made else {
+                return Err(format!("main's log has a line that is no commit with its time: {line:?}"));
+            };
+            let ms = seconds.saturating_mul(1000);
+            tip_at.get_or_insert(ms);
+            at.insert(id.to_string(), ms);
+        }
+        let tip_at = tip_at.ok_or_else(|| "main's log has no commit".to_string())?;
+        Ok(MainLog { at, tip_at })
+    }
+
+    /// Whether a commit, by its full id, is on main's first-parent line.
+    pub fn holds(&self, commit: &str) -> bool {
+        self.at.contains_key(commit)
+    }
 }
 
 /// One point of a series: the time from `from` up to `to`, the values that fell in it, and what they fold to; none
@@ -536,13 +626,15 @@ fn points(from: i64, to: i64, step: i64) -> Result<Vec<(i64, i64)>, String> {
     Ok((0..n).map(|k| (at(k), at(k + 1))).collect())
 }
 
-/// The values a measure is computed from, between two times, for one project or all of them.
-fn facts(r: &Reader<'_>, m: &Measure, project: Option<&str>, from: i64, to: i64) -> Result<Vec<Fact>, String> {
-    match m.source {
-        Source::Records(gather) => gather(r, project, from, to),
-        Source::Engine => samples::sampled(r, m.name, Some(""), from, to),
-        Source::Projects => samples::sampled(r, m.name, project, from, to),
-        Source::Missing(_) => Ok(Vec::new()),
+/// The values a measure is computed from, between two times, for the scope's project or all of them; every subject's.
+fn facts(r: &Reader<'_>, m: &Measure, scope: &Scope<'_>, from: i64, to: i64) -> Result<Vec<Fact>, String> {
+    let project = scope.project;
+    match (m.source, scope.main) {
+        (Source::Records(gather), _) => gather(r, project, from, to),
+        (Source::Main(gather), Some(main)) => gather(r, project, main, from, to),
+        (Source::Engine, _) => samples::sampled(r, m.name, Some(""), from, to),
+        (Source::Projects, _) => samples::sampled(r, m.name, project, from, to),
+        (Source::Main(_), None) | (Source::Missing(_), _) => Ok(Vec::new()),
     }
 }
 
@@ -649,10 +741,10 @@ fn series_read(
     step: i64,
 ) -> Result<Series, String> {
     let bounds = points(from, to, step)?;
-    if let Some(why) = m.not_measured(scope.subject) {
+    if let Some(why) = m.unmeasured_in(scope) {
         return Ok(unmeasured(&bounds, why));
     }
-    let all = facts(r, m, scope.project, from, to)?;
+    let all = facts(r, m, scope, from, to)?;
     let facts: Vec<&Fact> = all
         .iter()
         .filter(|f| scope.subject.is_none_or(|s| f.subject == s))
@@ -664,21 +756,25 @@ fn series_read(
 }
 
 /// A measure's series for each of its subjects that has values in the period, as [`series`] gives one, and for each
-/// subject it does not measure yet, saying why; for the project given, or all of them.
+/// subject it does not measure yet, saying why; for the scope's project, or all of them, whatever subject it names.
 pub fn series_by_subject(
     conn: &Connection,
     m: &Measure,
-    project: Option<&str>,
+    scope: &Scope<'_>,
     from: i64,
     to: i64,
     step: i64,
 ) -> Result<Vec<(String, Series)>, String> {
     let bounds = points(from, to, step)?;
-    if let Some(why) = m.not_measured(None) {
+    let every = Scope {
+        subject: None,
+        ..*scope
+    };
+    if let Some(why) = m.unmeasured_in(&every) {
         return Ok(vec![(String::new(), unmeasured(&bounds, why))]);
     }
     let r = Reader::new(conn);
-    let all = facts(&r, m, project, from, to)?;
+    let all = facts(&r, m, &every, from, to)?;
     let mut by: BTreeMap<&str, Vec<&Fact>> = BTreeMap::new();
     for f in &all {
         by.entry(f.subject.as_str()).or_default().push(f);

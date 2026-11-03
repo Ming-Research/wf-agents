@@ -406,6 +406,7 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                     "checkout": project.checkout,
                     "merge_commit": merged,
                     "worktrees": config::worktrees(&ctx.data),
+                    "round": ctx.round.n,
                 }),
             )?;
         }
@@ -749,7 +750,7 @@ pub fn run_outbox(e: &mut Engine) -> Result<bool, String> {
                     .close(text("repo"), args["pr"].as_i64().unwrap_or_default(), text("comment"))
                     .map_err(|f| f.what),
             ),
-            "revert_merge" => done(revert(e, args)),
+            "revert_merge" => done(revert(e, row["work"].as_i64(), args)),
             other => Err(format!("no such outbox action: {other}")),
         };
         if matches!(result, Ok(Carried::NotYet)) {
@@ -791,9 +792,15 @@ fn notify_owner(e: &Engine, text: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Opens a PR that reverts a merge, and merges it.
-fn revert(e: &Engine, args: &Value) -> Result<(), String> {
+/// Opens a PR that reverts a merge, merges it, and records the revert (`reverts`): the check of main that called for it,
+/// by its work and the round in `args`, the merge reverted, the revert's PR and the commit its merge put on main. The
+/// record is written after the merge and before the outbox lets the action go, in another write: should the engine
+/// stop between the two, the action is carried out again and opens a second revert.
+fn revert(e: &Engine, work: Option<i64>, args: &Value) -> Result<(), String> {
     let s = |k: &str| args[k].as_str().unwrap_or_default().to_string();
+    let (Some(work), Some(round)) = (work, args["round"].as_i64()) else {
+        return Err("a revert of a merge names no check of main to record it by".into());
+    };
     let (main, sha) = (s("main"), s("merge_commit"));
     let checkout = PathBuf::from(s("checkout"));
     let short: String = sha.chars().take(10).collect();
@@ -815,10 +822,19 @@ fn revert(e: &Engine, args: &Value) -> Result<(), String> {
     )?;
     let result = revert_in(e, &dir, &s("repo"), &main, &sha, &branch);
     let _ = git::remove_worktree(&checkout, &dir);
-    result
+    let (pr, commit) = result?;
+    // History, which no trigger tracks, written as the outbox's own rows are.
+    e.db.conn()
+        .execute(
+            "INSERT INTO reverts (work, round, merge_commit, pr, revert_commit, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![work, round, sha, pr, commit, db::now()],
+        )
+        .map_err(sql)?;
+    Ok(())
 }
 
-fn revert_in(e: &Engine, dir: &Path, repo: &str, main: &str, sha: &str, branch: &str) -> Result<(), String> {
+/// Reverts a merge in a worktree of main, and gives the PR it opened and the commit its merge put on main.
+fn revert_in(e: &Engine, dir: &Path, repo: &str, main: &str, sha: &str, branch: &str) -> Result<(i64, String), String> {
     let who = ["-c", "user.name=wf-agents", "-c", "user.email=wf-agents@localhost"];
     git::git(dir, &[&who[..], &["revert", "--no-edit", sha]].concat())?;
     let head = git::head(dir)?;
@@ -830,8 +846,8 @@ fn revert_in(e: &Engine, dir: &Path, repo: &str, main: &str, sha: &str, branch: 
         .github()
         .pull_request(repo, branch, main, Some((&title, &body)), None)
         .map_err(|f| f.what)?;
-    crate::hub::merge_into(e.github(), repo, pr, main).map_err(|f| f.what)?;
-    Ok(())
+    let commit = crate::hub::merge_into(e.github(), repo, pr, main).map_err(|f| f.what)?;
+    Ok((pr, commit))
 }
 
 #[cfg(test)]

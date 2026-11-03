@@ -9,7 +9,7 @@ use db::rusqlite::types::Value as Sql;
 use serde_json::Value;
 
 use crate::round::{Outcome, context_end, outcome};
-use crate::{Fact, Reader, args, project_arg};
+use crate::{Fact, MainLog, Reader, args, project_arg};
 
 /// The graph works on items run.
 const ENGINEER: &str = "engineer";
@@ -233,6 +233,65 @@ pub(crate) fn items_merged(r: &Reader<'_>, project: Option<&str>, from: i64, to:
     r.rows(&merges_sql("r.ended_at"), args(project, from, to), |row| {
         Ok(Fact::event(row.get(0)?, "", 1.0))
     })
+}
+
+/// Each merge by the flow whose commit is not on main's first-parent line, when its round ended: of the merges that
+/// ended no later than the newest commit of main read was made, since main as read cannot hold one that ended after it.
+/// A merge recorded with no commit is not on main either.
+pub(crate) fn not_on_main(
+    r: &Reader<'_>,
+    project: Option<&str>,
+    main: &MainLog,
+    from: i64,
+    to: i64,
+) -> Result<Vec<Fact>, String> {
+    let merges = r.rows(
+        &merges_sql("r.ended_at, json_extract(r.output, '$.result.merge_commit')"),
+        args(project, from, to),
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+    )?;
+    Ok(merges
+        .into_iter()
+        .filter(|(ended, commit)| *ended <= main.tip_at && commit.as_deref().is_none_or(|c| !main.holds(c)))
+        .map(|(ended, _)| Fact::event(ended, "", 1.0))
+        .collect())
+}
+
+/// Each commit on main's first-parent line made from `from` up to `to`, by its committer time, that came onto main
+/// without the flow: no merge by the flow (cell `M2`) has it as its commit, nor any revert the engine made of a merge
+/// that broke main (`reverts`). A commit is told by its full id, which belongs to one repository; the project is not
+/// read. The merges are read by their commit (index `rounds_merge_commit`), the expression written as the index has it.
+pub(crate) fn direct_pushes(
+    r: &Reader<'_>,
+    _project: Option<&str>,
+    main: &MainLog,
+    from: i64,
+    to: i64,
+) -> Result<Vec<Fact>, String> {
+    let made: BTreeMap<&str, i64> = main
+        .at
+        .iter()
+        .filter(|(_, at)| (from..to).contains(*at))
+        .map(|(id, at)| (id.as_str(), *at))
+        .collect();
+    if made.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids = Value::from(made.keys().copied().collect::<Vec<&str>>()).to_string();
+    let sql = format!(
+        "SELECT s.value FROM json_each(?1) s
+         WHERE NOT EXISTS (SELECT 1 FROM rounds r
+                           WHERE json_extract(r.output, '$.result.merge_commit') = s.value
+                             AND r.transition = 'merged' AND r.cell IN {})
+           AND NOT EXISTS (SELECT 1 FROM reverts v WHERE v.revert_commit = s.value)",
+        db::cells_sql(ENGINEER, &["M2"])
+    );
+    let pushed = r.rows(&sql, vec![Sql::Text(ids)], |row| row.get::<_, String>(0))?;
+    Ok(pushed
+        .iter()
+        .filter_map(|id| made.get(id.as_str()))
+        .map(|&at| Fact::event(at, "", 1.0))
+        .collect())
 }
 
 /// Each item made here, by the change that inserted it, with when: an item imported from outside the flow was not

@@ -2,9 +2,12 @@
 //! minutes, and over one period of another length as a whole. Each test seeds what its numbers count and some of what
 //! they must leave out: another project's, another kind's, an engine's step for an agent's round.
 
+use std::path::Path;
+use std::process::Command;
+
 use db::rusqlite::{Connection, params};
 use db::{Actor, Db};
-use health::{Scope, measure, series, series_by_subject};
+use health::{MainLog, Scope, measure, series, series_by_subject};
 use serde_json::{Value, json};
 
 /// A time on the minute, long past, from which every record of these tests is placed.
@@ -204,7 +207,7 @@ impl Seed {
 fn p() -> Scope<'static> {
     Scope {
         project: Some("p"),
-        subject: None,
+        ..Scope::default()
     }
 }
 
@@ -216,6 +219,7 @@ fn of(subject: &'static str) -> Scope<'static> {
     Scope {
         project: Some("p"),
         subject: Some(subject),
+        ..Scope::default()
     }
 }
 
@@ -339,7 +343,7 @@ fn the_context_is_the_median_and_the_largest_of_the_rounds_that_ended() {
     let by = series_by_subject(
         s.conn(),
         measure("round.context").unwrap(),
-        Some("p"),
+        &p(),
         T0,
         T0 + 10 * M,
         10 * M,
@@ -610,6 +614,112 @@ fn what_was_spent_counts_by_the_graph_when_each_round_started() {
     );
     assert_eq!(s.minutes("spend.usd", of("architect")), ten(&[(2, 1.0)], Some(0.0)));
     assert_eq!(s.whole("spend.usd", p()), Some(1.0));
+}
+
+/// Runs git in a directory, a commit it makes made at `at` (ms), by its author's and its committer's time; gives what
+/// it printed.
+fn git(dir: &Path, args: &[&str], at: i64) -> String {
+    let when = format!("@{} +0000", at / 1000);
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@localhost", "-c", "commit.gpgsign=false"])
+        .args(args)
+        .env("GIT_AUTHOR_DATE", &when)
+        .env("GIT_COMMITTER_DATE", &when)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+// Item 231, A7: main's first-parent line holds two merges by the flow, a merge of a side line made by hand, which is the
+// one commit that came onto main without the flow (the commit on the side under it is not on main's first-parent line),
+// and the engine's revert of a merge that broke main, which its record names; the flow recorded a third merge whose
+// commit main does not hold, ended before main's newest commit was made. The flow's merges count every one it
+// recorded; the commits without the flow count the merge by hand alone, by when it was made; the merge main does not
+// hold counts where its round ended. One that ended after main's newest commit was made is not judged: main as read
+// could not hold it. Without main's commits read, those two say why they have no values.
+#[test]
+fn commits_come_onto_main_by_the_flow_by_hand_or_by_the_engine_s_revert() {
+    let mut s = Seed::new();
+    let dir = std::env::temp_dir().join(format!("health-main-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    git(&dir, &["init", "-q"], T0);
+    let commit = |message: &str, at: i64| {
+        git(&dir, &["commit", "-q", "--allow-empty", "-m", message], at);
+        git(&dir, &["rev-parse", "HEAD"], at)
+    };
+    commit("start", T0 - 60 * M);
+    let a = commit("Merge PR 1", T0 + M + 5_000);
+    let trunk = git(&dir, &["rev-parse", "--abbrev-ref", "HEAD"], T0);
+    git(&dir, &["checkout", "-q", "-b", "side"], T0);
+    let side = commit("On the side", T0 + 2 * M - 10_000);
+    git(&dir, &["checkout", "-q", &trunk], T0);
+    git(&dir, &["merge", "-q", "--no-ff", "-m", "By hand", "side"], T0 + 2 * M);
+    let b = commit("Merge PR 2", T0 + 3 * M + 5_000);
+    let revert = commit("Revert PR 2", T0 + 4 * M + 5_000);
+    let mut log = MainLog::GIT_LOG.to_vec();
+    log.push("HEAD");
+    let main = MainLog::parse(&git(&dir, &log, T0)).unwrap();
+    assert!(main.holds(&a) && main.holds(&b) && main.holds(&revert) && !main.holds(&side));
+
+    let i = s.item("p", false, T0 - 60 * M);
+    let w = s.work(Some(i), "engineer", None);
+    let merged = |commit: &str, ended: i64| R {
+        work: w,
+        cell: "M2",
+        started: ended - 1_000,
+        ended: Some(ended),
+        transition: Some("merged"),
+        output: Some(json!({ "result": { "kind": "merged", "merge_commit": commit } })),
+        ..R::default()
+    };
+    s.round(merged(&a, T0 + M + 10_000));
+    s.round(merged(&b, T0 + 3 * M + 10_000));
+    s.round(merged(&"f".repeat(40), T0 + 4 * M));
+    let check = s.round(R {
+        work: w,
+        cell: "L1",
+        started: T0 + 4 * M,
+        ended: Some(T0 + 4 * M + 1),
+        transition: Some("revert_merge"),
+        ..R::default()
+    });
+    s.sql(
+        "INSERT INTO reverts (work, round, merge_commit, pr, revert_commit, at) VALUES (?1, ?2, ?3, 9, ?4, ?5)",
+        params![w, check, b, revert, T0 + 4 * M + 5_000],
+    );
+    let read = Scope {
+        main: Some(&main),
+        ..p()
+    };
+    assert_eq!(s.minutes("main.direct_pushes", read), ten(&[(2, 1.0)], Some(0.0)));
+    assert_eq!(s.minutes("merge.not_on_main", read), ten(&[(4, 1.0)], Some(0.0)));
+    assert_eq!(
+        s.minutes("items.merged", p()),
+        ten(&[(1, 1.0), (3, 1.0), (4, 1.0)], Some(0.0))
+    );
+    // From 90 s up to 450 s: the merge by hand at 120 s, not the commit on the side under it at 110 s.
+    assert_eq!(s.whole("main.direct_pushes", read), Some(1.0));
+    for name in ["main.direct_pushes", "merge.not_on_main"] {
+        let unread = series(s.conn(), measure(name).unwrap(), &p(), T0, T0 + 10 * M, M).unwrap();
+        assert!(unread.not_measured.is_some(), "{name}: {unread:?}");
+        assert!(unread.points.iter().all(|x| x.value.is_none()), "{name}");
+    }
+    s.round(merged(&"e".repeat(40), T0 + 6 * M));
+    let read = Scope {
+        main: Some(&main),
+        ..p()
+    };
+    assert_eq!(s.minutes("merge.not_on_main", read), ten(&[(4, 1.0)], Some(0.0)));
+    assert_eq!(s.whole("items.merged", p()), Some(3.0));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // Every measure of the registry gives a series over seeded records, of its unit and with a point at each step.

@@ -13900,12 +13900,45 @@ fn the_architect_s_first_work_is_told_the_week_before_it_and_every_item_not_done
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The numbers the architect is given are measured up to the start of its work, its own rounds counting for nothing, and
-// what each week spent is split between the items' works and the architect's works.
+/// The whole of an engine's input of the standard context that a work's round at a cell was given (the first round or
+/// the last), by the end of its address: the version `contents` keeps of it, whether the round was given it whole, only
+/// what changed in it, or referred to it.
+fn given_whole(e: &Engine, work: i64, cell: &str, last: bool, end: &str) -> Option<Value> {
+    let input = input_at(e, work, cell, last);
+    let key = input["conditional"]
+        .as_array()?
+        .iter()
+        .find(|c| c["address"].as_str().is_some_and(|a| a.ends_with(end)))?["text"]
+        .as_str()?
+        .to_string();
+    let text: String =
+        e.db.conn()
+            .query_row("SELECT text FROM contents WHERE hash = ?1", [&key], |r| r.get(0))
+            .ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+// Item 231, A6: the numbers the architect is given count up to the moment they are given, not to the start of its
+// work. After a work of the architect has started and been given its numbers, the flow merges an item, an item is made
+// and one cancelled, and a round of the work itself spends: the numbers its next round at the understanding is given
+// count all of them in the latest week and in the last 7 days, say up to when they count (`up_to`, no earlier than
+// those records and no later than the round's start), and leave the 7 days before as they were. What each week spent is
+// split between the items' works and the architect's, the work's own rounds until then among the architect's.
 #[test]
-fn the_numbers_hold_through_an_architect_work_and_split_what_was_spent() {
+fn the_numbers_count_up_to_the_round_that_gives_them() {
     let s = setup("numbers");
-    let (mut e, said) = engine(&s, scripts());
+    let mut agents = scripts();
+    agents.insert(
+        "U1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                let tools = json!([{ "tool": "query", "sql": "SELECT id FROM items" }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     let item = an_item(&mut e);
     let v = e.flow_now;
@@ -13926,24 +13959,201 @@ fn the_numbers_hold_through_an_architect_work_and_split_what_was_spent() {
     .unwrap();
     say(&mut e, "Look at the numbers.");
     let arch = e.step(None).unwrap().work.unwrap();
+    let took = |row: &'static str| {
+        move |e: &mut Engine| {
+            cells_of(e, arch)
+                .iter()
+                .any(|c| c.0 == "U1" && c.1.as_deref() == Some(row))
+        }
+    };
     assert!(
-        steps_until(&mut e, 20, |e| path_of(e, arch).iter().any(|c| c == "N1")),
+        steps_until(&mut e, 10, took("tools")),
         "{}",
         said.lock().unwrap().join("\n")
     );
-    let understanding = message_at(&e, arch, "U1", false);
-    let numbers = given_value(&understanding, "·engine·numbers").expect(&understanding);
-    assert_eq!(
-        numbers["weeks"][0]["spent_usd"],
-        json!({ "items": 0.5, "architect": 0.25 }),
-        "{numbers}"
+    let first = given_whole(&e, arch, "U1", false, "·engine·numbers").expect("the first numbers");
+    // What happens after the work started and was given its numbers: a merge by the flow, an item made and one
+    // cancelled, and the work's own round that asked for tools costing a dollar.
+    let after = db::now();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', 'M2', 'merged')",
+            params![item, v],
+        )?;
+        let merged = json!({ "result": { "kind": "merged", "merge_commit": "a".repeat(40) } }).to_string();
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+             VALUES (?1, 1, 'M2', '{}', ?2, 'merged', 'c', ?3, ?3)",
+            params![tx.last_insert_rowid(), merged, after],
+        )?;
+        tx.execute(
+            "UPDATE rounds SET usage = '{\"cost_usd\":1.0}' WHERE work = ?1 AND cell = 'U1' AND transition = 'tools'",
+            [arch],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level, held)
+             VALUES ('p', 'Made later', 'Missing.', 'Needed.', 'change', 'l', 'not yet')",
+            [],
+        )?;
+        tx.execute("UPDATE items SET cancelled = 'not needed' WHERE id = ?1", [item])?;
+        Ok(())
+    })
+    .unwrap();
+    let recorded = db::now();
+    assert!(
+        steps_until(&mut e, 10, took("understood")),
+        "{}",
+        said.lock().unwrap().join("\n")
     );
+    let second = given_whole(&e, arch, "U1", true, "·engine·numbers").expect("the second numbers");
+    let (n, started): (i64, i64) =
+        e.db.conn()
+            .query_row(
+                "SELECT n, started_at FROM rounds WHERE work = ?1 AND cell = 'U1' ORDER BY n DESC LIMIT 1",
+                [arch],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    let up_to = second["up_to"].as_str().unwrap().to_string();
+    assert!(
+        engine::utc(recorded) <= up_to && up_to <= engine::utc(started),
+        "{up_to}, recorded {}, the round started {}",
+        engine::utc(recorded),
+        engine::utc(started)
+    );
+    let latest = |x: &Value, k: &str| x["weeks"][0][k].as_i64().unwrap();
+    for k in ["merged", "items_made", "cancelled"] {
+        assert_eq!(latest(&second, k), latest(&first, k) + 1, "{k}: {first}\n{second}");
+    }
+    let last_7 = |x: &Value, m: &str| x["measures"][m]["last_7_days"].as_i64().unwrap();
+    for m in ["items.merged", "items.made", "items.cancelled"] {
+        assert_eq!(last_7(&second, m), last_7(&first, m) + 1, "{m}: {first}\n{second}");
+        assert_eq!(
+            second["measures"][m]["the_7_days_before"], first["measures"][m]["the_7_days_before"],
+            "{m}"
+        );
+    }
+    // The architect's works spent the other architect work's round and each round of this one before the round given
+    // the numbers, by what each reported; the items' works, the round an hour ago.
+    let own: f64 = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT json_extract(usage, '$.cost_usd') FROM rounds WHERE work = ?1 AND n < ?2")
+                .unwrap();
+        st.query_map(params![arch, n], |r| r.get::<_, Option<f64>>(0))
+            .unwrap()
+            .map(|c| c.unwrap().unwrap_or_default())
+            .sum()
+    };
+    let cents = |x: f64| (x * 100.0).round() / 100.0;
+    assert_eq!(
+        second["weeks"][0]["spent_usd"],
+        json!({ "items": 0.5, "architect": cents(0.25 + own) }),
+        "{second}"
+    );
+    assert!(own >= 1.0, "{own}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item 231, A7: the engine reverts a merge that broke main as the check of main after it calls for it, its action in the
+// outbox with the arguments cell L1's row `revert_merge` writes, and records the revert: the check that called for it,
+// the merge reverted, the revert's pull request and the commit its merge put on main. That commit came onto main by the
+// engine, so the commits that came onto main without the flow are the setup's first one alone, neither the merge by the
+// flow nor its revert; and every merge the flow recorded is on main.
+#[test]
+fn the_engine_records_its_revert_of_a_merge_that_broke_main() {
+    let s = setup("revert");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let item = an_item(&mut e);
+    let checkout = s.root.join("checkout");
+    write(&checkout, "src/lib.txt", "old\nbroken\n");
+    git(&checkout, &["commit", "-qam", "Merge PR 1"]);
+    git(&checkout, &["push", "-q", "origin", "HEAD:main"]);
+    let broken = git(&checkout, &["rev-parse", "HEAD"]);
+    let v = e.flow_now;
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, ended) VALUES (?1, ?2, 'engineer', 'L1', 'stopped: by hand')",
+                params![item, v],
+            )?;
+            let w = tx.last_insert_rowid();
+            let merged = json!({ "result": { "kind": "merged", "merge_commit": broken } }).to_string();
+            let main = json!({ "main": { "kind": "broken_by_merge", "checks": [] } }).to_string();
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, 1, 'M2', '{}', ?2, 'merged', 'c', ?4, ?4),
+                        (?1, 2, 'L1', '{}', ?3, 'broken_by_merge', 'c', ?4, ?4)",
+                params![w, merged, main, db::now()],
+            )?;
+            // The action as the check's row puts it in the outbox.
+            let args = json!({
+                "repo": "o/p",
+                "main": "main",
+                "checkout": checkout,
+                "merge_commit": broken,
+                "worktrees": config::worktrees(&s.data),
+                "round": 2,
+            });
+            tx.execute(
+                "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, 'revert_merge', ?2, 0)",
+                params![w, args.to_string()],
+            )?;
+            Ok(w)
+        })
+        .unwrap();
+    let reverts = |e: &Engine| -> Vec<(i64, i64, String, i64, String)> {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT work, round, merge_commit, pr, revert_commit FROM reverts")
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    e.tick().unwrap();
+    let left: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM outbox WHERE kind = 'revert_merge'", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(left, 0, "{}", said.lock().unwrap().join("\n"));
+    let on_main = git(&s.origin, &["rev-parse", "main"]);
+    let recorded = reverts(&e);
+    assert_eq!(recorded.len(), 1, "{recorded:?}");
+    let (w, round, reverted, pr, commit) = &recorded[0];
+    assert_eq!((*w, *round, reverted.as_str()), (work, 2, broken.as_str()));
+    assert!(*pr > 0, "{pr}");
+    assert_eq!(commit, &on_main);
+    assert_eq!(git(&s.origin, &["rev-parse", "main^1"]), broken);
+    // Of main's commits, the setup's first came onto it without the flow; the merge and its revert did not.
+    let mut log = health::MainLog::GIT_LOG.to_vec();
+    log.push("main");
+    let main = health::MainLog::parse(&git(&s.origin, &log)).unwrap();
+    let scope = health::Scope {
+        project: Some("p"),
+        subject: None,
+        main: Some(&main),
+    };
+    let (from, to) = (db::now() - 3_600_000, db::now() + 60_000);
+    let whole = |name: &str| {
+        let m = health::measure(name).unwrap();
+        health::series(e.db.conn(), m, &scope, from, to, to - from).unwrap().points[0].value
+    };
+    assert_eq!(whole("main.direct_pushes"), Some(1.0));
+    assert_eq!(whole("merge.not_on_main"), Some(0.0));
+    assert_eq!(whole("items.merged"), Some(1.0));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
 // Item 231: the architect's numbers count the items made as the System view lists them, by the health numbers' one
-// definition: an item imported from an earlier board was not made here. Both count two over the week before the
-// architect's work.
+// definition: an item imported from an earlier board was not made here. Both count two over the week before the round
+// given the numbers.
 #[test]
 fn the_architect_s_numbers_and_the_system_view_count_the_same_items_made() {
     let s = setup("made");
@@ -14011,11 +14221,14 @@ fn the_architect_s_numbers_and_the_system_view_count_the_same_items_made() {
         listed.values().all(|why| why.as_str().is_some_and(|t| !t.is_empty())),
         "{numbers}"
     );
+    // The numbers count up to the moment they are given, just before the round starts.
     let start: i64 =
         e.db.conn()
-            .query_row("SELECT min(started_at) FROM rounds WHERE work = ?1", [arch], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT started_at FROM rounds WHERE work = ?1 AND cell = 'U1' ORDER BY n LIMIT 1",
+                [arch],
+                |r| r.get(0),
+            )
             .unwrap();
     let (projects, limits) = (vec!["p".to_string()], BTreeMap::new());
     let ask = api::SystemAsk {
