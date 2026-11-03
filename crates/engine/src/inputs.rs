@@ -18,6 +18,9 @@ const ROWS: usize = 200;
 /// The engineer's cell that fixes what the checks after implementing found, answering a numbered table.
 const FIX: &str = "T6";
 
+/// The cell of adversarial testing, which a re-check is told what the branch did since its last answer.
+const ADVERSARIAL: &str = "T1";
+
 /// The engineer's cell that writes the design, whose returns are the design's versions.
 const DESIGN: &str = "D2";
 
@@ -820,8 +823,9 @@ pub fn engine_input(
             engineer_tests(chose, returns.iter().map(|(_, ret)| ret), name)
         }
         // What a review reviews, by commits the worktree has: main as it has it fetched, the pull request's base, the
-        // commit of main the branch was cut from or last took main in at, the head under review, and at a re-review
-        // the head the last table review looked at.
+        // commit of main the branch was cut from or last took main in at, the head under review, the merges of main
+        // into the branch (none, said so, when it never took main in), and at a re-review the head the last table
+        // review looked at with the merges since.
         "review_base" => match wt {
             Some(wt) => {
                 let fork = git::fork_point(wt, &main)?;
@@ -830,17 +834,14 @@ pub fn engine_input(
                     .clone()
                     .or_else(|| git::resolve(wt, "HEAD"))
                     .unwrap_or_default();
-                let mut v = json!({
-                    "main": format!("origin/{main}"),
-                    "fork_point": fork,
-                    "head": head,
-                    "change": format!("git diff {fork}..{head}"),
-                });
-                if let Some(last) = crate::values::reviewed_head(e, w, g)? {
-                    v["last_reviewed"] = json!(last);
-                }
-                Some(v)
+                let last = crate::values::reviewed_head(e, w, g)?;
+                Some(review_base_json(wt, &main, &fork, &head, last.as_deref())?)
             }
+            None => None,
+        },
+        // What the branch did since adversarial testing last answered; none before its first answer.
+        "since_adversarial" => match wt {
+            Some(wt) => since_adversarial(e, w, g, wt, &main)?,
             None => None,
         },
         // A flow version stored before the records named this input `design_tree_diff`.
@@ -854,6 +855,103 @@ pub fn engine_input(
         },
         other => return Err(format!("no such engine input: {other}")),
     })
+}
+
+/// What a review reviews: see the input `review_base`. `last` is the head the last table review looked at, if any. A
+/// head git cannot read there is said so, with why, since the reader goes on without the list it would have been
+/// given; and when it is no ancestor of `head`, the branch was rewritten since, which a note says.
+fn review_base_json(wt: &Path, main: &str, fork: &str, head: &str, last: Option<&str>) -> Result<Value, String> {
+    let (main_merges, _) = git::main_merges_since(wt, main, &format!("origin/{main}"), head)?;
+    let mut v = json!({
+        "main": format!("origin/{main}"),
+        "fork_point": fork,
+        "head": head,
+        "change": format!("git diff {fork}..{head}"),
+        "main_merges": merges_json(&main_merges),
+    });
+    if let Some(last) = last {
+        v["last_reviewed"] = json!(last);
+        match git::main_merges_since(wt, main, last, head) {
+            Ok((merges, diverged)) => {
+                v["merges_since_last_review"] = merges_json(&merges);
+                if diverged {
+                    v["merges_since_last_review_note"] = json!(
+                        "The head the last table review looked at is not an ancestor of the head now: the branch was \
+                         rewritten since. The merges are those among the commits the head has that it lacked."
+                    );
+                }
+            }
+            Err(why) => v["merges_since_last_review"] = json!({ "unreadable": why }),
+        }
+    }
+    Ok(v)
+}
+
+/// The merges of a branch as an input gives them, newest first: each commit with the first line of its message. An
+/// empty list says the branch had none.
+fn merges_json(merges: &[git::Commit]) -> Value {
+    Value::Array(
+        merges
+            .iter()
+            .map(|c| json!({ "commit": c.id, "subject": c.subject }))
+            .collect(),
+    )
+}
+
+/// What happened on the branch since `base` as an input gives it, with the numbers of the rounds of the fix that
+/// answered in the meantime. A base git cannot read is said so, with why, since the reader goes on without the list
+/// it would have been given.
+fn since_json(wt: &Path, main: &str, base: &str, head: &str, fixes: &[String]) -> Value {
+    let changes = match git::changes_since(wt, main, base, head) {
+        Ok(c) => c,
+        Err(why) => return json!({ "since": base, "head": head, "unreadable": why, "fix_rounds": fixes }),
+    };
+    let mut v = json!({
+        "since": base,
+        "head": head,
+        // The first parents only; a merge is one commit, marked, and what it brought in is not listed.
+        "commits": changes.commits.iter()
+            .map(|c| json!({ "commit": c.id, "subject": c.subject, "merge": c.merge }))
+            .collect::<Vec<_>>(),
+        // The files the work itself changed in them; what merging main brought is left out.
+        "own_files": changes.own_files,
+        "fix_rounds": fixes,
+    });
+    if changes.diverged {
+        v["note"] = json!(
+            "The head adversarial testing last answered at is not an ancestor of the head now: the branch was \
+             rewritten since. The commits are those the head has that it lacked, and the files are counted from the \
+             commit they share."
+        );
+    }
+    v
+}
+
+/// What the branch did since adversarial testing last answered, for its next round: the commits after the head it
+/// ended at (the last it wrote tests in, and else the head it began at, since it changed nothing), the merges among
+/// them marked, the files the work itself changed in them, and the rounds of the fix that answered after it. None
+/// before its first answer.
+fn since_adversarial(e: &Engine, w: &Work, g: &CompiledGraph, wt: &Path, main: &str) -> Result<Option<Value>, String> {
+    let Some(last) = answered(e, w, g, ADVERSARIAL)?.into_iter().next() else {
+        return Ok(None);
+    };
+    let wrote = last
+        .output
+        .as_ref()
+        .and_then(|o| at_path(&g.unwrap(o), "wrote.head"))
+        .and_then(|h| h.as_str().and_then(|h| git::resolve(wt, h)));
+    let Some(base) = wrote.or_else(|| last.input["engine"]["head"].as_str().map(str::to_string)) else {
+        return Ok(None);
+    };
+    let head = git::resolve(wt, "HEAD").unwrap_or_default();
+    let mut fixes: Vec<String> = answered(e, w, g, FIX)?
+        .into_iter()
+        .filter(|r| r.id > last.id)
+        .map(|r| r.id.to_string())
+        .collect();
+    // Oldest first, as the rounds were.
+    fixes.reverse();
+    Ok(Some(since_json(wt, main, &base, &head, &fixes)))
 }
 
 /// What already exists for the item, as pointers the agent follows itself: its earlier works here, with how far each
@@ -1139,6 +1237,144 @@ mod tests {
         assert_eq!((&rows[6]["kind"], &rows[6]["name"]), (&json!("red"), &json!("check")));
         assert_eq!(row_key(&rows[0]), Some("R1"));
         assert_eq!(row_key(&rows[4]), Some("passes_before"));
+    }
+
+    // What the branch did since a head is given with its merges marked, the files the work itself changed and the
+    // rounds of the fix in between; a head git cannot read, and a branch rewritten since, are each said so, not
+    // answered as if all were well.
+    #[test]
+    fn what_the_branch_did_since_a_head_is_given_and_a_head_gone_or_rewritten_is_said() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-since-json-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |args: &[&str]| {
+            let who = [
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "init.defaultBranch=main",
+            ];
+            git::git(&dir, &[&who[..], args].concat()).unwrap().trim().to_string()
+        };
+        let commit = |file: &str, message: &str| {
+            std::fs::write(dir.join(file), message).unwrap();
+            run(&["add", "-A"]);
+            run(&["commit", "-q", "-m", message]);
+            run(&["rev-parse", "HEAD"])
+        };
+        run(&["init", "-q"]);
+        let start = commit("a.txt", "Start");
+        run(&["update-ref", "refs/remotes/origin/main", "main"]);
+        run(&["checkout", "-q", "-b", "work"]);
+        let first = commit("b.txt", "First");
+        let second = commit("c.txt", "Second");
+        let fixes = vec!["R7-30".to_string(), "R7-34".to_string()];
+        let v = since_json(&dir, "main", &first, &second, &fixes);
+        assert_eq!((&v["since"], &v["head"]), (&json!(first), &json!(second)));
+        assert_eq!(
+            v["commits"],
+            json!([{ "commit": second, "subject": "Second", "merge": false }])
+        );
+        assert_eq!(v["own_files"], json!(["c.txt"]));
+        assert_eq!(v["fix_rounds"], json!(["R7-30", "R7-34"]));
+        assert!(v.get("note").is_none() && v.get("unreadable").is_none(), "{v}");
+        // A head git has no commit for: the round is told, not stopped.
+        let gone = since_json(&dir, "main", &"0".repeat(40), &second, &[]);
+        assert!(
+            gone["unreadable"].is_string() && gone.get("commits").is_none(),
+            "{gone}"
+        );
+        // The branch rebuilt on the start since: the head it last answered at is no ancestor of the head.
+        run(&["checkout", "-q", "-b", "rebuilt", &start]);
+        let rebuilt = commit("c.txt", "Rebuilt");
+        let v = since_json(&dir, "main", &second, &rebuilt, &[]);
+        assert!(v["note"].as_str().is_some_and(|n| n.contains("was rewritten")), "{v}");
+        assert_eq!(v["own_files"], json!(["c.txt"]));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // What a review reviews lists the merges that took main in and no other merge; the head the last table review
+    // looked at is given with the merges since it, and one git cannot read, or one the branch was rewritten away
+    // from, is said so, not answered as if all were well and not failing the message.
+    #[test]
+    fn a_review_is_given_the_merges_of_main_and_a_last_head_gone_or_rewritten_is_said() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-review-base-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |args: &[&str]| {
+            let who = [
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "init.defaultBranch=main",
+            ];
+            git::git(&dir, &[&who[..], args].concat()).unwrap().trim().to_string()
+        };
+        let commit = |file: &str, message: &str| {
+            std::fs::write(dir.join(file), message).unwrap();
+            run(&["add", "-A"]);
+            run(&["commit", "-q", "-m", message]);
+            run(&["rev-parse", "HEAD"])
+        };
+        run(&["init", "-q"]);
+        let start = commit("a.txt", "Start");
+        run(&["update-ref", "refs/remotes/origin/main", "main"]);
+        run(&["checkout", "-q", "-b", "side"]);
+        commit("s.txt", "Side");
+        run(&["checkout", "-q", "-b", "work", &start]);
+        let first = commit("b.txt", "First");
+        // Main goes on, and the branch takes it in; then the branch merges a branch of its own, which is no main.
+        run(&["checkout", "-q", "main"]);
+        commit("m.txt", "Main goes on");
+        run(&["update-ref", "refs/remotes/origin/main", "main"]);
+        run(&["checkout", "-q", "work"]);
+        run(&["merge", "-q", "--no-ff", "-m", "Take main", "main"]);
+        let took_main = run(&["rev-parse", "HEAD"]);
+        run(&["merge", "-q", "--no-ff", "-m", "Take the side", "side"]);
+        let head = run(&["rev-parse", "HEAD"]);
+        let commits = |v: &Value| -> Vec<String> {
+            v.as_array()
+                .unwrap_or_else(|| panic!("{v}"))
+                .iter()
+                .map(|c| c["commit"].as_str().unwrap().to_string())
+                .collect()
+        };
+
+        let v = review_base_json(&dir, "main", "fork", &head, Some(&first)).unwrap();
+        assert_eq!(commits(&v["main_merges"]), std::slice::from_ref(&took_main), "{v}");
+        assert_eq!(commits(&v["merges_since_last_review"]), [took_main], "{v}");
+        assert_eq!(v["last_reviewed"], json!(first));
+        assert!(v.get("merges_since_last_review_note").is_none(), "{v}");
+        // No table review before: no last head, and no merges said since it.
+        let first_review = review_base_json(&dir, "main", "fork", &head, None).unwrap();
+        assert!(
+            first_review.get("last_reviewed").is_none() && first_review.get("merges_since_last_review").is_none(),
+            "{first_review}"
+        );
+
+        // A last head git has no commit for: said so, with why, and the rest of the input is still given.
+        let gone = review_base_json(&dir, "main", "fork", &head, Some(&"0".repeat(40))).unwrap();
+        assert!(gone["merges_since_last_review"]["unreadable"].is_string(), "{gone}");
+        assert_eq!(gone["last_reviewed"], json!("0".repeat(40)));
+        assert_eq!(gone["main_merges"], v["main_merges"]);
+
+        // A last head the branch was rewritten away from: the merges are those among the commits the head has that it
+        // lacked, and a note says so.
+        run(&["checkout", "-q", "-b", "other", &start]);
+        let other = commit("o.txt", "Other");
+        let rewritten = review_base_json(&dir, "main", "fork", &head, Some(&other)).unwrap();
+        assert!(
+            rewritten["merges_since_last_review_note"]
+                .as_str()
+                .is_some_and(|n| n.contains("rewritten")),
+            "{rewritten}"
+        );
+        assert_eq!(commits(&rewritten["merges_since_last_review"]).len(), 1, "{rewritten}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // The inputs that read the project's files on its main are listed by the architect's module, and the flow's cells

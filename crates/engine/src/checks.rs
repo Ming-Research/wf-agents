@@ -528,6 +528,42 @@ impl Ctx<'_> {
             .query_row("SELECT pushed_head FROM works WHERE id = ?1", [self.w.id], |r| r.get(0))
             .map_err(|e| e.to_string())
     }
+
+    /// The names of the checks of the CI runs recorded for this work, newest run first: those of the fast CI (a `ci`
+    /// run keeps them under `push`) and of the full CI (an attempt keeps its first run's under `first`, a run again
+    /// its list as it is). A run that did not get as far as its checks has none.
+    fn ci_jobs(&self) -> Result<Vec<String>, String> {
+        let mut runs = self.ci_runs("ci")?;
+        runs.extend(self.ci_runs("full_ci")?);
+        Ok(check_names(&runs))
+    }
+}
+
+/// The names of the checks in the recorded results of CI runs, each once, in the order the runs give them.
+fn check_names(runs: &[Value]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for run in runs {
+        let checks = run
+            .pointer("/push/checks")
+            .or_else(|| run.get("first"))
+            .or(run.is_array().then_some(run));
+        for check in items(checks) {
+            if let Some(name) = check["name"].as_str()
+                && !names.iter().any(|n| n == name)
+            {
+                names.push(name.to_string());
+            }
+        }
+    }
+    names
+}
+
+/// Whether some file of the branch at HEAD holds `text` as it is written: how a command a condition points to is
+/// looked for, as a test's name is.
+fn text_on_branch(worktree: &Path, text: &str) -> Result<(), String> {
+    git::git(worktree, &["grep", "-q", "-F", "-e", text, "HEAD"])
+        .map(|_| ())
+        .map_err(|_| format!("the step {text} is not in any file of the branch"))
 }
 
 fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<(), Problems> {
@@ -759,7 +795,21 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
                 .collect();
             let recheck = c.cell.id == "T1" && !c.accepted("T1")?.is_empty();
             let wt = c.wt()?;
-            conditions_problems(&wanted, &rows, recheck, |t| test_name::on_branch(wt, t)).into_result()
+            // The CI runs recorded are looked up only for a row that names a job.
+            let jobs = if rows.iter().any(|r| r["how"] == "ci_job") {
+                c.ci_jobs()?
+            } else {
+                Vec::new()
+            };
+            conditions_problems(
+                &wanted,
+                &rows,
+                recheck,
+                |t| test_name::on_branch(wt, t),
+                &jobs,
+                |s| text_on_branch(wt, s),
+            )
+            .into_result()
         }
         "new_test_results" | "guard_test_results" => {
             if c.last("D11", "adversarial")?.is_some_and(|a| a["verdict"] == "needed") {
@@ -1226,14 +1276,19 @@ fn cover_problems(wanted: &[String], ids: &[String], recheck: bool) -> Problems 
 }
 
 /// What is wrong with a table of condition rows (`rows`) against the acceptance conditions in force (`wanted`): what
-/// [`cover_problems`] says about their ids, and each test a row of kind tested names that is not on the branch
-/// (`on_branch` says, with the reason when not). With no condition in force the rows are no rows of any condition, so
-/// their tests are not looked for.
+/// [`cover_problems`] says about their ids; each test a row of kind tested names that is not on the branch
+/// (`on_branch` says, with the reason when not); and, for a row of kind ci_job, each job that is not a check of a CI
+/// run recorded for the work (`ci`; when none is recorded, that once, since any name would pass) and each step that is
+/// not text in a file of the branch (`step_on_branch` says). A row of kind read_diff names nothing the engine can look
+/// up: the table review reads it. With no condition in force the rows are no rows of any condition, so what they name
+/// is not looked for.
 fn conditions_problems(
     wanted: &[String],
     rows: &[Value],
     recheck: bool,
     on_branch: impl Fn(&str) -> Result<(), String>,
+    ci: &[String],
+    step_on_branch: impl Fn(&str) -> Result<(), String>,
 ) -> Problems {
     let ids: Vec<String> = rows
         .iter()
@@ -1246,6 +1301,28 @@ fn conditions_problems(
     for r in rows.iter().filter(|r| r["how"] == "tested") {
         for t in strs(r.get("tests")) {
             if let Err(why) = on_branch(&t) {
+                problems.push(why);
+            }
+        }
+    }
+    // A job or step several rows name is said once, as `push` keeps a problem word for word the same once.
+    for r in rows.iter().filter(|r| r["how"] == "ci_job") {
+        if ci.is_empty() {
+            problems.push("no CI run of this work has recorded its checks, so a ci_job row cannot name a job");
+        } else {
+            for job in strs(r.get("jobs")) {
+                if !ci.contains(&job) {
+                    problems.push(format!(
+                        "the job {job} is not a check of any CI run of this work; the checks recorded are: {}",
+                        ci.join(", ")
+                    ));
+                }
+            }
+        }
+        for step in strs(r.get("steps")) {
+            if step.trim().is_empty() || step.contains('\n') {
+                problems.push("a step names one command, written as one line of text");
+            } else if let Err(why) = step_on_branch(&step) {
                 problems.push(why);
             }
         }
@@ -2165,7 +2242,7 @@ mod tests {
             }
         };
         assert_eq!(
-            said(conditions_problems(&wanted, &rows, false, on_branch)),
+            said(conditions_problems(&wanted, &rows, false, on_branch, &[], found)),
             [
                 "X9 is not an acceptance condition",
                 "no row for acceptance condition A3",
@@ -2174,7 +2251,91 @@ mod tests {
             ]
         );
         // With no condition in force, only that is said: their tests are not looked for.
-        assert_eq!(said(conditions_problems(&[], &rows, false, on_branch)), [NO_ACCEPTANCE]);
+        assert_eq!(
+            said(conditions_problems(&[], &rows, false, on_branch, &[], found)),
+            [NO_ACCEPTANCE]
+        );
+    }
+
+    /// A step as the branch's files have it, or not.
+    fn found(step: &str) -> Result<(), String> {
+        if step.starts_with("gone") {
+            Err(format!("the step {step} is not in any file of the branch"))
+        } else {
+            Ok(())
+        }
+    }
+
+    // A row of kind ci_job is accepted when each job is a check of a CI run recorded for the work and each step is text
+    // in a file of the branch; what is not is said, all of it in one call and with the other problems of the table,
+    // each job or step once, however many rows name it. With no CI run recorded nothing can be named, said once. A row
+    // of kind read_diff names nothing the engine looks up.
+    #[test]
+    fn a_ci_job_row_names_jobs_recorded_and_steps_on_the_branch_and_what_is_not_is_said_together() {
+        let wanted = ids(&["A1", "A2", "A3", "A4"]);
+        let ci = ids(&["lint", "test 1 of 3", "check"]);
+        let ok = |_: &str| -> Result<(), String> { Ok(()) };
+        let good = [
+            json!({ "id": "A1", "how": "ci_job", "jobs": ["lint"], "steps": ["npm run check:ui"] }),
+            json!({ "id": "A2", "how": "ci_job", "jobs": ["check", "test 1 of 3"], "steps": [] }),
+            json!({ "id": "A3", "how": "read_diff", "where": "gone_file", "what": "gone_text" }),
+            json!({ "id": "A4", "how": "ci_job", "jobs": ["check"] }),
+        ];
+        assert!(conditions_problems(&wanted, &good, false, ok, &ci, found).is_empty());
+        // Jobs that were never run, steps that are in no file, and a condition left without a row, together.
+        let bad = [
+            json!({ "id": "A1", "how": "ci_job", "jobs": ["lint", "build"], "steps": ["gone one", "npm run check:ui"] }),
+            json!({ "id": "A2", "how": "ci_job", "jobs": ["build"], "steps": ["gone one", " ", "a\nb"] }),
+            json!({ "id": "X9", "how": "tested", "tests": ["gone_test"] }),
+        ];
+        let on_branch = |t: &str| {
+            if t.starts_with("gone") {
+                Err(format!("the test {t} is not on the branch"))
+            } else {
+                Ok(())
+            }
+        };
+        assert_eq!(
+            said(conditions_problems(&wanted, &bad, false, on_branch, &ci, found)),
+            [
+                "X9 is not an acceptance condition",
+                "no row for acceptance conditions A3, A4",
+                "the test gone_test is not on the branch",
+                "the job build is not a check of any CI run of this work; the checks recorded are: lint, test 1 of 3, check",
+                "the step gone one is not in any file of the branch",
+                "a step names one command, written as one line of text"
+            ]
+        );
+        // No CI run recorded: any job name would pass, so it is one problem and not one for each job.
+        assert_eq!(
+            said(conditions_problems(&wanted, &good, false, ok, &[], found)),
+            ["no CI run of this work has recorded its checks, so a ci_job row cannot name a job"]
+        );
+        // A recheck of a row that changed is judged by what it names alone.
+        let one = [json!({ "id": "A2", "how": "ci_job", "jobs": ["nothing"], "steps": [] })];
+        assert_eq!(
+            said(conditions_problems(&wanted, &one, true, ok, &ci, found)),
+            [
+                "the job nothing is not a check of any CI run of this work; the checks recorded are: lint, test 1 of 3, check"
+            ]
+        );
+    }
+
+    // A ci_job row's jobs are read from what the tools recorded: the fast CI keeps its checks under `push`, the full CI
+    // its first run's under `first` and a run again its list as it is; a run that failed or was refused has none.
+    #[test]
+    fn the_names_of_the_checks_of_every_recorded_ci_run_are_read_from_each_tools_record() {
+        let check = |n: &str| json!({ "name": n, "result": "green", "run": "u" });
+        let fast =
+            json!({ "push": { "verdict": "pushed", "head": "h", "checks": [check("lint"), check("test 1 of 3")] } });
+        let first = json!({ "first": [check("lint"), check("full only")] });
+        let again = json!([check("again only")]);
+        let refused = json!({ "push": { "verdict": "refused", "why": "w" } });
+        let failed = json!({ "failed": { "kind": "other", "what": "w" } });
+        assert_eq!(
+            check_names(&[fast, first, again, refused, failed]),
+            ["lint", "test 1 of 3", "full only", "again only"]
+        );
     }
 
     // Rows that name conditions where none is in force are no rows of any condition, so that nothing else is said of
