@@ -8001,6 +8001,97 @@ fn a_group_falls_apart_when_the_owner_is_asked_about_its_first_matter() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A member of a group that needs the owner is sent back by the cell that takes the group in, which answers for the rest:
+// the matter picked and the other member are closed by the round and their engineers told their ways; the one sent back
+// is not closed and its engineer is told nothing, and it is a matter of the queue on its own, in no group and going on
+// at no cell. It is then taken alone through both cells, and what the cell that takes it in asks the owner holds it only.
+#[test]
+fn a_member_that_needs_the_owner_goes_back_to_the_queue_while_the_rest_of_its_group_is_taken_in() {
+    let s = setup("group-back");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return asks_the_owner("Should the documentation link wait for the parser?");
+        }
+        let ids = given.lock().unwrap();
+        let others = json!([
+            { "matter": ids[1], "way": "nothing", "why": "Nothing to do." },
+            { "matter": ids[2], "way": "back_for_owner", "why": "The owner decides about the link." }
+        ]);
+        (
+            vec![("outcome.take.way", "nothing")],
+            vec![("outcome.take.why", json!("Seen already.")), ("outcome.with", others)],
+        )
+    });
+    let (mut e, said, reports) = reported(&s, &ids, take_in, |_| ());
+    let arch = e.step(None).unwrap().work.unwrap();
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let state = |e: &Engine, m: i64| -> MatterState {
+        e.db.conn()
+            .query_row(
+                "SELECT asked, resume_cell, group_lead, goes_on_at, handled_round FROM architect_matters WHERE id = ?1",
+                [m],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap()
+    };
+    let told = |e: &Engine, work: i64| -> Vec<String> {
+        e.db.conn()
+            .prepare("SELECT text FROM interjections WHERE work = ?1 AND speaker = 'architect'")
+            .unwrap()
+            .query_map([work], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    // The first round of the cell that takes the group in has handed in its return.
+    let taken = |e: &mut Engine| cells_of(e, arch).iter().any(|c| c.0 == "H5" && c.1.is_some());
+    assert!(steps_until(&mut e, 120, taken), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    // The matter picked and the other member are closed by that round, each with its engineer told its own way.
+    assert_eq!(closed_by(&e, arch, "H5"), matters[..2], "{log}");
+    let in_view: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM work_handled WHERE work = ?1 AND cell = 'H5' AND kind = 'report'",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(in_view, 2, "{log}");
+    let (first, second, third) = (told(&e, reports[0].0), told(&e, reports[1].0), told(&e, reports[2].0));
+    assert_eq!((first.len(), second.len()), (1, 1), "{first:?} {second:?}");
+    assert!(first[0].contains("nothing to take in: Seen already"), "{}", first[0]);
+    assert!(second[0].contains("nothing to take in: Nothing to do"), "{}", second[0]);
+    // The one sent back is not closed, told nothing, nor in a group nor going on at a cell: a matter of the queue.
+    assert!(third.is_empty(), "{third:?}\n{log}");
+    assert_eq!(state(&e, matters[2]), (None, None, None, None, None), "{log}");
+    // Taken alone it goes through both cells, and the owner is asked about it only.
+    assert!(
+        steps_until(&mut e, 160, |e| path_of(e, arch).iter().any(|c| c == "A3")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path = path_of(&e, arch);
+    let count = |cell: &str| path.iter().filter(|c| *c == cell).count();
+    assert_eq!((count("H4"), count("H5")), (2, 2), "{path:?}\n{log}");
+    let held: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(body, '$.holds') FROM owner_asks WHERE work = ?1",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(held, format!("[{}]", matters[2]), "{log}");
+    let asked = state(&e, matters[2]);
+    assert!(asked.0.is_some() && asked.4.is_none(), "{asked:?}\n{log}");
+    assert!(told(&e, reports[2].0).is_empty(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The group does not fall apart between the cell that finds what its matters are and the cell that takes them in,
 // though the owner speaks in between and the architect's session starts anew: the owner's words are answered first,
 // then the same group is taken in, by the cell given what was found for each matter of it.

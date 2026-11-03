@@ -2092,6 +2092,10 @@
         [
           "nothing",
           "Nothing to take in"
+        ],
+        [
+          "back_for_owner",
+          "Only for a matter picked with another: it needs the owner's word, so it is not taken in now but goes back to the queue on its own"
         ]
       ]
     },
@@ -3144,14 +3148,15 @@
     },
     "actions": {
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
-      "answer_reporter": "Tells the work that handed in the matter, a side report or a question, in one line to its engineer that needs no answer, what became of it, so that it does not report it again: the observation recorded or reported once more, or the items that took it in, by number and title; for a side report of which nothing was recorded, why; for a question, only what its reply does not say. At once, or, when the round's item changes say it, once the batch is made; a work that ended is told nothing. For a group, each matter of it is told on its own, from its own way (`with`) and the changes that name it: what became of one is never said to the reporter of another, and a matter with no item change of its own is told at once even when another matter of the group has some.",
+      "answer_reporter": "Tells the work that handed in the matter, a side report or a question, in one line to its engineer that needs no answer, what became of it, so that it does not report it again: the observation recorded or reported once more, or the items that took it in, by number and title; for a side report of which nothing was recorded, why; for a question, only what its reply does not say. At once, or, when the round's item changes say it, once the batch is made; a work that ended is told nothing. For a group, each matter of it is told on its own, from its own way (`with`) and the changes that name it: what became of one is never said to the reporter of another, and a matter with no item change of its own is told at once even when another matter of the group has some. A matter the cell took out of the group (`release_members`) is told nothing.",
       "apply_batch": "Makes every item change of the batch but those the review drops, as the architect, in one transaction, logs each with its reason, and those dropped with why, sends the replies and the lines to the works that handed matters in that waited on them, and ends the review's session.",
       "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review, a cancel of an item the batch creates cancelling that create out, so that the item is never made and the create, the changes that name its key and the cancel are dropped, saying so; changes to observations, actions and messages to other architects are made at once, and each is logged. A change names the matter of a group it comes of in its `matter`, and is made under that matter's name (an observation's source, an item change's matter); left out, it is the matter picked. A message sent on a matter of flow feedback is marked as flow feedback forwarded, which starts no work of an architect: the architect it goes to takes it in a work that started after it came.",
       "apply_reviewed": "Makes the item changes the review found sound, leaves out those it drops, drops those it still finds to fix and logs them with what the review found, puts them to the owner in an ask that holds the matters they came from, sends the replies and the lines to the works that handed in the other matters that waited on them, and ends the review's session.",
       "close_asks": "Answers the work's open asks of the owner: no answer is needed, since the work ended.",
-      "close_matter": "Marks the matter picked as handled by this round, and with it every other matter of its group, if the pick named others to go with it: one round closes them all.",
+      "close_matter": "Marks the matter picked as handled by this round, and with it every other matter of its group, if the pick named others to go with it: one round closes them all. A matter the cell took out of the group before (`release_members`) is not among them.",
       "group_picked": "Makes the pick's `with` a group led by the matter picked: each matter named is marked as picked with it, so that the cells on the matter's path are given them all and one round of each answers for the group. Before that, any group left unhandled by a work that ended before it was handled falls apart.",
       "dissolve_group": "When the cell asks the owner about the matter in hand and it leads a group, the group falls apart: the others are matters of the queue on their own again, to be picked as any other, and the matter in hand alone waits for the owner's answer.",
+      "release_members": "Takes out of the group each matter the cell's `with` gives the way `back_for_owner`, before the cell's other actions run, so that they find it no longer in the group: it is not closed and its reporter is told nothing, and it is a matter of the queue on its own again, to be picked as any other and to be put to the owner alone when it is taken in. The matter in hand and the others of the group are closed and answered as the cell's other actions say.",
       "close_pr": "Closes the work's pull request, when it never merged, saying only that its work ended without merging: why is in the owner's language, and a pull request is in English. A work taken over leaves it to the new work.",
       "deliver_answers": "Sends each answer back to the side that interjected: to the owner's conversation, as the agent's message, or to the architect's queue as a report of the kind answer; and records it on the work: those of the answers form, those a redirect carries, and a cell's own answer to the owner's words.",
       "end_sessions": "Ends the work's sessions.",
@@ -3821,6 +3826,9 @@
         "architect_queue"
       ],
       "dissolve_group": [
+        "architect_queue"
+      ],
+      "release_members": [
         "architect_queue"
       ],
       "post_open_questions": [
@@ -15400,7 +15408,8 @@
           "prompt": [
             "This round takes the report in, in this order. Can an existing item take it, because it covers it or needs it: fold it in, widening the item's scope or adding to its acceptance; if it is urgent and that item will not come soon enough, move the item up, or split the urgent part out. If no item takes it and it is urgent (it blocks a running work, harms main, touches security or data), make a new item now. Otherwise it is an observation: search for the same one first and merge into it, as reported once more; if some need that will certainly come will hit it anyway, record nothing and name that need; else record a new one with tags from the set. A merge that makes an observation reported three times makes it work: fold it into an item that covers it, or a new one, and move that item ahead.",
             "Close the outdated observations you meet on the way, saying why. Do it all in effects.",
-            "When you picked others with the matter, `take` is for the matter you picked and `with` has one way for each of the others, by its matter number. Take each in on its own finding, as if it were alone: an observation change or an item change that comes of one of the others names it in `matter`, and one of the matter you picked leaves `matter` out. Two matters that come to one observation or item are taken in by one change each, so that each reporter is told what became of its own report."
+            "When you picked others with the matter, `take` is for the matter you picked and `with` has one way for each of the others, by its matter number. Take each in on its own finding, as if it were alone: an observation change or an item change that comes of one of the others names it in `matter`, and one of the matter you picked leaves `matter` out. Two matters that come to one observation or item are taken in by one change each, so that each reporter is told what became of its own report.",
+            "Use the way `back_for_owner` only for one of the others, when it needs the owner to decide and the rest can be decided now: say in its `why` what the owner must decide. It is then not taken in this round: it is not closed, its reporter is told nothing, no change names it, and it goes back to the queue on its own, to be put to the owner when it is taken in alone. The matter you picked never takes this way: if it needs the owner, put the question to the owner instead, and the others go back to the queue."
           ],
           "out": [
             {
@@ -15518,6 +15527,10 @@
             ]
           },
           "always": [
+            {
+              "at": "with",
+              "do": "release_members"
+            },
             {
               "at": "effects",
               "do": "apply_effects"

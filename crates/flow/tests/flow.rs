@@ -337,6 +337,20 @@ fn a_group_is_picked_by_the_pick_answered_for_by_two_cells_and_taken_apart_by_th
     wrong["way"] = "somehow".into();
     assert!(refused("H5", serde_json::json!({ "take": take, "with": [wrong] })));
     assert!(refused("H5", serde_json::json!({ "take": take, "with": [] })));
+    // A member that needs the owner goes back to the queue (`release_members`, the cell's first action, before the
+    // others read the group); the way fits the schema of the entries of `with`, and the check, not the schema, turns it
+    // away from the matter picked.
+    let always = &g.cell("H5").unwrap().always;
+    assert_eq!(
+        (always[0].at.as_str(), always[0].action.as_deref()),
+        ("with", Some("release_members"))
+    );
+    let mut back = way.clone();
+    back["way"] = "back_for_owner".into();
+    assert_eq!(
+        takes("H5", serde_json::json!({ "take": take, "with": [back] })).unwrap(),
+        "done"
+    );
 }
 
 // The check of the policy and the plan of what to do next are matters at the head of the queue: a new session's

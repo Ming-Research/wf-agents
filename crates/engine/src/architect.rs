@@ -711,6 +711,23 @@ fn members(conn: &Connection, lead: i64) -> Result<Vec<i64>, String> {
     .collect())
 }
 
+/// The way of a member of a group (`with` of the cell that takes the group in) that is not taken in with the group: it
+/// needs the owner's word, so it goes back to the queue on its own.
+const BACK_FOR_OWNER: &str = "back_for_owner";
+
+/// Takes the matters `matters` that are not handled out of the group they are in, so that each is a matter of the queue
+/// on its own again, to be picked as any other.
+fn leave_group(tx: &Transaction<'_>, matters: &[i64]) -> Result<(), String> {
+    for m in matters {
+        tx.execute(
+            "UPDATE architect_matters SET group_lead = NULL, goes_on_at = NULL WHERE id = ?1 AND handled_round IS NULL",
+            [m],
+        )
+        .map_err(sql)?;
+    }
+    Ok(())
+}
+
 /// The group `lead` leads, the lead first: the matters one round of each cell on its path answers for. A matter picked
 /// alone is a group of one.
 fn group_of(conn: &Connection, lead: i64) -> Result<Vec<i64>, String> {
@@ -3074,12 +3091,27 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             // The matter in hand is parked for the owner's reply alone: the others go back to the queue as matters of
             // their own.
             if let Some(lead) = picked(tx, w)? {
-                tx.execute(
-                    "UPDATE architect_matters SET group_lead = NULL, goes_on_at = NULL
-                     WHERE group_lead = ?1 AND handled_round IS NULL",
-                    [lead],
-                )
-                .map_err(sql)?;
+                let others = query_json(
+                    tx,
+                    "SELECT id FROM architect_matters WHERE group_lead = ?1 AND handled_round IS NULL",
+                    &[&lead],
+                    ROWS,
+                )?;
+                leave_group(tx, &others.iter().filter_map(|r| r["id"].as_i64()).collect::<Vec<_>>())?;
+            }
+        }
+        "release_members" => {
+            // The members the round gave the way `back_for_owner` go back to the queue before the round's other actions
+            // read the group, so that none of them closes or answers for those.
+            if let Some(lead) = picked(tx, w)? {
+                let of_group = members(tx, lead)?;
+                let back: Vec<i64> = items(at)
+                    .iter()
+                    .filter(|x| x["way"] == BACK_FOR_OWNER)
+                    .filter_map(|x| x["matter"].as_i64())
+                    .filter(|m| of_group.contains(m))
+                    .collect();
+                leave_group(tx, &back)?;
             }
         }
         "go_on_at_second_cell" => {
@@ -3651,6 +3683,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
                 lead,
                 &members(conn, lead)?,
                 &items(c.unwrapped.get("with")),
+                &c.unwrapped["take"],
                 &c.unwrapped["effects"],
             )
             .into_result()
@@ -4051,9 +4084,24 @@ fn described(kind: &str, detail: Option<&str>) -> String {
 /// What is wrong with the round of a cell that answers for a group, every reason at once: its `with` has an entry for
 /// each of the other matters of the group (`members`, those picked with `lead`) once, and none for the matter in hand
 /// or one outside the group; and, at the cell that takes the group in, a change to observations or to items that
-/// names a matter names one of the group (`effects`, as the round handed them in).
-fn group_problems(lead: i64, members: &[i64], with: &[Value], effects: &Value) -> Problems {
+/// names a matter names one of the group (`effects`, as the round handed them in) that is not given the way
+/// `back_for_owner`, which a member may have in `with` but the matter in hand (`take`) may not, since a matter that needs
+/// the owner is put to the owner, not taken in, and a member sent back is not taken in this round, so no change comes of
+/// it.
+fn group_problems(lead: i64, members: &[i64], with: &[Value], take: &Value, effects: &Value) -> Problems {
     let mut problems = Problems::default();
+    if take["way"] == BACK_FOR_OWNER {
+        problems.push(format!(
+            "take has the way {BACK_FOR_OWNER}, which is only for a matter picked with the matter in hand; matter \
+             {lead} needs the owner: ask the owner, and the others go back to the queue"
+        ));
+    }
+    let back: Vec<i64> = with
+        .iter()
+        .filter(|x| x["way"] == BACK_FOR_OWNER)
+        .filter_map(|x| x["matter"].as_i64())
+        .filter(|m| members.contains(m))
+        .collect();
     let given: Vec<String> = with
         .iter()
         .filter_map(|x| x["matter"].as_i64())
@@ -4093,6 +4141,12 @@ fn group_problems(lead: i64, members: &[i64], with: &[Value], effects: &Value) -
             if let Some(m) = c["matter"].as_i64().filter(|m| !group.contains(m)) {
                 problems.push(format!(
                     "{what} {} comes of matter {m}, which is not in the group; its matters are {listed}",
+                    i + 1
+                ));
+            } else if let Some(m) = c["matter"].as_i64().filter(|m| back.contains(m)) {
+                problems.push(format!(
+                    "{what} {} comes of matter {m}, which is given the way {BACK_FOR_OWNER} and is not taken in \
+                     this round: no change may come of it",
                     i + 1
                 ));
             }
@@ -6834,6 +6888,7 @@ mod tests {
                 10,
                 &[11, 12, 13],
                 &[entry(11), entry(11), entry(14), entry(10)],
+                &Value::Null,
                 &effects
             )),
             [
@@ -6846,18 +6901,86 @@ mod tests {
             ]
         );
         assert!(
-            group_problems(10, &[11, 12], &[entry(12), entry(11)], &effects)
+            group_problems(10, &[11, 12], &[entry(12), entry(11)], &Value::Null, &effects)
                 .texts()
                 .len()
                 == 2
         );
-        assert!(group_problems(10, &[11, 12], &[entry(12), entry(11)], &Value::Null).is_empty());
+        assert!(group_problems(10, &[11, 12], &[entry(12), entry(11)], &Value::Null, &Value::Null).is_empty());
         // A matter alone has no entry in `with`, and its changes come of it or name nothing.
-        assert!(group_problems(10, &[], &[], &json!({ "item_changes": [{ "matter": 10 }, {}] })).is_empty());
+        assert!(
+            group_problems(
+                10,
+                &[],
+                &[],
+                &Value::Null,
+                &json!({ "item_changes": [{ "matter": 10 }, {}] })
+            )
+            .is_empty()
+        );
         assert_eq!(
-            said(group_problems(10, &[], &[entry(11), entry(12)], &Value::Null)),
+            said(group_problems(
+                10,
+                &[],
+                &[entry(11), entry(12)],
+                &Value::Null,
+                &Value::Null
+            )),
             ["with has entries for matters 11, 12, which were not picked with matter 10"]
         );
+    }
+
+    // A round that sends a member of its group back for the owner is told, with everything else wrong in it, when the
+    // matter in hand takes that way and when a change comes of the member sent back; one that sends a member back and
+    // keeps every change off it is taken.
+    #[test]
+    fn a_round_that_sends_a_member_back_for_the_owner_is_told_where_it_goes_wrong() {
+        let back = |m: i64| json!({ "matter": m, "way": "back_for_owner" });
+        let merged = |m: i64| json!({ "matter": m, "way": "merged" });
+        let effects = json!({
+            "item_changes": [{ "kind": "edit_item", "matter": 12 }, { "kind": "edit_item", "matter": 11 }],
+            "observation_changes": [{ "kind": "new" }, { "kind": "merge", "matter": 12 }]
+        });
+        let take = json!({ "way": "back_for_owner" });
+        assert_eq!(
+            said(group_problems(
+                10,
+                &[11, 12, 13],
+                &[merged(11), back(12)],
+                &take,
+                &effects
+            )),
+            [
+                "take has the way back_for_owner, which is only for a matter picked with the matter in hand; matter \
+                 10 needs the owner: ask the owner, and the others go back to the queue",
+                "with has no entry for matter 13, which was picked with matter 10",
+                "item change 1 comes of matter 12, which is given the way back_for_owner and is not taken in this \
+                 round: no change may come of it",
+                "observation change 2 comes of matter 12, which is given the way back_for_owner and is not taken in \
+                 this round: no change may come of it"
+            ]
+        );
+        // The matter in hand takes the way alone, with every member answered and no change naming one sent back.
+        assert_eq!(
+            said(group_problems(10, &[11], &[merged(11)], &take, &Value::Null)),
+            [
+                "take has the way back_for_owner, which is only for a matter picked with the matter in hand; matter \
+                 10 needs the owner: ask the owner, and the others go back to the queue"
+            ]
+        );
+        // A member sent back with no change of its own is taken; a matter alone with the way is told too.
+        let fine = json!({ "item_changes": [{ "kind": "edit_item", "matter": 11 }, { "kind": "edit_item" }] });
+        assert!(
+            group_problems(
+                10,
+                &[11, 12],
+                &[merged(11), back(12)],
+                &json!({ "way": "new_item" }),
+                &fine
+            )
+            .is_empty()
+        );
+        assert_eq!(said(group_problems(10, &[], &[], &take, &Value::Null)).len(), 1);
     }
 
     // What a round that took a group in handed in is read for one matter of it as for a matter alone: the way of the
