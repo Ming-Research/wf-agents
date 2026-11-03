@@ -4235,7 +4235,7 @@
           },
           {
             "name": "test",
-            "desc": "Adversarial testing, the full CI on the draft, review (the history of the changed files gathered between the blind review and the table review), fixes, and the engine choosing what runs next",
+            "desc": "Adversarial testing, the full CI on the draft, review, fixes, and the engine choosing what runs next",
             "nodes": [
               "T1",
               "T2",
