@@ -554,12 +554,14 @@ enum PrState {
     Closed,
 }
 
-/// A pull request on the fake GitHub: the branch it is from, the branch it merges into, and how it stands.
+/// A pull request on the fake GitHub: the branch it is from, the branch it merges into, how it stands, and the commit it
+/// merged as, once it has.
 #[derive(Clone)]
 struct Pr {
     branch: String,
     base: String,
     state: PrState,
+    merged_as: Option<String>,
 }
 
 /// The pull requests of the fake GitHub, by number, which a test can read and change as GitHub keeps them.
@@ -636,7 +638,8 @@ type ByHands = Arc<Mutex<Vec<ByHand>>>;
 
 /// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
 /// request keeps the base it was opened with until it is set, a merge, once `merging` lets it through, squashes the
-/// branch onto the pull request's base, and closing a pull request that merged fails, as `gh pr close` does. A workflow
+/// branch onto the pull request's base and fails for a pull request that is not open, as `gh pr ready` does, and closing a
+/// pull request that merged fails, as `gh pr close` does. A workflow
 /// run by hand is recorded in `by_hand`, and its run has a log and an artifact `measurement`.
 struct FakeHub {
     origin: PathBuf,
@@ -661,6 +664,54 @@ impl FakeHub {
         runs.iter()
             .find(|d| d.commit.as_deref().is_some_and(|c| check.run.ends_with(c)))
             .cloned()
+    }
+
+    /// What GitHub does to merge an open pull request: squashes its branch onto its base on the remote, marks it merged
+    /// and keeps the commit it made. It is a function of the pull requests and the remote, not of the hub, so that a
+    /// test can merge a pull request on GitHub without the engine's merge call, as when the answer of that call is
+    /// lost. `gh pr ready`, the first thing the engine's real merge does, refuses a pull request that is not open,
+    /// whether it merged or was closed, and so does this, with gh's own words.
+    fn squash_merge(origin: &Path, scratch: &Path, prs: &Prs, repo: &str, pr: i64) -> Result<String, Failure> {
+        let Pr {
+            branch, base, state, ..
+        } = prs
+            .lock()
+            .unwrap()
+            .get(&pr)
+            .cloned()
+            .ok_or_else(|| Failure::other("no such PR"))?;
+        if state != PrState::Open {
+            return Err(Failure::network(format!(
+                "gh pr ready {pr} -R {repo}: X Pull request {repo}#{pr} is closed. Only draft pull requests can be \
+                 marked as \"ready for review\""
+            )));
+        }
+        let dir = scratch.join(format!("merge-{pr}"));
+        git(
+            scratch,
+            &[
+                "clone",
+                "-q",
+                "-b",
+                &base,
+                &origin.to_string_lossy(),
+                &dir.to_string_lossy(),
+            ],
+        );
+        git(&dir, &["merge", "--squash", &format!("origin/{branch}")]);
+        // A branch whose change main holds already, as when two works of the scripted agent make the same change,
+        // squashes to nothing, and merges as an empty commit.
+        git(
+            &dir,
+            &["commit", "-q", "--allow-empty", "-m", &format!("Merge PR {pr}")],
+        );
+        git(&dir, &["push", "-q", "origin", &format!("HEAD:{base}")]);
+        let sha = git(&dir, &["rev-parse", "HEAD"]);
+        if let Some(p) = prs.lock().unwrap().get_mut(&pr) {
+            p.state = PrState::Merged;
+            p.merged_as = Some(sha.clone());
+        }
+        Ok(sha)
     }
 }
 
@@ -687,6 +738,7 @@ impl GitHub for FakeHub {
                 branch: branch.to_string(),
                 base: base.to_string(),
                 state: PrState::Open,
+                merged_as: None,
             },
         );
         Ok(n)
@@ -811,39 +863,18 @@ impl GitHub for FakeHub {
         self.checks(repo, sha, workflow)
     }
 
-    fn merge(&self, _repo: &str, pr: i64) -> Result<String, Failure> {
-        self.merging.pass();
-        let Pr { branch, base, .. } = self
-            .prs
+    fn merge_commit(&self, _repo: &str, pr: i64) -> Result<Option<String>, Failure> {
+        self.prs
             .lock()
             .unwrap()
             .get(&pr)
-            .cloned()
-            .ok_or_else(|| Failure::other("no such PR"))?;
-        let dir = self.scratch.join(format!("merge-{pr}"));
-        git(
-            &self.scratch,
-            &[
-                "clone",
-                "-q",
-                "-b",
-                &base,
-                &self.origin.to_string_lossy(),
-                &dir.to_string_lossy(),
-            ],
-        );
-        git(&dir, &["merge", "--squash", &format!("origin/{branch}")]);
-        // A branch whose change main holds already, as when two works of the scripted agent make the same change,
-        // squashes to nothing, and merges as an empty commit.
-        git(
-            &dir,
-            &["commit", "-q", "--allow-empty", "-m", &format!("Merge PR {pr}")],
-        );
-        git(&dir, &["push", "-q", "origin", &format!("HEAD:{base}")]);
-        if let Some(p) = self.prs.lock().unwrap().get_mut(&pr) {
-            p.state = PrState::Merged;
-        }
-        Ok(git(&dir, &["rev-parse", "HEAD"]))
+            .map(|p| p.merged_as.clone())
+            .ok_or_else(|| Failure::other("no such PR"))
+    }
+
+    fn merge(&self, repo: &str, pr: i64) -> Result<String, Failure> {
+        self.merging.pass();
+        FakeHub::squash_merge(&self.origin, &self.scratch, &self.prs, repo, pr)
     }
 
     fn close(&self, _repo: &str, pr: i64, _comment: &str) -> Result<(), Failure> {
@@ -4928,6 +4959,7 @@ fn a_pull_request_opened_against_another_branch_merges_into_main_only() {
         branch: "outside/feature".into(),
         base: "first-version".into(),
         state: PrState::Open,
+        merged_as: None,
     };
     s.prs.lock().unwrap().insert(9, elsewhere.clone());
     let (mut e, said, item) = start(&s, scripts());
@@ -14085,6 +14117,439 @@ fn a_dispatch_hold_stops_new_works_and_the_running_ones_go_on() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The matters of free slots queued for project p's architect, handled or not.
+fn slots_free_matters(e: &Engine) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT count(*) FROM architect_matters WHERE project = 'p' AND kind = 'slots_free'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// The reasons of the holds on project p's new starts, in order.
+fn hold_reasons(e: &Engine) -> Vec<String> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT reason FROM dispatch_holds WHERE project = 'p' ORDER BY reason")
+            .unwrap();
+    st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+}
+
+// Item #239 (O63): while the owner has paused every work no new work can start, so no matter of free slots is queued for
+// any architect, whether the owner started the project's architect or steps it by hand, which before woke the
+// architect for a round that could only end in starting nothing. It uses nothing of the owner's hold, so that it runs,
+// and fails, on the code before that hold existed. Once every work goes on, the matter is queued as it always was.
+#[test]
+fn no_matter_of_free_slots_is_queued_while_every_work_is_paused() {
+    let s = setup("slots-free-paused");
+    let (mut e, said) = engine(&s, scripts());
+    let works = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM works WHERE graph = 'architect'", [], |r| r.get(0))
+            .unwrap()
+    };
+    // The owner started the project's architect and paused every other work.
+    let started = Go {
+        pause: held_but(&[], &["p"]),
+        ..Go::default()
+    };
+    e.pass(&started).unwrap();
+    assert_eq!(
+        (slots_free_matters(&e), works(&e)),
+        (0, 0),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // The owner steps the architect by hand while every work is paused.
+    e.step_architect("p").unwrap();
+    assert_eq!(
+        (slots_free_matters(&e), works(&e)),
+        (0, 0),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // Every work paused, no architect started.
+    e.pass(&Go {
+        pause: held_but(&[], &[]),
+        ..Go::default()
+    })
+    .unwrap();
+    assert_eq!(slots_free_matters(&e), 0);
+    // With every work going on again, it is queued as before and starts a work of the architect.
+    let again = e.step(None).unwrap();
+    assert_eq!(again.cell.as_deref(), Some("S1"), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(slots_free_matters(&e), 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: a hold of the owner's on the project stops the matter of free slots as well, for the new starts it stops
+// are the only thing that matter could lead to. Released, the matter is queued as it always was.
+#[test]
+fn no_matter_of_free_slots_is_queued_while_the_owner_holds_the_project() {
+    let s = setup("slots-free-owner-hold");
+    let (mut e, said) = engine(&s, scripts());
+    let works = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT count(*) FROM works WHERE graph = 'architect'", [], |r| r.get(0))
+            .unwrap()
+    };
+    // The owner holds the project: every work goes on, and none is queued.
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
+    e.step(None).unwrap();
+    assert_eq!(
+        (slots_free_matters(&e), works(&e)),
+        (0, 0),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // Released, it is queued as before and starts a work of the architect.
+    api::release_hold(&mut e.db, &e.config.config, Some("p"), "owner").unwrap();
+    let again = e.step(None).unwrap();
+    assert_eq!(again.cell.as_deref(), Some("S1"), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(slots_free_matters(&e), 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: while the owner holds a project's new starts, a work already running goes on to its merge, and no other
+// item of the project starts, though a slot is free; once the owner releases the hold, the waiting item starts. The
+// hold is the owner's, written as the owner, and stands whatever the architect does.
+#[test]
+fn an_owner_hold_lets_the_running_work_merge_and_starts_the_next_item_only_once_released() {
+    let s = setup("owner-hold-merge");
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(&s.data, "install.toml", &install.replace("slots = 1", "slots = 2"));
+    git(&s.data, &["commit", "-q", "-am", "two slots"]);
+    let (mut e, said, first) = start(&s, scripts());
+    let started = e.step(None).unwrap();
+    assert_eq!(started.started_item, Some(first), "{}", said.lock().unwrap().join("\n"));
+    let second =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'Second', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute("INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)", [id])?;
+            Ok(id)
+        })
+        .unwrap();
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Installing the new machine.").unwrap();
+    let actor: String =
+        e.db.conn()
+            .query_row(
+                "SELECT actor FROM changes WHERE table_name = 'dispatch_holds' ORDER BY id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(actor, "owner");
+    // The first item's work goes through every cell, the waits for CI and the merge included, with a slot free all the
+    // while; the second item does not start.
+    let work = state(&e, first).unwrap().0;
+    let mut done = false;
+    for _ in 0..200 {
+        e.tick().unwrap();
+        assert!(state(&e, second).is_none(), "{}", said.lock().unwrap().join("\n"));
+        if e.advance(work).unwrap() == Advance::Stopped {
+            done = true;
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(done, "the work did not end:\n{log}");
+    let main = git(
+        &s.root,
+        &["--git-dir", &s.origin.to_string_lossy(), "show", "main:src/lib.txt"],
+    );
+    assert_eq!(main, "old\nfeature", "{log}");
+    // Still held after the merge, the next item waits; released, it starts.
+    e.step(None).unwrap();
+    assert!(state(&e, second).is_none(), "{log}");
+    api::release_hold(&mut e.db, &e.config.config, Some("p"), "owner").unwrap();
+    let next = e.step(None).unwrap();
+    assert_eq!(next.started_item, Some(second), "{}", said.lock().unwrap().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: the architect's hold and its release leave the owner's hold alone. With the owner's hold in place, the
+// architect holds new starts in its effects: its own row is written beside the owner's, as the architect; it releases
+// its own, and only its own: the owner's stays, and the board of its later cells still lists it.
+#[test]
+fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_beside_it() {
+    let s = setup("architect-and-owner-hold");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, _: usize| {
+            let hold = json!({ "kind": "hold_starts", "reason": "The plan is wrong." });
+            let release = json!({ "kind": "release_starts", "reason": "The plan is right again." });
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("I hold, then let go.")),
+                    ("outcome.effects", json!({ "actions": [hold, release] })),
+                ],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
+    let held_at: i64 =
+        e.db.conn()
+            .query_row("SELECT since FROM dispatch_holds WHERE reason = 'owner'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    say(&mut e, "Hold and release.");
+    let started = e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
+    let arch = started.work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // The owner's row is as the owner wrote it; the architect's own came and went.
+    assert_eq!(hold_reasons(&e), ["owner"]);
+    let owner_row: (i64, String) =
+        e.db.conn()
+            .query_row(
+                "SELECT since, why FROM dispatch_holds WHERE reason = 'owner'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert_eq!(owner_row, (held_at, "Leaving for a week.".to_string()));
+    let changes: Vec<(String, String, bool)> = {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT actor, json_extract(coalesce(new_row, old_row), '$.reason'), new_row IS NULL FROM changes
+                     WHERE table_name = 'dispatch_holds' ORDER BY id",
+                )
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let row = |a: &str, r: &str, gone: bool| (a.to_string(), r.to_string(), gone);
+    assert_eq!(
+        changes,
+        [
+            row("owner", "owner", false),
+            row("architect", "architect", false),
+            row("architect", "architect", true)
+        ]
+    );
+    // The board the architect was given at its first cell lists the owner's hold. A later work of the architect, after
+    // its hold and release, is given no other: its session already holds that board, which the message refers to by
+    // its address because nothing in it changed, the architect's own hold gone and the owner's there.
+    let m = message_at(&e, arch, "U1", false);
+    let board = given_value(&m, "·engine·board").expect(&m);
+    let held = &board["starts_held"];
+    assert_eq!(held.as_array().map(Vec::len), Some(1), "{board}");
+    assert_eq!(
+        (&held[0]["reason"], &held[0]["why"]),
+        (&json!("owner"), &json!("Leaving for a week.")),
+        "{board}"
+    );
+    let address = m
+        .lines()
+        .find(|l| l.starts_with("### ") && l.ends_with("·engine·board"))
+        .map(|l| l.trim_start_matches("### ").to_string())
+        .expect(&m);
+    let later = architect_work_at(&mut e, "H10");
+    let m = engine::next_message(&mut e, later).unwrap().text;
+    assert!(given_value(&m, "·engine·board").is_none(), "{m}");
+    assert!(work_from(&m).iter().any(|l| l.ends_with(&address)), "{m}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: the board of a cell that can hold or release new starts lists each hold on the project with its reason,
+// since when and why, whoever holds, and has no such key while nothing holds; the owner's release of any reason takes
+// its row, and one of a reason not there is refused saying so.
+#[test]
+fn the_board_lists_each_hold_and_the_owner_releases_any_of_them() {
+    let s = setup("board-holds");
+    let (mut e, _) = engine(&s, scripts());
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "H10");
+    let board = |e: &mut Engine| -> Value {
+        let m = engine::next_message(e, arch).unwrap().text;
+        given_value(&m, "·engine·board").expect(&m)
+    };
+    assert_eq!(board(&mut e).get("starts_held"), None);
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving.").unwrap();
+    e.db.write(Actor::Architect, |tx| {
+        db::hold_starts(tx, "p", db::HoldReason::Architect, Some("Wrong order."))?;
+        db::hold_starts(tx, "p", db::HoldReason::SetStraight, None)
+    })
+    .unwrap();
+    let held = board(&mut e)["starts_held"].clone();
+    let reasons: Vec<&str> = held
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["reason"].as_str().unwrap())
+        .collect();
+    let mut sorted = reasons.clone();
+    sorted.sort();
+    assert_eq!(sorted, ["architect", "owner", "set_straight"], "{held}");
+    let of = |reason: &str| {
+        held.as_array()
+            .unwrap()
+            .iter()
+            .find(|h| h["reason"] == reason)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(of("owner")["why"], "Leaving.");
+    assert_eq!(of("architect")["why"], "Wrong order.");
+    assert_eq!(of("set_straight").get("why"), None);
+    assert!(of("owner")["since"].is_string(), "{held}");
+    for reason in ["set_straight", "architect", "owner"] {
+        api::release_hold(&mut e.db, &e.config.config, Some("p"), reason).unwrap();
+        assert!(!hold_reasons(&e).contains(&reason.to_string()), "{reason}");
+        let again = api::release_hold(&mut e.db, &e.config.config, Some("p"), reason).unwrap_err();
+        assert!(again.contains("has no hold of the reason"), "{again}");
+    }
+    assert_eq!(board(&mut e).get("starts_held"), None);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: an architect work the engine stops, here because the flow version it ran on can no longer be gone on
+// with, leaves behind no hold to set the project straight, and takes nothing else: the owner's hold, the architect's
+// own hold and a hold of another project all stay.
+#[test]
+fn an_architect_work_taken_over_releases_only_its_projects_hold_to_set_straight() {
+    let s = setup("takeover-holds");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let work = architect_work_at(&mut e, "H10");
+    // The work ran on a flow version where its cell was another.
+    let now = e.flow_now;
+    let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
+    renamed(
+        f.graphs.iter_mut().find(|g| g.name == engine::ARCHITECT).unwrap(),
+        "H10",
+    );
+    let text = f.json();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO flow_versions (digest, compiled) VALUES ('older', ?1)",
+            [&text],
+        )?;
+        let v = tx.last_insert_rowid();
+        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![work, v])?;
+        Ok(())
+    })
+    .unwrap();
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
+    e.db.write(Actor::Architect, |tx| {
+        db::hold_starts(tx, "p", db::HoldReason::Architect, Some("Wrong order."))?;
+        db::hold_starts(tx, "p", db::HoldReason::SetStraight, None)?;
+        db::hold_starts(tx, "q", db::HoldReason::SetStraight, None)
+    })
+    .unwrap();
+    e.pass(&Go::default()).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let ended: Option<String> =
+        e.db.conn()
+            .query_row("SELECT ended FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap();
+    assert!(ended.is_some_and(|w| w.starts_with("stopped")), "{log}");
+    let rows: Vec<(String, String)> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT project, reason FROM dispatch_holds ORDER BY project, reason")
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let row = |p: &str, r: &str| (p.to_string(), r.to_string());
+    assert_eq!(
+        rows,
+        [row("p", "architect"), row("p", "owner"), row("q", "set_straight")],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #239: the owner may release their hold while the architect's round is going on, and the architect's actions of
+// that round, a release of its own hold that is not there and a hold, still go through: the owner's row is gone as the
+// owner released it, the architect's own row stands, and the round is not sent back for an action that found nothing.
+#[test]
+fn the_owner_releasing_in_the_middle_of_an_architect_round_leaves_its_actions_working() {
+    let s = setup("owner-releases-mid-round");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, _: usize| {
+            // The owner releases their hold while the architect is answering.
+            let mut db = db::Db::open(&path).unwrap();
+            db.write(Actor::Owner, |tx| {
+                db::release_starts(tx, "p", db::HoldReason::Owner).map(|_| ())
+            })
+            .unwrap();
+            let release = json!({ "kind": "release_starts", "reason": "Nothing to hold any more." });
+            let hold = json!({ "kind": "hold_starts", "reason": "The plan is wrong." });
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("Let go, then hold.")),
+                    ("outcome.effects", json!({ "actions": [release, hold] })),
+                ],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
+    say(&mut e, "Release and hold.");
+    let started = e.step(None).unwrap();
+    let arch = started.work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(hold_reasons(&e), ["architect"], "{log}");
+    let changes: Vec<(String, String, bool)> = {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT actor, json_extract(coalesce(new_row, old_row), '$.reason'), new_row IS NULL FROM changes
+                     WHERE table_name = 'dispatch_holds' ORDER BY id",
+                )
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let row = |a: &str, r: &str, gone: bool| (a.to_string(), r.to_string(), gone);
+    assert_eq!(
+        changes,
+        [
+            row("owner", "owner", false),
+            row("owner", "owner", true),
+            row("architect", "architect", false)
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // With every work paused, the owner steps a project's architect: the first step starts a work of the architect, paused
 // by the owner, and runs its first round; each later step runs the work's next round, as a step of the work by its id
 // does, and the work stays paused in the owner's hands. With nothing to start a work for, a step runs nothing.
@@ -20151,6 +20616,69 @@ fn notices(e: &Engine, word: &str) -> i64 {
             |r| r.get(0),
         )
         .unwrap()
+}
+
+// A pull request that GitHub merged before the merge step began, as when the answer of an earlier merge call was lost
+// (a 502 after GitHub had merged it), is recorded as merged, with the commit GitHub made. The step reads the pull
+// request first: catching up with main, pushing and waiting for the full CI guard nothing in a merged pull request, and
+// the merge call is refused by `gh pr ready`, as the fake GitHub refuses it. Without the read, the step makes its merge
+// call on every try, is refused each time, and takes the row `not_run`; a read only in the merge call leaves the step
+// to push and wait for the full CI first, which its record of the merge tool shows.
+#[test]
+fn a_pull_request_merged_on_github_before_the_merge_step_is_recorded_without_merging_again() {
+    let s = setup("merged-before-the-merge-step");
+    let (origin, root, prs) = (s.origin.clone(), s.root.clone(), s.prs.clone());
+    let made = Arc::new(Mutex::new(None::<String>));
+    let kept = made.clone();
+    let mut agents = scripts();
+    let implement = agents.remove("I1").unwrap();
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            // The second round hands in the end of the work: its branch and its pull request are on GitHub by then.
+            if n == 2 {
+                let pr = *prs.lock().unwrap().keys().next().unwrap();
+                *kept.lock().unwrap() = Some(FakeHub::squash_merge(&origin, &root, &prs, "o/p", pr).unwrap());
+            }
+            implement(r, n)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let at = turns_until(&mut e, &Go::default(), |e| state(e, item).is_some_and(|w| w.1 == "M2"));
+    assert!(at, "{}", said.lock().unwrap().join("\n"));
+    let work = state(&e, item).unwrap().0;
+    // The step ends in one round: with the row `merged`, or, when its merge calls are refused, `not_run`.
+    let ended = turns_until(&mut e, &Go::default(), |e| {
+        transitions_at(e, work, "M2").iter().any(Option::is_some)
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert!(ended, "{log}");
+    assert_eq!(transitions_at(&e, work, "M2"), [Some("merged".to_string())], "{log}");
+    let log = done_after_watching_main(&mut e, work, &said);
+    let made = made.lock().unwrap().clone().expect("GitHub merged the pull request");
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    let recorded: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(output, '$.result.merge_commit') FROM rounds WHERE work = ?1 AND cell = 'M2'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(recorded, made, "{log}");
+    // One look at the pull request, and nothing after it: no push, no full CI, no merge call.
+    let tries: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM tool_runs WHERE work = ?1 AND tool = 'merge'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(tries, 1, "{log}");
+    assert_eq!(s.merging.came(), 0, "{log}");
+    assert!(!transitions_at(&e, work, "L1").is_empty(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
 }
 
 // A cancel that comes while the merge step waits for the full CI stops the merge: nothing reaches GitHub's merge, the

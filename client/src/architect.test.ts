@@ -26,6 +26,7 @@ import {
   matterSentence,
   matterSteps,
   queueParts,
+  releaseWords,
   standing,
 } from './architect';
 import { inGraph, subjectKey } from './flow/context';
@@ -100,6 +101,8 @@ describe('a matter in words', () => {
     expect(matterKind('set_straight', 'off_policy')).toBe('Plan fix: does not follow the policy');
     expect(matterKind('set_straight', 'dependencies')).toBe('Plan fix: dependencies');
     expect(holdWords('set_straight')).toBe('No new works start until the plan fixes are done');
+    expect(holdWords('owner')).toBe('You stopped new works from starting');
+    expect(holdWords('architect')).toBe('No new works start: the architect holds them');
     expect(matterKind('design_card', null)).toBe('Look at a decision card');
     expect(matterKind('open_question', null)).toBe("Answer a design's open question");
     expect(matterKind('check_policy', null)).toBe('Check whether the policy still holds');
@@ -551,5 +554,16 @@ describe('the flow page with both graphs', () => {
     expect([...marks[0].added]).toEqual([]);
     expect([...marks[1].added]).toEqual(['S0']);
     expect(diffMarks(graphs, null).every((m) => m.added.size === 0 && m.changed.size === 0)).toBe(true);
+  });
+});
+
+describe('what releasing a hold on new works lets happen', () => {
+  it('is said for each of the three holds the owner may release, and for any other as a plain release', () => {
+    expect(releaseWords('owner', 'p')).toBe('New works of p start again, unless the architect holds them too.');
+    expect(releaseWords('architect', 'p')).toContain("This is the architect's own hold.");
+    expect(releaseWords('set_straight', 'p')).toContain('may hold them again in its next plan');
+    expect(releaseWords('policy', 'p')).toBe(
+      'Releasing this hold lets new works of p start again, unless another hold remains.',
+    );
   });
 });

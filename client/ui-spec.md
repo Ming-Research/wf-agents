@@ -1760,11 +1760,34 @@ round of such a work hands in is of no use.
 
 ### What stops new works
 
-What stops a project's new works from starting (a new policy being set, the project being set straight, the architect's
+What stops a project's new works from starting (the owner's own hold, the project being set straight, the architect's
 own hold) stands at the right end of the architect's title row, in the conversation's head and on the architect's page
 alike, as a sign and its words in the attention colour with no box, instead of a Label under the title like the
 architect's own state, because it is not what the architect does but a rule on the project's works, and the title row
 had the room.
+
+The owner's controls of it stand in the same row, since the sign is the one place that says what holds the project, and
+the owner acts where a thing is said: while the owner has no hold of their own on the project, a small `Button`, "Hold
+new starts", at the row's end; and on each sign, whoever's hold it is, a small invisible `Button`, "Release", since the
+owner may release any of the three. Each asks first, in a form of its own in a row under the title row, never in a
+dialog that covers the conversation: holding says in plain words what follows (no new work of the project starts, the
+works already running go on and merge, a work waiting for a result goes on once it comes, and Pause all in the bar is
+another thing), asks why in a box of words whose button is greyed with the reason while it is empty, and is sent only
+on that button; releasing says what it lets happen (for the architect's own hold and the one to set the project
+straight, that the architect may hold again in its next plan) and is sent on its "Release". The sign says "You stopped
+new works from starting" with the owner's words for an owner's hold.
+
+Pause all and the hold are two things and look two ways: the hold is one project's rule on its new works, kept in the
+database, so it stands across a restart of the engine and for every work that is waiting or running; Pause all is every
+work's stop, is not kept, and the engine starts with it on. Neither sets or lifts the other; Start all leaves a hold in
+place.
+
+Instead of one control in the bar that holds every project's new starts, because the stop wanted is one project's and
+the bar's two switches already say that every work goes on or stops; instead of a dialog over the page for the words,
+because the owner reads the row and the architect's state beside it to decide whether to hold, and a dialog hides
+them; and instead of a Release only on the owner's own sign, because an architect's hold that the architect does not
+release would leave the project stopped, the owner's only way being to ask the architect, one round later, to let it
+go.
 
 ### A conversation reads as a chat
 

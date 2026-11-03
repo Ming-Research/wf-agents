@@ -63,11 +63,13 @@ const UNCHECKED: [&str; 18] = [
 ];
 
 /// The commands that read the committed configuration before they open the database.
-const CHECKED: [&str; 4] = [
+const CHECKED: [&str; 6] = [
     "item add --project p --title t --problem x --why y --level l",
     "anomalies",
     "message 1",
     "run --once",
+    "hold --why x",
+    "release",
 ];
 
 /// A path under the temporary directory that is not there.
@@ -397,6 +399,106 @@ fn the_owner_s_cancel_of_an_item_with_a_work_going_on_asks_the_engine() {
     assert_eq!(queued, [("cancel_item".to_string(), Some("duplicate".to_string()))]);
     drop(st);
     drop(base);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The built command given its arguments as they are, for a value with spaces in it, and the data directory `data`.
+fn wf_args(data: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_wf-agents"))
+        .args(args)
+        .arg("--data")
+        .arg(data)
+        .env("GIT_CEILING_DIRECTORIES", std::env::temp_dir())
+        .output()
+        .unwrap()
+}
+
+// Item #239: `hold` and `release` write the owner's hold on a project's new starts and release any hold, as the page
+// does, through the same functions: the project may be left out where the configuration has one, no words or no such
+// project is refused with nothing written, the hold is written as the owner and holding again changes only the words,
+// a release of a reason with no hold is refused saying so, and a reason that is not one of the three is refused by the
+// command line itself.
+#[test]
+fn hold_and_release_write_and_release_the_holds_on_a_project_s_new_starts() {
+    let dir = data_directory("hold");
+    let out = wf(&dir, "init");
+    assert!(out.status.success(), "{}", stderr(&out));
+    let rows = || -> Vec<(String, i64, Option<String>)> {
+        let base = db::Db::open(&config::database(&dir)).unwrap();
+        let mut st = base
+            .conn()
+            .prepare("SELECT reason, since, why FROM dispatch_holds WHERE project = 'p' ORDER BY reason")
+            .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let out = wf_args(&dir, &["hold", "--why", "Leaving for a week."]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let first = rows();
+    assert_eq!(first.len(), 1);
+    assert_eq!(
+        (first[0].0.as_str(), first[0].2.as_deref()),
+        ("owner", Some("Leaving for a week."))
+    );
+    let actor: String = db::Db::open(&config::database(&dir))
+        .unwrap()
+        .conn()
+        .query_row(
+            "SELECT actor FROM changes WHERE table_name = 'dispatch_holds' ORDER BY id DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(actor, "owner");
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let out = wf_args(&dir, &["hold", "--project", "p", "--why", "Installing."]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let again = rows();
+    assert_eq!((again[0].1, again[0].2.as_deref()), (first[0].1, Some("Installing.")));
+    // Refused, and nothing written.
+    let out = wf_args(&dir, &["hold", "--why", "   "]);
+    assert!(failed(&out) && stderr(&out).contains("says why"), "{}", stderr(&out));
+    let out = wf_args(&dir, &["hold", "--project", "nowhere", "--why", "x"]);
+    assert!(
+        failed(&out) && stderr(&out).contains("no project nowhere"),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(rows().len(), 1);
+    // The owner releases the architect's hold and the one to set the project straight, as well as their own.
+    let mut base = db::Db::open(&config::database(&dir)).unwrap();
+    base.write(db::Actor::Architect, |tx| {
+        db::hold_starts(tx, "p", db::HoldReason::Architect, Some("Wrong order."))?;
+        db::hold_starts(tx, "p", db::HoldReason::SetStraight, None)
+    })
+    .unwrap();
+    drop(base);
+    for reason in ["architect", "set_straight", "owner"] {
+        let out = wf_args(&dir, &["release", "--reason", reason]);
+        assert!(out.status.success(), "{reason}: {}", stderr(&out));
+        let out = wf_args(&dir, &["release", "--reason", reason]);
+        assert!(
+            failed(&out) && stderr(&out).contains("has no hold of the reason"),
+            "{reason}: {}",
+            stderr(&out)
+        );
+    }
+    assert!(rows().is_empty());
+    let out = wf_args(&dir, &["release", "--reason", "policy"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    // With two projects in the configuration, leaving the project out is refused and nothing is written; the rule
+    // itself is tested in the api crate, this shows the arguments reach it.
+    std::fs::write(dir.join("projects/q.toml"), PROJECT).unwrap();
+    commit_all(&dir);
+    let out = wf_args(&dir, &["hold", "--why", "x"]);
+    assert!(
+        failed(&out) && stderr(&out).contains("name the project, one of: p, q"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(rows().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

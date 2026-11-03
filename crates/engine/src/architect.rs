@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use db::attachments::{self, Words};
 use db::rusqlite::{Connection, OptionalExtension, Transaction, params};
-use db::{Actor, Matter, queue_matter};
+use db::{Actor, HoldReason, Matter, queue_matter};
 use flow::format::Src;
 use flow::{Compiled, CompiledCell, CompiledGraph};
 use serde_json::{Map, Value, json};
@@ -563,8 +563,19 @@ pub fn start(e: &mut Engine, project: &str, paused: bool) -> Result<Option<i64>,
 /// items ready by number, when none waits in its queue and the last was handled longer ago than the configuration's
 /// wait (`agents.slots_free_wait`) or never, and those facts are not the ones the last held: the wait keeps one that
 /// found nothing to start from coming back at once, and the same free slots and ready items would only bring the
-/// architect to the same end. Nothing when the flow new works start on does not name the action.
+/// architect to the same end. Nothing when the flow new works start on does not name the action, nor while the owner
+/// has paused every work, for any project, the ones whose architects the owner started and the ones the owner steps
+/// by hand included.
+///
+/// Any action the engine adds that queues a matter or starts a work for a slot that is free must be stopped by the
+/// owner's pause of every work and by a hold on the project's new starts as this one is: neither leaves a new work
+/// to start, so what it brings the architect for can only end in starting nothing.
 pub fn queue_due(e: &mut Engine) -> Result<(), String> {
+    // No new work can start while every work is paused, so a matter of free slots would only bring the architect to
+    // find nothing to start.
+    if e.global_pause().is_some() {
+        return Ok(());
+    }
     let now = e.flow_now;
     let named = e
         .flow(now)?
@@ -833,6 +844,27 @@ fn held_straight(conn: &Connection, project: &str) -> Result<bool, String> {
         "SELECT count(*) FROM dispatch_holds WHERE project = ?1 AND reason = 'set_straight'",
         &[&project],
     )? > 0)
+}
+
+/// A project's holds on new starts as its board gives them, oldest first: each one's reason, since when and why as
+/// whoever held said it, or none when nothing holds the project's new starts.
+fn starts_held(conn: &Connection, project: &str) -> Result<Vec<Value>, String> {
+    let rows = query_json(
+        conn,
+        "SELECT reason, since, why FROM dispatch_holds WHERE project = ?1 ORDER BY since, reason",
+        &[&project],
+        ROWS,
+    )?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let mut hold = json!({ "reason": r["reason"], "since": r["since"].as_i64().map(utc_minute) });
+            if let Some(why) = r["why"].as_str() {
+                hold["why"] = json!(why);
+            }
+            hold
+        })
+        .collect())
 }
 
 /// The matters of a project's queue that the architect's work `work` can take now, oldest first: every one, flow
@@ -2034,23 +2066,15 @@ fn pause_item(tx: &Transaction<'_>, item: i64, why: &str) -> Result<(), String> 
     actions::notify(tx, Some(work), &format!("Work {work} on item {item} is {why}"))
 }
 
-/// Holds or releases a project's new starts for a reason.
-fn hold(tx: &Transaction<'_>, project: &str, reason: &str, why: Option<&str>) -> Result<(), String> {
-    tx.execute(
-        "INSERT INTO dispatch_holds (project, reason, since, why) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT (project, reason) DO UPDATE SET why = coalesce(excluded.why, why)",
-        params![project, reason, db::now(), why],
-    )
-    .map_err(sql)?;
-    Ok(())
+/// Holds a project's new starts for a reason of the architect's, its own or setting the project straight.
+fn hold(tx: &Transaction<'_>, project: &str, reason: HoldReason, why: Option<&str>) -> Result<(), String> {
+    db::hold_starts(tx, project, reason, why).map_err(sql)
 }
 
-fn release(tx: &Transaction<'_>, project: &str, reason: &str) -> Result<(), String> {
-    tx.execute(
-        "DELETE FROM dispatch_holds WHERE project = ?1 AND reason = ?2",
-        params![project, reason],
-    )
-    .map_err(sql)?;
+/// Releases a hold of a reason of the architect's. The owner's hold is not the architect's to release, and no action
+/// of its names it.
+fn release(tx: &Transaction<'_>, project: &str, reason: HoldReason) -> Result<(), String> {
+    db::release_starts(tx, project, reason).map_err(sql)?;
     Ok(())
 }
 
@@ -2066,7 +2090,7 @@ fn settle_hold(tx: &Transaction<'_>, work: i64, project: &str) -> Result<(), Str
         &[&project],
     )?;
     if left == 0 && collected(tx, work)?.is_empty() {
-        release(tx, project, "set_straight")?;
+        release(tx, project, HoldReason::SetStraight)?;
     }
     Ok(())
 }
@@ -2097,8 +2121,9 @@ fn act_now(tx: &Transaction<'_>, project: &str, a: &Value) -> Result<(), String>
             }
             db::start_over(tx, work, db::Actor::Architect, Some(reason)).map_err(sql)
         }
-        "hold_starts" => hold(tx, project, "architect", Some(reason)),
-        "release_starts" => release(tx, project, "architect"),
+        "hold_starts" => hold(tx, project, HoldReason::Architect, Some(reason)),
+        // Only its own: the owner's hold stays whatever the architect decides.
+        "release_starts" => release(tx, project, HoldReason::Architect),
         "interject" => {
             let item = a["item"].as_i64().unwrap_or_default();
             let Some((work, _, _)) = running_work(tx, item)? else {
@@ -3258,8 +3283,8 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 queue_matter(tx, &m).map_err(sql)?;
             }
         }
-        "hold_to_set_straight" => hold(tx, &architect_work_of(ctx)?.1, "set_straight", None)?,
-        "release_straight_hold" => release(tx, &architect_work_of(ctx)?.1, "set_straight")?,
+        "hold_to_set_straight" => hold(tx, &architect_work_of(ctx)?.1, HoldReason::SetStraight, None)?,
+        "release_straight_hold" => release(tx, &architect_work_of(ctx)?.1, HoldReason::SetStraight)?,
         "settle_straight_hold" => settle_hold(tx, w, &architect_work_of(ctx)?.1)?,
         "queue_check_policy" => queue_head(ctx, tx, CHECK, at)?,
         "queue_make_plan" => queue_head(ctx, tx, PLAN, at)?,
@@ -5180,12 +5205,19 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
     .iter()
     .map(|r| format!("#{}", r["item"]))
     .collect();
-    Ok(json!({
+    let mut board = json!({
         "items": out,
         "owner_start_queue": queue,
         "releases": releases,
         "other_projects": cross_project(e, project)?,
-    }))
+    });
+    // Read from the table the engine reads to hold new starts, at the same moment, so that the architect sees what
+    // the engine acts on, the owner's hold included.
+    let held = starts_held(e.db.conn(), project)?;
+    if !held.is_empty() {
+        board["starts_held"] = json!(held);
+    }
+    Ok(board)
 }
 
 /// A project's release items: each item nothing depends on that items are under, with the items under it, how many of

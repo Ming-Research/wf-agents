@@ -620,14 +620,12 @@ impl Engine {
         // An architect work stopped leaves no hold of its own behind: setting its project straight is the work's, as a
         // policy being set was the setting's, a work of its own in a flow version before; the architect's next work
         // asks its questions afresh.
-        if w.graph == ARCHITECT || w.graph == POLICY {
-            let project = w.project.clone();
+        if (w.graph == ARCHITECT || w.graph == POLICY)
+            && let Some(project) = w.project.as_deref()
+        {
             self.db
                 .write(Actor::Engine, |tx| {
-                    tx.execute(
-                        "DELETE FROM dispatch_holds WHERE project = ?1 AND reason = 'set_straight'",
-                        [&project],
-                    )?;
+                    db::release_starts(tx, project, db::HoldReason::SetStraight)?;
                     Ok(())
                 })
                 .map_err(|e| e.to_string())?;

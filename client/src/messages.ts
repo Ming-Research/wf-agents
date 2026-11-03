@@ -1447,10 +1447,26 @@ const messages = {
     'The architect goes on whatever the global state: it works when a matter comes to its queue, round after round, until you pause it or pause every work.',
   arch_pause_hint:
     'The architect stops at the end of the round it is in and stays paused, whatever the global state, until you start it.',
+  hold_owner: 'You stopped new works from starting',
   hold_architect: 'No new works start: the architect holds them',
   hold_set_straight: 'No new works start until the plan fixes are done',
   hold_other: 'No new works start: {reason}',
   hold_since: 'Since {at}; works already running go on.',
+  hold_start: 'Hold new starts',
+  hold_start_hint: 'Stop this project from starting new works; works already running go on.',
+  hold_start_asks:
+    'No new work of {project} will start. Works already running go on and merge, and a work waiting for a result goes on once it comes. To stop the running works too, use Pause all in the top bar: it is another thing, and it does not release this hold.',
+  hold_why: 'Why do you hold new starts?',
+  hold_needs_why: 'Say why first.',
+  hold_release: 'Release',
+  hold_release_hint: 'Let new works of this project start again.',
+  hold_release_owner: 'New works of {project} start again, unless the architect holds them too.',
+  hold_release_architect:
+    "This is the architect's own hold. Releasing it lets new works of {project} start again, unless another hold remains; the architect reads the hold in its board.",
+  hold_release_set_straight:
+    'The architect holds new works of {project} while it sets the project straight. Releasing it lets them start before that is done; the architect may hold them again in its next plan.',
+  hold_release_other: 'Releasing this hold lets new works of {project} start again, unless another hold remains.',
+  hold_cancel: 'Cancel',
   arch_tabs: "The architect's tabs",
   handled_pause_work: 'paused the work on #{item}',
   handled_resume_work: 'let the work on #{item} go on',
