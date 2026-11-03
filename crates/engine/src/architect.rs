@@ -2076,6 +2076,12 @@ fn message(tx: &Transaction<'_>, from: &str, to: &str, words: &str, detail: &str
     queue_matter(tx, &m).map_err(sql)
 }
 
+/// The body of a message to another project's architect, which says the matter it comes of: the matter the message names
+/// (`m`, of a group), or else the matter in hand `matter`.
+fn message_body(project: &str, m: &Value, matter: i64, work: i64) -> Value {
+    json!({ "from": project, "text": m["text"], "matter": m["matter"].as_i64().unwrap_or(matter), "work": work })
+}
+
 /// An item change as the batch keeps it: the change itself, without the matter it names, which the batch keeps in the
 /// row of the change.
 fn kept_change(change: &Value) -> Value {
@@ -2122,7 +2128,7 @@ fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(),
         "message"
     };
     for m in items(effects.get("messages")) {
-        let body = json!({ "from": project, "text": m["text"], "matter": matter, "work": w });
+        let body = message_body(&project, &m, matter, w);
         message(tx, &project, text(&m["project"]), text(&m["text"]), detail, body)?;
     }
     Ok(())
@@ -7755,6 +7761,13 @@ mod tests {
         );
         let change = json!({ "kind": "edit_item", "item": "1", "matter": 12 });
         assert_eq!(kept_change(&change), json!({ "kind": "edit_item", "item": "1" }));
+        // A message says the matter it comes of to the architect it goes to: the member it names, else the matter in hand.
+        let of_member = message_body("p", &json!({ "project": "q", "text": "t", "matter": 11 }), 10, 7);
+        assert_eq!(of_member["matter"], 11);
+        assert_eq!(
+            message_body("p", &json!({ "project": "q", "text": "t" }), 10, 7)["matter"],
+            10
+        );
     }
 
     // What a round that took a group in handed in is read for one matter of it as for a matter alone: the way of the
