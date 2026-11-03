@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
@@ -15,24 +15,76 @@ fn compiled() -> flow::Compiled {
     flow::compile(FLOW, &context()).unwrap_or_else(|e| panic!("{e}"))
 }
 
-// The engineer's graph compiles with no finding, and comes out as the generator the flow was designed with worked it
-// out: as many cells, rows and states. The places of the returns' fields are not held to a number: nearly every change
-// to a form moves them, and works that change forms side by side met in this file at every merge.
+/// Whether each graph of the flow compiled to the cells `source` gives it: a compiled graph has a cell for every node
+/// of the graph of its name in `source`, and no other. The source is the standard, not what the compiler once
+/// produced, and the answer names each cell that is missing or that no node gives.
+fn cells_match_nodes(c: &flow::Compiled, source: &str) -> Result<(), String> {
+    let v: Value = serde_json::from_str(source).unwrap();
+    let mut problems = Vec::new();
+    for f in v["flows"].as_array().unwrap() {
+        let name = f["name"].as_str().unwrap();
+        let nodes: BTreeSet<&str> = f["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["id"].as_str().unwrap())
+            .collect();
+        let Some(g) = c.graph(name) else {
+            problems.push(format!("{name}: the flow has no compiled graph"));
+            continue;
+        };
+        let cells: BTreeSet<&str> = g.cells.iter().map(|x| x.id.as_str()).collect();
+        for id in nodes.difference(&cells) {
+            problems.push(format!("{name}: no cell for the node {id}"));
+        }
+        for id in cells.difference(&nodes) {
+            problems.push(format!("{name}: a cell {id} that is no node"));
+        }
+    }
+    for g in &c.graphs {
+        if !v["flows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["name"] == g.name.as_str())
+        {
+            problems.push(format!("{}: a compiled graph that is no graph of the flow", g.name));
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("\n"))
+    }
+}
+
+// The flow compiles with no finding, and each of its graphs comes out with the cells of its nodes, the engineer's and
+// the architect's. The check is shown to fail for a cell the compiler lost and for one it made up, each named.
 #[test]
-fn the_engineer_graph_compiles_as_its_reference_has_it() {
+fn each_graph_compiles_to_the_cells_of_its_nodes() {
     let c = compiled();
-    let r: Value = serde_json::from_str(include_str!("reference.json")).unwrap();
-    let s = &c.stats[0];
-    let want = |k: &str| r[k].as_u64().unwrap() as usize;
-    assert_eq!(
-        (s.cells, s.rows, s.states),
-        (want("cells"), want("rows"), want("states"))
-    );
+    cells_match_nodes(&c, FLOW).unwrap_or_else(|e| panic!("{e}"));
+    let mut lost = c.clone();
+    let gone = lost
+        .graphs
+        .iter_mut()
+        .find(|g| g.name == "engineer")
+        .and_then(|g| g.cells.pop())
+        .unwrap();
+    let e = cells_match_nodes(&lost, FLOW).unwrap_err();
+    assert_eq!(e, format!("engineer: no cell for the node {}", gone.id));
+    let mut made = c.clone();
+    let g = made.graphs.iter_mut().find(|g| g.name == "architect").unwrap();
+    let mut extra = g.cells[0].clone();
+    extra.id = "ZZ".into();
+    g.cells.push(extra);
+    let e = cells_match_nodes(&made, FLOW).unwrap_err();
+    assert_eq!(e, "architect: a cell ZZ that is no node");
 }
 
 /// What of a cell decides whether a work standing at it moves to a new flow version or is taken over, as the engine's
 /// `versions::why_not` compares a cell's two versions: its kind and line, its inputs' ids, names and sources, and its
-/// rows' names, conditions and targets, each in their order; hashed short, one line of the reference for each cell.
+/// rows' names, conditions and targets, each in their order; hashed short, the file of the cell in `tests/moves/`.
 fn moves_by(c: &flow::CompiledCell) -> String {
     let inputs: Vec<Value> = c
         .inputs
@@ -53,26 +105,79 @@ fn moves_by(c: &flow::CompiledCell) -> String {
     format!("{h:016x}")
 }
 
+/// Every way the files of `tests/moves/` (file name to content) differ from the hashes the compiler gives the cells
+/// (cell id to hash), each saying the cell and what to write or delete so that an engineer only follows it.
+///
+/// Each cell has a file of its own, and not a line of one file, because git's three-way merge takes changes to
+/// neighbouring lines for a conflict: two works changing neighbouring cells would meet in a file of one line per cell.
+/// A cell added or removed is a file added or removed, which merges. Only two works changing the same cell meet, and
+/// that needs the hash worked out again anyway.
+fn moves_misses(have: &BTreeMap<String, String>, files: &BTreeMap<String, String>) -> Vec<String> {
+    let mut misses = Vec::new();
+    for (id, hash) in have {
+        match files.get(id) {
+            None => misses.push(format!("{id}: no file; write {hash} in crates/flow/tests/moves/{id}")),
+            Some(text) if text.trim_end() != hash => {
+                misses.push(format!("{id}: write {hash} in crates/flow/tests/moves/{id}"));
+            }
+            Some(_) => {}
+        }
+    }
+    for id in files.keys().filter(|id| !have.contains_key(*id)) {
+        misses.push(format!("{id}: no such cell; delete crates/flow/tests/moves/{id}"));
+    }
+    misses
+}
+
 // The parts of each cell of the engineer's graph that decide whether a work standing at it moves to a new flow version
-// are as the reference has them, so that a change of the flow shows in the reference which cells' works a new version
-// takes over when it is installed, at the cost of a work begun again.
+// are as the file of the cell in `tests/moves/` has them, so that a change of the flow shows in the change's files
+// which cells' works a new version takes over when it is installed, at the cost of a work begun again. The comparison
+// is shown to fail for a hash that differs, a cell with no file and a file with no cell, each naming the cell.
 #[test]
-fn the_cells_a_work_moves_by_are_as_the_reference_has_them() {
+fn the_cells_a_work_moves_by_are_as_their_files_have_them() {
     let c = compiled();
-    let g = c.graph("engineer").unwrap();
-    let r: Value = serde_json::from_str(include_str!("reference.json")).unwrap();
-    let want = r["moves"].as_object().cloned().unwrap_or_default();
-    let have: Map<String, Value> = g
+    let have: BTreeMap<String, String> = c
+        .graph("engineer")
+        .unwrap()
         .cells
         .iter()
-        .map(|c| (c.id.clone(), Value::from(moves_by(c))))
+        .map(|c| (c.id.clone(), moves_by(c)))
         .collect();
-    let changed: Vec<&String> = have.keys().filter(|k| want.get(*k) != have.get(*k)).collect();
-    let gone: Vec<&String> = want.keys().filter(|k| !have.contains_key(*k)).collect();
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/moves");
+    let files: BTreeMap<String, String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| {
+            let e = e.unwrap();
+            let name = e.file_name().into_string().expect("a file name that is text");
+            let text = std::fs::read_to_string(e.path()).unwrap_or_else(|x| panic!("{name}: {x}"));
+            (name, text)
+        })
+        .collect();
+    let misses = moves_misses(&have, &files);
     assert!(
-        changed.is_empty() && gone.is_empty(),
-        "cells whose works a new version takes over: changed or new {changed:?}; gone {gone:?}. Now: {}",
-        serde_json::to_string(&have).unwrap()
+        misses.is_empty(),
+        "cells whose works a new version takes over:\n{}",
+        misses.join("\n")
+    );
+
+    let (id, hash) = have.iter().next().unwrap();
+    let mut changed = files.clone();
+    changed.insert(id.clone(), "0000000000000000\n".into());
+    assert_eq!(
+        moves_misses(&have, &changed),
+        [format!("{id}: write {hash} in crates/flow/tests/moves/{id}")]
+    );
+    let mut missing = files.clone();
+    missing.remove(id);
+    assert_eq!(
+        moves_misses(&have, &missing),
+        [format!("{id}: no file; write {hash} in crates/flow/tests/moves/{id}")]
+    );
+    let mut extra = files.clone();
+    extra.insert("ZZ".into(), "0000000000000000\n".into());
+    assert_eq!(
+        moves_misses(&have, &extra),
+        ["ZZ: no such cell; delete crates/flow/tests/moves/ZZ"]
     );
 }
 
@@ -205,16 +310,14 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 // the plan of what to do next (`N1`), the recording of the decisions in the owner's words, the review of a batch of item
 // changes and whether to plan or check again (`B1`, `B5`, `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds
 // only its matter (`A3`), the tools (`X1`), the observer
-// (`X2`) and the wait for the owner's Start after a pause (`X3`): as many cells, rows and states. No wrap-up, no wait
+// (`X2`) and the wait for the owner's Start after a pause (`X3`). It has no wrap-up, no wait
 // for the owner's reply in a talk, and none of the setting of a policy as a stage of its own (its study, its readings by
 // new architects, the owner's buttons).
 // The owner's words reach the architect only through its queue: no cell of it takes an interjection, and none answers
 // one.
 #[test]
-fn the_architect_graph_compiles_as_its_reference_has_it() {
+fn the_architect_graph_has_no_cell_the_design_left_out() {
     let c = compiled();
-    let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (31, 136, 197));
     let g = c.graph("architect").unwrap();
     for gone in [
         "E1", "H6", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",
@@ -790,12 +893,13 @@ fn an_ask_carries_no_kind() {
 }
 
 // What only the owner can settle reaches the owner through the architect, never as an engineer's ask of the owner: the
-// engineer's graph has no owner's cell (`A3`), no row leads there, no cell holds a blocker for the owner but `M1`'s
-// ruling, and the architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on only to a
-// related project's architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the architect
-// at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the work's
-// design, and an action only the owner can do to the owner by pausing the work. An open question left to the owner they
-// pin in the owner's one-to-one by an ask, and answer the engineer by the owner's reply.
+// engineer's graph has no owner's cell (`A3`), no row leads there, no cell holds a blocker for the owner but the wait
+// for the ruling on where a design departs from the item's decisions (`D12`), which the architect puts to the owner,
+// and `M1`'s ruling, and the architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on
+// only to a related project's architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the
+// architect at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the
+// work's design, and an action only the owner can do to the owner by pausing the work. An open question left to the
+// owner they pin in the owner's one-to-one by an ask, and answer the engineer by the owner's reply.
 #[test]
 fn what_only_the_owner_can_settle_goes_through_the_architect() {
     let c = compiled();
@@ -811,7 +915,7 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
         .filter(|b| b.holders.iter().any(|h| h == "owner"))
         .map(|b| b.cell.as_str())
         .collect();
-    assert_eq!(held, ["M1"]);
+    assert_eq!(held, ["D12", "M1"]);
     let asking = g.cell("A2").unwrap();
     assert!(asking.rows.iter().all(|r| r.name != "to_owner"));
     assert!(asking.inputs.iter().any(|x| x.name.as_deref() == Some("Flow anomaly")));
@@ -1397,18 +1501,18 @@ fn every_sample_takes_its_row() {
     let c = compiled();
     let g = c.graph("engineer").unwrap();
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
-    let mut n = 0;
+    // The loop below must run: a file with no cell, or a cell with no sample, would pass it having tried nothing.
+    assert!(!samples.is_empty(), "no samples");
     for (cell, xs) in &samples {
+        assert!(!xs.is_empty(), "no sample of {cell}");
         for s in xs {
             let given: Map<String, Value> = s["given"].as_object().cloned().unwrap_or_default();
             let row = g
                 .take(cell, &s["json"], &given)
                 .unwrap_or_else(|e| panic!("{cell}: {e}"));
             assert_eq!(row.name, s["row"].as_str().unwrap(), "a sample of {cell}");
-            n += 1;
         }
     }
-    assert_eq!(n, 47);
 }
 
 // The acceptance takes a condition met by a job of the CI or by reading the change, besides tests and measurements, and
@@ -1880,6 +1984,7 @@ fn a_light_work_plans_in_place_of_the_design_and_goes_straight_to_the_table_revi
             sampled("D9", "on_its_own", &[]),
             sampled("D10", "implementation", &[]),
             not_needed,
+            sampled("D12", "clear", &[]),
             sampled("I1", "done", &[]),
             full_ci_next("blind"),
             full_ci_green("blind"),
@@ -1891,8 +1996,8 @@ fn a_light_work_plans_in_place_of_the_design_and_goes_straight_to_the_table_revi
     assert_eq!(
         normal,
         [
-            "S1", "G1", "R1", "R2", "G2", "D1", "D2", "D3", "D4", "D6", "D7", "D8", "D9", "D10", "D11", "I1", "T7",
-            "T2", "T3", "G3", "T4", "M1"
+            "S1", "G1", "R1", "R2", "G2", "D1", "D2", "D3", "D4", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "I1",
+            "T7", "T2", "T3", "G3", "T4", "M1"
         ]
     );
     // The plan the review found sound is locked as the design's acceptance is, with the implementer's new session.
