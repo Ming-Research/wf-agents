@@ -7927,6 +7927,235 @@ fn a_group_goes_on_to_its_second_cell_after_the_owner_s_words_and_a_new_session(
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The architect's work over a group of three side reports, run until the cell that finds what they are has handed in
+/// its return and the group goes on to the cell that takes it in: the engine, what it said, the matters of the three
+/// reports with the works that handed them in, and the architect's work.
+fn group_found(
+    s: &Setup,
+    ids: &Arc<Mutex<Vec<i64>>>,
+    take_in: Script,
+    on: impl FnOnce(&mut Engine),
+) -> (Engine, Arc<Mutex<Vec<String>>>, Vec<(i64, i64)>, i64) {
+    let (mut e, said, reports) = reported(s, ids, take_in, |agents| {
+        agents.insert(
+            "B2",
+            Box::new(|_: &Request, _: usize| {
+                let ok = json!({ "change": 1, "verdict": "ok", "why": "Sound." });
+                (Vec::new(), vec![("outcome.review", json!([ok]))])
+            }),
+        );
+    });
+    on(&mut e);
+    let arch = e.step(None).unwrap().work.unwrap();
+    let found = |e: &mut Engine| path_of(e, arch).last().map(String::as_str) == Some("H4");
+    assert!(steps_until(&mut e, 120, found), "{}", said.lock().unwrap().join("\n"));
+    (e, said, reports, arch)
+}
+
+// Item #228, from the adversarial tests. An item change in the return that takes a group in names the matter of the
+// group it comes of: it is told to the engineer of that matter once the batch is made, the engineers of the matters that
+// made no item change are told at once, each its own way, and no engineer is told twice. Reference: the change is the
+// architect's own statement of which matter it comes of (acceptance condition A3: each reporter is told its own way,
+// also after the batch).
+#[test]
+fn an_item_change_that_names_a_matter_of_the_group_is_told_to_the_engineer_of_that_matter_after_the_batch() {
+    let s = setup("group-batch");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), Vec::new());
+        }
+        let ids = given.lock().unwrap();
+        let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
+                             "reason": "The second report asks for it.", "matter": ids[1] });
+        let others = json!([
+            { "matter": ids[1], "way": "nothing", "why": "Second why." },
+            { "matter": ids[2], "way": "nothing", "why": "Third why." }
+        ]);
+        (
+            vec![("outcome.take.way", "nothing")],
+            vec![
+                ("outcome.take.why", json!("Lead why.")),
+                ("outcome.with", others),
+                ("outcome.effects", json!({ "item_changes": [change] })),
+            ],
+        )
+    });
+    let (mut e, said, reports, arch) = group_found(&s, &ids, take_in, |_| ());
+    assert!(
+        steps_until(&mut e, 160, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    assert_eq!(closed_by(&e, arch, "H5"), matters, "{log}");
+    // The change is the second matter's own, and was made.
+    let (of, state): (i64, String) =
+        e.db.conn()
+            .query_row("SELECT matter, state FROM architect_item_changes", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!((of, state.as_str()), (matters[1], "made"), "{log}");
+    let title: String =
+        e.db.conn()
+            .query_row("SELECT title FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(title, "Write the parser", "{log}");
+    // One line to each engineer, of its own matter only.
+    let (first, second, third) = (
+        lines_told(&e, reports[0].0),
+        lines_told(&e, reports[1].0),
+        lines_told(&e, reports[2].0),
+    );
+    assert_eq!(
+        (first.len(), second.len(), third.len()),
+        (1, 1, 1),
+        "{first:?} {second:?} {third:?}\n{log}"
+    );
+    assert!(
+        first[0].contains("nothing to take in: Lead why") && !first[0].contains("item #1"),
+        "{}",
+        first[0]
+    );
+    assert!(
+        second[0].contains("taken into item #1 \"Write the parser\"") && !second[0].contains("nothing to take in"),
+        "{}",
+        second[0]
+    );
+    assert!(
+        third[0].contains("nothing to take in: Third why") && !third[0].contains("item #1"),
+        "{}",
+        third[0]
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #228, from the adversarial tests. A matter of a group withdrawn after the cell that finds what the matters are
+// and before the cell that takes them in is not asked of that cell and is not closed by it: the cell is accepted with
+// an entry for each matter left, and the withdrawn one stays unhandled with its engineer told nothing. Reference:
+// acceptance condition A2 (the entries asked for are those of the matters in the group) and the queue's own rule that a
+// withdrawn matter is no longer a matter.
+#[test]
+fn a_matter_withdrawn_between_the_cells_is_left_out_of_the_group_and_not_closed() {
+    let s = setup("group-withdrawn");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), Vec::new());
+        }
+        let ids = given.lock().unwrap();
+        let others = json!([{ "matter": ids[1], "way": "nothing", "why": "Second why." }]);
+        (
+            vec![("outcome.take.way", "nothing")],
+            vec![("outcome.take.why", json!("Lead why.")), ("outcome.with", others)],
+        )
+    });
+    let (mut e, said, reports, arch) = group_found(&s, &ids, take_in, |_| ());
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE architect_matters SET withdrawn = 'Handed back.' WHERE id = ?1",
+            [matters[2]],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    assert!(
+        steps_until(&mut e, 160, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sent_back: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'H5' AND rejected IS NOT NULL",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(sent_back, 0, "{log}");
+    assert_eq!(closed_by(&e, arch, "H5"), &matters[..2], "{log}");
+    let handled: Option<i64> =
+        e.db.conn()
+            .query_row(
+                "SELECT handled_round FROM architect_matters WHERE id = ?1",
+                [matters[2]],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(handled, None, "{log}");
+    assert_eq!(lines_told(&e, reports[2].0), Vec::<String>::new(), "{log}");
+    assert_eq!(lines_told(&e, reports[0].0).len(), 1, "{log}");
+    assert_eq!(lines_told(&e, reports[1].0).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #228, from the adversarial tests. The pick clears a group a work that ended left unhandled, so that its matters
+// do not join the group picked now, even one that names the matter picked as its lead; the matters picked with it
+// become its group. Reference: acceptance condition A1 (the pick writes the group's lead and clears the groups left)
+// and the schema's definition of a group as the lead and the matters not handled that name it.
+#[test]
+fn the_pick_clears_a_group_left_unhandled_and_leaves_it_out_of_the_group_picked() {
+    let s = setup("group-stale");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let stale = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let left = stale.clone();
+    let named = ids.clone();
+    let nothing: Script = Box::new(|_: &Request, _: usize| (Vec::new(), Vec::new()));
+    let (e, said, reports, arch) = group_found(&s, &ids, nothing, move |e| {
+        // Two more side reports, left in a group by a work that ended: the one led by the matter the next pick makes
+        // its lead, the other led by the first.
+        let first = side_report(e, "The parser lacks a test.").1;
+        let second = side_report(e, "The parser lacks another test.").1;
+        let lead = named.lock().unwrap()[0];
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "UPDATE architect_matters SET group_lead = ?2 WHERE id = ?1",
+                [first, lead],
+            )?;
+            tx.execute(
+                "UPDATE architect_matters SET group_lead = ?2 WHERE id = ?1",
+                [second, first],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        *left.lock().unwrap() = vec![first, second];
+    });
+    let log = said.lock().unwrap().join("\n");
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let led = |m: i64| -> Option<i64> {
+        e.db.conn()
+            .query_row("SELECT group_lead FROM architect_matters WHERE id = ?1", [m], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    };
+    let stale = stale.lock().unwrap().clone();
+    assert_eq!((led(stale[0]), led(stale[1])), (None, None), "{log}");
+    assert_eq!(
+        (led(matters[1]), led(matters[2])),
+        (Some(matters[0]), Some(matters[0])),
+        "{log}"
+    );
+    // The cell that found what the matters are was asked about the three picked, and no more: it was not sent back.
+    let sent_back: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'H4' AND rejected IS NOT NULL",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(sent_back, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 /// What an agent's round of an architect saw as it ran: its request, and in its working directory the text of
 /// `src/lib.txt`, the commit it stood at and whether a file left there earlier was still there.
 struct Saw {
