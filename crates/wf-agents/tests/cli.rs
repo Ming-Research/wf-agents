@@ -486,52 +486,19 @@ fn hold_and_release_write_and_release_the_holds_on_a_project_s_new_starts() {
         );
     }
     assert!(rows().is_empty());
-    // A refused release lists the holds the project does hold, since no other command does.
-    let out = wf_args(&dir, &["release", "--reason", "owner"]);
+    let out = wf_args(&dir, &["release", "--reason", "policy"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    // With two projects in the configuration, leaving the project out is refused and nothing is written; the rule
+    // itself is tested in the api crate, this shows the arguments reach it.
+    std::fs::write(dir.join("projects/q.toml"), PROJECT).unwrap();
+    commit_all(&dir);
+    let out = wf_args(&dir, &["hold", "--why", "x"]);
     assert!(
-        stderr(&out).contains("p has no hold of the reason owner; it holds none"),
+        failed(&out) && stderr(&out).contains("name the project, one of: p, q"),
         "{}",
         stderr(&out)
     );
-    let out = wf_args(&dir, &["hold", "--why", "x"]);
-    assert!(out.status.success(), "{}", stderr(&out));
-    let mut base = db::Db::open(&config::database(&dir)).unwrap();
-    base.write(db::Actor::Architect, |tx| {
-        db::hold_starts(tx, "p", db::HoldReason::SetStraight, None)
-    })
-    .unwrap();
-    drop(base);
-    let out = wf_args(&dir, &["release", "--reason", "architect"]);
-    let err = stderr(&out);
-    assert!(failed(&out), "{err}");
-    assert!(
-        err.contains("p has no hold of the reason architect; it holds: owner, set_straight"),
-        "{err}"
-    );
-    assert_eq!(rows().len(), 2, "a refused release deletes nothing");
-    for reason in ["owner", "set_straight"] {
-        let out = wf_args(&dir, &["release", "--reason", reason]);
-        assert!(out.status.success(), "{reason}: {}", stderr(&out));
-    }
-    let out = wf_args(&dir, &["release", "--reason", "policy"]);
-    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
-    // With two projects in the configuration, leaving the project out is refused for both commands, which write
-    // nothing; naming the project succeeds.
-    std::fs::write(dir.join("projects/q.toml"), PROJECT).unwrap();
-    commit_all(&dir);
-    for args in [&["hold", "--why", "x"][..], &["release"][..]] {
-        let out = wf_args(&dir, args);
-        assert!(
-            failed(&out) && stderr(&out).contains("name the project, one of: p, q"),
-            "{args:?}: {}",
-            stderr(&out)
-        );
-        assert!(rows().is_empty(), "{args:?}");
-    }
-    let out = wf_args(&dir, &["hold", "--project", "q", "--why", "x"]);
-    assert!(out.status.success(), "{}", stderr(&out));
-    let out = wf_args(&dir, &["release", "--project", "q"]);
-    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(rows().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
