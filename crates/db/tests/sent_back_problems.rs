@@ -218,15 +218,9 @@ fn the_view_keeps_the_order_of_many_problems_and_reads_a_column_of_another_shape
         Some(&format!(r#"{{"check":"x","problems":[{}]}}"#, many.join(","))),
     );
     // Valid JSON the engine does not write for a return sent back: no row, and the view still answers.
-    for (n, odd) in [
-        r#""text""#,
-        "3",
-        "null",
-        "[]",
-        r#"{"problems":[]}"#,
-    ]
-    .into_iter()
-    .enumerate()
+    for (n, odd) in [r#""text""#, "3", "null", "[]", r#"{"problems":[]}"#]
+        .into_iter()
+        .enumerate()
     {
         round(&conn, 2, n as i64 + 1, None, Some(odd));
     }
