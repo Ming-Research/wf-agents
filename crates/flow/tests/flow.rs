@@ -790,12 +790,13 @@ fn an_ask_carries_no_kind() {
 }
 
 // What only the owner can settle reaches the owner through the architect, never as an engineer's ask of the owner: the
-// engineer's graph has no owner's cell (`A3`), no row leads there, no cell holds a blocker for the owner but `M1`'s
-// ruling, and the architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on only to a
-// related project's architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the architect
-// at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the work's
-// design, and an action only the owner can do to the owner by pausing the work. An open question left to the owner they
-// pin in the owner's one-to-one by an ask, and answer the engineer by the owner's reply.
+// engineer's graph has no owner's cell (`A3`), no row leads there, no cell holds a blocker for the owner but the wait
+// for the ruling on where a design departs from the item's decisions (`D12`), which the architect puts to the owner,
+// and `M1`'s ruling, and the architect hands nothing on to the owner (`A2` has no `to_owner`, and its reply hands on
+// only to a related project's architect). The engine's rows of a flow anomaly at `A4` raise the task's blocker for the
+// architect at `A2`, which is given the anomaly; the ways (`H3`) put a choice of the owner's as an open question of the
+// work's design, and an action only the owner can do to the owner by pausing the work. An open question left to the
+// owner they pin in the owner's one-to-one by an ask, and answer the engineer by the owner's reply.
 #[test]
 fn what_only_the_owner_can_settle_goes_through_the_architect() {
     let c = compiled();
@@ -811,7 +812,7 @@ fn what_only_the_owner_can_settle_goes_through_the_architect() {
         .filter(|b| b.holders.iter().any(|h| h == "owner"))
         .map(|b| b.cell.as_str())
         .collect();
-    assert_eq!(held, ["M1"]);
+    assert_eq!(held, ["D12", "M1"]);
     let asking = g.cell("A2").unwrap();
     assert!(asking.rows.iter().all(|r| r.name != "to_owner"));
     assert!(asking.inputs.iter().any(|x| x.name.as_deref() == Some("Flow anomaly")));
@@ -1408,7 +1409,7 @@ fn every_sample_takes_its_row() {
             n += 1;
         }
     }
-    assert_eq!(n, 47);
+    assert_eq!(n, 48);
 }
 
 // The acceptance takes a condition met by a job of the CI or by reading the change, besides tests and measurements, and
@@ -1880,6 +1881,7 @@ fn a_light_work_plans_in_place_of_the_design_and_goes_straight_to_the_table_revi
             sampled("D9", "on_its_own", &[]),
             sampled("D10", "implementation", &[]),
             not_needed,
+            sampled("D12", "clear", &[]),
             sampled("I1", "done", &[]),
             full_ci_next("blind"),
             full_ci_green("blind"),
@@ -1891,8 +1893,8 @@ fn a_light_work_plans_in_place_of_the_design_and_goes_straight_to_the_table_revi
     assert_eq!(
         normal,
         [
-            "S1", "G1", "R1", "R2", "G2", "D1", "D2", "D3", "D4", "D6", "D7", "D8", "D9", "D10", "D11", "I1", "T7",
-            "T2", "T3", "G3", "T4", "M1"
+            "S1", "G1", "R1", "R2", "G2", "D1", "D2", "D3", "D4", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "I1",
+            "T7", "T2", "T3", "G3", "T4", "M1"
         ]
     );
     // The plan the review found sound is locked as the design's acceptance is, with the implementer's new session.
