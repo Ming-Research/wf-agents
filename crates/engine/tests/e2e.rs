@@ -14817,6 +14817,80 @@ fn a_decision_the_records_do_not_bear_out_is_sent_back_and_a_revised_one_is_writ
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A return of the cell that records decisions that is wrong in two of its fields is sent back once, saying both: a row
+// of `looked` missing for some of the owner's words, and a quotation that is not the record's letter for letter in
+// `decisions`. Oracle: the project guide's rule that a check of a return reports every problem it can find in it at
+// once, because each send-back costs a round.
+#[test]
+fn a_return_that_is_wrong_in_looked_and_in_decisions_is_sent_back_once_saying_both() {
+    let s = setup("decisions-both-wrong");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    let at = path.clone();
+    agents.insert(
+        "B5",
+        Box::new(move |_: &Request, n: usize| {
+            let (a, b) = (matter_with(&at, "integers"), matter_with(&at, "old name"));
+            let row = |m: i64, v: &str| json!({ "matter": m, "verdict": v, "why": "It is read." });
+            if n == 1 {
+                // No row for the words of `b`, and a quotation in other letters.
+                let wrong = decision_of(Some("1"), "Integers come first", &[(a, "THE PARSER TAKES")]);
+                return (
+                    Vec::new(),
+                    vec![
+                        ("outcome.looked", json!([row(a, "decision")])),
+                        ("outcome.decisions", json!([wrong])),
+                    ],
+                );
+            }
+            let sound = decision_of(
+                Some("1"),
+                "Integers come first",
+                &[(a, "the parser takes integers first")],
+            );
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.looked", json!([row(a, "decision"), row(b, "nothing")])),
+                    ("outcome.decisions", json!([sound])),
+                ],
+            )
+        }),
+    );
+    agents.insert("B2", review_all_sound(path.clone()));
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET approach = 'Approach:\n- Parse it.' WHERE id = 1", [])?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Yes, the parser takes integers first.");
+    say(&mut e, "Fine, keep the old name.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sent_back = why_sent_back(&e, arch, "B5");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
+    for part in [
+        "there is one row for each of the owner's words this batch handled",
+        "is not found as it is in the words of matter",
+    ] {
+        assert!(sent_back[0].contains(part), "{part}\n{sent_back:?}");
+    }
+    let approach: String =
+        e.db.conn()
+            .query_row("SELECT approach FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert!(approach.contains("Decisions:\nDecision ("), "{approach}\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A change of the batch cannot write a line of a decision by hand, whether it makes an item with it or writes an item's
 // approach whole with it; the return is sent back saying the cell that records decisions makes the line. The text of an
 // item that holds a line already can be written again with that line as it is: it is not a line the change writes.
