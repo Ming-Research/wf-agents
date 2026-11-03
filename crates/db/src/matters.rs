@@ -130,7 +130,6 @@ impl Speaker {
             )),
         }
     }
-
 }
 
 /// Who a request declares to speak, and which parts of what a delegate says it declares to be the owner's own words
@@ -523,7 +522,11 @@ mod tests {
         // The words are kept trimmed, and so is what a part is found in.
         say("  Yes. Put the parser first.  ", &["Put the parser first."]).unwrap();
         let text = "Yes. Put the parser first.";
-        assert!(say(text, &["Put the parser first.", " "]).unwrap_err().contains("blank"));
+        assert!(
+            say(text, &["Put the parser first.", " "])
+                .unwrap_err()
+                .contains("blank")
+        );
         let err = say(text, &["put the parser first."]).unwrap_err();
         assert!(err.contains("is not found letter for letter"), "{err}");
         let err = say(text, &["Yes.  Put"]).unwrap_err();

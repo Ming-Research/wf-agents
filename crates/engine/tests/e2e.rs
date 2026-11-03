@@ -14388,7 +14388,8 @@ fn the_owner_s_decisions_are_written_by_the_engine_from_the_records_once_the_rev
         &latest,
         "delegate",
         "No browser check at all",
-        &format!("\"No browser check\" (matter {a}, {da}); \"Fine\" (matter {b}, {dayb})"),
+        // The head is the delegate's, so the owner's own words say that they are the owner's.
+        &format!("\"No browser check\" (matter {a}, {da}, owner); \"Fine\" (matter {b}, {dayb})"),
     );
     let approach: String =
         e.db.conn()

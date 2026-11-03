@@ -236,7 +236,10 @@ pub fn say_to_projects(db: &mut Db, projects: &[String], said: &ProjectsSaid) ->
         Some(p) => return Err(format!("project {p} is not in the group {}", said.key)),
         None => projects.to_vec(),
     };
-    let body = speaker.record(json!({ "text": text, "where": "projects", "group": said.key, "to": to }), text)?;
+    let body = speaker.record(
+        json!({ "text": text, "where": "projects", "group": said.key, "to": to }),
+        text,
+    )?;
     let ids = db
         .write(Actor::Owner, |tx| {
             let mut ids = Vec::new();
@@ -1108,7 +1111,11 @@ mod tests {
             relayed: Some(vec!["Merge it.".into()]),
             ..by_delegate.clone()
         };
-        assert!(say_to_work(&mut db, 1, &wrong).unwrap_err().contains("not found letter for letter"));
+        assert!(
+            say_to_work(&mut db, 1, &wrong)
+                .unwrap_err()
+                .contains("not found letter for letter")
+        );
         let reply = "SELECT reply FROM architect_matters WHERE id = 2";
         let none: Option<String> = db.conn().query_row(reply, [], |r| r.get(0)).unwrap();
         assert_eq!(none, None);
@@ -1119,10 +1126,8 @@ mod tests {
         say_to_work(&mut db, 1, &relaying).unwrap();
         let kept = "SELECT json_extract(reply, '$.speaker'), json_extract(reply, '$.relayed')
                     FROM architect_matters WHERE id = 2";
-        let (speaker, relayed): (String, String) = db
-            .conn()
-            .query_row(kept, [], |r| Ok((r.get(0)?, r.get(1)?)))
-            .unwrap();
+        let (speaker, relayed): (String, String) =
+            db.conn().query_row(kept, [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert_eq!((speaker.as_str(), relayed.as_str()), ("delegate", r#"["Split"]"#));
     }
 
@@ -1770,19 +1775,32 @@ mod tests {
         assert_eq!(one(&db, asks), r#"["Do it."] ["Stop."] ["Done."]"#);
         // A part the words do not hold, or one the owner declares, is refused wherever the words go, and nothing is kept.
         let wrong = said("architect", "Fine. Keep it.", &["Keep that."]);
-        assert!(say_to_work(&mut db, 1, &wrong).unwrap_err().contains("not found letter for letter"));
+        assert!(
+            say_to_work(&mut db, 1, &wrong)
+                .unwrap_err()
+                .contains("not found letter for letter")
+        );
         let wrong = said("engineer", "Fine. Hold it.", &["Hold that."]);
-        assert!(say_to_work(&mut db, 1, &wrong).unwrap_err().contains("not found letter for letter"));
+        assert!(
+            say_to_work(&mut db, 1, &wrong)
+                .unwrap_err()
+                .contains("not found letter for letter")
+        );
         let by_owner = WorkSaid {
             speaker: "owner".into(),
             ..said("architect", "Fine. Keep it.", &["Keep it."])
         };
-        assert!(say_to_work(&mut db, 1, &by_owner).unwrap_err().contains("only a delegate relays"));
+        assert!(
+            say_to_work(&mut db, 1, &by_owner)
+                .unwrap_err()
+                .contains("only a delegate relays")
+        );
         let blank = WorkSaid {
             relayed: relaying(&[" "]),
             ..said("engineer", "Fine. Hold it.", &[])
         };
         assert!(say_to_work(&mut db, 1, &blank).unwrap_err().contains("blank"));
+        // Nothing was kept by the refusals.
         assert_eq!(one(&db, matters), kept);
         assert_eq!(one(&db, alone), r#"["Hold it."]"#);
     }

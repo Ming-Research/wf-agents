@@ -1634,7 +1634,9 @@ mod tests {
             .conn()
             .prepare("SELECT work, source, id, speaker, words, relayed FROM work_owner_words ORDER BY source, id")
             .unwrap()
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            })
             .unwrap()
             .collect::<rusqlite::Result<_>>()
             .unwrap();

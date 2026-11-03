@@ -526,7 +526,14 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             relayed,
             project,
             item,
-        }) => print(owner::say_to_architect(d, project.as_deref(), item, &text, &speaker, &relayed)),
+        }) => print(owner::say_to_architect(
+            d,
+            project.as_deref(),
+            item,
+            &text,
+            &speaker,
+            &relayed,
+        )),
         Command::DesignCards { all } => print(owner::design_cards(d, all)),
         Command::DesignCard { id } => print(owner::design_card(d, id)),
         Command::Rule {

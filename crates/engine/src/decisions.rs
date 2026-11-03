@@ -256,7 +256,8 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                 )
                 .optional()
                 .map_err(sql)?;
-            let Some((speaker, text, matter, wp, ip, at, of_matter, declared, matter_relayed, own_relayed)) = row else {
+            let Some((speaker, text, matter, wp, ip, at, of_matter, declared, matter_relayed, own_relayed)) = row
+            else {
                 return Err(format!("there is no interjection {id}"));
             };
             let Some(at) = at else {
@@ -967,7 +968,7 @@ mod tests {
             r.line,
             "Decision (2026-11-03, unrecorded): No browser check for this item. Situation: The item adds a diagram fit. \
              Reason (architect's, accepted by whoever spoke, not recorded): It is small. Replaces: none. \
-             Words: \"No browser check.\" (matter 1, 2026-11-02); \"Old words.\" (matter 3, 2026-11-03)"
+             Words: \"No browser check.\" (matter 1, 2026-11-02, owner); \"Old words.\" (matter 3, 2026-11-03)"
         );
         assert_eq!(r.said[0].words, "No browser check.");
         // An engineer's decision names the engineer as the one who wrote the reason.
