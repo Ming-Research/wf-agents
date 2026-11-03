@@ -1,8 +1,8 @@
 //! The engine's checks of a return: `engine.checks` in the flow, each named by the cells that use it. A return that
 //! fails one is sent back with the reason, before it takes a row. The reason says every problem of every check that
 //! applies, and a check says every problem it can find in the return ([`Problems`]), since each send-back costs a round.
-//! The one check that does not is `cards_match_records`: `crate::cards::check` stops at its first problem, and goes
-//! with `cards.rs` in #203, so it is not converted.
+//! The one check that does not is `cards_match_records`: no cell of the flow calls it, so it sends nothing back and
+//! `crate::cards::check`, which stops at its first problem, is not converted; both go with `cards.rs` in #203.
 //!
 //! A check whose `at` lies in one of the forms every agent has (ask, answers, redirect) runs on returns of that form;
 //! any other runs on the cell's own answer, whether or not the place is there, since some checks are about a place
