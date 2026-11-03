@@ -6,16 +6,22 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { Architect, ArchitectWork, Conversation, Matter, NotebookVersion, WorkSummary } from './api';
+import type { Architect, ArchitectPanel, ArchitectWork, Conversation, Matter, NotebookVersion, WorkSummary } from './api';
 import { ArchitectSide, keepSide, sideKept } from './pages/ArchitectSide';
 import { ArchitectHead } from './pages/TalkHead';
 import { href, parse, sideHref } from './route';
 
-// Drawn once, outside a browser: nothing is read, and the engine's state is not known.
+// Drawn once, outside a browser: the engine's state is not known, and the only thing read is the panel's own read of
+// the architect, which is as `read` (below) has it.
+const read: { panel: ArchitectPanel | undefined } = { panel: undefined };
 vi.mock('./live', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./live')>()),
   useStatus: () => null,
-  useResource: () => ({ data: undefined, error: null }),
+  useResource: (_key: string | null, path: string | null) => ({
+    data: path === '/api/v1/architect/panel?project=p' ? read.panel : undefined,
+    error: null,
+    stale: false,
+  }),
 }));
 // The session the owner's Start and Step run in is a store the page reads in a browser, read here as it would be there.
 vi.mock('react', async (importOriginal) => {
@@ -91,6 +97,10 @@ const architect: Architect = {
   queue: [matter(11), matter(12, { what: 'The matter in hand' }), matter(13, { asked: 5, resume_cell: 'P1' })],
   holds: [],
   asks: [],
+  draft: { work: 9, round: 7, at: 70, policy: { direction: 'Ship the parser.', why: 'It blocks all.', principles: [], signals: [] } },
+};
+
+const panel: ArchitectPanel = {
   handled: [],
   changes: [],
   policy: {
@@ -100,7 +110,6 @@ const architect: Architect = {
     at: 40,
     policy: { direction: 'Keep it small.', why: 'Small is quick.', principles: [], signals: [] },
   },
-  draft: { work: 9, round: 7, at: 70, policy: { direction: 'Ship the parser.', why: 'It blocks all.', principles: [], signals: [] } },
   notebook: [
     {
       section: 'project_now',
@@ -114,8 +123,16 @@ const architect: Architect = {
   constitution: { name: 'CONSTITUTION.md', text: 'Article 1. Be quick.' },
 };
 
-const side = (tab: 'notebook' | 'policy' | 'queue', a: Architect = architect): string =>
-  renderToStaticMarkup(<ArchitectSide a={a} tab={tab} onClose={() => undefined} />);
+/// The panel drawn on a tab, the architect it is of and what the read of the rest of the architect gave (`given`, none
+/// while it is not read yet).
+const side = (
+  tab: 'notebook' | 'policy' | 'queue',
+  a: Architect = architect,
+  given: ArchitectPanel | null = panel,
+): string => {
+  read.panel = given ?? undefined;
+  return renderToStaticMarkup(<ArchitectSide a={a} tab={tab} onClose={() => undefined} />);
+};
 
 /// The tabs drawn, each its words and its count, the one shown marked.
 const tabs = (html: string): string[] =>
@@ -190,6 +207,18 @@ describe('the panel beside the one-to-one with an architect', () => {
     expect(rows[1][1]).toBeDefined();
     expect(rows[1][2]).toContain('in hand');
     expect(rows[2][2]).toContain('held by your ask');
+  });
+
+  it('reads the notebook, the policy and the matters handled apart from the architect: until they are read it says so, and the queue it draws from the architect shows', () => {
+    for (const tab of ['notebook', 'policy'] as const) {
+      const html = side(tab, architect, null);
+      expect(html).toContain('Loading…');
+      expect(html).not.toContain('Two parsers.');
+      expect(html).not.toContain('Keep it small.');
+    }
+    const queue = side('queue', architect, null);
+    expect(queue).toContain('The matter in hand');
+    expect(queue).not.toContain('handled today');
   });
 
   it('is open unless this browser kept it closed, and keeps what the owner sets', () => {

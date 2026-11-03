@@ -145,6 +145,7 @@ const detail = (entries: ConversationEntry[]): ConversationDetail => ({
   waits_on: null,
   forwarding: null,
   read_to: null,
+  gaps: [],
 });
 
 /// The stream as the page draws it in a conversation.
@@ -894,12 +895,7 @@ describe('the marks of the list of conversations', () => {
     queue: [],
     holds: [],
     asks: [],
-    handled: [],
-    changes: [],
-    policy: null,
     draft: null,
-    notebook: [],
-    constitution: null,
     ...extra,
   });
   /// The Octicon a mark draws, by its name, its tone and what it says on hovering; `halo` for the running halo.

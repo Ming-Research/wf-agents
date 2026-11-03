@@ -701,25 +701,25 @@ impl GitHub for FakeHub {
     }
 }
 
-/// The ids of the columns the review table lists in a prompt that gives it whole.
-fn columns(prompt: &str) -> Vec<String> {
-    columns_known(prompt, &mut Vec::new())
-}
+/// What the message says before the numbers of the columns a review answers this round, when it does not give the
+/// columns whole.
+const COLUMNS_TO_ANSWER: &str = "Columns to answer this round, one row each, whether or not the change touches them: ";
 
-/// The ids of the columns of the review's table as a session that read its prompts knows them, `known` holding those
-/// it knew before: the table given whole, under its address; what changed in it since, its lines removed and added; or
-/// the table referred to, as given before.
-fn columns_known(prompt: &str, known: &mut Vec<String>) -> Vec<String> {
+/// The ids of the columns a review answers, as a reviewer that has only the message reads them: the line that lists
+/// them, which a message that does not give the columns whole has; otherwise the table given whole under its address.
+/// A table given as what changed, or referred to, with no such line says nothing a reader could answer by, and gives
+/// none.
+fn columns(prompt: &str) -> Vec<String> {
     let Some(start) = prompt.find("## Review table") else {
         return Vec::new();
     };
-    let body: Vec<&str> = prompt[start..]
-        .lines()
-        .skip(1)
-        .skip_while(|l| l.trim().is_empty())
-        .collect();
+    let section = &prompt[start..];
+    if let Some(line) = section.lines().find_map(|l| l.strip_prefix(COLUMNS_TO_ANSWER)) {
+        return line.trim_end_matches('.').split(", ").map(str::to_string).collect();
+    }
+    let body: Vec<&str> = section.lines().skip(1).skip_while(|l| l.trim().is_empty()).collect();
     if !body.first().is_some_and(|l| l.starts_with("### ")) {
-        return known.clone();
+        return Vec::new();
     }
     let lines: Vec<&str> = body[1..]
         .iter()
@@ -727,21 +727,13 @@ fn columns_known(prompt: &str, known: &mut Vec<String>) -> Vec<String> {
         .take_while(|l| !l.trim().is_empty())
         .copied()
         .collect();
-    let id = |l: &str| l.split_once(". ").map(|(id, _)| id.to_string());
     if lines.first().is_some_and(|l| l.starts_with("What changed since")) {
-        for l in &lines[1..] {
-            if let Some(gone) = l.strip_prefix('-').and_then(id) {
-                known.retain(|k| *k != gone);
-            } else if let Some(added) = l.strip_prefix('+').and_then(id) {
-                known.push(added);
-            }
-        }
-        known.sort_by_key(|k| k.parse::<u32>().unwrap_or(u32::MAX));
-        known.dedup();
-    } else {
-        *known = lines.iter().filter_map(|l| id(l)).collect();
+        return Vec::new();
     }
-    known.clone()
+    lines
+        .iter()
+        .filter_map(|l| l.split_once(". ").map(|(id, _)| id.to_string()))
+        .collect()
 }
 
 struct Setup {
@@ -903,22 +895,20 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         }),
     );
     // The table review answers every column of its table.
-    s.insert("T4", answers_columns(vec![("outcome.no_adversarial", "stands")]));
+    s.insert("T4", answers_columns(|_| vec![("outcome.no_adversarial", "stands")]));
     s
 }
 
-/// A review that answers every column of its table as passing, which its session holds from its earlier prompts, with
-/// the choices `also` beside the table.
-fn answers_columns(also: Vec<(&'static str, &'static str)>) -> Script {
-    let known: Mutex<BTreeMap<String, Vec<String>>> = Mutex::default();
-    Box::new(move |r: &Request, _: usize| {
-        let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
-        let ids = columns_known(&r.prompt, known.lock().unwrap().entry(session).or_default());
-        let cols: Vec<Value> = ids
+/// A review that answers every column its message tells it to as passing, and only those: it reads the message alone,
+/// as a review that holds nothing of its session's earlier prompts would. `also` gives the choices beside the table
+/// for the review's `n`th round: the first review judges the skipping of adversarial testing, a re-review does not.
+fn answers_columns(also: impl Fn(usize) -> Vec<(&'static str, &'static str)> + Send + Sync + 'static) -> Script {
+    Box::new(move |r: &Request, n: usize| {
+        let cols: Vec<Value> = columns(&r.prompt)
             .into_iter()
             .map(|id| json!({ "id": id, "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } }))
             .collect();
-        (also.clone(), vec![("outcome.columns", json!(cols))])
+        (also(n), vec![("outcome.columns", json!(cols))])
     })
 }
 
@@ -1125,6 +1115,8 @@ fn an_item_goes_from_the_queue_to_main() {
         m.contains("## Review table: answer each column by its number\n\n### columns:T4\n\n1. "),
         "{m}"
     );
+    // The first review has the columns whole in its message, and is not told again which to answer.
+    assert!(!m.contains(COLUMNS_TO_ANSWER), "{m}");
     let ci = given_value(m, "·engine·work_ci").expect(m);
     assert!(ci.is_object() && ci.get("fast_ci").is_some(), "{ci}");
     // The review line's session is given the worktree once, at its first round, the blind review.
@@ -1405,6 +1397,227 @@ fn the_review_after_a_fix_is_given_the_table_the_fix_answered() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Item #216: a table review in the session of an earlier one is not given the columns of its table whole, but referred
+// to, or given as what changed in them, and it answers every column whatever the change touched. The message says by
+// number which columns the round answers, so that a review that reads nothing but the message answers them all and
+// `columns_answered` takes it: R233-59 answered 9 of 19 columns and R238-64 8 of 27, each told only "given to you
+// before". The review here reads nothing else (`answers_columns`).
+#[test]
+fn a_re_review_in_the_same_session_is_told_every_column_to_answer() {
+    let s = setup("columns-line");
+    let mut scripts = scripts();
+    // The first review judges the skipping of adversarial testing; a re-review does not.
+    scripts.insert(
+        "T4",
+        answers_columns(|n| {
+            if n == 1 {
+                vec![("outcome.no_adversarial", "stands")]
+            } else {
+                Vec::new()
+            }
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    let reviews = |e: &Engine| -> Vec<Value> {
+        agent_rounds(e, item)
+            .into_iter()
+            .filter(|r| r.1 == "T4")
+            .map(|r| r.2)
+            .collect()
+    };
+    for _ in 0..60 {
+        if !reviews(&e).is_empty() {
+            break;
+        }
+        e.step(None).unwrap();
+    }
+    let log = || said.lock().unwrap().join("\n");
+    let message = |round: &Value| round["message"].as_str().unwrap_or_default().to_string();
+    let first = reviews(&e);
+    assert_eq!(first.len(), 1, "{}", log());
+    // The first review is given its columns whole, and is not told which to answer.
+    let m = message(&first[0]);
+    let all = columns(&m);
+    assert!(all.len() >= 3, "{all:?}\n{m}");
+    assert!(!m.contains(COLUMNS_TO_ANSWER), "{m}");
+    let (work, _, _) = state(&e, item).unwrap();
+    let sent_back = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'T4' AND rejected IS NOT NULL",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(sent_back(&e), 0, "{}", log());
+    // Another round of the table review, as the work comes back to it.
+    let again = |e: &mut Engine| -> Value {
+        move_to(e, work, "T4");
+        e.step(None).unwrap();
+        reviews(e).last().unwrap().clone()
+    };
+    let insert = |e: &mut Engine, cell: &str, output: &Value, row: &str| {
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
+                 VALUES (?1, ?2, ?3, '{}', ?4, ?5, 'c', 1, 2)",
+                params![work, next_round(tx, work)?, cell, output.to_string(), row],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    };
+    let returned =
+        |outcome: Value| json!({ "outcome": outcome, "progress": "p", "side_reports": [], "flow_feedback": "none" });
+
+    // The columns are what they were: the message refers to them, and lists every one.
+    let second = again(&mut e);
+    let m = message(&second);
+    assert!(second["call"]["session"]["resumed"].is_string(), "{}", second["call"]);
+    assert!(m.contains("columns:T4, given to you before in R"), "{m}");
+    assert!(m.contains(&format!("{COLUMNS_TO_ANSWER}{}.", all.join(", "))), "{m}");
+    assert_eq!(columns(&m), all, "{m}");
+    assert_eq!(sent_back(&e), 0, "{}", log());
+
+    // A deviation of the implementation adds a column: the message gives what changed, and lists every column, the
+    // new one among them.
+    let deviation = returned(
+        json!({ "deviations": [{ "kind": "workaround", "what": "Used the other way.",
+                                                      "why": "It was needed." }], "test_changes": [] }),
+    );
+    insert(&mut e, "I1", &deviation, "done");
+    let third = again(&mut e);
+    let m = message(&third);
+    assert!(m.contains("What changed since"), "{m}");
+    let added = m
+        .lines()
+        .find(|l| l.starts_with('+') && l.contains("The workaround \"Used the other way.\""))
+        .unwrap_or_else(|| panic!("no added column for the deviation: {m}"));
+    let new_id = added[1..].split_once(". ").unwrap().0.to_string();
+    let listed = columns(&m);
+    assert!(m.contains(COLUMNS_TO_ANSWER), "{m}");
+    assert!(listed.contains(&new_id), "{new_id} not in {listed:?}\n{m}");
+    assert!(listed.len() >= all.len(), "{listed:?} {all:?}");
+    // The review that answered those columns only was taken: `columns_answered` wants exactly the engine's columns.
+    assert_eq!(sent_back(&e), 0, "{}", log());
+
+    // A re-review of disputes has only the column the last review could not verify, and says so.
+    let unverified = returned(json!({ "columns": [{ "id": "4", "verdict": "cannot_verify",
+                                                    "reason": "Nothing was measured." }] }));
+    insert(&mut e, "T4", &unverified, "done");
+    insert(
+        &mut e,
+        "T7",
+        &json!({ "plan": { "review": "disputes", "adversarial": "skipped" } }),
+        "review_first",
+    );
+    let fourth = again(&mut e);
+    let m = message(&fourth);
+    assert!(m.contains(&format!("{COLUMNS_TO_ANSWER}4.")), "{m}");
+    assert_eq!(columns(&m), ["4"], "{m}");
+    assert_eq!(sent_back(&e), 0, "{}", log());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #216, acceptance A1, A2 and A3 through the engine, not through the functions the check is made of: a table
+// review that answers a column that is none of them, one column twice and leaves two out is sent back once, with a
+// line for each of the three kinds and every column of a kind in its line; one that then leaves out a single column is
+// sent back with the one line it always had, and the third return is taken. The reference is the item's own example
+// (R246-46/47: columns 4 and 5 left out, said at once) and the text of the single miss before the change.
+#[test]
+fn a_review_with_columns_unknown_twice_and_left_out_is_sent_back_once_saying_all_of_them() {
+    let s = setup("columns-misses");
+    let mut scripts = scripts();
+    let listed: Arc<Mutex<Vec<String>>> = Arc::default();
+    let kept = listed.clone();
+    scripts.insert(
+        "T4",
+        Box::new(move |r: &Request, n: usize| {
+            let mut all = kept.lock().unwrap();
+            if all.is_empty() {
+                *all = columns(&r.prompt);
+            }
+            let ids: Vec<String> = match n {
+                // An unknown column, the first column twice, and the last two columns left out.
+                1 => {
+                    let mut v = all[..all.len() - 2].to_vec();
+                    v.push("99".to_string());
+                    v.push(all[0].clone());
+                    v
+                }
+                // Only the last column left out.
+                2 => all[..all.len() - 1].to_vec(),
+                _ => all.clone(),
+            };
+            let cols: Vec<Value> = ids
+                .iter()
+                .map(|id| json!({ "id": id, "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } }))
+                .collect();
+            (
+                vec![("outcome.no_adversarial", "stands")],
+                vec![("outcome.columns", json!(cols))],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    let taken = |e: &mut Engine| -> bool {
+        state(e, item).is_some_and(|(work, _, _)| {
+            e.db.conn()
+                .query_row(
+                    "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'T4' AND transition IS NOT NULL",
+                    [work],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap()
+                > 0
+        })
+    };
+    assert!(steps_until(&mut e, 80, taken), "{}", said.lock().unwrap().join("\n"));
+    let (work, _, _) = state(&e, item).unwrap();
+    let all = listed.lock().unwrap().clone();
+    assert!(all.len() >= 3, "{all:?}");
+    let why = why_sent_back(&e, work, "T4");
+    assert_eq!(why.len(), 2, "{why:?}\n{}", said.lock().unwrap().join("\n"));
+    let lines = |text: &str| text.matches("columns_answered (columns.id): ").count();
+    // The first return: one line for each kind, and nothing else said.
+    assert_eq!(lines(&why[0]), 3, "{}", why[0]);
+    assert!(
+        why[0].contains("columns_answered (columns.id): there is no column 99"),
+        "{}",
+        why[0]
+    );
+    assert!(
+        why[0].contains(&format!(
+            "columns_answered (columns.id): column {} is answered twice",
+            all[0]
+        )),
+        "{}",
+        why[0]
+    );
+    let n = all.len();
+    assert!(
+        why[0].contains(&format!(
+            "columns_answered (columns.id): columns {}, {} are not answered",
+            all[n - 2],
+            all[n - 1]
+        )),
+        "{}",
+        why[0]
+    );
+    // The second return left out one column: the line of a single miss, as before the change.
+    assert_eq!(lines(&why[1]), 1, "{}", why[1]);
+    assert!(
+        why[1].contains(&format!(
+            "columns_answered (columns.id): column {} is not answered",
+            all[n - 1]
+        )),
+        "{}",
+        why[1]
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The judgment whether a work may enter the merge queue reads the newest review, as the fix table does: a column the
 // first review could not verify sends the work to the fix; the re-review that looks only at disputes is given that
 // column again, and only it; and once it hands in no table, the first review's column no longer sends the work to a
@@ -1492,13 +1705,11 @@ fn step_until(e: &mut Engine, item: i64, said: &Arc<Mutex<Vec<String>>>, what: &
 /// A table review that gives the last column of its table a finding, R1, and answers the others as passing; at each
 /// later round it hands in only `later`, its answers to its earlier findings, one list for each round.
 fn review_with_a_finding(later: Vec<Value>) -> Script {
-    let known: Mutex<BTreeMap<String, Vec<String>>> = Mutex::default();
     Box::new(move |r: &Request, n: usize| {
         if n > 1 {
             return (Vec::new(), vec![("outcome.previous", later[n - 2].clone())]);
         }
-        let session = r.resume.clone().unwrap_or_else(|| r.new_session.clone());
-        let ids = columns_known(&r.prompt, known.lock().unwrap().entry(session).or_default());
+        let ids = columns(&r.prompt);
         let evidence = json!({ "files": [], "ran": [], "nodes": [] });
         let cols: Vec<Value> = ids
             .iter()

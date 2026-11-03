@@ -22,27 +22,34 @@ async function failure(r: Response): Promise<RequestError> {
   return new RequestError(r.status, message);
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const r = await fetch(path, { headers: { Accept: 'application/json' } });
+async function fetchBody(path: string, signal?: AbortSignal): Promise<string> {
+  const r = await fetch(path, { headers: { Accept: 'application/json' }, signal });
   if (!r.ok) throw await failure(r);
-  return (await r.json()) as T;
+  return r.text();
 }
 
 /// A stored flow version and what the interface says of it, read once and shared by every part of the page that shows
 /// it, such as a work's chart and the panel of a round beside it: a version never changes once stored.
 const STORED = /^\/api\/v1\/flows\/\d+(\/view)?$/;
-const stored = new Map<string, Promise<unknown>>();
+const stored = new Map<string, Promise<string>>();
 
-export async function getJson<T>(path: string): Promise<T> {
-  if (!STORED.test(path)) return fetchJson<T>(path);
+/// What the interface answers at `path`, as the text of its JSON, for a reader that compares it with the last it got
+/// before it parses it (`reader.ts`). `signal` ends the request; a stored flow version is shared by every reader, so no
+/// one's `signal` ends it.
+export async function getBody(path: string, signal?: AbortSignal): Promise<string> {
+  if (!STORED.test(path)) return fetchBody(path, signal);
   let read = stored.get(path);
   if (read === undefined) {
-    read = fetchJson<T>(path);
+    read = fetchBody(path);
     stored.set(path, read);
     // A read that failed is tried again the next time.
     read.catch(() => stored.delete(path));
   }
-  return read as Promise<T>;
+  return read;
+}
+
+export async function getJson<T>(path: string): Promise<T> {
+  return JSON.parse(await getBody(path)) as T;
 }
 
 export async function getText(path: string): Promise<string> {

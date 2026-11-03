@@ -23,6 +23,7 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
 - `flow/flow.json`: the flow every piece of work goes through.
 - `db/schema.sql`: the only definition of the database's tables and views.
 - `constitution.md`: the lasting values designs are judged by, which the owner sets.
+- `delegate/AGENTS.md`: the role of the session the owner starts there to think with and watch over the system.
 - `.github/workflows/ci.yml`: the checks every pushed commit runs; `.config/nextest.toml`: how they run the tests;
   `.config/english-exempt.txt`: the files the check that the repository is in English leaves out.
 

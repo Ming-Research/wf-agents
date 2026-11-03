@@ -148,6 +148,7 @@ fn router(app: App) -> Router {
         .route("/api/v1/items", get(items))
         .route("/api/v1/items/{id}", get(item))
         .route("/api/v1/architect", get(architect))
+        .route("/api/v1/architect/panel", get(architect_panel))
         .route("/api/v1/architects", get(architects))
         .route("/api/v1/architect/rounds", get(architect_rounds))
         .route("/api/v1/conversations", get(conversations))
@@ -523,9 +524,9 @@ fn project_of(app: &App, q: &OfProject) -> Result<(String, config::Config), Fail
     Ok((project, c))
 }
 
-/// A project's architect, as its tab shows it; with no project named, the configuration's first, so that the page
-/// opens on one and offers the others.
-async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result<Json<api::Architect>, Fail> {
+/// The project an architect's request is about: the one it names, else the configuration's first, so that the page opens
+/// on one and offers the others; with the configuration as committed.
+fn architect_of(app: &App, q: &OfProject) -> Result<(String, config::Config), Fail> {
     let first = OfProject {
         project: q.project.clone().or_else(|| {
             config::committed(&app.data)
@@ -533,8 +534,25 @@ async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result
                 .and_then(|c| c.config.projects.keys().next().cloned())
         }),
     };
-    let (project, c) = project_of(&app, &first)?;
+    project_of(app, &first)
+}
+
+/// A project's architect, as the head of its one-to-one and its page show it (`architect_panel` is the rest).
+async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result<Json<api::Architect>, Fail> {
+    let (project, c) = architect_of(&app, &q)?;
     let projects: Vec<String> = c.projects.keys().cloned().collect();
+    read(&app, move |conn, a| api::architect(conn, &a.flows, &project, projects))
+        .await
+        .map(Json)
+}
+
+/// What a project's architect has besides `architect`, for the panel beside its one-to-one and its page's tab of item
+/// changes: its notebook, policy and constitution, the matters it handled and the item changes it made.
+async fn architect_panel(
+    State(app): State<App>,
+    Query(q): Query<OfProject>,
+) -> Result<Json<api::ArchitectPanel>, Fail> {
+    let (project, c) = architect_of(&app, &q)?;
     // The project's constitution, the file its configuration names in its checkout, as the architect reads it.
     let constitution = c.projects.get(&project).and_then(|p| {
         p.constitution.as_ref().map(|path| api::NamedText {
@@ -542,11 +560,9 @@ async fn architect(State(app): State<App>, Query(q): Query<OfProject>) -> Result
             text: std::fs::read_to_string(p.checkout.join(path)).unwrap_or_default(),
         })
     });
-    read(&app, move |conn, a| {
-        api::architect(conn, &a.flows, &project, projects, constitution)
-    })
-    .await
-    .map(Json)
+    read(&app, move |conn, _| api::architect_panel(conn, &project, constitution))
+        .await
+        .map(Json)
 }
 
 /// How every project's architect stands, one entry for each project of the configuration as committed, in the order of
@@ -633,19 +649,22 @@ async fn conversations(State(app): State<App>) -> Result<Json<Vec<api::Conversat
         .map(Json)
 }
 
-/// Which conversation a request is about, by its key.
+/// Which conversation a request is about, by its key, and how many of its latest entries it asks for.
 #[derive(Deserialize)]
 struct OfConversation {
     key: String,
+    limit: Option<usize>,
 }
 
-/// One of the owner's conversations in full.
+/// One of the owner's conversations: its latest entries, as many as `limit` names, else `api::CONVERSATION_WINDOW`,
+/// with every older one something waits on.
 async fn conversation(
     State(app): State<App>,
     Query(q): Query<OfConversation>,
 ) -> Result<Json<api::ConversationDetail>, Fail> {
+    let limit = q.limit.unwrap_or(api::CONVERSATION_WINDOW);
     read(&app, move |c, a| {
-        api::conversation(c, &a.flows, &talks(&a.data)?, &q.key)
+        api::conversation(c, &a.flows, &talks(&a.data)?, &q.key, limit)
     })
     .await
     .map(Json)

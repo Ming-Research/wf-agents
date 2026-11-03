@@ -199,6 +199,37 @@ export function streamOf(d: ConversationDetail): ConversationEntry[] {
   return d.entries.filter((e) => !(e.source === 'reply' && replies.get(e.matter ?? e.id) === e) && voiceOf(e) !== 'none');
 }
 
+/// How many of a conversation's latest entries the page asks the interface for, and how many more each time the owner
+/// asks for the ones before; and the most the interface gives, whatever is asked: the numbers the interface itself holds
+/// (`CONVERSATION_WINDOW`, `CONVERSATION_WINDOW_MOST`).
+export const CONVERSATION_WINDOW = 100;
+export const CONVERSATION_WINDOW_MOST = 1000;
+
+/// Where the interface left entries out (`ConversationDetail.gaps`), by the entry of the stream (`stream`) each run is
+/// shown before: the first the stream has from the entry the run comes before on, in the order of `d.entries`. What is
+/// left out after the last of them, which is nothing unless the entries last are not in the stream, is `end`.
+export function gapsInStream(
+  d: ConversationDetail,
+  stream: readonly ConversationEntry[],
+): { before: Map<ConversationEntry, number>; end: number } {
+  const left = new Map<string, number>();
+  for (const g of d.gaps) left.set(`${g.source}-${g.id}`, (left.get(`${g.source}-${g.id}`) ?? 0) + g.count);
+  const shown = new Set(stream);
+  const before = new Map<ConversationEntry, number>();
+  let carried = 0;
+  for (const e of d.entries) {
+    const key = `${e.source}-${e.id}`;
+    // A run is taken once, by the first entry of that name.
+    carried += left.get(key) ?? 0;
+    left.delete(key);
+    if (carried > 0 && shown.has(e)) {
+      before.set(e, carried);
+      carried = 0;
+    }
+  }
+  return { before, end: carried };
+}
+
 /// Whether an ask is one an architect put to the owner: replied to by the owner's words to the architect, the box at the
 /// bottom set to reply to it, never in its bubble.
 export const architectAsk = (a: OwnerAsk): boolean => isObj(a.body) && a.body.from === 'architect';
