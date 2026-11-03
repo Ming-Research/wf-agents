@@ -7,7 +7,14 @@ use std::path::{Path, PathBuf};
 use engine::git::{git, own_lines};
 
 fn run(dir: &Path, args: &[&str]) -> String {
-    let who = ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"];
+    let who = [
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "init.defaultBranch=main",
+    ];
     git(dir, &[&who[..], args].concat()).unwrap().trim().to_string()
 }
 
@@ -61,10 +68,7 @@ fn the_same_line_written_or_removed_in_another_place_is_another_change() {
     must_differ("a line added in another function", &dir, &before);
 
     // Removed from `a`, then from `b`.
-    let dir = forked(
-        "moved-remove",
-        &[("f.rs", two("  log();\n", "  log();\n").as_str())],
-    );
+    let dir = forked("moved-remove", &[("f.rs", two("  log();\n", "  log();\n").as_str())]);
     let before = commit(&dir, &[("f.rs", two("", "  log();\n").as_str())], "The work");
     commit(&dir, &[("f.rs", two("  log();\n", "").as_str())], "Removes the other");
     assert!(!run(&dir, &["diff", &before, "HEAD"]).is_empty());
