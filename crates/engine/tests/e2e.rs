@@ -3570,7 +3570,7 @@ fn brought(e: &Engine, work: i64) -> Vec<(String, Value)> {
 }
 
 /// What the engine told the owner of its own accord about a work, oldest first.
-fn notices(e: &Engine, work: i64) -> Vec<String> {
+fn notices_of(e: &Engine, work: i64) -> Vec<String> {
     let mut st =
         e.db.conn()
             .prepare("SELECT text FROM engine_notices WHERE work = ?1 ORDER BY id")
@@ -3646,7 +3646,7 @@ fn a_work_whose_earlier_answer_no_longer_fits_goes_back_to_that_cell_and_on_to_t
         )),
         "{why}"
     );
-    let told = notices(&e, work);
+    let told = notices_of(&e, work);
     assert!(
         told.iter()
             .any(|t| t.contains(&format!("goes back to cell R1 ")) && t.contains(why)),
@@ -8625,7 +8625,7 @@ fn a_work_at_a_cell_the_version_lacks_goes_back_through_v1_to_where_it_stopped()
             .is_some_and(|t| t.starts_with("No answer is needed: the work goes back to cell R2 of flow version")),
         "{text:?}"
     );
-    let told = notices(&e, work);
+    let told = notices_of(&e, work);
     assert!(
         told.iter()
             .any(|t| t.contains("goes back to cell R2 ") && t.ends_with(": cell A3 is gone.")),
