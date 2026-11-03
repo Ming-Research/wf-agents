@@ -654,7 +654,10 @@ fn a_period_of_no_whole_number_of_steps_ends_its_last_point_at_its_end() {
     );
     let ns: Vec<i64> = made.points.iter().map(|x| x.n).collect();
     assert_eq!(ns, [2, 0, 1]);
-    assert_eq!(s.values("items.made", p(), from, to, M), [Some(2.0), Some(0.0), Some(1.0)]);
+    assert_eq!(
+        s.values("items.made", p(), from, to, M),
+        [Some(2.0), Some(0.0), Some(1.0)]
+    );
     assert_eq!(
         s.values("work.stopped", p(), from, to, M),
         [Some(30_000.0), Some(50_000.0 + 60_000.0), Some(20_000.0 + 40_000.0)]

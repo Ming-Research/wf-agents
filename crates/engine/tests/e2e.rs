@@ -13435,10 +13435,16 @@ fn the_architect_s_numbers_and_the_system_view_count_the_same_items_made() {
     };
     for name in ["merge.defects", "work.to_merge", "ci.wait", "engine.cpu"] {
         for period in ["last_7_days", "the_7_days_before"] {
-            assert!(says_why(&numbers["measures"][name][period]), "{name}, {period}: {numbers}");
+            assert!(
+                says_why(&numbers["measures"][name][period]),
+                "{name}, {period}: {numbers}"
+            );
         }
     }
-    assert!(says_why(&numbers["measures"]["work.stops"]["by_reason"]["slot"]["last_7_days"]), "{numbers}");
+    assert!(
+        says_why(&numbers["measures"]["work.stops"]["by_reason"]["slot"]["last_7_days"]),
+        "{numbers}"
+    );
     assert_eq!(numbers["measures"]["merge.broken"]["last_7_days"], 0, "{numbers}");
     assert_eq!(numbers["measures"]["items.merged"]["last_7_days"], 0, "{numbers}");
     // Only what nothing records yet is listed as not measured, each with why.
@@ -13453,7 +13459,10 @@ fn the_architect_s_numbers_and_the_system_view_count_the_same_items_made() {
         ]),
         "{numbers}"
     );
-    assert!(listed.values().all(|why| why.as_str().is_some_and(|t| !t.is_empty())), "{numbers}");
+    assert!(
+        listed.values().all(|why| why.as_str().is_some_and(|t| !t.is_empty())),
+        "{numbers}"
+    );
     let start: i64 =
         e.db.conn()
             .query_row("SELECT min(started_at) FROM rounds WHERE work = ?1", [arch], |r| {
