@@ -60,6 +60,7 @@ fn stopped_at_its_first_call(dir: &Path, script: &str, wait: Duration) -> Reply 
         images: Vec::new(),
         schema: Value::Null,
         envelope: Value::Null,
+        allowed: Vec::new(),
         refused: Vec::new(),
         readable: Vec::new(),
         replay: None,

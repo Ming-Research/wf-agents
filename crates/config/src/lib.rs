@@ -247,8 +247,9 @@ fn owner_reply_wait() -> u64 {
     300
 }
 
-/// What the agents of each line may not do on this machine, besides what the CLI's own arguments say. The engine
-/// gives each round's command line these as commands and tools it refuses.
+/// What the agents of each line may not do on this machine, besides what the CLI's own arguments say, and the commands
+/// that update a lock file, which the agents of a line that writes code may run besides those. The engine gives each
+/// round's command line these as commands and tools it refuses and commands it allows.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Permissions {
@@ -256,6 +257,11 @@ pub struct Permissions {
     /// building, test suites, benchmarks and measurements run in CI.
     #[serde(default = "heavy")]
     pub heavy: Vec<String>,
+    /// The commands that update a lock file and build, run and install nothing, each a command with the start of its
+    /// arguments: an agent of a line that writes code runs them, though a heavy command covers them, rather than write
+    /// a lock file by hand and leave it to CI to find its mistakes.
+    #[serde(default = "locks")]
+    pub locks: Vec<String>,
     /// The lines whose agents only read: they edit no file and commit nothing.
     #[serde(default = "read_only")]
     pub read_only: Vec<String>,
@@ -265,6 +271,7 @@ impl Default for Permissions {
     fn default() -> Permissions {
         Permissions {
             heavy: heavy(),
+            locks: locks(),
             read_only: read_only(),
         }
     }
@@ -305,6 +312,20 @@ fn heavy() -> Vec<String> {
         "xcodebuild",
         "hyperfine",
         "git push",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// Cargo's and npm's: `cargo update` and `cargo add` resolve the dependencies and write Cargo.lock without compiling
+/// anything; `npm install --package-lock-only` writes package-lock.json and leaves node_modules alone, and with
+/// `--ignore-scripts` runs none of the package's own scripts, which it runs when it is given no package.
+fn locks() -> Vec<String> {
+    [
+        "cargo update",
+        "cargo add",
+        "npm install --package-lock-only --ignore-scripts",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -357,16 +378,50 @@ pub const GIT_CHANGES: [&str; 19] = [
 ];
 
 impl Permissions {
+    /// Whether the agents of `line` only read.
+    pub fn reads_only(&self, line: &str) -> bool {
+        self.read_only.iter().any(|l| l == line)
+    }
+
+    /// The commands that update a lock file the agents of `line` may run: every one on a line that writes code, none
+    /// on a line that only reads.
+    pub fn locks_of(&self, line: &str) -> &[String] {
+        if self.reads_only(line) { &[] } else { &self.locks }
+    }
+
+    /// What a round on `line` may use besides what the CLI's own arguments allow, as the CLI's tool rules name it: the
+    /// commands that update a lock file, on a line that writes code.
+    pub fn allowed(&self, line: &str) -> Vec<String> {
+        self.locks_of(line).iter().map(|c| format!("Bash({c} *)")).collect()
+    }
+
     /// What a round on `line` may not use, as the CLI's tool rules name it: each heavy command, and for a line that
-    /// only reads, the tools that edit files and the git commands that change the repository.
+    /// only reads, the tools that edit files and the git commands that change the repository. On a line that writes
+    /// code a heavy command that a command updating a lock file falls under, such as `cargo` for `cargo update`, is
+    /// left out, since the CLI refuses what any of its rules refuses even where another allows it: there its other
+    /// uses are refused as every command is that no rule allows, and the CLI's own arguments must allow none of them.
     pub fn refused(&self, line: &str) -> Vec<String> {
-        let mut out: Vec<String> = self.heavy.iter().map(|c| format!("Bash({c} *)")).collect();
-        if self.read_only.iter().any(|l| l == line) {
+        let locks = self.locks_of(line);
+        let mut out: Vec<String> = self
+            .heavy
+            .iter()
+            .filter(|h| !locks.iter().any(|l| falls_under(l, h)))
+            .map(|c| format!("Bash({c} *)"))
+            .collect();
+        if self.reads_only(line) {
             out.extend(EDIT_TOOLS.iter().map(|t| t.to_string()));
             out.extend(GIT_CHANGES.iter().map(|g| format!("Bash(git {g} *)")));
         }
         out
     }
+}
+
+/// Whether `command`, a command with the start of its arguments, falls under `heavy`, another: it is that one, or that
+/// one with more arguments after it.
+fn falls_under(command: &str, heavy: &str) -> bool {
+    command
+        .strip_prefix(heavy)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
 }
 
 /// How many subagents a round may start for chores within it, such as reading documents or searching code.
@@ -1929,6 +1984,59 @@ asks = 9
         }
         let engineer = p.refused("engineer");
         assert!(!engineer.iter().any(|r| r == "Edit" || r == "Bash(git commit *)"));
+    }
+
+    // A line that writes code, the engineer's and the adversarial tester's, may update a lock file with the package
+    // manager, and no heavy rule of the engine refuses that: the heavy commands the lock commands fall under are left
+    // out there, every other stays. A line that only reads is allowed none of them, and refused every heavy command.
+    #[test]
+    fn only_a_line_that_writes_code_may_update_a_lock_file() {
+        let p = Permissions::default();
+        let locks = [
+            "Bash(cargo update *)",
+            "Bash(cargo add *)",
+            "Bash(npm install --package-lock-only --ignore-scripts *)",
+        ];
+        for line in ["engineer", "adversarial"] {
+            assert_eq!(p.allowed(line), locks, "{line}");
+            let refused = p.refused(line);
+            for gone in ["Bash(cargo *)", "Bash(npm install *)"] {
+                assert!(!refused.iter().any(|r| r == gone), "{line}: {gone}");
+            }
+            for kept in [
+                "Bash(rustc *)",
+                "Bash(npm run *)",
+                "Bash(npm ci *)",
+                "Bash(npx *)",
+                "Bash(git push *)",
+            ] {
+                assert!(refused.iter().any(|r| r == kept), "{line}: {kept}");
+            }
+            assert_eq!(refused.len(), p.heavy.len() - 2, "{line}");
+        }
+        for line in ["review", "advisor", "architect"] {
+            assert!(p.allowed(line).is_empty(), "{line}");
+            assert!(p.locks_of(line).is_empty(), "{line}");
+            let refused = p.refused(line);
+            for heavy in &p.heavy {
+                assert!(refused.contains(&format!("Bash({heavy} *)")), "{line}: {heavy}");
+            }
+        }
+        // A lock command falls under a heavy command by whole words, and a heavy command narrower than a lock command
+        // still refuses what it names: what the installation counts as heavy work holds over its lock commands.
+        let set: Permissions = toml::from_str(
+            "heavy = [\"car\", \"cargo\", \"cargo update --precise\", \"npm\"]\nlocks = [\"cargo update\"]",
+        )
+        .unwrap();
+        assert_eq!(
+            set.refused("engineer"),
+            ["Bash(car *)", "Bash(cargo update --precise *)", "Bash(npm *)"]
+        );
+        assert_eq!(set.allowed("engineer"), ["Bash(cargo update *)"]);
+        // An installation that lists no lock command refuses every heavy command on every line, as before.
+        let none: Permissions = toml::from_str("locks = []").unwrap();
+        assert!(none.allowed("engineer").is_empty());
+        assert_eq!(none.refused("engineer").len(), none.heavy.len());
     }
 
     // The level above a level goes by the levels' names, by number when they are numbers; the top is its own level

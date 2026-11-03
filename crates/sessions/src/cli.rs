@@ -44,6 +44,9 @@ pub struct Request {
     pub schema: Value,
     /// The schema the CLI is given, the same for every cell of the line: [`envelope`].
     pub envelope: Value,
+    /// The commands the round may run besides those the CLI's own arguments allow, as the CLI's tool rules name them:
+    /// its line's permissions.
+    pub allowed: Vec<String>,
     /// The tools and commands the round may not use, as the CLI's tool rules name them: its line's permissions.
     pub refused: Vec<String>,
     /// Directories outside the worktree the agent may read but not change, such as where the engine saves a tool's
@@ -298,9 +301,14 @@ pub fn command_line(r: &Request) -> Vec<String> {
     for d in &r.readable {
         out.extend(["--add-dir".to_string(), d.display().to_string()]);
     }
+    // The line's permissions, after the CLI's own arguments: the CLI allows what any rule of either allows, unless a
+    // rule of either refuses it, and refuses what any rule of either refuses.
+    if !r.allowed.is_empty() {
+        out.push("--allowedTools".into());
+        out.extend(r.allowed.iter().cloned());
+    }
     let mut refused = r.refused.clone();
     refused.extend(r.readable.iter().map(|d| format!("Edit(/{}/**)", d.display())));
-    // The line's permissions, after the CLI's own arguments: the CLI refuses what any rule of either refuses.
     if !refused.is_empty() {
         out.push("--disallowedTools".into());
         out.extend(refused);
@@ -2735,6 +2743,7 @@ mod tests {
             images: Vec::new(),
             schema: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
             envelope: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
+            allowed: config::Permissions::default().allowed("engineer"),
             refused: config::Permissions::default().refused("engineer"),
             readable: vec![PathBuf::from("/data/tool-output")],
             replay: None,
@@ -2752,8 +2761,20 @@ mod tests {
         );
         assert!(line.iter().any(|a| a == "Edit(//data/tool-output/**)"), "{line:?}");
         assert_eq!(&line[..4], ["claude", "--permission-mode", "acceptEdits", "-p"]);
-        // Heavy work is refused on every line; an engineer may still edit and commit.
-        assert!(line.iter().any(|a| a == "Bash(cargo *)") && line.iter().any(|a| a == "Bash(npm run *)"));
+        // Heavy work is refused on every line; an engineer may still edit and commit, and update a lock file with the
+        // package manager, which the line's own rule allows and no rule refuses.
+        let flag = |f: &str| line.iter().position(|a| a == f).unwrap();
+        let (allowed, refused) = (flag("--allowedTools"), flag("--disallowedTools"));
+        assert_eq!(
+            line[allowed + 1..refused],
+            config::Permissions::default().allowed("engineer")[..]
+        );
+        assert!(line[allowed + 1..refused].iter().any(|a| a == "Bash(cargo update *)"));
+        assert!(line[refused..].iter().any(|a| a == "Bash(npm run *)"), "{line:?}");
+        assert!(
+            !line.iter().any(|a| a == "Bash(cargo *)" || a == "Bash(npm install *)"),
+            "{line:?}"
+        );
         assert!(
             !line.iter().any(|a| a == "Edit" || a == "Bash(git commit *)"),
             "{line:?}"
@@ -2876,6 +2897,7 @@ mod tests {
             ],
             schema: json!({}),
             envelope: json!({}),
+            allowed: Vec::new(),
             refused: Vec::new(),
             readable: Vec::new(),
             replay: None,
@@ -3067,6 +3089,7 @@ mod tests {
             images: Vec::new(),
             schema: Value::Null,
             envelope: Value::Null,
+            allowed: Vec::new(),
             refused: Vec::new(),
             readable: Vec::new(),
             replay: None,

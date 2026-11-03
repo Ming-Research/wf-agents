@@ -849,6 +849,7 @@ pub fn cell_request(
         images: Vec::new(),
         schema: cell.schema.clone().unwrap_or_else(|| json!({ "type": "object" })),
         envelope: sessions::cli::envelope(g, cell.line.as_deref()),
+        allowed: e.config.config.install.agents.permissions.allowed(&line),
         refused: e.config.config.install.agents.permissions.refused(&line),
         readable,
         replay: None,

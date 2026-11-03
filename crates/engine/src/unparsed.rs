@@ -381,6 +381,7 @@ fn repair(
         images: Vec::new(),
         schema: json!({}),
         envelope: Value::Null,
+        allowed: Vec::new(),
         refused: Vec::new(),
         readable: Vec::new(),
         replay: None,

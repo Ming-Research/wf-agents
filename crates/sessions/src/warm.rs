@@ -286,6 +286,7 @@ pub fn ping(
         images: Vec::new(),
         schema: json!({}),
         envelope: json!({}),
+        allowed: Vec::new(),
         refused: Vec::new(),
         readable: Vec::new(),
         replay: Some(line),

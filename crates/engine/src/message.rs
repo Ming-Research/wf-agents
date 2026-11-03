@@ -631,14 +631,14 @@ impl Context<'_> {
         // project in its graph's worktree at main; its cell on no line, which knows only what its inputs hold, runs in
         // an empty directory and is told of none.
         let line = crate::line_of(g, c);
-        let read_only = e.config.config.install.agents.permissions.read_only.contains(&line);
+        let permissions = &e.config.config.install.agents.permissions;
         let workspace = if item.is_none() && c.line.is_none() {
             None
         } else if g.name == ARCHITECT {
             let text = architect_workspace(e, &g.name, named);
             Some(m.give(format!("work:{}", g.name), Value::String(text)))
         } else {
-            workspace(w, project, read_only).map(|text| m.give(format!("work:{}", w.id), Value::String(text)))
+            workspace(w, project, permissions, &line).map(|text| m.give(format!("work:{}", w.id), Value::String(text)))
         };
         // The inputs, each by its number in `inputs:<cell>` and the addresses of what it holds; what the agent reads
         // itself is said in full. A cell's own input that has nothing says none, so that it is not taken for one
@@ -983,9 +983,14 @@ fn architect_workspace(e: &Engine, graph: &str, project: &str) -> String {
 }
 
 /// Where the work's agents work: its worktree and branch, and the project's branch the flow calls main; what
-/// `work:<id>` gives. An agent on a read-only line is told that it only reads the worktree. None for a work of no
-/// project the configuration knows.
-fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool) -> Option<String> {
+/// `work:<id>` gives. An agent on a read-only line is told that it only reads the worktree, and one on a line that
+/// writes code the commands it updates a lock file with. None for a work of no project the configuration knows.
+fn workspace(
+    w: &Work,
+    project: Option<&config::Project>,
+    permissions: &config::Permissions,
+    line: &str,
+) -> Option<String> {
     let p = project?;
     let main = format!(
         "Main, wherever the flow says it, is the branch {0}: the work branches from it, its PR merges into it, and a \
@@ -994,18 +999,33 @@ fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool) -> Op
         p.main
     );
     Some(match (&w.worktree, &w.branch) {
-        (Some(wt), Some(branch)) if read_only => format!(
+        (Some(wt), Some(branch)) if permissions.reads_only(line) => format!(
             "Your working directory is the worktree {}, on the branch {branch}: you only read it, and change and \
              commit nothing there. {main}",
             wt.display()
         ),
         (Some(wt), Some(branch)) => format!(
             "Your working directory is the worktree {}, on the branch {branch}: commit there, and the engine pushes \
-             when you ask it to with a tool. {main}",
-            wt.display()
+             when you ask it to with a tool.{} {main}",
+            wt.display(),
+            lock_commands(permissions.locks_of(line))
         ),
         _ => main,
     })
+}
+
+/// What an agent that writes code is told of the commands it updates a lock file with, after a space; nothing when
+/// there are none.
+fn lock_commands(locks: &[String]) -> String {
+    if locks.is_empty() {
+        return String::new();
+    }
+    let named: Vec<String> = locks.iter().map(|c| format!("`{c}`")).collect();
+    format!(
+        " Change a lock file with one of these commands, your arguments after it, rather than by hand: {}. Each writes \
+         the lock file and builds, runs and installs nothing.",
+        named.join(", ")
+    )
 }
 
 /// What the column of an acceptance condition adds about the rows of the conditions table that name no test. The engine
@@ -1663,5 +1683,56 @@ mod tests {
         assert!(unrecorded.renumbered && unrecorded.columns == now);
         // The last review verified everything: none.
         assert_eq!(narrowed(now, &last(&[], &[])), ReviewColumns::default());
+    }
+
+    // An agent on a line that writes code is told the commands it updates a lock file with, word for word as the
+    // configuration names them, which its line's rules allow; one on a line that only reads is told none, and nor is
+    // one where the installation names none.
+    #[test]
+    fn a_line_that_writes_code_is_told_how_it_updates_a_lock_file() {
+        let w = Work {
+            id: 7,
+            item: Some(1),
+            flow_version: 1,
+            graph: crate::ENGINEER.into(),
+            pos: flow::Position::default(),
+            machine: None,
+            worktree: Some("/w".into()),
+            branch: Some("item-1".into()),
+            pr: None,
+            pushed_head: None,
+            paused: None,
+            ended: None,
+            paused_by: None,
+            project: None,
+        };
+        let p: config::Project = serde_json::from_value(json!({
+            "repo": "o/p", "checkout": "/checkout", "design_goal": "simple", "test_paths": ["tests/"],
+            "ci": { "fast": "fast", "full": ["ci"], "merge_checks": ["check"] }
+        }))
+        .unwrap();
+        let permissions = config::Permissions::default();
+        let told = |line: &str, permissions: &config::Permissions| workspace(&w, Some(&p), permissions, line).unwrap();
+        for line in ["engineer", "adversarial"] {
+            let text = told(line, &permissions);
+            for c in [
+                "cargo update",
+                "cargo add",
+                "npm install --package-lock-only --ignore-scripts",
+            ] {
+                assert!(text.contains(&format!("`{c}`")), "{line}: {text}");
+            }
+            assert!(text.contains("rather than by hand"), "{text}");
+        }
+        let review = told("review", &permissions);
+        assert!(
+            review.contains("you only read it") && !review.contains("lock file"),
+            "{review}"
+        );
+        let none = config::Permissions {
+            locks: Vec::new(),
+            ..permissions.clone()
+        };
+        assert!(!told("engineer", &none).contains("lock file"));
     }
 }
