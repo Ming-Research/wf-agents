@@ -3811,6 +3811,68 @@ fn a_cell_under_way_that_the_version_changed_is_done_again_from_its_start() {
     }
 }
 
+// Item #230: the advisor's session is under way while the advisor's own tools run, as much as while it stands at its
+// cell: a version that puts the advisor on another line while the work is at the tools for it does not move the work,
+// whose tools' results would go back to a session of the new line that never asked for them. The same work comes to
+// cell `V1` and goes back to the cell that asked the advisor, as it does when the advisor stands at its cell.
+#[test]
+fn an_advisor_whose_tools_run_when_its_line_changes_is_done_again() {
+    let s = setup("advisor-tools");
+    let install = std::fs::read_to_string(s.data.join("install.toml")).unwrap();
+    write(
+        &s.data,
+        "install.toml",
+        &format!("{install}\n[agents.levels.m]\ndesc = \"one level up\"\ncli = \"claude\"\nmodel = \"m-up\"\n"),
+    );
+    git(&s.data, &["commit", "-q", "-am", "a level above"]);
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                return an_ask("advisor");
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    agents.insert(
+        "A1",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                let tools = json!([{ "tool": "query", "sql": "SELECT 1" }]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "X1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let pos = e.work(work).unwrap().pos;
+    // The advisor, which R1 asked, waits for its tools.
+    assert_eq!(
+        (pos.stopped.as_deref(), pos.callers.last().map(String::as_str)),
+        (Some("R1"), Some("A1")),
+        "{log}"
+    );
+    let v = older(&mut e, &[work], |g| {
+        g.cells.iter_mut().find(|c| c.id == "A1").unwrap().line = Some("review".into());
+    });
+    e.advance(work).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(versions_of(&e, work), (e.flow_now, Some(v)), "{log}");
+    let v1 = brought(&e, work);
+    assert_eq!(v1.len(), 1, "{v1:?}\n{log}");
+    assert_eq!(
+        (v1[0].0.as_str(), &v1[0].1["back_to"]),
+        ("went_back", &json!("R1")),
+        "{log}"
+    );
+    assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Item #230, W245: an architect's work brought to a new flow version in the middle of its batch makes the item changes
 // it collected before, whether it moves where it stands or goes back through cell `V1` to the review of the batch it had
 // begun, which the version puts on another line; its ask of the owner stays the owner's to answer, and is answered.
