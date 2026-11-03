@@ -532,6 +532,13 @@
                 "title": "What differed",
                 "type": "text",
                 "desc": "What differed"
+              },
+              {
+                "name": "why",
+                "title": "Why",
+                "type": "text",
+                "optional": true,
+                "desc": "Why it differed, when you know"
               }
             ]
           },
@@ -597,7 +604,7 @@
           "desc": "Which files and lines you read",
           "item": {
             "type": "text",
-            "desc": "A file path and line numbers"
+            "desc": "A file by its path from the repository's root, such as crates/engine/src/tools.rs and never tools.rs alone, with line numbers; or a round as R<work>-<n>"
           }
         },
         {
@@ -617,7 +624,7 @@
           "desc": "Which files you read",
           "item": {
             "type": "text",
-            "desc": "The node's path from the repository's root, such as design/flow.md, as the head under review has it; a note may follow it"
+            "desc": "The node's path from the repository's root, such as design/flow.md, as the head under review has it; a note may follow it. A round's part, such as R227-10·D2·measure, is no node: it goes in files as its round, R227-10"
           }
         }
       ]
@@ -5186,7 +5193,7 @@
             "title": "Answers to interjections",
             "type": "list",
             "min": 1,
-            "desc": "Hand this in after an interjection that only needs your answer: someone asked a question or made a remark, and what you do next does not change, so you answer and go on with this cell's work. If what you do next might change, hand in redirect instead. Answer all of this round's interjections at once, one entry per speaker; leave out what you only need to know and need not answer (the owner's reply to a question, for instance). Hand in none of the conclusions this cell asks for; the engine sends each entry back to its speaker and comes back to the same session to have you carry on",
+            "desc": "Hand this in after an interjection that only needs your answer: someone asked a question or made a remark, and what you do next does not change, so you answer and go on with this cell's work. If what you do next might change, hand in redirect instead. Answer all of this round's interjections at once, one entry per speaker; leave out what you only need to know and need not answer (the owner's reply to a question, or the architect telling you what became of a report or that it changed nothing), and never answer only to say you understood or will do as told: when no interjection needs an answer, go on with this cell's work and hand in its conclusions. Hand in none of the conclusions this cell asks for; the engine sends each entry back to its speaker and comes back to the same session to have you carry on",
             "item": {
               "$ref": "interject_answer"
             }
