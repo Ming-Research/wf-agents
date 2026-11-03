@@ -772,6 +772,13 @@ fn generated(
     (!put.is_empty()).then(|| json!({ "files": put, "note": GENERATED }))
 }
 
+/// A request for ci_before as the run records it: its head is the commit it resolved to, whatever the request called it.
+fn recorded_request(req: &Value, sha: &str) -> Value {
+    let mut recorded = req.clone();
+    recorded["head"] = json!(sha);
+    recorded
+}
+
 fn ci_before(
     e: &mut Engine,
     w: &Work,
@@ -831,7 +838,10 @@ fn ci_before(
     let listed = tests.join(" ");
     let branch = format!("{BEFORE}/{}-{}-{n}", round.work, round.n);
     let refname = format!("refs/heads/{branch}");
-    attempts(e, round, "ci_before", req, |e| {
+    // The run is recorded with the commit the head resolved to now: a head written as `HEAD` or a branch name names
+    // another commit later, and the check of which files changed since the run compares against this one.
+    let recorded = recorded_request(req, &sha);
+    attempts(e, round, "ci_before", &recorded, |e| {
         let commit = git::files_onto(&wt, &files, &sha, &base).map_err(Failure::other)?;
         hub::push(&wt, &commit, &refname, true)?;
         let ran = before_checks(e.github(), project, &branch, &commit, named, &listed);
@@ -1181,6 +1191,20 @@ pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, roun
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Item #217, R241-41: a ci_before run is recorded with the commit its head resolved to. A head written as `HEAD`
+    // names another commit once the engineer commits again, and the check of which test files changed after the run
+    // would compare the head with itself and see nothing changed.
+    #[test]
+    fn a_ci_before_run_is_recorded_with_the_commit_its_head_resolved_to() {
+        let req = json!({ "tool": "ci_before", "head": "HEAD", "files": ["t/a.rs"], "tests": ["a"] });
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let recorded = recorded_request(&req, sha);
+        assert_eq!(recorded["head"], sha);
+        assert_eq!(recorded["files"], req["files"]);
+        assert_eq!(recorded["tests"], req["tests"]);
+        assert_eq!(req["head"], "HEAD");
+    }
 
     // A pull request the engineer gave no title or description is named by its item's number, and holds none of the
     // item's own text, which is in the owner's language.

@@ -112,6 +112,8 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0070.sql"),
     include_str!("../../../db/migrations/0071.sql"),
     include_str!("../../../db/migrations/0072.sql"),
+    include_str!("../../../db/migrations/0073.sql"),
+    include_str!("../../../db/migrations/0074.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1551,6 +1553,48 @@ mod tests {
         old
     }
 
+    // Item #217: the comment of an observation's title is part of the table's text, which an agent reads with
+    // `SELECT sql FROM sqlite_master`, and the shape comparison of a migrated and a new database does not look at it:
+    // a database from version 73 comes out with the comment of the new schema and its rows, and the index.
+    #[test]
+    fn observations_from_version_73_keep_their_rows_and_get_the_comment_of_the_new_schema() {
+        let mut old = at_version(73);
+        let sql = |db: &Db| -> String {
+            db.conn()
+                .query_row("SELECT sql FROM sqlite_master WHERE name = 'observations'", [], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        assert!(sql(&old).contains("in English of at most 20 characters"));
+        old.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO observations (id, project, title, what, source) VALUES (7, 'p', 'Old title', 'w', 's')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        assert!(sql(&old).contains("in the owner's language, at most `items.title_max` wide"));
+        assert!(!sql(&old).contains("in English of at most 20 characters"));
+        let row: (i64, String) = old
+            .conn()
+            .query_row("SELECT id, title FROM observations", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!(row, (7, "Old title".to_string()));
+        let index: i64 = old
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name = 'observations_by_project'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(index, 1);
+        assert_eq!(sql(&old), sql(&Db::in_memory().unwrap()));
+    }
+
     // A database at version 50 that holds what the migrations after it change (an open setting of a policy with its
     // study waiting for the owner, the hold on new starts it kept, and a talk held with words of the owner's it did not
     // take yet) migrates to now, with no change outside a write, and comes out as those migrations say; a database
@@ -2152,7 +2196,7 @@ mod tests {
         let new = Db::in_memory().unwrap();
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
         // A table made afresh for its description has the description the schema writes, which agents read.
-        for table in ["items", "architect_matters", "dispatch_queue"] {
+        for table in ["items", "architect_matters", "dispatch_queue", "interjections"] {
             let definition = |db: &Db| -> String {
                 db.conn()
                     .query_row("SELECT sql FROM sqlite_schema WHERE name = ?1", [table], |r| r.get(0))

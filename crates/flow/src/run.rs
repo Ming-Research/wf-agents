@@ -98,6 +98,8 @@ impl CompiledGraph {
                 return Err(format!("{m} \"{}\" answers, but no cell waits for an answer", row.name));
             };
             let mut t = last.clone();
+            // The engine's `standing_line` (crates/engine/src/blockers.rs) reads this: the cell an answer reaches is
+            // on the asker's line either way, which is how it knows whose words a withdrawn question goes to hear.
             if to == "@asker"
                 && let Some(rc) = &self.receive
                 && !self.in_region(&t)
