@@ -554,12 +554,14 @@ enum PrState {
     Closed,
 }
 
-/// A pull request on the fake GitHub: the branch it is from, the branch it merges into, and how it stands.
+/// A pull request on the fake GitHub: the branch it is from, the branch it merges into, how it stands, and the commit it
+/// merged as, once it has.
 #[derive(Clone)]
 struct Pr {
     branch: String,
     base: String,
     state: PrState,
+    merged_as: Option<String>,
 }
 
 /// The pull requests of the fake GitHub, by number, which a test can read and change as GitHub keeps them.
@@ -636,7 +638,8 @@ type ByHands = Arc<Mutex<Vec<ByHand>>>;
 
 /// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
 /// request keeps the base it was opened with until it is set, a merge, once `merging` lets it through, squashes the
-/// branch onto the pull request's base, and closing a pull request that merged fails, as `gh pr close` does. A workflow
+/// branch onto the pull request's base and fails for a pull request that is not open, as `gh pr ready` does, and closing a
+/// pull request that merged fails, as `gh pr close` does. A workflow
 /// run by hand is recorded in `by_hand`, and its run has a log and an artifact `measurement`.
 struct FakeHub {
     origin: PathBuf,
@@ -661,6 +664,54 @@ impl FakeHub {
         runs.iter()
             .find(|d| d.commit.as_deref().is_some_and(|c| check.run.ends_with(c)))
             .cloned()
+    }
+
+    /// What GitHub does to merge an open pull request: squashes its branch onto its base on the remote, marks it merged
+    /// and keeps the commit it made. It is a function of the pull requests and the remote, not of the hub, so that a
+    /// test can merge a pull request on GitHub without the engine's merge call, as when the answer of that call is
+    /// lost. `gh pr ready`, the first thing the engine's real merge does, refuses a pull request that is not open,
+    /// whether it merged or was closed, and so does this, with gh's own words.
+    fn squash_merge(origin: &Path, scratch: &Path, prs: &Prs, repo: &str, pr: i64) -> Result<String, Failure> {
+        let Pr {
+            branch, base, state, ..
+        } = prs
+            .lock()
+            .unwrap()
+            .get(&pr)
+            .cloned()
+            .ok_or_else(|| Failure::other("no such PR"))?;
+        if state != PrState::Open {
+            return Err(Failure::network(format!(
+                "gh pr ready {pr} -R {repo}: X Pull request {repo}#{pr} is closed. Only draft pull requests can be \
+                 marked as \"ready for review\""
+            )));
+        }
+        let dir = scratch.join(format!("merge-{pr}"));
+        git(
+            scratch,
+            &[
+                "clone",
+                "-q",
+                "-b",
+                &base,
+                &origin.to_string_lossy(),
+                &dir.to_string_lossy(),
+            ],
+        );
+        git(&dir, &["merge", "--squash", &format!("origin/{branch}")]);
+        // A branch whose change main holds already, as when two works of the scripted agent make the same change,
+        // squashes to nothing, and merges as an empty commit.
+        git(
+            &dir,
+            &["commit", "-q", "--allow-empty", "-m", &format!("Merge PR {pr}")],
+        );
+        git(&dir, &["push", "-q", "origin", &format!("HEAD:{base}")]);
+        let sha = git(&dir, &["rev-parse", "HEAD"]);
+        if let Some(p) = prs.lock().unwrap().get_mut(&pr) {
+            p.state = PrState::Merged;
+            p.merged_as = Some(sha.clone());
+        }
+        Ok(sha)
     }
 }
 
@@ -687,6 +738,7 @@ impl GitHub for FakeHub {
                 branch: branch.to_string(),
                 base: base.to_string(),
                 state: PrState::Open,
+                merged_as: None,
             },
         );
         Ok(n)
@@ -811,39 +863,18 @@ impl GitHub for FakeHub {
         self.checks(repo, sha, workflow)
     }
 
-    fn merge(&self, _repo: &str, pr: i64) -> Result<String, Failure> {
-        self.merging.pass();
-        let Pr { branch, base, .. } = self
-            .prs
+    fn merge_commit(&self, _repo: &str, pr: i64) -> Result<Option<String>, Failure> {
+        self.prs
             .lock()
             .unwrap()
             .get(&pr)
-            .cloned()
-            .ok_or_else(|| Failure::other("no such PR"))?;
-        let dir = self.scratch.join(format!("merge-{pr}"));
-        git(
-            &self.scratch,
-            &[
-                "clone",
-                "-q",
-                "-b",
-                &base,
-                &self.origin.to_string_lossy(),
-                &dir.to_string_lossy(),
-            ],
-        );
-        git(&dir, &["merge", "--squash", &format!("origin/{branch}")]);
-        // A branch whose change main holds already, as when two works of the scripted agent make the same change,
-        // squashes to nothing, and merges as an empty commit.
-        git(
-            &dir,
-            &["commit", "-q", "--allow-empty", "-m", &format!("Merge PR {pr}")],
-        );
-        git(&dir, &["push", "-q", "origin", &format!("HEAD:{base}")]);
-        if let Some(p) = self.prs.lock().unwrap().get_mut(&pr) {
-            p.state = PrState::Merged;
-        }
-        Ok(git(&dir, &["rev-parse", "HEAD"]))
+            .map(|p| p.merged_as.clone())
+            .ok_or_else(|| Failure::other("no such PR"))
+    }
+
+    fn merge(&self, repo: &str, pr: i64) -> Result<String, Failure> {
+        self.merging.pass();
+        FakeHub::squash_merge(&self.origin, &self.scratch, &self.prs, repo, pr)
     }
 
     fn close(&self, _repo: &str, pr: i64, _comment: &str) -> Result<(), Failure> {
@@ -4226,6 +4257,7 @@ fn a_pull_request_opened_against_another_branch_merges_into_main_only() {
         branch: "outside/feature".into(),
         base: "first-version".into(),
         state: PrState::Open,
+        merged_as: None,
     };
     s.prs.lock().unwrap().insert(9, elsewhere.clone());
     let (mut e, said, item) = start(&s, scripts());
@@ -19863,6 +19895,69 @@ fn notices(e: &Engine, word: &str) -> i64 {
             |r| r.get(0),
         )
         .unwrap()
+}
+
+// A pull request that GitHub merged before the merge step began, as when the answer of an earlier merge call was lost
+// (a 502 after GitHub had merged it), is recorded as merged, with the commit GitHub made. The step reads the pull
+// request first: catching up with main, pushing and waiting for the full CI guard nothing in a merged pull request, and
+// the merge call is refused by `gh pr ready`, as the fake GitHub refuses it. Without the read, the step makes its merge
+// call on every try, is refused each time, and takes the row `not_run`; a read only in the merge call leaves the step
+// to push and wait for the full CI first, which its record of the merge tool shows.
+#[test]
+fn a_pull_request_merged_on_github_before_the_merge_step_is_recorded_without_merging_again() {
+    let s = setup("merged-before-the-merge-step");
+    let (origin, root, prs) = (s.origin.clone(), s.root.clone(), s.prs.clone());
+    let made = Arc::new(Mutex::new(None::<String>));
+    let kept = made.clone();
+    let mut agents = scripts();
+    let implement = agents.remove("I1").unwrap();
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            // The second round hands in the end of the work: its branch and its pull request are on GitHub by then.
+            if n == 2 {
+                let pr = *prs.lock().unwrap().keys().next().unwrap();
+                *kept.lock().unwrap() = Some(FakeHub::squash_merge(&origin, &root, &prs, "o/p", pr).unwrap());
+            }
+            implement(r, n)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let at = turns_until(&mut e, &Go::default(), |e| state(e, item).is_some_and(|w| w.1 == "M2"));
+    assert!(at, "{}", said.lock().unwrap().join("\n"));
+    let work = state(&e, item).unwrap().0;
+    // The step ends in one round: with the row `merged`, or, when its merge calls are refused, `not_run`.
+    let ended = turns_until(&mut e, &Go::default(), |e| {
+        transitions_at(e, work, "M2").iter().any(Option::is_some)
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert!(ended, "{log}");
+    assert_eq!(transitions_at(&e, work, "M2"), [Some("merged".to_string())], "{log}");
+    let log = done_after_watching_main(&mut e, work, &said);
+    let made = made.lock().unwrap().clone().expect("GitHub merged the pull request");
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    let recorded: String =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(output, '$.result.merge_commit') FROM rounds WHERE work = ?1 AND cell = 'M2'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(recorded, made, "{log}");
+    // One look at the pull request, and nothing after it: no push, no full CI, no merge call.
+    let tries: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM tool_runs WHERE work = ?1 AND tool = 'merge'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(tries, 1, "{log}");
+    assert_eq!(s.merging.came(), 0, "{log}");
+    assert!(!transitions_at(&e, work, "L1").is_empty(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
 }
 
 // A cancel that comes while the merge step waits for the full CI stops the merge: nothing reaches GitHub's merge, the
