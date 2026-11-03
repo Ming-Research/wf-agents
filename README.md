@@ -28,6 +28,10 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
   CI the engine runs by hand on a work's branch, with the tests to run; `.github/actions/lint`: the lint steps both
   run; `.config/nextest.toml`: how they run the tests; `.config/english-exempt.txt`: the files the check that the
   repository is in English leaves out.
+- `.github/workflows/measure.yml`: the measurement workflow the engine's tool `measure` runs for a project that lists it
+  (`[[ci.measure]]` in the project's configuration): it times a command on the code to compare with, a twin of it and
+  the code measured, in rotating pairs, and uploads the raw times. A project's workflows that run on push must ignore
+  the branches under `wf-agents-measure/`, where the tool runs it, as this repository's do.
 
 ## Checks
 
