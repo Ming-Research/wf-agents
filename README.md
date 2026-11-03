@@ -26,6 +26,9 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
 - `delegate/AGENTS.md`: the role of the session the owner starts there to think with and watch over the system.
 - `.github/workflows/ci.yml`: the checks every pushed commit runs; `.config/nextest.toml`: how they run the tests;
   `.config/english-exempt.txt`: the files the check that the repository is in English leaves out.
+- `.github/workflows/measure.yml`: the measurement workflow the engine's tool `measure` runs for a project that lists it
+  (`[[ci.measure]]` in the project's configuration): it times a command on the code to compare with, a twin of it and
+  the code measured, in rotating pairs, and uploads the raw times.
 
 ## Checks
 
