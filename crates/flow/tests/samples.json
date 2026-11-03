@@ -231,7 +231,20 @@
       }
      ],
      "estimate": "outcome.estimate",
-     "articles": "outcome.articles",
+     "articles": [
+      {
+       "article": "outcome.articles.article",
+       "verdict": "keeps",
+       "claim": "outcome.articles.claim"
+      }
+     ],
+     "decisions": [
+      {
+       "decision": "outcome.decisions.decision",
+       "verdict": "follows",
+       "passage": "outcome.decisions.passage"
+      }
+     ],
      "open_questions": [
       {
        "question": "outcome.open_questions.question",
@@ -286,6 +299,24 @@
        "outcome.better.considered"
       ],
       "why": "outcome.better.why"
+     },
+     "claims": {
+      "articles": [
+       {
+        "article": "outcome.claims.articles.article",
+        "verdict": "holds",
+        "passage": "outcome.claims.articles.passage",
+        "why": "outcome.claims.articles.why"
+       }
+      ],
+      "decisions": [
+       {
+        "decision": "outcome.claims.decisions.decision",
+        "verdict": "holds",
+        "passage": "outcome.claims.decisions.passage",
+        "why": "outcome.claims.decisions.why"
+       }
+      ]
      }
     }
    },
