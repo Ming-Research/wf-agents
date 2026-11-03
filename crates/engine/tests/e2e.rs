@@ -7831,7 +7831,7 @@ fn a_group_falls_apart_when_the_owner_is_asked_about_its_first_matter() {
     let lead = state(matters[0]);
     assert!(lead.0.is_some(), "{lead:?}\n{log}");
     assert_eq!(
-        (lead.1.as_deref(), lead.3, lead.4),
+        (lead.1.as_deref(), lead.3.as_deref(), lead.4),
         (Some("H5"), None, None),
         "{lead:?}\n{log}"
     );
