@@ -28,8 +28,8 @@ pub struct KeepWarm {
 pub struct StepTaken {
     /// When the round ended.
     pub at: i64,
-    /// The work the owner asked a round of, and the work the round was of: the new work that took the asked work's
-    /// item over, when the asked work was on an older flow version.
+    /// The work the owner asked a round of, and the work the round was of, which a new flow version leaves the same
+    /// work.
     pub asked: i64,
     pub work: i64,
     /// The rounds of the work it started or ended, by their numbers in the work, and the cell of the last of them.

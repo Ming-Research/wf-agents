@@ -3553,9 +3553,103 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
             batch_over(tx, w, &project)?;
         }
         "apply_reviewed" => give_up(ctx, tx)?,
+        "redo_batch" => {
+            if let Some(n) = ctx.output["redoes_from"].as_i64() {
+                redo(tx, w, n)?;
+            }
+        }
         _ => return Ok(false),
     }
     Ok(true)
+}
+
+/// `redo_batch`: what an architect's work did from its round `n` on that has not taken effect is undone, as the work
+/// goes back to do those rounds again: the item changes they collected for the batch are revised, to be collected again,
+/// and the matters they closed whose reply has not gone out go back to the queue, a reply held for the batch's review
+/// dropped, to be written again. What took effect at once stays; the work never goes back past it
+/// ([`in_effect`]).
+pub fn redo(tx: &Transaction<'_>, work: i64, n: i64) -> Result<(), String> {
+    tx.execute(
+        "UPDATE architect_item_changes SET state = 'revised' WHERE work = ?1 AND round >= ?2 AND state = 'collected'",
+        params![work, n],
+    )
+    .map_err(sql)?;
+    tx.execute(
+        "UPDATE architect_matters SET handled_work = NULL, handled_round = NULL, reply_held = NULL, goes_on_at = NULL
+         WHERE handled_work = ?1 AND handled_round >= ?2 AND reply IS NULL AND withdrawn IS NULL",
+        params![work, n],
+    )
+    .map_err(sql)?;
+    Ok(())
+}
+
+/// What a round of an architect's work did that took effect as it ended and cannot be undone, in words, by its cell
+/// as `g` has it, its return and the row it took: an effect made at once (an action on a work or on new starts, a
+/// change to observations, a message to another project's architect), a word to the owner, a reply that went out to an
+/// engineer, to the work that reported or to another architect, new starts held or let go, or the batch's item changes
+/// made. None when doing it again undoes or repeats nothing that went out, as for item changes still collected, a reply
+/// that waits for the batch's review, a matter closed and the notebook.
+pub fn in_effect(g: &CompiledGraph, r: &Round) -> Option<String> {
+    let cell = g.cell(r.cell.as_deref()?)?;
+    let took = r.transition.as_deref()?;
+    let output = r.output.as_ref()?;
+    let outcome = if cell.kind == "agent" {
+        g.unwrap(output)
+    } else {
+        output.clone()
+    };
+    let at_once = [
+        ("hold_to_set_straight", "held new starts"),
+        ("release_straight_hold", "let new starts go"),
+        ("settle_straight_hold", "held or let go new starts"),
+        ("apply_batch", "made the batch's item changes"),
+        ("apply_reviewed", "made or dropped the batch's item changes"),
+    ];
+    let row = cell.rows.iter().find(|x| x.name == took);
+    if let Some(what) = row
+        .into_iter()
+        .flat_map(|x| &x.actions)
+        .find_map(|d| at_once.iter().find(|a| a.0 == d.name()))
+    {
+        return Some(what.1.to_string());
+    }
+    let some = |v: &Value| v.as_array().is_some_and(|a| !a.is_empty());
+    let said = |v: &Value| v.as_str().is_some_and(|s| !s.trim().is_empty());
+    let does = |name: &str| cell.always.iter().any(|a| a.action.as_deref() == Some(name));
+    let effects = &outcome["effects"];
+    let changes = items(effects.get("item_changes"));
+    let found = if some(&effects["actions"]) {
+        "acted at once on a work or on new starts"
+    } else if some(&effects["observation_changes"]) || some(&outcome["observation_changes"]) {
+        "changed observations"
+    } else if some(&effects["messages"]) {
+        "wrote to another project's architect"
+    } else if output["tell_owner"].as_array().is_some_and(|a| a.iter().any(said)) {
+        "told the owner"
+    } else if does("reply_to_owner") && said(&outcome["answer"]["reply"]) {
+        "replied to the owner"
+    } else if does("answer_architect") && said(&outcome["answer"]["reply"]) {
+        "answered another project's architect"
+    } else if does("reply_to_engineer") && outcome["reply"].is_object() && changes.is_empty() {
+        "replied to the engineer"
+    } else if does("answer_reporter") && told_at_once(&outcome, &changes) {
+        "told the work that reported what became of it"
+    } else {
+        return None;
+    };
+    Some(found.to_string())
+}
+
+/// Whether a round that answers the works that reported tells one of them at once: a matter of it that no item change
+/// of the round names, the matter picked being the one a change that names no matter comes of.
+fn told_at_once(outcome: &Value, changes: &[Value]) -> bool {
+    let picked_told = !changes.iter().any(|c| c["matter"].as_i64().is_none());
+    let named: BTreeSet<i64> = changes.iter().filter_map(|c| c["matter"].as_i64()).collect();
+    let others = items(outcome.get("with"));
+    picked_told
+        || others
+            .iter()
+            .any(|x| x["matter"].as_i64().is_some_and(|m| !named.contains(&m)))
 }
 
 // The architect's checks.

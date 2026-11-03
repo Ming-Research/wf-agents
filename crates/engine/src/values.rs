@@ -48,6 +48,11 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
     if name == "interjection" {
         return Ok(if interjections(e, w, g)? > 0 { "yes" } else { "no" }.to_string());
     }
+    // A work brought to the new flow version goes back to where it stopped, when that is a cell of the version.
+    if name == "brought_up" {
+        let back = w.pos.stopped.as_deref().is_some_and(|c| g.cell(c).is_some());
+        return Ok(if back { "went_back" } else { "stuck" }.to_string());
+    }
     let item = item.ok_or_else(|| {
         format!(
             "the engine's value {name} is about an item, and work {} is on none",

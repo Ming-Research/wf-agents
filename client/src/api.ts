@@ -23,8 +23,8 @@ export type StepTaken = {
  */
 at: number,
 /**
- * The work the owner asked a round of, and the work the round was of: the new work that took the asked work's
- * item over, when the asked work was on an older flow version.
+ * The work the owner asked a round of, and the work the round was of, which a new flow version leaves the same
+ * work.
  */
 asked: number, work: number,
 /**
@@ -2684,6 +2684,11 @@ export type CompiledGraph = { name: string, start: string, end: string,
  * The end a work cancelled or taken over ends at, from wherever it stands; none in a graph without one.
  */
 cancel?: string | null,
+/**
+ * The cell a work on an older flow version comes to when this version cannot take it on where it stands, from
+ * wherever it stands; none in a graph without one, or in a flow version stored before there was one.
+ */
+version?: string | null,
 /**
  * The field an agent's return holds its one form in.
  */

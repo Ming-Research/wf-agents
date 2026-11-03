@@ -82,21 +82,18 @@ fn each_graph_compiles_to_the_cells_of_its_nodes() {
     assert_eq!(e, "architect: a cell ZZ that is no node");
 }
 
-/// What of a cell decides whether a work standing at it moves to a new flow version or is taken over, as the engine's
-/// `versions::why_not` compares a cell's two versions: its kind and line, its inputs' ids, names and sources, and its
-/// rows' names, conditions and targets, each in their order; hashed short, the file of the cell in `tests/moves/`.
+/// What of a cell decides whether a work that has begun it moves to a new flow version where it stands or goes back to
+/// do it again, as the engine's `versions::plan` compares a cell's two versions: its kind and line, and the ids, names
+/// and sources of the inputs of its own, in their order (those every agent's cell has, and the cell's rows, a work
+/// under way takes on as they change); hashed short, the file of the cell in `tests/moves/`.
 fn moves_by(c: &flow::CompiledCell) -> String {
     let inputs: Vec<Value> = c
         .inputs
         .iter()
+        .filter(|x| !x.common)
         .map(|x| serde_json::json!([x.id, x.name, x.from]))
         .collect();
-    let rows: Vec<Value> = c
-        .rows
-        .iter()
-        .map(|r| serde_json::json!([r.name, r.conditions, r.to]))
-        .collect();
-    let text = serde_json::json!([c.kind, c.line, inputs, rows]).to_string();
+    let text = serde_json::json!([c.kind, c.line, inputs]).to_string();
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in text.bytes() {
         h ^= u64::from(b);
@@ -129,10 +126,11 @@ fn moves_misses(have: &BTreeMap<String, String>, files: &BTreeMap<String, String
     misses
 }
 
-// The parts of each cell of the engineer's graph that decide whether a work standing at it moves to a new flow version
-// are as the file of the cell in `tests/moves/` has them, so that a change of the flow shows in the change's files
-// which cells' works a new version takes over when it is installed, at the cost of a work begun again. The comparison
-// is shown to fail for a hash that differs, a cell with no file and a file with no cell, each naming the cell.
+// The parts of each cell of the engineer's graph that decide whether a work that has begun it moves to a new flow
+// version are as the file of the cell in `tests/moves/` has them, so that a change of the flow shows in the change's
+// files which cells a work under way goes back to through cell V1 when the version is installed, at the cost of the
+// cell done again. The comparison is shown to fail for a hash that differs, a cell with no file and a file with no
+// cell, each naming the cell.
 #[test]
 fn the_cells_a_work_moves_by_are_as_their_files_have_them() {
     let c = compiled();
@@ -156,7 +154,7 @@ fn the_cells_a_work_moves_by_are_as_their_files_have_them() {
     let misses = moves_misses(&have, &files);
     assert!(
         misses.is_empty(),
-        "cells whose works a new version takes over:\n{}",
+        "cells a work under way at goes back to do again:\n{}",
         misses.join("\n")
     );
 
@@ -310,7 +308,8 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 // the plan of what to do next (`N1`), the recording of the decisions in the owner's words, the review of a batch of item
 // changes and whether to plan or check again (`B1`, `B5`, `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds
 // only its matter (`A3`), the tools (`X1`), the observer
-// (`X2`) and the wait for the owner's Start after a pause (`X3`). It has no wrap-up, no wait
+// (`X2`), the wait for the owner's Start after a pause (`X3`) and the bringing of a work to a new flow version (`V1`).
+// It has no wrap-up, no wait
 // for the owner's reply in a talk, and none of the setting of a policy as a stage of its own (its study, its readings by
 // new architects, the owner's buttons).
 // The owner's words reach the architect only through its queue: no cell of it takes an interjection, and none answers
