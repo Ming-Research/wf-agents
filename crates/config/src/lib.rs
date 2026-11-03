@@ -1258,7 +1258,7 @@ pub fn main_commit(p: &Project) -> Result<String, String> {
         &p.checkout,
         &["rev-parse", "--verify", &format!("refs/remotes/{main}^{{commit}}")],
     )
-        .map_err(|x| format!("{main} is not in the checkout {}: {x}", p.checkout.display()))?;
+    .map_err(|x| format!("{main} is not in the checkout {}: {x}", p.checkout.display()))?;
     Ok(String::from_utf8_lossy(&out).trim().to_string())
 }
 
@@ -1474,17 +1474,16 @@ pub fn project_guide_at(
 /// link is followed as that walk followed it: a link to a file is a file at the link's path, a link to a directory is
 /// that directory at the link's path, and a link that cannot be followed is an error that names it, never left out
 /// without a word.
-fn records_under(
-    repo: &Path,
-    commit: &str,
-    dir: &str,
-    found: &mut BTreeMap<String, String>,
-) -> Result<(), String> {
+fn records_under(repo: &Path, commit: &str, dir: &str, found: &mut BTreeMap<String, String>) -> Result<(), String> {
     let dir = dir.trim_end_matches('/');
     let at = resolve(repo, commit, dir)
         .map_err(|x| format!("{dir} cannot be read at {commit} in {}: {x}", repo.display()))?;
     if let Found::Dir { tree, .. } = at {
-        let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+        let prefix = if dir.is_empty() {
+            String::new()
+        } else {
+            format!("{dir}/")
+        };
         walk_records(repo, commit, &prefix, &tree, 0, found)?;
     }
     Ok(())
