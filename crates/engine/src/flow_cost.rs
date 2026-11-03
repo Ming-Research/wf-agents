@@ -1,15 +1,17 @@
 //! What installing a flow would do with each work that is neither ended nor done, worked out before it is installed, so
 //! that whoever designs, rules on or installs a flow change sees what it costs the works that go on. On an engine made
-//! only to read that runs the flow ([`Engine::trying`]), each work is judged by the very decisions the engine makes as it
-//! brings a work on an older version up when the work next goes on ([`Engine::plan`], [`Engine::version_cell`]): it
-//! moves where it stands, goes back through its graph's cell for a work on an older version to a cell it does again,
-//! stays at that cell stuck, or ends. Nothing is written.
+//! only to read that runs the flow ([`Engine::trying`]), each work is judged by the very code the engine runs as it
+//! brings a work on an older version up when the work next goes on: the plan ([`Engine::plan`]), the cell a work comes
+//! to when it cannot move ([`Engine::version_cell`]), and that cell's step without its writes ([`steps::arrival`]): the
+//! row it takes there by what it is given, where that row leads, and whether it pauses the work. So a work moves where
+//! it stands, goes from that cell to the cell its row leads to, stays there stuck, or ends. Nothing is written, and the
+//! whole is read as one moment of the database.
 
 use db::rusqlite::OptionalExtension;
 
-use crate::versions::{self, Plan};
-use crate::work::{self, RoundId, Work};
-use crate::{ENGINEER, Engine};
+use crate::versions::Plan;
+use crate::work::{RoundId, Work};
+use crate::{ENGINEER, Engine, steps};
 
 /// What installing a flow version does with a work when the work next goes on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,8 +20,8 @@ pub enum Effect {
     Stays,
     /// It moves where it stands: the same work at the same cell, in the same sessions.
     Moves,
-    /// It comes to cell `through` and goes back from there to cell `to`, which it does again from its start, for the
-    /// reason `why`: round `from` and the rounds after it, `redone` in all, are done again.
+    /// It comes to cell `through` for the reason `why`, and goes from there to cell `to`, by the row that cell takes,
+    /// which it does again from its start: round `from` and the rounds after it, `redone` in all, are done again.
     GoesBack {
         through: String,
         to: String,
@@ -27,12 +29,13 @@ pub enum Effect {
         from: Option<RoundId>,
         redone: usize,
     },
-    /// It comes to cell `at` and stays there, paused, for the reason `why`: the owner's Start takes it back to cell
-    /// `back_to` all the same, or, with none, looks again.
+    /// It comes to the version's cell for it for the reason `why` and stays at cell `at`, paused for `pause`, which says
+    /// what the owner can do; the owner's Start takes it back to cell `back_to` all the same, when it has one.
     Stuck {
         at: String,
         why: String,
         back_to: Option<String>,
+        pause: String,
     },
     /// It ends, as no cell of the version can run it, for the reason `why`; a new work takes its item over when it is
     /// an engineer's work on an item (`taken_over`).
@@ -42,11 +45,13 @@ pub enum Effect {
 /// A work that is neither ended nor done, with what installing the flow does with it.
 #[derive(Debug, Clone)]
 pub struct WorkCost {
-    pub work: Work,
+    pub id: i64,
+    /// The work as the database holds it; none when it cannot be read.
+    pub work: Option<Work>,
     /// The title of its item, for a work on one.
     pub title: Option<String>,
-    /// What installing the flow does with it, or why that cannot be worked out, which the engine meets too as it
-    /// brings the work up.
+    /// What installing the flow does with it, or why that cannot be worked out: the engine meets that error as it
+    /// brings the work up, and stops.
     pub effect: Result<Effect, String>,
 }
 
@@ -61,9 +66,22 @@ pub struct Cost {
 
 impl Engine {
     /// What installing the flow this engine runs would do with each work that is neither ended nor done, on an engine
-    /// made only to read that runs it ([`Engine::trying`]). A paused work is judged as well: it is brought up as it next
-    /// goes on, and nothing it carries changes meanwhile.
+    /// made only to read that runs it ([`Engine::trying`]), read in one transaction, so that a round written meanwhile
+    /// does not mix two moments. A paused work is judged as well: it is brought up as it next goes on, and nothing it
+    /// carries changes meanwhile.
     pub fn flow_cost(&mut self) -> Result<Cost, String> {
+        self.db
+            .conn()
+            .execute_batch("BEGIN")
+            .map_err(|e| format!("reading the database: {e}"))?;
+        let cost = self.cost();
+        // The read ends however it went; it wrote nothing.
+        let _ = self.db.conn().execute_batch("ROLLBACK");
+        cost
+    }
+
+    /// What installing the flow this engine runs would do with each work ([`Engine::flow_cost`]), within its read.
+    fn cost(&mut self) -> Result<Cost, String> {
         let stored: bool = self
             .db
             .conn()
@@ -86,20 +104,27 @@ impl Engine {
         };
         let mut works = Vec::new();
         for id in ids {
-            let w = Work::load(self.db.conn(), id, None)?;
-            let Some(effect) = self.effect(id).transpose() else {
-                continue;
+            let work = Work::load(self.db.conn(), id, None);
+            let effect = match &work {
+                Ok(_) => self.effect(id).transpose(),
+                Err(e) => Some(Err(e.clone())),
             };
-            let title = match w.item {
-                Some(item) => self
-                    .db
+            let Some(effect) = effect else { continue };
+            let work = work.ok();
+            let title = work.as_ref().and_then(|w| w.item).and_then(|item| {
+                self.db
                     .conn()
                     .query_row("SELECT title FROM items WHERE id = ?1", [item], |r| r.get(0))
                     .optional()
-                    .map_err(|e| format!("item {item}: {e}"))?,
-                None => None,
-            };
-            works.push(WorkCost { work: w, title, effect });
+                    .ok()
+                    .flatten()
+            });
+            works.push(WorkCost {
+                id,
+                work,
+                title,
+                effect,
+            });
         }
         Ok(Cost {
             version: self.flow_now,
@@ -108,8 +133,8 @@ impl Engine {
         })
     }
 
-    /// What bringing work `id` to the version the engine runs does with it, decided as [`Engine::bring`] decides it;
-    /// none for a work that is done, which is not brought up.
+    /// What bringing work `id` to the version the engine runs does with it, decided as [`Engine::bring`] decides it and
+    /// as the step of the cell it comes to then goes; none for a work that is done, which is not brought up.
     fn effect(&mut self, id: i64) -> Result<Option<Effect>, String> {
         let w = self.work(id)?;
         if self.done(&w)? {
@@ -127,30 +152,38 @@ impl Engine {
             let taken_over = w.graph == ENGINEER && w.item.is_some();
             return Ok(Some(Effect::Ends { why, taken_over }));
         };
-        let effect = match to {
-            Some(to) if !stuck => {
-                // The rounds it does again, as the cell it comes to records them ([`crate::steps::bring_up`]).
-                let now = Work {
-                    flow_version: self.flow_now,
-                    ..w.clone()
-                };
-                let g = self.graph_of(&now)?;
-                let rounds = work::rounds(self.db.conn(), id)?;
-                let first = versions::redone_from(&g, &rounds, &to);
-                Effect::GoesBack {
-                    through,
-                    to,
-                    why,
-                    from: rounds.get(first).map(|r| r.id),
-                    redone: rounds.len() - first,
-                }
-            }
-            back_to => Effect::Stuck {
-                at: through,
-                why,
-                back_to,
-            },
+        // The work as the engine leaves it at that cell ([`Engine::bring_back`]): on the version it runs, standing there,
+        // with the cell it goes back to as where it stopped and no cell waiting for an answer.
+        let now = Work {
+            flow_version: self.flow_now,
+            ..w.clone()
         };
-        Ok(Some(effect))
+        let g = self.graph_of(&now)?;
+        let mut there = Work::load(self.db.conn(), id, Some(&g))?;
+        there.flow_version = self.flow_now;
+        there.pos.at = through.clone();
+        there.pos.stopped = to;
+        there.pos.callers = Vec::new();
+        let cell = g
+            .cell(&through)
+            .cloned()
+            .ok_or_else(|| format!("work {id}: flow version {} has no cell {through}", self.flow_now))?;
+        let a = steps::arrival(self, &there, &g, &cell, w.flow_version, &why, stuck)?;
+        let next = g.step(&there.pos, &a.row)?;
+        Ok(Some(match a.pause {
+            Some(pause) => Effect::Stuck {
+                at: next.at,
+                why,
+                back_to: a.output["back_to"].as_str().map(str::to_string),
+                pause,
+            },
+            None => Effect::GoesBack {
+                through,
+                to: next.at,
+                why,
+                from: a.redone.map(|(r, _)| r),
+                redone: a.redone.map_or(0, |(_, n)| n),
+            },
+        }))
     }
 }

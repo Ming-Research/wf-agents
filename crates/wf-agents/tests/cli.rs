@@ -1011,17 +1011,21 @@ fn flows_and_works(dir: &Path) {
 }
 
 // `flow cost` tells what installing a flow would do with each work that is neither ended nor done, the works told by
-// what happens to them and the paused marked, and writes nothing. Worked out by hand from `flows_and_works`: work 1 goes
-// back through V1 to the cell it walked, which it does again; work 2 walked no cell the version has and stays stuck at
-// V1; work 4's graph is gone, so it ends; work 3 moves and work 5 is on the version already; works 6 and 7 are not told.
-// A branch's flow on the standard input, which the database has no version of, is told as the next version, and work 5
-// moves to it.
+// what happens to them and the paused marked, and writes nothing: the database's file stays as it was, and the side
+// files SQLite reads it through come back beside it, empty. Worked out by hand from `flows_and_works`: work 1 goes back
+// through V1 to the cell it walked, which it does again; work 2 walked no cell the version has and stays stuck at V1,
+// paused as the engine pauses it; work 4's graph is gone, so it ends; work 3 moves and work 5 is on the version
+// already; works 6 and 7 are not told. A branch's flow on the standard input, which the database has no version of, is
+// told as the next version, and work 5 moves to it; a work on a version that cannot be read is told first, as the engine
+// stops when it brings it up, and the command fails.
 #[test]
 fn flow_cost_tells_what_installing_a_flow_does_with_each_work_and_writes_nothing() {
     let dir = data_directory("flow-cost");
     engine::database::create(&dir).unwrap();
     flows_and_works(&dir);
     let path = config::database(&dir);
+    let base = path.parent().unwrap();
+    assert_eq!(entries(base), ["wf-agents.sqlite"]);
     let before = (entries(&dir), std::fs::read(&path).unwrap());
     let out = printed(&dir, "flow cost");
     assert_eq!(
@@ -1032,8 +1036,9 @@ Each work that is neither ended nor done, as it next goes on (one paused, once i
 Goes back through a cell to a cell it does again (1):
   work 1 (item 1: Back), on version 1 at Z1: through V1 back to R1, doing round R1-1 again: cell Z1 is gone
 Stays stuck at a cell, paused (1):
-  work 2 (item 2: Stuck), on version 1 at Z1, paused by the owner: at V1: cell Z1 is gone, and the version has none \
-of the cells the work walked; the owner's Start looks again
+  work 2 (item 2: Stuck), on version 1 at Z1, paused by the owner: stays at V1, paused: it cannot go on in flow \
+version 2: cell Z1 is gone, and the version has none of the cells the work walked. Start it over, or cancel its item; \
+or Start it once a flow version that has a cell it walked is installed, and it looks again
 Ends (1):
   work 4 (the architect's policy setting for p), on version 1 at P1: the version has no graph policy
 Moves where it stands (1):
@@ -1044,6 +1049,21 @@ On version 2 already (1):
             dir.display()
         )
     );
+    assert_eq!((entries(&dir), std::fs::read(&path).unwrap()), before);
+    assert_eq!(
+        entries(base),
+        ["wf-agents.sqlite", "wf-agents.sqlite-shm", "wf-agents.sqlite-wal"]
+    );
+    assert_eq!(std::fs::metadata(base.join("wf-agents.sqlite-wal")).unwrap().len(), 0);
+    // A work on a version whose compiled flow does not read.
+    fill(
+        &dir,
+        r#"INSERT INTO flow_versions (id, digest, compiled) VALUES (3, 'broken', '{}');
+           INSERT INTO items (id, project, title, problem, why, deliver, level)
+           VALUES (5, 'p', 'Broken', 'x', 'y', 'change', 'l');
+           INSERT INTO works (id, item, flow_version, graph, at) VALUES (8, 5, 3, 'engineer', 'R1');"#,
+    );
+    let before = (entries(&dir), std::fs::read(&path).unwrap());
     // A branch's flow, as `git show` writes it.
     let flow = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../flow/flow.json")).unwrap();
     let title = "\"title\": \"Whether something is under test\"";
@@ -1060,11 +1080,19 @@ On version 2 already (1):
         .unwrap();
     std::io::Write::write_all(&mut child.stdin.take().unwrap(), branch.as_bytes()).unwrap();
     let out = child.wait_with_output().unwrap();
-    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(failed(&out), "{:?}", out.status);
+    assert!(
+        stderr(&out).contains("1 of the works cannot be worked out, and the engine stops when it brings one up"),
+        "{}",
+        stderr(&out)
+    );
     let out = String::from_utf8(out.stdout).unwrap();
     assert!(
         out.starts_with(&format!(
-            "Installing the flow on the standard input on {}: it becomes flow version 3.\n",
+            "Installing the flow on the standard input on {}: it becomes flow version 4.
+Each work that is neither ended nor done, as it next goes on (one paused, once it is started):
+Cannot be worked out, and the engine stops with that error when it brings it up (1):
+  work 8 (item 5: Broken), on version 3 at R1: flow version 3: ",
             dir.display()
         )),
         "{out}"

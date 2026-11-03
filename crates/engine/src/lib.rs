@@ -413,17 +413,17 @@ impl Engine {
     /// The engine made only to read, as [`Engine::reading`] is, running the flow `compiled` ([`compile_flow_for`]) in
     /// place of the one built into it, as the version an engine built with it would store it as: the version of its
     /// digest when the database has one, else the next the database gives. For working out what installing it would do
-    /// with each work ([`flow_cost`]), beside an engine that may be running. The database is read as it is, also when it
-    /// is older than this wf-agents ([`database::open_read_only_unmigrated`]), as it stands before the engine that would
-    /// run the flow migrates it. Steps on it fail.
+    /// with each work ([`flow_cost`]), beside an engine that may be running. The database is read as this engine finds it
+    /// once it has migrated it ([`database::open_read_only_migrated`]): one older than this wf-agents is read from a copy
+    /// in memory, migrated, and the file is left as it is. Steps on it fail. Gives the version the database is at with it.
     pub fn trying(
         data: &Path,
         config: config::Committed,
         compiled: Compiled,
         agents: Box<dyn Agents>,
         github: Box<dyn GitHub>,
-    ) -> Result<Engine, String> {
-        let (db, _) = database::open_read_only_unmigrated(data)?;
+    ) -> Result<(Engine, i64), String> {
+        let (db, at) = database::open_read_only_migrated(data)?;
         let flow_now: i64 = db
             .conn()
             .query_row(
@@ -435,7 +435,7 @@ impl Engine {
             .map_err(|e| format!("the flow versions: {e}"))?;
         let flows = BTreeMap::from([(flow_now, Arc::new(compiled))]);
         let shared = Shared::new(config, flows, agents, github, Hooks::default());
-        Ok(Engine::on(shared, db, data, flow_now))
+        Ok((Engine::on(shared, db, data, flow_now), at))
     }
 
     /// Says what the engine does or what went wrong, where its hooks say.

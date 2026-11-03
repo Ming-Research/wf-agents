@@ -4381,7 +4381,9 @@ fn trying(s: &Setup, compiled: flow::Compiled) -> Engine {
         by_hand: s.by_hand.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
-    Engine::trying(&s.data, committed, compiled, Box::new(agents), Box::new(hub)).unwrap()
+    let (e, at) = Engine::trying(&s.data, committed, compiled, Box::new(agents), Box::new(hub)).unwrap();
+    assert_eq!(at, db::VERSION);
+    e
 }
 
 /// How many rows the tables a step writes hold, every change of a table of state among them.
@@ -4401,8 +4403,10 @@ fn rows_held(e: &Engine) -> Vec<i64> {
 // Item #272: what installing a flow would do with each work that is neither ended nor done, worked out beside the
 // engine on one made only to read, writes nothing and is what the engine then does: a work at a cell the version lacks
 // goes back through `V1` to the cell it stopped at, doing again the round it had begun there; a paused one that walked
-// no cell the version has is told with its pause, and stays stuck at `V1` once the owner steps it; one whose graph the
-// version lacks ends; one on the version already stays. A flow the database has no version of is told as the next.
+// no cell the version has is told with its pause, and stays stuck at `V1`, paused for that, once the owner steps it; one
+// whose graph the version lacks ends; one on the version already stays. A flow the database has no version of is told
+// as the next, and what a work does at `V1` is read from the row that version's `V1` takes: one whose row back pauses
+// the work leaves it stuck at the cell it went back to.
 #[test]
 fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
     let s = setup("flow-cost");
@@ -4463,9 +4467,9 @@ fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
     assert_eq!(rows_held(&e), before);
     assert_eq!((cost.version, cost.stored), (now, true));
     // The architect's work over before the test is not told.
-    let told: Vec<i64> = cost.works.iter().map(|c| c.work.id).collect();
+    let told: Vec<i64> = cost.works.iter().map(|c| c.id).collect();
     assert_eq!(told, [back, stuck, ends, stays]);
-    let effect = |work: i64| cost.works.iter().find(|c| c.work.id == work).unwrap().effect.clone();
+    let effect = |work: i64| cost.works.iter().find(|c| c.id == work).unwrap().effect.clone();
     let gone = "cell A3 is gone";
     assert_eq!(
         effect(back),
@@ -4478,15 +4482,20 @@ fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
         })
     );
     let nowhere = format!("{gone}, and the version has none of the cells the work walked");
+    let pause = format!(
+        "it cannot go on in flow version {now}: {nowhere}. Start it over, or cancel its item; or Start it once a flow \
+         version that has a cell it walked is installed, and it looks again"
+    );
     assert_eq!(
         effect(stuck),
         Ok(Effect::Stuck {
             at: "V1".into(),
             why: nowhere.clone(),
             back_to: None,
+            pause: pause.clone(),
         })
     );
-    let paused = &cost.works[1].work;
+    let paused = cost.works[1].work.as_ref().unwrap();
     assert_eq!(
         (paused.paused.as_deref(), paused.paused_by.as_deref()),
         (Some("Held."), Some("owner"))
@@ -4507,11 +4516,32 @@ fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
         other.graphs.iter_mut().find(|g| g.name == engine::ENGINEER).unwrap(),
         "D4",
     );
-    let next = trying(&s, other).flow_cost().unwrap();
+    let next = trying(&s, other.clone()).flow_cost().unwrap();
     assert_eq!((next.version, next.stored), (last + 1, false));
     assert_eq!(
-        next.works.iter().find(|c| c.work.id == stays).unwrap().effect,
+        next.works.iter().find(|c| c.id == stays).unwrap().effect,
         Ok(Effect::Moves)
+    );
+    // That version's V1 pauses the work it sends back.
+    let v1 = other
+        .graphs
+        .iter_mut()
+        .find(|g| g.name == engine::ENGINEER)
+        .and_then(|g| g.cells.iter_mut().find(|c| c.id == "V1"))
+        .unwrap();
+    v1.rows.iter_mut().find(|r| r.name == "went_back").unwrap().pauses = true;
+    let next = trying(&s, other).flow_cost().unwrap();
+    assert_eq!(
+        next.works.iter().find(|c| c.id == back).unwrap().effect,
+        Ok(Effect::Stuck {
+            at: "R2".into(),
+            why: gone.into(),
+            back_to: Some("R2".into()),
+            pause: format!(
+                "it cannot go on in flow version {}: {gone}. Start takes it back to cell R2 all the same",
+                last + 1
+            ),
+        })
     );
     assert_eq!(rows_held(&e), before);
     // The engine does what was told: the work goes back to R2 through V1, doing again the round it had begun there,
@@ -4543,6 +4573,7 @@ fn the_cost_of_a_flow_is_what_the_engine_then_does_with_each_work() {
         [("stuck", &Value::Null, &json!(nowhere))],
         "{log}"
     );
+    assert_eq!(e.work(stuck).unwrap().paused, Some(pause), "{log}");
     assert_eq!(versions_of(&e, stays), (now, None), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
