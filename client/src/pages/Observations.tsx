@@ -9,10 +9,11 @@
 
 import { XIcon } from '@primer/octicons-react';
 import { IconButton, NavList, PageHeader } from '@primer/react';
-import { Fragment, type MouseEvent, useState } from 'react';
+import { Fragment, type MouseEvent } from 'react';
 
 import type { Items as ItemsData, Observation, ProjectObservations } from '../api';
 import { ClearPicks, Loaded, StateChip, StateFilter, TagChip, useShownStates } from '../components';
+import { useDraft } from '../drafts';
 import { time } from '../format';
 import { postJson } from '../http';
 import { words } from '../labelled';
@@ -218,35 +219,24 @@ function List({ all, route }: { all: ProjectObservations[]; route: ObservationsR
 
 /// The owner's close of an observation still open, folded at first: the words saying why, which it cannot be closed
 /// without, and the button that closes it.
-function Close({ o }: { o: Observation }) {
-  const [why, setWhy] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const close = () => {
-    setBusy(true);
-    setError(null);
-    postJson(`/api/v1/observations/${o.id}/close`, { why: why.trim() }).then(
-      () => {
-        setBusy(false);
-        setWhy('');
-        reread('observations');
-      },
-      (x: unknown) => {
-        setBusy(false);
-        setError(x instanceof Error ? x.message : String(x));
-      },
+export function Close({ o }: { o: Observation }) {
+  // Why it is closed is this observation's draft: kept when the observation goes out of view and comes back.
+  const draft = useDraft(`obs-close:${o.id}`);
+  const close = () =>
+    draft.send(
+      () => postJson(`/api/v1/observations/${o.id}/close`, { why: draft.text.trim() }),
+      () => reread('observations'),
     );
-  };
   return (
     <Fold summary={t('observation_close_fold')} className="obs-close">
       <SendForm
-        words={{ text: why, set: setWhy, placeholder: t('observation_close_why'), rows: 2 }}
+        draft={draft}
+        placeholder={t('observation_close_why')}
+        rows={2}
         label={t('observation_close')}
-        ready={why.trim() !== ''}
-        busy={busy}
+        ready={draft.text.trim() !== ''}
         why={t('observation_close_needs_why')}
         onSend={close}
-        error={error}
       />
     </Fold>
   );

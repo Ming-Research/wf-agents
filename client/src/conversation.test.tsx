@@ -45,6 +45,7 @@ import {
   toArchitect,
 } from './conversation';
 import { holdsWords, nowWords } from './course';
+import type { Draft } from './drafts';
 import { ordinal, time } from './format';
 import { admit, IMAGE_MOST_BYTES, imagesSent, pastedFiles, type PendingImage, saysSomething } from './images';
 import { Bubble } from './pages/Bubble';
@@ -747,11 +748,27 @@ const pending = (n: number): PendingImage => ({
   data_url: `data:image/png;base64,iVBOR${n}`,
 });
 
+/// The draft a box is given, holding `text` and `images`; changing it changes nothing.
+const heldDraft = (text: string, images: PendingImage[]): Draft => ({
+  key: 'test',
+  text,
+  images,
+  to: null,
+  base: null,
+  busy: false,
+  error: null,
+  lostImages: 0,
+  setText: () => {},
+  setImages: () => {},
+  setTo: () => {},
+  write: () => {},
+  clear: () => {},
+  send: () => {},
+});
+
 /// A box of the owner's words drawn with images waiting in it.
 const boxWith = (images: PendingImage[], text = '') =>
-  renderToStaticMarkup(
-    <SayBox text={text} set={() => {}} images={images} setImages={() => {}} placeholder="Say" disabled={false} onKeyDown={() => {}} />,
-  );
+  renderToStaticMarkup(<SayBox draft={heldDraft(text, images)} placeholder="Say" disabled={false} onKeyDown={() => {}} />);
 
 describe('the images the owner sends with words', () => {
   it('wait over the words, each a thumbnail with a button that takes it out, with how many against the ten', () => {
