@@ -1096,8 +1096,7 @@ pub fn finish(
     };
     let ended = Ended {
         output: Some(output),
-        transition: Some(row.name.clone()),
-        ..ended
+        ..ended.taking(row)
     };
     let mut done: Vec<String> = Vec::new();
     e.db.write(actor, |tx| {

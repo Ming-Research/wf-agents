@@ -2511,6 +2511,89 @@ fn a_work_whose_earlier_returns_still_fit_moves() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A round that takes a row keeps the counter the row counts (`rounds.counts`), by the flow the work runs on: the
+// implementer's asking for tools gives `tool_requests`, a row that counts nothing and a round that took no row give
+// none. The expected counter of each round is read from the compiled flow, by its cell and the row it took.
+// The views read the counter from the round, not from the version the work is on now.
+#[test]
+fn a_round_keeps_the_counter_of_the_row_it_took() {
+    let s = setup("round-counts");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "X1");
+    let log = said.lock().unwrap().join("\n");
+    let (work, _, _) = state(&e, item).unwrap();
+    let flow = e.flow(e.flow_now).unwrap();
+    let engineer = flow.graphs.iter().find(|g| g.name == engine::ENGINEER).unwrap();
+    let rounds = engine::query_json(
+        e.db.conn(),
+        "SELECT n, cell, transition, counts, rejected FROM rounds WHERE work = ?1 ORDER BY n",
+        &[&work],
+        1000,
+    )
+    .unwrap();
+    let (mut counting, mut counting_nothing) = (0, 0);
+    for r in &rounds {
+        // A round that ended in no return took a shared row, which the test of `finish_round` checks.
+        if !r["rejected"].is_null() {
+            continue;
+        }
+        let row = r["cell"].as_str().zip(r["transition"].as_str()).map(|(cell, row)| {
+            engineer
+                .cells
+                .iter()
+                .find(|c| c.id == cell)
+                .and_then(|c| c.rows.iter().find(|x| x.name == row))
+                .unwrap_or_else(|| panic!("round {r}: the flow has no row {row} at cell {cell}"))
+        });
+        let expected = row.and_then(|x| x.counts.as_deref());
+        assert_eq!(r["counts"].as_str(), expected, "round {r}\n{log}");
+        match (row, expected) {
+            (Some(_), None) => counting_nothing += 1,
+            (Some(_), Some(_)) => counting += 1,
+            (None, _) => {}
+        }
+    }
+    let tools: Vec<&Value> = rounds.iter().filter(|r| r["transition"] == "tools").collect();
+    assert_eq!(tools.len(), 1, "{rounds:?}\n{log}");
+    assert_eq!(tools[0]["counts"], "tool_requests", "{log}");
+    assert!(counting >= 1 && counting_nothing >= 1, "{rounds:?}");
+    // And it keeps it whatever flow version its work is on afterwards: a work put on a version in which the same row
+    // counts another counter (`tools` as `asks`) keeps the counter of the round it took before, and the counters the
+    // views give do not change with it.
+    let counters = |e: &Engine| -> Vec<(String, i64)> {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT counter, times FROM work_counters WHERE work = ?1 AND counter IN ('asks', 'tool_requests')
+                     ORDER BY counter",
+                )
+                .unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let asked = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT asks FROM work_asking WHERE work = ?1", [work], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(counters(&e), [("tool_requests".to_string(), 1)], "{log}");
+    assert_eq!(asked(&e), 0);
+    older(&mut e, &[work], |g| {
+        let row = g
+            .cells
+            .iter_mut()
+            .find(|c| c.id == "I1")
+            .and_then(|c| c.rows.iter_mut().find(|r| r.name == "tools"))
+            .unwrap();
+        row.counts = Some("asks".into());
+    });
+    assert_eq!(counters(&e), [("tool_requests".to_string(), 1)], "{log}");
+    assert_eq!(asked(&e), 0);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A work on an older flow version whose cell is unchanged, but one of whose earlier returns its cell's schema in the
 // version the engine runs does not take, is taken over when it goes on: it ends, saying the round and where the return
 // does not fit, and a new work takes its item over.
@@ -18867,6 +18950,21 @@ fn past_rounds(e: &mut Engine, work: i64, rounds: &[(&str, Option<&str>, Option<
                     rejected.as_ref().map(Value::to_string),
                     at
                 ],
+            )?;
+            // The counter of the row the round took, as the engine keeps it on a round it ended itself: read from the
+            // flow the work is on, by the row the view `round_rows` says the round took.
+            tx.execute(
+                "UPDATE rounds SET counts = (
+                   SELECT json_extract(row.value, '$.counts')
+                   FROM round_rows x
+                   JOIN works w ON w.id = x.work
+                   JOIN flow_versions v ON v.id = w.flow_version
+                   JOIN json_each(v.compiled, '$.graphs') g ON json_extract(g.value, '$.name') = w.graph
+                   JOIN json_each(g.value, '$.cells') c ON json_extract(c.value, '$.id') = x.cell
+                   JOIN json_each(c.value, '$.rows') row ON json_extract(row.value, '$.name') = x.took
+                   WHERE x.work = ?1 AND x.round = ?2)
+                 WHERE work = ?1 AND n = ?2",
+                params![work, i as i64 + 1],
             )?;
         }
         Ok(())

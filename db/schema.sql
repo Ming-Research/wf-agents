@@ -275,7 +275,9 @@ CREATE TABLE flow_versions (
   id INTEGER PRIMARY KEY,
   -- Hash of compiled, so each version is stored once.
   digest TEXT NOT NULL UNIQUE,
-  -- The compiler's expanded flow, JSON: every graph's cells, inputs, return schemas and transition rows.
+  -- The compiler's expanded flow, JSON: every graph's cells, inputs, return schemas and transition rows. It is a
+  -- megabyte or more, so a view does not parse it for each row it reads: what a round took from it is kept on the
+  -- round (`rounds.counts`).
   compiled TEXT NOT NULL CHECK (json_valid(compiled))
 ) STRICT;
 
@@ -502,7 +504,7 @@ CREATE TABLE rounds (
   -- owner the answer. NULL while the round runs. Read by: every input that names a returned field.
   output TEXT CHECK (output IS NULL OR json_valid(output)),
   -- The transition row the return took. NULL while the round runs, and when the return was rejected.
-  -- Read by: the engine; the views of counters and anomalies.
+  -- Read by: the engine; the view of anomalies.
   transition TEXT,
   -- Why the engine sent the return back or the run failed, JSON: a check it failed or a wrong format; or a run that
   -- ended without a return, with its kind as the flow names them. NULL when the return was accepted.
@@ -521,6 +523,14 @@ CREATE TABLE rounds (
   -- When the round started and ended. Read by: the views of time.
   started_at INTEGER NOT NULL,
   ended_at INTEGER,
+  -- The counter the row this round took counts, as the flow version the work ran on said it when the round ended; the
+  -- row is the one the return took (`transition`) or, for a round that ended in no return its cell takes, the shared
+  -- row the engine took for it (view `round_rows`). NULL when the round took no row, or the row counts nothing. A
+  -- round's row can be found again in the flow only by the version it ran on, which a round does not record and a
+  -- work leaves when it moves to a newer one, so the counter is kept with the round, written in the same step as
+  -- `transition` or `rejected`. 'total_time' is kept as the row says it, though the views count no round for it.
+  -- Read by: the views of counters and of how many times a work asked, through the index `rounds_counts`.
+  counts TEXT CHECK (counts IS NULL OR transition IS NOT NULL OR rejected IS NOT NULL),
   PRIMARY KEY (work, n),
   CHECK (transition IS NULL OR rejected IS NULL)
 ) STRICT;
@@ -1084,6 +1094,9 @@ CREATE INDEX pings_by_session ON pings (session);
 CREATE INDEX cache_misses_by_notice ON cache_misses (notice);
 -- The rounds of a work in order, which every input that names a returned field and the history read, are the
 -- primary key of rounds.
+-- The rounds of a work that counted something, by the counter, held in the index alone: the views of counters read
+-- them for one work without reading the rounds' large inputs and outputs.
+CREATE INDEX rounds_counts ON rounds (work, counts) WHERE counts IS NOT NULL;
 -- The tools a round ran.
 CREATE INDEX tool_runs_by_round ON tool_runs (work, round);
 -- The rounds a cell's and a graph's lines are computed from.
@@ -1252,7 +1265,7 @@ CREATE VIEW round_rows AS
   -- transition says the cell's own return was taken: the kind of the failed run (`<kind>_too_often` for the one past
   -- the kind's bound), `cut_off` for a round the engine cut off, `sent_back` for a return sent back. None for a round
   -- still open and for one that ended with the work paused. Read by: the engine, which counts how often a work took a
-  -- row in a row; work_counters.
+  -- row in a row, and which finds the counter of the shared row a round took when that round ends (`rounds.counts`).
   SELECT work, n AS round, cell,
     CASE
       WHEN transition IS NOT NULL THEN transition
@@ -1265,19 +1278,14 @@ CREATE VIEW round_rows AS
   FROM rounds;
 
 CREATE VIEW work_counters AS
-  -- How many times each work took the rows that count each counter, by the compiled flow it runs on; and its total
-  -- time, in minutes, which no row counts: the time of its agents' rounds and of the tools they had the engine run (cell
-  -- `X1`). Read by: cell `A1`; cell `A4`, through work_asking; the engine, against the project's limits; the owner's
-  -- interface.
-  SELECT r.work, json_extract(row.value, '$.counts') AS counter, count(*) AS times
-  FROM round_rows r
-  JOIN works w ON w.id = r.work
-  JOIN flow_versions v ON v.id = w.flow_version
-  JOIN json_each(v.compiled, '$.graphs') g ON json_extract(g.value, '$.name') = w.graph
-  JOIN json_each(g.value, '$.cells') c ON json_extract(c.value, '$.id') = r.cell
-  JOIN json_each(c.value, '$.rows') row ON json_extract(row.value, '$.name') = r.took
-  WHERE json_extract(row.value, '$.counts') IS NOT NULL AND json_extract(row.value, '$.counts') <> 'total_time'
-  GROUP BY r.work, counter
+  -- How many times each work took the rows that count each counter, by the counter each round recorded when it ended
+  -- (`rounds.counts`); and its total time, in minutes, which no row counts: the time of its agents' rounds and of the
+  -- tools they had the engine run (cell `X1`). Read by: cell `A1`; the engine, against the project's limits; the
+  -- owner's interface.
+  SELECT r.work, r.counts AS counter, count(*) AS times
+  FROM rounds r
+  WHERE r.counts IS NOT NULL AND r.counts <> 'total_time'
+  GROUP BY r.work, r.counts
   UNION ALL
   SELECT r.work, 'total_time' AS counter, sum(r.ended_at - r.started_at) / 60000 AS times
   FROM rounds r
@@ -1288,7 +1296,7 @@ CREATE VIEW work_asking AS
   -- The cell that asked, or that took up an interjection, and how many times each work has asked: what choosing the
   -- way on needs of where the work stands. Read by: cell `A4`.
   SELECT w.id AS work, w.resume_at AS asked_at,
-    coalesce((SELECT c.times FROM work_counters c WHERE c.work = w.id AND c.counter = 'asks'), 0) AS asks
+    (SELECT count(*) FROM rounds r WHERE r.work = w.id AND r.counts = 'asks') AS asks
   FROM works w;
 
 CREATE VIEW work_design_cards AS
