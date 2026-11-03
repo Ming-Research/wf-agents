@@ -1466,9 +1466,17 @@ mod tests {
         let report = acceptance_columns(&acceptance, true);
         assert_eq!(change.len(), 1);
         assert_eq!(report.len(), 1);
-        assert!(change[0].starts_with("Acceptance condition A1: It works."), "{}", change[0]);
+        assert!(
+            change[0].starts_with("Acceptance condition A1: It works."),
+            "{}",
+            change[0]
+        );
         assert!(change[0].ends_with(ACCEPTANCE_PROOFS), "{}", change[0]);
-        assert!(report[0].starts_with("Acceptance condition A1: It works."), "{}", report[0]);
+        assert!(
+            report[0].starts_with("Acceptance condition A1: It works."),
+            "{}",
+            report[0]
+        );
         assert!(
             !report[0].contains("ci_job") && !report[0].contains("read_diff"),
             "{}",
