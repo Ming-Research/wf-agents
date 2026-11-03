@@ -169,6 +169,32 @@ pub fn words(line: &str) -> Result<Vec<String>, String> {
 /// one, and the description of the gh tool in the flow names each of them.
 const API_WRITES: [&str; 7] = ["-X", "--method", "-f", "-F", "--field", "--raw-field", "--input"];
 
+/// The short flags of gh `api` that take a value, which in a group of short flags (`-iXPOST`) end it: the rest of the
+/// group is the value.
+const API_SHORT_WITH_VALUE: &str = "FfHXpqt";
+
+/// Whether an argument of gh `api` is one of the [`API_WRITES`] as gh reads it: a long flag by itself or with `=` and
+/// its value; a short flag at the start of the argument or in a group of short flags, with its value attached or not
+/// (`-XPOST`, `-fname=value`, `-iXPOST`).
+fn api_write(arg: &str) -> bool {
+    if let Some(long) = arg.strip_prefix("--") {
+        let name = long.split('=').next().unwrap_or_default();
+        return API_WRITES.iter().any(|x| x.strip_prefix("--") == Some(name));
+    }
+    let Some(shorts) = arg.strip_prefix('-') else {
+        return false;
+    };
+    for c in shorts.chars() {
+        if API_WRITES.iter().any(|x| x.strip_prefix('-').is_some_and(|s| s.chars().eq([c]))) {
+            return true;
+        }
+        if API_SHORT_WITH_VALUE.contains(c) {
+            break;
+        }
+    }
+    false
+}
+
 /// Why a gh command may not run, or none when it may: it must start with an entry of the allow list, and `api` may
 /// only read.
 pub fn gh_refusal(allow: &[String], args: &[String]) -> Option<String> {
@@ -187,9 +213,7 @@ pub fn gh_refusal(allow: &[String], args: &[String]) -> Option<String> {
         ));
     }
     if args.first().is_some_and(|a| a == "api")
-        && let Some(w) = args
-            .iter()
-            .find(|a| API_WRITES.iter().any(|x| a == x || a.starts_with(&format!("{x}="))))
+        && let Some(w) = args.iter().skip(1).find(|a| api_write(a))
     {
         return Some(format!("gh api may only read: {w} makes it write"));
     }
@@ -1742,6 +1766,38 @@ mod tests {
             check.contains("a run of this work's measure tool") && !check.contains("in this cell"),
             "{check}"
         );
+    }
+
+    // A request of api only reads: a write flag is refused whichever way gh takes it, apart from its value
+    // (`-X POST`, `-XPOST`), joined to it (`-fname=value`, `--method=PATCH`) or in a group of short flags (`-iXPOST`);
+    // a read, with the flags that only shape the output, runs.
+    #[test]
+    fn a_write_flag_of_api_is_refused_however_it_is_given() {
+        let allow = ["api repos/".to_string()];
+        let refusal = |line: &str| gh_refusal(&allow, &words(line).unwrap());
+        for write in [
+            "api repos/o/r/issues -X POST",
+            "api repos/o/r/issues -XPOST",
+            "api repos/o/r/issues -XDELETE",
+            "api repos/o/r/issues -fname=value",
+            "api repos/o/r/issues -Fa=b",
+            "api repos/o/r/issues -iXPOST",
+            "api repos/o/r/issues --method=PATCH",
+            "api repos/o/r/issues --field a=b",
+            "api repos/o/r/issues --raw-field=a=b",
+            "api repos/o/r/issues --input=body.json",
+        ] {
+            assert!(refusal(write).is_some_and(|why| why.contains("may only read")), "{write}");
+        }
+        for read in [
+            "api repos/o/r/pulls/1",
+            "api repos/o/r/pulls/1 -i",
+            "api repos/o/r/pulls --paginate -q .[].title",
+            "api repos/o/r/pulls -q.[].fix -H Accept:text/plain",
+            "api repos/o/r/pulls -t {{.title}} --jq=.[]",
+        ] {
+            assert_eq!(refusal(read), None, "{read}");
+        }
     }
 
     // The fast CI and the measurement workflow leave the engine's temporary refs alone on push: a ref the engine pushes

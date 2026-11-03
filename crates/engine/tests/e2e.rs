@@ -708,13 +708,10 @@ impl GitHub for FakeHub {
         }
         if command("flaky") {
             let mut runs = self.by_hand.lock().unwrap();
-            let waits = runs
-                .iter_mut()
-                .find(|d| d.commit.as_deref() == Some(sha))
-                .map(|d| {
-                    d.waits += 1;
-                    d.waits
-                });
+            let waits = runs.iter_mut().find(|d| d.commit.as_deref() == Some(sha)).map(|d| {
+                d.waits += 1;
+                d.waits
+            });
             if waits == Some(1) {
                 return Err(Failure::network("gh run list: connection reset"));
             }
@@ -4459,8 +4456,18 @@ fn a_measurement_is_tried_again_only_by_waiting_for_the_run_it_started() {
     assert!(why.contains("HTTP 422: Required input 'base' not provided"), "{why}");
     // The run that did not finish in time has run, not to the end, and says why.
     let timed_out = &runs[1].1["push"];
-    assert_eq!((&timed_out["verdict"], &timed_out["ok"]), (&json!("ran"), &json!("not_run")), "{runs:?}");
-    assert!(timed_out["note"].as_str().unwrap().contains("did not finish in 10800 s"), "{runs:?}");
+    assert_eq!(
+        (&timed_out["verdict"], &timed_out["ok"]),
+        (&json!("ran"), &json!("not_run")),
+        "{runs:?}"
+    );
+    assert!(
+        timed_out["note"]
+            .as_str()
+            .unwrap()
+            .contains("did not finish in 10800 s"),
+        "{runs:?}"
+    );
     // The wait that failed is a failed attempt, and the next one has the run of the same measurement.
     assert_eq!(runs[2].1["failed"]["kind"], "network_or_api", "{runs:?}");
     assert_eq!(runs[3].1["push"]["ok"], "ran", "{runs:?}");
