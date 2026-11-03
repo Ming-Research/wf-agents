@@ -7,7 +7,7 @@ use serde_json::{Map, Value};
 
 use crate::inputs::{Gathered, answered, last_return};
 use crate::work::{Item, Work};
-use crate::{ENGINEER, Engine, git};
+use crate::{ENGINEER, Engine};
 
 /// What the rows of a cell are given: the values rows recorded, the engine's values the cell names, and each input
 /// read by id under `@<id>`.
@@ -46,7 +46,7 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
     // An interjection waiting for the task's main line; a word that needs no answer, as the owner confirming the design
     // card, is not one that turns the work.
     if name == "interjection" {
-        return Ok(if interjections(e, w)? > 0 { "yes" } else { "no" }.to_string());
+        return Ok(if interjections(e, w, g)? > 0 { "yes" } else { "no" }.to_string());
     }
     let item = item.ok_or_else(|| {
         format!(
@@ -112,20 +112,14 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             }
             Some(_) => "questions",
         }),
-        "held" => crate::blockers::held(e, w),
+        "held" => crate::blockers::held(e, w, g),
         // The notice that an item the work's item depended on was cancelled, which the cells where the work waits take
         // to choose the way on by a row of their own.
         "cancelled" => {
-            let waiting: i64 = e
-                .db
-                .conn()
-                .query_row(
-                    "SELECT count(*) FROM interjections WHERE work = ?1 AND line = 'engineer' AND delivered_round IS NULL
-                       AND cancelled_item IS NOT NULL",
-                    [w.id],
-                    |r| r.get(0),
-                )
-                .map_err(|e| e.to_string())?;
+            let waiting = match crate::blockers::standing_line(g, w) {
+                Some(line) => crate::blockers::waiting_words(e.db.conn(), w.id, &line, true)?,
+                None => 0,
+            };
             s(if waiting > 0 { "yes" } else { "no" })
         }
         // Whether another work of the project is ahead of this one in its merge queue.
@@ -242,15 +236,12 @@ pub fn light_route(e: &Engine, w: &Work, g: &CompiledGraph, item: &Item) -> Resu
     })
 }
 
-/// How many words said to a work are waiting for its engineer's line, which turn its way on.
-pub fn interjections(e: &Engine, w: &Work) -> Result<i64, String> {
-    e.db.conn()
-        .query_row(
-            "SELECT count(*) FROM interjections WHERE work = ?1 AND line = ?2 AND delivered_round IS NULL AND informs = 0",
-            db::rusqlite::params![w.id, ENGINEER],
-            |r| r.get(0),
-        )
-        .map_err(|e| e.to_string())
+/// How many words said to a work are waiting for the line it stands on, which turn its way on.
+pub fn interjections(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<i64, String> {
+    match crate::blockers::standing_line(g, w) {
+        Some(line) => crate::blockers::waiting_words(e.db.conn(), w.id, &line, false),
+        None => Ok(0),
+    }
 }
 
 /// The reply the work brought back to choose the way on: the last return of the cell that brought it, when that is
@@ -361,16 +352,4 @@ pub fn head_reviewed_by(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> 
     Ok(answered(e, w, g, cell)?
         .first()
         .and_then(|r| r.input["engine"]["head"].as_str().map(str::to_string)))
-}
-
-/// What the PR's own change is, apart from catching up with main: a hash of its diff from the fork point.
-pub fn change_hash(wt: &std::path::Path, main: &str) -> Option<String> {
-    let fork = git::fork_point(wt, main).ok()?;
-    let d = git::diff(wt, &fork, "HEAD", &[]).ok()?;
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in d.bytes() {
-        h ^= u64::from(b);
-        h = h.wrapping_mul(0x0100_0000_01b3);
-    }
-    Some(format!("{h:016x}"))
 }
