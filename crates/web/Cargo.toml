@@ -11,6 +11,8 @@ api = { path = "../api" }
 config = { path = "../config" }
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"] }
 db = { path = "../db" }
+# The count of the page's reads and of how long serving them took, which the engine samples each minute.
+health = { path = "../health" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "sync"] }

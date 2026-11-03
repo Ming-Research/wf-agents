@@ -5314,55 +5314,100 @@ fn since_last_work(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
     Ok(out)
 }
 
-/// The numbers the engine measures for a project, each as the architect's work started and earlier for the trend, so
-/// that they hold through the work: the size of its design paths and of every file on main; its items made, merged and
-/// cancelled, and what its items' works and its architect's works spent, each for the four weeks before the work one by
-/// one.
+/// A health number as the architect is given it: in minutes for a time, to the cent for money, to three places for a
+/// part, and whole for a count or tokens unless a median falls between two.
+fn health_value(unit: health::Unit, v: f64) -> Value {
+    let to = |places: i32, x: f64| {
+        let k = 10f64.powi(places);
+        (x * k).round() / k
+    };
+    match unit {
+        health::Unit::Ms => json!(to(1, v / 60_000.0)),
+        health::Unit::Usd => json!(to(2, v)),
+        health::Unit::Ratio | health::Unit::Share => json!(to(3, v)),
+        health::Unit::Count | health::Unit::Tokens if (v - v.round()).abs() < 1e-9 => json!(v.round() as i64),
+        health::Unit::Count | health::Unit::Tokens => json!(to(1, v)),
+    }
+}
+
+/// A point of a health number as the architect is given it: its value, or why it has none.
+fn health_point(m: &health::Measure, s: &health::Series, k: usize) -> Value {
+    match (s.not_measured, s.points.get(k).and_then(|p| p.value)) {
+        (Some(why), _) => json!(format!("not measured: {why}")),
+        (None, Some(v)) => health_value(m.unit, v),
+        (None, None) => json!(format!("not measured: {}", m.empty)),
+    }
+}
+
+/// The numbers the engine measures for a project, each as the architect's work started, so that they hold through the
+/// work, and earlier for the trend: every health number ([`health::measures`]), for the week before the work and the
+/// week before that, split by its subjects where it has them, the numbers nothing records yet listed with why; the
+/// items made, merged and cancelled, and what its items' works and its architect's works spent, for each of the four
+/// weeks before the work one by one; and the size of its design paths and of every file on main.
 fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     let conn = e.db.conn();
     let week = 7 * 24 * HOUR;
     let now = work_start(conn, w.id)?;
-    let mut weeks = Vec::new();
-    for k in 0..4 {
-        // Each week ends the millisecond before the next begins, the last before the work.
-        let (to, from) = (now - k * week - 1, now - (k + 1) * week);
-        let made = count(
-            conn,
-            "SELECT count(*) FROM items i WHERE i.project = ?1 AND (SELECT min(c.at) FROM changes c
-               WHERE c.table_name = 'items' AND c.row_key = json_object('id', i.id)) BETWEEN ?2 AND ?3",
-            &[&project, &from, &to],
-        )?;
-        let merged = count(
-            conn,
-            &format!(
-                "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
-                 WHERE i.project = ?1 AND r.cell IN {} AND r.transition = 'merged' AND r.ended_at BETWEEN ?2 AND ?3",
-                db::cells_sql(ENGINEER, &["M2"])
-            ),
-            &[&project, &from, &to],
-        )?;
-        let cancelled = count(
-            conn,
-            "SELECT count(*) FROM changes c WHERE c.table_name = 'items' AND c.at BETWEEN ?2 AND ?3
-               AND json_extract(c.new_row, '$.project') = ?1 AND json_extract(c.new_row, '$.cancelled') IS NOT NULL
-               AND json_extract(c.old_row, '$.cancelled') IS NULL",
-            &[&project, &from, &to],
-        )?;
-        let (items, architect): (f64, f64) = conn
-            .query_row(
-                "SELECT coalesce(sum(CASE WHEN w.graph = 'engineer' THEN json_extract(r.usage, '$.cost_usd') END), 0),
-                        coalesce(sum(CASE WHEN w.graph = 'architect' THEN json_extract(r.usage, '$.cost_usd') END), 0)
-                 FROM rounds r JOIN works w ON w.id = r.work LEFT JOIN items i ON i.id = w.item
-                 WHERE coalesce(i.project, w.project) = ?1 AND r.started_at BETWEEN ?2 AND ?3",
-                params![project, from, to],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .map_err(sql)?;
-        let usd = |x: f64| (x * 100.0).round() / 100.0;
-        weeks.push(json!({
-            "weeks_ago": k, "items_made": made, "merged": merged, "cancelled": cancelled,
-            "spent_usd": { "items": usd(items), "architect": usd(architect) },
-        }));
+    let measure = |name: &str| health::measure(name).ok_or_else(|| format!("the engine has no health number {name}"));
+    let scope = health::Scope {
+        project: Some(project),
+        subject: None,
+    };
+    // The four weeks before the work, the earliest first: week k before the work is point 3 - k.
+    let by_week = |name: &str| health::series(conn, measure(name)?, &scope, now - 4 * week, now, week);
+    let (made, merged, cancelled) = (
+        by_week("items.made")?,
+        by_week("items.merged")?,
+        by_week("items.cancelled")?,
+    );
+    let spent = health::series_by_subject(conn, measure("spend.usd")?, Some(project), now - 4 * week, now, week)?;
+    let at = |s: &health::Series, k: usize| s.points.get(k).and_then(|p| p.value).unwrap_or(0.0);
+    let spent_by = |graph: &str, k: usize| spent.iter().find(|(g, _)| g == graph).map_or(0.0, |(_, s)| at(s, k));
+    let usd = |x: f64| (x * 100.0).round() / 100.0;
+    let weeks: Vec<Value> = (0..4)
+        .map(|ago: usize| {
+            let k = 3 - ago;
+            json!({
+                "weeks_ago": ago, "items_made": at(&made, k) as i64, "merged": at(&merged, k) as i64,
+                "cancelled": at(&cancelled, k) as i64,
+                "spent_usd": { "items": usd(spent_by(ENGINEER, k)), "architect": usd(spent_by(ARCHITECT, k)) },
+            })
+        })
+        .collect();
+    // Every health number for the two weeks before the work, the earlier first: point 1 is the week before it.
+    let mut measures = Map::new();
+    let mut not_measured = Map::new();
+    for m in health::measures() {
+        let both = |s: &health::Series| -> Map<String, Value> {
+            let mut o = Map::new();
+            o.insert("last_7_days".into(), health_point(m, s, 1));
+            o.insert("the_7_days_before".into(), health_point(m, s, 0));
+            o
+        };
+        let s = health::series(conn, m, &scope, now - 2 * week, now, week)?;
+        if let Some(why) = s.not_measured {
+            not_measured.insert(m.name.into(), json!(why));
+        }
+        let mut entry = Map::new();
+        entry.insert("what".into(), json!(m.what));
+        let unit = if m.unit == health::Unit::Ms {
+            "minutes"
+        } else {
+            m.unit.name()
+        };
+        entry.insert("unit".into(), json!(unit));
+        entry.extend(both(&s));
+        if let (Some(by), None) = (m.by.name(), s.not_measured) {
+            let mut split = Map::new();
+            for (subject, s) in health::series_by_subject(conn, m, Some(project), now - 2 * week, now, week)? {
+                if let Some(why) = s.not_measured {
+                    not_measured.insert(format!("{} for {by} {subject}", m.name), json!(why));
+                }
+                split.insert(subject, Value::Object(both(&s)));
+            }
+            entry.insert(format!("by_{by}"), Value::Object(split));
+        }
+        measures.insert(m.name.into(), Value::Object(entry));
     }
     let size = e.config.config.projects.get(project).map(|p| {
         let main = p.main_ref();
@@ -5403,8 +5448,8 @@ fn numbers(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
     Ok(json!({
         "size_on_main": size,
         "weeks": weeks,
-        "not_measured": "The engine measures nothing else yet: no test count, no CI time, no specification beyond the \
-                         design paths' size."
+        "measures": measures,
+        "not_measured": not_measured,
     }))
 }
 
@@ -5498,9 +5543,10 @@ fn policy(e: &Engine, project: &str) -> Result<Option<Value>, String> {
 }
 
 /// The signals of the policy in force for a project that the engine measures, each with its numbers: a signal whose
-/// words name a measure of the numbers by its name (`merged`, or `items made` for `items_made`), with that measure week
-/// by week, the latest first, or now, a week ago and a month ago. None when the engine measures none of them, or before
-/// the first policy takes effect.
+/// words name a measure of the numbers by its name (`merged`, `items made` for `items_made`, or `ci wait` for the
+/// health number `ci.wait`), with that measure week by week, the latest first; for the last week and the week before;
+/// or now, a week ago and a month ago. None when the engine measures none of them, or before the first policy takes
+/// effect.
 fn policy_signals(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
     let Some(policy) = policy(e, project)? else {
         return Ok(None);
@@ -5512,6 +5558,12 @@ fn policy_signals(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, 
         for k in first.keys().filter(|k| *k != "weeks_ago") {
             let by_week: Vec<Value> = weeks.iter().map(|x| x[k].clone()).collect();
             measures.push((k.clone(), json!({ "by_week": by_week })));
+        }
+    }
+    if let Some(measured) = numbers["measures"].as_object() {
+        for (k, m) in measured {
+            let both = json!({ "last_7_days": m["last_7_days"], "the_7_days_before": m["the_7_days_before"] });
+            measures.push((k.clone(), both));
         }
     }
     let size = &numbers["size_on_main"];
@@ -5534,7 +5586,7 @@ fn policy_signals(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, 
         let said = format!(" {} ", said.split_whitespace().collect::<Vec<_>>().join(" "));
         let found: Map<String, Value> = measures
             .iter()
-            .filter(|(k, _)| said.contains(&format!(" {} ", k.replace('_', " "))))
+            .filter(|(k, _)| said.contains(&format!(" {} ", k.replace(['_', '.'], " "))))
             .cloned()
             .collect();
         if !found.is_empty() {

@@ -13393,6 +13393,139 @@ fn the_numbers_hold_through_an_architect_work_and_split_what_was_spent() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Item 231: the architect's numbers count the items made as the System view lists them, by the health numbers' one
+// definition: an item imported from an earlier board was not made here. Both count two over the week before the
+// architect's work.
+#[test]
+fn the_architect_s_numbers_and_the_system_view_count_the_same_items_made() {
+    let s = setup("made");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let ago = db::now() - 3_600_000;
+    let imported =
+        e.db.write(Actor::Owner, |tx| {
+            for from in [None, None, Some("an earlier board")] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level, imported_from, held)
+                     VALUES ('p', 'Made', 'Missing.', 'Needed.', 'change', 'l', ?1, 'not yet')",
+                    [from],
+                )?;
+            }
+            tx.execute("UPDATE changes SET at = ?1 WHERE table_name = 'items'", [ago])?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    say(&mut e, "Look at the numbers.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 20, |e| path_of(e, arch).iter().any(|c| c == "N1")),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let numbers = given_value(&message_at(&e, arch, "U1", false), "·engine·numbers").unwrap();
+    assert_eq!(numbers["measures"]["items.made"]["last_7_days"], 2, "{numbers}");
+    assert_eq!(numbers["weeks"][0]["items_made"], 2, "{numbers}");
+    let start: i64 =
+        e.db.conn()
+            .query_row("SELECT min(started_at) FROM rounds WHERE work = ?1", [arch], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    let (projects, limits) = (vec!["p".to_string()], BTreeMap::new());
+    let ask = api::SystemAsk {
+        weeks: Some(2),
+        tz: 0,
+        projects: &projects,
+        limits: &limits,
+        now: db::now(),
+    };
+    let system = api::system(e.db.conn(), &api::Flows::default(), &ask).unwrap();
+    let week = start - 7 * 24 * 3_600_000..start;
+    let made: Vec<i64> = system
+        .output
+        .made
+        .iter()
+        .filter(|m| week.contains(&m.at))
+        .map(|m| m.item)
+        .collect();
+    assert_eq!(made.len(), 2, "{made:?}");
+    assert!(!made.contains(&imported), "{made:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Reads a path of the owner's page served on a port, as the page does, and gives the whole answer.
+fn page_read(port: u16, path: &str) -> String {
+    use std::io::{Read as _, Write as _};
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let ask = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    s.write_all(ask.as_bytes()).unwrap();
+    let mut out = String::new();
+    let _ = s.read_to_string(&mut out);
+    out
+}
+
+// Item 231: once a minute the engine samples what no record holds: the reads the page served since the sample before,
+// the slots held, the works running, each project's oldest wait in its queue, and its CPU from its second sample on,
+// which has one before it to be measured from. A second sample in the same minute writes nothing.
+#[test]
+fn the_engine_samples_what_no_record_holds_once_a_minute() {
+    let s = setup("beat");
+    let (mut e, _) = engine(&s, scripts());
+    let reads = Arc::new(health::PageReads::default());
+    let port = web::start(web::Options {
+        data: s.data.clone(),
+        db: config::database(&s.data),
+        port: 0,
+        bus: Arc::new(api::Bus::new(db::now())),
+        control: Arc::new(api::Control::default()),
+        reads: Arc::clone(&reads),
+    })
+    .unwrap();
+    // Five seconds into a minute, with a matter that came 90 s before waiting in project p's queue.
+    let t = health::minute(db::now()) + 5_000;
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO architect_matters (project, kind, what, body, at) VALUES ('p', 'owner_words', 'Look.', '{}', ?1)",
+            [t - 90_000],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    let sampled = |e: &Engine, at: i64| -> BTreeMap<String, f64> {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT measure || ':' || project, value FROM samples WHERE at = ?1")
+                .unwrap();
+        st.query_map([at], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    let first = BTreeMap::from([
+        ("page.reads:".to_string(), 0.0),
+        ("page.read_ms:".to_string(), 0.0),
+        ("slots.used:".to_string(), 0.0),
+        ("works.running:".to_string(), 0.0),
+        ("queue.oldest:p".to_string(), 90_000.0),
+    ]);
+    assert!(e.beat(t, &reads).unwrap());
+    assert_eq!(sampled(&e, health::minute(t)), first);
+    for path in ["/api/v1/works", "/api/v1/items", "/"] {
+        assert!(page_read(port, path).starts_with("HTTP/1.1 200"), "{path}");
+    }
+    assert!(!e.beat(t + 20_000, &reads).unwrap());
+    assert_eq!(sampled(&e, health::minute(t)), first);
+    assert!(e.beat(t + 60_000, &reads).unwrap());
+    let next = sampled(&e, health::minute(t) + 60_000);
+    assert_eq!(next["page.reads:"], 3.0, "{next:?}");
+    assert!(next["page.read_ms:"] > 0.0, "{next:?}");
+    assert!(next["engine.cpu:"] >= 0.0, "{next:?}");
+    assert_eq!(next["queue.oldest:p"], 150_000.0, "{next:?}");
+    assert_eq!(next.len(), 6, "{next:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A round of the understanding that asks for tools writes nothing in the notebook: until the cell answers, the project's
 // notebook is empty, as at its architect's first work, and the cell's next round is still told it is the first work.
 // The cell's own inputs that have nothing are listed as none; the tool results, which every cell may have, only once

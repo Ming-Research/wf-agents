@@ -3006,7 +3006,8 @@ nothing muted; over more than one week, what got done shows week by week, and th
 the architects' stacked, to one scale. The view takes the whole width of the window, its tiles and tables spread across
 it. Everything is computed from what the database keeps, on one read connection. The view leaves out the engine's state
 and the slots in use, which the bar beside it shows, and how long slots stood empty while items could have started,
-which nothing kept tells, since neither the engine's pauses nor the slots held over time are kept. A work at the cell
+which nothing kept tells: the engine samples the slots held once a minute, but neither its pauses nor which items could
+start then are kept. A work at the cell
 that asks the architect says it waits for the architect's reply, in the list of works as here. The Spend view's address
 leads to it.
 

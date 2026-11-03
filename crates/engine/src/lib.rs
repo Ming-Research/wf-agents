@@ -205,6 +205,16 @@ struct Shared {
     sessions: sessions::Manager,
     github: Box<dyn GitHub>,
     hooks: Hooks,
+    /// The last sample of the health numbers this process took ([`Engine::beat`]).
+    beat: Mutex<Beaten>,
+}
+
+/// The last sample of the health numbers this process took: its minute, and the processor time the process had used by
+/// then, with when, from which the next sample's share is measured.
+#[derive(Debug, Default)]
+struct Beaten {
+    minute: Option<i64>,
+    cpu: Option<(f64, i64)>,
 }
 
 impl Shared {
@@ -231,6 +241,7 @@ impl Shared {
             sessions: sessions::Manager::new(agents),
             github,
             hooks,
+            beat: Mutex::default(),
         }
     }
 
@@ -1248,6 +1259,15 @@ impl Engine {
     /// until the loop reaps that step. A work paused or asked to stop whose step runs on holds its slot until the loop
     /// reaps that step too, since a pause takes effect when the round under way ends.
     pub fn slots_by_machine(&mut self) -> Result<BTreeMap<String, i64>, String> {
+        let holding = self.holding_slots()?;
+        Ok(sessions::worktree::free_slots(
+            &self.config.config.install.machines.hosts,
+            &holding,
+        ))
+    }
+
+    /// The machine of each work that holds a slot, as [`Engine::slots_by_machine`] counts them.
+    fn holding_slots(&mut self) -> Result<Vec<Option<String>>, String> {
         let mut works: BTreeSet<i64> = self.active()?.into_iter().collect();
         works.extend(self.stepping());
         let mut holding = Vec::new();
@@ -1257,10 +1277,46 @@ impl Engine {
                 holding.push(w.machine.clone());
             }
         }
-        Ok(sessions::worktree::free_slots(
-            &self.config.config.install.machines.hosts,
-            &holding,
-        ))
+        Ok(holding)
+    }
+
+    /// Takes the minute's sample of what the engine knows that no record holds, once a minute ([`health::record`]):
+    /// the processor time its process used since the sample before, as a share of the time since (none at its first
+    /// sample, which has nothing before it); the reads of the owner's page served since (`reads`, which the page's
+    /// server adds to); the works holding a slot and those with a step running; and how long the oldest matter of each
+    /// project's architect's queue has waited. Gives whether it took one: a time in a minute already sampled takes
+    /// none, and leaves the page's reads to the next.
+    pub fn beat(&mut self, now: i64, reads: &health::PageReads) -> Result<bool, String> {
+        let at = health::minute(now);
+        if lock(&self.shared.beat).minute == Some(at) {
+            return Ok(false);
+        }
+        let used = self.holding_slots()?.len() as i64;
+        let running = self.stepping().len() as i64;
+        let cpu = health::cpu_ms()?;
+        let since = {
+            let mut last = lock(&self.shared.beat);
+            last.minute = Some(at);
+            last.cpu.replace((cpu, now))
+        };
+        let (read, read_ms) = reads.take();
+        let beat = health::Beat {
+            at: now,
+            cpu: since
+                .filter(|(_, then)| now > *then)
+                .map(|(before, then)| (cpu - before) / (now - then) as f64),
+            reads: read,
+            read_ms,
+            slots_used: used,
+            works_running: running,
+        };
+        let projects = self.projects();
+        self.db
+            .write(Actor::Engine, |tx| {
+                health::record(tx, &beat, &projects).map_err(db::Error::Abort)
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(true)
     }
 
     /// The works whose wait is over and that wait on, holding no slot, until their machine has a slot free, as the last

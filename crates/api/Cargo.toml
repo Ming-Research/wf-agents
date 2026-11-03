@@ -10,6 +10,8 @@ publish.workspace = true
 config = { path = "../config" }
 db = { path = "../db" }
 flow = { path = "../flow" }
+# The health numbers: what a round came to, and the items made, which the System view shows.
+health = { path = "../health" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 # The session manager, for its keep-warm numbers, which the settings show.

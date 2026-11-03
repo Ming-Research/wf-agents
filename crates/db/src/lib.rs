@@ -115,13 +115,14 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0073.sql"),
     include_str!("../../../db/migrations/0074.sql"),
     include_str!("../../../db/migrations/0075.sql"),
+    include_str!("../../../db/migrations/0076.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
 pub const VERSION: i64 = 1 + MIGRATIONS.len() as i64;
 
 /// Tables whose rows are history themselves, or the engine's bookkeeping: changes to them are not tracked.
-const UNTRACKED: [&str; 11] = [
+const UNTRACKED: [&str; 12] = [
     "rounds",
     "tool_runs",
     "pings",
@@ -129,6 +130,7 @@ const UNTRACKED: [&str; 11] = [
     "round_calls",
     "round_measures",
     "guard_events",
+    "samples",
     "changes",
     "outbox",
     "contents",

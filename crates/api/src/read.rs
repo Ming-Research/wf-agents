@@ -91,16 +91,15 @@ fn text(r: &Row<'_>, i: usize) -> rusqlite::Result<Option<String>> {
     })
 }
 
-/// How a round ended, from what it took or why it was rejected. A failed run is recorded under `failed` with its
-/// kind, or, in a round recorded before the kinds were, under `error`.
+/// How a round ended, from what it took or why it was rejected, as the health numbers define it.
 pub(crate) fn outcome(transition: Option<&str>, rejected: Option<&Value>, ended: bool) -> RoundOutcome {
-    match (transition, rejected) {
-        (Some(_), _) => RoundOutcome::Took,
-        (None, Some(r)) if r.get("interrupted").is_some() => RoundOutcome::Interrupted,
-        (None, Some(r)) if r.get("failed").is_some() || r.get("error").is_some() => RoundOutcome::Failed,
-        (None, Some(_)) => RoundOutcome::SentBack,
-        (None, None) if ended => RoundOutcome::Ended,
-        (None, None) => RoundOutcome::Running,
+    match health::outcome(transition, rejected, ended) {
+        health::Outcome::Running => RoundOutcome::Running,
+        health::Outcome::Took => RoundOutcome::Took,
+        health::Outcome::SentBack => RoundOutcome::SentBack,
+        health::Outcome::Failed => RoundOutcome::Failed,
+        health::Outcome::Interrupted => RoundOutcome::Interrupted,
+        health::Outcome::Ended => RoundOutcome::Ended,
     }
 }
 
@@ -637,8 +636,8 @@ const ROUND: &str = "SELECT r.n, r.cell, s.line, r.transition, r.rejected, r.sta
 FROM rounds r JOIN works w ON w.id = r.work LEFT JOIN sessions s ON s.id = r.session";
 
 /// Where an agent's round spent its tokens, from its usage record as the command line reported it: the totals of the
-/// round's calls, and the context of its last call, with what each kind cost by the prices of `model`, the model it ran
-/// on; the context at its start is the caller's to find.
+/// round's calls, and the context it ended with as the health numbers define it, with what each kind cost by the
+/// prices of `model`, the model it ran on; the context at its start is the caller's to find.
 fn round_tokens(usage: Option<&Value>, model: Option<&str>) -> Option<RoundTokens> {
     let u = usage?.get("usage")?;
     let n = |v: &Value| v.as_i64().unwrap_or(0);
@@ -648,7 +647,6 @@ fn round_tokens(usage: Option<&Value>, model: Option<&str>) -> Option<RoundToken
         Some(c) => (n(&c["ephemeral_5m_input_tokens"]), n(&c["ephemeral_1h_input_tokens"])),
         None => (written, 0),
     };
-    let last = u["iterations"].as_array().and_then(|xs| xs.last());
     Some(RoundTokens {
         steps: n(&usage?["turns"]),
         input: n(&u["input_tokens"]),
@@ -657,8 +655,7 @@ fn round_tokens(usage: Option<&Value>, model: Option<&str>) -> Option<RoundToken
         written_1h,
         output: n(&u["output_tokens"]),
         thinking: n(&u["output_tokens_details"]["thinking_tokens"]),
-        context_end: last
-            .map(|c| n(&c["input_tokens"]) + n(&c["cache_read_input_tokens"]) + n(&c["cache_creation_input_tokens"])),
+        context_end: health::context_end(usage?),
         window: usage?["models"]
             .as_object()
             .and_then(|m| m.values().filter_map(|v| v["contextWindow"].as_i64()).max()),

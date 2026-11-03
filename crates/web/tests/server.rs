@@ -66,6 +66,7 @@ fn serve_project(name: &str, project: &str) -> Server {
         port: 0,
         bus: Arc::clone(&bus),
         control: Arc::clone(&control),
+        reads: Arc::default(),
     })
     .unwrap();
     Server {

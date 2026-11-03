@@ -13052,7 +13052,7 @@
             },
             {
               "name": "Project numbers",
-              "what": "The numbers the engine measures for the project, each now and earlier for the trend: the size of its records and of the files the project holds on main; items made, merged and cancelled week by week; what its items' works and its architect's works spent week by week, up to this work of the architect. The engine measures nothing else yet, and says so for a signal it does not measure",
+              "what": "The numbers the engine measures for the project, each as this work of the architect started and earlier for the trend: the size of its records and of the files the project holds on main; items made, merged and cancelled, and what its items' works and its architect's works spent, week by week; and the health numbers, each with what it is and its unit, for the last 7 days and the 7 days before, split by cell, by why or by graph where it can be: merges that broke main, defects found after a merge, the context an agent's round ended with (the median and the largest), the part of the agents' rounds sent back and of their runs that failed, how long the owner's words waited for the architect, how often and how long works stood stopped by why, the engine's CPU, how long an item took from its first round to its merge and how long its works waited for CI, the items made, merged and cancelled, what was spent, the page's reads, the slots held, the works running and how long the oldest matter of the queue waited. A number that had nothing to measure in a period says not measured and why, and those nothing records yet are listed under not_measured with why",
               "from": [
                 {
                   "engine": "numbers"

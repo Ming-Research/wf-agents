@@ -497,7 +497,8 @@ fn merges(conn: &Connection) -> Result<Vec<Merge>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// Each item made, and each item cancelled with why, as the changes to the items recorded when: the earliest first.
+/// Each item made here, as the health numbers count them, and each item cancelled with why, as the changes to the items
+/// recorded when: the earliest first.
 fn item_events(conn: &Connection) -> Result<(Vec<ItemAt>, Vec<ItemAt>)> {
     let read = |sql: &str| -> Result<Vec<ItemAt>> {
         let mut st = conn.prepare(sql)?;
@@ -511,11 +512,19 @@ fn item_events(conn: &Connection) -> Result<(Vec<ItemAt>, Vec<ItemAt>)> {
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     };
-    let made = read(
-        "SELECT i.id, i.title, min(c.at), NULL FROM items i
-         JOIN changes c ON c.table_name = 'items' AND c.row_key = json_object('id', i.id)
-         WHERE c.old_row IS NULL GROUP BY i.id ORDER BY 3",
-    )?;
+    let mut title = conn.prepare("SELECT title FROM items WHERE id = ?1")?;
+    let made = health::items_made(conn, None, i64::MIN, i64::MAX)
+        .map_err(Error::Failed)?
+        .into_iter()
+        .map(|(item, at)| {
+            Ok(ItemAt {
+                item,
+                title: title.query_row([item], |r| r.get(0))?,
+                at,
+                why: None,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
     let cancelled = read(
         "SELECT i.id, i.title, min(c.at), i.cancelled FROM items i
          JOIN changes c ON c.table_name = 'items' AND c.row_key = json_object('id', i.id)

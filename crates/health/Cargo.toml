@@ -1,0 +1,16 @@
+[package]
+name = "health"
+description = "The system's health numbers: what is measured, each measure defined once, its series over any period at any step, and the samples the engine takes each minute."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+db = { path = "../db" }
+# The CPU time the engine's process has used, which the engine samples each minute: getrusage through a safe call.
+nix = { version = "0.31.3", default-features = false, features = ["resource"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+
+[lints]
+workspace = true
