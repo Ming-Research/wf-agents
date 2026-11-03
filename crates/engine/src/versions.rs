@@ -301,12 +301,17 @@ mod tests {
         }
     }
 
-    /// A return of an agent's cell of the architect's graph, as a round stores it.
+    /// A return of an agent's cell of the architect's graph, as a round stores it: the pick of the next matter, on a
+    /// line of its own, tells the owner nothing.
     fn handed_in(n: i64, cell: &str, outcome: Value) -> Handed {
+        let mut output = json!({ "outcome": outcome, "progress": "p", "flow_feedback": "none" });
+        if cell != "Q1" {
+            output["tell_owner"] = json!([]);
+        }
         Handed {
             round: RoundId::new(1, n),
             cell: cell.into(),
-            output: json!({ "outcome": outcome, "tell_owner": [], "progress": "p", "flow_feedback": "none" }),
+            output,
         }
     }
 

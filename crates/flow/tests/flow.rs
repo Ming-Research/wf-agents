@@ -332,9 +332,16 @@ fn a_group_is_picked_by_the_pick_answered_for_by_two_cells_and_taken_apart_by_th
         let row = g.cell(id).unwrap().rows.iter().find(|r| r.name == "ask_owner").unwrap();
         assert!(row.actions.iter().any(|d| d.name() == "dissolve_group"), "{id}");
     }
-    let ret = |outcome: Value| serde_json::json!({ "outcome": outcome, "tell_owner": [], "progress": "p", "flow_feedback": "none" });
+    // The pick, on a line of its own, tells the owner nothing; the architect's own cells do.
+    let ret = |cell: &str, outcome: Value| {
+        let mut r = serde_json::json!({ "outcome": outcome, "progress": "p", "flow_feedback": "none" });
+        if cell != "Q1" {
+            r["tell_owner"] = serde_json::json!([]);
+        }
+        r
+    };
     let takes = |cell: &str, outcome: Value| -> Result<String, String> {
-        g.take(cell, &ret(outcome), &Map::new()).map(|r| r.name.clone())
+        g.take(cell, &ret(cell, outcome), &Map::new()).map(|r| r.name.clone())
     };
     let refused = |cell: &str, outcome: Value| takes(cell, outcome).unwrap_err().contains("does not fit the schema");
     // The pick names others, or none.
