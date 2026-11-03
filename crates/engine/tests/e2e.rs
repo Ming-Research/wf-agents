@@ -877,6 +877,21 @@ fn scripts() -> BTreeMap<&'static str, Script> {
         "D11",
         Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "not_needed")], Vec::new())),
     );
+    // The owner's words of a batch settle nothing to record, a row for each of the matters it was given.
+    s.insert(
+        "B5",
+        Box::new(|r: &Request, _: usize| {
+            let given = given_value(&r.prompt, "·engine·batch_words").unwrap_or(json!({}));
+            let rows: Vec<Value> = given
+                .as_object()
+                .into_iter()
+                .flat_map(|o| o.keys())
+                .filter_map(|k| k.trim_start_matches('#').parse::<i64>().ok())
+                .map(|m| json!({ "matter": m, "verdict": "nothing", "why": "Nothing to record." }))
+                .collect();
+            (Vec::new(), vec![("outcome.looked", json!(rows))])
+        }),
+    );
     // Implementing: a work's first round changes the code and asks for ci; the next hands in the end. Which it is the
     // work's branch says, by the commit the first made, since several works may implement, each in its own worktree:
     // the feature, or, when main holds it already from another work, a part of its own.
@@ -2496,6 +2511,89 @@ fn a_work_whose_earlier_returns_still_fit_moves() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// A round that takes a row keeps the counter the row counts (`rounds.counts`), by the flow the work runs on: the
+// implementer's asking for tools gives `tool_requests`, a row that counts nothing and a round that took no row give
+// none. The expected counter of each round is read from the compiled flow, by its cell and the row it took.
+// The views read the counter from the round, not from the version the work is on now.
+#[test]
+fn a_round_keeps_the_counter_of_the_row_it_took() {
+    let s = setup("round-counts");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "X1");
+    let log = said.lock().unwrap().join("\n");
+    let (work, _, _) = state(&e, item).unwrap();
+    let flow = e.flow(e.flow_now).unwrap();
+    let engineer = flow.graphs.iter().find(|g| g.name == engine::ENGINEER).unwrap();
+    let rounds = engine::query_json(
+        e.db.conn(),
+        "SELECT n, cell, transition, counts, rejected FROM rounds WHERE work = ?1 ORDER BY n",
+        &[&work],
+        1000,
+    )
+    .unwrap();
+    let (mut counting, mut counting_nothing) = (0, 0);
+    for r in &rounds {
+        // A round that ended in no return took a shared row, which the test of `finish_round` checks.
+        if !r["rejected"].is_null() {
+            continue;
+        }
+        let row = r["cell"].as_str().zip(r["transition"].as_str()).map(|(cell, row)| {
+            engineer
+                .cells
+                .iter()
+                .find(|c| c.id == cell)
+                .and_then(|c| c.rows.iter().find(|x| x.name == row))
+                .unwrap_or_else(|| panic!("round {r}: the flow has no row {row} at cell {cell}"))
+        });
+        let expected = row.and_then(|x| x.counts.as_deref());
+        assert_eq!(r["counts"].as_str(), expected, "round {r}\n{log}");
+        match (row, expected) {
+            (Some(_), None) => counting_nothing += 1,
+            (Some(_), Some(_)) => counting += 1,
+            (None, _) => {}
+        }
+    }
+    let tools: Vec<&Value> = rounds.iter().filter(|r| r["transition"] == "tools").collect();
+    assert_eq!(tools.len(), 1, "{rounds:?}\n{log}");
+    assert_eq!(tools[0]["counts"], "tool_requests", "{log}");
+    assert!(counting >= 1 && counting_nothing >= 1, "{rounds:?}");
+    // And it keeps it whatever flow version its work is on afterwards: a work put on a version in which the same row
+    // counts another counter (`tools` as `asks`) keeps the counter of the round it took before, and the counters the
+    // views give do not change with it.
+    let counters = |e: &Engine| -> Vec<(String, i64)> {
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT counter, times FROM work_counters WHERE work = ?1 AND counter IN ('asks', 'tool_requests')
+                     ORDER BY counter",
+                )
+                .unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let asked = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row("SELECT asks FROM work_asking WHERE work = ?1", [work], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(counters(&e), [("tool_requests".to_string(), 1)], "{log}");
+    assert_eq!(asked(&e), 0);
+    older(&mut e, &[work], |g| {
+        let row = g
+            .cells
+            .iter_mut()
+            .find(|c| c.id == "I1")
+            .and_then(|c| c.rows.iter_mut().find(|r| r.name == "tools"))
+            .unwrap();
+        row.counts = Some("asks".into());
+    });
+    assert_eq!(counters(&e), [("tool_requests".to_string(), 1)], "{log}");
+    assert_eq!(asked(&e), 0);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A work on an older flow version whose cell is unchanged, but one of whose earlier returns its cell's schema in the
 // version the engine runs does not take, is taken over when it goes on: it ends, saying the round and where the return
 // does not fit, and a new work takes its item over.
@@ -2644,6 +2742,8 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
     assert_eq!(works[0].5, None);
     let answer = api::Answer {
         text: "Keep the old name.".into(),
+        speaker: "owner".into(),
+        relayed: None,
         why: None,
         reply: None,
         to: None,
@@ -4739,6 +4839,8 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
         .unwrap();
     let answer = api::Answer {
         text: "Keep the old name.".into(),
+        speaker: "owner".into(),
+        relayed: None,
         why: None,
         reply: None,
         to: None,
@@ -5041,7 +5143,7 @@ fn an_item(e: &mut Engine) -> i64 {
 
 /// The owner says something to project p's architect in their one-to-one.
 fn say(e: &mut Engine, text: &str) {
-    db::say_to_architect(&mut e.db, "p", None, None, text, &[]).unwrap();
+    db::say_to_architect(&mut e.db, "p", None, None, text, &[], db::Speaker::Owner).unwrap();
 }
 
 // The owner's words start a work of project p's architect, which goes once through the whole graph: it starts, finds
@@ -5087,7 +5189,16 @@ fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
-    db::say_to_architect(&mut e.db, "p", None, None, "Make the parser's item clearer.", &[]).unwrap();
+    db::say_to_architect(
+        &mut e.db,
+        "p",
+        None,
+        None,
+        "Make the parser's item clearer.",
+        &[],
+        db::Speaker::Owner,
+    )
+    .unwrap();
     let started = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(started.cell.as_deref(), Some("S1"), "{log}");
@@ -5106,7 +5217,8 @@ fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
     assert_eq!(
         path_of(&e, arch),
         [
-            "S1", "U1", "Q0", "Q2", "H8", "B1", "Q0", "Q2", "P1", "B1", "Q0", "Q2", "N1", "B1", "B2", "B4", "Q0", "E2"
+            "S1", "U1", "Q0", "Q2", "H8", "B1", "Q0", "Q2", "P1", "B1", "Q0", "Q2", "N1", "B1", "B5", "B2", "B4", "Q0",
+            "E2"
         ],
         "{log}"
     );
@@ -5122,8 +5234,11 @@ fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
         rows[10..13].iter().map(|r| r.as_deref()).collect::<Vec<_>>(),
         [Some("head"), Some("to_plan"), Some("fits")]
     );
-    assert_eq!(rows[13].as_deref(), Some("review"));
-    assert_eq!(rows[14].as_deref(), Some("ok"));
+    // The batch's end goes to the recording of the owner's decisions, which has none and sends the change collected to
+    // its review.
+    assert_eq!(rows[13].as_deref(), Some("decisions"));
+    assert_eq!(rows[14].as_deref(), Some("changes"));
+    assert_eq!(rows[15].as_deref(), Some("ok"));
     // Its reply is its message in the owner's one-to-one.
     let replied: String =
         e.db.conn()
@@ -5332,7 +5447,7 @@ fn a_resumed_session_goes_from_starting_to_the_queue() {
     let log = said.lock().unwrap().join("\n");
     assert_eq!(
         path_of(&e, second),
-        ["S1", "Q0", "Q2", "H8", "B1", "B4", "Q0", "E2"],
+        ["S1", "Q0", "Q2", "H8", "B1", "B5", "B4", "Q0", "E2"],
         "{log}"
     );
     let sessions: Vec<(String, String)> = {
@@ -6794,8 +6909,8 @@ fn an_ask_holds_only_its_matter_and_the_answer_goes_back_to_the_cell_that_asked(
     );
     // The owner replies with the question ticked: the matter is back, an architect work starts, and the matter goes
     // back to the cell that asked.
-    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[]).unwrap();
-    assert!(api::reply_to_question(&mut e.db, "p", ask, "Again.", &[]).is_err());
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[], db::Speaker::Owner).unwrap();
+    assert!(api::reply_to_question(&mut e.db, "p", ask, "Again.", &[], db::Speaker::Owner).is_err());
     let again = e.step(None).unwrap().work.unwrap();
     assert_ne!(again, arch);
     assert!(
@@ -6873,6 +6988,8 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
     queue(&mut e, "Look at the queue.");
     let yes = api::Answer {
         text: "Yes, hold it.".into(),
+        speaker: "owner".into(),
+        relayed: None,
         why: None,
         reply: None,
         to: None,
@@ -6966,7 +7083,7 @@ fn a_question_just_put_waits_at_the_queue_for_the_owner_s_reply() {
         ]
     );
     let ask = parked_by(&e, held);
-    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[], db::Speaker::Owner).unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
         "{}",
@@ -7061,7 +7178,7 @@ fn the_owner_s_words_end_the_wait_and_a_reply_to_a_closed_question_is_the_owner_
     })
     .unwrap();
     assert_eq!(pending(&e), 0);
-    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[], db::Speaker::Owner).unwrap();
     let words: (String, String) =
         e.db.conn()
             .query_row(
@@ -7203,7 +7320,7 @@ fn a_new_session_queues_the_check_and_the_plan_and_takes_them_after_the_wait() {
             ("make_plan".to_string(), false, vec![("U1".to_string(), understood)])
         ]
     );
-    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Yes, hold it.", &[], db::Speaker::Owner).unwrap();
     assert!(
         steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
         "{}",
@@ -7379,7 +7496,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
         said.lock().unwrap().join("\n")
     );
     let (research, _) = question_now(&e);
-    api::reply_to_question(&mut e.db, "p", research, "Yes, research it.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", research, "Yes, research it.", &[], db::Speaker::Owner).unwrap();
     assert!(
         steps_until(&mut e, 30, |e| waited(e) == 2 && waits_at_queue(e, arch)),
         "{}",
@@ -7396,7 +7513,15 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
             .unwrap();
     assert_eq!((&pinned["kind"], &pinned["cell"]), (&json!("question"), &json!("P2")));
     assert!(pinned.get("policy").is_none(), "{pinned}");
-    api::reply_to_question(&mut e.db, "p", approval, "Make the why shorter.", &[]).unwrap();
+    api::reply_to_question(
+        &mut e.db,
+        "p",
+        approval,
+        "Make the why shorter.",
+        &[],
+        db::Speaker::Owner,
+    )
+    .unwrap();
     assert!(
         steps_until(&mut e, 30, |e| waited(e) == 3 && waits_at_queue(e, arch)),
         "{}",
@@ -7423,7 +7548,7 @@ fn a_new_policy_is_written_by_the_owner_s_reply_and_takes_effect_once_approved()
         Ok(())
     })
     .unwrap();
-    api::reply_to_question(&mut e.db, "p", again, " approved ", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", again, " approved ", &[], db::Speaker::Owner).unwrap();
     assert!(
         steps_until(&mut e, 90, |e| architect_work_done(e, arch)),
         "{}",
@@ -7538,6 +7663,7 @@ fn the_reply_to_the_owner_s_words_in_a_work_s_group_is_in_that_group() {
         Some(work),
         "Do the tests run on every push?",
         &[],
+        db::Speaker::Owner,
     )
     .unwrap();
     let arch = e.step(None).unwrap().work.unwrap();
@@ -7702,7 +7828,7 @@ fn a_matter_at_the_head_asked_for_twice_is_queued_once_with_both_whys() {
         path_of(&e, arch),
         [
             "S1", "U1", "Q0", "Q2", "H8", "B1", "Q0", "Q2", "H8", "B1", "Q0", "Q2", "P1", "B1", "Q0", "Q2", "N1", "B1",
-            "B4", "Q0", "E2"
+            "B5", "B4", "Q0", "E2"
         ],
         "{log}"
     );
@@ -8357,7 +8483,8 @@ fn advance_until(e: &mut Engine, work: i64, done: impl Fn(&Engine) -> bool) {
 // pass, and the work goes on by what the design recommends, once and not again; the merge waits for its answer, and the
 // owner is told which question holds it. The architect answers by the path an engineer's question takes: the answer is
 // kept in the matter, reaches the engineer as an interjection, which takes a work standing at the merge's judge to
-// choose the way on, and the merge then goes on.
+// choose the way on, and the merge then goes on. The matter keeps the time the answer came, which a decision quoting
+// the answer is dated by: none before it, and not earlier than the question after it.
 #[test]
 fn an_open_question_goes_to_the_architect_holds_the_merge_and_its_answer_reaches_the_engineer() {
     let s = setup("open-question");
@@ -8381,6 +8508,12 @@ fn an_open_question_goes_to_the_architect_holds_the_merge_and_its_answer_reaches
     assert_eq!(asked.len(), 1, "{}", said.lock().unwrap().join("\n"));
     let matter = asked[0].0;
     assert_eq!((asked[0].1.as_str(), asked[0].2.as_deref()), ("Which table?", None));
+    // A question not answered has no answer time, which a decision quoting the answer is dated by.
+    assert_eq!(matter_body(&e, matter).get("answered_at"), None);
+    let raised: i64 =
+        e.db.conn()
+            .query_row("SELECT at FROM architect_matters WHERE id = ?1", [matter], |r| r.get(0))
+            .unwrap();
     let body: String =
         e.db.conn()
             .query_row("SELECT body FROM architect_matters WHERE id = ?1", [matter], |r| {
@@ -8424,6 +8557,9 @@ fn an_open_question_goes_to_the_architect_holds_the_merge_and_its_answer_reaches
     let body = matter_body(&e, matter);
     assert_eq!(body["answered_by"], "architect", "{body}");
     assert!(body.get("owner_ask").is_none(), "{body}");
+    // The time of the answer is the one it came at, set when the architect replied, not the one the question was raised.
+    let came = body["answered_at"].as_i64().expect("the answer's time is kept");
+    assert!(came >= raised, "{came} {raised}");
     let cleared = |e: &mut Engine| ended_at(e, item, "M1").iter().any(|x| x.0.as_deref() == Some("clear"));
     assert!(steps_until(&mut e, 60, cleared), "{}", said.lock().unwrap().join("\n"));
     let way_on = message_at(&e, work, "A4", true);
@@ -8565,7 +8701,7 @@ fn an_open_question_pinned_for_the_owner_holds_the_merge_until_the_owner_has_ans
         ended_at(&e, item, "M1")
     );
     // The owner replies with the question ticked: the matter is back at the ways with the owner's reply.
-    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[], db::Speaker::Owner).unwrap();
     let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
     assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
     let log = said.lock().unwrap().join("\n");
@@ -8757,7 +8893,7 @@ fn an_open_question_pinned_twice_is_answered_by_the_owner_s_last_words_and_their
         asks_the_owner(&format!("{question} See [the design]({link})."))
     });
     let (mut e, said, item, work, matter, first) = pinned(&s, ways, Vec::new());
-    api::reply_to_question(&mut e.db, "p", first, "Take one table.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", first, "Take one table.", &[], db::Speaker::Owner).unwrap();
     // The ways ask again: the matter is parked by another ask, while the merge still has no answer.
     let again = |e: &mut Engine| parked_for(e, matter).is_some_and(|p| p.0 != first);
     assert!(steps_until(&mut e, 80, again), "{}", said.lock().unwrap().join("\n"));
@@ -8773,7 +8909,15 @@ fn an_open_question_pinned_twice_is_answered_by_the_owner_s_last_words_and_their
     };
     assert_eq!(pending(&e), [second]);
     let image = api::images(&two_images()[..1]).unwrap();
-    api::reply_to_question(&mut e.db, "p", second, "Two tables after all.", &image).unwrap();
+    api::reply_to_question(
+        &mut e.db,
+        "p",
+        second,
+        "Two tables after all.",
+        &image,
+        db::Speaker::Owner,
+    )
+    .unwrap();
     let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
     assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
     let log = said.lock().unwrap().join("\n");
@@ -8853,7 +8997,7 @@ fn a_question_pinned_for_a_work_that_ended_is_pending_no_more() {
     assert_eq!(pending, 0, "{log}");
     let now = db::now();
     assert_eq!(db::question_waited_on(e.db.conn(), "p", 300_000, now).unwrap(), None);
-    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[], db::Speaker::Owner).unwrap();
     assert_eq!(matter_body(&e, matter).get("answer"), None, "{log}");
     assert_eq!(matter_body(&e, matter).get("answered_by"), None, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
@@ -8888,7 +9032,7 @@ fn a_reply_held_for_the_batch_review_keeps_the_owner_s_words() {
         (Vec::new(), vec![("outcome.review", json!([ok]))])
     });
     let (mut e, said, item, work, matter, ask) = pinned(&s, ways, vec![("B2", review)]);
-    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, "Take one table.", &[], db::Speaker::Owner).unwrap();
     let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
     assert!(steps_until(&mut e, 80, answered), "{}", said.lock().unwrap().join("\n"));
     let log = said.lock().unwrap().join("\n");
@@ -8978,13 +9122,13 @@ fn the_owner_s_words_about_dropped_changes_are_no_answer_to_a_pinned_open_questi
         )
     });
     let (mut e, said, item, work, matter, first) = pinned(&s, ways, vec![("B2", review), ("B3", revise)]);
-    api::reply_to_question(&mut e.db, "p", first, "Take one table.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", first, "Take one table.", &[], db::Speaker::Owner).unwrap();
     // The review drops the changes and asks the owner about them in another ask, which parks the matter.
     let dropped = |e: &mut Engine| parked_for(e, matter).is_some_and(|p| p.0 != first);
     assert!(steps_until(&mut e, 120, dropped), "{}", said.lock().unwrap().join("\n"));
     let second = parked_for(&e, matter).unwrap().0;
     assert_eq!(open_questions(&e, work)[0].2, None);
-    api::reply_to_question(&mut e.db, "p", second, "Leave them out.", &[]).unwrap();
+    api::reply_to_question(&mut e.db, "p", second, "Leave them out.", &[], db::Speaker::Owner).unwrap();
     let answered = |e: &mut Engine| open_questions(e, work)[0].2.is_some();
     assert!(
         steps_until(&mut e, 120, answered),
@@ -9414,7 +9558,16 @@ fn the_architect_s_look_up_of_the_history_is_given_the_rule_for_gathering_it() {
     let (mut e, said) = engine(&s, agents);
     quiet(&mut e);
     an_item(&mut e);
-    db::say_to_architect(&mut e.db, "p", None, None, "Why is the parser's item so?", &[]).unwrap();
+    db::say_to_architect(
+        &mut e.db,
+        "p",
+        None,
+        None,
+        "Why is the parser's item so?",
+        &[],
+        db::Speaker::Owner,
+    )
+    .unwrap();
     let arch = e.step(None).unwrap().work.unwrap();
     let looked_up = |e: &mut Engine| -> bool {
         let n: i64 =
@@ -10558,6 +10711,8 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
             let mut db = engine::database::open(&data).unwrap();
             let said = api::WorkSaid {
                 text: "Look at these two.".into(),
+                speaker: "owner".into(),
+                relayed: None,
                 to: None,
                 question: None,
                 design_card: None,
@@ -10673,7 +10828,16 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
     quiet(&mut e);
     an_item(&mut e);
     let images = api::images(&two_images()).unwrap();
-    db::say_to_architect(&mut e.db, "p", None, None, "Look at these two.", &images).unwrap();
+    db::say_to_architect(
+        &mut e.db,
+        "p",
+        None,
+        None,
+        "Look at these two.",
+        &images,
+        db::Speaker::Owner,
+    )
+    .unwrap();
     let arch = e.step(None).unwrap().work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
@@ -10703,7 +10867,15 @@ fn the_owner_s_images_reach_the_architect_once_in_a_session() {
         media_type: "image/gif".into(),
         data: db::attachments::base64(b"GIF89a the left one"),
     }];
-    api::reply_to_question(&mut e.db, "p", ask, "The left one.", &api::images(&reply).unwrap()).unwrap();
+    api::reply_to_question(
+        &mut e.db,
+        "p",
+        ask,
+        "The left one.",
+        &api::images(&reply).unwrap(),
+        db::Speaker::Owner,
+    )
+    .unwrap();
     let again = e.step(None).unwrap().work.unwrap();
     assert!(
         steps_until(&mut e, 40, |e| architect_work_done(e, again)),
@@ -11207,7 +11379,8 @@ fn a_notebook_past_its_size_is_sent_back_saying_which_section() {
 // section is an input of its own of the architect's cells, so that the next cell's session is given a section that
 // changed whole and one that did not only by reference. The answer to the owner's words keeps something in the other
 // section, which the check of the policy after it is given whole while it is referred to what the project is now; the
-// plan, made again after a batch, is given the plan it made before.
+// plan, made again after a batch, is given the plan it made before, and the plan is given whole to the first cell of
+// the batch's end that reads it.
 #[test]
 fn the_notebook_is_written_where_it_is_learned_and_given_whole_once_changed() {
     let s = setup("notebook-given");
@@ -11298,13 +11471,20 @@ fn the_notebook_is_written_where_it_is_learned_and_given_whole_once_changed() {
             .contains("The owner looks at the parser first."),
         "{check}"
     );
-    // The plan made again is given the plan before, which the rethink after the batch was given whole.
+    // The plan made again is given the plan before, which the first cell after the batch's end that reads it, the
+    // recording of the decisions, was given whole, and the rethink after that only by reference.
     let (first, again) = (input_at(&e, arch, "N1", false), input_at(&e, arch, "N1", true));
     assert_eq!(given_ending(&first, "·engine·notebook_plan"), None, "{first}");
-    let rethink = input_at(&e, arch, "B4", false);
-    assert_eq!(given_ending(&rethink, "·engine·notebook_plan"), Some(true), "{rethink}");
+    let record = input_at(&e, arch, "B5", false);
+    assert_eq!(given_ending(&record, "·engine·notebook_plan"), Some(true), "{record}");
     assert!(
-        rethink["message"].as_str().unwrap().contains("The plan at round 1."),
+        record["message"].as_str().unwrap().contains("The plan at round 1."),
+        "{record}"
+    );
+    let rethink = input_at(&e, arch, "B4", false);
+    assert_eq!(
+        given_ending(&rethink, "·engine·notebook_plan"),
+        Some(false),
         "{rethink}"
     );
     assert_eq!(given_ending(&again, "·engine·notebook_plan"), Some(false), "{again}");
@@ -12009,6 +12189,413 @@ fn an_item_title_over_twenty_characters_is_sent_back() {
         .collect();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(titles, ["Parse the input first", "Let match take integers"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The dependencies between items, each as the item and the item it depends on, in order.
+fn links_of(e: &Engine) -> Vec<(i64, i64)> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT item, depends_on FROM item_links ORDER BY item, depends_on")
+            .unwrap();
+    st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+// An architect's change removes a dependency, and the review of the batch lets it be made: the item no longer depends
+// on the other, the dependency it keeps stands, and the changes are made. A dependency the batch makes and removes again
+// is not there once the batch is made: each change is checked against what the earlier ones leave.
+#[test]
+fn a_batch_removes_a_dependency_and_the_review_makes_it() {
+    let s = setup("remove-dependency");
+    let mut agents = scripts();
+    // The items are made below, numbered 1 to 4 in order: the parser, the lexer, the tokens and one to do later. The
+    // parser depends on the lexer and on the tokens; the batch removes the first, and makes and removes one on item 4.
+    let changes = json!([
+        { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "The parser needs nothing the lexer hands in." },
+        { "kind": "add_dependency", "item": "1", "on": "4", "dependency": "blocking", "reason": "It seemed to need it." },
+        { "kind": "remove_dependency", "item": "1", "on": "4", "reason": "It does not, on a second look." },
+    ]);
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes.clone() }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
+            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2), ok(3)]))])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Name tokens");
+    let later = a_ready_item(&mut e, "Do it later");
+    assert_eq!((parser, lexer, tokens, later), (1, 2, 3, 4));
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+        db::add_dependency(tx, parser, tokens, "its tokens", "parallel")?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "The parser needs nothing the lexer hands in.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(links_of(&e), [(parser, tokens)], "{log}");
+    let states: Vec<String> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT state FROM architect_item_changes ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect()
+    };
+    assert_eq!(states, ["made", "made", "made"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A change that removes a dependency the items do not have then is sent back, with every other reason, and nothing is
+// made: one removed twice, one never made, one a cancel of the batch took away, and one of an item another project's
+// architect changes, which is the project's own business to remove. A dependency made after a cancel still closes a
+// cycle with a dependency the cancel took away, since the write may leave it.
+#[test]
+fn a_removal_of_a_dependency_there_is_not_is_sent_back_and_nothing_is_made() {
+    let s = setup("remove-dependency-refused");
+    let mut agents = scripts();
+    // The items are numbered 1 to 5 in order: the parser, the lexer, the tokens, one to do later and one of project q.
+    // The parser depends on the lexer and the tokens, and the item of q on the lexer.
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let changes = json!([
+                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
+                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
+                { "kind": "remove_dependency", "item": "1", "on": "4", "reason": "r" },
+                { "kind": "cancel", "item": "3", "goes": "Not needed.", "reason": "r" },
+                { "kind": "remove_dependency", "item": "1", "on": "3", "reason": "r" },
+                { "kind": "remove_dependency", "item": "5", "on": "2", "reason": "r" },
+                // The tokens depend on item 4, and the cancel of the tokens takes that away only when no work goes on
+                // them: the write may leave it, so this closes a cycle all the same.
+                { "kind": "add_dependency", "item": "4", "on": "3", "dependency": "blocking", "reason": "r" },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Name tokens");
+    let later = a_ready_item(&mut e, "Do it later");
+    let other =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('q', 'Lex too', 'Missing.', 'Needed.', 'change', 'l')",
+                [],
+            )?;
+            let other = tx.last_insert_rowid();
+            db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+            db::add_dependency(tx, parser, tokens, "its tokens", "parallel")?;
+            db::add_dependency(tx, other, lexer, "its lexer", "parallel")?;
+            db::add_dependency(tx, tokens, later, "its later part", "parallel")?;
+            Ok(other)
+        })
+        .unwrap();
+    assert_eq!((parser, lexer, tokens, other), (1, 2, 3, 5));
+    say(&mut e, "Take away what the parser does not need.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rejected = why_sent_back(&e, arch, "H8");
+    assert_eq!(rejected.len(), 1, "{rejected:?}\n{log}");
+    for reason in [
+        "item change 2 (remove_dependency): item 1 does not depend on item 2",
+        "item change 3 (remove_dependency): item 1 does not depend on item 4",
+        "item change 5 (remove_dependency): item 1 does not depend on item 3",
+        "item change 6 (remove_dependency): item 5 is not of p",
+    ] {
+        assert!(rejected[0].contains(reason), "{reason}\n{rejected:?}");
+    }
+    assert!(
+        rejected[0].contains("the items' dependencies close a cycle"),
+        "{rejected:?}"
+    );
+    // The first change is sound, and the cancel is: neither is named.
+    assert!(!rejected[0].contains("item change 1 "), "{rejected:?}");
+    assert!(!rejected[0].contains("item change 4 "), "{rejected:?}");
+    // Nothing was made: the dependencies stand and the item is not cancelled.
+    assert_eq!(links_of(&e), [(1, 2), (1, 3), (3, 4), (5, 2)], "{log}");
+    let cancelled: Option<String> =
+        e.db.conn()
+            .query_row("SELECT cancelled FROM items WHERE id = 3", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(cancelled, None, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The review drops the removal of a dependency and keeps the change that reverses it. Each was valid in the state the
+// batch gave, but with the removal left out the reversal closes a cycle: the reversal alone is left out, saying why, the
+// batch is made, and the work of the architect does not fail.
+#[test]
+fn a_reversal_is_left_out_when_the_review_drops_the_removal_it_needed() {
+    let s = setup("remove-dependency-dropped");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, _: usize| {
+            // The parser (1) depends on the lexer (2); the batch turns that around.
+            let changes = json!([
+                { "kind": "remove_dependency", "item": "1", "on": "2", "reason": "r" },
+                { "kind": "add_dependency", "item": "2", "on": "1", "dependency": "blocking", "reason": "r" },
+                { "kind": "hold", "item": "1", "reason": "Held." },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let rows = json!([
+                { "change": 1, "verdict": "drop", "why": "The parser needs the lexer." },
+                { "change": 2, "verdict": "ok", "why": "Sound." },
+                { "change": 3, "verdict": "ok", "why": "Sound." },
+            ]);
+            (Vec::new(), vec![("outcome.review", rows)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")
+    })
+    .unwrap();
+    say(&mut e, "Turn the parser and the lexer around.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rows = engine::query_json(
+        e.db.conn(),
+        "SELECT state, json_extract(outcome, '$.what') AS why FROM architect_item_changes ORDER BY id",
+        &[],
+        10,
+    )
+    .unwrap();
+    let states: Vec<&str> = rows.iter().map(|r| r["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["dropped", "dropped", "made"], "{rows:?}\n{log}");
+    let why = rows[1]["why"].as_str().unwrap();
+    assert!(why.contains("item 2 cannot depend on 1"), "{why}");
+    // The dependency stands, and the change after the refused one was made.
+    assert_eq!(links_of(&e), [(parser, lexer)], "{log}");
+    let held: Option<String> =
+        e.db.conn()
+            .query_row("SELECT held FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(held.as_deref(), Some("Held."), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The review drops the removal of a dependency and keeps a merge that the removal made room for. With the removal left
+// out, the merge would make an item depend on the item that depends on it: the merge alone is left out, saying why, and
+// nothing of it stays (the absorbed item keeps its dependency and is not cancelled), the change after it is made, and
+// the work of the architect does not fail.
+#[test]
+fn a_merge_is_left_out_whole_when_the_review_drops_the_removal_it_needed() {
+    let s = setup("merge-dropped");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, _: usize| {
+            // The parser (1) depends on the lexer (2), and the tokens (3) on the parser.
+            let changes = json!([
+                { "kind": "remove_dependency", "item": "3", "on": "1", "reason": "r" },
+                { "kind": "merge", "keep": "3", "absorbed": ["2"], "reason": "The lexer is the tokens." },
+                { "kind": "hold", "item": "1", "reason": "Held." },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let rows = json!([
+                { "change": 1, "verdict": "drop", "why": "The tokens need the parser." },
+                { "change": 2, "verdict": "ok", "why": "Sound." },
+                { "change": 3, "verdict": "ok", "why": "Sound." },
+            ]);
+            (Vec::new(), vec![("outcome.review", rows)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Make the tokens");
+    assert_eq!((parser, lexer, tokens), (1, 2, 3));
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+        db::add_dependency(tx, tokens, parser, "its parser", "parallel")
+    })
+    .unwrap();
+    say(&mut e, "Merge the lexer into the tokens.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rows = engine::query_json(
+        e.db.conn(),
+        "SELECT state, json_extract(outcome, '$.what') AS why FROM architect_item_changes ORDER BY id",
+        &[],
+        10,
+    )
+    .unwrap();
+    let states: Vec<&str> = rows.iter().map(|r| r["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["dropped", "dropped", "made"], "{rows:?}\n{log}");
+    let why = rows[1]["why"].as_str().unwrap();
+    assert!(why.contains("cannot depend on"), "{why}");
+    // Both dependencies stand, the lexer is not cancelled, and the change after the refused one was made.
+    assert_eq!(links_of(&e), [(parser, lexer), (tokens, parser)], "{log}");
+    let cancelled: Option<String> =
+        e.db.conn()
+            .query_row("SELECT cancelled FROM items WHERE id = 2", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(cancelled, None, "{log}");
+    let held: Option<String> =
+        e.db.conn()
+            .query_row("SELECT held FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(held.as_deref(), Some("Held."), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work that waits for an item at the merge's judge (`M1`) goes on when the dependency on that item is removed, with
+// nobody to say so to it: while the dependency stands it stays, though a slot is free; once it is removed it stays,
+// its blocker open, for as long as the machine's one slot is held by another work, and when that slot is free it takes
+// the row that clears, towards the merge (`M2`), its blocker resolved.
+#[test]
+fn a_work_waiting_for_an_item_goes_on_when_the_dependency_is_removed_and_a_slot_is_free() {
+    let s = setup("remove-dependency-slot");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let lexer = a_ready_item(&mut e, "Make the lexer");
+    let parser = a_ready_item(&mut e, "Parse with it");
+    let other = a_ready_item(&mut e, "Keep the slot");
+    let v = e.flow_now;
+    let work =
+        e.db.write(Actor::Engine, |tx| {
+            db::add_dependency(tx, parser, lexer, "its tokens", "blocking")?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'M1')",
+                params![parser, v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    // Only this work goes on, so that no other starts or takes the slot.
+    let go = Go {
+        pause: held_but(&[work], &[]),
+        ..Go::default()
+    };
+    let blockers = |e: &Engine| -> Vec<(String, Option<String>)> {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT holder, ended FROM blockers WHERE work = ?1 ORDER BY id")
+                .unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let log = || said.lock().unwrap().join("\n");
+    // It waits for the item, and its blocker is held by the items it waits for.
+    e.pass(&go).unwrap();
+    assert_eq!(transitions(&e, parser, "M1"), ["wait"], "{}", log());
+    assert_eq!(blockers(&e), [("items".to_string(), None)], "{}", log());
+    // A slot is free, and the dependency stands: it stays as it is.
+    assert_eq!(e.free_slots().unwrap(), 1);
+    e.pass(&go).unwrap();
+    assert_eq!(transitions(&e, parser, "M1"), ["wait"], "{}", log());
+    assert_eq!(blockers(&e), [("items".to_string(), None)], "{}", log());
+    // Another work takes the machine's one slot, and the dependency is removed.
+    let holder =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'I1')",
+                params![other, v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    assert_eq!(e.free_slots().unwrap(), 0);
+    api::remove_dependency(&mut e.db, parser, lexer).unwrap();
+    // With no slot free it does not go on, though nothing holds it back: it waits for a slot, its blocker open.
+    for _ in 0..2 {
+        e.pass(&go).unwrap();
+        assert_eq!(transitions(&e, parser, "M1"), ["wait"], "{}", log());
+        assert_eq!(blockers(&e), [("items".to_string(), None)], "{}", log());
+        assert_eq!(state(&e, parser).unwrap().1, "M1", "{}", log());
+        assert_eq!(e.waiting_for_slot().unwrap(), [work], "{}", log());
+    }
+    // The slot is free: it goes on, the row that clears, and its blocker is resolved. No one said anything to it.
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE works SET ended = 'stopped by hand' WHERE id = ?1", [holder])?;
+        Ok(())
+    })
+    .unwrap();
+    e.pass(&go).unwrap();
+    assert_eq!(transitions(&e, parser, "M1"), ["wait", "clear"], "{}", log());
+    assert_eq!(
+        blockers(&e),
+        [("items".to_string(), Some("resolved".to_string()))],
+        "{}",
+        log()
+    );
+    assert_eq!(state(&e, parser).unwrap().1, "M2", "{}", log());
+    let told: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM interjections WHERE work = ?1", [work], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(told, 0, "{}", log());
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -13890,9 +14477,12 @@ fn a_work_goes_on_while_another_waits_for_its_ci() {
 }
 
 // Two works that run side by side each merge into main through the flow, in the order they came into the project's
-// merge queue. Every change to their state is one transaction recorded in `changes`, the rows of a transaction written
-// at one time by one writer, one after the other; each work's rounds are numbered from one, none twice or missing,
-// and none is left open.
+// merge queue, the work with the larger number coming first: while its merge runs, held at its CI, the other comes,
+// reads that it is behind and records a round saying so, and merges only after the first's merge round ended. The order
+// they came in is read from the times their rounds before the queue ended, the merges' order from main's log and the
+// rounds' times; the `merge_queue` view, whose order is what is tested, is read nowhere here. Every change to their
+// state is one transaction recorded in `changes`, the rows of a transaction written at one time by one writer, one
+// after the other; each work's rounds are numbered from one, none twice or missing, and none is left open.
 #[test]
 fn two_works_side_by_side_merge_in_turn_and_record_every_change_once() {
     let mut agents = scripts();
@@ -13922,33 +14512,102 @@ fn two_works_side_by_side_merge_in_turn_and_record_every_change_once() {
     );
     let (s, mut e, said, first, second) = two_works_with("both-merge", agents, Hooks::default());
     let over = |e: &Engine, item: i64| state(e, item).is_some_and(|w| w.1 == "E1");
-    // The works in the order they came into the merge queue.
-    let mut queued: Vec<i64> = Vec::new();
-    for _ in 0..300 {
-        e.tick().unwrap();
-        let log = said.lock().unwrap().join("\n");
-        let mut st =
-            e.db.conn()
-                .prepare("SELECT work FROM merge_queue WHERE project = 'p'")
-                .unwrap();
-        let queue: Vec<i64> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
-        drop(st);
-        for w in queue {
-            if !queued.contains(&w) {
-                queued.push(w);
+    let said_so_far = || said.lock().unwrap().join("\n");
+    let cell = |e: &Engine, work: i64| -> String {
+        e.db.conn()
+            .query_row("SELECT at FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap()
+    };
+    // The rounds of a work's merge cell, oldest first: the row each took, when it started and when it ended.
+    let merge_rounds = |e: &Engine, work: i64| -> Vec<(Option<String>, i64, Option<i64>)> {
+        let sql = "SELECT transition, started_at, ended_at FROM rounds WHERE work = ?1 AND cell = 'M2' ORDER BY n";
+        let mut st = e.db.conn().prepare(sql).unwrap();
+        st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    // A work goes on alone until it stands at `until`, not having taken that cell's step.
+    let goes_on_to = |e: &mut Engine, work: i64, until: &str| {
+        for _ in 0..300 {
+            if cell(&*e, work) == until {
+                return;
             }
+            e.advance(work).unwrap();
         }
-        for item in [first, second] {
-            let paused = state(&e, item).and_then(|w| w.2);
-            assert!(paused.is_none(), "{paused:?}\n{log}");
-        }
-        if over(&e, first) && over(&e, second) {
-            break;
-        }
-    }
-    let log = said.lock().unwrap().join("\n");
-    assert!(over(&e, first) && over(&e, second), "{log}");
+    };
+    // The first pass starts both works; `a` began first and has the smaller number.
+    e.tick().unwrap();
     let (a, b) = (state(&e, first).unwrap().0, state(&e, second).unwrap().0);
+    assert!(a < b);
+    // `a` stops short of the merge queue; `b`, which began after it, comes into the queue first.
+    goes_on_to(&mut e, a, "M1");
+    goes_on_to(&mut e, b, "M2");
+    let (at_a, at_b) = (cell(&e, a), cell(&e, b));
+    assert_eq!((at_a.as_str(), at_b.as_str()), ("M1", "M2"), "{}", said_so_far());
+    // `b` merges with its CI held, its merge round open. `a` comes into the queue meanwhile.
+    s.ci.shut();
+    let held = s.ci.came();
+    let only_b = Go {
+        pause: held_but(&[b], &[]),
+        ..Go::default()
+    };
+    let merging = turns_until(&mut e, &only_b, |_| s.ci.came() > held);
+    assert!(merging, "{}", said_so_far());
+    let in_the_queue = turns_until(&mut e, &Go::default(), |e| !merge_rounds(&*e, a).is_empty());
+    let (a_rounds, b_rounds) = (merge_rounds(&e, a), merge_rounds(&e, b));
+    s.ci.open();
+    assert!(in_the_queue, "{}", said_so_far());
+    // `a` read that it is behind and recorded a round saying so, while `b`'s merge round is open still.
+    assert_eq!(
+        a_rounds.iter().map(|r| r.0.as_deref()).collect::<Vec<_>>(),
+        [Some("behind")],
+        "{}",
+        said_so_far()
+    );
+    assert!(
+        b_rounds.len() == 1 && b_rounds[0].0.is_none() && b_rounds[0].2.is_none(),
+        "{b_rounds:?}\n{}",
+        said_so_far()
+    );
+    let finished = turns_until(&mut e, &Go::default(), |e| over(&*e, first) && over(&*e, second));
+    let log = said_so_far();
+    assert!(finished, "{log}");
+    for item in [first, second] {
+        let paused = state(&e, item).and_then(|w| w.2);
+        assert!(paused.is_none(), "{paused:?}\n{log}");
+    }
+    // The order they came into the queue in: when each one's round before it ended, `b`'s the earlier.
+    let entered = |work: i64| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT max(ended_at) FROM rounds WHERE work = ?1 AND cell = 'M1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert!(entered(b) < entered(a), "{} {}\n{log}", entered(b), entered(a));
+    let queued = vec![b, a];
+    // Each merged once, `a` after `b`'s merge round ended; the round in which `a` said it was behind lay within it.
+    let merged_round = |work: i64| -> Vec<(i64, i64)> {
+        merge_rounds(&e, work)
+            .into_iter()
+            .filter(|r| r.0.as_deref() == Some("merged"))
+            .map(|r| (r.1, r.2.unwrap()))
+            .collect()
+    };
+    let (a_merged, b_merged) = (merged_round(a), merged_round(b));
+    assert!(
+        a_merged.len() == 1 && b_merged.len() == 1,
+        "{a_merged:?} {b_merged:?}\n{log}"
+    );
+    let (a_merged, b_merged) = (a_merged[0], b_merged[0]);
+    assert!(a_merged.0 >= b_merged.1, "{a_merged:?} {b_merged:?}\n{log}");
+    assert!(
+        a_rounds[0].1 >= b_merged.0 && a_rounds[0].2.is_some_and(|ended| ended <= b_merged.1),
+        "{a_rounds:?} {b_merged:?}\n{log}"
+    );
     // Merged onto main in the queue's order: the merges, oldest first, by the works whose pull requests they merged.
     let subjects = git(
         &s.root,
@@ -15065,6 +15724,53 @@ fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_
     assert_eq!(rounds_at(&e), 1, "{log}");
     assert!(state(&e, second).unwrap().2.is_some(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A decision as the cell that records decisions hands it in: what it settles, and the words it rests on named by their
+/// record and the part that decides. Without an item it is one no item holds, with the title and tags of the observation
+/// it is kept as.
+fn decision_of(item: Option<&str>, what: &str, quotes: &[(i64, &str)]) -> Value {
+    let mut d = json!({
+        "what": what,
+        "situation": "The parser's item is being written",
+        "reason": "It keeps the item small",
+        "reason_by": "said",
+        "replaces": "none",
+        "words": quotes
+            .iter()
+            .map(|(m, q)| json!({ "from": "matter", "id": m, "quote": q }))
+            .collect::<Vec<_>>(),
+    });
+    match item {
+        Some(i) => d["item"] = json!(i),
+        None => {
+            d["title"] = json!("Name stays");
+            d["tags"] = json!([]);
+        }
+    }
+    d
+}
+
+/// The number of the matter that holds the owner's words with `part` in them, read from the database at `path`.
+fn matter_with(path: &Path, part: &str) -> i64 {
+    let c = db::open_read(path).unwrap();
+    c.query_row(
+        "SELECT id FROM architect_matters WHERE kind = 'owner_words' AND json_extract(body, '$.text') LIKE ?1",
+        [format!("%{part}%")],
+        |r| r.get(0),
+    )
+    .unwrap()
+}
+
+/// The day a matter was queued, `YYYY-MM-DD`, as SQLite tells it from the matter's time.
+fn day_of(e: &Engine, matter: i64) -> String {
+    e.db.conn()
+        .query_row(
+            "SELECT date(at / 1000, 'unixepoch') FROM architect_matters WHERE id = ?1",
+            [matter],
+            |r| r.get(0),
+        )
+        .unwrap()
 }
 
 // What is asked of a work from outside its step: a merge, which cannot be undone, against a stop asked around it, and
@@ -16317,6 +17023,766 @@ fn main_fetch_failed(e: &Engine, work: i64, cell: &str) -> Option<String> {
         .unwrap()
 }
 
+/// One line of a decision about the parser's item as the engine writes it, from the parts the test hands in.
+fn decision_line(date: &str, who: &str, what: &str, words: &str) -> String {
+    format!(
+        "Decision ({date}, {who}): {what}. Situation: The parser's item is being written. Reason: It keeps the \
+         item small. Replaces: none. Words: {words}"
+    )
+}
+
+// The decisions the owner's words of a batch make are handed in by the cell that records them, as the records they quote
+// and the part that decides, and are reviewed with the batch's other changes: the review is given the words whole and
+// the line the engine made, the review drops one and the others are written under the head `Decisions:` of the item,
+// after the item's text the batch changed and before `Learned:`, as the engine makes them (the date, who decided and the
+// words from the records, not from what the cell typed), in the order handed in. Words said by the owner are the owner's,
+// those of a delegate its own, and a decision on several records takes the least certain. One that names no item is kept
+// as an observation, whose text is the line. The change the batch made to the item's text first is not written over.
+#[test]
+fn the_owner_s_decisions_are_written_by_the_engine_from_the_records_once_the_review_finds_them_sound() {
+    let s = setup("decisions-written");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let edit = json!({ "kind": "edit_item", "item": "1", "part": "approach",
+                               "text": "Approach:\n- Parse it first.\n\nLearned:\nFact: parse first",
+                               "reason": "Say it first." });
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("Noted.")),
+                    ("outcome.effects", json!({ "item_changes": [edit] })),
+                ],
+            )
+        }),
+    );
+    let at = path.clone();
+    agents.insert(
+        "B5",
+        Box::new(move |_: &Request, _: usize| {
+            let (a, b) = (matter_with(&at, "integers"), matter_with(&at, "old name"));
+            let looked: Vec<Value> = [a, b]
+                .iter()
+                .map(|m| json!({ "matter": m, "verdict": "decision", "why": "It settles a choice." }))
+                .collect();
+            let decisions = json!([
+                decision_of(
+                    Some("1"),
+                    "Integers come first",
+                    &[(a, "the parser takes integers first")]
+                ),
+                decision_of(Some("1"), "The old name stays", &[(b, "keep the old name")]),
+                decision_of(
+                    Some("1"),
+                    "No browser check at all",
+                    &[(a, "No browser check"), (b, "Fine")]
+                ),
+                decision_of(None, "The name stays for good", &[(b, "Fine, keep")]),
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.looked", json!(looked)), ("outcome.decisions", decisions)],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let row = |n: i64, v: &str| json!({ "change": n, "verdict": v, "why": "Judged against the words." });
+            (
+                Vec::new(),
+                vec![(
+                    "outcome.review",
+                    json!([row(1, "ok"), row(2, "ok"), row(3, "drop"), row(4, "ok"), row(5, "ok")]),
+                )],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET approach = 'Approach:\n- Parse it.' WHERE id = 1", [])?;
+        Ok(())
+    })
+    .unwrap();
+    db::say_to_architect(
+        &mut e.db,
+        "p",
+        None,
+        None,
+        "Yes, the parser takes integers first. No browser check.",
+        &[],
+        db::Speaker::Owner,
+    )
+    .unwrap();
+    db::say_to_architect(
+        &mut e.db,
+        "p",
+        None,
+        None,
+        "Fine, keep the old name.",
+        &[],
+        db::Speaker::Delegate,
+    )
+    .unwrap();
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let path_taken = path_of(&e, arch);
+    let at = path_taken.iter().position(|c| c == "B5").expect(&log);
+    assert_eq!(&path_taken[at..at + 3], ["B5", "B2", "B4"], "{log}");
+    assert_eq!(rows_at(&e, arch, "B5"), ["decisions"], "{log}");
+    let (a, b) = (matter_with(&path, "integers"), matter_with(&path, "old name"));
+    let (da, dayb) = (day_of(&e, a), day_of(&e, b));
+    let latest = std::cmp::max(da.clone(), dayb.clone());
+    let first = decision_line(
+        &da,
+        "owner",
+        "Integers come first",
+        &format!("\"the parser takes integers first\" (matter {a}, {da})"),
+    );
+    let third = decision_line(
+        &latest,
+        "delegate",
+        "No browser check at all",
+        // The head is the delegate's, so the owner's own words say that they are the owner's.
+        &format!("\"No browser check\" (matter {a}, {da}, owner); \"Fine\" (matter {b}, {dayb})"),
+    );
+    let approach: String =
+        e.db.conn()
+            .query_row("SELECT approach FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(
+        approach,
+        format!("Approach:\n- Parse it first.\nDecisions:\n{first}\n{third}\n\nLearned:\nFact: parse first"),
+        "{log}"
+    );
+    let states: Vec<String> = engine::query_json(
+        e.db.conn(),
+        "SELECT state FROM architect_item_changes ORDER BY id",
+        &[],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["state"].as_str().unwrap_or_default().to_string())
+    .collect();
+    assert_eq!(states, ["made", "made", "dropped", "made", "made"], "{log}");
+    // The one that names no item is an observation, its text the line.
+    let (title, what): (String, String) =
+        e.db.conn()
+            .query_row("SELECT title, what FROM observations", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    assert_eq!(title, "Name stays");
+    assert_eq!(
+        what,
+        decision_line(
+            &dayb,
+            "delegate",
+            "The name stays for good",
+            &format!("\"Fine, keep\" (matter {b}, {dayb})")
+        ),
+        "{log}"
+    );
+    // The review was given the owner's words whole and the line to be written.
+    let review = message_at(&e, arch, "B2", false);
+    assert!(
+        review.contains("Yes, the parser takes integers first. No browser check."),
+        "{review}"
+    );
+    assert!(review.contains(&format!("(matter {a}, {da})")), "{review}");
+    assert!(review.contains("delegate"), "{review}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A return of the cell that records decisions is sent back for each of these: a row of `looked` missing for some of the
+// owner's words and another twice; a quotation that is not the record's letter for letter (the record's words come with
+// the reason), words of another project's record, and a row that says decision with no decision quoting its words. Handed
+// in sound, the decision goes to the review, which asks for a fix; the revision hands the decision in again, and the line
+// written is the revised one, once, with the words from the record.
+#[test]
+fn a_decision_the_records_do_not_bear_out_is_sent_back_and_a_revised_one_is_written_once() {
+    let s = setup("decisions-sent-back");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    let foreign = Arc::new(AtomicI64::new(0));
+    let (at, other) = (path.clone(), foreign.clone());
+    agents.insert(
+        "B5",
+        Box::new(move |_: &Request, n: usize| {
+            let (a, b) = (matter_with(&at, "integers"), matter_with(&at, "old name"));
+            let row = |m: i64, v: &str| json!({ "matter": m, "verdict": v, "why": "It is read." });
+            match n {
+                // One row for the words of `a` twice and none for those of `b`.
+                1 => (
+                    Vec::new(),
+                    vec![("outcome.looked", json!([row(a, "nothing"), row(a, "nothing")]))],
+                ),
+                // A quotation in other letters, a record of another project, and a row for `b` no decision answers.
+                2 => {
+                    let wrong = decision_of(Some("1"), "Integers come first", &[(a, "THE PARSER TAKES")]);
+                    let elsewhere = decision_of(
+                        Some("1"),
+                        "Elsewhere",
+                        &[(a, "integers"), (other.load(Ordering::Relaxed), "Elsewhere.")],
+                    );
+                    (
+                        Vec::new(),
+                        vec![
+                            ("outcome.looked", json!([row(a, "decision"), row(b, "decision")])),
+                            ("outcome.decisions", json!([wrong, elsewhere])),
+                        ],
+                    )
+                }
+                _ => {
+                    let sound = decision_of(
+                        Some("1"),
+                        "Integers come first",
+                        &[(a, "the parser takes integers first")],
+                    );
+                    (
+                        Vec::new(),
+                        vec![
+                            ("outcome.looked", json!([row(a, "decision"), row(b, "nothing")])),
+                            ("outcome.decisions", json!([sound])),
+                        ],
+                    )
+                }
+            }
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, n: usize| {
+            let row = if n == 1 {
+                json!({ "change": 1, "verdict": "fix", "about": "constitution_and_policy",
+                        "what": "It says what was done, not what is settled.", "how": "Say what stands.",
+                        "cause": "rule_missing" })
+            } else {
+                json!({ "change": 1, "verdict": "ok", "why": "Now it says what stands." })
+            };
+            (Vec::new(), vec![("outcome.review", json!([row]))])
+        }),
+    );
+    let at = path.clone();
+    agents.insert(
+        "B3",
+        Box::new(move |_: &Request, _: usize| {
+            let a = matter_with(&at, "integers");
+            let revised = decision_of(
+                Some("1"),
+                "Integers come first, always",
+                &[(a, "the parser takes integers first")],
+            );
+            (
+                Vec::new(),
+                vec![("outcome.changes", json!([{ "matter": a, "decision": revised }]))],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET approach = 'Approach:\n- Parse it.' WHERE id = 1", [])?;
+        Ok(())
+    })
+    .unwrap();
+    // Another project's words, handled already, which no batch of p's holds.
+    let elsewhere =
+        e.db.write(Actor::Engine, |tx| {
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, detail, what, body, at, handled_work, handled_round)
+                 VALUES ('q', 'owner_words', 'said', 'w',
+                         '{\"text\":\"Elsewhere.\",\"where\":\"page\",\"speaker\":\"owner\"}', 1,
+                         (SELECT id FROM works WHERE ended = 'over before the test'), 1)",
+                [],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    foreign.store(elsewhere, Ordering::Relaxed);
+    say(&mut e, "Yes, the parser takes integers first. No browser check.");
+    say(&mut e, "Fine, keep the old name.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sent_back = why_sent_back(&e, arch, "B5");
+    assert_eq!(sent_back.len(), 2, "{sent_back:?}\n{log}");
+    let (a, b) = (matter_with(&path, "integers"), matter_with(&path, "old name"));
+    // A row twice and a row missing are both said, by their matters.
+    for part in [
+        format!("matter {a} has more than one row"),
+        format!("matter {b}, which this batch handled, has no row"),
+    ] {
+        assert!(sent_back[0].contains(&part), "{part}\n{sent_back:?}");
+    }
+    for part in [
+        "is not found as it is in the words of matter".to_string(),
+        "Yes, the parser takes integers first. No browser check.".to_string(),
+        format!("matter {elsewhere} is of q, and the decision is of p"),
+        format!("matter {b}: its row says it holds a decision, and no decision quotes it"),
+    ] {
+        assert!(sent_back[1].contains(&part), "{part}\n{sent_back:?}");
+    }
+    let path_taken = path_of(&e, arch);
+    let at = path_taken.iter().rposition(|c| c == "B5").expect(&log);
+    assert_eq!(&path_taken[at..at + 5], ["B5", "B2", "B3", "B2", "B4"], "{log}");
+    let da = day_of(&e, a);
+    let approach: String =
+        e.db.conn()
+            .query_row("SELECT approach FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(
+        approach,
+        format!(
+            "Approach:\n- Parse it.\nDecisions:\n{}",
+            decision_line(
+                &da,
+                "owner",
+                "Integers come first, always",
+                &format!("\"the parser takes integers first\" (matter {a}, {da})")
+            )
+        ),
+        "{log}"
+    );
+    let states: Vec<String> = engine::query_json(
+        e.db.conn(),
+        "SELECT state FROM architect_item_changes ORDER BY id",
+        &[],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["state"].as_str().unwrap_or_default().to_string())
+    .collect();
+    assert_eq!(states, ["revised", "made"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A return of the cell that records decisions that is wrong in two of its fields is sent back once, saying both: a row
+// of `looked` missing for some of the owner's words, and a quotation that is not the record's letter for letter in
+// `decisions`. Oracle: the project guide's rule that a check of a return reports every problem it can find in it at
+// once, because each send-back costs a round.
+#[test]
+fn a_return_that_is_wrong_in_looked_and_in_decisions_is_sent_back_once_saying_both() {
+    let s = setup("decisions-both-wrong");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    let at = path.clone();
+    agents.insert(
+        "B5",
+        Box::new(move |_: &Request, n: usize| {
+            let (a, b) = (matter_with(&at, "integers"), matter_with(&at, "old name"));
+            let row = |m: i64, v: &str| json!({ "matter": m, "verdict": v, "why": "It is read." });
+            if n == 1 {
+                // No row for the words of `b`, and a quotation in other letters.
+                let wrong = decision_of(Some("1"), "Integers come first", &[(a, "THE PARSER TAKES")]);
+                return (
+                    Vec::new(),
+                    vec![
+                        ("outcome.looked", json!([row(a, "decision")])),
+                        ("outcome.decisions", json!([wrong])),
+                    ],
+                );
+            }
+            let sound = decision_of(
+                Some("1"),
+                "Integers come first",
+                &[(a, "the parser takes integers first")],
+            );
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.looked", json!([row(a, "decision"), row(b, "nothing")])),
+                    ("outcome.decisions", json!([sound])),
+                ],
+            )
+        }),
+    );
+    agents.insert("B2", review_all_sound(path.clone()));
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET approach = 'Approach:\n- Parse it.' WHERE id = 1", [])?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Yes, the parser takes integers first.");
+    say(&mut e, "Fine, keep the old name.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sent_back = why_sent_back(&e, arch, "B5");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
+    let b = matter_with(&path, "old name");
+    for part in [
+        format!("matter {b}, which this batch handled, has no row"),
+        "is not found as it is in the words of matter".to_string(),
+    ] {
+        assert!(sent_back[0].contains(&part), "{part}\n{sent_back:?}");
+    }
+    let approach: String =
+        e.db.conn()
+            .query_row("SELECT approach FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert!(approach.contains("Decisions:\nDecision ("), "{approach}\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The check that the rows of `looked` cover the owner's words of the batch says all of its problems at once: a matter
+// that is none of them, one that has no row, and a row that says it makes a suggestion when the return holds no new
+// observation to record it. Oracle: the project guide's rule that a check of a return reports every problem it can
+// find in it at once.
+#[test]
+fn rows_that_do_not_cover_the_words_and_a_suggestion_nothing_records_are_sent_back_together() {
+    let s = setup("looked-three-problems");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    let at = path.clone();
+    agents.insert(
+        "B5",
+        Box::new(move |_: &Request, n: usize| {
+            let (a, b) = (matter_with(&at, "integers"), matter_with(&at, "old name"));
+            let row = |m: i64, v: &str| json!({ "matter": m, "verdict": v, "why": "It is read." });
+            let rows = if n == 1 {
+                // A matter of no words of the batch, none for `b`, and a suggestion with no observation.
+                json!([row(a, "suggestion"), row(987_654, "nothing")])
+            } else {
+                json!([row(a, "nothing"), row(b, "nothing")])
+            };
+            (Vec::new(), vec![("outcome.looked", rows)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Yes, the parser takes integers first.");
+    say(&mut e, "Fine, keep the old name.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sent_back = why_sent_back(&e, arch, "B5");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
+    let b = matter_with(&path, "old name");
+    for part in [
+        "matter 987654 is none of the owner's words this batch handled".to_string(),
+        format!("matter {b}, which this batch handled, has no row"),
+        "a row says it makes a suggestion, and observation_changes holds no new observation".to_string(),
+    ] {
+        assert!(sent_back[0].contains(&part), "{part}\n{sent_back:?}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The rows of `looked` that name a matter twice and name matters that are none of the batch's are sent back once, each
+// kind said with all its matters: two unknown matters in one sentence, the one given twice, and the one with no row.
+// Oracle: the project guide's rule that several ids compared with a list the engine gave go through `id_misses`, which
+// says each kind once with all its ids, and that a check says every problem at once.
+#[test]
+fn rows_that_name_a_matter_twice_and_two_that_are_not_the_batch_s_are_sent_back_with_each_kind_said_once() {
+    let s = setup("looked-kinds");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    let at = path.clone();
+    agents.insert(
+        "B5",
+        Box::new(move |_: &Request, n: usize| {
+            let (a, b) = (matter_with(&at, "integers"), matter_with(&at, "old name"));
+            let row = |m: i64, v: &str| json!({ "matter": m, "verdict": v, "why": "It is read." });
+            let rows = if n == 1 {
+                json!([
+                    row(a, "nothing"),
+                    row(a, "nothing"),
+                    row(987_654, "nothing"),
+                    row(987_655, "nothing")
+                ])
+            } else {
+                json!([row(a, "nothing"), row(b, "nothing")])
+            };
+            (Vec::new(), vec![("outcome.looked", rows)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Yes, the parser takes integers first.");
+    say(&mut e, "Fine, keep the old name.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sent_back = why_sent_back(&e, arch, "B5");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
+    let (a, b) = (matter_with(&path, "integers"), matter_with(&path, "old name"));
+    for part in [
+        "matters 987654, 987655 are none of the owner's words this batch handled".to_string(),
+        format!("matter {a} has more than one row: one row for each"),
+        format!("matter {b}, which this batch handled, has no row"),
+    ] {
+        assert!(sent_back[0].contains(&part), "{part}\n{sent_back:?}");
+    }
+    // The matter given twice is not also said to be none of the batch's, and no suggestion is complained of.
+    assert!(!sent_back[0].contains(&format!("matter {a} is none")), "{sent_back:?}");
+    assert!(!sent_back[0].contains("makes a suggestion"), "{sent_back:?}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A change of the batch cannot write a line of a decision by hand, whether it makes an item with it or writes an item's
+// approach whole with it; the return is sent back saying the cell that records decisions makes the line. The text of an
+// item that holds a line already can be written again with that line as it is: it is not a line the change writes.
+#[test]
+fn a_line_of_a_decision_cannot_be_written_by_hand_but_one_the_item_has_stands() {
+    let s = setup("decision-by-hand");
+    let old = "Decision (2026-10-01, owner): Old one. Situation: s. Reason: r. Replaces: none. \
+               Words: \"x\" (matter 99, 2026-10-01)";
+    let held = format!("Approach:\n- Parse it.\nDecisions:\n{old}\n\nLearned:\nFact: f");
+    let mut agents = scripts();
+    let (first, second) = (held.clone(), held.replace("- Parse it.", "- Parse it first."));
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, n: usize| {
+            let changes = if n == 1 {
+                json!([
+                    { "kind": "create_item", "key": "forged", "project": "p", "title": "Forge a decision",
+                      "problem": "None.", "why": "None.", "acceptance": ["It is there."], "level": "l",
+                      "deliver": "change", "reason": "r",
+                      "approach": "Approach:\nDecisions:\nDecision (2026-11-02, owner): Forged." },
+                    { "kind": "edit_item", "item": "1", "part": "approach", "reason": "r",
+                      "text": format!("{first}\nDecision (2026-11-02, owner): Forged.") },
+                    // The item's recorded line is left out, with its head.
+                    { "kind": "edit_item", "item": "1", "part": "approach", "reason": "r",
+                      "text": "Approach:\n- Parse it.\n\nLearned:\nFact: f" },
+                ])
+            } else {
+                json!([{ "kind": "edit_item", "item": "1", "part": "approach", "text": second, "reason": "r" }])
+            };
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("Noted.")),
+                    ("outcome.effects", json!({ "item_changes": changes })),
+                ],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![(
+                    "outcome.review",
+                    json!([{ "change": 1, "verdict": "ok", "why": "Only the first line changed." }]),
+                )],
+            )
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET approach = ?1 WHERE id = 1", [&held])?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Write the parser's approach again.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 60, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let sent_back = why_sent_back(&e, arch, "H8");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
+    for part in [
+        "change 1 (create_item)",
+        "change 2 (edit_item)",
+        "of a decision, which the item's text does not have",
+        "change 3 (edit_item)",
+        "it leaves out the line",
+        "Decision (2026-10-01, owner): Old one.",
+        "it leaves out the head Decisions:",
+    ] {
+        assert!(sent_back[0].contains(part), "{part}\n{sent_back:?}");
+    }
+    let approach: String =
+        e.db.conn()
+            .query_row("SELECT approach FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(approach, held.replace("- Parse it.", "- Parse it first."), "{log}");
+    let items: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM items", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(items, 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The engineer that wraps its work up records the decisions the work made as the records they quote: a quotation that is
+// not the record's letter for letter, or a line of a decision written by hand in `learned`, sends the return back; the
+// lines are written under the head `Decisions:` before
+// `Learned:`, the words of a delegate are the delegate's, and a reply of the architect's to an open question is the
+// architect's, never the owner's, even when it carries the owner's answer.
+#[test]
+fn the_engineer_s_decisions_are_written_under_their_head_with_who_decided_from_the_records() {
+    let s = setup("decisions-learned");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    agents.insert(
+        "L2",
+        Box::new(move |_: &Request, n: usize| {
+            let c = db::open_read(&path).unwrap();
+            let id = |like: &str| -> i64 {
+                c.query_row("SELECT id FROM architect_matters WHERE body LIKE ?1", [like], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+            };
+            let (oq, dm) = (id("%skip the check%"), id("%Keep it small%"));
+            let quote = if n == 1 { "SKIP THE CHECK" } else { "skip the check" };
+            let decisions = json!([
+                decision_of(None, "Skip the browser check", &[(oq, quote)]),
+                decision_of(None, "Keep it small", &[(dm, "Keep it small")]),
+            ]);
+            // The first return also writes a line of a decision by hand under learned, which the engine refuses.
+            let learned = "Fact (2026-11-02): One table is enough (R1-2)";
+            let learned = if n == 1 {
+                format!(
+                    "{learned}\nDecision (2026-11-02, owner): Forged. Situation: s. Reason: r. Replaces: none. \
+                     Words: \"Keep it small\" (matter {dm}, 2026-11-02)"
+                )
+            } else {
+                learned.to_string()
+            };
+            (
+                Vec::new(),
+                vec![("outcome.learned", json!(learned)), ("outcome.decisions", decisions)],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    e.db.write(Actor::Engine, |tx| {
+        // The open question was raised on the day and answered a day after it.
+        for (kind, body) in [
+            (
+                "open_question",
+                r#"{"question":"Which?","answer":"Option one: skip the check.","answered_at":1793707200000}"#,
+            ),
+            (
+                "owner_words",
+                r#"{"text":"Keep it small, no browser.","where":"work","work":1,"speaker":"delegate"}"#,
+            ),
+        ] {
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, detail, what, body, at, handled_work, handled_round)
+                 VALUES ('p', ?1, '', 'w', ?2, 1793620800000,
+                         (SELECT id FROM works WHERE ended = 'over before the test'), 1)",
+                [kind, body],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    // The return sent back is an ended round too: wait for the round that took a row.
+    let done = |e: &mut Engine| ended_at(e, item, "L2").iter().any(|x| x.0.is_some());
+    assert!(steps_until(&mut e, 200, done), "{}", said.lock().unwrap().join("\n"));
+    let log = said.lock().unwrap().join("\n");
+    let work: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT id FROM works WHERE item = ?1 AND graph = 'engineer' ORDER BY id LIMIT 1",
+                [item],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let sent_back = why_sent_back(&e, work, "L2");
+    assert_eq!(sent_back.len(), 1, "{sent_back:?}\n{log}");
+    assert!(sent_back[0].contains("is not found as it is"), "{sent_back:?}");
+    assert!(
+        sent_back[0].contains("learned holds 1 line(s) that start a decision"),
+        "{sent_back:?}"
+    );
+    let day: String =
+        e.db.conn()
+            .query_row("SELECT date(1793620800, 'unixepoch')", [], |r| r.get(0))
+            .unwrap();
+    let day_after: String =
+        e.db.conn()
+            .query_row("SELECT date(1793707200, 'unixepoch')", [], |r| r.get(0))
+            .unwrap();
+    assert_ne!(day, day_after);
+    let oq: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT id FROM architect_matters WHERE kind = 'open_question'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let dm: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT id FROM architect_matters WHERE body LIKE '%Keep it small%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let approach: String =
+        e.db.conn()
+            .query_row("SELECT approach FROM items WHERE id = ?1", [item], |r| r.get(0))
+            .unwrap();
+    let lines = format!(
+        "Decisions:\n{}\n{}\n",
+        decision_line(
+            &day_after,
+            "architect",
+            "Skip the browser check",
+            &format!("\"skip the check\" (matter {oq}, {day_after})")
+        ),
+        decision_line(
+            &day,
+            "delegate",
+            "Keep it small",
+            &format!("\"Keep it small\" (matter {dm}, {day})")
+        ),
+    );
+    assert!(approach.starts_with(&lines), "{approach}\n{log}");
+    let learned = approach.find("Learned:\nFact (2026-11-02): One table is enough (R1-2)\nCommits: ");
+    assert!(learned.is_some_and(|at| at >= lines.len()), "{approach}");
+    assert!(!approach.contains("Forged"), "{approach}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // Main is fetched for a round of a cell that reads it. A fetch that fails does not stop the round while the checkout has
 // a commit of main from an earlier fetch, with the network up or down alike: the round goes on at that commit, is given
 // the text there, and its record names the commit and says why the fetch failed; no work is paused or waits. The next
@@ -17496,6 +18962,366 @@ fn a_works_graph_is_made_once_and_shared() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// A review that finds every change collected so far sound, a row for each, whatever their number.
+fn review_all_sound(path: PathBuf) -> Script {
+    Box::new(move |_: &Request, _: usize| {
+        let c = db::open_read(&path).unwrap();
+        let n: i64 = c
+            .query_row(
+                "SELECT count(*) FROM architect_item_changes WHERE state = 'collected'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let rows: Vec<Value> = (1..=n)
+            .map(|i| json!({ "change": i, "verdict": "ok", "why": "Judged against the item." }))
+            .collect();
+        (Vec::new(), vec![("outcome.review", json!(rows))])
+    })
+}
+
+// The decisions of an item that a batch merges into another are the kept item's from then on, whatever else the batch
+// does to the kept item's `approach`. A batch that merges item 2 into item 1 and then writes item 1's approach whole,
+// from the text item 1 had before the merge, must not lose the lines the merge carried: either the return is sent back
+// or the line stands in item 1. Oracle: the acceptance rule (A4) that a recorded line is never lost or changed but by
+// the engine's own writes, and the merge's rule that the absorbed item's lines go to the kept item.
+#[test]
+fn a_text_that_replaces_the_approach_of_the_item_kept_in_a_merge_keeps_the_decisions_the_merge_carried() {
+    let s = setup("merge-then-edit");
+    let path = config::database(&s.data);
+    let old = "Decision (2026-10-01, owner): Old one. Situation: s. Reason: r. Replaces: none. \
+               Words: \"x\" (matter 99, 2026-10-01)";
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            let merge = json!({ "kind": "merge", "keep": "1", "absorbed": ["2"], "reason": "The same work." });
+            let edit = json!({ "kind": "edit_item", "item": "1", "part": "approach", "reason": "Say it first.",
+                               "text": "Approach:\n- Parse it first." });
+            let changes = match n {
+                1 => json!([merge, edit]),
+                2 => json!([merge]),
+                _ => return (Vec::new(), Vec::new()),
+            };
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("Noted.")),
+                    ("outcome.effects", json!({ "item_changes": changes })),
+                ],
+            )
+        }),
+    );
+    agents.insert("B2", review_all_sound(path.clone()));
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET approach = 'Approach:\n- Parse it.' WHERE id = 1", [])?;
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, approach, deliver, level)
+             VALUES ('p', 'Parse more', 'x', 'y', ?1, 'change', 'l')",
+            [format!("Approach:\n- Other.\nDecisions:\n{old}")],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    say(
+        &mut e,
+        "Merge the second item into the first, and write the first again.",
+    );
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 80, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let approach: String =
+        e.db.conn()
+            .query_row("SELECT approach FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    // The line is in the kept item, whether the batch was sent back or not.
+    assert!(
+        approach.lines().any(|l| l == old),
+        "the merge carried the line, and the text written over it lost it:\n{approach}\n{log}"
+    );
+    let cancelled: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM items WHERE id = 2 AND cancelled IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(cancelled, 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A decision the owner's words make is not left only in an item the same batch merges away: the batch merges item 2
+// into item 1 and a decision is recorded in item 2 after it. The decision's line must be where a later agent reads it,
+// in the item kept, or the return that records it is sent back. In the same batch a decision that names the key of an
+// item the batch creates is written into that item, under its head and before `Learned:`. Oracle: the acceptance rule
+// (A4) that the line is added under `Decisions:` of the item it is recorded for, which a cancelled item's reader never
+// reads.
+#[test]
+fn a_decision_is_not_left_only_in_an_item_the_batch_merged_away_and_one_on_a_created_key_is_written() {
+    let s = setup("decision-merged-away");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let create = json!({ "kind": "create_item", "key": "lex", "project": "p", "title": "Lex it",
+                "problem": "No lexer.", "why": "Needed.", "acceptance": ["It lexes."], "level": "l",
+                "deliver": "change", "reason": "Split the lexer off.",
+                "approach": "Approach:\n- Lex it.\nLearned:\nFact: f" });
+            let merge = json!({ "kind": "merge", "keep": "1", "absorbed": ["2"], "reason": "The same work." });
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("Noted.")),
+                    ("outcome.effects", json!({ "item_changes": [create, merge] })),
+                ],
+            )
+        }),
+    );
+    let at = path.clone();
+    agents.insert(
+        "B5",
+        Box::new(move |_: &Request, n: usize| {
+            let (a, b) = (matter_with(&at, "integers"), matter_with(&at, "lexer simple"));
+            let looked: Vec<Value> = [a, b]
+                .iter()
+                .map(|m| json!({ "matter": m, "verdict": "decision", "why": "It settles a choice." }))
+                .collect();
+            let mut decisions = Vec::new();
+            // The first time, one in the item the batch merges away; sent back, in the item it is merged into, as the
+            // reason it was sent back says. Every matter the rows call a decision is quoted by one, both times.
+            let item = if n == 1 { "2" } else { "1" };
+            decisions.push(decision_of(
+                Some(item),
+                "Integers come first",
+                &[(a, "the parser takes integers first")],
+            ));
+            decisions.push(decision_of(
+                Some("lex"),
+                "The lexer stays simple",
+                &[(b, "Keep the lexer simple")],
+            ));
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.looked", json!(looked)),
+                    ("outcome.decisions", json!(decisions)),
+                ],
+            )
+        }),
+    );
+    agents.insert("B2", review_all_sound(path.clone()));
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET approach = 'Approach:\n- Parse it.' WHERE id = 1", [])?;
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, approach, deliver, level)
+             VALUES ('p', 'Parse more', 'x', 'y', 'Approach:\n- Other.', 'change', 'l')",
+            [],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "Yes, the parser takes integers first.");
+    say(&mut e, "Keep the lexer simple.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 100, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let approach_of = |id: i64| -> String {
+        e.db.conn()
+            .query_row("SELECT coalesce(approach, '') FROM items WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    };
+    let (kept, gone) = (approach_of(1), approach_of(2));
+    let has = |t: &str| t.lines().any(|l| l.contains("\"the parser takes integers first\""));
+    // The created item is item 3: its decision is under the head, before `Learned:`, and nothing else moved.
+    let b = matter_with(&path, "lexer simple");
+    let day = day_of(&e, b);
+    let line = decision_line(
+        &day,
+        "owner",
+        "The lexer stays simple",
+        &format!("\"Keep the lexer simple\" (matter {b}, {day})"),
+    );
+    // Both are judged before either fails the test, so that one failure does not hide the other.
+    let mut wrong: Vec<String> = Vec::new();
+    if has(&gone) && !has(&kept) {
+        wrong.push(format!(
+            "the decision stands only in the item merged away:\nkept: {kept}\nmerged away: {gone}"
+        ));
+    }
+    let made = approach_of(3);
+    let want = format!("Approach:\n- Lex it.\nDecisions:\n{line}\nLearned:\nFact: f");
+    if made != want {
+        wrong.push(format!("the created item's text is\n{made}\nand should be\n{want}"));
+    }
+    assert!(wrong.is_empty(), "{}\n{log}", wrong.join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A delegate that marks parts of its message as the owner's own words, and a decision that quotes them, go through the
+// whole path: the cell that records decisions is given the marked parts with the words, and the lines are written as the
+// engine tells who said each quotation. A decision that quotes only a marked part is the owner's, relayed by the delegate
+// and not checked; one that quotes a marked part and an unmarked part of the same message is the delegate's, and says
+// of the marked quotation that it is relayed; one that quotes the owner's own words and a marked part is told by the
+// less certain of the two, the marked part, and says of the owner's own quotation that it is the owner's. Oracle:
+// acceptance A3 and A6 (the order owner, relayed, delegate, unrecorded, architect; the head is the least certain
+// source; a quotation of another source says its own in its brackets; `batch_words` carries `relayed`).
+#[test]
+fn a_decision_quoting_what_a_delegate_marked_as_the_owner_s_is_told_as_relayed_and_not_checked() {
+    let s = setup("decisions-relayed");
+    let path = config::database(&s.data);
+    let relayed = "owner relayed by the delegate, not checked";
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 1 {
+                return (Vec::new(), Vec::new());
+            }
+            let edit = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Parse it first",
+                               "reason": "Say it first." });
+            (
+                vec![("outcome.answer", "done")],
+                vec![
+                    ("outcome.answer.reply", json!("Noted.")),
+                    ("outcome.effects", json!({ "item_changes": [edit] })),
+                ],
+            )
+        }),
+    );
+    let given: Arc<Mutex<Vec<String>>> = Arc::default();
+    let (at, seen) = (path.clone(), given.clone());
+    agents.insert(
+        "B5",
+        Box::new(move |r: &Request, _: usize| {
+            let (a, b) = (matter_with(&at, "No browser"), matter_with(&at, "old name"));
+            if let Some(words) = given_value(&r.prompt, "·engine·batch_words") {
+                seen.lock().unwrap().push(words.to_string());
+            }
+            let looked: Vec<Value> = [a, b]
+                .iter()
+                .map(|m| json!({ "matter": m, "verdict": "decision", "why": "It settles a choice." }))
+                .collect();
+            let decisions = json!([
+                decision_of(Some("1"), "The old name stays", &[(b, "Keep the old name.")]),
+                decision_of(
+                    Some("1"),
+                    "Integers are shipped",
+                    &[(b, "Use integers."), (b, "Ship it.")]
+                ),
+                decision_of(
+                    None,
+                    "No browser check, old name",
+                    &[(a, "No browser check."), (b, "Keep the old name.")]
+                ),
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.looked", json!(looked)), ("outcome.decisions", decisions)],
+            )
+        }),
+    );
+    agents.insert("B2", review_all_sound(path.clone()));
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET approach = 'Approach:\n- Parse it.' WHERE id = 1", [])?;
+        Ok(())
+    })
+    .unwrap();
+    say(&mut e, "No browser check.");
+    let marked = db::Declared {
+        speaker: db::Speaker::Delegate,
+        relayed: vec!["Keep the old name.".into(), "Use integers.".into()],
+    };
+    db::say_to_architect(
+        &mut e.db,
+        "p",
+        None,
+        None,
+        "Fine. Keep the old name. Use integers. Ship it.",
+        &[],
+        marked,
+    )
+    .unwrap();
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 100, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let (a, b) = (matter_with(&path, "No browser"), matter_with(&path, "old name"));
+    let (da, db_) = (day_of(&e, a), day_of(&e, b));
+    let latest = std::cmp::max(da.clone(), db_.clone());
+    let first = decision_line(
+        &db_,
+        relayed,
+        "The old name stays",
+        &format!("\"Keep the old name.\" (matter {b}, {db_})"),
+    );
+    let second = decision_line(
+        &db_,
+        "delegate",
+        "Integers are shipped",
+        &format!("\"Use integers.\" (matter {b}, {db_}, {relayed}); \"Ship it.\" (matter {b}, {db_})"),
+    );
+    let third = decision_line(
+        &latest,
+        relayed,
+        "No browser check, old name",
+        &format!("\"No browser check.\" (matter {a}, {da}, owner); \"Keep the old name.\" (matter {b}, {db_})"),
+    );
+    let approach: String =
+        e.db.conn()
+            .query_row("SELECT approach FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    let what: String =
+        e.db.conn()
+            .query_row("SELECT what FROM observations", [], |r| r.get(0))
+            .unwrap();
+    let mut wrong: Vec<String> = Vec::new();
+    if approach != format!("Approach:\n- Parse it.\nDecisions:\n{first}\n{second}") {
+        wrong.push(format!(
+            "the item's text is\n{approach}\nwith the lines\n{first}\n{second}"
+        ));
+    }
+    if what != third {
+        wrong.push(format!("the observation is\n{what}\nand should be\n{third}"));
+    }
+    // The cell that records decisions was given the marked parts with the words.
+    let marks = r#""relayed":["Keep the old name.","Use integers."]"#;
+    if !given.lock().unwrap().iter().any(|g| g.contains(marks)) {
+        wrong.push(format!(
+            "the words given to B5 do not carry {marks}: {:?}",
+            given.lock().unwrap()
+        ));
+    }
+    assert!(wrong.is_empty(), "{}\n{log}", wrong.join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 /// How many times a work took the rows that count a counter, as the view `work_counters` says.
 fn counted(e: &Engine, work: i64, counter: &str) -> i64 {
     e.db.conn()
@@ -17791,6 +19617,21 @@ fn past_rounds(e: &mut Engine, work: i64, rounds: &[(&str, Option<&str>, Option<
                     rejected.as_ref().map(Value::to_string),
                     at
                 ],
+            )?;
+            // The counter of the row the round took, as the engine keeps it on a round it ended itself: read from the
+            // flow the work is on, by the row the view `round_rows` says the round took.
+            tx.execute(
+                "UPDATE rounds SET counts = (
+                   SELECT json_extract(row.value, '$.counts')
+                   FROM round_rows x
+                   JOIN works w ON w.id = x.work
+                   JOIN flow_versions v ON v.id = w.flow_version
+                   JOIN json_each(v.compiled, '$.graphs') g ON json_extract(g.value, '$.name') = w.graph
+                   JOIN json_each(g.value, '$.cells') c ON json_extract(c.value, '$.id') = x.cell
+                   JOIN json_each(c.value, '$.rows') row ON json_extract(row.value, '$.name') = x.took
+                   WHERE x.work = ?1 AND x.round = ?2)
+                 WHERE work = ?1 AND n = ?2",
+                params![work, i as i64 + 1],
             )?;
         }
         Ok(())

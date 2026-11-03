@@ -787,9 +787,10 @@ async fn say_to_architect(
     let (project, _) = project_of(&app, &q)?;
     decide(&app, move |db| {
         let images = api::images(&s.images)?;
+        let speaker = db::Declared::parse(&s.speaker, s.relayed.as_deref().unwrap_or_default())?;
         match s.reply_to {
-            Some(ask) => api::reply_to_question(db, &project, ask, &s.text, &images),
-            None => db::say_to_architect(db, &project, s.item, None, &s.text, &images),
+            Some(ask) => api::reply_to_question(db, &project, ask, &s.text, &images, speaker),
+            None => db::say_to_architect(db, &project, s.item, None, &s.text, &images, speaker),
         }
     })
     .await

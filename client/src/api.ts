@@ -73,8 +73,9 @@ stopping: Array<number>,
  */
 architects_started: Array<string>,
 /**
- * The works the engine is taking a step of now, in the order of their ids: the round of each runs, beside the
- * others. While every work is paused they are the last rounds before the pause, unless the owner asked for them.
+ * The works the engine is taking a step of now, in the order of their ids, beside one another. A step is not
+ * always a round: a work that waits is stepped only to see whether what it waits for came, and that step writes
+ * no round. While every work is paused they are the last steps before the pause, unless the owner asked for them.
  */
 running: Array<number>,
 /**
@@ -169,9 +170,10 @@ line: string | null, };
 export type PausedBy = "owner" | "engine" | "architect";
 
 /**
- * What a work waits for: once it comes, the work goes on by itself, unless it is paused.
+ * What a work waits for: once it comes, the work goes on by itself, unless it is paused. Every wait of the engine
+ * that writes no round is read as one of these, or as the engine's halt or a wait for a free slot in its status.
  */
-export type Waits = { "kind": "answer", ask: number, } | { "kind": "ruling", design_card: number, } | { "kind": "architect", matter: number, project?: string, } | { "kind": "items", items: Array<number>, } | { "kind": "row", cell: string, row: string, };
+export type Waits = { "kind": "answer", ask: number, } | { "kind": "ruling", design_card: number, } | { "kind": "architect", matter: number, project?: string, } | { "kind": "items", items: Array<number>, } | { "kind": "row", cell: string, row: string, } | { "kind": "retry" };
 
 /**
  * A work as a list shows it: what it works on, where it stands and what it has cost.
@@ -887,6 +889,16 @@ count: number, };
  */
 export type WorkSaid = { text: string,
 /**
+ * Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect; kept with the
+ * words wherever they go: the architect's matter, the answer to an engineer's question, or the engineer alone.
+ */
+speaker: string,
+/**
+ * The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them,
+ * kept with the words wherever they go; the page sends none.
+ */
+relayed?: Array<string>,
+/**
  * engineer (the default), architect (the default of a question about a decision card) or both.
  */
 to?: string,
@@ -912,6 +924,15 @@ export type ProjectsSaid = {
  */
 key: string, text: string,
 /**
+ * Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect.
+ */
+speaker: string,
+/**
+ * The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+ * the page sends none.
+ */
+relayed?: Array<string>,
+/**
  * The project whose architect it is for; none for every architect of the group.
  */
 to?: string,
@@ -925,6 +946,16 @@ images: Array<ImageSent>, };
  * question of the architect's they reply to, when the box replies to one.
  */
 export type ArchitectSaid = { text: string,
+/**
+ * Who the caller declares to speak: `owner` at the page, `delegate` for a session that speaks for the owner. The
+ * architect's record of a decision says which was declared; the engine cannot tell it from who speaks.
+ */
+speaker: string,
+/**
+ * The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+ * the page sends none.
+ */
+relayed?: Array<string>,
 /**
  * The item it is about, if any.
  */
@@ -978,6 +1009,15 @@ export type ForwardNew = { project: string | null, };
  * The owner's answer to an ask of the owner, as the page and the command line hand it in.
  */
 export type Answer = { text: string,
+/**
+ * Who the caller declares to answer, `owner` or `delegate`, as for the words said to one architect.
+ */
+speaker: string,
+/**
+ * The parts of the answer a delegate declares to be the owner's own words, each found letter for letter in it; the
+ * page sends none.
+ */
+relayed?: Array<string>,
 /**
  * For what the architect is asked: why it was decided this way.
  */
