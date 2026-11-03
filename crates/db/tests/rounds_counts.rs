@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use db::rusqlite::types::Value;
-use db::rusqlite::{Connection, params_from_iter};
+use db::rusqlite::{Connection, params, params_from_iter};
 use db::{Db, MIGRATIONS};
 
 /// A database file at version 68, the one before the version that adds `rounds.counts`: made by the first version's
