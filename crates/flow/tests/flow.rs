@@ -84,7 +84,7 @@ fn each_graph_compiles_to_the_cells_of_its_nodes() {
 
 /// What of a cell decides whether a work standing at it moves to a new flow version or is taken over, as the engine's
 /// `versions::why_not` compares a cell's two versions: its kind and line, its inputs' ids, names and sources, and its
-/// rows' names, conditions and targets, each in their order; hashed short, one line of the reference for each cell.
+/// rows' names, conditions and targets, each in their order; hashed short, the file of the cell in `tests/moves/`.
 fn moves_by(c: &flow::CompiledCell) -> String {
     let inputs: Vec<Value> = c
         .inputs
@@ -105,26 +105,79 @@ fn moves_by(c: &flow::CompiledCell) -> String {
     format!("{h:016x}")
 }
 
+/// Every way the files of `tests/moves/` (file name to content) differ from the hashes the compiler gives the cells
+/// (cell id to hash), each saying the cell and what to write or delete so that an engineer only follows it.
+///
+/// Each cell has a file of its own, and not a line of one file, because git's three-way merge takes changes to
+/// neighbouring lines for a conflict: two works changing neighbouring cells would meet in a file of one line per cell.
+/// A cell added or removed is a file added or removed, which merges. Only two works changing the same cell meet, and
+/// that needs the hash worked out again anyway.
+fn moves_misses(have: &BTreeMap<String, String>, files: &BTreeMap<String, String>) -> Vec<String> {
+    let mut misses = Vec::new();
+    for (id, hash) in have {
+        match files.get(id) {
+            None => misses.push(format!("{id}: no file; write {hash} in crates/flow/tests/moves/{id}")),
+            Some(text) if text.trim_end() != hash => {
+                misses.push(format!("{id}: write {hash} in crates/flow/tests/moves/{id}"));
+            }
+            Some(_) => {}
+        }
+    }
+    for id in files.keys().filter(|id| !have.contains_key(*id)) {
+        misses.push(format!("{id}: no such cell; delete crates/flow/tests/moves/{id}"));
+    }
+    misses
+}
+
 // The parts of each cell of the engineer's graph that decide whether a work standing at it moves to a new flow version
-// are as the reference has them, so that a change of the flow shows in the reference which cells' works a new version
-// takes over when it is installed, at the cost of a work begun again.
+// are as the file of the cell in `tests/moves/` has them, so that a change of the flow shows in the change's files
+// which cells' works a new version takes over when it is installed, at the cost of a work begun again. The comparison
+// is shown to fail for a hash that differs, a cell with no file and a file with no cell, each naming the cell.
 #[test]
-fn the_cells_a_work_moves_by_are_as_the_reference_has_them() {
+fn the_cells_a_work_moves_by_are_as_their_files_have_them() {
     let c = compiled();
-    let g = c.graph("engineer").unwrap();
-    let r: Value = serde_json::from_str(include_str!("reference.json")).unwrap();
-    let want = r["moves"].as_object().cloned().unwrap_or_default();
-    let have: Map<String, Value> = g
+    let have: BTreeMap<String, String> = c
+        .graph("engineer")
+        .unwrap()
         .cells
         .iter()
-        .map(|c| (c.id.clone(), Value::from(moves_by(c))))
+        .map(|c| (c.id.clone(), moves_by(c)))
         .collect();
-    let changed: Vec<&String> = have.keys().filter(|k| want.get(*k) != have.get(*k)).collect();
-    let gone: Vec<&String> = want.keys().filter(|k| !have.contains_key(*k)).collect();
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/moves");
+    let files: BTreeMap<String, String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| {
+            let e = e.unwrap();
+            let name = e.file_name().into_string().expect("a file name that is text");
+            let text = std::fs::read_to_string(e.path()).unwrap_or_else(|x| panic!("{name}: {x}"));
+            (name, text)
+        })
+        .collect();
+    let misses = moves_misses(&have, &files);
     assert!(
-        changed.is_empty() && gone.is_empty(),
-        "cells whose works a new version takes over: changed or new {changed:?}; gone {gone:?}. Now: {}",
-        serde_json::to_string(&have).unwrap()
+        misses.is_empty(),
+        "cells whose works a new version takes over:\n{}",
+        misses.join("\n")
+    );
+
+    let (id, hash) = have.iter().next().unwrap();
+    let mut changed = files.clone();
+    changed.insert(id.clone(), "0000000000000000\n".into());
+    assert_eq!(
+        moves_misses(&have, &changed),
+        [format!("{id}: write {hash} in crates/flow/tests/moves/{id}")]
+    );
+    let mut missing = files.clone();
+    missing.remove(id);
+    assert_eq!(
+        moves_misses(&have, &missing),
+        [format!("{id}: no file; write {hash} in crates/flow/tests/moves/{id}")]
+    );
+    let mut extra = files.clone();
+    extra.insert("ZZ".into(), "0000000000000000\n".into());
+    assert_eq!(
+        moves_misses(&have, &extra),
+        ["ZZ: no such cell; delete crates/flow/tests/moves/ZZ"]
     );
 }
 

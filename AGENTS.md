@@ -20,7 +20,8 @@ What an agent needs to know for this repository, beyond the rules every agent is
   changes the flow would rewrite it, and works that do so side by side cannot be merged, in git or in meaning. What
   the flow must keep is held by the flow's own source (`each_graph_compiles_to_the_cells_of_its_nodes`) or by a named
   check; what the compiler's walk must keep is held by the small graph whose states are counted by hand, in
-  `crates/flow/src/walk.rs`.
+  `crates/flow/src/walk.rs`. A test that must keep a snapshot for each cell keeps one file for each cell
+  (`crates/flow/tests/moves/`), never a line of one file: git's merge takes changes to neighbouring lines for a conflict.
 - A check of an agent's return reports every problem it can find in that return at once, because each send-back costs
   a round. It collects the problems in `Problems` (`crates/engine/src/checks.rs`, used by `architect::check` too), and
   returns early with `fail` only when a later test presupposes that an earlier one holds. Several ids compared with a
