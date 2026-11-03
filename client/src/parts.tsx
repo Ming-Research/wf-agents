@@ -39,7 +39,7 @@ import { roundName, time } from './format';
 import { admit, IMAGE_KINDS, imageHref, IMAGES_MOST, megabytes, pastedFiles, readImage } from './images';
 import { useStatus } from './live';
 import { Link, workHref } from './route';
-import { t } from './text';
+import { t, tn } from './text';
 
 /// What opens a round of a work where the page shows it in place.
 export type OpenRound = (work: number, round: number) => void;
@@ -430,6 +430,7 @@ export function SayBox({ draft, small = false, placeholder, label, title, disabl
         </div>
       ) : null}
       {refused !== null ? <p className="say-refused">{refused}</p> : null}
+      {draft.lostImages > 0 ? <p className="say-refused">{tn('say_images_lost', draft.lostImages)}</p> : null}
       <div className="say-box-row">
         <IconButton
           icon={PaperclipIcon}

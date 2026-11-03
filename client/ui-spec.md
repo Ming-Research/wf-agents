@@ -815,6 +815,20 @@ when the box goes away, and instead of keeping every page shown, which is what t
   browser keeps nothing at all, drafts live in memory for as long as the page does. A change in another tab to a draft
   (a send, a clear) is followed. A draft is not kept on the server and does not follow the owner to another browser,
   because the owner asked for neither.
+- **Words come before images.** Images and words share the browser's room, so images could crowd out the words of
+  any box. When a write of words fails because the browser is full (and for no other failure), the images of drafts are
+  taken out of the browser one draft at a time, the draft changed longest ago first and the draft's own last, and the
+  write is tried again after each, until the words are in. The draft whose images were taken out keeps the time it was last
+  changed, because the order drafts give way in and their 30 days go by it. An image that does not fit when its own box
+  is written is left out the same way, and no other draft's images are taken out for it, since neither box's images are
+  clearly worth more.
+- **Images not kept are said, after the page is loaded again.** The entry of a draft records how many of its images the
+  browser did not keep (`lost`). A box says that after a reload, in the line under the images where it says what it
+  refused, "N images could not be kept when the page was left; paste them again", and not on the page where the images
+  are still in the box, since then it would be wrong. The line goes when an image is added or taken out, when the box is
+  emptied, and when what it holds is sent, as the line about what the box refused does; typing does not end it, and
+  there is no button to close it. An entry that holds only this count (a draft of images alone that lost them) goes
+  after 30 days like any other.
 - **Sending is the draft's.** A box sends with `draft.send(request, after)`. While the request is out the draft is
   `busy`, and a box shown again meanwhile is greyed; a request that comes through empties the draft in the store, so
   that a box that went away while it was on its way does not bring the words back; one that fails leaves the words and

@@ -290,6 +290,8 @@ const messages = {
   say_add_images: 'Add images: PNG, JPEG, GIF or WebP, at most 5 MB each and 10 to a message; an image can be pasted into the box too',
   say_images: 'Images to send with the words',
   say_images_count: '{n} of {most}',
+  say_images_lost: '{n} images could not be kept when the page was left; paste them again.',
+  say_images_lost_one: '1 image could not be kept when the page was left; paste it again.',
   say_image_hint: '{name}, {size} MB',
   say_image_remove: 'Take {name} out',
   image_pasted: 'The pasted image',

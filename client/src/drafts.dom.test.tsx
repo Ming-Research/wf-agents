@@ -25,7 +25,7 @@ function Probe({ k, fallback }: { k: string; fallback?: string }) {
   const d = useDraft(k, fallback);
   seen.set(k, d);
   return (
-    <p data-draft={k} data-busy={String(d.busy)} data-to={d.to === null ? '' : d.to.join(',')}>
+    <p data-draft={k} data-busy={String(d.busy)} data-to={d.to === null ? '' : d.to.join(',')} data-lost={d.lostImages}>
       <span>{d.text}</span>
       <i>{d.images.map((i) => i.key).join(',')}</i>
       <b>{d.error ?? ''}</b>
@@ -59,6 +59,8 @@ const words = (k: string): string => host?.querySelector(`[data-draft="${k}"] sp
 const imagesShown = (k: string): string => host?.querySelector(`[data-draft="${k}"] i`)?.textContent ?? '(not drawn)';
 const failure = (k: string): string => host?.querySelector(`[data-draft="${k}"] b`)?.textContent ?? '(not drawn)';
 const busy = (k: string): string => host?.querySelector(`[data-draft="${k}"]`)?.getAttribute('data-busy') ?? '(not drawn)';
+/// How many images lost a box says.
+const lostShown = (k: string): string => host?.querySelector(`[data-draft="${k}"]`)?.getAttribute('data-lost') ?? '(not drawn)';
 
 /// The draft of the probe under `k`.
 const draftOf = (k: string): Draft => {
@@ -120,6 +122,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await leave();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -506,5 +509,246 @@ describe('what the browser keeps of a draft', () => {
     expect(localStorage.getItem(IMAGES_AT + 'ask:31')).toBeNull();
     expect(localStorage.getItem(WORDS_AT + 'ask:32')).not.toBeNull();
     expect(localStorage.getItem('wf-agents.items-states')).toBe('[]');
+  });
+});
+
+/// A storage with room for `box.limit` characters, keys and values together, that throws a quota error for a write that
+/// does not fit, as a full browser does (taking something out makes room, which the storage that refuses by key cannot show);
+/// `box.quotaOn` makes it refuse the keys it says as full, and `box.denyOn` as forbidden, which no deleting cures.
+function capped() {
+  const m = new Map<string, string>();
+  const box = { limit: Infinity, quotaOn: null as ((k: string) => boolean) | null, denyOn: null as ((k: string) => boolean) | null };
+  const used = (): number => {
+    let n = 0;
+    for (const [k, v] of m) n += k.length + v.length;
+    return n;
+  };
+  const s: Storage = {
+    get length() {
+      return m.size;
+    },
+    key: (i: number) => [...m.keys()][i] ?? null,
+    getItem: (k: string) => m.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      if (box.denyOn?.(k)) throw new DOMException('denied', 'SecurityError');
+      const before = m.has(k) ? k.length + (m.get(k) ?? '').length : 0;
+      if (box.quotaOn?.(k) || used() - before + k.length + v.length > box.limit) throw new DOMException('full', 'QuotaExceededError');
+      m.set(k, v);
+    },
+    removeItem: (k: string) => void m.delete(k),
+    clear: () => m.clear(),
+  };
+  return { s, box, used };
+}
+
+/// An image whose bytes take up about a thousand characters of a storage.
+const big = (n: number): PendingImage => ({ ...image(n), data_url: `data:image/png;base64,${'A'.repeat(1000)}` });
+
+/// The entry a storage holds of the words of draft `k`, parsed.
+const entryOf = (s: Storage, k: string): { text?: string; at?: number; lost?: number } | null => {
+  const raw = s.getItem(WORDS_AT + k);
+  return raw === null ? null : (JSON.parse(raw) as { text?: string; at?: number; lost?: number });
+};
+
+describe('words that the browser is full for', () => {
+  /// Puts a draft with `images` in `s` as the store writes one, `at` the time it was last changed.
+  const seed = (s: Storage, k: string, at: number, images: PendingImage[]) => {
+    s.setItem(WORDS_AT + k, JSON.stringify({ text: k, at }));
+    s.setItem(IMAGES_AT + k, JSON.stringify(images));
+  };
+
+  it('are written by taking out the images of the draft changed longest ago, and no other, and it records how many', async () => {
+    const { s, box, used } = capped();
+    vi.stubGlobal('localStorage', s);
+    const now = Date.now();
+    seed(s, 'old', now - 2000, [big(1), big(2)]);
+    seed(s, 'new', now - 1000, [big(3)]);
+    box.limit = used() + 120;
+    await show('mine');
+    await act(async () => draftOf('mine').setText('y'.repeat(400)));
+    expect(s.getItem(IMAGES_AT + 'old')).toBeNull();
+    expect(s.getItem(IMAGES_AT + 'new')).not.toBeNull();
+    // The time it was changed is as it was, since the order drafts give way in and the 30 days go by it.
+    expect(entryOf(s, 'old')).toEqual({ text: 'old', at: now - 2000, lost: 2 });
+    expect(entryOf(s, 'new')).toEqual({ text: 'new', at: now - 1000 });
+    expect(entryOf(s, 'mine')?.text).toBe('y'.repeat(400));
+    await leave();
+    forgetMemory();
+    await show('mine');
+    expect(words('mine')).toBe('y'.repeat(400));
+  });
+
+  it("takes out the draft's own images last, and says in its own entry how many", async () => {
+    const { s, box, used } = capped();
+    vi.stubGlobal('localStorage', s);
+    await show('mine');
+    await act(async () => {
+      draftOf('mine').setText('a');
+      draftOf('mine').setImages([big(1)]);
+    });
+    expect(s.getItem(IMAGES_AT + 'mine')).not.toBeNull();
+    box.limit = used() + 50;
+    await act(async () => draftOf('mine').setText('z'.repeat(300)));
+    expect(s.getItem(IMAGES_AT + 'mine')).toBeNull();
+    expect(entryOf(s, 'mine')).toMatchObject({ text: 'z'.repeat(300), lost: 1 });
+    // Still in the box, so that nothing is said of them on this page.
+    expect(imagesShown('mine')).toBe('image-t-1');
+    expect(lostShown('mine')).toBe('0');
+    await leave();
+    forgetMemory();
+    await show('mine');
+    expect(words('mine')).toBe('z'.repeat(300));
+    expect(imagesShown('mine')).toBe('');
+    expect(lostShown('mine')).toBe('1');
+  });
+
+  it('stay in memory, with no exception, when there are no images left to take out and they still do not fit', async () => {
+    const { s, box, used } = capped();
+    vi.stubGlobal('localStorage', s);
+    seed(s, 'other', Date.now() - 1000, [big(1)]);
+    box.limit = used() + 5;
+    await show('mine');
+    await act(async () => draftOf('mine').setText('q'.repeat(5000)));
+    expect(s.getItem(IMAGES_AT + 'other')).toBeNull();
+    expect(entryOf(s, 'mine')).toBeNull();
+    await leave();
+    await show('mine');
+    expect(words('mine')).toBe('q'.repeat(5000));
+  });
+
+  it('take no image out when the write fails for another reason than a full browser', async () => {
+    const { s, box } = capped();
+    vi.stubGlobal('localStorage', s);
+    seed(s, 'other', Date.now() - 1000, [big(1)]);
+    box.denyOn = (k) => k === WORDS_AT + 'mine';
+    await show('mine');
+    await act(async () => draftOf('mine').setText('x'));
+    expect(s.getItem(IMAGES_AT + 'other')).not.toBeNull();
+    expect(entryOf(s, 'other')).toEqual(expect.not.objectContaining({ lost: expect.anything() }));
+    expect(words('mine')).toBe('x');
+  });
+
+  it("leave the images of a box that is shown in it, and its next write records how many it has lost", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const { s, box, used } = capped();
+    vi.stubGlobal('localStorage', s);
+    await show('old', 'new', 'mine');
+    vi.setSystemTime(Date.now() + 10);
+    await act(async () => {
+      draftOf('old').setText('o');
+      draftOf('old').setImages([big(1), big(2)]);
+    });
+    vi.setSystemTime(Date.now() + 10);
+    await act(async () => {
+      draftOf('new').setText('n');
+      draftOf('new').setImages([big(3)]);
+    });
+    vi.setSystemTime(Date.now() + 10);
+    box.limit = used() + 120;
+    await act(async () => draftOf('mine').setText('y'.repeat(400)));
+    expect(s.getItem(IMAGES_AT + 'old')).toBeNull();
+    expect(s.getItem(IMAGES_AT + 'new')).not.toBeNull();
+    // The box of the draft that gave way still has its images and says nothing of them; it keeps the count in memory.
+    expect(imagesShown('old')).toBe('image-t-1,image-t-2');
+    expect(lostShown('old')).toBe('0');
+    box.limit = Infinity;
+    await act(async () => draftOf('old').setText('o, more'));
+    expect(entryOf(s, 'old')).toMatchObject({ text: 'o, more', lost: 2 });
+    vi.useRealTimers();
+  });
+});
+
+describe('images the browser did not keep', () => {
+  it('are said after the page is loaded again and not on the page that has them, until an image is added or taken out', async () => {
+    const { s, box } = capped();
+    vi.stubGlobal('localStorage', s);
+    box.quotaOn = (k) => k.startsWith(IMAGES_AT);
+    await show('ask:40');
+    await act(async () => {
+      draftOf('ask:40').setText('hi');
+      draftOf('ask:40').setImages([image(1), image(2)]);
+    });
+    expect(lostShown('ask:40')).toBe('0');
+    expect(imagesShown('ask:40')).toBe('image-t-1,image-t-2');
+    expect(entryOf(s, 'ask:40')?.lost).toBe(2);
+    await act(async () => draftOf('ask:40').setText('hi there'));
+    expect(entryOf(s, 'ask:40')).toMatchObject({ text: 'hi there', lost: 2 });
+    await leave();
+    forgetMemory();
+    await show('ask:40');
+    expect(lostShown('ask:40')).toBe('2');
+    expect(imagesShown('ask:40')).toBe('');
+    // Typing does not end it.
+    await act(async () => draftOf('ask:40').setText('hi there, more'));
+    expect(lostShown('ask:40')).toBe('2');
+    expect(entryOf(s, 'ask:40')?.lost).toBe(2);
+    // An image added, and kept this time, ends it, in the browser too.
+    box.quotaOn = null;
+    await act(async () => draftOf('ask:40').setImages([image(3)]));
+    expect(lostShown('ask:40')).toBe('0');
+    expect(entryOf(s, 'ask:40')?.lost).toBeUndefined();
+    expect(s.getItem(IMAGES_AT + 'ask:40')).not.toBeNull();
+  });
+
+  it('leave the entry of a draft of images alone, until it is emptied, sent or past its 30 days', async () => {
+    const { s, box } = capped();
+    vi.stubGlobal('localStorage', s);
+    box.quotaOn = (k) => k.startsWith(IMAGES_AT);
+    await show('ask:41');
+    await act(async () => draftOf('ask:41').setImages([image(1)]));
+    expect(entryOf(s, 'ask:41')).toMatchObject({ text: '', lost: 1 });
+    await leave();
+    forgetMemory();
+    await show('ask:41');
+    expect(lostShown('ask:41')).toBe('1');
+    expect(entryOf(s, 'ask:41')).not.toBeNull();
+    // Emptied, it is gone from the browser.
+    await act(async () => draftOf('ask:41').clear());
+    expect(lostShown('ask:41')).toBe('0');
+    expect(entryOf(s, 'ask:41')).toBeNull();
+    // One sent ends it too.
+    await act(async () => draftOf('ask:41').setImages([image(2)]));
+    await leave();
+    forgetMemory();
+    await show('ask:41');
+    expect(lostShown('ask:41')).toBe('1');
+    const r = request();
+    await act(async () => draftOf('ask:41').send(() => r.promise));
+    await act(async () => r.ok());
+    expect(lostShown('ask:41')).toBe('0');
+    expect(entryOf(s, 'ask:41')).toBeNull();
+    // Past its 30 days the entry is not read, as any other.
+    await act(async () => draftOf('ask:41').setImages([image(3)]));
+    s.setItem(WORDS_AT + 'ask:41', JSON.stringify({ text: '', at: Date.now() - DRAFT_KEPT_MS - 1000, lost: 1 }));
+    await leave();
+    forgetMemory();
+    await show('ask:41');
+    expect(lostShown('ask:41')).toBe('0');
+    expect(entryOf(s, 'ask:41')).toBeNull();
+  });
+
+  it("are not taken for the owner's clear when another tab took them out to make room for its words", async () => {
+    const { s } = capped();
+    vi.stubGlobal('localStorage', s);
+    await show('ask:42');
+    await act(async () => {
+      draftOf('ask:42').setText('mine');
+      draftOf('ask:42').setImages([image(1)]);
+    });
+    // Another tab takes the images out of the browser and records how many.
+    s.removeItem(IMAGES_AT + 'ask:42');
+    s.setItem(WORDS_AT + 'ask:42', JSON.stringify({ text: 'mine', at: Date.now(), lost: 1 }));
+    await act(async () => otherTab(IMAGES_AT + 'ask:42'));
+    await act(async () => otherTab(WORDS_AT + 'ask:42'));
+    expect(imagesShown('ask:42')).toBe('image-t-1');
+    expect(lostShown('ask:42')).toBe('0');
+    // What this page writes next still records them as not kept, once.
+    await act(async () => draftOf('ask:42').setText('mine, more'));
+    expect(entryOf(s, 'ask:42')).toMatchObject({ text: 'mine, more', lost: 1 });
+    // The other tab sending the draft is a clear: the images go.
+    s.removeItem(WORDS_AT + 'ask:42');
+    await act(async () => otherTab(WORDS_AT + 'ask:42'));
+    expect(imagesShown('ask:42')).toBe('');
+    expect(words('ask:42')).toBe('');
   });
 });

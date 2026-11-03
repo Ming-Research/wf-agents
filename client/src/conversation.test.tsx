@@ -748,6 +748,7 @@ const heldDraft = (text: string, images: PendingImage[]): Draft => ({
   base: null,
   busy: false,
   error: null,
+  lostImages: 0,
   setText: () => {},
   setImages: () => {},
   setTo: () => {},

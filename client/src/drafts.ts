@@ -4,7 +4,9 @@
 // another conversation) and shown again reads its draft, and one written from outside (`putDraft`) reaches a box that is
 // not shown. Every change is written to this browser's `localStorage` at once, with no timer and no hook on leaving, since
 // a browser that drops a tab does not promise to run one; the images of a draft go to a key of their own, written when
-// they change, so that images too big for the browser cost the words nothing; where the browser keeps nothing, drafts
+// they change, and words come before images: where the browser is full, images are taken out of it (the draft changed
+// longest ago first, the draft's own last) until the words fit, and the entry of a draft whose images were not kept says
+// how many, so that its box says so when the page is loaded again; where the browser keeps nothing, drafts
 // live in memory for as long as the page does. A draft older than 30 days is not read, and a draft the box sent is gone
 // from memory and from the browser. Another tab that changes or clears a draft is followed (the `storage` event).
 
@@ -20,7 +22,9 @@ const WORDS_AT = 'wf-agents.draft.';
 const IMAGES_AT = 'wf-agents.draft-images.';
 
 /// What one box holds. `edited` tells words the owner wrote (even none) from a box nobody has written in, which shows its
-/// fallback; `sending` and `error` live in memory only.
+/// fallback; `sending` and `error` live in memory only. `lost` is how many images an earlier page had in this box that
+/// the browser did not keep, which the box says; `unsaved` is how many images the box holds now that the browser does
+/// not keep, which it does not say, since they are still in the box. What the browser's entry records is their sum.
 type Held = {
   text: string;
   images: PendingImage[];
@@ -29,9 +33,21 @@ type Held = {
   edited: boolean;
   sending: boolean;
   error: string | null;
+  lost: number;
+  unsaved: number;
 };
 
-const NOTHING: Held = { text: '', images: [], to: null, base: null, edited: false, sending: false, error: null };
+const NOTHING: Held = {
+  text: '',
+  images: [],
+  to: null,
+  base: null,
+  edited: false,
+  sending: false,
+  error: null,
+  lost: 0,
+  unsaved: 0,
+};
 
 /// A box's draft as the box uses it.
 export type Draft = {
@@ -48,6 +64,9 @@ export type Draft = {
   readonly busy: boolean;
   /// Why the last request failed; the words stay.
   readonly error: string | null;
+  /// How many images an earlier page had in this box that the browser could not keep: they are gone, and the box says so
+  /// until the owner adds or takes out an image, or the box is emptied or sent.
+  readonly lostImages: number;
   setText: (text: string) => void;
   /// Like React's: the new images, or a function of the images the draft holds when it runs (an image read after the box
   /// went away still joins the draft).
@@ -64,7 +83,7 @@ export type Draft = {
 };
 
 /// What is kept in the browser of a draft's words.
-type Kept = { text: string; at: number; to?: string[]; base?: string };
+type Kept = { text: string; at: number; to?: string[]; base?: string; lost?: number };
 
 const held = new Map<string, Held>();
 const watchers = new Set<() => void>();
@@ -92,7 +111,8 @@ function parseKept(raw: string): Kept | null {
   const o = v as Record<string, unknown>;
   if (typeof o.text !== 'string' || typeof o.at !== 'number' || !Number.isFinite(o.at)) return null;
   const to = Array.isArray(o.to) && o.to.every((x) => typeof x === 'string') ? (o.to as string[]) : undefined;
-  return { text: o.text, at: o.at, to, base: typeof o.base === 'string' ? o.base : undefined };
+  const lost = typeof o.lost === 'number' && Number.isInteger(o.lost) && o.lost > 0 ? o.lost : undefined;
+  return { text: o.text, at: o.at, to, base: typeof o.base === 'string' ? o.base : undefined, lost };
 }
 
 const isImage = (x: unknown): x is PendingImage => {
@@ -147,6 +167,7 @@ function load(key: string): Held {
       to: kept.to ?? null,
       base: kept.base ?? null,
       edited: true,
+      lost: kept.lost ?? 0,
     };
   } catch {
     return NOTHING;
@@ -181,34 +202,118 @@ function sweep(): void {
   }
 }
 
-/// Keeps a draft in the browser, as far as the browser lets: the words, always; the images only when `withImages` says
-/// they changed. A draft with neither words nor images is taken out instead.
-function persist(key: string, h: Held, withImages: boolean): void {
-  const s = browser();
-  if (s === null) return;
-  if (h.text === '' && h.images.length === 0) {
-    drop(s, key);
-    return;
-  }
+/// Whether `e` says the browser is full: the one failure that taking something out can cure.
+const isQuota = (e: unknown): boolean =>
+  e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+
+/// Records in the entry of draft `draft` that `n` of its images were taken out of the browser, leaving the time it was
+/// last changed as it is (the order drafts give way in, and their 30 days, go by it). Its box, if the store holds it, still
+/// has the images, which the browser no longer keeps.
+function noteLost(s: Storage, draft: string, n: number): void {
+  const mine = held.get(draft);
+  if (mine !== undefined && mine.images.length > 0) held.set(draft, { ...mine, unsaved: mine.images.length });
   try {
-    const kept: Kept = { text: h.text, at: Date.now(), to: h.to ?? undefined, base: h.base ?? undefined };
-    s.setItem(WORDS_AT + key, JSON.stringify(kept));
+    const raw = s.getItem(WORDS_AT + draft);
+    const kept = raw === null ? null : parseKept(raw);
+    if (kept !== null && n > 0) s.setItem(WORDS_AT + draft, JSON.stringify({ ...kept, lost: (kept.lost ?? 0) + n }));
   } catch {
-    // The words stay in memory only.
+    // The room the images left is more than this needs; if even that fails the count is not recorded.
   }
-  if (!withImages) return;
+}
+
+/// Takes the images of one draft out of the browser to make room for words: those of the draft last changed longest ago
+/// that is not `key`'s (one whose words cannot be read counts as the longest ago), and only when none is left, `key`'s
+/// own. Says whose they were, or none when there are no images to take out or the browser refuses.
+function makeRoom(s: Storage, key: string): 'own' | 'other' | null {
   try {
-    if (h.images.length > 0) s.setItem(IMAGES_AT + key, JSON.stringify(h.images));
-    else s.removeItem(IMAGES_AT + key);
+    let victim: { k: string; draft: string; at: number } | null = null;
+    for (let i = 0; i < s.length; i++) {
+      const k = s.key(i);
+      if (k === null || !k.startsWith(IMAGES_AT)) continue;
+      const draft = k.slice(IMAGES_AT.length);
+      const raw = draft === key ? null : s.getItem(WORDS_AT + draft);
+      const at = draft === key ? Infinity : ((raw === null ? null : parseKept(raw))?.at ?? 0);
+      if (victim === null || at < victim.at) victim = { k, draft, at };
+    }
+    if (victim === null) return null;
+    const stored = s.getItem(victim.k);
+    const n = stored === null ? 0 : parseImages(stored).length;
+    s.removeItem(victim.k);
+    if (victim.draft === key) return 'own';
+    noteLost(s, victim.draft, n);
+    return 'other';
+  } catch {
+    return null;
+  }
+}
+
+/// Keeps a draft in the browser, as far as the browser lets, and says how many of its images it did not keep. The words
+/// come first, so that no image of any draft crowds them out: where the browser is full, images are taken out (`makeRoom`)
+/// until they fit; no other failure takes anything out. Then the images, only when `withImages` says they changed; those
+/// that do not fit are left out, and the words' entry says how many (`lost`), so that a page loaded later can say so. A
+/// draft with neither words nor images nor any images lost is taken out instead.
+function persist(key: string, h: Held, withImages: boolean): number {
+  const s = browser();
+  if (s === null) return h.unsaved;
+  if (h.text === '' && h.images.length === 0 && h.lost + h.unsaved === 0) {
+    drop(s, key);
+    return 0;
+  }
+  let unsaved = h.images.length === 0 ? 0 : h.unsaved;
+  // The count of images not kept that the entry in the browser says; none while it is not written.
+  let recorded = -1;
+  const record = (): void => {
+    const lost = h.lost + unsaved;
+    const kept: Kept = { text: h.text, at: Date.now(), to: h.to ?? undefined, base: h.base ?? undefined, lost: lost > 0 ? lost : undefined };
+    s.setItem(WORDS_AT + key, JSON.stringify(kept));
+    recorded = unsaved;
+  };
+  for (;;) {
+    try {
+      record();
+      break;
+    } catch (e) {
+      // Whatever else fails, the words stay in memory only.
+      if (!isQuota(e)) break;
+      const took = makeRoom(s, key);
+      if (took === null) break;
+      if (took === 'own') unsaved = h.images.length;
+    }
+  }
+  /// Writes the entry again when the images came out other than it says.
+  const settle = (): void => {
+    if (recorded < 0 || recorded === unsaved) return;
+    try {
+      record();
+    } catch {
+      // The count stays in memory.
+    }
+  };
+  if (!withImages) return unsaved;
+  try {
+    if (h.images.length === 0) {
+      s.removeItem(IMAGES_AT + key);
+      unsaved = 0;
+    } else if (recorded < 0) {
+      // No entry to find them by: they stay in memory only, and the images kept before are not the box's any more.
+      s.removeItem(IMAGES_AT + key);
+      unsaved = h.images.length;
+    } else {
+      s.setItem(IMAGES_AT + key, JSON.stringify(h.images));
+      unsaved = 0;
+    }
   } catch {
     // Too big for the browser: the images stay in memory only, and the images kept before, which the box no longer holds
     // as they are, would come back, so they go.
+    unsaved = h.images.length;
     try {
       s.removeItem(IMAGES_AT + key);
     } catch {
       // Nothing is kept.
     }
   }
+  settle();
+  return unsaved;
 }
 
 /// What the store holds of a draft, reading the browser's the first time.
@@ -225,7 +330,10 @@ function read(key: string): Held {
 /// Makes `next` the draft and tells every box showing a draft.
 function commit(key: string, next: Held, keep: 'words' | 'images' | 'memory'): void {
   held.set(key, next);
-  if (keep !== 'memory') persist(key, next, keep === 'images');
+  if (keep !== 'memory') {
+    const unsaved = persist(key, next, keep === 'images');
+    if (unsaved !== next.unsaved) held.set(key, { ...next, unsaved });
+  }
   for (const w of [...watchers]) w();
 }
 
@@ -246,7 +354,10 @@ function change(
   const to = patch.to ?? h.to;
   const base = patch.base === undefined ? h.base : patch.base;
   if (h.edited && text === h.text && images === h.images && sameList(to, h.to) && base === h.base) return;
-  commit(key, { ...h, text, images, to, base, edited: true }, images !== h.images ? 'images' : 'words');
+  // An image added or taken out ends what was said of images lost; what the browser keeps of them is then worked out anew.
+  const imagesChanged = images !== h.images;
+  const counts = imagesChanged ? { lost: 0, unsaved: 0 } : {};
+  commit(key, { ...h, text, images, to, base, edited: true, ...counts }, imagesChanged ? 'images' : 'words');
 }
 
 /// The draft emptied: no words, no images, no failure; the recipients and whether a request is out stay as they are.
@@ -309,6 +420,7 @@ function view(key: string, h: Held, fallback: string): Draft {
     base: h.base,
     busy: h.sending,
     error: h.error,
+    lostImages: h.lost,
     setText: (text) => change(key, { text }),
     setImages: (next) => change(key, { images: typeof next === 'function' ? next(read(key).images) : next }),
     setTo: (to) => change(key, { to }),
@@ -343,15 +455,28 @@ function follow(key: string): void {
   const h = held.get(key);
   if (h === undefined) return;
   const kept = load(key);
-  const next: Held = {
-    ...kept,
-    images: sameImages(kept.images, h.images) ? h.images : kept.images,
-    to: kept.to ?? h.to,
-    sending: h.sending,
-    error: h.error,
-  };
+  // Images this page holds that the browser does not: another tab took them out to make room for its words (the entry
+  // says more lost than this page knows of), or they never fitted. That is no clear by the owner, and they are still in the
+  // box, so they stay, and nothing is said of them.
+  const mine =
+    kept.edited && kept.images.length === 0 && h.images.length > 0 && (h.unsaved > 0 || kept.lost > h.lost + h.unsaved);
+  const next: Held = mine
+    ? { ...kept, images: h.images, lost: h.lost, unsaved: h.images.length, to: kept.to ?? h.to, sending: h.sending, error: h.error }
+    : {
+        ...kept,
+        images: sameImages(kept.images, h.images) ? h.images : kept.images,
+        to: kept.to ?? h.to,
+        sending: h.sending,
+        error: h.error,
+      };
   const unchanged =
-    next.text === h.text && next.images === h.images && next.base === h.base && next.edited === h.edited && sameList(next.to, h.to);
+    next.text === h.text &&
+    next.images === h.images &&
+    next.base === h.base &&
+    next.edited === h.edited &&
+    next.lost === h.lost &&
+    next.unsaved === h.unsaved &&
+    sameList(next.to, h.to);
   if (!unchanged) commit(key, next, 'memory');
 }
 
