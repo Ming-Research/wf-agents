@@ -2076,6 +2076,16 @@ fn message(tx: &Transaction<'_>, from: &str, to: &str, words: &str, detail: &str
     queue_matter(tx, &m).map_err(sql)
 }
 
+/// An item change as the batch keeps it: the change itself, without the matter it names, which the batch keeps in the
+/// row of the change.
+fn kept_change(change: &Value) -> Value {
+    let mut kept = change.clone();
+    if let Some(o) = kept.as_object_mut() {
+        o.remove("matter");
+    }
+    kept
+}
+
 /// Carries out the effects of an answer on a matter's path: item changes are collected into the architect work's batch;
 /// changes to observations, actions and messages are made at once.
 fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(), String> {
@@ -2084,10 +2094,7 @@ fn apply_effects(ctx: &Ctx, tx: &Transaction<'_>, effects: &Value) -> Result<(),
     // A change comes of the matter of the group it names, or else of the matter picked; the batch keeps the change
     // itself, without the name.
     for c in items(effects.get("item_changes")) {
-        let mut change = c.clone();
-        if let Some(o) = change.as_object_mut() {
-            o.remove("matter");
-        }
+        let change = kept_change(&c);
         tx.execute(
             "INSERT INTO architect_item_changes (work, round, matter, change, state) VALUES (?1, ?2, ?3, ?4, 'collected')",
             params![
@@ -2149,9 +2156,9 @@ fn changes_matter(outcome: &Value, m: i64, lead: i64) -> bool {
 }
 
 /// What a round that took a group in handed in about one matter of it, as a round on that matter alone hands it in:
-/// its way (`take` for the matter picked, the entry of `with` that names the other) and the changes to observations
-/// that come of it. The matter picked is the one no entry of `with` names, and a change that names no matter comes of
-/// it.
+/// its way (`take` for the matter picked, the entry of `with` that names the other) and the changes to observations and
+/// the messages to other architects that come of it. The matter picked is the one no entry of `with` names, and a
+/// change or a message that names no matter comes of it.
 fn about_matter(outcome: &Value, matter: i64) -> Value {
     let named = |x: &Value| x["matter"].as_i64();
     let other = items(outcome.get("with"))
@@ -2166,9 +2173,13 @@ fn about_matter(outcome: &Value, matter: i64) -> Value {
         .into_iter()
         .filter(own)
         .collect();
+    let messages: Vec<Value> = items(outcome["effects"].get("messages"))
+        .into_iter()
+        .filter(own)
+        .collect();
     json!({
         "take": take,
-        "effects": { "observation_changes": observation_changes, "messages": outcome["effects"]["messages"] },
+        "effects": { "observation_changes": observation_changes, "messages": messages },
     })
 }
 
@@ -3325,7 +3336,9 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 let change = if x["decision"].is_object() {
                     decision_change(tx, &project, matter.unwrap_or_default(), &x["decision"])?
                 } else {
-                    x["change"].clone()
+                    // The row names the matter the change comes of; the change itself, which shares its shape with the
+                    // changes of an answer, is kept without the name such a change may carry.
+                    kept_change(&x["change"])
                 };
                 tx.execute(
                     "INSERT INTO architect_item_changes (work, round, matter, change, state)
@@ -3925,7 +3938,15 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
         }
         "effects_valid" => {
             let Some(effects) = v else { return Ok(()) };
-            Problems::from(effects_problems(c, project_of(c.w)?, effects)?).into_result()
+            let mut problems = Problems::from(effects_problems(c, project_of(c.w)?, effects)?);
+            // A cell that checks the group (`group_answered`) holds the matters its changes name to the group; any other
+            // cell answers for the matter in hand alone, which a change may not leave for another.
+            if !c.cell.checks.iter().any(|x| x.check == "group_answered")
+                && let Some(lead) = picked(conn, c.w.id)?
+            {
+                problems.extend(stray_matter_problems(lead, effects));
+            }
+            problems.into_result()
         }
         "reply_fits_changes" => {
             let Some(reply) = v else { return Ok(()) };
@@ -4448,6 +4469,7 @@ fn group_problems(lead: i64, members: &[i64], with: &[Value], take: &Value, effe
     for (list, what) in [
         ("item_changes", "item change"),
         ("observation_changes", "observation change"),
+        ("messages", "message"),
     ] {
         for (i, c) in items(effects.get(list)).iter().enumerate() {
             if let Some(m) = c["matter"].as_i64().filter(|m| !group.contains(m)) {
@@ -4459,6 +4481,29 @@ fn group_problems(lead: i64, members: &[i64], with: &[Value], take: &Value, effe
                 problems.push(format!(
                     "{what} {} comes of matter {m}, which is given the way {BACK_FOR_OWNER} and is not taken in \
                      this round: no change may come of it",
+                    i + 1
+                ));
+            }
+        }
+    }
+    problems
+}
+
+/// What is wrong with the changes of a round that answers for the matter `lead` alone (`effects`, as the round handed
+/// them in): a change to observations or to items that names another matter, which only the cell that takes in a group
+/// may do. Left alone, the change would be recorded under a matter that is not in hand, or fail the key of the table.
+fn stray_matter_problems(lead: i64, effects: &Value) -> Problems {
+    let mut problems = Problems::default();
+    for (list, what) in [
+        ("item_changes", "item change"),
+        ("observation_changes", "observation change"),
+        ("messages", "message"),
+    ] {
+        for (i, c) in items(effects.get(list)).iter().enumerate() {
+            if let Some(m) = c["matter"].as_i64().filter(|m| *m != lead) {
+                problems.push(format!(
+                    "{what} {} comes of matter {m}, which is not the matter in hand ({lead}): this cell answers for \
+                     that matter alone, so leave `matter` out",
                     i + 1
                 ));
             }
@@ -5504,6 +5549,44 @@ fn slots(e: &Engine) -> Result<Value, String> {
     }))
 }
 
+/// The excerpts of the text of the project's side reports and engineers' answers not handled, by matter: the matters that
+/// can be picked together, given with an excerpt which tells whether two are about the same thing; no other matter is.
+fn excerpts(conn: &Connection, project: &str) -> Result<BTreeMap<i64, String>, String> {
+    Ok(query_json(
+        conn,
+        "SELECT id, detail, body FROM architect_matters
+         WHERE project = ?1 AND kind = 'report' AND handled_round IS NULL AND withdrawn IS NULL",
+        &[&project],
+        100_000,
+    )?
+    .iter()
+    .filter_map(|r| {
+        group_class("report", r["detail"].as_str(), &r["body"])?;
+        Some((r["id"].as_i64()?, excerpt(report_text(&r["body"]))))
+    })
+    .collect())
+}
+
+/// A row of the project's queue (`row`, of the view `architect_queue`) as the architect is given it, with the excerpt of
+/// its text if it has one; a field with nothing to say is left out.
+fn queued_matter(row: &Value, excerpt: Option<&String>) -> Value {
+    let mut m = json!({
+        "kind": row["kind"], "detail": row["detail"], "item": row["item"], "waits": row["waits"],
+        "since": row["at"].as_i64().map(utc_minute), "what": row["what"],
+        "excerpt": excerpt,
+    });
+    if row["answered"] == 1 {
+        m["back_with_answer"] = json!(true);
+    }
+    if row["urgent"] == 1 || row["urgent"] == true {
+        m["urgent"] = json!(true);
+    }
+    if let Some(o) = m.as_object_mut() {
+        o.retain(|_, v| !v.is_null());
+    }
+    m
+}
+
 /// A project's queue, by matter: each matter that can be picked, with its kind and detail, the item it concerns, who
 /// waits for it and since when, and what it is; those held for the owner's answer, listed as held; and whether new
 /// starts are held to set things straight.
@@ -5519,45 +5602,18 @@ fn queue(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         &[&project],
         ROWS,
     )?;
-    // A side report and an engineer's answer, the matters that can be picked together, are given with an excerpt of
-    // their text, which tells whether two are about the same thing; no other matter is.
-    let excerpts: BTreeMap<i64, String> = query_json(
-        conn,
-        "SELECT id, detail, body FROM architect_matters
-         WHERE project = ?1 AND kind = 'report' AND handled_round IS NULL AND withdrawn IS NULL",
-        &[&project],
-        100_000,
-    )?
-    .iter()
-    .filter_map(|r| {
-        group_class("report", r["detail"].as_str(), &r["body"])?;
-        Some((r["id"].as_i64()?, excerpt(report_text(&r["body"]))))
-    })
-    .collect();
+    let texts = excerpts(conn, project)?;
     let mut matters = Map::new();
     for r in rows {
         let id = r["matter"].as_i64().unwrap_or_default();
         // Flow feedback and what was said in the groups that came after the work started, and that it did not queue
         // itself, wait for the architect's next work.
         let later = !taken.contains(&id);
-        let mut m = json!({
-            "kind": r["kind"], "detail": r["detail"], "item": r["item"], "waits": r["waits"],
-            "since": r["at"].as_i64().map(utc_minute), "what": r["what"],
-            "excerpt": excerpts.get(&id),
-        });
-        if r["answered"] == 1 {
-            m["back_with_answer"] = json!(true);
-        }
-        if r["urgent"] == 1 || r["urgent"] == true {
-            m["urgent"] = json!(true);
-        }
+        let mut m = queued_matter(&r, texts.get(&id));
         if later {
             m["not_now"] = json!("it came after this work started: the architect's next work takes it");
         } else if !can.contains(&id) {
             m["not_now"] = json!("set straight first");
-        }
-        if let Some(o) = m.as_object_mut() {
-            o.retain(|_, v| !v.is_null());
         }
         matters.insert(format!("#{id}"), m);
     }
@@ -7643,6 +7699,48 @@ mod tests {
         assert_eq!(said(group_problems(10, &[], &[], &take, &Value::Null)).len(), 1);
     }
 
+    // A change or a message that names a matter is held to the matters the cell answers for: at the cell that takes a
+    // group in, to the group (a message too), and at any other cell, which answers for the matter in hand alone, to
+    // that matter, every one told at once; the batch keeps a change without the name it may carry.
+    #[test]
+    fn a_change_that_names_a_matter_the_cell_does_not_answer_for_is_told_and_not_kept_with_its_name() {
+        let effects = json!({
+            "item_changes": [{ "kind": "edit_item", "matter": 10 }, { "kind": "edit_item", "matter": 14 }],
+            "observation_changes": [{ "kind": "new" }, { "kind": "merge", "matter": 15 }],
+            "messages": [{ "project": "q", "matter": 16 }, { "project": "r" }]
+        });
+        assert_eq!(
+            said(stray_matter_problems(10, &effects)),
+            [
+                "item change 2 comes of matter 14, which is not the matter in hand (10): this cell answers for that \
+                 matter alone, so leave `matter` out",
+                "observation change 2 comes of matter 15, which is not the matter in hand (10): this cell answers \
+                 for that matter alone, so leave `matter` out",
+                "message 1 comes of matter 16, which is not the matter in hand (10): this cell answers for that \
+                 matter alone, so leave `matter` out"
+            ]
+        );
+        assert!(stray_matter_problems(10, &json!({ "item_changes": [{ "matter": 10 }, {}] })).is_empty());
+        assert!(stray_matter_problems(10, &Value::Null).is_empty());
+        // The group's cell tells a message of a matter outside the group as it does a change.
+        assert_eq!(
+            said(group_problems(
+                10,
+                &[11],
+                &[json!({ "matter": 11 })],
+                &Value::Null,
+                &effects
+            )),
+            [
+                "item change 2 comes of matter 14, which is not in the group; its matters are 10, 11",
+                "observation change 2 comes of matter 15, which is not in the group; its matters are 10, 11",
+                "message 1 comes of matter 16, which is not in the group; its matters are 10, 11"
+            ]
+        );
+        let change = json!({ "kind": "edit_item", "item": "1", "matter": 12 });
+        assert_eq!(kept_change(&change), json!({ "kind": "edit_item", "item": "1" }));
+    }
+
     // What a round that took a group in handed in is read for one matter of it as for a matter alone: the way of the
     // matter picked is `take`, the way of another its entry of `with`, and an observation change comes of the matter it
     // names, or else of the matter picked; an item change likewise.
@@ -7661,7 +7759,7 @@ mod tests {
                     { "kind": "merge", "into": 2, "matter": 4 }
                 ],
                 "item_changes": [{ "kind": "edit_item", "matter": 6 }, { "kind": "edit_item" }],
-                "messages": [{ "project": "q" }]
+                "messages": [{ "project": "q", "matter": 5 }, { "project": "r" }, { "project": "s", "matter": 6 }]
             }
         });
         let picked = about_matter(&outcome, 4);
@@ -7678,9 +7776,19 @@ mod tests {
         );
         assert_eq!(about_matter(&outcome, 6)["effects"]["observation_changes"], json!([]));
         assert_eq!(about_matter(&outcome, 6)["take"]["way"], "nothing");
+        // A message to another architect is told to the reporter of the matter it comes of only: the one that names no
+        // matter comes of the matter picked.
         assert_eq!(
             about_matter(&outcome, 6)["effects"]["messages"],
-            json!([{ "project": "q" }])
+            json!([{ "project": "s", "matter": 6 }])
+        );
+        assert_eq!(
+            about_matter(&outcome, 5)["effects"]["messages"],
+            json!([{ "project": "q", "matter": 5 }])
+        );
+        assert_eq!(
+            about_matter(&outcome, 4)["effects"]["messages"],
+            json!([{ "project": "r" }])
         );
         // Item changes are told apart the same way: the one that names no matter comes of the matter picked.
         assert!(changes_matter(&outcome, 4, 4) && changes_matter(&outcome, 6, 4));
@@ -7713,6 +7821,40 @@ mod tests {
         assert_eq!(group_class("report", None, &json!({ "side_reports": [] })), None);
         assert_eq!(group_class("engineer_question", Some("split"), &report), None);
         assert_eq!(group_class("other_architect", Some(FLOW_FEEDBACK), &report), None);
+    }
+
+    // The queue the architect picks from gives a long side report and an answer an excerpt of at most 400 characters, and
+    // a follow-up, flow feedback, a packed report of the migration and an engineer's question none: the entry of the
+    // queue has no `excerpt` at all (the matters of `grouped` are 1 to 3 side reports, 4 an answer, 5 a follow-up, 6 flow
+    // feedback, 7 a packed report, 8 an engineer's question).
+    #[test]
+    fn the_queue_gives_an_excerpt_to_side_reports_and_answers_alone_and_never_a_longer_one_than_400() {
+        let mut db = grouped();
+        db.write(Actor::Engine, |tx| {
+            let long = json!({ "report": { "kind": "other", "what": "The parser is slow. ".repeat(100) } });
+            tx.execute(
+                "UPDATE architect_matters SET body = ?1 WHERE id IN (1, 4)",
+                [long.to_string()],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let texts = excerpts(db.conn(), "p").unwrap();
+        let ids: Vec<i64> = texts.keys().copied().collect();
+        assert_eq!(ids, [1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 16]);
+        assert!(texts.values().all(|t| t.chars().count() <= 400));
+        assert!(texts[&1].ends_with('…') && texts[&4].ends_with('…'), "{}", texts[&1]);
+        // The entry of the queue holds the excerpt of the matters that have one, and no field of the others.
+        let row = |id: i64| json!({ "matter": id, "kind": "report", "detail": "x", "what": "w", "at": 1 });
+        for id in 1..=8 {
+            let entry = queued_matter(&row(id), texts.get(&id));
+            assert_eq!(
+                entry.as_object().unwrap().contains_key("excerpt"),
+                texts.contains_key(&id),
+                "matter {id}: {entry}"
+            );
+        }
+        assert_eq!(queued_matter(&row(1), texts.get(&1))["excerpt"], texts[&1].as_str());
     }
 
     // The batch counts the matters of a group each, and the group is the matter picked with the others not handled that
