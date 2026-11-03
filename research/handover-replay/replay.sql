@@ -9,7 +9,9 @@
 -- same cell and work, the agent hands its progress over: the new session opens with the session's first prompt and the
 -- hand-over's tokens, and the hand-over costs the call that writes it (reading the context, writing the hand-over as
 -- output) and writing to the cache again (`rebuild` below). Before a round of another cell or another work, whose
--- input is whole, the new session needs no hand-over: it opens with the session's first prompt, and costs writing that.
+-- input is whole, the new session needs no hand-over: it opens with the session's first prompt, and costs writing to
+-- the cache that opening, or, to bound what the new cell reads again of what the old session held, the whole context
+-- (`restart` below).
 --
 -- Net saving = the reads saved - what starting anew cost.
 --
@@ -22,8 +24,9 @@ WITH RECURSIVE
 -- the whole context again, the most it can; 'opening', only what it opens with, the least; and the rule: 'any', the
 -- buy is the whole context at every call, wherever the session starts anew; 'boundary', the buy before a round of
 -- another cell or work is the new opening, and elsewhere the whole context; 'between', as 'boundary', but a session
--- starts anew only between rounds.
-given(handover, counted, rebuild, rule) AS (VALUES (3000, 'turns', 'whole', 'boundary')),
+-- starts anew only between rounds; and what a session started anew without a hand-over writes to the cache: 'opening',
+-- its new opening; 'whole', the whole context, as much as a hand-over at the most.
+given(handover, counted, rebuild, rule, restart) AS (VALUES (3000, 'turns', 'whole', 'boundary', 'whole')),
 -- What a million tokens cost each model, in US dollars, as crates/sessions/src/cost.rs has it: a read from the cache,
 -- a write to it kept five minutes or an hour, and output; a call of Haiku 5.5 over 100,000 tokens at its higher prices.
 prices(model, above, read, w5, w1, output) AS (VALUES
@@ -160,7 +163,7 @@ step(s, i, work, n, j, may, cheap, o0, d, o, e, rd, wr, outp, rent, saved, paid,
     -- paid: a session started without a hand-over writes its new opening; a hand-over writes the context again, the
     -- whole or only the new opening, and its call reads it and writes the hand-over.
     st.paid + (st.rent > 0 AND st.may AND st.rent >= (CASE WHEN st.cheap THEN st.o0 ELSE st.e END) * st.wr / 1e6)
-      * (CASE WHEN st.cheap THEN st.o0 * st.wr
+      * (CASE WHEN st.cheap THEN (CASE g.restart WHEN 'whole' THEN st.e ELSE st.o0 END) * st.wr
               ELSE (CASE g.rebuild WHEN 'whole' THEN st.e ELSE st.o0 + g.handover END) * st.wr + st.e * st.rd
                    + g.handover * st.outp END) / 1e6,
     st.handed + (st.rent > 0 AND st.may AND st.rent >= (CASE WHEN st.cheap THEN st.o0 ELSE st.e END) * st.wr / 1e6),
