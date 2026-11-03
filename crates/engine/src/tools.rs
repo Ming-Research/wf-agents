@@ -2056,9 +2056,8 @@ timeout_ms = 1000
 
     // The tool ci asks for the fast CI on the head with the tests named, and gives the run it made: its head and its
     // checks as before, and what the run was, the tests named and the lint; the red run there was before is not it.
-    #[test]
-    fn the_tool_ci_gives_the_fast_run_it_made_and_what_it_ran() {
-        let mut r = rig("tool-ci");
+    fn the_tool_ci_gives_the_fast_run_it_made_and_what_it_ran(r: &mut Rig) {
+        r.runs.clear();
         r.runs.has_run(&r.head, "fast", &[("lint", "red"), ("fast", "red")]);
         r.runs.makes("fast", &[("lint", "green"), ("fast", "green")]);
         let v = r.ci(&["a_test", "engine::b"]);
@@ -2169,9 +2168,7 @@ timeout_ms = 1000
     // No head merges on the fast CI's word. With the fast CI green on the head and no run of the full CI, the merge
     // makes the full run, and a red `check`, or a run without a `check`, is not merged, rerun once where it can be; only
     // a green `check` is.
-    #[test]
-    fn a_head_the_fast_ci_passed_merges_only_on_a_green_full_run() {
-        let mut r = rig("merge-gate");
+    fn a_head_the_fast_ci_passed_merges_only_on_a_green_full_run(r: &mut Rig) {
         let head = r.head.clone();
         let by_hand = [("ci".to_string(), "work".to_string(), vec![])];
         for (holds, kind, reruns) in [
@@ -2198,9 +2195,8 @@ timeout_ms = 1000
     }
 
     // A head the full CI ran on, as when the draft's full CI just did, is merged on that run: it is not run again.
-    #[test]
-    fn a_head_with_a_full_run_merges_on_it_without_a_second_run() {
-        let mut r = rig("merge-reuse");
+    fn a_head_with_a_full_run_merges_on_it_without_a_second_run(r: &mut Rig) {
+        r.runs.clear();
         r.runs.has_run(&r.head, "ci", &[("lint", "green"), ("check", "green")]);
         let v = r.run(merge);
         assert_eq!(v["result"]["kind"], "merged", "{v}");
@@ -2244,9 +2240,7 @@ timeout_ms = 1000
 
     // The full CI on the draft makes the run of the full CI the head has none of, whatever the fast CI said, and tells
     // red as red.
-    #[test]
-    fn the_full_ci_on_the_draft_runs_the_full_workflow_and_not_the_fast_one() {
-        let mut r = rig("draft-full");
+    fn the_full_ci_on_the_draft_runs_the_full_workflow_and_not_the_fast_one(r: &mut Rig) {
         let head = r.head.clone();
         for (holds, kind) in [
             (vec![("check", "red")], "red"),
@@ -2264,5 +2258,18 @@ timeout_ms = 1000
                 "full run {holds:?}"
             );
         }
+    }
+
+    // The tools that make and read the runs of the fast and the full CI, each against the GitHub in memory that the
+    // case before it left cleared, on one engine: its start (compiling the flow) is most of what each costs, and the
+    // cases share nothing else. Each case is a function of its own above, that says what it shows. The case where
+    // main moves on is apart: it moves the head, which the others stand on.
+    #[test]
+    fn the_runs_of_the_fast_and_the_full_ci_are_made_and_read_apart() {
+        let mut r = rig("runs-apart");
+        the_tool_ci_gives_the_fast_run_it_made_and_what_it_ran(&mut r);
+        the_full_ci_on_the_draft_runs_the_full_workflow_and_not_the_fast_one(&mut r);
+        a_head_the_fast_ci_passed_merges_only_on_a_green_full_run(&mut r);
+        a_head_with_a_full_run_merges_on_it_without_a_second_run(&mut r);
     }
 }

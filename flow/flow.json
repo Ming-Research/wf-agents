@@ -2765,7 +2765,7 @@
           "name": "tests",
           "title": "Tests to run",
           "type": "list",
-          "desc": "Which tests to read the results and times of, by their names; leave it out when you hand in only the PR title and description",
+          "desc": "The tests to read the results and times of, by their names. Where the project runs its CI on demand, these are also the only tests that run, beside the lint: naming none runs the lint only. Leave it out only when you hand in just the PR title and description, which still runs the lint and waits for it",
           "optional": true,
           "item": {
             "type": "text",
@@ -3405,7 +3405,7 @@
       "research_only": "The worktree is clean, and the commits new in this round touch only `research/`.",
       "measure_matches_runs": "An answer of measured has this work's measure runs in this cell among the engine's records; an answer of not_measured has none.",
       "acceptance_matches_locked": "Locked acceptance conditions are handed in word for word; to change them, the agent asks the advisor first, or, after an answer to an open question that goes against them, the design changes them as the answer needs. Those the advisor changed were locked by the engine then. A work that delivers a change has no report_answer condition.",
-      "head_pushed_and_green": "The head is the local HEAD, the worktree is clean, it was pushed with ci, and the latest fast CI run on it that ci made is green.",
+      "head_pushed_and_green": "The head is the local HEAD, the worktree is clean, it was pushed with ci, and the latest fast CI run on it that ci made is green; so is the latest that ran tests, when a later run ran the lint only, which does not stand for them.",
       "branch_changes_fit_work": "Against main, an implementation change has some change, otherwise the agent asks (another PR may have fixed it); a report changes nothing outside `research/`.",
       "conditions_cover_acceptance": "There is a row for each acceptance condition (at a re-check, each row names an existing condition); the tests named are on the branch, and the report sections named are in the report.",
       "new_test_results": "When the design chose no adversarial testing: each new-behaviour test's two results match the ci and ci_before runs the engine recorded, a test ci_before reports not run being said neither red nor green before the change, and one it reports passed or failed not said not_run; one red after the change or green before it is fixed in this round.",

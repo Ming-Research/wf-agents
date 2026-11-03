@@ -153,15 +153,18 @@ fn a_flow_only_shown_with_a_colour_the_page_does_not_know() {
 // is refused either way (the two tests before).
 #[test]
 fn a_flow_with_a_colour_the_page_no_longer_draws_is_only_shown() {
-    for old in ["olive", "lime"] {
-        let edit = |v: &mut Value| graph(v)["sessions"]["lines"][4]["colour"] = json!(old);
-        refused_by(flow::compile, edit, "a line with no colour: librarian");
-        let mut v: Value = serde_json::from_str(FLOW).unwrap();
-        edit(&mut v);
-        let text = serde_json::to_string(&v).unwrap();
-        if let Err(e) = flow::compile_shown(&text, &context()) {
-            panic!("{old}: a flow with it is not read to be shown:\n{e}");
-        }
+    // Both names go through one reading of a colour, so one flow holds them both: olive on the librarian line (the
+    // engineer's graph) and lime on the observer line (the architect's).
+    let edit = |v: &mut Value| {
+        graph(v)["sessions"]["lines"][4]["colour"] = json!("olive");
+        v["flows"][1]["sessions"]["lines"][2]["colour"] = json!("lime");
+    };
+    refused_by(flow::compile, edit, "a line with no colour: librarian");
+    let mut v: Value = serde_json::from_str(FLOW).unwrap();
+    edit(&mut v);
+    let text = serde_json::to_string(&v).unwrap();
+    if let Err(e) = flow::compile_shown(&text, &context()) {
+        panic!("a flow with the old names is not read to be shown:\n{e}");
     }
 }
 case!(an_engine_step_nothing_uses, "an engine step nothing uses: extra", |v| {
