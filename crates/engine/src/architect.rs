@@ -39,7 +39,7 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives.
-pub const INPUTS: [&str; 33] = [
+pub const INPUTS: [&str; 36] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -47,6 +47,8 @@ pub const INPUTS: [&str; 33] = [
     "board",
     "numbers",
     "observations_overview",
+    "observations_index",
+    "observations_source",
     "observation_tags",
     "levels",
     "policy",
@@ -62,7 +64,8 @@ pub const INPUTS: [&str; 33] = [
     "cross_project",
     "batch_changes",
     "changes_touch",
-    "words_behind_changes",
+    "matters_behind_changes",
+    "running_files",
     "batch_words",
     "batch_items",
     "group_talk",
@@ -404,6 +407,12 @@ pub fn queue_has(e: &Engine, project: &str) -> Result<bool, String> {
     )? > 0)
 }
 
+/// The field of the body of a matter of flow feedback that is a part of a larger one split by the cell that judged it
+/// (`H4`'s `split`): the matter it was split from, the cells it holds (each as `<graph>:<cell>`), its label and what it
+/// was split by. It holds no feedback of its own: the engine reads the cells from the matter it was split from, which
+/// stays whole once closed.
+const PART: &str = "part";
+
 /// The detail of a matter that holds flow feedback, what agents said was wrong with their cells: of the kind report for
 /// a project's own, of the kind other_architect for what another project's architect forwarded.
 pub const FLOW_FEEDBACK: &str = "flow_feedback";
@@ -424,14 +433,18 @@ pub fn says_none(feedback: &str) -> bool {
 
 /// Adds one round's flow feedback, `entry`, to its project's architect's flow feedback, under its graph and cell: to the
 /// matter of the kind report that holds it and is not handled, withdrawn, held by an ask or the pick of the project's
-/// running architect work, or else to a new one. It starts no work of the architect ([`queue_has`]).
+/// running architect work, or else to a new one: a part of flow feedback split off ([`PART`]) takes no more, since it
+/// holds the cells it was judged with. The entry is recorded with the version of the flow (`flow`) its round ran on. It
+/// starts no work of the architect ([`queue_has`]).
 pub fn add_flow_feedback(
     tx: &Transaction<'_>,
     project: &str,
     graph: &str,
     cell: &str,
-    entry: Value,
+    flow: i64,
+    mut entry: Value,
 ) -> Result<(), String> {
+    entry["flow"] = json!(flow);
     let running: Option<i64> = tx
         .query_row(
             "SELECT max(id) FROM works WHERE graph = 'architect' AND project = ?1 AND ended IS NULL",
@@ -447,7 +460,7 @@ pub fn add_flow_feedback(
         .query_row(
             "SELECT id, body FROM architect_matters
              WHERE project = ?1 AND kind = 'report' AND detail = ?2 AND handled_round IS NULL AND withdrawn IS NULL
-               AND asked IS NULL AND id IS NOT ?3
+               AND asked IS NULL AND id IS NOT ?3 AND json_extract(body, '$.part') IS NULL
              ORDER BY id DESC LIMIT 1",
             params![project, FLOW_FEEDBACK, taken],
             |r| Ok((r.get(0)?, r.get(1)?)),
@@ -717,6 +730,39 @@ fn excerpt(s: &str) -> String {
     flow::cut(&s.split_whitespace().collect::<Vec<_>>().join(" "), EXCERPT)
 }
 
+/// What an input of the architect says in place of what it cut off: where the whole is, to read with the tools the cell
+/// has. Both [`capped`] and [`capped_list`] say it so, in these words.
+fn cut_note(address: &str) -> String {
+    format!(" [cut: the rest is at {address}]")
+}
+
+/// A text of an input that grows as time passes, as the cell is given it: whole when it has at most `most` characters,
+/// else its first characters and a note of where the rest is (`address`), the whole of them, the note included, at most
+/// `most` characters but for a `most` too small to hold the note, where the note alone is given. Every input of the
+/// architect's that can grow without a bound is cut by this, or by [`capped_list`] for a list, and by no cut of its
+/// own.
+pub(crate) fn capped(value: &str, most: u64, address: &str) -> String {
+    let most = usize::try_from(most).unwrap_or(usize::MAX);
+    if value.chars().count() <= most {
+        return value.to_string();
+    }
+    let note = cut_note(address);
+    let keep = most.saturating_sub(note.chars().count());
+    format!("{}{note}", value.chars().take(keep).collect::<String>())
+}
+
+/// A list of an input that grows as time passes, as the cell is given it, by the same rule as [`capped`] (and for the
+/// limit of a list, how many of it): the first `most` of it and, when there are more, the note of where the rest is
+/// with how many were left out.
+pub(crate) fn capped_list<T: Clone>(list: &[T], most: u64, address: &str) -> (Vec<T>, Option<String>) {
+    let most = usize::try_from(most).unwrap_or(usize::MAX);
+    if list.len() <= most {
+        return (list.to_vec(), None);
+    }
+    let note = format!("{} more.{}", list.len() - most, cut_note(address));
+    (list[..most].to_vec(), Some(note))
+}
+
 /// The other matters of the group `lead` leads: those picked with it that are not handled, oldest first.
 fn members(conn: &Connection, lead: i64) -> Result<Vec<i64>, String> {
     Ok(query_json(
@@ -870,13 +916,15 @@ fn starts_held(conn: &Connection, project: &str) -> Result<Vec<Value>, String> {
 /// The matters of a project's queue that the architect's work `work` can take now, oldest first: every one, flow
 /// feedback, its own or forwarded, and what was said in the works' groups only when they came before the work started,
 /// which wait for the architect's next work otherwise; what was said in the groups that the work itself queued at the
-/// end of a batch ([`QUEUED_IN`]) it takes.
+/// end of a batch ([`QUEUED_IN`]), and the parts of flow feedback it split ([`PART`]), it takes.
 fn queued(conn: &Connection, project: &str, work: i64) -> Result<Vec<Value>, String> {
     query_json(
         conn,
         &format!(
             "SELECT * FROM architect_queue q WHERE q.project = ?1
                AND NOT ((q.kind IN {FEEDBACK_KINDS} AND q.detail IS ?3
+                         AND (SELECT json_extract(m.body, '$.{QUEUED_IN}') FROM architect_matters m
+                              WHERE m.id = q.matter) IS NOT ?2
                          OR q.kind = ?4 AND (SELECT json_extract(m.body, '$.{QUEUED_IN}') FROM architect_matters m
                                              WHERE m.id = q.matter) IS NOT ?2)
                  AND q.at >= coalesce((SELECT min(r.started_at) FROM rounds r WHERE r.work = ?2), q.at + 1))
@@ -3362,6 +3410,47 @@ pub fn act(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&Value>) -> R
                 .map_err(sql)?;
             }
         }
+        "queue_parts" => {
+            // Each part the cell split the matter's flow feedback into is a matter of its own, flow feedback that holds
+            // no feedback but the cells it is of, which the engine reads from the matter picked once that is closed. The
+            // work that queued it takes it first, at the cell that judges what a report is, one at a time, in the order
+            // of the split; a work that does not is left it for its next one.
+            let (_, project) = architect_work_of(ctx)?;
+            let from = matter_of(tx, w)?;
+            let first = KINDS
+                .iter()
+                .find(|k| k.0 == "report")
+                .map(|k| k.1)
+                .ok_or("the architect's graph has no path for a report")?;
+            for p in items(at) {
+                let cells = texts(&p["cells"]);
+                let label = text(&p["label"]).trim().to_string();
+                let mut body = Map::new();
+                body.insert(
+                    PART.into(),
+                    json!({ "from_matter": from, "cells": cells, "label": label, "by": p["by"] }),
+                );
+                body.insert(QUEUED_IN.into(), json!(w));
+                let m = Matter {
+                    project: project.clone(),
+                    kind: "report".into(),
+                    detail: Some(FLOW_FEEDBACK.into()),
+                    what: format!(
+                        "Flow feedback, one part of matter {from}: {} ({} cells)",
+                        db::one_sentence(&label),
+                        cells.len()
+                    ),
+                    body: Value::Object(body),
+                    ..Matter::default()
+                };
+                let id = queue_matter(tx, &m).map_err(sql)?;
+                tx.execute(
+                    "UPDATE architect_matters SET goes_on_at = ?2 WHERE id = ?1",
+                    params![id, first],
+                )
+                .map_err(sql)?;
+            }
+        }
         "group_picked" => {
             // A group left unhandled by a work that ended before it was handled falls apart. The look at the queue
             // takes a matter that goes on at its second cell before it lets the architect pick, so none of the groups
@@ -4192,6 +4281,20 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
             )
             .into_result()
         }
+        "split_covers_feedback" => {
+            let Some(split) = v else { return Ok(()) };
+            let Some(lead) = picked(conn, c.w.id)? else {
+                return Ok(());
+            };
+            let row = query_json(
+                conn,
+                "SELECT kind, detail, body FROM architect_matters WHERE id = ?1",
+                &[&lead],
+                1,
+            )?;
+            let Some(row) = row.first() else { return Ok(()) };
+            split_problems(&items(Some(split)), &row["kind"], &row["detail"], &row["body"]).into_result()
+        }
         "observation_changes_valid" => {
             // The revision's item changes stand for the batch's; a round that revises none, as the one that records
             // decisions, stands beside the changes the batch has collected.
@@ -4358,7 +4461,13 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
         }
         "candidates_known" => {
             let project = project_of(c.w)?;
-            candidates_problems(&items(v), |id| open_observation(conn, project, id))?.into_result()
+            let list = items(v);
+            let mut problems = candidates_problems(&list, |id| open_observation(conn, project, id))?;
+            problems.extend(fit_problems(
+                &list,
+                search_purpose(conn, c.w.id, &c.g.within)?.as_deref(),
+            ));
+            problems.into_result()
         }
         "notebook_fits" => {
             let Some(edits) = v else { return Ok(()) };
@@ -4838,6 +4947,89 @@ fn candidates_problems(list: &[Value], open: impl Fn(i64) -> Result<bool, String
     Ok(problems)
 }
 
+/// What the latest search of observations an agent's round of the work asked for was for (`same` or `related`); none
+/// when no round of the work asked one.
+fn search_purpose(conn: &Connection, work: i64, within: &str) -> Result<Option<String>, String> {
+    let rows = query_json(
+        conn,
+        &format!(
+            "SELECT json_extract(output, '$.{within}.search.purpose') AS purpose FROM rounds
+             WHERE work = ?1 AND json_extract(output, '$.{within}.search') IS NOT NULL ORDER BY n DESC LIMIT 1"
+        ),
+        &[&work],
+        1,
+    )?;
+    Ok(rows.first().and_then(|r| r["purpose"].as_str()).map(str::to_string))
+}
+
+/// What is wrong with the candidates of a search by how closely each fits (`fit`): for a search whether this very thing is
+/// recorded (`same`), when no candidate records it the closest ones are given as related, at most three of them.
+fn fit_problems(list: &[Value], purpose: Option<&str>) -> Problems {
+    let mut problems = Problems::default();
+    let related = list.iter().filter(|x| x["fit"] == "related").count();
+    let same = list.iter().filter(|x| x["fit"] == "same").count();
+    if purpose == Some("same") && same == 0 && related > 3 {
+        problems.push(format!(
+            "no candidate records the same thing, so give the closest as related, at most three, and there are {related}"
+        ));
+    }
+    problems
+}
+
+/// What is wrong with the split of a matter's flow feedback into parts (`parts`; the matter's kind, detail and body are
+/// `kind`, `detail` and `body`): a matter that is not flow feedback by cell, or is a part already, is not split; there
+/// are at least two parts; each holds cells, each cell the feedback has (as `<graph>:<cell>`), and each of the feedback's
+/// cells is in exactly one part, so that what a part leaves out is not judged by anyone.
+fn split_problems(parts: &[Value], kind: &Value, detail: &Value, body: &Value) -> Problems {
+    let mut problems = Problems::default();
+    if !is_flow_feedback(kind, detail) {
+        problems.push("split is only for flow feedback, and this matter is not flow feedback");
+        return problems;
+    }
+    if body[PART].is_object() {
+        problems.push(
+            "this matter is already one part of flow feedback that was split: judge it as it is, and split it no further",
+        );
+        return problems;
+    }
+    let all: Vec<String> = feedback_cells(&body["feedback"]).into_iter().collect();
+    if all.is_empty() {
+        problems.push("this matter holds no feedback by cell, so there is nothing to split");
+        return problems;
+    }
+    if parts.len() < 2 {
+        problems.push(format!("a split has at least two parts, and there are {}", parts.len()));
+    }
+    let mut given: Vec<String> = Vec::new();
+    for (i, p) in parts.iter().enumerate() {
+        let cells = texts(&p["cells"]);
+        if cells.is_empty() {
+            problems.push(format!("split part {} holds no cell", i + 1));
+        }
+        if text(&p["label"]).trim().is_empty() {
+            problems.push(format!("split part {} has no label", i + 1));
+        }
+        given.extend(cells);
+    }
+    let misses = checks::id_misses(&all, &given);
+    problems.about(
+        &misses.unknown,
+        |c| format!("{c} is no cell of the feedback; its cells are {}", all.join(", ")),
+        |c| format!("{c} are no cells of the feedback; its cells are {}", all.join(", ")),
+    );
+    problems.about(
+        &misses.twice,
+        |c| format!("{c} is in more than one part: each cell is in exactly one"),
+        |c| format!("{c} are each in more than one part: each cell is in exactly one"),
+    );
+    problems.about(
+        &misses.missing,
+        |c| format!("{c} is in no part: every cell of the feedback is in exactly one, or nobody judges it"),
+        |c| format!("{c} are in no part: every cell of the feedback is in exactly one, or nobody judges them"),
+    );
+    problems
+}
+
 /// What is wrong with the text of a policy (`policy`), each kind independent of the others: each sentence of at least
 /// 30 characters of the owner's words (`said`) that it quotes; a cell of the flow it names (`cell`, as found); a
 /// date; an item.
@@ -4878,6 +5070,8 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str, main: Option<&
         "board" => board(e, project).map(Some),
         "numbers" => numbers(e, w, project).map(Some),
         "observations_overview" => observations_overview(e, project).map(Some),
+        "observations_index" => observations_index(e, project).map(Some),
+        "observations_source" => Ok(Some(observations_source(e, project))),
         "observation_tags" => Ok(observation_tags(e, project)),
         "levels" => Ok(Some(levels(e))),
         "policy" => policy(e, project),
@@ -4893,7 +5087,8 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str, main: Option<&
         "cross_project" => cross_project(e, project).map(Some),
         "batch_changes" => batch_changes(e, w).map(Some),
         "changes_touch" => changes_touch(e, w),
-        "words_behind_changes" => words_behind_changes(e, w),
+        "matters_behind_changes" => matters_behind_changes(e, w),
+        "running_files" => running_files(e, project).map(Some),
         "batch_words" => batch_words(e, w),
         "batch_items" => batch_items(e, w),
         "group_talk" => group_talk(e, w, project),
@@ -5685,6 +5880,82 @@ fn observations_overview(e: &Engine, project: &str) -> Result<Value, String> {
     Ok(json!({ "open": open.len(), "per_tag": per_tag, "recent": keyed(recent), "closed_lately": keyed(closed) }))
 }
 
+/// The most characters of a matter's text, or of a cell's flow feedback, that an input of the architect's gives before
+/// it cuts the rest off ([`capped`]): the installation's setting `agents.input_most`.
+fn input_most(e: &Engine) -> u64 {
+    e.config.config.install.agents.input_most
+}
+
+/// The most characters of one line of the index of the open observations ([`observations_index`]).
+const INDEX_LINE_MOST: u64 = 160;
+
+/// The most paths of one work's files that [`running_files`] lists.
+const PATHS_MOST: u64 = 300;
+
+/// The project's open observations as the search of them is given them: one line for each, every one of them, so that
+/// the search chooses among all and reads those it picks in full where [`observations_source`] says. A line has the
+/// observation's number, its tags, how many times it was reported, the item that took it in when one has (the
+/// observation stays open until that item's work merges), and its title, or for one recorded before they had titles
+/// the first sentence of what it is. Neither its refs nor its source are in it, which grow with each report of it, and
+/// a line is cut at [`INDEX_LINE_MOST`] characters.
+fn observations_index(e: &Engine, project: &str) -> Result<Value, String> {
+    let rows = query_json(
+        e.db.conn(),
+        "SELECT id, title, substr(what, 1, 1000) AS what, tags, times_reported, folded_into
+         FROM observations_open WHERE project = ?1 ORDER BY id",
+        &[&project],
+        100_000,
+    )?;
+    if rows.is_empty() {
+        return Ok(json!("No observation is open."));
+    }
+    let lines: Vec<String> = rows
+        .iter()
+        .map(|r| {
+            let id = r["id"].as_i64().unwrap_or_default();
+            let tags = texts(&r["tags"]);
+            let tags = if tags.is_empty() {
+                "no tag".to_string()
+            } else {
+                tags.join(",")
+            };
+            let taken = match r["folded_into"].as_i64() {
+                Some(item) => format!(", taken in by item {item}"),
+                None => String::new(),
+            };
+            let title = match text(&r["title"]).trim() {
+                "" => db::one_sentence(text(&r["what"])),
+                t => t.to_string(),
+            };
+            // One line: the spaces of the title, newlines included, collapsed.
+            let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+            let line = format!(
+                "O{id} [{tags}] x{}{taken}: {title}",
+                r["times_reported"].as_i64().unwrap_or(1)
+            );
+            capped(&line, INDEX_LINE_MOST, &format!("observations_open, id {id}"))
+        })
+        .collect();
+    Ok(Value::String(lines.join("\n")))
+}
+
+/// Where the project's open observations are, in full, for the search of them to read with `sqlite3`: the database's
+/// read-only address with the command that reads it, the view that holds them with its columns, and the query that
+/// reads one by its number.
+fn observations_source(e: &Engine, project: &str) -> Value {
+    let mut source = inputs::database_source(e);
+    let database = source["database"].as_str().unwrap_or_default().to_string();
+    source["view"] = json!(
+        "observations_open: id, title, what, tags, times_reported, source, refs, folded_into, project; \
+         a row for each open observation"
+    );
+    source["read_one"] = json!(format!(
+        "sqlite3 -safe -readonly '{database}' \"SELECT * FROM observations_open WHERE project = '{}' AND id = <number>\"",
+        project.replace('\'', "''")
+    ));
+    source
+}
+
 /// A project's tags for observations, each with what it covers; none when it has none.
 fn observation_tags(e: &Engine, project: &str) -> Option<Value> {
     let p = e.config.config.projects.get(project)?;
@@ -6101,8 +6372,10 @@ fn matter_given(e: &Engine, m: i64) -> Result<Option<Value>, String> {
     }
     match matter["kind"].as_str().unwrap_or_default() {
         // Flow feedback names the project that is wf-agents, whose architect what belongs to wf-agents goes to.
+        // Its feedback as the cell reads it: a part of one with the cells it holds, and one past the limit by cell.
         "report" if matter["detail"] == FLOW_FEEDBACK => {
             material.insert("wf_agents_project".into(), json!(e.wf_agents_project()));
+            matter["body"] = feedback_body(e, m, matter["body"].clone())?;
         }
         // A fault of wf-agents forwarded to the architect, as it stands now: misses that came after the forward are
         // in it too.
@@ -6495,15 +6768,8 @@ fn similar_items(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
         .flatten()
     });
     let changed_by = |work: &Value| -> Option<BTreeSet<String>> {
-        let wt = Path::new(work["worktree"].as_str()?);
-        let main = e
-            .config
-            .config
-            .projects
-            .get(work["project"].as_str()?)
-            .map(|p| p.main.clone())?;
-        let fork = git::fork_point(wt, &main).ok()?;
-        Some(git::changed(wt, &fork, "HEAD").ok()?.into_iter().collect())
+        let (_, files) = files_changed(e, work["project"].as_str()?, work["worktree"].as_str()?, "HEAD").ok()?;
+        Some(files.into_iter().collect())
     };
     let running = query_json(
         conn,
@@ -6527,6 +6793,97 @@ fn similar_items(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
         }
     }
     Ok(json!({ "close_items": close, "same_paths": same_paths }))
+}
+
+/// The files a work's branch changed, as of the commit `rev` its worktree has: from where the branch forked off the
+/// fetched main to `rev`, with that fork commit. An error says why they cannot be read, such as a worktree this machine
+/// does not have.
+fn files_changed(e: &Engine, project: &str, worktree: &str, rev: &str) -> Result<(String, Vec<String>), String> {
+    let wt = Path::new(worktree);
+    if !wt.is_dir() {
+        return Err(format!("the worktree {worktree} is not on this machine"));
+    }
+    let main = e
+        .config
+        .config
+        .projects
+        .get(project)
+        .map(|p| p.main.clone())
+        .ok_or_else(|| format!("{project} is no project of the configuration"))?;
+    let fork = git::main_merged_into(wt, rev, &main)?;
+    let files = git::changed(wt, &fork, rev)?;
+    Ok((fork, files))
+}
+
+/// The files each engineer work of the project that runs has changed on its branch, for the architect to tell whether
+/// two works will change the same place: for each work its item, its pull request and the files its branch changed
+/// against main, as of the commit pushed to the pull request, or as of the worktree's own HEAD, said to be local, when
+/// nothing was pushed; and the paths each two works have both changed. At most [`PATHS_MOST`] paths of a work are
+/// listed ([`capped_list`]), with how many are left out and the git command that reads them all, while the paths two
+/// works have in common are worked out from all of them. A work whose files cannot be read says why, with no files.
+fn running_files(e: &Engine, project: &str) -> Result<Value, String> {
+    let running = query_json(
+        e.db.conn(),
+        "SELECT w.id AS work, w.item, w.pr, w.worktree, w.pushed_head FROM works w JOIN items i ON i.id = w.item
+         WHERE w.graph = 'engineer' AND w.ended IS NULL AND i.project = ?1 ORDER BY w.id",
+        &[&project],
+        ROWS,
+    )?;
+    let mut paths: Vec<(i64, i64, BTreeSet<String>)> = Vec::new();
+    let mut works = Vec::new();
+    for r in &running {
+        let work = r["work"].as_i64().unwrap_or_default();
+        let (rev, files_at) = match r["pushed_head"].as_str() {
+            Some(h) => (h, format!("the commit pushed to the pull request, {h}")),
+            None => ("HEAD", "the worktree's own HEAD: nothing is pushed yet".to_string()),
+        };
+        let mut one = json!({ "work": work, "item": r["item"], "pr": r["pr"] });
+        let got = match r["worktree"].as_str() {
+            Some(wt) => files_changed(e, project, wt, rev).map(|(fork, files)| (wt, fork, files)),
+            None => Err("the work has no worktree yet".to_string()),
+        };
+        match got {
+            Ok((wt, fork, files)) => {
+                let address = format!("git -C '{wt}' diff --name-only {fork} {rev}");
+                let (shown, more) = capped_list(&files, PATHS_MOST, &address);
+                one["files_at"] = json!(files_at);
+                one["files"] = json!(shown);
+                if let Some(more) = more {
+                    one["more"] = json!(more);
+                }
+                paths.push((
+                    work,
+                    r["item"].as_i64().unwrap_or_default(),
+                    files.into_iter().collect(),
+                ));
+            }
+            Err(why) => {
+                one["files"] = Value::Null;
+                one["why_no_files"] = json!(why);
+            }
+        }
+        works.push(one);
+    }
+    let mut overlaps = Vec::new();
+    for (i, a) in paths.iter().enumerate() {
+        for b in &paths[i + 1..] {
+            let both: Vec<String> = a.2.intersection(&b.2).cloned().collect();
+            if both.is_empty() {
+                continue;
+            }
+            let address = format!(
+                "the files of works {} and {} above, and the git commands there",
+                a.0, b.0
+            );
+            let (shown, more) = capped_list(&both, PATHS_MOST, &address);
+            let mut overlap = json!({ "works": [a.0, b.0], "items": [a.1, b.1], "paths": shown });
+            if let Some(more) = more {
+                overlap["more"] = json!(more);
+            }
+            overlaps.push(overlap);
+        }
+    }
+    Ok(json!({ "works": works, "overlaps": overlaps }))
 }
 
 /// The owner's answer to the ask that held the matter picked, when it comes back with one.
@@ -6673,19 +7030,151 @@ fn batch_changes(e: &Engine, w: &Work) -> Result<Value, String> {
     Ok(Value::Array(out))
 }
 
-/// The owner's words behind the batch's changes: each matter of the owner's words a change collected came from, by
-/// its number, with the words whole and where they were said; none when no change came from the owner's words. An
+/// The matters the batch's changes came from, each by its number, as the review of the changes reads them: the owner's
+/// words whole and where they were said ([`said_of`]); any other matter as its kind, detail, one sentence and body
+/// (`{ kind, detail, what, body }`), a body past `agents.input_most` characters cut with where to read the rest
+/// ([`capped`]), and the flow feedback of a matter by cell ([`feedback_given`]); none when the batch has no change. An
 /// input of its own, so that a review given them is only referred to them at its next look, while they stay the same.
-fn words_behind_changes(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
+fn matters_behind_changes(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let matters: BTreeSet<i64> = collected(conn, w.id)?.iter().map(|r| r.2).collect();
     let mut out = Map::new();
     for m in matters {
-        if let Some(said) = said_of(conn, m)? {
-            out.insert(format!("#{m}"), said);
+        let given = match said_of(conn, m)? {
+            Some(said) => Some(said),
+            None => matter_behind(e, m)?,
+        };
+        if let Some(given) = given {
+            out.insert(format!("#{m}"), given);
         }
     }
     Ok((!out.is_empty()).then_some(Value::Object(out)))
+}
+
+/// A matter that is no owner's words, as the review of the changes that came of it reads it ([`matters_behind_changes`]).
+fn matter_behind(e: &Engine, matter: i64) -> Result<Option<Value>, String> {
+    let rows = query_json(
+        e.db.conn(),
+        "SELECT kind, detail, what, body FROM architect_matters WHERE id = ?1",
+        &[&matter],
+        1,
+    )?;
+    let Some(r) = rows.into_iter().next() else {
+        return Ok(None);
+    };
+    let body = if is_flow_feedback(&r["kind"], &r["detail"]) {
+        feedback_body(e, matter, r["body"].clone())?
+    } else {
+        let whole = r["body"].to_string();
+        if whole.chars().count() as u64 <= input_most(e) {
+            r["body"].clone()
+        } else {
+            let address = format!("SELECT body FROM architect_matters WHERE id = {matter}");
+            Value::String(capped(&whole, input_most(e), &address))
+        }
+    };
+    Ok(Some(
+        json!({ "kind": r["kind"], "detail": r["detail"], "what": r["what"], "body": body }),
+    ))
+}
+
+/// The latest rounds of a cell that flow feedback in summary gives in full.
+const FEEDBACK_LATEST: usize = 3;
+
+/// The cells flow feedback names, each as `<graph>:<cell>`.
+fn feedback_cells(feedback: &Value) -> BTreeSet<String> {
+    feedback
+        .as_object()
+        .into_iter()
+        .flatten()
+        .flat_map(|(graph, cells)| {
+            cells
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(move |(cell, _)| format!("{graph}:{cell}"))
+        })
+        .collect()
+}
+
+/// The body of a matter of flow feedback as a cell is given it: for a part of one (`part`, which names the matter it
+/// was split from and the cells it holds), the feedback of those cells, read from that matter, and for flow feedback
+/// as a whole or a part, the feedback by cell ([`feedback_given`]).
+fn feedback_body(e: &Engine, matter: i64, mut body: Value) -> Result<Value, String> {
+    if body["part"].is_object() {
+        body["feedback"] = part_feedback(e.db.conn(), &body["part"])?;
+    }
+    if let Some(feedback) = body.get("feedback").filter(|f| f.is_object()).cloned() {
+        body["feedback"] = feedback_given(&feedback, matter, input_most(e));
+    }
+    Ok(body)
+}
+
+/// The feedback of the cells a part holds, read from the matter it was split from, which stays whole once closed, in the
+/// shape flow feedback has: by graph, then cell. A matter it was split from that is gone is said so, in place of the
+/// feedback.
+fn part_feedback(conn: &Connection, part: &Value) -> Result<Value, String> {
+    let from = part["from_matter"].as_i64().unwrap_or_default();
+    let rows = query_json(conn, "SELECT body FROM architect_matters WHERE id = ?1", &[&from], 1)?;
+    let Some(row) = rows.first() else {
+        return Ok(json!(format!(
+            "matter {from}, which this part was split from, is not in the database"
+        )));
+    };
+    let mut out = Map::new();
+    for cell in texts(&part["cells"]) {
+        let Some((graph, name)) = cell.split_once(':') else {
+            continue;
+        };
+        if let Some(entries) = row["body"]["feedback"].get(graph).and_then(|g| g.get(name)) {
+            let by_cell = out.entry(graph.to_string()).or_insert_with(|| json!({}));
+            by_cell[name] = entries.clone();
+        }
+    }
+    Ok(Value::Object(out))
+}
+
+/// Flow feedback (by graph, then cell, each cell a list of rounds' entries) as a cell is given it: whole when it has at
+/// most `most` characters, else in summary, one entry for each cell: how many rounds said something, the latest
+/// [`FEEDBACK_LATEST`] of them in full (each with the flow version of its round, where it was recorded), a text of one
+/// cut by [`capped`], and, for a cell with earlier rounds, the query that reads them. So the cell reads every cell of a
+/// feedback that is long, and goes to the rounds it chooses.
+fn feedback_given(feedback: &Value, matter: i64, most: u64) -> Value {
+    if feedback.to_string().chars().count() as u64 <= most {
+        return feedback.clone();
+    }
+    let mut out = Map::new();
+    for (graph, cells) in feedback.as_object().into_iter().flatten() {
+        let mut by_cell = Map::new();
+        for (cell, entries) in cells.as_object().into_iter().flatten() {
+            let list = items(Some(entries));
+            let first = list.len().saturating_sub(FEEDBACK_LATEST);
+            let at = format!("$.feedback.{graph}.{cell}");
+            let latest: Vec<Value> = list[first..]
+                .iter()
+                .enumerate()
+                .map(|(i, x)| {
+                    let mut x = x.clone();
+                    let address = format!(
+                        "SELECT json_extract(body, '{at}[{}].said') FROM architect_matters WHERE id = {matter}",
+                        first + i
+                    );
+                    x["said"] = json!(capped(text(&x["said"]), most, &address));
+                    x
+                })
+                .collect();
+            let mut one = json!({ "rounds": list.len(), "latest": latest });
+            if first > 0 {
+                one["earlier"] = json!(format!(
+                    "{first} earlier rounds are not here; read them with: SELECT json_extract(body, '{at}') \
+                     FROM architect_matters WHERE id = {matter}"
+                ));
+            }
+            by_cell.insert(cell.clone(), one);
+        }
+        out.insert(graph.clone(), Value::Object(by_cell));
+    }
+    Value::Object(out)
 }
 
 /// What the owner said in a matter of their words, as a cell that reads it is given it: the words whole, where and when
@@ -6790,7 +7279,7 @@ fn reply_before(conn: &Connection, project: &str, body: &Value, at: i64) -> Resu
         .map(|r| json!({ "said": r["text"], "at": r["at"].as_i64().map(utc_minute) })))
 }
 
-/// The owner's words the batch handled, each by its matter with what `words_behind_changes` gives of them and how the
+/// The owner's words the batch handled, each by its matter with what [`said_of`] gives of them and how the
 /// architect handled them: the round, the way on it took and the reply it gave; for the owner's ruling on where a design
 /// departs from a decision of its item, what [`ruling_of`] gives of it. None when the batch handled none. The input of
 /// the cell that records the decisions in them.

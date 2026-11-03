@@ -7671,7 +7671,7 @@ fn an_architect_work_goes_through_understanding_a_matter_and_its_review() {
     // The review is given the owner's words the change came from, whole, which in the sixth trial it had only the
     // first line of and could not check a change's reason against.
     let looked = message_at(&e, arch, "B2", false);
-    let words = given_value(&looked, "·engine·words_behind_changes").expect(&looked);
+    let words = given_value(&looked, "·engine·matters_behind_changes").expect(&looked);
     let first = words
         .as_object()
         .and_then(|o| o.values().next())
@@ -10487,7 +10487,8 @@ fn searched(name: &str, candidates: Value) -> (Engine, i64, String, Setup) {
 // and goes on with the candidates: here a report taken in is merged into the observation found, reported once more.
 #[test]
 fn the_search_of_observations_hands_back_candidates() {
-    let (e, arch, log, s) = searched("search", json!([{ "id": 1, "why": "It records the same slowness." }]));
+    let found = json!([{ "id": 1, "fit": "same", "why": "It records the same slowness." }]);
+    let (e, arch, log, s) = searched("search", found);
     let path = path_of(&e, arch);
     let at = path.iter().position(|c| c == "X2").expect(&log);
     assert_eq!(

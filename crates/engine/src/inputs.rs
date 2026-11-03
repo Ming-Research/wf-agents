@@ -1069,14 +1069,21 @@ const HISTORY_SOURCES: &str = "history_sources";
 /// plain read-only open sees what its write-ahead log holds, where an immutable open would miss it, and needs the log's
 /// files that the engine's connection keeps there.
 fn history_sources(e: &Engine, project: Option<&str>) -> Value {
-    let database = config::database(&e.data);
     let checkout = project
         .and_then(|p| e.config.config.projects.get(p))
         .map(|p| p.checkout.display().to_string());
+    let mut sources = database_source(e);
+    sources["checkout"] = json!(checkout);
+    sources
+}
+
+/// Where the database is, for the agents that read it themselves: its address and the command that reads it. The
+/// gatherer of history and the search of observations are both given it.
+pub(crate) fn database_source(e: &Engine) -> Value {
+    let database = config::database(&e.data);
     json!({
         "database": database.display().to_string(),
         "read": format!("sqlite3 -safe -readonly '{}' \"<query>\"", database.display()),
-        "checkout": checkout,
     })
 }
 

@@ -225,6 +225,14 @@ pub struct Agents {
     /// `H11`) before it goes on with its queue, holding the talk until the owner says more or ends it.
     #[serde(default = "owner_reply_wait")]
     pub owner_reply_wait: u64,
+    /// The most characters of a matter's text, or of a cell's flow feedback, that an input of the architect's gives
+    /// before it cuts the rest off and says where to read it.
+    #[serde(default = "input_most")]
+    pub input_most: u64,
+}
+
+fn input_most() -> u64 {
+    6_000
 }
 
 fn context_limit() -> u64 {

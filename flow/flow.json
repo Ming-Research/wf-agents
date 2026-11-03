@@ -2773,7 +2773,7 @@
       "name": "search",
       "title": "Search of observations",
       "type": "obj",
-      "desc": "Search the project's open observations before you answer: is this recorded, or what could an item take in? A reader of its own hands back candidates, and you carry on",
+      "desc": "Search the project's open observations before you answer: is this recorded, or what could an item take in? A reader of its own hands back candidates, each the same as what you look for or only related to it (when none is the same, the closest, at most three), and you carry on",
       "fields": [
         {
           "name": "look_for",
@@ -3906,6 +3906,7 @@
       "edit_notebook": "Writes each section of the notebook the round rewrote, whole, as the project's architect's notebook's latest version of it; the versions before stay, for the owner to look at.",
       "change_observations": "Makes each change to the project's observations a round hands in beside its own answer, at once, as an answer's effects make theirs.",
       "go_on_at_second_cell": "Puts the matter in hand back at the head of the queue, to go on at its second cell (`H3` after `H2`, `H5` after `H4`, `P2` after `P1`). The matter that leads a group takes the others with it: they wait in the queue until it is taken again, and its second cell answers for all of them.",
+      "queue_parts": "Queues each part the cell divided the matter's flow feedback into as a matter of its own, flow feedback that holds the matter it was divided from, the cells of the part, its label and what it was divided by, and none of the feedback's words, which are read from the matter divided once it is closed. The work that queues the parts takes them first, one at a time, at the cell that judges a report, in the order of the division; a part takes no feedback that comes later.",
       "post_open_questions": "Sends the design's open questions to the project's architect, each a matter of its own, and each place the design departs from a decision of its item as an open question of its own; the work waits on none of them here.",
       "write_learned": "Adds the decisions the work made to its item's approach under `Decisions:`, each as the line the engine writes from the records it quotes, and what the work learned under `Learned:`, with the commits merged.",
       "collect_decisions": "Makes each decision the round hands in a change of the batch, of the kind record_decision, from the first matter of the owner's words of the batch it quotes: the engine reads the records it quotes, tells from them who decided and when, takes the words from them as they are and writes the line, which is kept with the change, so that the review reads what is written and the batch writes it once the review finds it sound."
@@ -3954,7 +3955,8 @@
       "decision_words_hold": "Each decision's records exist and are the project's, each quotation is found letter for letter in the words of its record, which the engine reads again, and none quotes words another decision of the return or its item holds already; the item it names is the project's, a number or the key of an item the batch creates, and one that names none has a title and the project's tags. The architect's quote a matter of the owner's words the batch handled, and the rows that say which matters hold a decision agree with the decisions that quote them; an engineer's name no item, being recorded in the item of its work.",
       "learned_holds_no_decision": "No line of the text starts a decision (`Decision (`): a decision is handed in as a decision, from the records it quotes, and the engine makes its line; what is learned holds facts and approaches dropped.",
       "words_all_looked": "There is exactly one row for each of the owner's words the batch handled, by their matters; a row that says suggestion has a new observation in the same return.",
-      "candidates_known": "At most ten candidates, each an open observation of the project.",
+      "candidates_known": "At most ten candidates, each an open observation of the project; for a search of whether this very thing is recorded, when no candidate is the same, at most three related ones.",
+      "split_covers_feedback": "A split of flow feedback is of a matter that holds flow feedback by cell and is no part of one already, has at least two parts each with a label and cells, and puts each cell of the feedback (as <graph>:<cell>) in exactly one part, none left out, none in two, none the feedback does not have.",
       "fix_not_queued_again": "A thing missing or a place to set straight that the queue holds already, as a matter not handled of the same kind and the same place or the same items, is not handed in again unless it names that matter in queued; a matter it names so is one the queue holds.",
       "holds_needs_policy": "Once the owner replied to the question whether to research a new policy, the check of the policy hands in that it holds only while a policy is in force; with none, it writes the course the project keeps by the reply, or asks again.",
       "policy_or_kept": "The writing of the policy hands in the whole policy with a draft written, or, with a draft kept, no policy and no new measures.",
@@ -3980,6 +3982,8 @@
       "board": "The project's items running and queued, each with its rank, cell, stage, the route it is marked for and the route its latest work goes (light, normal, or turned to the normal route), what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items; and, when there are any, the holds on the project's new starts (`starts_held`), each with its reason (owner, architect or set_straight), since when and why, so that the architect sees the owner's hold and does not plan as if new works could start.",
       "numbers": "The numbers the engine measures for the project, each as the architect's work started and earlier, for the trend.",
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
+      "observations_index": "The project's open observations, every one, a line each: its number, its tags, how many times it was reported, the item that took it in if one has, and its title, or the first sentence of what it is for one without a title; neither its refs nor its source, and a line past 160 characters cut with where the rest is.",
+      "observations_source": "Where the project's open observations are, in full, for the search of them to read with `sqlite3`: the database's read-only address with the command that reads it, the view that holds them with its columns, and the command that reads one by its number.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
       "policy": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change.",
       "policy_signals": "The signals of the project's policy the engine measures, each with its numbers: a signal that names a measure of the numbers by its name.",
@@ -4003,7 +4007,8 @@
       "notebook_plan": "The text of the section plan of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
       "notebook_unclear": "The text of the section unclear of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
       "notebook_other": "The text of the section other of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
-      "words_behind_changes": "The owner's words behind the batch's changes: each matter of the owner's words a change came from, with the words whole, where and when they were said, who the record says spoke them, and what the architect said in that place before them.",
+      "matters_behind_changes": "The matters the batch's changes came from, each by its number: the owner's words whole, where and when they were said, who the record says spoke them, the parts of them a delegate declared to be the owner's own, the question they reply to and what the architect said in that place before them; any other matter as its kind, detail, one sentence and body, a body past the installation's limit (`agents.input_most`, 6,000 characters by default) cut with where the rest is, and flow feedback by cell, in summary past the limit.",
+      "running_files": "The engineer works that run in the project, each with its item, its pull request and the files its branch changed against main, as of the commit pushed to the pull request, or as of the worktree's own HEAD, said to be local, when nothing was pushed (at most 300 paths of a work, with how many are left out and the command that reads them all); a work whose files cannot be read, with why; and the paths each two works have changed both, worked out from all of them.",
       "batch_words": "The owner's words the batch handled, each by its matter: the words whole, where and when they were said, who the record says spoke them (owner, delegate, or unrecorded) and the parts of them a delegate declared to be the owner's own words (`relayed`), the question they reply to, what the architect said in that place before them, and how the architect handled them: its round, the way on it took and its reply.",
       "batch_items": "The items the batch's owner's words concern, each in full with the lines of the decisions it holds: the item each matter names, the item of the work it was said in, and each item the words or the reply to them name by its number, at most twelve.",
       "fix_table": "The table the work's latest fix answered, as the fix was given it: each row with its number and what it held, a red check with its run and the end of its log.",
@@ -4083,7 +4088,7 @@
           "matter",
           "matter_items",
           "cross_project",
-          "words_behind_changes"
+          "matters_behind_changes"
         ],
         "owner": "says something to the architect, or starts a work the architect paused"
       },
@@ -4097,7 +4102,9 @@
           "observations_all"
         ],
         "inputs": [
-          "observations_overview"
+          "observations_overview",
+          "observations_index",
+          "observations_source"
         ],
         "owner": "closes one, saying why"
       },
@@ -4208,7 +4215,8 @@
         "inputs": [
           "local_commits",
           "review_base",
-          "since_adversarial"
+          "since_adversarial",
+          "running_files"
         ]
       },
       "recorded": {
@@ -4327,7 +4335,7 @@
           "batch",
           "batch_changes",
           "changes_touch",
-          "words_behind_changes",
+          "matters_behind_changes",
           "batch_words",
           "batch_items"
         ]
@@ -4573,6 +4581,9 @@
         "observations"
       ],
       "go_on_at_second_cell": [
+        "architect_queue"
+      ],
+      "queue_parts": [
         "architect_queue"
       ],
       "group_picked": [
@@ -14182,7 +14193,7 @@
           },
           {
             "name": "Search results",
-            "what": "The observations the search found, closest first, each with why it matches; none when the search found none",
+            "what": "The observations the search found, closest first, each with how it fits (`same`: it records this very thing; `related`: it does not, but is the closest) and why it matches; none means the search ran and found no candidate, not that the results were left out",
             "from": [
               [
                 "@from",
@@ -14873,6 +14884,15 @@
               ]
             },
             {
+              "name": "Running works' files",
+              "what": "The works that run, each with its item, its pull request and the files its branch changed against main (as of the commit pushed to the pull request, or the worktree's own HEAD, said to be local, when nothing is pushed; long lists cut with where the rest is), and the paths each two works have changed both: two works that change the same path may collide. A work whose files cannot be read says why",
+              "from": [
+                {
+                  "engine": "running_files"
+                }
+              ]
+            },
+            {
               "name": "Slots",
               "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work",
               "from": [
@@ -14974,7 +14994,7 @@
             "This round answers one thing only: under the policy in force, what to do next. Think from the policy's direction and its principles, by first principles, not from the items as they stand: what the direction needs that nothing does yet; what matters most now, and why; and where what runs or waits does not fit. This thinking is yours: it never goes into the policy, which holds only the direction and its principles.",
             "Write your notebook's plan anew: what to do next, most first, each with why by the policy's principles; the ranking of the items follows it. What the owner asked for is part of the plan with its source (\"from the owner, <date>: ...\") and why, and leaves it only once it is done or the owner withdrew it.",
             "Hand in what is missing, one per row, of the kind missing, with the steps that make it an item, or that record it as an observation when it is worth doing some day but not now.",
-            "Then whether what runs and what waits fit. Look for a direction that drifted, an item that should be split, dependencies wrong or of the wrong kind, duplicates, an order that is wrong, and an earlier decision, priority included, that no longer holds with today's facts. A decision stands only if, with all of today's facts, it is still fully reasonable; that it was made is no reason. Answer fits when all fit, saying where the slots go and why those; some_to_change when a few places are wrong and the rest run as usual; set_straight when the structure is wrong as a whole, so that starting new works would start the wrong ones. Hand in one fix per place to set straight: where, what kind, what is wrong and on what grounds, and every step you mean to take there, in order; steps that depend on each other, such as making items, ranking them and having others wait for them, are one fix.",
+            "Then whether what runs and what waits fit. Look for a direction that drifted, an item that should be split, dependencies wrong or of the wrong kind, duplicates, works that change the same paths (the running works' files say which), an order that is wrong, and an earlier decision, priority included, that no longer holds with today's facts. A decision stands only if, with all of today's facts, it is still fully reasonable; that it was made is no reason. Answer fits when all fit, saying where the slots go and why those; some_to_change when a few places are wrong and the rest run as usual; set_straight when the structure is wrong as a whole, so that starting new works would start the wrong ones. Hand in one fix per place to set straight: where, what kind, what is wrong and on what grounds, and every step you mean to take there, in order; steps that depend on each other, such as making items, ranking them and having others wait for them, are one fix.",
             "The engine queues each thing missing and each fix as a matter of yours, picked before others, but one your queue holds already, which you hand in again only naming that matter in its queued, and with set_straight it starts no new work of this project until they are handled. Have a running work paused at once only when it is going the wrong way and every round it runs is wasted.",
             "The owner's start queue is the owner's own order and starts ahead of the ranks: where your plan's order differs from it, a fix's step asks the owner whether to change it; never change it yourself."
           ],
@@ -16284,6 +16304,15 @@
               ]
             },
             {
+              "name": "Running works' files",
+              "what": "The works that run, each with its item, its pull request and the files its branch changed against main (as of the commit pushed to the pull request, or the worktree's own HEAD, said to be local, when nothing is pushed; long lists cut with where the rest is), and the paths each two works have changed both: two works that change the same path may collide. A work whose files cannot be read says why",
+              "from": [
+                {
+                  "engine": "running_files"
+                }
+              ]
+            },
+            {
               "name": "The batch so far",
               "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
               "from": [
@@ -16363,7 +16392,7 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: what to do about this place. Look at it again with today's facts: what the plan of what to do next gave is a lead, not an order. Then take every step it needs in this round's effects, a change naming an item an earlier change makes by its key: change the items (the order, a split, dependencies, a text, a level, a hold, a cancellation), pause or resume a work, interject what an engineer must know, record or fold in observations, note what to look at again. When nothing is to be done after all, say why. For a work that used up its time budget, find first where it is stuck and the root cause, from its item, its rounds and its pull request, and say them in what came of it.",
+            "This round answers one thing only: what to do about this place. Look at it again with today's facts: what the plan of what to do next gave is a lead, not an order. Then take every step it needs in this round's effects, a change naming an item an earlier change makes by its key: change the items (the order, a split, dependencies, a text, a level, a hold, a cancellation), pause or resume a work, interject what an engineer must know, record or fold in observations, note what to look at again. When nothing is to be done after all, say why. For a work that used up its time budget, find first where it is stuck and the root cause, from its item, its rounds and its pull request, and say them in what came of it. Whether two running works will change the same place is in the running works' files: read it there, not from the pull requests.",
             "An inference that decides the direction is checked first by an item that checks it; the structure is not changed on it."
           ],
           "out": [
@@ -16952,7 +16981,7 @@
           "inputs": [
             {
               "name": "The report",
-              "what": "The report and where it came from: its text as written, the work, the item, and the line and cell that handed it in, whether it is urgent; for what to do next after a report, the report's paths and the commit that merged it; for flow feedback, what each cell's rounds said, by cell, and the project that is wf-agents; for a fault of wf-agents forwarded to you, the notice the owner was told with its kind, the engine's evidence as it stands now (the cache misses it holds, or the ask a flow anomaly put, with its answer) and who forwarded it; for the side reports handed in before you ran, each text once by its work and cell, with how many times and in which rounds, and whether that work goes on, merged, is done, ended or its item was cancelled; when you picked others with it, `with` holds each of them, its matter number and its material as the report is given",
+              "what": "The report and where it came from: its text as written, the work, the item, and the line and cell that handed it in, whether it is urgent; for what to do next after a report, the report's paths and the commit that merged it; for flow feedback, what each cell's rounds said, by cell, each round with the version of the flow it ran on, and the project that is wf-agents; flow feedback past 6,000 characters comes in summary, for each cell how many rounds said something and the latest three in full, with the query that reads the earlier ones; a part of larger flow feedback (`part`) holds the cells split off to it, from the matter it was split from; for a fault of wf-agents forwarded to you, the notice the owner was told with its kind, the engine's evidence as it stands now (the cache misses it holds, or the ask a flow anomaly put, with its answer) and who forwarded it; for the side reports handed in before you ran, each text once by its work and cell, with how many times and in which rounds, and whether that work goes on, merged, is done, ended or its item was cancelled; when you picked others with it, `with` holds each of them, its matter number and its material as the report is given",
               "from": [
                 {
                   "engine": "matter"
@@ -17031,7 +17060,8 @@
           ],
           "prompt": [
             "This round answers one thing only: what this report really is, on what grounds, and how sure you are. Read the code, or have it reproduced with tools, when the report alone does not settle it. Do not think about what to do yet.",
-            "When you picked others with the matter, the report's `with` holds them: `finding` is for the matter you picked, and `with` has one finding for each of the others, by its matter number. Read each in full and judge it on its own: matters that look alike may differ in what they are, how sure you are and what they mean for the item, so never copy one finding to another."
+            "When you picked others with the matter, the report's `with` holds them: `finding` is for the matter you picked, and `with` has one finding for each of the others, by its matter number. Read each in full and judge it on its own: matters that look alike may differ in what they are, how sure you are and what they mean for the item, so never copy one finding to another.",
+            "Only for flow feedback that spans many cells with roots that differ: give `finding` as your reading of the whole, and in `split` divide the cells into parts, by cell or by cause, each with its label, its cells and why they belong together. Every cell is in exactly one part, there are at least two, and each part is judged on its own as a matter of its own, in turn, by the cell that takes a report in. Leave `split` out when the feedback has one root, or is small."
           ],
           "out": [
             {
@@ -17092,6 +17122,56 @@
               "min": 1
             },
             {
+              "name": "split",
+              "title": "How the feedback divides",
+              "type": "list",
+              "desc": "Only for flow feedback that spans many cells with roots that differ: the parts to divide it into, by cell or by cause, at least two, each cell of the feedback in exactly one. Each part becomes a matter of its own that is judged on its own, in turn; `finding` is then your reading of the whole. Leave it out for feedback with one root, a small one, and any other matter",
+              "item": {
+                "type": "obj",
+                "fields": [
+                  {
+                    "name": "by",
+                    "title": "Divided by",
+                    "type": "enum",
+                    "desc": "What the part is gathered by",
+                    "values": [
+                      [
+                        "cell",
+                        "The cells belong together as places in the flow, such as the cells of one block"
+                      ],
+                      [
+                        "cause",
+                        "The cells belong together because one root cause explains what they said"
+                      ]
+                    ]
+                  },
+                  {
+                    "name": "label",
+                    "title": "Label",
+                    "type": "text",
+                    "desc": "What the part is about, in a few words"
+                  },
+                  {
+                    "name": "cells",
+                    "title": "Cells",
+                    "type": "list",
+                    "desc": "The cells of the part, each as <graph>:<cell> as the feedback names them, such as engineer:I1; a cell is in one part only",
+                    "item": {
+                      "type": "text",
+                      "desc": "A cell, as <graph>:<cell>"
+                    }
+                  },
+                  {
+                    "name": "why",
+                    "title": "Why together",
+                    "type": "text",
+                    "desc": "Why these cells belong together"
+                  }
+                ]
+              },
+              "optional": true
+            },
+            {
               "$ref": "notebook"
             }
           ],
@@ -17101,6 +17181,14 @@
               "if": [
                 [
                   "own"
+                ],
+                [
+                  "none",
+                  "split.by",
+                  [
+                    "cell",
+                    "cause"
+                  ]
                 ]
               ],
               "to": "Q0",
@@ -17110,6 +17198,31 @@
               ],
               "counts": "second_cells",
               "note": "The matter goes back to the head of the queue to go on at `H5`: the owner's words that came meanwhile are taken first, and otherwise it is taken again at once."
+            },
+            {
+              "name": "split",
+              "if": [
+                [
+                  "own"
+                ],
+                [
+                  "any",
+                  "split.by",
+                  [
+                    "cell",
+                    "cause"
+                  ]
+                ]
+              ],
+              "to": "B1",
+              "do": [
+                {
+                  "at": "split",
+                  "do": "queue_parts"
+                },
+                "close_matter"
+              ],
+              "note": "The flow feedback is divided: each part is queued as a matter of its own, taken next in turn at this cell and then at `H5`, and this matter is closed; the cells a part holds are read from it."
             }
           ],
           "without": [
@@ -17128,7 +17241,7 @@
                 "It is an engineer's answer to what you said to its work: read it against what you said, and act on it as you would on a report."
               ],
               "flow_feedback": [
-                "It is flow feedback: what agents said was wrong with their cells, by cell, each with its round. Judge, cell by cell, what holds, reading the cell in the flow and, where it matters, the round's record: what it was given and returned, what it cost, and its returns sent back. Trace each misread rule, stall, detour, skipped or extra work and repeated large read to its root: the cell's text, an input or a feature of the engine missing, or the agent's own misjudgment."
+                "It is flow feedback: what agents said was wrong with their cells, by cell, each with its round. Judge, cell by cell, what holds, reading the cell in the flow and, where it matters, the round's record: what it was given and returned, what it cost, and its returns sent back. Trace each misread rule, stall, detour, skipped or extra work and repeated large read to its root: the cell's text, an input or a feature of the engine missing, or the agent's own misjudgment. A part of larger flow feedback that was split already (it holds `part`) is judged as it is, not split again."
               ],
               "fault": [
                 "It is a fault of wf-agents itself, which the owner forwarded to you, by hand or by the setting that forwards each new one: the notice the owner was told, with the engine's evidence as it stands now (the rounds that missed their session's prompt cache, each with what differs in its command line or its environment from the session's round before and what it wrote again, or the ask a flow anomaly put, with the owner's answer once given). Find its cause in wf-agents' code or flow, reading the code and, where it matters, the records of the rounds named."
@@ -17161,7 +17274,8 @@
           },
           "shown": [
             "finding",
-            "with"
+            "with",
+            "split"
           ],
           "always": [
             {
@@ -17173,6 +17287,10 @@
             {
               "at": "with",
               "check": "group_answered"
+            },
+            {
+              "at": "split",
+              "check": "split_covers_feedback"
             },
             {
               "at": "notebook",
@@ -17294,7 +17412,7 @@
             }
           ],
           "prompt": [
-            "This round takes the report in, in this order. Can an existing item take it, because it covers it or needs it: fold it in, widening the item's scope or adding to its acceptance; if it is urgent and that item will not come soon enough, move the item up, or split the urgent part out. If no item takes it and it is urgent (it blocks a running work, harms main, touches security or data), make a new item now. Otherwise it is an observation: search for the same one first and merge into it, as reported once more; if some need that will certainly come will hit it anyway, record nothing and name that need; else record a new one with tags from the set. A merge that makes an observation reported three times makes it work: fold it into an item that covers it, or a new one, and move that item ahead.",
+            "This round takes the report in, in this order. Can an existing item take it, because it covers it or needs it: fold it in, widening the item's scope or adding to its acceptance; if it is urgent and that item will not come soon enough, move the item up, or split the urgent part out. If no item takes it and it is urgent (it blocks a running work, harms main, touches security or data), make a new item now. Otherwise it is an observation: search for the same one first and merge into only an observation the search gives as the same (fit `same`), as reported once more; an observation it gives as related is not the same, so never merge into it: fold the report into an item that covers it, or record a new observation that says how it differs from the related one; if some need that will certainly come will hit it anyway, record nothing and name that need; else record a new one with tags from the set. A merge that makes an observation reported three times makes it work: fold it into an item that covers it, or a new one, and move that item ahead.",
             "Close the outdated observations you meet on the way, saying why. Do it all in effects.",
             "When you picked others with the matter, `take` is for the matter you picked and `with` has one way for each of the others, by its matter number. Take each in on its own finding, as if it were alone: an observation change, an item change or a message to another architect that comes of one of the others names it in `matter`, and one of the matter you picked leaves `matter` out. Two matters that come to one observation or item are taken in by one change each, so that each reporter is told what became of its own report.",
             "Use the way `back_for_owner` only for one of the others, when it needs the owner to decide and the rest can be decided now: say in its `why` what the owner must decide. It is then not taken in this round: it is not closed, its reporter is told nothing, no change names it, and it goes back to the queue on its own, to be put to the owner when it is taken in alone. The matter you picked never takes this way: if it needs the owner, put the question to the owner instead, and the others go back to the queue."
@@ -19086,11 +19204,11 @@
               ]
             },
             {
-              "name": "The owner's words behind them",
-              "what": "The owner's words the changes came from, whole, where and when they were said, who the record says spoke them (owner, delegate, or unrecorded) with the parts of them a delegate declared to be the owner's own words (`relayed`) and what the architect said in that place before them, by the matter of each: check a change's reason against them, and a decision's quotations; none when no change came from the owner's words",
+              "name": "The matters behind them",
+              "what": "The matters the changes came from, by the number of each: for the owner's words, the words whole, where and when they were said, who the record says spoke them (owner, delegate, or unrecorded) with the parts of them a delegate declared to be the owner's own words (`relayed`), the question they reply to and what the architect said in that place before them; for any other matter, its kind, its detail, what it is in a sentence and its body (a side report whole; flow feedback by cell). A body past the limit is cut and says where the rest is. Check a change's reason against them, and a decision's quotations; none when the batch has no change",
               "from": [
                 {
-                  "engine": "words_behind_changes"
+                  "engine": "matters_behind_changes"
                 }
               ],
               "maybe": true
@@ -19954,11 +20072,19 @@
             },
             {
               "name": "Open observations",
-              "what": "The project's open observations: each with its number, what it is, its tags, how many times it was reported, and where it came from",
+              "what": "The project's open observations, every one, a line each: its number (O<number>), its tags, how many times it was reported (x<times>), the item that took it in if one has (it stays open until that item's work merges), and its title, or the first sentence of what it is for one without a title. A line is cut at 160 characters and says where the rest is. Choose among these, then read each one you pick in full, with its refs and source, where `Where the observations are` says: always each one you offer as the same thing",
               "from": [
                 {
-                  "db": "observations_open",
-                  "by": "project"
+                  "engine": "observations_index"
+                }
+              ]
+            },
+            {
+              "name": "Where the observations are",
+              "what": "The database's read-only address with the command that reads it, the view that holds the open observations with its columns, and the command that reads one by its number",
+              "from": [
+                {
+                  "engine": "observations_source"
                 }
               ]
             },
@@ -19973,7 +20099,8 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: which open observations match what is looked for. For the same one: those that record this very thing. For related ones: those an item doing this could take in. Hand in at most ten, the closest first, each with why it matches in a sentence; an empty list when none does. Your answer goes to the architect: what else it should know, say in the why of the candidate it concerns.",
+            "This round answers one thing only: which open observations match what is looked for. Choose from the index of every open observation, then read each one you mean to offer in full where you are told, to be sure of it. For the same one: those that record this very thing. For related ones: those an item doing this could take in. Hand in at most ten, the closest first, each with how it fits and why it matches in a sentence; an empty list when none does. Your answer goes to the architect: what else it should know, say in the why of the candidate it concerns.",
+            "How a candidate fits is `same` when the observation records this very thing, and `related` when it does not but is close. When you are asked whether this very thing is recorded and no observation records it, hand in the closest as `related`, at most three, and say in each why what is looked for differs from it; hand in none when none is close. An observation an item took in is open still until that item's work merges, so it counts.",
             "Write progress in the owner's language, as `format:common` says of a field the owner reads."
           ],
           "out": [
@@ -19981,7 +20108,7 @@
               "name": "candidates",
               "title": "Candidates",
               "type": "list",
-              "desc": "The observations that match, closest first, at most ten",
+              "desc": "The observations that match, closest first, at most ten; an empty list when none does",
               "item": {
                 "type": "obj",
                 "fields": [
@@ -19992,10 +20119,26 @@
                     "desc": "The observation's number"
                   },
                   {
+                    "name": "fit",
+                    "title": "How it fits",
+                    "type": "enum",
+                    "desc": "How the observation fits what is looked for",
+                    "values": [
+                      [
+                        "same",
+                        "It records this very thing"
+                      ],
+                      [
+                        "related",
+                        "It is not the same, but the closest: say in why where it differs"
+                      ]
+                    ]
+                  },
+                  {
                     "name": "why",
                     "title": "Why it matches",
                     "type": "text",
-                    "desc": "Why it matches, in a sentence"
+                    "desc": "Why it matches, in a sentence; for a related one, where it differs from what is looked for"
                   }
                 ]
               }
@@ -20007,10 +20150,36 @@
               "if": [
                 [
                   "own"
+                ],
+                [
+                  "any",
+                  "candidates.fit",
+                  [
+                    "same",
+                    "related"
+                  ]
                 ]
               ],
               "to": "@caller",
               "main": true
+            },
+            {
+              "name": "none",
+              "if": [
+                [
+                  "own"
+                ],
+                [
+                  "none",
+                  "candidates.fit",
+                  [
+                    "same",
+                    "related"
+                  ]
+                ]
+              ],
+              "to": "@caller",
+              "note": "The search found no candidate: the cell that asked is given its results as none."
             }
           ],
           "checks": [

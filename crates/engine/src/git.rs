@@ -28,7 +28,7 @@ pub fn fork_point(dir: &Path, main: &str) -> Result<String, String> {
 
 /// Main as merged into a commit: the merge base of the commit and the fetched main, the latest commit of main it
 /// contains.
-fn main_merged_into(dir: &Path, rev: &str, main: &str) -> Result<String, String> {
+pub fn main_merged_into(dir: &Path, rev: &str, main: &str) -> Result<String, String> {
     Ok(git(dir, &["merge-base", rev, &format!("origin/{main}")])?
         .trim()
         .to_string())

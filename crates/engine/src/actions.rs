@@ -681,7 +681,14 @@ pub fn apply(ctx: &Ctx, tx: &Transaction<'_>, name: &str, at: Option<&str>) -> R
                 "item": ctx.item.as_ref().map(|i| i.id),
                 "said": said,
             });
-            crate::architect::add_flow_feedback(tx, &project, &ctx.work.graph, &ctx.cell.id, entry)?;
+            crate::architect::add_flow_feedback(
+                tx,
+                &project,
+                &ctx.work.graph,
+                &ctx.cell.id,
+                ctx.work.flow_version,
+                entry,
+            )?;
         }
         "tell_went_back" => {
             // The notice names the round, where the owner's page shows what the work went back to and why.
