@@ -112,10 +112,37 @@ fn remind_interval() -> u64 {
     3_600
 }
 
+/// How wide a title is when shown, the unit `items.title_max` is in: every character but a space counts the columns it
+/// takes in a line of monospaced text. A space of any kind is not counted; a character of East Asian wide or full width
+/// (a Chinese character, a kana, a hangul syllable, an emoji) counts 2, a combining mark or other character that takes
+/// no column 0, and any other character 1. So the same limit holds titles of any language to about the same room on the
+/// board: 24 allows 24 letters of English or 12 Chinese characters.
+pub fn title_width(title: &str) -> usize {
+    title
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0))
+        .sum()
+}
+
+/// Whether a title is within `max` ([`title_width`]); if not, why not, saying how wide it is.
+pub fn title_fits(title: &str, max: usize) -> Result<(), String> {
+    let width = title_width(title);
+    if width > max {
+        return Err(format!(
+            "the title is {width} wide and a title is {max} wide at most (spaces are not counted, and a character of \
+             East Asian wide or full width counts 2): write it shorter"
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Items {
-    /// The longest an item's title may be, spaces not counted.
+    /// The widest an item's title may be, and an observation's, as [`title_width`] counts it: spaces are not counted,
+    /// a character of East Asian wide or full width counts 2 and any other 1. A title is held to it when it is made or
+    /// changed; a title already there is not counted again. There is no default: the installation names the width.
     pub title_max: u32,
     /// The highest level an item may be at, by its name among the levels: an item above it is refused when it is
     /// made and when a work starts on it, while the advisor may still run one level above; none, any level.
@@ -2360,5 +2387,45 @@ asks = 9
         gone.main = "master".into();
         assert!(main_commit(&gone).unwrap_err().contains("origin/master"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // Item #217: a title is as wide as it is shown, the unit `items.title_max` is in. Spaces of any kind are not counted;
+    // an English letter counts 1, a Chinese character, a kana, a hangul syllable, a full-width letter and an emoji 2, a
+    // combining mark none. The Chinese characters are made from escapes: the repository holds none.
+    #[test]
+    fn a_title_is_as_wide_as_it_is_shown_and_spaces_are_not_counted() {
+        assert_eq!(title_width(""), 0);
+        // Ordinary, em and no-break spaces, a tab, and the ideographic space of East Asian text: none counted.
+        assert_eq!(title_width("a b\u{2003}c\u{a0}d\te\u{3000}f"), 6);
+        assert_eq!(title_width(&"\u{4e2d}".repeat(12)), 24);
+        assert_eq!(title_width("\u{4e2d}\u{6587} \u{4e2d}\u{6587}"), 8);
+        assert_eq!(title_width("\u{3042}\u{30a2}\u{ac00}"), 6);
+        assert_eq!(title_width("\u{ff21}"), 2);
+        assert_eq!(title_width("\u{1f680}"), 2);
+        // An e and the combining acute accent over it show as one column.
+        assert_eq!(title_width("e\u{301}"), 1);
+        // A backtick and a digit are one each, as every other character a keyboard has.
+        assert_eq!(title_width("`lexer` 2"), 8);
+    }
+
+    // At the limit the owner sets (24), 12 Chinese characters and 24 letters of English fit, 13 and 25 do not, and what
+    // is said is how wide the title is; the limit is a parameter, not a number the code knows.
+    #[test]
+    fn a_title_fits_up_to_the_limit_and_is_refused_over_it_saying_how_wide_it_is() {
+        let chinese = |n: usize| "\u{4e2d}".repeat(n);
+        assert_eq!(title_fits(&chinese(12), 24), Ok(()));
+        assert_eq!(title_fits(&"a".repeat(24), 24), Ok(()));
+        assert!(
+            title_fits(&chinese(13), 24)
+                .unwrap_err()
+                .starts_with("the title is 26 wide and a title is 24")
+        );
+        assert!(
+            title_fits(&"a".repeat(25), 24)
+                .unwrap_err()
+                .starts_with("the title is 25 wide and a title is 24")
+        );
+        assert_eq!(title_fits(&chinese(13), 26), Ok(()));
+        assert!(title_fits(&"a".repeat(21), 20).is_err());
     }
 }

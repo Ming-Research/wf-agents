@@ -149,28 +149,17 @@ pub fn record_decision_of(project: &str, matter: i64, decision: &Value) -> Value
     })
 }
 
-/// The most characters an item's title has, spaces not counted, and an observation's.
-const TITLE_MOST: usize = 20;
-
-/// How many characters a title has, spaces not counted, as the earlier board counted them.
-fn title_length(title: &str) -> usize {
-    title.chars().filter(|c| !c.is_whitespace()).count()
-}
-
-/// Whether a title a change gives, an item's or an observation's, is short enough; otherwise says how long it is.
-pub(crate) fn title_fits(title: &str, bad: &mut dyn FnMut(String)) {
-    let n = title_length(title);
-    if n > TITLE_MOST {
-        bad(format!(
-            "the title it gives has {n} characters, spaces not counted, and a title has {TITLE_MOST} at most: \
-             write it shorter"
-        ));
+/// Whether a title a change gives, an item's or an observation's, is within `max`, the installation's `items.title_max`,
+/// as [`config::title_width`] counts it; otherwise says how wide it is.
+pub(crate) fn title_fits(title: &str, max: usize, bad: &mut dyn FnMut(String)) {
+    if let Err(why) = config::title_fits(title, max) {
+        bad(why);
     }
 }
 
 /// Whether the changes a project's architect handed in are valid, in order: every change has its reason; an item
 /// created is of the project and has what it needs and a key no other change uses; a title an item is created or
-/// retitled with has 20 characters at most, spaces not counted; a split gives each acceptance condition of the item
+/// retitled with is within the installation's `items.title_max` ([`config::title_width`]); a split gives each acceptance condition of the item
 /// split to one new item at most, one of its locked conditions when its acceptance is locked; every item a change
 /// names is there, or made by an earlier change, and an item it changes is of the project (an item of the project may
 /// depend on another project's); every dependency a change makes has its kind; an item is moved first, last, under
@@ -238,7 +227,7 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                         bad(format!("it has no {k}"));
                     }
                 }
-                title_fits(text(c, "title"), &mut bad);
+                title_fits(text(c, "title"), cfg.install.items.title_max as usize, &mut bad);
                 for l in crate::decisions::new_decision_lines("", text(c, "approach")) {
                     bad(hand_written(&l));
                 }
@@ -357,7 +346,7 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                     bad("it changes the text to nothing".into());
                 }
                 if text(c, "part") == "title" {
-                    title_fits(text(c, "text"), &mut bad);
+                    title_fits(text(c, "text"), cfg.install.items.title_max as usize, &mut bad);
                 }
                 if text(c, "part") == "approach" {
                     // The lines of decisions the text had stand; a line it did not have is a decision written by hand.
@@ -808,24 +797,27 @@ mod tests {
         assert!(!cycle(&[]));
     }
 
-    // A title is counted as the earlier board counted it: every character but spaces of any kind, a backtick too, one
-    // each however many bytes it takes; 20 are let through, and 21 are refused, saying how many.
+    // Item #217: the architect's titles are held to the width the installation sets, the one the owner's own titles are
+    // held to ([`config::title_width`]): 12 Chinese characters are let through at 24 and 13 are refused, saying how wide
+    // they are; 24 letters of English are let through and 25 refused; the same title is let through at a wider limit.
     #[test]
-    fn a_title_is_counted_without_spaces_and_refused_over_twenty() {
-        // An em space and a no-break space are not counted, as an ordinary one is not.
-        assert_eq!(title_length("Parse\u{2003}the `lexer`\u{a0}first"), 20);
-        // An emoji, four bytes in UTF-8.
-        let wide = "\u{1f680}";
-        let refused = |title: &str| {
+    fn a_title_is_held_to_the_width_the_installation_sets() {
+        let refused = |title: &str, max: usize| {
             let mut said: Vec<String> = Vec::new();
-            title_fits(title, &mut |p: String| said.push(p));
+            title_fits(title, max, &mut |p: String| said.push(p));
             said
         };
-        assert!(refused(format!("{} {}", wide.repeat(10), wide.repeat(10)).as_str()).is_empty());
-        assert_eq!(
-            refused(format!("{} x", wide.repeat(20)).as_str()),
-            ["the title it gives has 21 characters, spaces not counted, and a title has 20 at most: write it shorter"]
+        let chinese = |n: usize| "\u{4e2d}".repeat(n);
+        assert!(refused(&chinese(12), 24).is_empty());
+        assert!(refused(&"a".repeat(24), 24).is_empty());
+        let wide = refused(&chinese(13), 24);
+        assert_eq!(wide.len(), 1);
+        assert!(
+            wide[0].starts_with("the title is 26 wide and a title is 24 wide at most"),
+            "{wide:?}"
         );
+        assert!(refused(&"a".repeat(25), 24)[0].starts_with("the title is 25 wide and a title is 24 wide at most"));
+        assert!(refused(&chinese(13), 26).is_empty());
     }
 
     #[test]
@@ -1056,5 +1048,47 @@ mod tests {
             .map(|r| r["approach"].clone())
             .collect();
         assert_eq!(approaches, [json!("Cache the parse."), Value::Null]);
+    }
+
+    // Item #217, R232-45: an architect's edit of an item's acceptance changes the text the item was written with
+    // (`wanted`), and the conditions locked after design stay as the design, the advisor or the owner's ruling left
+    // them. The inputs of the engineer cells say so; this is the engine doing as they say.
+    #[test]
+    fn editing_the_acceptance_of_an_item_leaves_the_locked_conditions_as_they_are() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Architect, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level, wanted)
+                 VALUES ('p', 't', 'x', 'y', 'change', 'l', '[\"Old wording.\"]')",
+                [],
+            )?;
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'R1')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'D2', '{}', 'c', 0)",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE items SET acceptance = '[{\"id\":\"A1\"}]', acceptance_work = 1, acceptance_round = 1",
+                [],
+            )?;
+            let edit = json!({ "kind": "edit_acceptance", "item": 1, "acceptance": ["New wording."], "reason": "r" });
+            write_all(tx, &[edit], &BTreeMap::new()).map_err(db::Error::Abort)?;
+            Ok(())
+        })
+        .unwrap();
+        let (wanted, locked): (String, String) = db
+            .conn()
+            .query_row("SELECT wanted, acceptance FROM items WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(
+            (wanted.as_str(), locked.as_str()),
+            ("[\"New wording.\"]", "[{\"id\":\"A1\"}]")
+        );
     }
 }
