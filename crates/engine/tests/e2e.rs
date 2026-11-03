@@ -8698,6 +8698,72 @@ fn the_history_of_the_changed_files_is_gathered_once_and_the_table_review_is_giv
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// What the sessions hold decides what a round is given. When the reader's session was compacted before the gathering
+// of the change's history, that round is given where the history is, and when the review's session was compacted
+// before the re-review, that round is given the brief again: the review and the gathering do not rest on a session
+// that holds what they need, they are given it.
+#[test]
+fn the_gathering_and_the_re_review_are_given_what_a_compacted_session_no_longer_holds() {
+    let s = setup("history-after-compaction");
+    let mut agents = scripts();
+    let brief = "Dropped: a second table, for lack of room (#12), bears on src/lib.txt.";
+    agents.insert(
+        "G2",
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome.brief", json!("The code's history.")), ("@compactions", json!(1))],
+            )
+        }),
+    );
+    agents.insert(
+        "G3",
+        Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.brief", json!(brief))])),
+    );
+    let review = review_with_a_finding(vec![json!([{ "fid": "R1", "verdict": "closed" }])]);
+    agents.insert(
+        "T4",
+        Box::new(move |r: &Request, n: usize| {
+            let (set, mut put) = review(r, n);
+            if n == 1 {
+                put.push(("@compactions", json!(1)));
+            }
+            (set, put)
+        }),
+    );
+    agents.insert(
+        "T6",
+        fix_answering(vec![
+            json!([{ "answer": "fixed_outside_commit", "id": "F1", "where": "The pull request description." }]),
+        ]),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the review clearing the work", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "clear")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(transitions(&e, item, "G3"), ["done"], "{log}");
+    assert_eq!(transitions(&e, item, "T4"), ["done", "done"], "{log}");
+    // The gathering is given the change by the engine's review base, and where the history is, as the first gathering
+    // gave it, the value the same.
+    let at_g3 = input_at(&e, work, "G3", false);
+    assert_eq!(given_ending(&at_g3, "·engine·history_sources"), Some(true), "{log}");
+    let message = message_at(&e, work, "G3", false);
+    let base = given_value(&message, "·engine·review_base").expect(&message);
+    assert!(base["change"].as_str().is_some_and(|c| c.starts_with("git diff ")), "{base}");
+    let sources = given_value(&message, "·engine·history_sources").expect(&message);
+    assert_eq!(sources["database"], config::database(&s.data).display().to_string());
+    assert!(sources["checkout"].is_string(), "{sources}");
+    let first = given_value(&message_at(&e, work, "G1", false), "·engine·history_sources").expect(&log);
+    assert_eq!(sources, first);
+    // The re-review is given the brief again, in its text.
+    let given_to = |last: bool| given_ending(&input_at(&e, work, "T4", last), "·G3·brief");
+    assert_eq!((given_to(false), given_to(true)), (Some(true), Some(true)), "{log}");
+    assert!(message_at(&e, work, "T4", true).contains(brief), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The table review can have more looked up, as the research can: the look-up goes to the reader and back to the table
 // review, in the reader's session, which the first gathering started with the rule for gathering history, once; the
 // table review is given what was found, in the round after.
