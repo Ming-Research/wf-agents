@@ -207,9 +207,12 @@ pub fn count(took: &[Took], row: &str) -> usize {
     took.iter().filter(|t| t.row.as_deref() == Some(row)).count()
 }
 
-/// The text a round was sent back with, for the owner.
+/// The text a round was sent back with, for the owner: the column as it is stored, without `problems`, which says the
+/// same again for counting.
 pub fn sent_back_reason(e: &Engine, round: RoundId) -> String {
-    e.db.conn()
+    let stored = e
+        .db
+        .conn()
         .query_row(
             "SELECT rejected FROM rounds WHERE work = ?1 AND n = ?2",
             params![round.work, round.n],
@@ -217,7 +220,12 @@ pub fn sent_back_reason(e: &Engine, round: RoundId) -> String {
         )
         .ok()
         .flatten()
-        .unwrap_or_default()
+        .unwrap_or_default();
+    match serde_json::from_str::<serde_json::Value>(&stored) {
+        Ok(rejected) if rejected.get("problems").is_some() => db::without_problems(&rejected).to_string(),
+        // A column recorded without `problems` is quoted as it is stored.
+        _ => stored,
+    }
 }
 
 /// Whether the error text of a step of the engine's is a failure of the network that passes by itself, as git and ssh

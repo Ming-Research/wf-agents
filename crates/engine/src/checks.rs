@@ -130,22 +130,73 @@ impl From<Vec<String>> for Problems {
     }
 }
 
-/// Adds the lines a check's problems make in the reason a return is sent back with, `check (place): problem`, one
-/// for each problem; a line already there is not added again.
-fn render(lines: &mut Vec<String>, check: &str, at: Option<&str>, found: &Problems) {
-    for why in found.texts() {
-        let line = format!("{check} ({}): {why}", at.unwrap_or("the return"));
-        if !lines.contains(&line) {
-            lines.push(line);
+/// One problem of a return that is sent back, with the check that found it and the field it is about: what
+/// `rounds.rejected` keeps under `problems`, one entry each, so that returns sent back can be counted by check and by
+/// field.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Problem {
+    /// The check's name; `format` for a return that does not fit the schema of its cell, which no check is named.
+    pub check: String,
+    /// The check's `at` in the flow (`columns[pass].evidence`), or for `format` the path in the schema with a list's
+    /// items written `[]` (`columns[].evidence`); none for a check about the return as a whole, and for a refusal
+    /// about no field.
+    pub field: Option<String>,
+    /// What is wrong, and how to put it right.
+    pub text: String,
+}
+
+impl Problem {
+    /// A place of a return that does not fit its cell's schema.
+    pub fn format(place: &flow::Misfit) -> Problem {
+        Problem {
+            check: "format".to_string(),
+            field: place.field.clone(),
+            text: place.text.clone(),
         }
+    }
+
+    /// The line this problem makes in the text a return is sent back with, `check (place): problem`.
+    fn line(&self) -> String {
+        format!(
+            "{} ({}): {}",
+            self.check,
+            self.field.as_deref().unwrap_or("the return"),
+            self.text
+        )
     }
 }
 
-/// Runs every check of the cell that applies to the return; gives every reason it fails, every problem of every
-/// check: a return is sent back once with all that can be found, since each send-back costs a round.
-pub fn run(c: &Ctx<'_>) -> Result<(), String> {
+/// The text a return that failed checks is sent back with: a line for each problem, in the order found. The only
+/// place this line is made.
+pub fn reason(problems: &[Problem]) -> String {
+    problems.iter().map(Problem::line).collect::<Vec<_>>().join("\n")
+}
+
+/// What `rounds.rejected` keeps for a return sent back: under `kind` (`check` or `format`) the text it was sent back
+/// with, and then under `problems` each problem, `{check, field, text}`. The text comes first; what reads it reads it
+/// by `kind` ([`db::sent_back_text`]).
+pub fn record(kind: &str, text: String, problems: &[Problem]) -> Value {
+    let mut sent = serde_json::Map::new();
+    sent.insert(kind.to_string(), Value::String(text));
+    sent.insert(
+        "problems".to_string(),
+        Value::Array(
+            problems
+                .iter()
+                .map(|p| serde_json::json!({ "check": p.check, "field": p.field, "text": p.text }))
+                .collect(),
+        ),
+    );
+    Value::Object(sent)
+}
+
+/// Runs every check of the cell that applies to the return; gives every problem of every check, each once, in the
+/// order found: a return is sent back once with all that can be found, since each send-back costs a round.
+/// [`reason`] makes the text it is sent back with.
+pub fn run(c: &Ctx<'_>) -> Result<(), Vec<Problem>> {
     let form = form_of(c.g, c.cell, c.output);
-    let mut lines: Vec<String> = Vec::new();
+    let mut found: Vec<Problem> = Vec::new();
+    let mut lines: BTreeSet<String> = BTreeSet::new();
     for ch in &c.cell.checks {
         let top = ch.at.as_deref().map(|a| a.split(['.', '[']).next().unwrap_or_default());
         let form_field = top.filter(|t| c.cell.forms.iter().any(|f| f.field.as_deref() == Some(*t)));
@@ -157,15 +208,21 @@ pub fn run(c: &Ctx<'_>) -> Result<(), String> {
             continue;
         }
         let value = ch.at.as_deref().and_then(|a| at_path(&c.unwrapped, a));
-        if let Err(found) = one(c, &ch.check, ch.at.as_deref(), value.as_ref()) {
-            render(&mut lines, &ch.check, ch.at.as_deref(), &found);
+        if let Err(problems) = one(c, &ch.check, ch.at.as_deref(), value.as_ref()) {
+            for text in problems.texts() {
+                let p = Problem {
+                    check: ch.check.clone(),
+                    field: ch.at.clone(),
+                    text: text.clone(),
+                };
+                // A line already there, from this check or another, is the same problem.
+                if lines.insert(p.line()) {
+                    found.push(p);
+                }
+            }
         }
     }
-    if lines.is_empty() {
-        Ok(())
-    } else {
-        Err(lines.join("\n"))
-    }
+    if found.is_empty() { Ok(()) } else { Err(found) }
 }
 
 /// For a miss that the tests after it presuppose to be absent: the check stops here, and says this one. Any other
@@ -1656,6 +1713,78 @@ fn base_matches_run(name: &str, said: Option<&str>, ran: &Value) -> Problems {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn problem(check: &str, field: Option<&str>, text: &str) -> Problem {
+        Problem {
+            check: check.to_string(),
+            field: field.map(str::to_string),
+            text: text.to_string(),
+        }
+    }
+
+    // The text a return is sent back with is a line for each problem, `check (field): text`, the return standing for a
+    // problem of no field, joined by a new line in the order given; the record keeps that text under its key and then
+    // each problem as `{check, field, text}`, a problem of no field with null, and the same text and problems are in
+    // the record whatever the key. The lines are written here by the form the owner and the agent have always read.
+    #[test]
+    fn the_text_a_return_is_sent_back_with_and_the_record_of_its_problems_say_the_same() {
+        let problems = [
+            problem("evidence_holds", Some("columns[pass].evidence"), "a.rs is not in the worktree"),
+            problem("columns_answered", Some("columns.id"), "column 2 is not answered"),
+            problem("no_field", None, "it is wrong"),
+        ];
+        let text = "evidence_holds (columns[pass].evidence): a.rs is not in the worktree\n\
+                    columns_answered (columns.id): column 2 is not answered\n\
+                    no_field (the return): it is wrong";
+        assert_eq!(reason(&problems), text);
+        assert_eq!(reason(&problems[..1]), text.lines().next().unwrap());
+        assert_eq!(reason(&[]), "");
+        for key in ["check", "format"] {
+            let record = record(key, text.to_string(), &problems);
+            // The text first, then the problems: text readers and the pause quote the column in that order.
+            assert_eq!(record.as_object().unwrap().keys().collect::<Vec<_>>(), [key, "problems"]);
+            assert_eq!(record[key], text);
+            assert_eq!(
+                record["problems"],
+                json!([
+                    { "check": "evidence_holds", "field": "columns[pass].evidence", "text": "a.rs is not in the worktree" },
+                    { "check": "columns_answered", "field": "columns.id", "text": "column 2 is not answered" },
+                    { "check": "no_field", "field": null, "text": "it is wrong" },
+                ])
+            );
+            assert_eq!(db::sent_back_text(&record), Some(text));
+        }
+    }
+
+    // A place of a return that does not fit its cell's schema is a problem of the check `format`, with the path the
+    // place is about, or none for the return as a whole and for a refusal about no field, as the record keeps it.
+    #[test]
+    fn a_place_that_does_not_fit_is_a_problem_of_the_check_format() {
+        let at = flow::Misfit {
+            field: Some("columns[].evidence".to_string()),
+            text: "columns[3] has no evidence".to_string(),
+        };
+        let whole = flow::Misfit {
+            field: None,
+            text: "no row of D2 takes the return".to_string(),
+        };
+        assert_eq!(
+            Problem::format(&at),
+            problem("format", Some("columns[].evidence"), "columns[3] has no evidence")
+        );
+        assert_eq!(
+            Problem::format(&whole),
+            problem("format", None, "no row of D2 takes the return")
+        );
+        let record = record("format", whole.text.clone(), &[Problem::format(&whole)]);
+        assert_eq!(
+            record,
+            json!({
+                "format": "no row of D2 takes the return",
+                "problems": [{ "check": "format", "field": null, "text": "no row of D2 takes the return" }]
+            })
+        );
+    }
 
     /// A result of the tool `ci`: the head it pushed, what it ran and its checks.
     fn pushed(head: &str, run: Option<&str>, checks: &[(&str, &str)]) -> Value {
