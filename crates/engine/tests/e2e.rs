@@ -4635,7 +4635,8 @@ fn a_takeover_waits_for_a_free_slot_at_the_head_of_the_queue() {
     let stepped = e.step(None).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(stepped.started_item, Some(items[0]), "{log}");
-    assert_eq!(ready(&e), vec![queued], "{log}");
+    // The second, whose work was stopped, waits again in the architect's order, after the item the owner queued.
+    assert_eq!(ready(&e), vec![queued, items[1]], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
