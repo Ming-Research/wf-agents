@@ -52,7 +52,11 @@ fn known(v: &Value, s: &State) -> Option<i64> {
 #[derive(Debug, Default)]
 struct State {
     items: BTreeMap<i64, String>,
+    /// The dependencies there are then, which a change may remove.
     links: BTreeSet<(i64, i64)>,
+    /// The dependencies a cancel took out of `links`. The write may leave them: a cancel is only asked of the loop when
+    /// a work on the item goes on, so they still count for a cycle, though no change can remove them.
+    cancelled_links: BTreeSet<(i64, i64)>,
     red: BTreeSet<(String, String)>,
     keys: BTreeMap<String, i64>,
 }
@@ -77,9 +81,10 @@ impl State {
         Ok(s)
     }
 
-    /// Whether the items' dependencies close a cycle.
+    /// Whether the items' dependencies close a cycle, those a cancel took away as far as the write may leave them
+    /// included.
     fn links_cycle(&self) -> bool {
-        let edges: Vec<(i64, i64)> = self.links.iter().copied().collect();
+        let edges: Vec<(i64, i64)> = self.links.union(&self.cancelled_links).copied().collect();
         cycle(&edges)
     }
 }
@@ -162,9 +167,10 @@ pub(crate) fn title_fits(title: &str, max: usize, bad: &mut dyn FnMut(String)) {
 /// retitled with is within the installation's `items.title_max` ([`config::title_width`]); a split gives each acceptance condition of the item
 /// split to one new item at most, one of its locked conditions when its acceptance is locked; every item a change
 /// names is there, or made by an earlier change, and an item it changes is of the project (an item of the project may
-/// depend on another project's); every dependency a change makes has its kind; an item is moved first, last, under
-/// another item, or next to another item of its own project; observations folded in are the project's and open; and
-/// after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
+/// depend on another project's); every dependency a change makes has its kind; every dependency a change removes is
+/// one the items have then, stored or made by an earlier change and not removed or cancelled away since; an item is
+/// moved first, last, under another item, or next to another item of its own project; observations folded in are the
+/// project's and open; and after them the items' dependencies close no cycle. Otherwise why not, every reason at once.
 pub fn validate(e: &Engine, project: &str, changes: &[Value]) -> Result<(), String> {
     validate_from(e, project, changes, 0)
 }
@@ -288,6 +294,16 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                     s.links.insert((a, b));
                 }
             }
+            "remove_dependency" => {
+                if let (Some(a), Some(b)) = (own(&c["item"], &s, &mut bad), item(&c["on"], &s, &mut bad)) {
+                    // The links are the stored ones and what the earlier changes of the batch made of them: one that
+                    // an earlier change added is there to remove, one that an earlier change removed or cancelled
+                    // away is not.
+                    if !s.links.remove(&(a, b)) {
+                        bad(format!("item {a} does not depend on item {b}"));
+                    }
+                }
+            }
             "move" => {
                 if let Some(a) = own(&c["item"], &s, &mut bad) {
                     let to = &c["to"];
@@ -337,7 +353,19 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
                     }
                 }
             }
-            "cancel" | "hold" | "release" | "edit_acceptance" => {
+            "cancel" => {
+                // A cancelled item no longer depends on any item or holds any back, as `cancel_now` leaves it when no
+                // work goes on the item, so no later change removes those dependencies. When a work goes on, they stay
+                // until the loop cancels the item, and close a cycle with what the later changes add.
+                if let Some(a) = own(&c["item"], &s, &mut bad) {
+                    let away: Vec<(i64, i64)> = s.links.iter().filter(|(x, d)| *x == a || *d == a).copied().collect();
+                    for l in away {
+                        s.links.remove(&l);
+                        s.cancelled_links.insert(l);
+                    }
+                }
+            }
+            "hold" | "release" | "edit_acceptance" => {
                 own(&c["item"], &s, &mut bad);
             }
             "edit_item" => {
@@ -465,19 +493,58 @@ pub fn validate_from(e: &Engine, project: &str, changes: &[Value], first: usize)
     }
 }
 
-/// Writes every change, in order, and gives what was created: each item, by its key, with its number. `projects` are
-/// the configuration's, for the works a cancellation ends.
+/// What writing a batch of changes came to.
+#[derive(Debug, Default)]
+pub struct Written {
+    /// Each item created, by its key, with its number.
+    pub created: Vec<Value>,
+    /// The changes the write refused, each by its place in the batch, with why. The review and the check of the reply
+    /// found them valid in the state they read, but the changes left out since (the review drops some) leave a state in
+    /// which they are not: a dependency that would close a cycle. A refused change leaves nothing of itself written.
+    pub refused: Vec<(usize, String)>,
+}
+
+/// Why a change was not written.
+enum Fault {
+    /// The change cannot be made in the state the earlier changes left: it alone is left out.
+    Refused(String),
+    /// The write cannot go on: the batch is given up.
+    Failed(String),
+}
+
+impl From<String> for Fault {
+    fn from(why: String) -> Fault {
+        Fault::Failed(why)
+    }
+}
+
+impl From<&str> for Fault {
+    fn from(why: &str) -> Fault {
+        Fault::Failed(why.to_string())
+    }
+}
+
+/// Writes every change, in order, each so that a change refused leaves nothing of itself, and gives what was created and
+/// what was refused. `projects` are the configuration's, for the works a cancellation ends.
 pub fn write_all(
     tx: &Transaction<'_>,
     changes: &[Value],
     projects: &BTreeMap<String, config::Project>,
-) -> Result<Vec<Value>, String> {
+) -> Result<Written, String> {
     let mut keys: BTreeMap<String, i64> = BTreeMap::new();
-    let mut created = Vec::new();
-    for c in changes {
-        write_one(tx, c, &mut keys, &mut created, projects)?;
+    let mut written = Written::default();
+    for (i, c) in changes.iter().enumerate() {
+        tx.execute_batch("SAVEPOINT change").map_err(sql)?;
+        match write_one(tx, c, &mut keys, &mut written.created, projects) {
+            Ok(()) => tx.execute_batch("RELEASE change").map_err(sql)?,
+            Err(Fault::Refused(why)) => {
+                tx.execute_batch("ROLLBACK TO change; RELEASE change").map_err(sql)?;
+                written.refused.push((i, why));
+            }
+            Err(Fault::Failed(why)) => return Err(why),
+        }
     }
-    Ok(created)
+    Ok(written)
 }
 
 /// The item a change names by its number, or by the key an earlier change created it under.
@@ -487,8 +554,9 @@ fn item_of(v: &Value, keys: &BTreeMap<String, i64>) -> Result<i64, String> {
         .ok_or_else(|| format!("there is no item {v}"))
 }
 
-/// Makes one item depend on another by a dependency of the kind given, unless it does already.
-fn depend(tx: &Transaction<'_>, item: i64, on: i64, needs: &str, kind: &str) -> Result<(), String> {
+/// Makes one item depend on another by a dependency of the kind given, unless it does already; refused when the other
+/// already depends on the item, directly or not.
+fn depend(tx: &Transaction<'_>, item: i64, on: i64, needs: &str, kind: &str) -> Result<(), Fault> {
     let has: Option<i64> = tx
         .query_row(
             "SELECT 1 FROM item_links WHERE item = ?1 AND depends_on = ?2",
@@ -498,7 +566,11 @@ fn depend(tx: &Transaction<'_>, item: i64, on: i64, needs: &str, kind: &str) -> 
         .optional()
         .map_err(sql)?;
     if has.is_none() && item != on {
-        db::add_dependency(tx, item, on, needs, kind).map_err(sql)?;
+        match db::add_dependency(tx, item, on, needs, kind) {
+            Ok(()) => {}
+            Err(e @ db::Error::Cycle { .. }) => return Err(Fault::Refused(e.to_string())),
+            Err(e) => return Err(Fault::Failed(e.to_string())),
+        }
     }
     Ok(())
 }
@@ -509,7 +581,7 @@ fn write_one(
     keys: &mut BTreeMap<String, i64>,
     created: &mut Vec<Value>,
     projects: &BTreeMap<String, config::Project>,
-) -> Result<(), String> {
+) -> Result<(), Fault> {
     // What came of it reaches the architect by itself: an item whose merge came first is not cancelled, and a report
     // says so; the rest of the batch stands either way, as its links moved before the cancel do.
     let cancel = |item: i64, why: &str| crate::ending::cancel_item(tx, item, why, "architect", projects).map(|_| ());
@@ -555,6 +627,15 @@ fn write_one(
             reason,
             text(c, "dependency"),
         )?,
+        // No row to remove is no fault: the review found the dependency there, and the owner may have removed it since,
+        // which leaves the state the change is to bring about.
+        "remove_dependency" => {
+            tx.execute(
+                "DELETE FROM item_links WHERE item = ?1 AND depends_on = ?2",
+                [item_of(&c["item"], keys)?, item_of(&c["on"], keys)?],
+            )
+            .map_err(sql)?;
+        }
         "move" => {
             let item = item_of(&c["item"], keys)?;
             let to = &c["to"];
@@ -647,7 +728,7 @@ fn write_one(
                 "problem" => "problem",
                 "why" => "why",
                 "approach" => "approach",
-                other => return Err(format!("an item has no part {other}")),
+                other => return Err(format!("an item has no part {other}").into()),
             };
             tx.execute(
                 &format!("UPDATE items SET {column} = ?2 WHERE id = ?1"),
@@ -736,7 +817,7 @@ fn write_one(
                 .map_err(sql)?;
             }
         }
-        other => return Err(format!("there is no kind of change {other}")),
+        other => return Err(format!("there is no kind of change {other}").into()),
     }
     Ok(())
 }
@@ -887,6 +968,105 @@ mod tests {
             )
             .unwrap();
         assert_eq!(links, 1);
+    }
+
+    // A change that removes a dependency deletes that row and no other. One whose row is gone already, removed from the
+    // owner's page after the review found it, leaves the dependencies as they are and is no fault.
+    #[test]
+    fn a_dependency_is_removed_and_one_that_is_gone_already_is_no_fault() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Owner, |tx| {
+            for title in ["parser", "lexer", "tokens"] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
+                    [title],
+                )?;
+            }
+            db::add_dependency(tx, 1, 2, "its lexer", "blocking")?;
+            db::add_dependency(tx, 1, 3, "its tokens", "parallel")?;
+            db::add_dependency(tx, 3, 2, "its lexer", "parallel")?;
+            Ok(())
+        })
+        .unwrap();
+        let removed = |db: &mut Db, item: &str, on: &str| {
+            let change = json!({ "kind": "remove_dependency", "item": item, "on": on, "reason": "r" });
+            db.write(Actor::Architect, |tx| {
+                write_all(tx, &[change], &BTreeMap::new()).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        };
+        let links = |db: &Db| -> Vec<(i64, i64)> {
+            let mut st = db
+                .conn()
+                .prepare("SELECT item, depends_on FROM item_links ORDER BY item, depends_on")
+                .unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        removed(&mut db, "1", "2");
+        assert_eq!(links(&db), [(1, 3), (3, 2)]);
+        removed(&mut db, "1", "2");
+        assert_eq!(links(&db), [(1, 3), (3, 2)]);
+    }
+
+    // A change that cannot be made in the state the earlier changes leave, as when the review dropped the removal that
+    // made room for a reversing dependency, is refused alone, with why: nothing of it stays, not what it did before it
+    // found the fault (a move under another item takes the links to the item first), and the changes after it are made.
+    #[test]
+    fn a_dependency_that_closes_a_cycle_is_refused_alone_and_leaves_nothing() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Owner, |tx| {
+            for title in ["parser", "lexer", "tokens"] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'x', 'y', 'change', 'l')",
+                    [title],
+                )?;
+            }
+            // The parser depends on the lexer, and the lexer on the tokens.
+            db::add_dependency(tx, 1, 2, "its lexer", "blocking")?;
+            db::add_dependency(tx, 2, 3, "its tokens", "blocking")?;
+            Ok(())
+        })
+        .unwrap();
+        let changes = [
+            // The tokens depend on the parser: a cycle, the parser reaching the tokens.
+            json!({ "kind": "add_dependency", "item": "3", "on": "1", "dependency": "blocking", "reason": "r" }),
+            // The lexer goes under the tokens: the links to the lexer go first, then the tokens depend on the lexer,
+            // which depends on the tokens.
+            json!({ "kind": "move", "item": "2", "to": { "place": "under", "item": "3", "dependency": "blocking" },
+                    "reason": "r" }),
+            json!({ "kind": "hold", "item": "3", "reason": "Held." }),
+        ];
+        let written = db
+            .write(Actor::Architect, |tx| {
+                write_all(tx, &changes, &BTreeMap::new()).map_err(db::Error::Abort)
+            })
+            .unwrap();
+        let refused: Vec<(usize, bool)> = written
+            .refused
+            .iter()
+            .map(|(i, why)| (*i, why.contains("cannot depend on")))
+            .collect();
+        assert_eq!(refused, [(0, true), (1, true)], "{written:?}");
+        let mut st = db
+            .conn()
+            .prepare("SELECT item, depends_on FROM item_links ORDER BY item, depends_on")
+            .unwrap();
+        let links: Vec<(i64, i64)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        assert_eq!(links, [(1, 2), (2, 3)]);
+        let held: Option<String> = db
+            .conn()
+            .query_row("SELECT held FROM items WHERE id = 3", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(held.as_deref(), Some("Held."));
     }
 
     // The architect's cancellation of an item, and its merge of one item into another, ask the engine's loop to cancel

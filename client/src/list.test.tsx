@@ -7,15 +7,32 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { Conversation, ItemState, WorkState, WorkSummary } from './api';
+import type { Conversation, ItemState, Status, WorkState, WorkSummary } from './api';
 import { ITEM_MARK, ITEM_TONE, StateFilter, WORK_STATES, WORK_TONE, workStateMark } from './components';
 import { rowsShown, totals } from './conversation';
 import { counted, List, SHOWN } from './pages/Messages';
 import { t, tn } from './text';
 
+// The engine as the page holds it: reachable, taking the step of work 9. Without a status (the engine out of reach) no
+// work is marked as running, since the page cannot tell what the engine does.
+const engine = vi.hoisted(() => ({
+  status: {
+    paused: false,
+    running: [9],
+    started: [],
+    releasing: [],
+    waiting_for_slot: [],
+    stopping: [],
+    stepping: [],
+    architects_started: [],
+    flow_version: 2,
+    halt: null,
+  } as unknown as Status,
+}));
+
 vi.mock('./live', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./live')>()),
-  useStatus: () => null,
+  useStatus: () => engine.status,
   useResource: () => ({ data: undefined, error: null }),
 }));
 

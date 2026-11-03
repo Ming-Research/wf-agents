@@ -17,20 +17,21 @@
 // writes, and the engine goes on at once.
 
 import { ChevronDownIcon, ChevronRightIcon, ReplyIcon } from '@primer/octicons-react';
-import { Button, Checkbox, FormControl, Label, Textarea, type LabelColorOptions } from '@primer/react';
+import { Button, Checkbox, FormControl, Label, type LabelColorOptions } from '@primer/react';
 import { Fragment, useContext, useState, type MouseEvent, type ReactNode } from 'react';
 
 import { askChoice, askParts, CardTalk, pickAfter, useAnswersHere, useAskPick } from '../answer';
 import type { DesignCard, JsonValue, OwnerAsk } from '../api';
 import { toneVariant } from '../components';
 import { DocList } from '../document';
+import { useDraft } from '../drafts';
 import { duration, time } from '../format';
 import { postJson, SPEAKER } from '../http';
 import { OptionBoxes } from '../item/Shapes';
 import { isObj, label, Labelled, str, words, type Obj } from '../labelled';
 import { reread, useNow } from '../live';
 import { Markdown, MarkdownInline } from '../markdown';
-import { Fold, LinkButton, RoundAt, SubHeading } from '../parts';
+import { DraftArea, Fold, LinkButton, RoundAt, SubHeading } from '../parts';
 import { href, Link, navigate } from '../route';
 import { t, tn } from '../text';
 import { joined, SEP, Sheet } from '../voices';
@@ -458,46 +459,42 @@ export function cardRuling(verdict: 'agree' | 'disagree', picked: string, recomm
 
 /// The ruling of a decision card that waits, under its body: a box of the owner's words full width, then Confirm, or,
 /// with another option picked on its boxes, Choose it; and Disagree, which sends the words alone.
-function CardRule({ c, picked, recommended }: { c: DesignCard; picked: string; recommended: string }) {
-  const [text, setText] = useState('');
+export function CardRule({ c, picked, recommended }: { c: DesignCard; picked: string; recommended: string }) {
+  // The owner's words are this card's draft: kept when the card goes out of view and comes back.
+  const draft = useDraft(`card:${c.id}`);
+  const { text, error } = draft;
   const [to, setTo] = useState<string[]>(['architect']);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // A ruling that came through leaves the box greyed until the card is read again as ruled, so that it is not ruled twice.
+  const [ruled, setRuled] = useState(false);
+  const busy = draft.busy || ruled;
   const agree = cardRuling('agree', picked, recommended, text);
   const disagree = cardRuling('disagree', picked, recommended, text);
-  const failed = (e: unknown) => {
-    setBusy(false);
-    setError(e instanceof Error ? e.message : String(e));
-  };
   const send = (r: CardRuling | null) => {
     if (r === null) return;
-    setBusy(true);
-    setError(null);
-    postJson(`/api/v1/design-cards/${c.id}/rule`, r).then(decided, failed);
+    draft.send(() => postJson(`/api/v1/design-cards/${c.id}/rule`, r), () => {
+      setRuled(true);
+      decided();
+    });
   };
   const asked = askedTo(to);
   const ask = () => {
     const question = text.trim();
     if (question === '' || asked === null) return;
-    setBusy(true);
-    setError(null);
-    postJson(`/api/v1/works/${c.work}/say`, { text: question, speaker: SPEAKER, to: asked, design_card: c.id }).then(() => {
-      setBusy(false);
-      setText('');
-      reread('messages', 'architect', 'work:*');
-    }, failed);
+    draft.send(
+      () => postJson(`/api/v1/works/${c.work}/say`, { text: question, speaker: SPEAKER, to: asked, design_card: c.id }),
+      () => reread('messages', 'architect', 'work:*'),
+    );
   };
   const tick = (x: string, on: boolean) => setTo((now) => (on ? [...now, x] : now.filter((y) => y !== x)));
   return (
     <div className="card-rule" role="group" aria-label={t('card_rule_label', { id: c.id })}>
-      <Textarea
+      <DraftArea
+        draft={draft}
         block
         resize="vertical"
         rows={1}
-        value={text}
         disabled={busy}
         placeholder={t(agree?.verdict === 'choose' ? 'card_words_choose' : 'card_words')}
-        onChange={(e) => setText(e.target.value)}
       />
       <div className="card-rule-actions">
         <Button size="small" variant="primary" disabled={busy || agree === null} onClick={() => send(agree)}>

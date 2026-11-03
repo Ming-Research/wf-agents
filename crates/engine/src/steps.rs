@@ -1124,8 +1124,7 @@ pub fn finish(
     };
     let ended = Ended {
         output: Some(output),
-        transition: Some(row.name.clone()),
-        ..ended
+        ..ended.taking(row)
     };
     let mut done: Vec<String> = Vec::new();
     e.db.write(actor, |tx| {
@@ -1225,23 +1224,6 @@ pub fn engine(
         }
         _ => {}
     }
-    // A work behind another in its project's merge queue waits its turn by the merge cell's row that waits, holding no
-    // slot; a flow version without that row has it wait the same, unrecorded. Its turn come, it merges only once it may
-    // take a slot.
-    if step.as_deref() == Some("merge") {
-        if values::value(e, w, g, item.as_ref(), "turn")? == "behind" {
-            let Some(row) = crate::row(cell, "behind").cloned() else {
-                return Ok(Advance::Waits(format!(
-                    "work {} waits its turn in the merge queue",
-                    w.id
-                )));
-            };
-            return wait_by(e, w, g, cell, &row, json!({ "given": { "turn": "behind" } }));
-        }
-        if slotted && e.waiting(w)? && !e.granted(w.id) {
-            return Ok(waits_for_slot(w));
-        }
-    }
     // The agent paused: the work waits, paused by the engine, for the owner's Start; once the owner started it again
     // since it came here, it goes back.
     if step.as_deref() == Some("wait_for_start") {
@@ -1310,6 +1292,29 @@ pub fn engine(
         inputs::gather(e, w, g, cell, item.as_ref(), None)?
     };
     let given = values::given(e, w, g, cell, item.as_ref(), &gathered)?;
+    // A work behind another in its project's merge queue waits its turn by the merge cell's row that waits, holding no
+    // slot; a flow version without that row has it wait the same, unrecorded. Its turn come, it merges only once it may
+    // take a slot. The turn is read once, with the values that choose the row the merge takes afterwards: the row is
+    // chosen by the turn this step acted on, whatever the queue became meanwhile.
+    if step.as_deref() == Some("merge") {
+        // A flow version from before the cell's rows read the turn does not give it with the other values.
+        let turn = match given.get("turn").and_then(Value::as_str) {
+            Some(turn) => turn.to_string(),
+            None => values::value(e, w, g, item.as_ref(), "turn")?,
+        };
+        if turn == "behind" {
+            let Some(row) = crate::row(cell, "behind").cloned() else {
+                return Ok(Advance::Waits(format!(
+                    "work {} waits its turn in the merge queue",
+                    w.id
+                )));
+            };
+            return wait_by(e, w, g, cell, &row, json!({ "given": { "turn": "behind" } }));
+        }
+        if slotted && e.waiting(w)? && !e.granted(w.id) {
+            return Ok(waits_for_slot(w));
+        }
+    }
     let commit = e.config.commit.clone();
     let input = if starts {
         json!({})
