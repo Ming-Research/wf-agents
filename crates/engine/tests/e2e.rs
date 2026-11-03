@@ -12003,19 +12003,25 @@ fn a_design_written_again_withdraws_the_unanswered_question_on_the_earlier_one()
             ))
         }),
     );
-    agents.insert("B5", records_the_ruling(path.clone()));
-    agents.insert("B2", review_all_sound(path.clone()));
+    // The architect's pick, when its queue holds several matters, takes an open question first.
+    let at = path.clone();
+    agents.insert(
+        "Q1",
+        Box::new(move |_: &Request, _: usize| {
+            let c = db::open_read(&at).unwrap();
+            let first: i64 = c
+                .query_row(
+                    "SELECT matter FROM architect_queue WHERE project = 'p'
+                     ORDER BY kind = 'open_question' DESC, matter LIMIT 1",
+                    [],
+                    |x| x.get(0),
+                )
+                .unwrap();
+            (Vec::new(), vec![("outcome.pick.matter", json!(first))])
+        }),
+    );
     let (mut e, said, item) = start(&s, agents);
     set_approach(&mut e, item, &format!("Decisions:\n- {OWNER_DECIDED}"));
-    // The project's other item, which the record of the ruling names once by mistake.
-    e.db.write(Actor::Owner, |tx| {
-        tx.execute(
-            "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 'Another', 'x', 'y', 'change', 'l')",
-            [],
-        )?;
-        Ok(())
-    })
-    .unwrap();
     step_to(&mut e, item, "D12");
     let (work, _, _) = state(&e, item).unwrap();
     let log = |said: &Arc<Mutex<Vec<String>>>| said.lock().unwrap().join("\n");
