@@ -819,6 +819,7 @@ describe('the marks of the list of conversations', () => {
     started: [],
     releasing: [],
     waiting_for_slot: [],
+    stopping: [],
     architects_started: [],
     running: [],
     stepping: [],
@@ -910,6 +911,7 @@ describe('the marks of the list of conversations', () => {
       waiting_for_slot: { icon: 'hourglass', tone: 'attention', says: 'waiting for a free slot' },
       paused: { icon: 'pause', tone: 'attention', says: 'paused' },
       halted: { icon: 'alert', tone: 'danger', says: 'halted' },
+      stopping: { icon: 'no-entry', tone: 'attention', says: 'stopping' },
       done: { icon: 'check-circle', tone: 'success', says: 'done' },
       ended: { icon: 'stop', tone: 'neutral', says: 'ended' },
     };
@@ -930,14 +932,19 @@ describe('the marks of the list of conversations', () => {
     // A round left open that the engine runs no more: ready, its next round closing it first.
     expect(workMark(5, works, status())).toBe('ready');
     expect(workMark(6, works, status())).toBe('ended');
-    // What it waited for came, and the engine holds it for a free slot: it says so, not ready; held back by its own
-    // pause, it is paused.
+    // What it waited for came, and the engine holds it for a free slot: it says so, not ready. So does a paused work
+    // the engine names, whose pause is asked to be lifted; paused and not named, it is paused.
     const answered = [work(8, { graph: 'engineer', state: 'ready' }), work(9, { graph: 'engineer', state: 'waiting' })];
     expect(workMark(8, answered, status({ waiting_for_slot: [8, 9] }))).toBe('waiting_for_slot');
     expect(workMark(9, answered, status({ waiting_for_slot: [8, 9] }))).toBe('waiting_for_slot');
     expect(workMark(8, answered, status())).toBe('ready');
     const paused = [work(8, { graph: 'engineer', state: 'paused', paused: 'x', paused_by: 'owner' })];
-    expect(workMark(8, paused, status({ waiting_for_slot: [8] }))).toBe('paused');
+    expect(workMark(8, paused, status({ waiting_for_slot: [8] }))).toBe('waiting_for_slot');
+    expect(workMark(8, paused, status())).toBe('paused');
+    // A work the engine names as stopping is stopping whatever it reads, a round running or a pause, and until then not.
+    expect(workMark(5, works, status({ running: [5], stopping: [5] }))).toBe('stopping');
+    expect(workMark(8, paused, status({ waiting_for_slot: [8], stopping: [8] }))).toBe('stopping');
+    expect(workMark(5, works, status({ running: [5] }))).toBe('running');
     expect(workMark(7, works, status())).toBeNull();
     expect(workMark(5, undefined, status())).toBeNull();
   });
@@ -1144,6 +1151,18 @@ describe("a work's group as a chat", () => {
     expect(bubble({ ...now, events: ['Passed the limit its project sets on fixes.'] }, work())).toContain(
       'Passed the limit its project sets on fixes.',
     );
+  });
+
+  it('keeps the live line and the head in step for a work waiting for a free slot or stopping', () => {
+    const w = work();
+    const halted = work({ paused_by: 'engine' });
+    // A paused work whose resume waits for a slot: the line says the slot, as the head's chip does, whoever paused it.
+    expect(nowWords({ ...course(w, null), slot: true }, w)).toBe('waiting for a free slot');
+    expect(nowWords({ ...course(halted, null), slot: true }, halted)).toBe('waiting for a free slot');
+    // Every work's pause keeps it whatever a slot does.
+    expect(nowWords({ ...course(w, null), slot: true, held: 'all' }, w)).not.toBe('waiting for a free slot');
+    // A work stopping has no Start, so the head says nothing of what it would wait for once started.
+    expect(holdsWords({ ...course(w, null), stopping: true }, w)).toBeNull();
   });
 
   it('names every hold in the head in the order they act: the pause and why, then what it waits for once started', () => {

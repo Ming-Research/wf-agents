@@ -1830,9 +1830,9 @@ fn act_now(tx: &Transaction<'_>, project: &str, a: &Value) -> Result<(), String>
             let Some((work, Some(p), by)) = running_work(tx, item)? else {
                 return Ok(());
             };
-            if by.as_deref() == Some("engine") && p.starts_with(db::STOPPED_BY_ARCHITECT) {
-                tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work])
-                    .map_err(sql)?;
+            // The loop lifts it, once the work's machine has a slot free: this transaction cannot know the slots.
+            if db::stopped_by_architect(Some(p.as_str()), by.as_deref()) {
+                db::ask_resume(tx, work, db::Actor::Architect).map_err(sql)?;
             }
             Ok(())
         }
@@ -3248,9 +3248,7 @@ fn effects_problems(c: &checks::Ctx<'_>, project: &str, effects: &Value) -> Resu
                 item.unwrap_or_default()
             )),
             ("resume_work", Some((_, p, by))) => {
-                let mine = by.as_deref() == Some("engine")
-                    && p.as_deref().is_some_and(|p| p.starts_with(db::STOPPED_BY_ARCHITECT));
-                if !mine {
+                if !db::stopped_by_architect(p.as_deref(), by.as_deref()) {
                     problems.push(format!(
                         "action {n}: the work on item {} is not paused by you",
                         item.unwrap_or_default()
@@ -5252,6 +5250,10 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
         let at = text(&out["state"][0]["at"]).to_string();
         let f = flow_now(e);
         out["state"][0]["waits"] = json!(work_waits(e, engineer_graph(f.as_deref()), work, &at)?);
+        // A cancel or a start over asked is not done yet: the item reads as it stands until the work's step has ended.
+        out["state"][0]["stopping"] = json!(db::stop_asked(conn, work).map_err(sql)?);
+        // A resume asked waits for a free slot, and the work still reads as paused: this tells it from one with no resume.
+        out["state"][0]["resuming"] = json!(db::resume_asked(conn).map_err(sql)?.contains(&work));
     }
     Ok(Some(out))
 }

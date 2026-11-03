@@ -115,15 +115,25 @@ pub fn depend(data: &Path, item: i64, d: &Dependency) -> Result<(), String> {
         .map_err(sql)
 }
 
-/// Cancels an item, as the architect's cancellation does: its works end as every work ends, and the items that
-/// depended on it are told.
-pub fn cancel(data: &Path, item: i64, why: &str) -> Result<(), String> {
+/// Cancels an item, as the architect's cancellation does, and says what came of it: its works end as every work ends,
+/// and the items that depended on it are told. A work that goes on ends once the running engine has finished the step
+/// it is in, so while the engine does not run the cancel waits for its next start. An item whose merge stands on main,
+/// or whose merge comes first, is not cancelled.
+pub fn cancel(data: &Path, item: i64, why: &str) -> Result<String, String> {
     let mut base = open(data)?;
     let projects = config::committed(data).map_err(sql)?.config.projects;
-    base.write(Actor::Owner, |tx| {
-        engine::ending::cancel_item(tx, item, why, "owner", &projects).map_err(db::Error::Abort)
+    let came = base
+        .write(Actor::Owner, |tx| {
+            engine::ending::cancel_item(tx, item, why, "owner", &projects).map_err(db::Error::Abort)
+        })
+        .map_err(sql)?;
+    Ok(match came {
+        engine::ending::Cancelling::Cancelled => format!("item {item} is cancelled"),
+        engine::ending::Cancelling::Asked => {
+            format!("item {item} is cancelled once its work has finished the step it is in")
+        }
+        engine::ending::Cancelling::Merged => format!("item {item} is not cancelled: its merge stands on main"),
     })
-    .map_err(sql)
 }
 
 /// Where an item goes in the queue.
@@ -249,7 +259,8 @@ pub fn say(data: &Path, work: i64, to: &str, text: &str) -> Result<String, Strin
     api::say_to_work(&mut open(data)?, work, &said)
 }
 
-/// Lifts a work's pause, as its Start on the page does.
+/// Asks to lift a work's pause, as its Start on the page does: the running engine lifts it once the work's machine has a
+/// slot free, so while the engine does not run the pause stays until its next start.
 pub fn resume(data: &Path, work: i64) -> Result<String, String> {
     let mut db = open(data)?;
     api::resume(&mut db, work)

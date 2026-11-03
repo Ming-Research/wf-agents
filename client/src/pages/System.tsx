@@ -196,11 +196,14 @@ function RoundsRunning({ list }: { list: WatchedRound[] }) {
   );
 }
 
-/// How a work stands, in the works list's words: a round of it running, the engine's stop, what it waits for, or what
-/// else holds it back; nothing for a work only every work's pause holds, which the bar says.
-function standingWords(w: WorkSummary, status: Status | null): string {
+/// How a work stands, in the works list's words: stopping, whatever else it reads; a round of it running; a free slot,
+/// whatever pause it was asked to lift; the engine's stop, what it waits for, or what else holds it back; nothing for a
+/// work only every work's pause holds, which the bar says.
+export function standingWords(w: WorkSummary, status: Status | null): string {
   const c = course(w, status);
+  if (c.stopping) return t('state_stopping');
   if (c.running !== null) return runningWords(c);
+  if (c.slot && c.held !== 'all') return t('state_waiting_for_slot');
   if (c.held === 'engine') return heldWords(c, w.paused);
   if (c.waits !== null) return waitsWords(c.waits);
   if (c.held !== null && c.held !== 'all') return heldWords(c, w.paused);

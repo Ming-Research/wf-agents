@@ -51,11 +51,14 @@ pub struct Status {
     /// The works the owner started that are still paused, until their machine has a slot free: the engine then lifts
     /// their pause.
     pub releasing: Vec<i64>,
-    /// The works whose wait is over, the owner's or the architect's answer come or what their row waited for, that
-    /// wait on, holding no slot, until their machine has a slot free, as the engine's last step of each found: each
-    /// then goes on before any new work starts. A work's state on the page is waiting for a free slot while it is
-    /// named here.
+    /// The works that go on once their machine has a slot free, before any new work starts: those whose wait is over,
+    /// the owner's or the architect's answer come or what their row waited for, that wait on, holding no slot, as the
+    /// engine's last step of each found, and the paused works whose pause is asked to be lifted. A work's state on the
+    /// page is waiting for a free slot while it is named here.
     pub waiting_for_slot: Vec<i64>,
+    /// The works asked to stop, by a cancel of their item or a start over, that the engine has not stopped yet, as it
+    /// waits for the step of each to end. A work's state on the page is stopping while it is named here.
+    pub stopping: Vec<i64>,
     /// The projects whose architect the owner started since every work was last paused: its works go on whatever the
     /// global state.
     pub architects_started: Vec<String>,
@@ -167,6 +170,10 @@ pub enum WorkState {
     Paused,
     /// The engine stopped it for a problem, which the owner looks at before starting it again.
     Halted,
+    /// A cancel or a start over was asked, and it ends once the step it is in has ended. The works as read never stand
+    /// so: the engine's status names such works (`stopping`), and the page gives a work so named this state in place of
+    /// the one it reads.
+    Stopping,
     /// It reached the end of its graph.
     Done,
     /// It was stopped before its end, for example because its item was cancelled.

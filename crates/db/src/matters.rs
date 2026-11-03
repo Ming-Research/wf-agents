@@ -11,7 +11,7 @@ use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::attachments::{self, Image, Words};
-use crate::{Actor, Db, Error, Result, STOPPED_BY_ARCHITECT, now};
+use crate::{Actor, Db, Error, Result, STOPPED_BY_ARCHITECT, now, withdraw_resume};
 
 /// A matter to queue for a project's architect.
 #[derive(Debug, Clone, Default)]
@@ -62,14 +62,16 @@ pub fn project_of_item(tx: &Transaction<'_>, item: i64) -> Result<Option<String>
 }
 
 /// Lifts a work's pause, in a write made as the owner, as the owner's Start of it does: a work the architect stopped is
-/// then the owner's release of it, which the architect of its project is told as the owner's words. Gives whether the
-/// architect had stopped it.
+/// then the owner's release of it, which the architect of its project is told as the owner's words. A request to lift
+/// the pause still in the outbox goes with it, so that none outlives the pause it was for and lifts a later one. Gives
+/// whether the architect had stopped it.
 pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
     let (paused, by, item): (Option<String>, Option<String>, Option<i64>) =
         tx.query_row("SELECT paused, paused_by, item FROM works WHERE id = ?1", [work], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })?;
     tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [work])?;
+    withdraw_resume(tx, work)?;
     let stopped = (by.as_deref() == Some("engine"))
         .then(|| paused.as_deref()?.strip_prefix(STOPPED_BY_ARCHITECT))
         .flatten();
