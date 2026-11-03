@@ -1643,7 +1643,9 @@ mod tests {
                 .map(|x| x.unwrap())
                 .collect()
         };
-        let row = |p: &str, r: &str, since: i64, why: Option<&str>| (p.to_string(), r.to_string(), since, why.map(str::to_string));
+        let row = |p: &str, r: &str, since: i64, why: Option<&str>| {
+            (p.to_string(), r.to_string(), since, why.map(str::to_string))
+        };
         assert_eq!(
             held,
             [
@@ -1655,14 +1657,18 @@ mod tests {
         assert_eq!(changes(&old), 3, "the migration records no change of its own");
         let sql = |db: &Db| -> String {
             db.conn()
-                .query_row("SELECT sql FROM sqlite_master WHERE name = 'dispatch_holds'", [], |r| r.get(0))
+                .query_row("SELECT sql FROM sqlite_master WHERE name = 'dispatch_holds'", [], |r| {
+                    r.get(0)
+                })
                 .unwrap()
         };
         let new = Db::in_memory().unwrap();
         assert_eq!(sql(&old), sql(&new));
         assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
-        old.write(Actor::Owner, |tx| hold_starts(tx, "p", HoldReason::Owner, Some("Leaving")))
-            .unwrap();
+        old.write(Actor::Owner, |tx| {
+            hold_starts(tx, "p", HoldReason::Owner, Some("Leaving"))
+        })
+        .unwrap();
         assert_eq!(changes(&old), 4);
         let actor: String = old
             .conn()
@@ -1674,7 +1680,10 @@ mod tests {
             .unwrap();
         assert_eq!(actor, "owner");
         let other = old.write(Actor::Owner, |tx| {
-            tx.execute("INSERT INTO dispatch_holds (project, reason, since) VALUES ('p', 'policy', 1)", [])?;
+            tx.execute(
+                "INSERT INTO dispatch_holds (project, reason, since) VALUES ('p', 'policy', 1)",
+                [],
+            )?;
             Ok(())
         });
         assert!(other.is_err(), "a reason that is not one of the three is still refused");

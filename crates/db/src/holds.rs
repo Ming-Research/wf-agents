@@ -35,7 +35,11 @@ impl HoldReason {
             .find(|r| r.name() == name.trim())
             .ok_or_else(|| {
                 let names: Vec<&str> = HoldReason::ALL.iter().map(|r| r.name()).collect();
-                format!("no hold of the reason {}; the reasons: {}", name.trim(), names.join(", "))
+                format!(
+                    "no hold of the reason {}; the reasons: {}",
+                    name.trim(),
+                    names.join(", ")
+                )
             })
     }
 }
@@ -83,15 +87,19 @@ mod tests {
     #[test]
     fn a_hold_again_changes_only_why() {
         let mut db = Db::in_memory().unwrap();
-        db.write(Actor::Owner, |tx| hold_starts(tx, "p", HoldReason::Owner, Some("leaving")))
-            .unwrap();
+        db.write(Actor::Owner, |tx| {
+            hold_starts(tx, "p", HoldReason::Owner, Some("leaving"))
+        })
+        .unwrap();
         let first = rows(&db);
         assert_eq!(first.len(), 1);
         assert_eq!((first[0].0.as_str(), first[0].1.as_str()), ("p", "owner"));
         assert_eq!(first[0].3.as_deref(), Some("leaving"));
         std::thread::sleep(std::time::Duration::from_millis(5));
-        db.write(Actor::Owner, |tx| hold_starts(tx, "p", HoldReason::Owner, Some("installing")))
-            .unwrap();
+        db.write(Actor::Owner, |tx| {
+            hold_starts(tx, "p", HoldReason::Owner, Some("installing"))
+        })
+        .unwrap();
         let again = rows(&db);
         assert_eq!((again[0].2, again[0].3.as_deref()), (first[0].2, Some("installing")));
         db.write(Actor::Owner, |tx| hold_starts(tx, "p", HoldReason::Owner, None))

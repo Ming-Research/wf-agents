@@ -879,7 +879,10 @@ fn the_owner_holds_and_releases_a_project_s_new_starts() {
     assert_eq!(status, 200, "{done}");
     let first = rows();
     assert_eq!(first.len(), 1);
-    assert_eq!((first[0].0.as_str(), first[0].2.as_deref()), ("owner", Some("Leaving for a week.")));
+    assert_eq!(
+        (first[0].0.as_str(), first[0].2.as_deref()),
+        ("owner", Some("Leaving for a week."))
+    );
     let actor: String = {
         let db = db::Db::open(&path).unwrap();
         db.conn()

@@ -426,7 +426,10 @@ fn hold_and_release_write_and_release_the_holds_on_a_project_s_new_starts() {
     assert!(out.status.success(), "{}", stderr(&out));
     let first = rows();
     assert_eq!(first.len(), 1);
-    assert_eq!((first[0].0.as_str(), first[0].2.as_deref()), ("owner", Some("Leaving for a week.")));
+    assert_eq!(
+        (first[0].0.as_str(), first[0].2.as_deref()),
+        ("owner", Some("Leaving for a week."))
+    );
     let actor: String = db::Db::open(&config::database(&dir))
         .unwrap()
         .conn()
@@ -446,7 +449,11 @@ fn hold_and_release_write_and_release_the_holds_on_a_project_s_new_starts() {
     let out = wf_args(&dir, &["hold", "--why", "   "]);
     assert!(failed(&out) && stderr(&out).contains("says why"), "{}", stderr(&out));
     let out = wf_args(&dir, &["hold", "--project", "nowhere", "--why", "x"]);
-    assert!(failed(&out) && stderr(&out).contains("no project nowhere"), "{}", stderr(&out));
+    assert!(
+        failed(&out) && stderr(&out).contains("no project nowhere"),
+        "{}",
+        stderr(&out)
+    );
     assert_eq!(rows().len(), 1);
     // The owner releases the architect's hold and the one to set the project straight, as well as their own.
     let mut base = db::Db::open(&config::database(&dir)).unwrap();

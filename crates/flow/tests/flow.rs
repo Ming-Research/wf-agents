@@ -863,10 +863,14 @@ fn a_matter_that_comes_again_is_not_queued_on_the_same_facts() {
 fn every_cell_that_can_hold_or_release_new_starts_is_given_the_holds_and_the_texts_say_who_releases_which() {
     let c = compiled();
     let g = c.graph("architect").unwrap();
+    let effects = r#""effects":{"$ref":"format:common#/$defs/effects"}"#;
+    let gives_effects = |cell: &flow::CompiledCell| {
+        cell.kind == "agent" && flow::formats::cell_format(g, cell).contains(effects)
+    };
     let handing_effects: Vec<&str> = g
         .cells
         .iter()
-        .filter(|cell| cell.schema.as_ref().is_some_and(|s| s.to_string().contains("$defs/effects")))
+        .filter(|cell| gives_effects(*cell))
         .map(|cell| cell.id.as_str())
         .collect();
     assert_eq!(handing_effects, ["H1", "H3", "H5", "H7", "H8", "H9", "H10", "H12"]);
@@ -895,11 +899,17 @@ fn every_cell_that_can_hold_or_release_new_starts_is_given_the_holds_and_the_tex
     let start = c.graph("engineer").unwrap().cell("S0").unwrap();
     let row = start.rows.iter().find(|r| r.name == "project_held").unwrap();
     let note = row.note.as_deref().unwrap();
-    assert!(note.contains("the owner's, by the owner") && note.contains("by the architect or the owner"), "{note}");
+    assert!(
+        note.contains("the owner's, by the owner") && note.contains("by the architect or the owner"),
+        "{note}"
+    );
     assert!(!note.contains("sets a policy"), "{note}");
     // The architect's release is said to leave the owner's hold alone.
     let release = &v["shapes"]["arch_effects"];
-    assert!(release.to_string().contains("stays until the owner releases it"), "{release}");
+    assert!(
+        release.to_string().contains("stays until the owner releases it"),
+        "{release}"
+    );
 }
 
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every

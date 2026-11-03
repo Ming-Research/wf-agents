@@ -886,7 +886,10 @@ async fn release_hold(
     Json(r): Json<api::ReleaseHold>,
 ) -> Result<Json<api::Done>, Fail> {
     let (project, c) = project_of(&app, &OfProject { project: Some(project) })?;
-    decide(&app, move |db| api::release_hold(db, &c, Some(project.as_str()), &r.reason)).await
+    decide(&app, move |db| {
+        api::release_hold(db, &c, Some(project.as_str()), &r.reason)
+    })
+    .await
 }
 
 /// Writes what the owner decided, then wakes the engine's loop.

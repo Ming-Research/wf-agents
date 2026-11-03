@@ -1948,7 +1948,8 @@ fn hold(tx: &Transaction<'_>, project: &str, reason: HoldReason, why: Option<&st
 /// Releases a hold of a reason of the architect's. The owner's hold is not the architect's to release, and no action
 /// of its names it.
 fn release(tx: &Transaction<'_>, project: &str, reason: HoldReason) -> Result<(), String> {
-    db::release_starts(tx, project, reason).map(drop).map_err(sql)
+    db::release_starts(tx, project, reason).map_err(sql)?;
+    Ok(())
 }
 
 /// Releases the hold to set a project straight once no matter that sets it straight is left and the architect work's

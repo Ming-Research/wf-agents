@@ -944,12 +944,7 @@ pub fn set_fault_forwarding(db: &mut Db, project: Option<&str>) -> Result<String
 /// owner's words and cannot be empty. The project is named or, when the configuration has one project only, left out;
 /// one the configuration does not have is refused, so that no hold is written for nothing. A hold of the owner's
 /// already there keeps its time and takes the new words. The page and the command line both write it through here.
-pub fn hold_starts(
-    db: &mut Db,
-    config: &config::Config,
-    project: Option<&str>,
-    why: &str,
-) -> Result<String, String> {
+pub fn hold_starts(db: &mut Db, config: &config::Config, project: Option<&str>, why: &str) -> Result<String, String> {
     let project = project_named(config, project)?;
     let why = why.trim();
     if why.is_empty() {
@@ -959,7 +954,9 @@ pub fn hold_starts(
         db::hold_starts(tx, &project, db::HoldReason::Owner, Some(why))
     })
     .map_err(sql)?;
-    Ok(format!("new works of {project} do not start; works already running go on"))
+    Ok(format!(
+        "new works of {project} do not start; works already running go on"
+    ))
 }
 
 /// Releases a hold on a project's new starts, as the owner, who may release any of the three: their own (`owner`), the

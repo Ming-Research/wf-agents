@@ -11275,10 +11275,20 @@ fn no_matter_of_free_slots_is_queued_while_every_work_is_paused_or_the_owner_hol
         ..Go::default()
     };
     e.pass(&started).unwrap();
-    assert_eq!((slots_free_matters(&e), works(&e)), (0, 0), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(
+        (slots_free_matters(&e), works(&e)),
+        (0, 0),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
     // The owner steps the architect by hand while every work is paused.
     e.step_architect("p").unwrap();
-    assert_eq!((slots_free_matters(&e), works(&e)), (0, 0), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(
+        (slots_free_matters(&e), works(&e)),
+        (0, 0),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
     // Every work paused, no architect started.
     e.pass(&Go {
         pause: held_but(&[], &[]),
@@ -11289,7 +11299,12 @@ fn no_matter_of_free_slots_is_queued_while_every_work_is_paused_or_the_owner_hol
     // The owner holds the project: every work goes on, and none is queued.
     api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
     e.step(None).unwrap();
-    assert_eq!((slots_free_matters(&e), works(&e)), (0, 0), "{}", said.lock().unwrap().join("\n"));
+    assert_eq!(
+        (slots_free_matters(&e), works(&e)),
+        (0, 0),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
     // Released, with every work going on, it is queued as before and starts a work of the architect.
     api::release_hold(&mut e.db, &e.config.config, Some("p"), "owner").unwrap();
     let again = e.step(None).unwrap();
@@ -11386,7 +11401,9 @@ fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_besid
     api::hold_starts(&mut e.db, &e.config.config, Some("p"), "Leaving for a week.").unwrap();
     let held_at: i64 =
         e.db.conn()
-            .query_row("SELECT since FROM dispatch_holds WHERE reason = 'owner'", [], |r| r.get(0))
+            .query_row("SELECT since FROM dispatch_holds WHERE reason = 'owner'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
     say(&mut e, "Hold and release.");
     let started = e.step(None).unwrap();
@@ -11402,9 +11419,11 @@ fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_besid
     assert_eq!(hold_reasons(&e), ["owner"]);
     let owner_row: (i64, String) =
         e.db.conn()
-            .query_row("SELECT since, why FROM dispatch_holds WHERE reason = 'owner'", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+            .query_row(
+                "SELECT since, why FROM dispatch_holds WHERE reason = 'owner'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .unwrap();
     assert_eq!(owner_row, (held_at, "Leaving for a week.".to_string()));
     let changes: Vec<(String, String, bool)> = {
@@ -11429,12 +11448,23 @@ fn the_architect_s_release_leaves_the_owner_s_hold_and_its_own_hold_stands_besid
             row("architect", "architect", true)
         ]
     );
-    // The board the architect is given in a later cell still lists the owner's hold.
-    let m = message_at(&e, arch, "N1", false);
+    // The board the architect was given at its first cell lists the owner's hold, and the one a later work is given,
+    // after the architect's hold and release, lists it still.
+    let m = message_at(&e, arch, "U1", false);
     let board = given_value(&m, "·engine·board").expect(&m);
     let held = &board["starts_held"];
     assert_eq!(held.as_array().map(Vec::len), Some(1), "{board}");
-    assert_eq!((&held[0]["reason"], &held[0]["why"]), (&json!("owner"), &json!("Leaving for a week.")), "{board}");
+    assert_eq!(
+        (&held[0]["reason"], &held[0]["why"]),
+        (&json!("owner"), &json!("Leaving for a week.")),
+        "{board}"
+    );
+    let later = architect_work_at(&mut e, "H10");
+    let m = engine::next_message(&mut e, later).unwrap().text;
+    let board = given_value(&m, "·engine·board").expect(&m);
+    let held = &board["starts_held"];
+    assert_eq!(held.as_array().map(Vec::len), Some(1), "{board}");
+    assert_eq!(held[0]["reason"], "owner", "{board}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -11459,11 +11489,23 @@ fn the_board_lists_each_hold_and_the_owner_releases_any_of_them() {
     })
     .unwrap();
     let held = board(&mut e)["starts_held"].clone();
-    let reasons: Vec<&str> = held.as_array().unwrap().iter().map(|h| h["reason"].as_str().unwrap()).collect();
+    let reasons: Vec<&str> = held
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["reason"].as_str().unwrap())
+        .collect();
     let mut sorted = reasons.clone();
     sorted.sort();
     assert_eq!(sorted, ["architect", "owner", "set_straight"], "{held}");
-    let of = |reason: &str| held.as_array().unwrap().iter().find(|h| h["reason"] == reason).unwrap().clone();
+    let of = |reason: &str| {
+        held.as_array()
+            .unwrap()
+            .iter()
+            .find(|h| h["reason"] == reason)
+            .unwrap()
+            .clone()
+    };
     assert_eq!(of("owner")["why"], "Leaving.");
     assert_eq!(of("architect")["why"], "Wrong order.");
     assert_eq!(of("set_straight").get("why"), None);
