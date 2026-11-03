@@ -356,7 +356,8 @@ mod tests {
                 c.inputs.iter().filter_map(|x| x.name.clone()).collect(),
                 c.rows
                     .iter()
-                    .filter(|r| !r.common)
+                    // The cell's own rows that go on to another cell, not the engine's that keep the work where it is.
+                    .filter(|r| !r.common && r.to != "@self")
                     .map(|r| (r.name.clone(), r.to.clone()))
                     .collect(),
             )
