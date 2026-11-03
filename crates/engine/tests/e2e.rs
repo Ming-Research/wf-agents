@@ -15688,6 +15688,21 @@ fn past_rounds(e: &mut Engine, work: i64, rounds: &[(&str, Option<&str>, Option<
                     at
                 ],
             )?;
+            // The counter of the row the round took, as the engine keeps it on a round it ended itself: read from the
+            // flow the work is on, by the row the view `round_rows` says the round took.
+            tx.execute(
+                "UPDATE rounds SET counts = (
+                   SELECT json_extract(row.value, '$.counts')
+                   FROM round_rows x
+                   JOIN works w ON w.id = x.work
+                   JOIN flow_versions v ON v.id = w.flow_version
+                   JOIN json_each(v.compiled, '$.graphs') g ON json_extract(g.value, '$.name') = w.graph
+                   JOIN json_each(g.value, '$.cells') c ON json_extract(c.value, '$.id') = x.cell
+                   JOIN json_each(c.value, '$.rows') row ON json_extract(row.value, '$.name') = x.took
+                   WHERE x.work = ?1 AND x.round = ?2)
+                 WHERE work = ?1 AND n = ?2",
+                params![work, i as i64 + 1],
+            )?;
         }
         Ok(())
     })

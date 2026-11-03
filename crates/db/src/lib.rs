@@ -2806,7 +2806,14 @@ mod tests {
         let v2 = counting_flow(
             &[
                 ("A4", &[("ask", Some("questions")), ("go", None)]),
-                ("I1", &[("fix", None), ("pause", Some("total_time")), ("sent_back", Some("sent_backs"))]),
+                (
+                    "I1",
+                    &[
+                        ("fix", None),
+                        ("pause", Some("total_time")),
+                        ("sent_back", Some("sent_backs")),
+                    ],
+                ),
             ],
             &[("A4", &[("ask", Some("architect_asks"))])],
         );

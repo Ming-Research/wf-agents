@@ -530,7 +530,11 @@ mod tests {
         };
         let cases = [
             ("I1", serde_json::json!({ "format": "x" }), Some("sent_back")),
-            ("I1", serde_json::json!({ "failed": { "kind": "transient", "what": "w" } }), Some("retries")),
+            (
+                "I1",
+                serde_json::json!({ "failed": { "kind": "transient", "what": "w" } }),
+                Some("retries"),
+            ),
             (
                 "I1",
                 serde_json::json!({ "failed": { "kind": "transient", "what": "w", "over": 3 } }),
@@ -546,7 +550,10 @@ mod tests {
                     "INSERT INTO flow_versions (digest, compiled) VALUES ('d', ?1)",
                     [flow.to_string()],
                 )?;
-                tx.execute("INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'I1')", [])?;
+                tx.execute(
+                    "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'I1')",
+                    [],
+                )?;
                 let mut kept = Vec::new();
                 for (cell, rejected, _) in &cases {
                     let id = start_round(tx, 1, cell, None, &serde_json::json!({}), "c", None).unwrap();
