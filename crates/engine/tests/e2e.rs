@@ -14445,7 +14445,7 @@ fn an_architect_s_round_fetches_main_once_and_reads_one_commit_in_its_worktree_a
 // has no cell to be shown at here; that a cell reads main if and only if it declares one is held by the test of
 // `reads_main` in `inputs.rs`.)
 #[test]
-fn an_engineer_s_round_fetches_main_once_at_each_agent_cell() {
+fn an_engineer_s_round_now_fetches_main_once_at_each_agent_cell() {
     let s = setup("main-fetch-count");
     names_a_constitution(&s);
     main_moves_on(
