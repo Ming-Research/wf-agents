@@ -24,8 +24,8 @@ mod start_over;
 
 pub use cells::{cells_sql, code_of, is_cell};
 pub use matters::{
-    FAULT, Forwarder, Matter, Speaker, fault_forwarding, forward_fault, forward_new_fault, lift_pause, one_sentence,
-    project_of_item, queue_matter, say_to_architect, set_fault_forwarding, without_final_terminal,
+    Declared, FAULT, Forwarder, Matter, Speaker, fault_forwarding, forward_fault, forward_new_fault, lift_pause,
+    one_sentence, project_of_item, queue_matter, say_to_architect, set_fault_forwarding, without_final_terminal,
 };
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use start_over::{START_OVER, cannot_start_over, start_over, start_over_asked};
@@ -1589,7 +1589,10 @@ mod tests {
                 [],
             )?;
             for (body, at) in [
-                (r#"{"text":"In the group.","where":"work","work":1,"speaker":"delegate"}"#, 5),
+                (
+                    r#"{"text":"In the group.","where":"work","work":1,"speaker":"delegate","relayed":["In the"]}"#,
+                    5,
+                ),
                 (r#"{"text":"On the page.","where":"page","speaker":"owner"}"#, 6),
                 (r#"{"text":"Kept before speakers.","where":"work","work":1}"#, 7),
             ] {
@@ -1603,14 +1606,15 @@ mod tests {
                 [],
             )?;
             tx.execute(
-                "INSERT INTO interjections (work, speaker, declared, text) VALUES (1, 'owner', 'delegate', 'To the engineer.')",
+                "INSERT INTO interjections (work, speaker, declared, relayed, text)
+                 VALUES (1, 'owner', 'delegate', '[\"To the\"]', 'To the engineer.')",
                 [],
             )?;
             // The owner's answer to an engineer's question is the reply of its matter; the architect's reply is not.
             tx.execute(
                 "INSERT INTO architect_matters (project, kind, what, body, work, round, at, reply) VALUES
                  ('p', 'engineer_question', 'w', '{}', 1, 1, 8,
-                  '{\"by\":\"owner\",\"at\":9,\"text\":\"Split it.\",\"speaker\":\"owner\"}'),
+                  '{\"by\":\"owner\",\"at\":9,\"text\":\"Split it.\",\"speaker\":\"delegate\",\"relayed\":[\"Split\"]}'),
                  ('p', 'engineer_question', 'w', '{}', 1, 1, 8, '{\"by\":\"architect\",\"at\":9,\"text\":\"No.\"}')",
                 [],
             )?;
@@ -1625,31 +1629,40 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        let rows: Vec<(i64, String, i64, Option<String>, String)> = db
+        type Row = (i64, String, i64, Option<String>, String, Option<String>);
+        let rows: Vec<Row> = db
             .conn()
-            .prepare("SELECT work, source, id, speaker, words FROM work_owner_words ORDER BY source, id")
+            .prepare("SELECT work, source, id, speaker, words, relayed FROM work_owner_words ORDER BY source, id")
             .unwrap()
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
             .unwrap()
             .collect::<rusqlite::Result<_>>()
             .unwrap();
-        let said = |source: &str, id: i64, speaker: Option<&str>, words: &str| {
+        // The parts a delegate declared to be the owner's own come with the row, a JSON array; none when it declared none.
+        let said = |source: &str, id: i64, speaker: Option<&str>, words: &str, relayed: Option<&str>| {
             (
                 1,
                 source.to_string(),
                 id,
                 speaker.map(str::to_string),
                 words.to_string(),
+                relayed.map(str::to_string),
             )
         };
         assert_eq!(
             rows,
             [
-                said("ask", 1, Some("owner"), "Yes."),
-                said("interjection", 2, Some("delegate"), "To the engineer."),
-                said("matter", 1, Some("delegate"), "In the group."),
-                said("matter", 3, None, "Kept before speakers."),
-                said("matter", 4, Some("owner"), "Split it."),
+                said("ask", 1, Some("owner"), "Yes.", None),
+                said(
+                    "interjection",
+                    2,
+                    Some("delegate"),
+                    "To the engineer.",
+                    Some(r#"["To the"]"#),
+                ),
+                said("matter", 1, Some("delegate"), "In the group.", Some(r#"["In the"]"#)),
+                said("matter", 3, None, "Kept before speakers.", None),
+                said("matter", 4, Some("delegate"), "Split it.", Some(r#"["Split"]"#)),
             ]
         );
     }

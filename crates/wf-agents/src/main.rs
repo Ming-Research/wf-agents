@@ -66,6 +66,10 @@ enum Command {
         /// Who answers: `owner`, or `delegate` for a session that speaks for the owner.
         #[arg(long)]
         speaker: String,
+        /// A part of the answer that is the owner's own words, found in it letter for letter; for a delegate only, and
+        /// given again for each part. What is not marked stays the delegate's own.
+        #[arg(long)]
+        relayed: Vec<String>,
         /// For what the architect is asked: why it was decided this way.
         #[arg(long)]
         why: Option<String>,
@@ -106,6 +110,10 @@ enum Command {
         /// Who speaks: `owner`, or `delegate` for a session that speaks for the owner.
         #[arg(long)]
         speaker: String,
+        /// A part of the words that is the owner's own, found in them letter for letter; for a delegate only, and given
+        /// again for each part. What is not marked stays the delegate's own.
+        #[arg(long)]
+        relayed: Vec<String>,
         /// engineer, architect or both.
         #[arg(long, default_value = "engineer")]
         to: String,
@@ -235,6 +243,11 @@ enum ArchitectCommand {
         /// decision says which was declared.
         #[arg(long)]
         speaker: String,
+        /// A part of the words that is the owner's own, found in them letter for letter; for a delegate only, and given
+        /// again for each part. The architect's record of a decision says which parts were marked, and that nothing
+        /// checked it.
+        #[arg(long)]
+        relayed: Vec<String>,
         /// The project whose architect it is for; it may be left out when the configuration has one project.
         #[arg(long)]
         project: Option<String>,
@@ -487,6 +500,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             ask,
             text,
             speaker,
+            relayed,
             why,
             reply,
         } => {
@@ -500,6 +514,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
                     ask,
                     text,
                     speaker,
+                    relayed,
                     why,
                     reply,
                 },
@@ -508,9 +523,10 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
         Command::Architect(ArchitectCommand::Say {
             text,
             speaker,
+            relayed,
             project,
             item,
-        }) => print(owner::say_to_architect(d, project.as_deref(), item, &text, &speaker)),
+        }) => print(owner::say_to_architect(d, project.as_deref(), item, &text, &speaker, &relayed)),
         Command::DesignCards { all } => print(owner::design_cards(d, all)),
         Command::DesignCard { id } => print(owner::design_card(d, id)),
         Command::Rule {
@@ -533,8 +549,9 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             work,
             text,
             speaker,
+            relayed,
             to,
-        } => print(owner::say(d, work, &to, &text, &speaker)),
+        } => print(owner::say(d, work, &to, &text, &speaker, &relayed)),
         Command::Pause { work, why } => print(owner::pause(d, work, &why)),
         Command::Resume { work } => print(owner::resume(d, work)),
         Command::Status => print(owner::status(d)),

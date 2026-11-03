@@ -5,8 +5,10 @@
 //!
 //! A decision names the records its words are from, each by where they are kept (`matter`, `ask` or `interjection`),
 //! its number and the part of its words that decides: the quote must be found, as it is, in the record's words, which
-//! the engine reads from the record again. Who decided is what the record says of who spoke; a decision on several
-//! records is told by the least certain of them.
+//! the engine reads from the record again. Who decided is what the record says of who spoke; a part of a delegate's
+//! words that it declared the owner's own (`relayed`) is told as the owner's, relayed by the delegate and not checked,
+//! which no one can check, since the owner said it in the delegate's session. A decision on several records is told by
+//! the least certain of its quotations, and a quotation of another source than the line's says its own.
 
 use db::rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
@@ -22,21 +24,26 @@ pub const HEAD: &str = "Decisions:";
 pub const LINE: &str = "Decision (";
 
 /// Who decided, as the records the words are from say it, from the most certain to the least: the owner, declared at
-/// the page; a delegate that speaks for the owner, so that whether the owner said it is the delegate's word; a record
+/// the page; the owner's own words, which a delegate that speaks for the owner marked as such in what it said, relayed
+/// by the delegate and checked by no one, since the owner said them in the delegate's session and not through the
+/// interface; a delegate that speaks for the owner, so that whether the owner said it is the delegate's word; a record
 /// kept before who speaks was declared, which says nothing and is never told as the owner's; and the architect, whose
 /// reply to an open question is its own judgment, even when it carries an answer of the owner's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Source {
     Owner,
+    Relayed,
     Delegate,
     Unrecorded,
     Architect,
 }
 
 impl Source {
+    /// How a line of a decision names it, in its head and beside a quotation of another source.
     pub fn as_str(self) -> &'static str {
         match self {
             Source::Owner => "owner",
+            Source::Relayed => "owner relayed by the delegate, not checked",
             Source::Delegate => "delegate",
             Source::Unrecorded => "unrecorded",
             Source::Architect => "architect",
@@ -53,13 +60,46 @@ impl Source {
     }
 }
 
-/// A record a decision's words are from: who it says spoke, the words it holds that a quote may be found in, and when
-/// they were said, in milliseconds.
+/// A record a decision's words are from: who it says spoke, the words it holds that a quote may be found in, when they
+/// were said, in milliseconds, and the parts of the words a delegate declared to be the owner's own (`relayed`; none
+/// for any other speaker).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Record {
     pub source: Source,
     pub texts: Vec<String>,
     pub at: i64,
+    pub relayed: Vec<String>,
+}
+
+impl Record {
+    /// Who a part of the words is told as having said it: the owner, relayed by the delegate, when a delegate said the
+    /// record and declared a part of it that holds the whole of `words` the owner's own; otherwise the record's own.
+    /// A part of the words that reaches beyond the declared part, or lies across two, is the delegate's.
+    pub fn source_of(&self, words: &str) -> Source {
+        if self.source == Source::Delegate && self.relayed.iter().any(|r| r.contains(words)) {
+            Source::Relayed
+        } else {
+            self.source
+        }
+    }
+}
+
+/// The parts of the words a record declares to be the owner's own, as the record keeps them: a JSON array of strings,
+/// or the text of one (the column of an interjection); none for anything else.
+fn relayed_of(v: &Value) -> Vec<String> {
+    let parsed;
+    let v = match v {
+        Value::String(s) => {
+            parsed = serde_json::from_str::<Value>(s).unwrap_or(Value::Null);
+            &parsed
+        }
+        v => v,
+    };
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| r.as_str().map(str::to_string))
+        .collect()
 }
 
 fn strings(vs: &[&Value]) -> Vec<String> {
@@ -102,6 +142,7 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                     source: Source::declared(body["speaker"].as_str()),
                     texts: strings(&[&body["text"], &body["answer"]]),
                     at,
+                    relayed: relayed_of(&body["relayed"]),
                 }),
                 ("open_question", _) => {
                     let texts = strings(&[&body["answer"]]);
@@ -116,6 +157,7 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                         source: Source::Architect,
                         texts,
                         at,
+                        relayed: Vec::new(),
                     })
                 }
                 // The owner's answer in the work's group to a question of the engineer's is the matter's reply.
@@ -127,6 +169,7 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                         source: Source::declared(reply["speaker"].as_str()),
                         texts: strings(&[&reply["text"]]),
                         at,
+                        relayed: relayed_of(&reply["relayed"]),
                     })
                 }
                 ("engineer_question", _) => Err(format!(
@@ -168,6 +211,7 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                 source: Source::declared(answer["speaker"].as_str()),
                 texts: strings(&[&answer["text"]]),
                 at,
+                relayed: relayed_of(&answer["relayed"]),
             })
         }
         "interjection" => {
@@ -180,6 +224,8 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                 Option<i64>,
                 Option<String>,
                 Option<String>,
+                Option<String>,
+                Option<String>,
             );
             let row: Option<Row> = conn
                 .query_row(
@@ -187,7 +233,9 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                        (SELECT min(c.at) FROM changes c
                         WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)),
                        (SELECT json_extract(m.body, '$.speaker') FROM architect_matters m WHERE m.id = j.matter),
-                       j.declared
+                       j.declared,
+                       (SELECT json_extract(m.body, '$.relayed') FROM architect_matters m WHERE m.id = j.matter),
+                       j.relayed
                      FROM interjections j JOIN works w ON w.id = j.work LEFT JOIN items i ON i.id = w.item
                      WHERE j.id = ?1",
                     [id],
@@ -201,12 +249,14 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                             r.get(5)?,
                             r.get(6)?,
                             r.get(7)?,
+                            r.get(8)?,
+                            r.get(9)?,
                         ))
                     },
                 )
                 .optional()
                 .map_err(sql)?;
-            let Some((speaker, text, matter, wp, ip, at, of_matter, declared)) = row else {
+            let Some((speaker, text, matter, wp, ip, at, of_matter, declared, matter_relayed, own_relayed)) = row else {
                 return Err(format!("there is no interjection {id}"));
             };
             let Some(at) = at else {
@@ -224,10 +274,17 @@ pub fn record(conn: &Connection, project: &str, from: &str, id: i64) -> Result<R
                 (_, Some(_)) => Source::declared(of_matter.as_deref()),
                 _ => Source::declared(declared.as_deref()),
             };
+            // The parts a delegate declared come from where it declared them, as for who spoke.
+            let relayed = match (speaker.as_str(), matter) {
+                ("architect", _) => None,
+                (_, Some(_)) => matter_relayed,
+                _ => own_relayed,
+            };
             Ok(Record {
                 source,
                 texts: strings(&[&Value::String(text)]),
                 at,
+                relayed: relayed.map(|r| relayed_of(&Value::String(r))).unwrap_or_default(),
             })
         }
         other => Err(format!(
@@ -259,6 +316,9 @@ pub struct Said {
     pub id: i64,
     pub words: String,
     pub at: i64,
+    /// Who the records say said these words: the record's speaker, or the owner relayed by the delegate for a part of
+    /// a delegate's words that it declared the owner's own.
+    pub source: Source,
 }
 
 impl Said {
@@ -285,7 +345,7 @@ impl Resolved {
             "source": self.source.as_str(),
             "date": self.date,
             "line": self.line,
-            "words": self.said.iter().map(|s| json!({ "from": s.from, "id": s.id, "words": s.words })).collect::<Vec<_>>(),
+            "words": self.said.iter().map(|s| json!({ "from": s.from, "id": s.id, "words": s.words, "source": s.source.as_str() })).collect::<Vec<_>>(),
         })
     }
 }
@@ -394,6 +454,7 @@ pub fn resolve(
         let one = Said {
             from: from.clone(),
             id,
+            source: record.source_of(&found),
             words: found,
             at: record.at,
         };
@@ -409,9 +470,10 @@ pub fn resolve(
                 one.words
             ));
         }
-        source = Some(source.map_or(record.source, |s| s.max(record.source)));
+        source = Some(source.map_or(one.source, |s| s.max(one.source)));
         said.push(one);
     }
+    // The line's head is the least certain of the sources of what it quotes.
     let source = source.unwrap_or(Source::Unrecorded);
     if by == "writer" && source == Source::Architect {
         problems.push(
@@ -429,8 +491,9 @@ pub fn resolve(
     let by = if by == "writer" {
         let accepted = match source {
             Source::Owner => "the owner",
+            Source::Relayed => "the owner, relayed by the delegate",
             Source::Delegate => "the delegate",
-            _ => "whoever spoke, not recorded",
+            Source::Unrecorded | Source::Architect => "whoever spoke, not recorded",
         };
         format!(" ({writer}'s, accepted by {accepted})")
     } else {
@@ -438,7 +501,15 @@ pub fn resolve(
     };
     let quoted = said
         .iter()
-        .map(|s| format!("\"{}\" ({} {}, {})", flat(&s.words), s.from, s.id, date_of(s.at)))
+        .map(|s| {
+            // A quotation of another source than the line's head says its own, after its date.
+            let own = if s.source == source {
+                String::new()
+            } else {
+                format!(", {}", s.source.as_str())
+            };
+            format!("\"{}\" ({} {}, {}{own})", flat(&s.words), s.from, s.id, date_of(s.at))
+        })
         .collect::<Vec<_>>()
         .join("; ");
     let line = format!(
@@ -618,6 +689,16 @@ mod tests {
                 matter("p", "engineer_question", "split", "{}", day)?;
             }
             matter("p", "open_question", "", r#"{"question":"Which?","answer":"Yes."}"#, day)?;
+            // 11: words a delegate said, one part of them declared the owner's own; 12: an engineer's question the
+            // owner answered through a delegate, with a part declared; 13: the words a delegate said to the architect,
+            // which interjection 4 copies to the engineer.
+            matter("p", "owner_words", "said", r#"{"text":"Yes. Keep the parser small. Then ship it.","where":"page","speaker":"delegate","relayed":["Keep the parser small."]}"#, day)?;
+            matter("p", "engineer_question", "split", "{}", day)?;
+            matter("p", "owner_words", "said", r#"{"text":"Hold the merge. Then ask me.","where":"work","work":1,"speaker":"delegate","relayed":["Hold the merge."]}"#, day)?;
+            tx.execute(
+                "UPDATE architect_matters SET reply = ?2 WHERE id = ?1",
+                params![12, format!(r#"{{"by":"owner","at":{day},"text":"Split it. Two items.","speaker":"delegate","relayed":["Two items."]}}"#)],
+            )?;
             tx.execute(
                 "UPDATE architect_matters SET reply = ?2 WHERE id = ?1",
                 params![7, format!(r#"{{"by":"owner","at":{},"text":"Split it in two.","speaker":"delegate"}}"#, day + 86_400_000)],
@@ -646,8 +727,23 @@ mod tests {
                 [r#"{"by":"owner","text":"No time.","speaker":"owner"}"#],
             )?;
             tx.execute(
+                "INSERT INTO owner_asks (work, round, body, answer) VALUES (1, 1, '{}', ?1)",
+                [format!(r#"{{"by":"owner","at":{day},"text":"Approved. Go on.","speaker":"delegate","relayed":["Go on."]}}"#)],
+            )?;
+            tx.execute(
                 "INSERT INTO interjections (work, speaker, declared, text) VALUES
                  (1, 'owner', 'delegate', 'Say it to the engineer.'), (1, 'owner', NULL, 'Old words to the engineer.')",
+                [],
+            )?;
+            // Interjection 3 is said to the engineer alone with a part declared; 4 is the copy of matter 13's words.
+            tx.execute(
+                "INSERT INTO interjections (work, speaker, declared, relayed, text) VALUES
+                 (1, 'owner', 'delegate', '[\"Hold it.\"]', 'Fine. Hold it. Wait.')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO interjections (work, speaker, text, informs, matter) VALUES
+                 (1, 'owner', 'Said to the architect, for you to know: Hold the merge. Then ask me.', 1, 13)",
                 [],
             )?;
             Ok(())
@@ -728,6 +824,89 @@ mod tests {
         .unwrap()
         .line;
         assert!(line.starts_with("Decision (2026-11-03, delegate)"), "{line}");
+    }
+
+    // A part of a delegate's words that it declared to be the owner's own is told as the owner's, relayed by the delegate
+    // and not checked; the rest of the words, a part that reaches beyond the declared part and one across two are the
+    // delegate's. Each of the five kinds of record that keeps the declaration is read: the owner's words, an answer to an
+    // engineer's question, an ask's answer, words said to the engineer alone, and the copy of the words said to the
+    // architect that a matter holds.
+    #[test]
+    fn a_part_a_delegate_relayed_is_the_owner_s_relayed_and_the_rest_the_delegate_s() {
+        let db = records();
+        let relayed = "owner relayed by the delegate, not checked";
+        let sources = |words: &[(&str, i64, &str)]| -> Vec<&'static str> {
+            resolve(db.conn(), "p", &decision(words), "architect", None)
+                .unwrap()
+                .said
+                .iter()
+                .map(|s| s.source.as_str())
+                .collect()
+        };
+        // Matter 11: the declared part, a piece of it, the words around it, across its edge, and across both edges.
+        assert_eq!(sources(&[("matter", 11, "Keep the parser small.")]), [relayed]);
+        assert_eq!(sources(&[("matter", 11, "parser small")]), [relayed]);
+        assert_eq!(sources(&[("matter", 11, "Then ship it.")]), ["delegate"]);
+        assert_eq!(sources(&[("matter", 11, "Yes. Keep the parser small.")]), ["delegate"]);
+        assert_eq!(sources(&[("matter", 11, "small. Then")]), ["delegate"]);
+        let all = "Yes. Keep the parser small. Then ship it.";
+        assert_eq!(sources(&[("matter", 11, all)]), ["delegate"]);
+        // The other four kinds of record.
+        assert_eq!(sources(&[("matter", 12, "Two items.")]), [relayed]);
+        assert_eq!(sources(&[("matter", 12, "Split it.")]), ["delegate"]);
+        assert_eq!(sources(&[("ask", 3, "Go on.")]), [relayed]);
+        assert_eq!(sources(&[("ask", 3, "Approved.")]), ["delegate"]);
+        assert_eq!(sources(&[("interjection", 3, "Hold it.")]), [relayed]);
+        assert_eq!(sources(&[("interjection", 3, "Fine.")]), ["delegate"]);
+        assert_eq!(sources(&[("interjection", 4, "Hold the merge.")]), [relayed]);
+        assert_eq!(sources(&[("interjection", 4, "Then ask me.")]), ["delegate"]);
+        // Words nobody declared a delegate's own, the owner's at the page and words kept before who spoke was declared
+        // have no relayed part, whatever they hold.
+        let owner = Record {
+            source: Source::Owner,
+            texts: vec!["Keep it.".into()],
+            at: 0,
+            relayed: vec!["Keep it.".into()],
+        };
+        assert_eq!(owner.source_of("Keep it."), Source::Owner);
+        assert_eq!(sources(&[("matter", 2, "Yes, do that.")]), ["delegate"]);
+        assert_eq!(sources(&[("matter", 3, "Old words.")]), ["unrecorded"]);
+    }
+
+    // A line's head is the least certain source of what it quotes, with the owner's relayed words between the owner's own
+    // and the delegate's; a quotation of another source than the head's says its own after its date, and the head tells
+    // who accepted a reason the writer gave.
+    #[test]
+    fn the_line_names_the_source_of_each_quotation_that_is_not_its_head_s() {
+        let db = records();
+        let relayed = "owner relayed by the delegate, not checked";
+        let line = |words: &[(&str, i64, &str)], by: &str| {
+            let mut d = decision(words);
+            d["reason_by"] = json!(by);
+            resolve(db.conn(), "p", &d, "engineer", None).unwrap().line
+        };
+        let small = ("matter", 11, "Keep the parser small.");
+        let words_of = |l: &str| l.split("Words: ").nth(1).unwrap_or_default().to_string();
+        // The owner's own words and a relayed part: the head is the relayed, and the owner's quotation says so.
+        let l = line(&[small, ("matter", 1, "No browser check")], "said");
+        assert!(l.starts_with(&format!("Decision (2026-11-02, {relayed}): ")), "{l}");
+        let quoted = "\"Keep the parser small.\" (matter 11, 2026-11-02";
+        assert_eq!(
+            words_of(&l),
+            format!("{quoted}); \"No browser check\" (matter 1, 2026-11-02, owner)")
+        );
+        // A relayed part and the rest of the same message: the delegate's is the head, the relayed part says its own.
+        let l = line(&[small, ("matter", 11, "Then ship it.")], "said");
+        assert!(l.starts_with("Decision (2026-11-02, delegate): "), "{l}");
+        assert_eq!(
+            words_of(&l),
+            format!("{quoted}, {relayed}); \"Then ship it.\" (matter 11, 2026-11-02)")
+        );
+        // Only a relayed part: no quotation names a source of its own, and the writer's reason was accepted as relayed.
+        let l = line(&[small], "writer");
+        let accepted = "Reason (engineer's, accepted by the owner, relayed by the delegate): ";
+        assert!(l.contains(accepted), "{l}");
+        assert_eq!(words_of(&l), format!("{quoted})"));
     }
 
     // A decision is dated by when its words were said. An open question's answer comes after the question, so the date
@@ -836,7 +1015,7 @@ mod tests {
         assert!(refused(&[("matter", 99, "x")]).contains("there is no matter 99"));
         assert!(refused(&[("matter", 5, "Elsewhere.")]).contains("is of q"));
         assert!(refused(&[("matter", 6, "I started work 3.")]).contains("not words the owner said"));
-        assert!(refused(&[("ask", 3, "x")]).contains("there is no ask 3"));
+        assert!(refused(&[("ask", 4, "x")]).contains("there is no ask 4"));
         assert!(refused(&[("note", 1, "x")]).contains("not from note"));
         assert!(refused(&[("matter", 1, "Keep it small"), ("matter", 1, "Keep it small")]).contains("quoted twice"));
         // Several reasons come at once.

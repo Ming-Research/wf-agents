@@ -5816,9 +5816,9 @@ fn words_behind_changes(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
 
 /// What the owner said in a matter of their words, as a cell that reads it is given it: the words whole, where and when
 /// they were said, who the record says spoke them (`owner`, `delegate`, or `unrecorded` for words kept before who
-/// speaks was declared), the question they reply to when they do, and what the architect said in that place before them,
-/// which a short word of the owner's, such as agreement, cannot be read without. None for a matter that is no owner's
-/// words.
+/// speaks was declared), the parts of them a delegate declared to be the owner's own (`relayed`; none declared, none
+/// given), the question they reply to when they do, and what the architect said in that place before them, which a
+/// short word of the owner's, such as agreement, cannot be read without. None for a matter that is no owner's words.
 fn said_of(conn: &Connection, matter: i64) -> Result<Option<Value>, String> {
     let row = query_json(
         conn,
@@ -5841,6 +5841,7 @@ fn said_of(conn: &Connection, matter: i64) -> Result<Option<Value>, String> {
         ("question", "asked"),
         ("ask", "asked"),
         ("design_card", "design_card"),
+        ("relayed", "relayed"),
     ] {
         if !b[from].is_null() {
             said[to] = b[from].clone();
@@ -6725,6 +6726,10 @@ mod tests {
                 (r#"{"text":"Early.","where":"page","speaker":"owner"}"#, 50),
                 (r#"{"text":"Yes, that.","where":"page","speaker":"delegate"}"#, 200),
                 (r#"{"text":"Old.","where":"page"}"#, 400),
+                (
+                    r#"{"text":"Yes. Keep it small.","where":"page","speaker":"delegate","relayed":["Keep it small."]}"#,
+                    250,
+                ),
             ] {
                 tx.execute(
                     "INSERT INTO architect_matters (project, kind, detail, what, body, at)
@@ -6743,6 +6748,10 @@ mod tests {
         assert_eq!(said(3)["architect_said_before"]["said"], "Said at 300.");
         assert_eq!(said(3)["speaker"], "unrecorded");
         assert_eq!(said(3)["words"], "Old.");
+        // The parts a delegate declared to be the owner's own come with the words, and only when it declared any.
+        assert_eq!(said(4)["relayed"], json!(["Keep it small."]));
+        assert_eq!(said(4)["speaker"], "delegate");
+        assert!(said(2).get("relayed").is_none());
         assert!(said_of(db.conn(), 9).unwrap().is_none());
     }
 

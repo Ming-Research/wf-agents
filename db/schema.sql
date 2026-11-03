@@ -672,6 +672,10 @@ CREATE TABLE interjections (
   -- ruling on a design card) and for words kept before it was declared. Read by: the engine, which tells who decided a
   -- decision that quotes the words.
   declared TEXT CHECK (declared IN ('owner', 'delegate')),
+  -- For what a delegate said to the engineer alone and declared to hold the owner's own words: those parts, a JSON array
+  -- of strings, each found letter for letter in the words (text); NULL when none was declared. Read by: the engine,
+  -- which tells a decision that quotes one of the parts as the owner's, relayed by the delegate, not checked.
+  relayed TEXT CHECK (relayed IS NULL OR (json_valid(relayed) AND declared = 'delegate')),
   -- Their words as said.
   text TEXT NOT NULL,
   -- The round of the work it was handed in, by its number in the work; NULL until then. Read by: the engine, to find
@@ -1293,26 +1297,28 @@ CREATE VIEW work_owner_words AS
   -- interjection no matter holds) and the owner's answers to the work's asks. A decision cites a row by its source and
   -- its id and quotes its words; the engine reads the words from the record again, and tells who said them from what
   -- the record kept. speaker is what the record kept of who was declared to speak, owner or delegate; none for a record
-  -- kept before it was declared. Read by: cell `L2`.
+  -- kept before it was declared. relayed is, for words a delegate said, the parts of them it declared to be the owner's
+  -- own words, a JSON array; none when it declared none. Read by: cell `L2`.
   SELECT json_extract(m.body, '$.work') AS work, 'matter' AS source, m.id AS id,
     json_extract(m.body, '$.speaker') AS speaker,
-    coalesce(json_extract(m.body, '$.text'), json_extract(m.body, '$.answer')) AS words, m.at AS at
+    coalesce(json_extract(m.body, '$.text'), json_extract(m.body, '$.answer')) AS words, m.at AS at,
+    json_extract(m.body, '$.relayed') AS relayed
   FROM architect_matters m
   WHERE m.kind = 'owner_words' AND json_extract(m.body, '$.where') = 'work'
   UNION ALL
   SELECT m.work, 'matter', m.id, json_extract(m.reply, '$.speaker'), json_extract(m.reply, '$.text'),
-    coalesce(json_extract(m.reply, '$.at'), 0)
+    coalesce(json_extract(m.reply, '$.at'), 0), json_extract(m.reply, '$.relayed')
   FROM architect_matters m
   WHERE m.kind = 'engineer_question' AND json_extract(m.reply, '$.by') = 'owner'
   UNION ALL
   SELECT j.work, 'interjection', j.id, j.declared, j.text,
     coalesce((SELECT min(c.at) FROM changes c
-              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)), 0)
+              WHERE c.table_name = 'interjections' AND c.row_key = json_object('id', j.id)), 0), j.relayed
   FROM interjections j
   WHERE j.speaker = 'owner' AND j.matter IS NULL AND j.cancelled_item IS NULL
   UNION ALL
   SELECT a.work, 'ask', a.id, json_extract(a.answer, '$.speaker'), json_extract(a.answer, '$.text'),
-    coalesce(json_extract(a.answer, '$.at'), 0)
+    coalesce(json_extract(a.answer, '$.at'), 0), json_extract(a.answer, '$.relayed')
   FROM owner_asks a
   WHERE json_extract(a.answer, '$.by') = 'owner';
 

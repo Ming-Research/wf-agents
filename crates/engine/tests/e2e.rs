@@ -2298,6 +2298,7 @@ fn a_new_flow_version_takes_a_work_over_when_it_next_goes_on() {
     let answer = api::Answer {
         text: "Keep the old name.".into(),
         speaker: "owner".into(),
+        relayed: None,
         why: None,
         reply: None,
         to: None,
@@ -4384,6 +4385,7 @@ fn the_owner_starts_a_work_over_in_the_middle_of_a_round() {
     let answer = api::Answer {
         text: "Keep the old name.".into(),
         speaker: "owner".into(),
+        relayed: None,
         why: None,
         reply: None,
         to: None,
@@ -6344,6 +6346,7 @@ fn a_matter_back_with_the_owner_s_answer_is_taken_before_the_others_waiting() {
     let yes = api::Answer {
         text: "Yes, hold it.".into(),
         speaker: "owner".into(),
+        relayed: None,
         why: None,
         reply: None,
         to: None,
@@ -9797,6 +9800,7 @@ fn the_owner_s_images_reach_the_engineer_s_next_round_with_the_words() {
             let said = api::WorkSaid {
                 text: "Look at these two.".into(),
                 speaker: "owner".into(),
+                relayed: None,
                 to: None,
                 question: None,
                 design_card: None,

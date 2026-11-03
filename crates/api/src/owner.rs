@@ -9,7 +9,7 @@
 
 use db::attachments::{self, Image, Words};
 use db::rusqlite::{Connection, OptionalExtension, params};
-use db::{Actor, Db, Matter, Speaker, queue_matter};
+use db::{Actor, Db, Declared, Matter, queue_matter};
 use serde_json::{Value, json};
 
 use crate::{Answer, ImageSent, ProjectsSaid, Ruling, WorkSaid};
@@ -50,9 +50,9 @@ pub fn interject(
     line: &str,
     text: &str,
     images: &[Image],
-    speaker: Speaker,
+    speaker: impl Into<Declared>,
 ) -> Result<i64, String> {
-    interject_about(db, work, line, text, images, None, speaker)
+    interject_about(db, work, line, text, images, None, &speaker.into())
 }
 
 /// [`interject`], the words asking about a decision card of the work (`card`) when they do.
@@ -63,12 +63,13 @@ fn interject_about(
     text: &str,
     images: &[Image],
     card: Option<i64>,
-    speaker: Speaker,
+    speaker: &Declared,
 ) -> Result<i64, String> {
     let text = text.trim();
     if says_nothing(text, images) {
         return Err("what is said to a work says something".into());
     }
+    let relayed = speaker.relayed_in(text)?.map(|r| r.to_string());
     attachments::check(images)?;
     if line != "engineer" {
         return Err(format!(
@@ -78,9 +79,9 @@ fn interject_about(
     live(db, work)?;
     db.write(Actor::Owner, |tx| {
         tx.execute(
-            "INSERT INTO interjections (work, line, speaker, declared, text, design_card)
-             VALUES (?1, ?2, 'owner', ?3, ?4, ?5)",
-            params![work, line, speaker.as_str(), text, card],
+            "INSERT INTO interjections (work, line, speaker, declared, relayed, text, design_card)
+             VALUES (?1, ?2, 'owner', ?3, ?4, ?5, ?6)",
+            params![work, line, speaker.speaker.as_str(), relayed, text, card],
         )?;
         let id = tx.last_insert_rowid();
         attachments::attach(tx, Words::Interjection(id), images)?;
@@ -127,12 +128,12 @@ const TOLD_TO_ARCHITECT: &str = "Said to the architect, for you to know";
 /// naming it; no ruling, the card waits on.
 pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, String> {
     let images = images(&said.images)?;
-    let speaker = Speaker::parse(&said.speaker)?;
+    let speaker = Declared::parse(&said.speaker, said.relayed.as_deref().unwrap_or_default())?;
     if let Some(m) = said.question {
         if said.design_card.is_some() {
             return Err("words answer an engineer's question or ask about a decision card, not both".into());
         }
-        return answer_question(db, work, m, &said.text, &images, speaker);
+        return answer_question(db, work, m, &said.text, &images, &speaker);
     }
     if let Some(card) = said.design_card {
         card_waits(db, work, card)?;
@@ -143,7 +144,7 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
         .as_deref()
         .unwrap_or(if card.is_some() { "architect" } else { "engineer" });
     if to == "engineer" {
-        let id = interject_about(db, work, to, &said.text, &images, card, speaker)?;
+        let id = interject_about(db, work, to, &said.text, &images, card, &speaker)?;
         return Ok(format!("interjection {id} goes to the engineer of work {work}"));
     }
     if to != "architect" && to != "both" {
@@ -157,7 +158,7 @@ pub fn say_to_work(db: &mut Db, work: i64, said: &WorkSaid) -> Result<String, St
     }
     live(db, work)?;
     let (item, project) = item_of(db, work)?;
-    let mut body = speaker.record(json!({ "text": text, "where": "work", "work": work }));
+    let mut body = speaker.record(json!({ "text": text, "where": "work", "work": work }), text)?;
     let what = match card {
         Some(c) => {
             body["design_card"] = json!(c);
@@ -225,7 +226,7 @@ fn card_waits(db: &Db, work: i64, card: i64) -> Result<(), String> {
 /// them too, as its architect is given them with the words.
 pub fn say_to_projects(db: &mut Db, projects: &[String], said: &ProjectsSaid) -> Result<String, String> {
     let images = images(&said.images)?;
-    let speaker = Speaker::parse(&said.speaker)?;
+    let speaker = Declared::parse(&said.speaker, said.relayed.as_deref().unwrap_or_default())?;
     let text = said.text.trim();
     if says_nothing(text, &images) {
         return Err("what is said to the architects says something".into());
@@ -235,6 +236,7 @@ pub fn say_to_projects(db: &mut Db, projects: &[String], said: &ProjectsSaid) ->
         Some(p) => return Err(format!("project {p} is not in the group {}", said.key)),
         None => projects.to_vec(),
     };
+    let body = speaker.record(json!({ "text": text, "where": "projects", "group": said.key, "to": to }), text)?;
     let ids = db
         .write(Actor::Owner, |tx| {
             let mut ids = Vec::new();
@@ -244,7 +246,7 @@ pub fn say_to_projects(db: &mut Db, projects: &[String], said: &ProjectsSaid) ->
                     kind: "owner_words".into(),
                     detail: Some("said".into()),
                     what: attachments::owner_says(text, images.len()),
-                    body: speaker.record(json!({ "text": text, "where": "projects", "group": said.key, "to": to })),
+                    body: body.clone(),
                     ..Matter::default()
                 };
                 let id = queue_matter(tx, &m)?;
@@ -292,7 +294,7 @@ fn answer_question(
     matter: i64,
     text: &str,
     images: &[Image],
-    speaker: Speaker,
+    speaker: &Declared,
 ) -> Result<String, String> {
     let text = text.trim();
     if says_nothing(text, images) {
@@ -334,12 +336,15 @@ fn answer_question(
             "the architect is answering matter {matter} now: say it to the architect instead"
         ));
     }
-    let reply = speaker.record(json!({
-        "by": "owner",
-        "at": db::now(),
-        "text": text,
-        "why": "The owner answered the question in the work's group.",
-    }));
+    let reply = speaker.record(
+        json!({
+            "by": "owner",
+            "at": db::now(),
+            "text": text,
+            "why": "The owner answered the question in the work's group.",
+        }),
+        text,
+    )?;
     db.write(Actor::Owner, |tx| {
         tx.execute(
             "UPDATE architect_matters SET reply = ?2, withdrawn = ?3 WHERE id = ?1",
@@ -371,8 +376,9 @@ pub fn reply_to_question(
     ask: i64,
     text: &str,
     images: &[Image],
-    speaker: Speaker,
+    speaker: impl Into<Declared>,
 ) -> Result<String, String> {
+    let speaker: Declared = speaker.into();
     let text = text.trim();
     if says_nothing(text, images) {
         return Err("a reply says something".into());
@@ -407,7 +413,13 @@ pub fn reply_to_question(
         )
         .optional()
         .map_err(sql)?;
-    let answer = speaker.record(json!({ "by": "owner", "at": db::now(), "text": text }));
+    let answer = speaker.record(json!({ "by": "owner", "at": db::now(), "text": text }), text)?;
+    // The words kept as the owner's own to the architect carry the same declaration.
+    let said = speaker.record(
+        json!({ "text": text, "where": "page", "question": body["question"].clone(), "owner_ask": ask,
+                "gone": "the matter the question parked is closed" }),
+        text,
+    )?;
     db.write(Actor::Owner, |tx| {
         tx.execute(
             "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
@@ -415,16 +427,12 @@ pub fn reply_to_question(
         )?;
         attachments::attach(tx, Words::Ask(ask), images)?;
         if parked.is_none() {
-            let question = body["question"].clone();
             let m = Matter {
                 project: project.to_string(),
                 kind: "owner_words".into(),
                 detail: Some("answer".into()),
                 what: replied(&format!("The owner replied to question {ask}"), text, images.len()),
-                body: speaker.record(
-                    json!({ "text": text, "where": "page", "question": question, "owner_ask": ask,
-                              "gone": "the matter the question parked is closed" }),
-                ),
+                body: said,
                 ..Matter::default()
             };
             queue_matter(tx, &m)?;
@@ -466,7 +474,7 @@ fn holds_of(body: &Value) -> Vec<i64> {
 fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[Image]) -> Result<String, String> {
     let at = db::now();
     let text = a.text.trim();
-    let speaker = Speaker::parse(&a.speaker)?;
+    let speaker = Declared::parse(&a.speaker, a.relayed.as_deref().unwrap_or_default())?;
     let kind = body["kind"].as_str().unwrap_or_default();
     match kind {
         "changes" => {
@@ -479,7 +487,7 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[I
             if says_nothing(text, images) {
                 return Err("an answer says something".into());
             }
-            let answer = speaker.record(json!({ "by": "owner", "at": at, "text": text }));
+            let answer = speaker.record(json!({ "by": "owner", "at": at, "text": text }), text)?;
             // An ask that held no work of the architect and no matter, as an earlier architect put open questions,
             // comes back to the queue as the owner's words.
             let open = kind == "open" && holds_of(body).is_empty();
@@ -488,6 +496,7 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[I
             } else {
                 body["asked"].clone()
             };
+            let said = speaker.record(json!({ "ask": asked, "answer": text, "owner_ask": ask }), text)?;
             db.write(Actor::Owner, |tx| {
                 tx.execute(
                     "UPDATE owner_asks SET answer = ?2 WHERE id = ?1",
@@ -507,7 +516,7 @@ fn architect_answer(db: &mut Db, ask: i64, body: &Value, a: &Answer, images: &[I
                             kind: "owner_words".into(),
                             detail: Some("answer".into()),
                             what: replied(&format!("The owner answered ask {ask}"), text, images.len()),
-                            body: speaker.record(json!({ "ask": asked, "answer": text, "owner_ask": ask })),
+                            body: said,
                             ..Matter::default()
                         };
                         queue_matter(tx, &m)?;
@@ -545,8 +554,8 @@ pub fn answer(db: &mut Db, ask: i64, a: &Answer) -> Result<String, String> {
     if says_nothing(&a.text, &images) {
         return Err("an answer says something".into());
     }
-    let speaker = Speaker::parse(&a.speaker)?;
-    let mut answer = speaker.record(json!({ "by": "owner", "at": db::now(), "text": a.text }));
+    let speaker = Declared::parse(&a.speaker, a.relayed.as_deref().unwrap_or_default())?;
+    let mut answer = speaker.record(json!({ "by": "owner", "at": db::now(), "text": a.text }), &a.text)?;
     // The owner may hand a question it holds back to the architect, with the answer as a decision to carry out.
     match a.to.as_deref() {
         None => {}
@@ -968,6 +977,7 @@ mod tests {
         let said = |to: &str, text: &str, images: Vec<ImageSent>| WorkSaid {
             text: text.into(),
             speaker: "owner".into(),
+            relayed: None,
             to: Some(to.into()),
             question: None,
             design_card: None,
@@ -1008,6 +1018,7 @@ mod tests {
         let a = Answer {
             text: String::new(),
             speaker: "owner".into(),
+            relayed: None,
             why: None,
             reply: None,
             to: None,
@@ -1042,6 +1053,7 @@ mod tests {
         let said = |question: i64, text: &str| WorkSaid {
             text: text.into(),
             speaker: "owner".into(),
+            relayed: None,
             to: None,
             question: Some(question),
             design_card: None,
@@ -1091,16 +1103,27 @@ mod tests {
             speaker: "delegate".into(),
             ..said(2, "Split it.")
         };
-        say_to_work(&mut db, 1, &by_delegate).unwrap();
-        let speaker: String = db
+        // A part the words do not hold is refused, and the question stays open.
+        let wrong = WorkSaid {
+            relayed: Some(vec!["Merge it.".into()]),
+            ..by_delegate.clone()
+        };
+        assert!(say_to_work(&mut db, 1, &wrong).unwrap_err().contains("not found letter for letter"));
+        let reply = "SELECT reply FROM architect_matters WHERE id = 2";
+        let none: Option<String> = db.conn().query_row(reply, [], |r| r.get(0)).unwrap();
+        assert_eq!(none, None);
+        let relaying = WorkSaid {
+            relayed: Some(vec!["Split".into()]),
+            ..by_delegate
+        };
+        say_to_work(&mut db, 1, &relaying).unwrap();
+        let kept = "SELECT json_extract(reply, '$.speaker'), json_extract(reply, '$.relayed')
+                    FROM architect_matters WHERE id = 2";
+        let (speaker, relayed): (String, String) = db
             .conn()
-            .query_row(
-                "SELECT json_extract(reply, '$.speaker') FROM architect_matters WHERE id = 2",
-                [],
-                |r| r.get(0),
-            )
+            .query_row(kept, [], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap();
-        assert_eq!(speaker, "delegate");
+        assert_eq!((speaker.as_str(), relayed.as_str()), ("delegate", r#"["Split"]"#));
     }
 
     // The owner lets a paused work go on; one that is not paused is refused.
@@ -1229,6 +1252,7 @@ mod tests {
         let a = Answer {
             text: "Chosen option: B. Keep it small.".into(),
             speaker: "owner".into(),
+            relayed: None,
             why: None,
             reply: None,
             to: None,
@@ -1326,6 +1350,7 @@ mod tests {
         let asks = |to: Option<&str>, text: &str, card: i64| WorkSaid {
             text: text.into(),
             speaker: "owner".into(),
+            relayed: None,
             to: to.map(str::to_string),
             question: None,
             design_card: Some(card),
@@ -1449,6 +1474,7 @@ mod tests {
         Answer {
             text: text.into(),
             speaker: "owner".into(),
+            relayed: None,
             why: None,
             reply: None,
             to: None,
@@ -1581,13 +1607,9 @@ mod tests {
         assert_eq!(closed, ("owner".into(), "Not worth it.".into()));
     }
 
-    // Every way the owner's words and answers come in keeps who the caller declared to speak: the words said in a work's
-    // group to the architect, those said to the architects of a group, the reply to the architect's question in the
-    // one-to-one, an answer to an ask of an engineer and to an ask of the architect that comes back as the owner's
-    // words. A request that declares none, or a name that is neither the owner nor a delegate, is refused, and nothing
-    // is kept.
-    #[test]
-    fn every_way_in_keeps_who_was_declared_to_speak() {
+    /// A database with a work of the project's architect (work 2) that put two asks: a question (ask 1) and an open
+    /// question (ask 2), neither with a matter parked on it.
+    fn with_asks_of_the_architect() -> Db {
         let mut db = setup();
         db.write(Actor::Engine, |tx| {
             tx.execute("INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'H8', 'p')", [])?;
@@ -1604,9 +1626,21 @@ mod tests {
             Ok(())
         })
         .unwrap();
+        db
+    }
+
+    // Every way the owner's words and answers come in keeps who the caller declared to speak: the words said in a work's
+    // group to the architect, those said to the architects of a group, the reply to the architect's question in the
+    // one-to-one, an answer to an ask of an engineer and to an ask of the architect that comes back as the owner's
+    // words. A request that declares none, or a name that is neither the owner nor a delegate, is refused, and nothing
+    // is kept.
+    #[test]
+    fn every_way_in_keeps_who_was_declared_to_speak() {
+        let mut db = with_asks_of_the_architect();
         let said = |speaker: &str| WorkSaid {
             text: "Keep it.".into(),
             speaker: speaker.into(),
+            relayed: None,
             to: Some("architect".into()),
             question: None,
             design_card: None,
@@ -1615,6 +1649,7 @@ mod tests {
         let answer_by = |speaker: &str| Answer {
             text: "Yes.".into(),
             speaker: speaker.into(),
+            relayed: None,
             why: None,
             reply: None,
             to: None,
@@ -1639,13 +1674,14 @@ mod tests {
                 key: "g".into(),
                 text: "Both of you.".into(),
                 speaker: "owner".into(),
+                relayed: None,
                 to: None,
                 images: Vec::new(),
             },
         )
         .unwrap();
         // The first ask of the architect's is a question with no matter parked on it: its reply comes as the words.
-        reply_to_question(&mut db, "p", 2, "Neither.", &[], Speaker::Delegate).unwrap();
+        reply_to_question(&mut db, "p", 2, "Neither.", &[], db::Speaker::Delegate).unwrap();
         answer(&mut db, 1, &answer_by("delegate")).unwrap();
         answer(&mut db, 3, &answer_by("owner")).unwrap();
         let one = |sql: &str| -> Vec<Option<String>> {
@@ -1678,5 +1714,76 @@ mod tests {
                 Some("owner".to_string())
             ]
         );
+    }
+
+    // The parts a delegate declares to be the owner's own words are kept where the speaker is kept, on every way in: the
+    // words said to the architect of a work and to the architects of a group, those said to the engineer alone, the reply
+    // to the architect's question, and the answers to an ask. A part the words do not hold, or one the owner declares,
+    // is refused and nothing is kept.
+    #[test]
+    fn the_parts_a_delegate_relays_are_kept_on_every_way_in() {
+        let mut db = with_asks_of_the_architect();
+        let relaying = |rs: &[&str]| Some(rs.iter().map(|r| r.to_string()).collect::<Vec<String>>());
+        let said = |to: &str, text: &str, rs: &[&str]| WorkSaid {
+            text: text.into(),
+            speaker: "delegate".into(),
+            relayed: relaying(rs),
+            to: Some(to.into()),
+            question: None,
+            design_card: None,
+            images: Vec::new(),
+        };
+        say_to_work(&mut db, 1, &said("architect", "Fine. Keep it.", &["Keep it."])).unwrap();
+        say_to_work(&mut db, 1, &said("engineer", "Fine. Hold it.", &["Hold it."])).unwrap();
+        let group = ProjectsSaid {
+            key: "g".into(),
+            text: "Both. Go.".into(),
+            speaker: "delegate".into(),
+            relayed: relaying(&["Go."]),
+            to: None,
+            images: Vec::new(),
+        };
+        say_to_projects(&mut db, &["p".to_string()], &group).unwrap();
+        let stop = Declared::parse("delegate", &["Stop.".to_string()]).unwrap();
+        reply_to_question(&mut db, "p", 2, "Neither. Stop.", &[], stop).unwrap();
+        let answered = |text: &str, rs: &[&str]| Answer {
+            speaker: "delegate".into(),
+            relayed: relaying(rs),
+            ..with_reply(text)
+        };
+        answer(&mut db, 1, &answered("Yes. Do it.", &["Do it."])).unwrap();
+        answer(&mut db, 3, &answered("Yes. Done.", &["Done."])).unwrap();
+        // What a column keeps, row by row, each row's text or `-` for none.
+        let one = |db: &Db, sql: &str| -> String {
+            let mut st = db.conn().prepare(sql).unwrap();
+            let rows = st.query_map([], |r| r.get::<_, Option<String>>(0)).unwrap();
+            rows.map(|x| x.unwrap().unwrap_or("-".into()))
+                .collect::<Vec<String>>()
+                .join(" ")
+        };
+        let matters = "SELECT json_extract(body, '$.relayed') FROM architect_matters ORDER BY id";
+        let kept = one(&db, matters);
+        assert_eq!(kept, r#"["Keep it."] ["Go."] ["Stop."] ["Done."]"#);
+        let alone = "SELECT relayed FROM interjections WHERE matter IS NULL ORDER BY id";
+        assert_eq!(one(&db, alone), r#"["Hold it."]"#);
+        let asks = "SELECT json_extract(answer, '$.relayed') FROM owner_asks ORDER BY id";
+        assert_eq!(one(&db, asks), r#"["Do it."] ["Stop."] ["Done."]"#);
+        // A part the words do not hold, or one the owner declares, is refused wherever the words go, and nothing is kept.
+        let wrong = said("architect", "Fine. Keep it.", &["Keep that."]);
+        assert!(say_to_work(&mut db, 1, &wrong).unwrap_err().contains("not found letter for letter"));
+        let wrong = said("engineer", "Fine. Hold it.", &["Hold that."]);
+        assert!(say_to_work(&mut db, 1, &wrong).unwrap_err().contains("not found letter for letter"));
+        let by_owner = WorkSaid {
+            speaker: "owner".into(),
+            ..said("architect", "Fine. Keep it.", &["Keep it."])
+        };
+        assert!(say_to_work(&mut db, 1, &by_owner).unwrap_err().contains("only a delegate relays"));
+        let blank = WorkSaid {
+            relayed: relaying(&[" "]),
+            ..said("engineer", "Fine. Hold it.", &[])
+        };
+        assert!(say_to_work(&mut db, 1, &blank).unwrap_err().contains("blank"));
+        assert_eq!(one(&db, matters), kept);
+        assert_eq!(one(&db, alone), r#"["Hold it."]"#);
     }
 }

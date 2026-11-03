@@ -868,6 +868,11 @@ export type WorkSaid = { text: string,
  */
 speaker: string,
 /**
+ * The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them,
+ * kept with the words wherever they go; the page sends none.
+ */
+relayed?: Array<string>,
+/**
  * engineer (the default), architect (the default of a question about a decision card) or both.
  */
 to?: string,
@@ -897,6 +902,11 @@ key: string, text: string,
  */
 speaker: string,
 /**
+ * The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+ * the page sends none.
+ */
+relayed?: Array<string>,
+/**
  * The project whose architect it is for; none for every architect of the group.
  */
 to?: string,
@@ -915,6 +925,11 @@ export type ArchitectSaid = { text: string,
  * architect's record of a decision says which was declared; the engine cannot tell it from who speaks.
  */
 speaker: string,
+/**
+ * The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+ * the page sends none.
+ */
+relayed?: Array<string>,
 /**
  * The item it is about, if any.
  */
@@ -972,6 +987,11 @@ export type Answer = { text: string,
  * Who the caller declares to answer, `owner` or `delegate`, as for the words said to one architect.
  */
 speaker: string,
+/**
+ * The parts of the answer a delegate declares to be the owner's own words, each found letter for letter in it; the
+ * page sends none.
+ */
+relayed?: Array<string>,
 /**
  * For what the architect is asked: why it was decided this way.
  */

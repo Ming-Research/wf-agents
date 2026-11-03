@@ -131,12 +131,89 @@ impl Speaker {
         }
     }
 
-    /// `body`, an object, with the speaker recorded in it as `speaker`.
-    pub fn record(self, mut body: Value) -> Value {
-        if let Some(o) = body.as_object_mut() {
-            o.insert("speaker".into(), Value::String(self.as_str().into()));
+}
+
+/// Who a request declares to speak, and which parts of what a delegate says it declares to be the owner's own words
+/// (`relayed`): a delegate's message can hold words the owner said to it, which the engine cannot check, since the owner
+/// said them in the delegate's session and not through the interface. The declaration is the caller's own and is
+/// kept as it was made; a decision that quotes a relayed part is told as the owner's, relayed by the delegate, not
+/// checked, and one that quotes the rest of the message as the delegate's. A speaker alone declares no relayed part.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declared {
+    pub speaker: Speaker,
+    pub relayed: Vec<String>,
+}
+
+impl From<Speaker> for Declared {
+    fn from(speaker: Speaker) -> Declared {
+        Declared {
+            speaker,
+            relayed: Vec::new(),
         }
-        body
+    }
+}
+
+impl Declared {
+    /// What a request declares, by the speaker's name and the relayed parts it gives; an error for a speaker that is
+    /// neither the owner nor a delegate, for none, and for relayed parts declared by anyone but a delegate, since the
+    /// owner at the page relays nothing.
+    pub fn parse(name: &str, relayed: &[String]) -> std::result::Result<Declared, String> {
+        let declared = Declared {
+            speaker: Speaker::parse(name)?,
+            relayed: relayed.to_vec(),
+        };
+        declared.only_a_delegate_relays()?;
+        Ok(declared)
+    }
+
+    /// That nothing is relayed unless a delegate declares it: the owner at the page relays nothing, since it says its
+    /// own words.
+    fn only_a_delegate_relays(&self) -> std::result::Result<(), String> {
+        if self.speaker != Speaker::Delegate && !self.relayed.is_empty() {
+            return Err(format!(
+                "only a delegate relays the owner's words: {} says its own",
+                self.speaker.as_str()
+            ));
+        }
+        Ok(())
+    }
+
+    /// The relayed parts as the record keeps them, a JSON array, once each is found letter for letter in `stored`, the
+    /// text the record keeps (the words after they were trimmed, as they are kept); none when nothing is relayed. An
+    /// error names the part that is blank or is not in the text, and nothing is written then. The one place that
+    /// checks what a caller relays: every way in goes through it.
+    pub fn relayed_in(&self, stored: &str) -> std::result::Result<Option<Value>, String> {
+        self.only_a_delegate_relays()?;
+        if self.relayed.is_empty() {
+            return Ok(None);
+        }
+        for r in &self.relayed {
+            if r.trim().is_empty() {
+                return Err("a relayed part is blank: give the words of the owner's that the message holds".into());
+            }
+            if !stored.contains(r.as_str()) {
+                return Err(format!(
+                    "the relayed part \"{r}\" is not found letter for letter in the words said, which are \
+                     \"{stored}\": give a part of them as it is"
+                ));
+            }
+        }
+        Ok(Some(Value::Array(
+            self.relayed.iter().map(|r| Value::String(r.clone())).collect(),
+        )))
+    }
+
+    /// `body`, an object, with the speaker recorded in it as `speaker` and the relayed parts, if any, as `relayed`;
+    /// `stored` is the text the body keeps the words in.
+    pub fn record(&self, mut body: Value, stored: &str) -> std::result::Result<Value, String> {
+        let relayed = self.relayed_in(stored)?;
+        if let Some(o) = body.as_object_mut() {
+            o.insert("speaker".into(), Value::String(self.speaker.as_str().into()));
+            if let Some(r) = relayed {
+                o.insert("relayed".into(), r);
+            }
+        }
+        Ok(body)
     }
 }
 
@@ -150,8 +227,9 @@ pub fn say_to_architect(
     work: Option<i64>,
     text: &str,
     images: &[Image],
-    speaker: Speaker,
+    speaker: impl Into<Declared>,
 ) -> std::result::Result<String, String> {
+    let speaker: Declared = speaker.into();
     let text = text.trim();
     if text.is_empty() && images.is_empty() {
         return Err("what is said to the architect says something".into());
@@ -170,7 +248,7 @@ pub fn say_to_architect(
         kind: "owner_words".into(),
         detail: Some("said".into()),
         what: attachments::owner_says(text, images.len()),
-        body: speaker.record(body),
+        body: speaker.record(body, text)?,
         item,
         ..Matter::default()
     };
@@ -425,5 +503,55 @@ mod tests {
             .collect::<std::result::Result<_, _>>()
             .unwrap();
         assert_eq!(kept, [Some("owner".into()), Some("delegate".into())]);
+    }
+
+    // A delegate may declare which parts of what it says are the owner's own words: the parts are kept with the words, as
+    // given, once each is found letter for letter in the words as they are kept (trimmed). A part that is blank or is not
+    // in them, and parts declared by the owner, are refused, and nothing is kept.
+    #[test]
+    fn the_parts_a_delegate_relays_are_kept_with_the_words_once_found_in_them() {
+        let parts = |rs: &[&str]| rs.iter().map(|r| r.to_string()).collect::<Vec<String>>();
+        assert!(Declared::parse("owner", &[]).is_ok());
+        let by_owner = Declared::parse("owner", &parts(&["Go on."]));
+        assert!(by_owner.unwrap_err().contains("only a delegate relays"));
+        assert!(Declared::parse("delegate", &parts(&["Go on."])).is_ok());
+        let mut db = Db::in_memory().unwrap();
+        let mut say = |text: &str, rs: &[&str]| {
+            let by = Declared::parse("delegate", &parts(rs)).unwrap();
+            say_to_architect(&mut db, "p", None, None, text, &[], by)
+        };
+        // The words are kept trimmed, and so is what a part is found in.
+        say("  Yes. Put the parser first.  ", &["Put the parser first."]).unwrap();
+        let text = "Yes. Put the parser first.";
+        assert!(say(text, &["Put the parser first.", " "]).unwrap_err().contains("blank"));
+        let err = say(text, &["put the parser first."]).unwrap_err();
+        assert!(err.contains("is not found letter for letter"), "{err}");
+        let err = say(text, &["Yes.  Put"]).unwrap_err();
+        assert!(err.contains("is not found letter for letter"), "{err}");
+        // A blank at the edge of a part is not in the trimmed words.
+        assert!(say("  Yes. Put it first.  ", &[" Yes."]).is_err());
+        let rows = |db: &Db| -> i64 {
+            let count = "SELECT count(*) FROM architect_matters";
+            db.conn().query_row(count, [], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(rows(&db), 1);
+        let one = "SELECT body FROM architect_matters";
+        let body: String = db.conn().query_row(one, [], |r| r.get(0)).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&body).unwrap(),
+            serde_json::json!({
+                "text": "Yes. Put the parser first.",
+                "where": "page",
+                "speaker": "delegate",
+                "relayed": ["Put the parser first."],
+            })
+        );
+        // Declared by the owner at the page, nothing is relayed.
+        let owner_relays = Declared {
+            speaker: Speaker::Owner,
+            relayed: vec!["Yes.".into()],
+        };
+        assert!(say_to_architect(&mut db, "p", None, None, "Yes.", &[], owner_relays).is_err());
+        assert_eq!(rows(&db), 1);
     }
 }
