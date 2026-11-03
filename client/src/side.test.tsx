@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Architect, ArchitectPanel, ArchitectWork, Conversation, Matter, NotebookVersion, WorkSummary } from './api';
+import { time } from './format';
 import { ArchitectSide, keepSide, sideKept } from './pages/ArchitectSide';
 import { ArchitectHead } from './pages/TalkHead';
 import { href, parse, sideHref } from './route';
@@ -120,7 +121,13 @@ const panel: ArchitectPanel = {
     { section: 'unclear', now: null, versions: [] },
     { section: 'other', now: null, versions: [] },
   ],
-  constitution: { name: 'CONSTITUTION.md', text: 'Article 1. Be quick.' },
+  constitution: {
+    name: 'CONSTITUTION.md',
+    commit: '0123456789abcdef0123456789abcdef01234567',
+    committed_at: 1_700_000_000_000,
+    text: 'Article 1. Be quick.',
+    error: null,
+  },
 };
 
 /// The panel drawn on a tab, the architect it is of and what the read of the rest of the architect gave (`given`, none
@@ -192,6 +199,45 @@ describe('the panel beside the one-to-one with an architect', () => {
     // With no draft waiting, the policy in force is first.
     const none = side('policy', { ...architect, draft: null });
     expect(none).not.toContain('Draft awaiting your approval');
+  });
+
+  it('names the commit of main the constitution was read at beside its path, short, with when it was committed', () => {
+    const html = section(side('policy'), 'Constitution');
+    expect(html).toMatch(/CONSTITUTION\.md on the project(&#x27;|')s main, at 0123456 \(/);
+    expect(html).toContain(`(${time(1_700_000_000_000)})`);
+    expect(html).not.toContain('0123456789abcdef');
+    // A commit with no time known says so.
+    const known = panel.constitution;
+    expect(known).not.toBeNull();
+    const unknown = { ...panel, constitution: known === null ? null : { ...known, committed_at: null } };
+    expect(section(side('policy', architect, unknown), 'Constitution')).toContain('(time unknown)');
+  });
+
+  it('says why a constitution could not be read, opened, and not an empty one', () => {
+    const why = 'project p: constitution: CONSTITUTION.md cannot be read at 0123456789abcdef: no such path';
+    const unread = {
+      ...panel,
+      constitution: {
+        name: 'CONSTITUTION.md',
+        commit: '0123456789abcdef0123456789abcdef01234567',
+        committed_at: 1_700_000_000_000,
+        text: '',
+        error: why,
+      },
+    };
+    const html = section(side('policy', architect, unread), 'Constitution');
+    expect(html).toMatch(/^<details[^>]* open=""/);
+    expect(html).toContain(why);
+    expect(html).not.toContain('is empty');
+    // Without a commit of main, the path stands alone, and the reason is still given.
+    const nowhere = { ...panel, constitution: { ...unread.constitution, commit: null } };
+    const bare = section(side('policy', architect, nowhere), 'Constitution');
+    expect(bare).toMatch(/CONSTITUTION\.md on the project(&#x27;|')s main</);
+    expect(bare).not.toMatch(/main, at/);
+    expect(bare).toContain(why);
+    // A constitution that was read and holds nothing is said to be empty.
+    const empty = { ...panel, constitution: { ...unread.constitution, text: '  ', error: null } };
+    expect(section(side('policy', architect, empty), 'Constitution')).toMatch(/CONSTITUTION\.md on the project(&#x27;|')s main is empty\./);
   });
 
   it('shows the queue as the head showed it: its facts, then its matters in order, the one in hand marked', () => {

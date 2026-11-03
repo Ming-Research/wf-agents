@@ -293,27 +293,29 @@ pub fn waiting(retry_wait: Duration, backoff_unit: Duration, took: &[Took], s: &
 /// ([`waiting`], at the cell's next step) and is run again, and the failure past the case's bound pauses the work and
 /// tells the owner, the architect's own work as much as any. A failure while the engine's own look finds the network
 /// down stops every work as a failed run of the kind `offline` does; any other failure pauses the work, as a step it
-/// cannot take does. `took` is [`since_outside`]. Gives none when the step passed, and else what the step came to.
-pub fn networked(
+/// cannot take does. `took` is [`since_outside`]. Gives what the step gave when it passed, and else what the step came
+/// to.
+pub fn networked<T>(
     e: &mut Engine,
     w: &Work,
     cell: &CompiledCell,
     section: &Rounds,
     took: &[Took],
-    step: impl FnOnce(&Engine) -> Result<(), String>,
-) -> Result<Option<Advance>, String> {
-    let Err(why) = step(&*e) else {
-        return Ok(None);
+    step: impl FnOnce(&Engine) -> Result<T, String>,
+) -> Result<Result<T, Advance>, String> {
+    let why = match step(&*e) {
+        Ok(passed) => return Ok(Ok(passed)),
+        Err(why) => why,
     };
     let why = format!("cell {}: {why}", cell.id);
     if e.network_down() {
-        return e.wait_offline(w.id, &why).map(Some);
+        return e.wait_offline(w.id, &why).map(Err);
     }
     let case = section.engine.iter().find(|c| c.name == STEP_NETWORK);
     let counter = case.and_then(|c| c.counts.clone());
     let bound = case.and_then(|c| c.in_row).filter(|_| network_failure(&why));
     let Some(bound) = bound else {
-        return pause(e, w, &why).map(Some);
+        return pause(e, w, &why).map(Err);
     };
     let before = count(took, STEP_NETWORK);
     let over = before >= bound as usize;
@@ -343,9 +345,9 @@ pub fn networked(
             "{why}; the step failed {} times in a row, and running it again has not helped",
             before + 1
         );
-        return pause(e, w, &why).map(Some);
+        return pause(e, w, &why).map(Err);
     }
-    Ok(Some(Advance::Moved))
+    Ok(Err(Advance::Moved))
 }
 
 /// A work, as the owner is told of it.
@@ -364,6 +366,7 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
             "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",
             params![w.id, why],
         )?;
+        db::withdraw_resume(tx, w.id)?;
         actions::notify(tx, Some(w.id), &text).map_err(db::Error::Abort)
     })
     .map_err(sql)?;

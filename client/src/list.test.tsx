@@ -22,6 +22,7 @@ const engine = vi.hoisted(() => ({
     started: [],
     releasing: [],
     waiting_for_slot: [],
+    stopping: [],
     stepping: [],
     architects_started: [],
     flow_version: 2,
@@ -79,7 +80,7 @@ function read(html: string): string[] {
 
 describe('the list of conversations', () => {
   it('shows each state of a work but done and ended at first', () => {
-    expect(SHOWN).toEqual(['running', 'ready', 'asking', 'waiting', 'waiting_for_slot', 'paused', 'halted']);
+    expect(SHOWN).toEqual(['running', 'ready', 'asking', 'waiting', 'waiting_for_slot', 'paused', 'halted', 'stopping']);
   });
 
   it('groups by project, by name, each its architect then its works in the states shown; the open one stays', () => {
