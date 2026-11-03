@@ -19567,7 +19567,7 @@ fn a_round_that_did_not_hand_over_leaves_its_session_to_the_next_round_and_the_l
     let ask = engine::handover::ask();
     let sent = sent.lock().unwrap();
     assert!(sent.len() >= 3, "{log}");
-    for (_, message) in &sent[1..3] {
+    for (_, message, _) in &sent[1..3] {
         assert!(!message.contains(&ask), "{message}");
         assert!(!message.contains("handed its progress over"), "{message}");
     }
