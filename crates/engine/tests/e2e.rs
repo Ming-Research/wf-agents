@@ -11510,8 +11510,9 @@ fn sent_back_at(e: &Engine, cell: &str) -> Vec<String> {
 }
 
 /// The record of the owner's ruling on a departure, at the cell that records the decisions of a batch: first as nothing
-/// to record, which is sent back; then as a decision of the item the departure is about, quoting the owner's words in
-/// the ask, that replaces the decision departed from.
+/// to record, which is sent back; then as a decision of another item than the one the departure is about (the
+/// project's other item, the newest), which is sent back too; then as a decision of the item the departure is about,
+/// quoting the owner's words in the ask, that replaces the decision departed from.
 fn records_the_ruling(path: PathBuf) -> Script {
     Box::new(move |_: &Request, n: usize| {
         let c = db::open_read(&path).unwrap();
@@ -11528,8 +11529,17 @@ fn records_the_ruling(path: PathBuf) -> Script {
             let looked = json!([{ "matter": m, "verdict": "nothing", "why": "Nothing to record." }]);
             return (Vec::new(), vec![("outcome.looked", looked)]);
         }
+        // The second record puts the ruling in the project's other item, not the one whose decision was departed from.
+        let into = if n == 2 {
+            c.query_row("SELECT max(id) FROM items WHERE id <> ?1", [item], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap()
+        } else {
+            item
+        };
         let decision = json!({
-            "item": item.to_string(),
+            "item": into.to_string(),
             "what": "The light way stays on the main path",
             "situation": "The design departed from the decision",
             "reason": "One path is simpler to keep",
@@ -11594,6 +11604,16 @@ fn a_design_departing_from_the_owner_s_decision_waits_for_the_owner_s_ruling_bef
         item,
         &format!("Approach:\n- Do it.\n\nDecisions:\n- {OWNER_DECIDED}"),
     );
+    // Another item of the project, which a record of the ruling may wrongly name; it waits in no queue.
+    let other =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, level) VALUES ('p', 'Another', 'x', 'y', 'l')",
+                [],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
     step_to(&mut e, item, "D12");
     let (work, _, _) = state(&e, item).unwrap();
     e.advance(work).unwrap();
@@ -11671,9 +11691,17 @@ fn a_design_departing_from_the_owner_s_decision_waits_for_the_owner_s_ruling_bef
     );
     assert!(approach.contains(OWNER_DECIDED), "{approach}");
     let back = sent_back_at(&e, "B5");
+    // A record that put the ruling in another item was sent back too, and that item holds no line of it.
     assert!(
-        back.len() == 1 && back[0].contains(&format!("matter {matter} is the owner's ruling")),
+        back.len() == 2
+            && back[0].contains(&format!("matter {matter} is the owner's ruling"))
+            && back[1].contains(&format!("record it in item {item}, beside the decision departed from")),
         "{back:?}"
+    );
+    assert!(
+        !approach_of(&e, other).contains(LET_IT_STAND),
+        "{}",
+        approach_of(&e, other)
     );
     let _ = std::fs::remove_dir_all(&s.root);
 }
