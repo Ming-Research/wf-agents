@@ -1014,6 +1014,30 @@ const ACCEPTANCE_PROOFS: &str = "If the table meets it with a CI job (`ci_job`),
                                  If with a read of the diff (`read_diff`), read the diff at its `where` yourself. \
                                  For either, if a test could prove the condition instead, that is a finding.";
 
+/// The columns of the acceptance conditions, one for each. Only a work that delivers a change has a conditions table
+/// whose rows the review judges, so only its columns say how (`ACCEPTANCE_PROOFS`); a report's conditions are answered
+/// by the report.
+fn acceptance_columns(acceptance: &Value, report: bool) -> Vec<String> {
+    let proofs = if report {
+        String::new()
+    } else {
+        format!(" {ACCEPTANCE_PROOFS}")
+    };
+    acceptance
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .map(|a| {
+            format!(
+                "Acceptance condition {}: {} Can it be checked; is the evidence there, does it come from the head to be merged, and does it hold?{proofs}",
+                a["id"].as_str().unwrap_or("?"),
+                a["condition"].as_str().unwrap_or_default()
+            )
+        })
+        .collect()
+}
+
 /// What a message says when a review of disputes only is given all the columns, not those it could not verify.
 const COLUMNS_CHANGED: &str = "The columns changed since your last review, so all of them are listed, not only the \
                                ones you could not verify.";
@@ -1084,13 +1108,7 @@ pub fn columns(e: &Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell, ite
             }
         }
         let acceptance = item.acceptance.clone().unwrap_or(Value::Null);
-        for a in acceptance.as_array().cloned().unwrap_or_default() {
-            cols.push(format!(
-                "Acceptance condition {}: {} Can it be checked; is the evidence there, does it come from the head to be merged, and does it hold? {ACCEPTANCE_PROOFS}",
-                a["id"].as_str().unwrap_or("?"),
-                a["condition"].as_str().unwrap_or_default()
-            ));
-        }
+        cols.extend(acceptance_columns(&acceptance, item.deliver == "report"));
         if item.deliver != "report" {
             cols.push("The research's judgment that the work stands: does its reason hold?".into());
             for (c, what) in [
@@ -1437,6 +1455,26 @@ mod tests {
                 assert!(!text.contains(project), "{project}: {text}");
             }
         }
+    }
+
+    // A change's column of an acceptance condition tells the review how to judge a job of the CI and a reading of the
+    // diff; a report's does not, since a report has no conditions table with such rows.
+    #[test]
+    fn only_a_changes_acceptance_column_tells_how_to_judge_ci_job_and_read_diff_rows() {
+        let acceptance = json!([{ "id": "A1", "by": "test", "condition": "It works." }]);
+        let change = acceptance_columns(&acceptance, false);
+        let report = acceptance_columns(&acceptance, true);
+        assert_eq!(change.len(), 1);
+        assert_eq!(report.len(), 1);
+        assert!(change[0].starts_with("Acceptance condition A1: It works."), "{}", change[0]);
+        assert!(change[0].ends_with(ACCEPTANCE_PROOFS), "{}", change[0]);
+        assert!(report[0].starts_with("Acceptance condition A1: It works."), "{}", report[0]);
+        assert!(
+            !report[0].contains("ci_job") && !report[0].contains("read_diff"),
+            "{}",
+            report[0]
+        );
+        assert!(acceptance_columns(&Value::Null, false).is_empty());
     }
 
     // The forms every return shares hold every tool and every role any cell has, and show a return's shape and the

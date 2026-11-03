@@ -1270,39 +1270,25 @@ fn conditions_problems(
             }
         }
     }
-    // A job or step several rows name is said once.
-    let once = |problems: &mut Problems, why: String| {
-        if !problems.texts().contains(&why) {
-            problems.push(why);
-        }
-    };
+    // A job or step several rows name is said once, as `push` keeps a problem word for word the same once.
     for r in rows.iter().filter(|r| r["how"] == "ci_job") {
         if ci.is_empty() {
-            once(
-                &mut problems,
-                "no CI run of this work has recorded its checks, so a ci_job row cannot name a job".to_string(),
-            );
+            problems.push("no CI run of this work has recorded its checks, so a ci_job row cannot name a job");
         } else {
             for job in strs(r.get("jobs")) {
                 if !ci.contains(&job) {
-                    once(
-                        &mut problems,
-                        format!(
-                            "the job {job} is not a check of any CI run of this work; the checks recorded are: {}",
-                            ci.join(", ")
-                        ),
-                    );
+                    problems.push(format!(
+                        "the job {job} is not a check of any CI run of this work; the checks recorded are: {}",
+                        ci.join(", ")
+                    ));
                 }
             }
         }
         for step in strs(r.get("steps")) {
             if step.trim().is_empty() || step.contains('\n') {
-                once(
-                    &mut problems,
-                    "a step names one command, written as one line of text".to_string(),
-                );
+                problems.push("a step names one command, written as one line of text");
             } else if let Err(why) = step_on_branch(&step) {
-                once(&mut problems, why);
+                problems.push(why);
             }
         }
     }

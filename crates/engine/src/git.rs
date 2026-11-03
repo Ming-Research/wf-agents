@@ -86,9 +86,36 @@ pub struct Changes {
     pub diverged: bool,
 }
 
-/// What happened on the branch from `base` to `head`: the single definition of "since" that the cells' inputs share.
-/// `main` is the name of the project's main branch, which the work's own files are told from main's by.
-pub fn changes_since(dir: &Path, main: &str, base: &str, head: &str) -> Result<Changes, String> {
+/// The commits of a branch from `base` to `head`, without the files: what an input needs that lists commits only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Log {
+    /// As [`Changes::commits`].
+    pub commits: Vec<Commit>,
+    /// As [`Changes::merges`].
+    pub merges: Vec<Commit>,
+    /// As [`Changes::diverged`].
+    pub diverged: bool,
+}
+
+/// The merges of main into the branch from `base` to `head`, newest first, and whether `base` is no ancestor of
+/// `head`: only the merges that took in a commit of the fetched main, which is what a reader setting aside what main
+/// brought needs, not a merge of anything else. Only the log is read, not the files.
+pub fn main_merges_since(dir: &Path, main: &str, base: &str, head: &str) -> Result<(Vec<Commit>, bool), String> {
+    let log = log_since(dir, base, head)?;
+    let tip = format!("origin/{main}");
+    let mut took = Vec::new();
+    for merge in log.merges {
+        // A merge's first parent is the branch; main is in what the others bring.
+        let parents = git(dir, &["rev-list", "--parents", "-n", "1", &merge.id])?;
+        if parents.split_whitespace().skip(2).any(|p| is_ancestor(dir, p, &tip)) {
+            took.push(merge);
+        }
+    }
+    Ok((took, log.diverged))
+}
+
+/// The commits from `base` to `head`, following first parents, newest first, with the merges among them marked.
+pub fn log_since(dir: &Path, base: &str, head: &str) -> Result<Log, String> {
     let log = git(
         dir,
         &[
@@ -112,7 +139,21 @@ pub fn changes_since(dir: &Path, main: &str, base: &str, head: &str) -> Result<C
         })
         .collect();
     let merges = commits.iter().filter(|c| c.merge).cloned().collect();
-    let diverged = !is_ancestor(dir, base, head);
+    Ok(Log {
+        commits,
+        merges,
+        diverged: !is_ancestor(dir, base, head),
+    })
+}
+
+/// What happened on the branch from `base` to `head`: the single definition of "since" that the cells' inputs share.
+/// `main` is the name of the project's main branch, which the work's own files are told from main's by.
+pub fn changes_since(dir: &Path, main: &str, base: &str, head: &str) -> Result<Changes, String> {
+    let Log {
+        commits,
+        merges,
+        diverged,
+    } = log_since(dir, base, head)?;
     let from = if diverged {
         git(dir, &["merge-base", base, head])?.trim().to_string()
     } else {

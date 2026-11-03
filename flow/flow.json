@@ -6184,7 +6184,7 @@
             }
           ],
           "prompt": [
-            "By the project's design goal, think it through again from first principles: what does the problem need at bottom, and does your solution make sense? Is there a better design: more elegant, with a better structure in the code; more complete, covering all it should; truer to the intent of the design, in line with the project's design goal, its constitution and its references? Think again in earnest; do not answer for the sake of answering. If there is, say what is better about it and what must change; if not, say which approaches you considered this time and why the present one is best. Ask one thing more: of the code this design adds, which parts run per event, per round, per work or per request? How much does each run do, and how does the cost grow when their number and the data they touch double? Answer it without measuring.",
+            "By the project's design goal, think it through again from first principles: what does the problem need at bottom, and does your solution make sense? Is there a better design: more elegant, with a better structure in the code; more complete, covering all it should; truer to the intent of the design, in line with the project's design goal, its constitution and its references? Think again in earnest; do not answer for the sake of answering. If there is, say what is better about it and what must change; if not, say which approaches you considered this time and why the present one is best. Ask one thing more: of the code this design adds, which parts run per event, per round, per work or per request? How much does each run do, and how does the cost grow when their number and the data they touch double? Answer it without measuring, in `why`, whichever way you go; a cost that grows more than the work needs is a better design to find (`found`).",
             "Go through the constitution article by article against this design, as one who wants to find the article it breaks, the articles it says it does not touch among them. A design that breaks one is found wanting, whatever it would cost to change."
           ],
           "out": [
@@ -7442,7 +7442,7 @@
             {
               "$ref": "conditions",
               "optional": true,
-              "desc": "Which test or measurement meets each acceptance condition. The first time, the whole table, one row per acceptance condition, none left out; at a re-check only the rows that changed, the engine merging them into the previous ones"
+              "desc": "Which test, measurement, CI job or reading of the diff meets each acceptance condition. The first time, the whole table, one row per acceptance condition, none left out; at a re-check only the rows that changed, the engine merging them into the previous ones"
             },
             {
               "name": "directions",
@@ -8238,7 +8238,7 @@
             },
             {
               "name": "The change",
-              "what": "What the change is, by commits the worktree has: main as fetched (`origin/<main>`, the pull request's base), the commit of main the branch was cut from or last took main in at, the head, and the git command that reads the change between them",
+              "what": "What the change is, by commits the worktree has: main as fetched (`origin/<main>`, the pull request's base), the commit of main the branch was cut from or last took main in at, the head, the merges of main into the branch since it was cut (an empty list if it never took main in), and the git command that reads the change between them",
               "from": [
                 {
                   "engine": "review_base"
