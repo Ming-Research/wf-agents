@@ -266,10 +266,6 @@ jobs:
         with:
           name: test-results
           path: ${{ runner.temp }}/test-results
-      - name: Print the results (probe, reverted)
-        if: ${{ !cancelled() }}
-        run: |
-          for f in "$RUNNER_TEMP"/test-results/*; do echo "===== $f"; cat "$f"; echo; done
 
   # The one check the engine reads, red whenever a job that ran is. A job that did not run is skipped: the lint on a
   # temporary branch of the code before a change, the tests when none are named.
