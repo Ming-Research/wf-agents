@@ -3816,10 +3816,7 @@ pub fn check(c: &checks::Ctx<'_>, name: &str, at: Option<&str>, v: Option<&Value
         "decision_words_hold" => decisions_hold(c, v),
         "learned_holds_no_decision" => {
             let text = v.and_then(Value::as_str).unwrap_or_default();
-            let lines: Vec<&str> = text
-                .lines()
-                .filter(|l| decisions::is_line(l))
-                .collect();
+            let lines: Vec<&str> = text.lines().filter(|l| decisions::is_line(l)).collect();
             if lines.is_empty() {
                 return Ok(());
             }
@@ -6187,7 +6184,12 @@ mod tests {
                 json!({ "kind": "fold_observations", "item": "new", "observations": [2] }),
             ),
             // A decision recorded in the item names it in its decision; a decision recorded in item 3 does not.
-            (5, 5, 9, json!({ "kind": "record_decision", "decision": { "item": "new" } })),
+            (
+                5,
+                5,
+                9,
+                json!({ "kind": "record_decision", "decision": { "item": "new" } }),
+            ),
             (6, 5, 9, json!({ "kind": "record_decision", "decision": { "item": 3 } })),
         ];
         let review = vec![
@@ -6231,13 +6233,22 @@ mod tests {
         })
         .unwrap();
         let edit = |part: &str, item: Value, text: &str| {
-            (1, 1, 1, json!({ "kind": "edit_item", "item": item, "part": part, "text": text }))
+            (
+                1,
+                1,
+                1,
+                json!({ "kind": "edit_item", "item": item, "part": part, "text": text }),
+            )
         };
         let rows = vec![
             // Written whole from the text the item had before the decision: it leaves the line out.
             edit("approach", json!(1), "Approach:\n- Do it differently."),
             // Keeps the line.
-            edit("approach", json!("#1"), &format!("Approach:\n- Do it.\n- More.\nDecisions:\n{line}")),
+            edit(
+                "approach",
+                json!("#1"),
+                &format!("Approach:\n- Do it.\n- More.\nDecisions:\n{line}"),
+            ),
             // Another part of the same item.
             edit("why", json!(1), "Because."),
             // An item the batch creates, named by its key.

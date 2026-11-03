@@ -760,16 +760,23 @@ mod tests {
         // An engineer's decision names the engineer as the one who wrote the reason.
         let e = resolve(db.conn(), "p", &d, "engineer", None).unwrap();
         assert!(
-            e.line.contains("Reason (engineer's, accepted by whoever spoke, not recorded)"),
+            e.line
+                .contains("Reason (engineer's, accepted by whoever spoke, not recorded)"),
             "{}",
             e.line
         );
         // The one who accepted the reason is the one the record says spoke: the owner, or a delegate.
-        for (matter, quote, accepted) in [(1, "No browser check.", "the owner"), (2, "Yes, do that.", "the delegate")] {
+        for (matter, quote, accepted) in [
+            (1, "No browser check.", "the owner"),
+            (2, "Yes, do that.", "the delegate"),
+        ] {
             let mut d = decision(&[("matter", matter, quote)]);
             d["reason_by"] = json!("writer");
             let line = resolve(db.conn(), "p", &d, "engineer", None).unwrap().line;
-            assert!(line.contains(&format!("(engineer's, accepted by {accepted})")), "{line}");
+            assert!(
+                line.contains(&format!("(engineer's, accepted by {accepted})")),
+                "{line}"
+            );
         }
     }
 
@@ -972,7 +979,10 @@ mod tests {
         let b = "Decision (2026-11-02, owner): B.";
         let absorbed = format!("Approach:\n- Other.\nDecisions:\n{a}\n{b}\n");
         // Nothing to carry: the text stands.
-        assert_eq!(carry("Approach:\n- Do it.", "Approach:\n- Other."), "Approach:\n- Do it.");
+        assert_eq!(
+            carry("Approach:\n- Do it.", "Approach:\n- Other."),
+            "Approach:\n- Do it."
+        );
         // The kept item has the first already: only the second is added, after it.
         assert_eq!(
             carry(&format!("Approach:\n- Do it.\nDecisions:\n{a}\nLearned:\nx"), &absorbed),
@@ -980,7 +990,10 @@ mod tests {
         );
         // The kept item has no head or text: both are made, in the order the absorbed item has them.
         assert_eq!(carry("", &absorbed), format!("Decisions:\n{a}\n{b}"));
-        assert_eq!(carry("Approach:\n- Do it.", &absorbed), format!("Approach:\n- Do it.\nDecisions:\n{a}\n{b}"));
+        assert_eq!(
+            carry("Approach:\n- Do it.", &absorbed),
+            format!("Approach:\n- Do it.\nDecisions:\n{a}\n{b}")
+        );
     }
 
     // A text that replaces an item's keeps its decisions: the lines letter for letter, in order, under their head; one

@@ -618,11 +618,8 @@ fn write_one(
                 let (kept, absorbed) = (approach_of(keep)?, approach_of(a)?);
                 let carried = crate::decisions::carry(&kept, &absorbed);
                 if carried != kept {
-                    tx.execute(
-                        "UPDATE items SET approach = ?2 WHERE id = ?1",
-                        params![keep, carried],
-                    )
-                    .map_err(sql)?;
+                    tx.execute("UPDATE items SET approach = ?2 WHERE id = ?1", params![keep, carried])
+                        .map_err(sql)?;
                 }
                 cancel(a, &format!("merged into item {keep}: {reason}"))?;
             }
@@ -957,10 +954,7 @@ mod tests {
     // head and in their order, each once, and the absorbed item keeps its own.
     #[test]
     fn a_merge_carries_the_decisions_of_the_absorbed_item_to_the_one_kept() {
-        let (a, b) = (
-            "Decision (2026-11-01, owner): A.",
-            "Decision (2026-11-02, owner): B.",
-        );
+        let (a, b) = ("Decision (2026-11-01, owner): A.", "Decision (2026-11-02, owner): B.");
         let mut db = Db::in_memory().unwrap();
         db.write(Actor::Architect, |tx| {
             for approach in [
@@ -992,7 +986,10 @@ mod tests {
             approach(1).unwrap(),
             format!("Approach:\n- Keep.\nDecisions:\n{a}\n{b}\nLearned:\nx")
         );
-        assert_eq!(approach(2).unwrap(), format!("Approach:\n- Gone.\nDecisions:\n{a}\n{b}"));
+        assert_eq!(
+            approach(2).unwrap(),
+            format!("Approach:\n- Gone.\nDecisions:\n{a}\n{b}")
+        );
         // The third had no text: it has the head and both lines.
         assert_eq!(approach(3).unwrap(), format!("Decisions:\n{a}\n{b}"));
     }
