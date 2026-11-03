@@ -55,9 +55,10 @@ pub fn own_changes(dir: &Path, main: &str, from: &str, to: &str) -> Result<Vec<S
 }
 
 /// The lines the work itself adds and removes at `rev`, against main as merged into `rev`, as the text of a diff with
-/// nothing in it that main's changes elsewhere move: no blob ids and no line numbers. What main does in another place
-/// of a file the work changed, or in a file the work did not, does not show in it; two commits have the same text
-/// exactly when the work's own lines are the same in both. The text is bytes, since a line that is not UTF-8 would
+/// nothing in it that main's changes elsewhere move: no blob ids and no line numbers, but the function name and one line
+/// of context around each change, which say where it is. What main does in another place of a file the work changed,
+/// or in a file the work did not, does not show in it; two commits have the same text exactly when the work's own
+/// lines are the same in both, in the same place (main changing the neighbours of the work's lines also counts). The text is bytes, since a line that is not UTF-8 would
 /// otherwise be read as another that is not.
 pub fn own_lines(dir: &Path, main: &str, rev: &str) -> Result<Vec<u8>, String> {
     let fork = main_merged_into(dir, rev, main)?;
@@ -72,7 +73,9 @@ pub fn own_lines(dir: &Path, main: &str, rev: &str) -> Result<Vec<u8>, String> {
         "--no-textconv",
         "--no-renames",
         "--binary",
-        "-U0",
+        // One line of context on each side says where in the file a line is written or removed, once the hunk's
+        // numbers are gone: the same line in another place has other neighbours.
+        "-U1",
         range.as_str(),
     ];
     let out = Command::new("git")
@@ -94,11 +97,26 @@ pub fn own_lines(dir: &Path, main: &str, rev: &str) -> Result<Vec<u8>, String> {
         if line.starts_with(b"index ") {
             continue;
         }
-        // A hunk's line numbers and the function name after them change with what main adds above.
-        text.extend_from_slice(if line.starts_with(b"@@") { &b"@@"[..] } else { line });
+        // A hunk's line numbers change with what main adds above; the function name after them stays, since it names
+        // the place the hunk is in, and it changes only if main changes that place (then the checks run again).
+        match hunk_function(line) {
+            Some(function) => {
+                text.extend_from_slice(b"@@");
+                text.extend_from_slice(function);
+            }
+            None => text.extend_from_slice(line),
+        }
         text.push(b'\n');
     }
     Ok(text)
+}
+
+/// What follows the line numbers of a hunk header (`@@ -1,2 +3,4 @@ fn name`): the space and the function name, or
+/// nothing. None for a line that is not a hunk header.
+fn hunk_function(line: &[u8]) -> Option<&[u8]> {
+    let numbers = line.strip_prefix(b"@@ -")?;
+    let end = numbers.windows(3).position(|w| w == b" @@")?;
+    Some(&numbers[end + 3..])
 }
 
 /// The files changed in the worktree against a commit, committed or not, untracked files included.
