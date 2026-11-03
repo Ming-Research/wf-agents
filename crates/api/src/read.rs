@@ -284,7 +284,11 @@ fn retrying(cell: Option<&CompiledCell>, rounds: &[Light], g: Option<&CompiledGr
         && !over
         && r.cell.as_deref() == Some(c.id.as_str())
         && kind.is_some_and(|k| {
-            section.failed.kinds.iter().any(|f| f.name == k && f.handle == Handle::Retry)
+            section
+                .failed
+                .kinds
+                .iter()
+                .any(|f| f.name == k && f.handle == Handle::Retry)
                 || section
                     .engine
                     .iter()
@@ -2863,9 +2867,8 @@ mod tests {
                     .unwrap(),
             )
         };
-        let failed = |s: &mut Setup, cell: &str, kind: &str| {
-            failed_with(s, cell, json!({ "kind": kind, "what": "x" }), None)
-        };
+        let failed =
+            |s: &mut Setup, cell: &str, kind: &str| failed_with(s, cell, json!({ "kind": kind, "what": "x" }), None);
         let read = |s: &mut Setup, cell: &str, kind: &str| {
             let (_, w) = failed(s, cell, kind);
             (w.state, w.waits)
@@ -2890,7 +2893,12 @@ mod tests {
         }
         // A work that is paused is not run again, whatever its last round was: it waits for nothing to retry.
         for kind in ["transient", "step_network"] {
-            let (_, w) = failed_with(&mut s, "R1", json!({ "kind": kind, "what": "x" }), Some("the owner paused it"));
+            let (_, w) = failed_with(
+                &mut s,
+                "R1",
+                json!({ "kind": kind, "what": "x" }),
+                Some("the owner paused it"),
+            );
             assert_eq!((w.state, w.waits), (WorkState::Paused, None), "{kind}, paused");
         }
         assert_eq!(read(&mut s, "R1", "offline"), (WorkState::Ready, None));
