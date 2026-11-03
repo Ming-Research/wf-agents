@@ -5740,14 +5740,18 @@ fn questions_of_engineers(e: &Engine) -> Vec<(bool, bool)> {
 }
 
 /// The engine of a test whose item's work asks its architect from adversarial testing (`T1`), a cell of the adversarial
-/// line, while words wait for the engineer's line: the work is put at `T1` once its implementation is done, `words`
-/// says the words to it, and the engine takes steps until the question's cell (`A2`) has had its first turn. Gives the
-/// engine, what it said and the work.
+/// line, while words wait for the engineer's line: the design chooses adversarial testing, so the work goes on to it
+/// after its implementation; when it stands at `T1`, `words` says the words to it, and the engine takes steps until the
+/// question's cell (`A2`) has had its first turn. Gives the engine, what it said and the work.
 fn t1_asks_with_words_waiting(
     s: &Setup,
     words: impl FnOnce(&mut Engine, i64),
 ) -> (Engine, Arc<Mutex<Vec<String>>>, i64) {
     let mut agents = scripts();
+    agents.insert(
+        "D11",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.adversarial", "needed")], Vec::new())),
+    );
     agents.insert("T1", asks_about_a_gap("The test paths do not name the page's tests."));
     let reply = json!({ "text": "Leave the page's tests out.", "why": "They are another work's." });
     agents.insert(
@@ -5755,13 +5759,10 @@ fn t1_asks_with_words_waiting(
         Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.reply", reply.clone())])),
     );
     let (mut e, said, item) = start(s, agents);
-    step_to(&mut e, item, "T7");
+    step_to(&mut e, item, "T1");
     let (work, _, _) = state(&e, item).unwrap();
-    // The step of choosing what runs next leaves a record of the plan, which adversarial testing is given.
-    e.step_work(work).unwrap();
-    move_to(&mut e, work, "T1");
     words(&mut e, work);
-    let asked = steps_until(&mut e, 10, |e| {
+    step_until(&mut e, item, &said, "the question to the architect", |e| {
         e.db.conn()
             .query_row(
                 "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'A2'",
@@ -5771,7 +5772,6 @@ fn t1_asks_with_words_waiting(
             .unwrap()
             > 0
     });
-    assert!(asked, "{}", said.lock().unwrap().join("\n"));
     (e, said, work)
 }
 
@@ -5809,11 +5809,11 @@ fn a_question_asked_from_another_line_is_not_withdrawn_for_words_waiting_for_the
 fn a_question_asked_from_another_line_is_not_withdrawn_for_a_cancelled_item_s_notice() {
     let s = setup("ask-off-line-cancelled");
     let (mut e, said, work) = t1_asks_with_words_waiting(&s, |e, work| {
-        // An item in no queue, which the notice names as the one cancelled.
+        // The item the notice names as cancelled, on which no work starts.
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
-                "INSERT INTO items (project, title, problem, why, deliver, level)
-                 VALUES ('p', 'Parse it', 'No parser.', 'Needed.', 'change', 'l')",
+                "INSERT INTO items (project, title, problem, why, deliver, level, cancelled)
+                 VALUES ('p', 'Parse it', 'No parser.', 'Needed.', 'change', 'l', 'Not needed.')",
                 [],
             )?;
             let cancelled = tx.last_insert_rowid();
