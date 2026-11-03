@@ -1495,6 +1495,13 @@
           "title": "Why this change",
           "type": "text",
           "desc": "Why, as the change's description says"
+        },
+        {
+          "name": "matter",
+          "title": "Matter it comes of",
+          "type": "int",
+          "desc": "Only when you picked others with the matter in hand: the number of the matter this change comes of, so that its reporter is told what became of it. Left out, it is the matter you picked",
+          "optional": true
         }
       ],
       "branches": [
@@ -1625,6 +1632,24 @@
               "name": "dependency",
               "title": "How it waits",
               "desc": "How it waits"
+            }
+          ]
+        },
+        {
+          "value": "remove_dependency",
+          "desc": "Make one item stop waiting for another: remove a dependency it has. Nobody is told, as nobody is when a dependency is made",
+          "fields": [
+            {
+              "name": "item",
+              "title": "Item",
+              "type": "text",
+              "desc": "Which item"
+            },
+            {
+              "name": "on",
+              "title": "No longer waits for",
+              "type": "text",
+              "desc": "The item it waits for now and will not wait for"
             }
           ]
         },
@@ -1937,6 +1962,13 @@
           "title": "Why",
           "type": "text",
           "desc": "Why, in a sentence"
+        },
+        {
+          "name": "matter",
+          "title": "Matter it comes of",
+          "type": "int",
+          "desc": "Only when you picked others with the matter in hand: the number of the matter this change comes of, so that its reporter is told what became of it. Left out, it is the matter you picked",
+          "optional": true
         }
       ],
       "branches": [
@@ -2153,6 +2185,13 @@
           "title": "Message",
           "type": "text",
           "desc": "What to say, in English: what it needs to know or do, and why"
+        },
+        {
+          "name": "matter",
+          "title": "Matter it comes of",
+          "type": "int",
+          "desc": "Only when you picked others with the matter in hand: the number of the matter this message comes of, so that its reporter is told it was forwarded. Left out, it is the matter you picked",
+          "optional": true
         }
       ]
     },
@@ -2208,6 +2247,74 @@
         }
       ],
       "optional": true
+    },
+    "finding_sure": {
+      "name": "sure",
+      "title": "How sure",
+      "type": "enum",
+      "desc": "How sure you are",
+      "values": [
+        [
+          "checked",
+          "You checked it: read it in the code or had it reproduced"
+        ],
+        [
+          "likely",
+          "It follows from what you read, and is not checked"
+        ],
+        [
+          "unsure",
+          "You could not tell"
+        ]
+      ]
+    },
+    "take_way": {
+      "name": "way",
+      "title": "Which way",
+      "type": "enum",
+      "desc": "Which way",
+      "values": [
+        [
+          "fold_in",
+          "An existing item takes it in"
+        ],
+        [
+          "move_up",
+          "An existing item takes it, moved up"
+        ],
+        [
+          "split_out",
+          "The urgent part is split out of an existing item"
+        ],
+        [
+          "new_item",
+          "A new item, now"
+        ],
+        [
+          "merged",
+          "The same observation is recorded already: reported once more"
+        ],
+        [
+          "new_observation",
+          "A new observation"
+        ],
+        [
+          "need_will_hit",
+          "Not recorded: a need that will certainly come hits it anyway"
+        ],
+        [
+          "forwarded",
+          "Another project's architect takes it: forwarded in messages"
+        ],
+        [
+          "nothing",
+          "Nothing to take in"
+        ],
+        [
+          "back_for_owner",
+          "Only for a matter picked with another: it needs the owner's word, so it is not taken in now but goes back to the queue on its own"
+        ]
+      ]
     },
     "search_form": {
       "name": "search",
@@ -3247,7 +3354,7 @@
       "merge": "Puts the PR in this repository's merge queue; at its turn, catches it up with main, runs the full CI and merges it. On a conflict or a red check, the PR leaves the queue; after its fix it joins the queue again at the end. A cancel or a start over asked before the merge call stops it: nothing merges. One asked after that call has begun comes too late: the merge stands.",
       "watch_main": "Watches main and the deployment after the merge. When main turns red it stops this repository's merge queue until the cause is clear, then checks three things mechanically: running again on the same commit, the table of known red checks, and the same check on main's commit before the merge.",
       "ask_architect": "Queues what is asked for the architect, starting a work of the architect when none runs; the engineer's work stops and waits without holding a slot. The architect answers with a reply, brought back unchanged.",
-      "ask_owner": "Puts what the architect asks before the owner, as an ask of the owner in the owner's interface, and notifies the owner; the ask holds only the matter of the path that asked, and the architect's work goes on. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again, to the cell that asked.",
+      "ask_owner": "Puts what the architect asks before the owner, as an ask of the owner in the owner's interface, and notifies the owner; the ask holds only the matter of the path that asked, and the architect's work goes on. The owner's chosen option or sentence goes back unchanged to the side that asked: for a held matter, when it is picked again, to the cell that asked. A matter that leads a group is held alone: the others fall apart from it as the cell asks (`dissolve_group`) and wait in the queue as any other.",
       "end_work": "Ends the work as every work ends, and keeps its branch. A work whose whole item went to sub-items ends here without merging, and its item is done once the sub-items are merged.",
       "wait_for_matter": "No work of the project's architect runs: the engine takes this cell's rows for each project whose architect runs none, without a round, and one that takes `due` gets a work of the architect's graph, on no item, which starts at the cell that row leads to. The work holds no slot, and one runs at a time for each project; once it ends, the project waits here again. What was said in the works' groups since the architect last read it is queued first (`queue_group_talk`).",
       "end_architect_work": "Ends the architect's work.",
@@ -3258,12 +3365,15 @@
     },
     "actions": {
       "answer_architect": "Sends the reply to the architect whose message this was, as a message in its queue.",
-      "answer_reporter": "Tells the work that handed in the matter, a side report or a question, in one line to its engineer that needs no answer, what became of it, so that it does not report it again: the observation recorded or reported once more, or the items that took it in, by number and title; for a side report of which nothing was recorded, why; for a question, only what its reply does not say. At once, or, when the round's item changes say it, once the batch is made; a work that ended is told nothing.",
-      "apply_batch": "Makes every item change of the batch but those the review drops, as the architect, in one transaction, logs each with its reason, and those dropped with why, sends the replies and the lines to the works that handed matters in that waited on them, and ends the review's session.",
-      "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review, a cancel of an item the batch creates cancelling that create out, so that the item is never made and the create, the changes that name its key and the cancel are dropped, saying so; changes to observations, actions and messages to other architects are made at once, and each is logged. A message sent on a matter of flow feedback is marked as flow feedback forwarded, which starts no work of an architect: the architect it goes to takes it in a work that started after it came.",
-      "apply_reviewed": "Makes the item changes the review found sound, leaves out those it drops, drops those it still finds to fix and logs them with what the review found, puts them to the owner in an ask that holds the matters they came from, sends the replies and the lines to the works that handed in the other matters that waited on them, and ends the review's session.",
+      "answer_reporter": "Tells the work that handed in the matter, a side report or a question, in one line to its engineer that needs no answer, what became of it, so that it does not report it again: the observation recorded or reported once more, or the items that took it in, by number and title; for a side report of which nothing was recorded, why; for a question, only what its reply does not say. At once, or, when the round's item changes say it, once the batch is made; a work that ended is told nothing. For a group, each matter of it is told on its own, from its own way (`with`) and the changes that name it: what became of one is never said to the reporter of another, and a matter with no item change of its own is told at once even when another matter of the group has some. A matter the cell took out of the group (`release_members`) is told nothing.",
+      "apply_effects": "Carries out the effects of an answer: item changes are collected into the batch for review, a cancel of an item the batch creates cancelling that create out, so that the item is never made and the create, the changes that name its key and the cancel are dropped, saying so; changes to observations, actions and messages to other architects are made at once, and each is logged. A change or a message names the matter of a group it comes of in its `matter`, and is made under that matter's name (an observation's source, an item change's matter); left out, it is the matter picked. A message sent on a matter of flow feedback is marked as flow feedback forwarded, which starts no work of an architect: the architect it goes to takes it in a work that started after it came.",
+      "apply_batch": "Makes every item change of the batch but those the review drops, as the architect, in one transaction, leaves out with why a change that cannot be made once the review's drops are left out (a dependency that would then close a cycle), logs each with its reason, and those dropped with why, sends the replies and the lines to the works that handed matters in that waited on them, and ends the review's session.",
+      "apply_reviewed": "Makes the item changes the review found sound, leaves out those it drops and a change that cannot be made once they are left out (a dependency that would then close a cycle), drops those it still finds to fix and logs them with what the review found, puts them to the owner in an ask that holds the matters they came from, sends the replies and the lines to the works that handed in the other matters that waited on them, and ends the review's session.",
       "close_asks": "Answers the work's open asks of the owner: no answer is needed, since the work ended.",
-      "close_matter": "Marks the matter picked as handled by this round.",
+      "close_matter": "Marks the matter picked as handled by this round, and with it every other matter of its group, if the pick named others to go with it: one round closes them all. A matter the cell took out of the group before (`release_members`) is not among them.",
+      "group_picked": "Makes the pick's `with` a group led by the matter picked: each matter named is marked as picked with it, so that the cells on the matter's path are given them all and one round of each answers for the group. Before that, any group left unhandled by a work that ended before it was handled falls apart.",
+      "dissolve_group": "When the cell asks the owner about the matter in hand and it leads a group, the group falls apart: the others are matters of the queue on their own again, to be picked as any other, and the matter in hand alone waits for the owner's answer.",
+      "release_members": "Takes out of the group each matter the cell's `with` gives the way `back_for_owner`, before the cell's other actions run, so that they find it no longer in the group: it is not closed and its reporter is told nothing, and it is a matter of the queue on its own again, to be picked as any other and to be put to the owner alone when it is taken in. The matter in hand and the others of the group are closed and answered as the cell's other actions say.",
       "close_pr": "Closes the work's pull request, when it never merged, saying only that its work ended without merging: why is in the owner's language, and a pull request is in English. A work taken over leaves it to the new work.",
       "deliver_answers": "Sends each answer back to the side that interjected: to the owner's conversation, as the agent's message, or to the architect's queue as a report of the kind answer; and records it on the work: those of the answers form, those a redirect carries, and a cell's own answer to the owner's words.",
       "end_sessions": "Ends the work's sessions.",
@@ -3306,7 +3416,7 @@
       "queue_group_talk": "Queues what was said in the groups of the project's works since its architect last read it, other than to it, as one matter of the kind group_talk, when there is such talk and no such matter is open: the owner's words there, and what the engineers told the owner, which the architect is to know as well. New talk joins the one open, whose material is worked out when it is handled. Like flow feedback, it starts no work of the architect: queued as the architect waits to start, a work picks it only when it came before that work started; queued at the end of a batch, the work that runs takes it.",
       "edit_notebook": "Writes each section of the notebook the round rewrote, whole, as the project's architect's notebook's latest version of it; the versions before stay, for the owner to look at.",
       "change_observations": "Makes each change to the project's observations a round hands in beside its own answer, at once, as an answer's effects make theirs.",
-      "go_on_at_second_cell": "Puts the matter in hand back at the head of the queue, to go on at its second cell (`H3` after `H2`, `H5` after `H4`, `P2` after `P1`).",
+      "go_on_at_second_cell": "Puts the matter in hand back at the head of the queue, to go on at its second cell (`H3` after `H2`, `H5` after `H4`, `P2` after `P1`). The matter that leads a group takes the others with it: they wait in the queue until it is taken again, and its second cell answers for all of them.",
       "post_open_questions": "Sends the design's open questions to the project's architect, each a matter of its own; the work does not wait.",
       "write_learned": "Adds the decisions the work made to its item's approach under `Decisions:`, each as the line the engine writes from the records it quotes, and what the work learned under `Learned:`, with the commits merged.",
       "collect_decisions": "Makes each decision the round hands in a change of the batch, of the kind record_decision, from the first matter of the owner's words of the batch it quotes: the engine reads the records it quotes, tells from them who decided and when, takes the words from them as they are and writes the line, which is kept with the change, so that the review reads what is written and the batch writes it once the review finds it sound."
@@ -3342,8 +3452,9 @@
       "design_card_disagreement_redirects": "When this round's interjections hold an answer to an open question that goes against the design the return is a redirect, not answers.",
       "constitution_covered": "There is exactly one row for each article of the project's constitution, in the constitution's order.",
       "policy_text_clean": "The policy quotes none of the owner's words; it names no cell of the flow, no item and no date the owner said something.",
-      "picked_pickable": "The matter picked is one of those that can be picked now.",
-      "effects_valid": "Every change and action holds: an item named is there, or made by an earlier change of the batch; a key is used once in the batch; an item created has its project (this one), title, problem, why, acceptance, level and deliverable; a split gives each acceptance condition to one new item at most; a dependency made is blocking or parallel; after the batch's dependencies and moves there is no cycle; an observation's tags are the project's; an observation merged into or closed is open; a merge that makes an observation no item took in yet reported three times or more is folded into an item by a change of the batch, which a change moves ahead, not last, unless that item's work runs; a work paused, resumed or interjected into is running; a message goes to another project's architect; no text of an item holds a line of a decision it did not hold, which only the cell that records decisions writes, and a text that replaces an item's approach keeps every line of the item's decisions, letter for letter, in their order, under their head.",
+      "picked_pickable": "The matter picked is one of those that can be picked now. Those picked with it (`with`) are at most 7, each named once, each one that can be picked now, a side report or an engineer's answer, and of the kind of the matter picked: a side report goes with side reports only, an answer with answers only.",
+      "group_answered": "A group's round answers for every matter of the group, once each, and for none outside it: `with` has an entry for each matter picked with the matter in hand, and none for the matter in hand, one outside the group or one named twice; with nothing picked with it, `with` is left out. At the cell that takes the group in, the matter an observation change, an item change or a message names is in the group too and is not one sent back (`back_for_owner`), and the matter in hand is not given that way.",
+      "effects_valid": "Every change and action holds: an item named is there, or made by an earlier change of the batch; a key is used once in the batch; an item created has its project (this one), title, problem, why, acceptance, level and deliverable; a split gives each acceptance condition to one new item at most; a dependency made is blocking or parallel; a dependency removed is one the items have then: stored, or made by an earlier change of the batch and not removed or cancelled away since; after the batch's dependencies and moves there is no cycle, counting a dependency a cancel takes away, which stays while a work on the item goes on; an observation's tags are the project's; an observation merged into or closed is open; a merge that makes an observation no item took in yet reported three times or more is folded into an item by a change of the batch, which a change moves ahead, not last, unless that item's work runs; a work paused, resumed or interjected into is running; a message goes to another project's architect; at a cell that answers for one matter, no change or message names another matter; no text of an item holds a line of a decision it did not hold, which only the cell that records decisions writes, and a text that replaces an item's approach keeps every line of the item's decisions, letter for letter, in their order, under their head.",
       "reply_fits_changes": "The reply names each sub-item and each item to wait for by its number or by the key a change of this round makes it under.",
       "review_covers_changes": "There is exactly one row for each change of the batch, by its number.",
       "changes_valid": "The revised changes hold, as effects_valid checks item changes, and each comes from a matter of this batch; each is a change or a decision, one of the two, and a decision holds as the check of decisions says it must.",
@@ -3378,13 +3489,13 @@
       "policy": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change.",
       "policy_signals": "The signals of the project's policy the engine measures, each with its numbers: a signal that names a measure of the numbers by its name.",
       "slots": "The machines' slots, which every project shares: how many there are, used and free, and how many items are ready; and whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run's cause stops every work.",
-      "queue": "The project's queue: the numbers of the matters that can be picked now, and each matter with its kind, item, who waits and since when, and what it is; those held by an ask; whether new starts are held to set things straight.",
+      "queue": "The project's queue: the numbers of the matters that can be picked now, and each matter with its kind, item, who waits and since when, and what it is, and for a side report or an engineer's answer an excerpt of its text (its first 400 characters, cut at a word); those held by an ask; whether new starts are held to set things straight.",
       "batch": "The batch so far: the numbers of the matters handled, and each with how it ended; its item changes, those collected so far each whole with the key of an item it creates, made only once the review finds them sound, and those made or dropped; and whether a hold to set things straight was released.",
-      "matter": "The matter picked, with its material by its kind, and, for a question whose reply was not sent since an item it named was not made, that reply, the items it named that were made and why each other one was not.",
-      "matter_items": "The items and works the matter picked concerns, in full.",
+      "matter": "The matter picked, with its material by its kind, and, for a question whose reply was not sent since an item it named was not made, that reply, the items it named that were made and why each other one was not; for a group, `with` holds each of the other matters of the group in the same way.",
+      "matter_items": "The items and works the matter picked concerns, in full; for a group, those of every matter of it.",
       "item_log": "The architect's recent log entries on the item the matter concerns.",
       "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
-      "before": "What the cell before this one on the matter's path answered of it, as that round handed it in.",
+      "before": "What the cell before this one on the matter's path answered of it, as that round handed it in; for a group, its answer for the other matters of the group too, as the same round handed them in (`with`).",
       "owner_answer": "The owner's answer to what was asked about the matter picked, when it comes back with one.",
       "cross_project": "The dependencies between the project's items and other projects' items, each blocking or parallel.",
       "batch_changes": "The item changes of the batch, numbered, each with its reason and the matter it came from.",
@@ -3944,6 +4055,15 @@
         "observations"
       ],
       "go_on_at_second_cell": [
+        "architect_queue"
+      ],
+      "group_picked": [
+        "architect_queue"
+      ],
+      "dissolve_group": [
+        "architect_queue"
+      ],
+      "release_members": [
         "architect_queue"
       ],
       "post_open_questions": [
@@ -12848,6 +12968,9 @@
             "desc": "What only the owner can decide or tell: a want, a permission, a decision not yours",
             "node": "A3",
             "row": "ask_owner",
+            "do": [
+              "dissolve_group"
+            ],
             "fields": [
               {
                 "name": "question",
@@ -13806,7 +13929,7 @@
             },
             {
               "name": "The queue",
-              "what": "Your queue: the numbers of the matters that can be picked now; each matter, with its kind, the item it concerns, who waits for it and since when, and what it is in a sentence; those held for the owner's answer, listed as held; and whether new starts are held to set things straight",
+              "what": "Your queue: the numbers of the matters that can be picked now; each matter, with its kind, the item it concerns, who waits for it and since when, and what it is in a sentence, and for a side report or an engineer's answer an excerpt of its text (at most its first 400 characters, cut at a word); those held for the owner's answer, listed as held; and whether new starts are held to set things straight",
               "from": [
                 {
                   "engine": "queue"
@@ -14682,7 +14805,7 @@
           "inputs": [
             {
               "name": "The queue",
-              "what": "Your queue: the numbers of the matters that can be picked now; each matter, with its kind, the item it concerns, who waits for it and since when, and what it is in a sentence; those held for the owner's answer, listed as held; and whether new starts are held to set things straight",
+              "what": "Your queue: the numbers of the matters that can be picked now; each matter, with its kind, the item it concerns, who waits for it and since when, and what it is in a sentence, and for a side report or an engineer's answer an excerpt of its text (at most its first 400 characters, cut at a word); those held for the owner's answer, listed as held; and whether new starts are held to set things straight",
               "from": [
                 {
                   "engine": "queue"
@@ -14761,7 +14884,8 @@
           ],
           "prompt": [
             "This round answers one thing only: which matter to take next. Rank the matters that can be picked by the constitution and the policy, not by when they came: an agent stopped waiting loses every minute it waits, so count it; while new starts are held to set things straight, the matters that set them straight come first.",
-            "Pick one by its number, and say why it, and why not the one you rank after it."
+            "Pick one by its number, and say why it, and why not the one you rank after it.",
+            "When the matter you pick is a side report or an engineer's answer, others of the same kind that can be picked and that are about the same thing (the same item, topic or kind of finding, as their excerpts show) go with it in `with`, at most 7: one round of reading and one of taking in then answer for the whole group, each matter with a finding and a way of its own. Group only what the excerpts show to be about one thing and that you would rank together; a side report is never grouped with an answer, and every other kind of matter (flow feedback, what to do next after a report, a fault, a question) is picked alone."
           ],
           "out": [
             {
@@ -14781,6 +14905,18 @@
                   "title": "Why this one",
                   "type": "text",
                   "desc": "Why it, and why not the one ranked after it"
+                },
+                {
+                  "name": "with",
+                  "title": "Picked with it",
+                  "type": "list",
+                  "desc": "Only for a side report or an engineer's answer: the others of its kind, side reports with a side report and answers with an answer, that are about the same thing and that you take in one go with it, at most 7. Each is read, judged and answered for on its own",
+                  "item": {
+                    "type": "int",
+                    "desc": "The number of one that can be picked"
+                  },
+                  "optional": true,
+                  "min": 1
                 }
               ]
             },
@@ -14821,6 +14957,10 @@
             "policy_scope"
           ],
           "always": [
+            {
+              "at": "pick",
+              "do": "group_picked"
+            },
             {
               "at": "notebook",
               "do": "edit_notebook"
@@ -15854,7 +15994,7 @@
           "inputs": [
             {
               "name": "The report",
-              "what": "The report and where it came from: its text as written, the work, the item, and the line and cell that handed it in, whether it is urgent; for what to do next after a report, the report's paths and the commit that merged it; for flow feedback, what each cell's rounds said, by cell, and the project that is wf-agents; for a fault of wf-agents forwarded to you, the notice the owner was told with its kind, the engine's evidence as it stands now (the cache misses it holds, or the ask a flow anomaly put, with its answer) and who forwarded it; for the side reports handed in before you ran, each text once by its work and cell, with how many times and in which rounds, and whether that work goes on, merged, is done, ended or its item was cancelled",
+              "what": "The report and where it came from: its text as written, the work, the item, and the line and cell that handed it in, whether it is urgent; for what to do next after a report, the report's paths and the commit that merged it; for flow feedback, what each cell's rounds said, by cell, and the project that is wf-agents; for a fault of wf-agents forwarded to you, the notice the owner was told with its kind, the engine's evidence as it stands now (the cache misses it holds, or the ask a flow anomaly put, with its answer) and who forwarded it; for the side reports handed in before you ran, each text once by its work and cell, with how many times and in which rounds, and whether that work goes on, merged, is done, ended or its item was cancelled; when you picked others with it, `with` holds each of them, its matter number and its material as the report is given",
               "from": [
                 {
                   "engine": "matter"
@@ -15932,7 +16072,8 @@
             }
           ],
           "prompt": [
-            "This round answers one thing only: what this report really is, on what grounds, and how sure you are. Read the code, or have it reproduced with tools, when the report alone does not settle it. Do not think about what to do yet."
+            "This round answers one thing only: what this report really is, on what grounds, and how sure you are. Read the code, or have it reproduced with tools, when the report alone does not settle it. Do not think about what to do yet.",
+            "When you picked others with the matter, the report's `with` holds them: `finding` is for the matter you picked, and `with` has one finding for each of the others, by its matter number. Read each in full and judge it on its own: matters that look alike may differ in what they are, how sure you are and what they mean for the item, so never copy one finding to another."
           ],
           "out": [
             {
@@ -15954,26 +16095,43 @@
                   "desc": "On what grounds: what you read or ran"
                 },
                 {
-                  "name": "sure",
-                  "title": "How sure",
-                  "type": "enum",
-                  "desc": "How sure you are",
-                  "values": [
-                    [
-                      "checked",
-                      "You checked it: read it in the code or had it reproduced"
-                    ],
-                    [
-                      "likely",
-                      "It follows from what you read, and is not checked"
-                    ],
-                    [
-                      "unsure",
-                      "You could not tell"
-                    ]
-                  ]
+                  "$ref": "finding_sure"
                 }
               ]
+            },
+            {
+              "name": "with",
+              "title": "What the others are",
+              "type": "list",
+              "desc": "Only when you picked others with the matter: one entry for each of them, none left out, by its matter number, with what it really is, the grounds and how sure you are of it, as `finding` says for the matter you picked. Each is read and judged on its own",
+              "item": {
+                "type": "obj",
+                "fields": [
+                  {
+                    "name": "matter",
+                    "title": "Matter",
+                    "type": "int",
+                    "desc": "Its number: one of those you picked with the matter"
+                  },
+                  {
+                    "name": "what",
+                    "title": "What it really is",
+                    "type": "text",
+                    "desc": "What it really is"
+                  },
+                  {
+                    "name": "grounds",
+                    "title": "Grounds",
+                    "type": "text",
+                    "desc": "On what grounds: what you read or ran"
+                  },
+                  {
+                    "$ref": "finding_sure"
+                  }
+                ]
+              },
+              "optional": true,
+              "min": 1
             },
             {
               "$ref": "notebook"
@@ -16044,7 +16202,8 @@
             ]
           },
           "shown": [
-            "finding"
+            "finding",
+            "with"
           ],
           "always": [
             {
@@ -16053,6 +16212,10 @@
             }
           ],
           "checks": [
+            {
+              "at": "with",
+              "check": "group_answered"
+            },
             {
               "at": "notebook",
               "check": "notebook_fits"
@@ -16068,7 +16231,7 @@
           "inputs": [
             {
               "name": "What the report is",
-              "what": "What you found the report is",
+              "what": "What you found the report is; when you picked others with it, what you found each of them is too, as `with`, by its matter number",
               "from": [
                 {
                   "engine": "before"
@@ -16174,7 +16337,9 @@
           ],
           "prompt": [
             "This round takes the report in, in this order. Can an existing item take it, because it covers it or needs it: fold it in, widening the item's scope or adding to its acceptance; if it is urgent and that item will not come soon enough, move the item up, or split the urgent part out. If no item takes it and it is urgent (it blocks a running work, harms main, touches security or data), make a new item now. Otherwise it is an observation: search for the same one first and merge into it, as reported once more; if some need that will certainly come will hit it anyway, record nothing and name that need; else record a new one with tags from the set. A merge that makes an observation reported three times makes it work: fold it into an item that covers it, or a new one, and move that item ahead.",
-            "Close the outdated observations you meet on the way, saying why. Do it all in effects."
+            "Close the outdated observations you meet on the way, saying why. Do it all in effects.",
+            "When you picked others with the matter, `take` is for the matter you picked and `with` has one way for each of the others, by its matter number. Take each in on its own finding, as if it were alone: an observation change, an item change or a message to another architect that comes of one of the others names it in `matter`, and one of the matter you picked leaves `matter` out. Two matters that come to one observation or item are taken in by one change each, so that each reporter is told what became of its own report.",
+            "Use the way `back_for_owner` only for one of the others, when it needs the owner to decide and the rest can be decided now: say in its `why` what the owner must decide. It is then not taken in this round: it is not closed, its reporter is told nothing, no change names it, and it goes back to the queue on its own, to be put to the owner when it is taken in alone. The matter you picked never takes this way: if it needs the owner, put the question to the owner instead, and the others go back to the queue."
           ],
           "out": [
             {
@@ -16184,48 +16349,7 @@
               "desc": "How it is taken in",
               "fields": [
                 {
-                  "name": "way",
-                  "title": "Which way",
-                  "type": "enum",
-                  "desc": "Which way",
-                  "values": [
-                    [
-                      "fold_in",
-                      "An existing item takes it in"
-                    ],
-                    [
-                      "move_up",
-                      "An existing item takes it, moved up"
-                    ],
-                    [
-                      "split_out",
-                      "The urgent part is split out of an existing item"
-                    ],
-                    [
-                      "new_item",
-                      "A new item, now"
-                    ],
-                    [
-                      "merged",
-                      "The same observation is recorded already: reported once more"
-                    ],
-                    [
-                      "new_observation",
-                      "A new observation"
-                    ],
-                    [
-                      "need_will_hit",
-                      "Not recorded: a need that will certainly come hits it anyway"
-                    ],
-                    [
-                      "forwarded",
-                      "Another project's architect takes it: forwarded in messages"
-                    ],
-                    [
-                      "nothing",
-                      "Nothing to take in"
-                    ]
-                  ]
+                  "$ref": "take_way"
                 },
                 {
                   "name": "why",
@@ -16234,6 +16358,34 @@
                   "desc": "Why this way; for need_will_hit, which need"
                 }
               ]
+            },
+            {
+              "name": "with",
+              "title": "How the others are taken in",
+              "type": "list",
+              "desc": "Only when you picked others with the matter: one entry for each of them, none left out, by its matter number, with the way it is taken in and why, as `take` says for the matter you picked. Each is judged on its own, and its effects name it in their `matter`",
+              "item": {
+                "type": "obj",
+                "fields": [
+                  {
+                    "name": "matter",
+                    "title": "Matter",
+                    "type": "int",
+                    "desc": "Its number: one of those you picked with the matter"
+                  },
+                  {
+                    "$ref": "take_way"
+                  },
+                  {
+                    "name": "why",
+                    "title": "Why",
+                    "type": "text",
+                    "desc": "Why this way; for need_will_hit, which need"
+                  }
+                ]
+              },
+              "optional": true,
+              "min": 1
             },
             {
               "$ref": "arch_effects"
@@ -16306,6 +16458,10 @@
           },
           "always": [
             {
+              "at": "with",
+              "do": "release_members"
+            },
+            {
               "at": "effects",
               "do": "apply_effects"
             },
@@ -16320,6 +16476,10 @@
           ],
           "checks": [
             {
+              "at": "with",
+              "check": "group_answered"
+            },
+            {
               "at": "effects",
               "check": "effects_valid"
             },
@@ -16329,7 +16489,8 @@
             }
           ],
           "shown": [
-            "take"
+            "take",
+            "with"
           ]
         },
         {

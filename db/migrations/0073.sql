@@ -1,10 +1,10 @@
--- Takes a version 71 database to version 72: an item says the route its works go, normal or the light route of a bug
+-- Takes a version 72 database to version 73: an item says the route its works go, normal or the light route of a bug
 -- fix or a feature, which only an item that delivers a change goes; every item there is goes the normal route. The
 -- items' description says who reads it, and that a plan on the light route locks the acceptance as a design does, so
 -- their table is made afresh with its rows; the view of the item as its creator wrote it gives the route too. Each
 -- statement below that defines something is written exactly as db/schema.sql writes it.
 
-CREATE TABLE items_version_71 AS SELECT * FROM items;
+CREATE TABLE items_version_72 AS SELECT * FROM items;
 DROP TABLE items;
 
 CREATE TABLE items (
@@ -84,8 +84,8 @@ INSERT INTO items (
 SELECT
   id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_work, acceptance_round, cancelled,
   imported_from, imported_branch, imported_pr, wanted, held, rank
-FROM items_version_71;
-DROP TABLE items_version_71;
+FROM items_version_72;
+DROP TABLE items_version_72;
 
 DROP VIEW item_body;
 

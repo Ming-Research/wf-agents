@@ -844,6 +844,16 @@ CREATE TABLE architect_matters (
   -- otherwise, and again once it is closed or a cell on its path asks the owner about it. Read by: the queue, which
   -- takes it again before any other matter but the owner's words, a reply and the waits; the engine, which routes it.
   goes_on_at TEXT,
+  -- For a side report or an engineer's answer the architect picked together with others of its kind in one pick (the
+  -- pick's `with`), the matter that leads the group: the one that was picked. NULL for a matter picked alone, and for
+  -- the lead itself. A group is its lead and the matters not handled whose group_lead is the lead; the lead's cells
+  -- answer for each of them, and one round closes them all. It is cleared for the matters of a group when the lead is
+  -- parked for the owner's reply (the group falls apart, each goes its own way), for a member the round that takes the
+  -- group in gives the way back_for_owner (it needs the owner, so it goes back to the queue on its own while the rest
+  -- are handled) and for any not handled when the next pick is made (a group left by a work that ended before it was
+  -- handled); it stays on a matter handled, saying with which others it was handled. Read by: the engine, which gives the lead's cells each matter of the group, closes
+  -- them together and tells each one's reporter what became of it.
+  group_lead INTEGER REFERENCES architect_matters(id),
   -- The architect's reply to an engineer's question or failure, JSON; NULL until it replied. The owner's answer in the
   -- work's group to a question the architect holds is the reply too, said by the owner (by), with who the caller
   -- declared to speak (speaker, owner or delegate). Read by: the engine, which takes it back unchanged to the work that
