@@ -28,6 +28,15 @@ const LONG: usize = 20_000;
 /// the tests to run leaves them alone on push, and runs on one only as ci_before asks it to.
 const BEFORE: &str = "wf-agents-before";
 
+/// Where the temporary refs `measure` pushes the code to measure to are: the fast CI leaves them alone on push, and a
+/// project's measurement workflow runs on one only as `measure` asks it to.
+const MEASURE: &str = "wf-agents-measure";
+
+/// What `measure` refuses with when the project's configuration lists no measurement workflow.
+const NO_MEASURE: &str = "This project's configuration lists no measurement workflow (ci.measure), so measure does \
+    not run. Do not wait for it: where your answer has a measure field, answer not_measured and say in why how you \
+    judged without a measurement.";
+
 fn sql(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -58,9 +67,10 @@ fn attempts(
             Ok(v) => v.clone(),
             Err(x) => json!({ "failed": { "kind": x.kind, "what": x.what } }),
         };
-        let files: Vec<String> = result
-            .pointer("/files")
-            .and_then(Value::as_array)
+        // The files a tool kept: its result's `files`, or, for a tool whose result is a `push`, that one's.
+        let files: Vec<String> = ["/files", "/push/files"]
+            .iter()
+            .find_map(|at| result.pointer(at).and_then(Value::as_array))
             .map(|fs| fs.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
             .unwrap_or_default();
         let _ = e.db.conn().execute(
@@ -155,6 +165,39 @@ pub fn words(line: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+/// The flags that make a gh `api` request write or take its request from elsewhere; the tool refuses a request that has
+/// one, and the description of the gh tool in the flow names each of them.
+const API_WRITES: [&str; 7] = ["-X", "--method", "-f", "-F", "--field", "--raw-field", "--input"];
+
+/// The short flags of gh `api` that take a value, which in a group of short flags (`-iXPOST`) end it: the rest of the
+/// group is the value.
+const API_SHORT_WITH_VALUE: &str = "FfHXpqt";
+
+/// Whether an argument of gh `api` is one of the [`API_WRITES`] as gh reads it: a long flag by itself or with `=` and
+/// its value; a short flag at the start of the argument or in a group of short flags, with its value attached or not
+/// (`-XPOST`, `-fname=value`, `-iXPOST`).
+fn api_write(arg: &str) -> bool {
+    if let Some(long) = arg.strip_prefix("--") {
+        let name = long.split('=').next().unwrap_or_default();
+        return API_WRITES.iter().any(|x| x.strip_prefix("--") == Some(name));
+    }
+    let Some(shorts) = arg.strip_prefix('-') else {
+        return false;
+    };
+    for c in shorts.chars() {
+        if API_WRITES
+            .iter()
+            .any(|x| x.strip_prefix('-').is_some_and(|s| s.chars().eq([c])))
+        {
+            return true;
+        }
+        if API_SHORT_WITH_VALUE.contains(c) {
+            break;
+        }
+    }
+    false
+}
+
 /// Why a gh command may not run, or none when it may: it must start with an entry of the allow list, and `api` may
 /// only read.
 pub fn gh_refusal(allow: &[String], args: &[String]) -> Option<String> {
@@ -172,14 +215,10 @@ pub fn gh_refusal(allow: &[String], args: &[String]) -> Option<String> {
             allow.join(", ")
         ));
     }
-    if args.first().is_some_and(|a| a == "api") {
-        let writes = ["-X", "--method", "-f", "-F", "--field", "--raw-field", "--input"];
-        if let Some(w) = args
-            .iter()
-            .find(|a| writes.iter().any(|x| a == x || a.starts_with(&format!("{x}="))))
-        {
-            return Some(format!("gh api may only read: {w} makes it write"));
-        }
+    if args.first().is_some_and(|a| a == "api")
+        && let Some(w) = args.iter().skip(1).find(|a| api_write(a))
+    {
+        return Some(format!("gh api may only read: {w} makes it write"));
     }
     None
 }
@@ -444,10 +483,7 @@ pub fn run_tools(
         let got = match (tool.as_str(), item.zip(project.as_ref())) {
             ("ci", Some((item, project))) => ci(e, w, project, item, round, req, &mut pushed, &pr),
             ("ci_before", Some((_, project))) => ci_before(e, w, project, round, n, req, pushed.as_deref()),
-            ("measure", _) => Ok(json!({ "push": {
-                "verdict": "refused",
-                "why": "This version of the engine has no measurement workflow; measure does not run"
-            } })),
+            ("measure", Some((_, project))) => measure(e, w, project, round, n, req, pushed.as_deref()),
             ("gh", _) => gh(e, w, project.as_ref(), round, n, req),
             ("query", _) => query(e, round, n, req),
             (other, _) => Ok(json!({ "error": format!("no such tool for this work: {other}") })),
@@ -714,6 +750,15 @@ fn ci_before(
             None => Ok(()),
         };
         let ran = dispatched.and_then(|()| e.github().checks(&repo(project), &commit, &project.ci.fast));
+        // GitHub refused the request itself: trying again cannot help, and the engineer is told what GitHub said.
+        if let Err(f) = &ran
+            && f.kind == "rejected"
+        {
+            let _ = hub::delete_ref(&wt, &refname);
+            return Ok(json!({ "ran": { "verdict": "refused", "why": format!(
+                "GitHub refused to run {}: {}", project.ci.fast, f.what
+            ) } }));
+        }
         let logs: Vec<Result<String, String>> = ran
             .iter()
             .flatten()
@@ -732,6 +777,225 @@ fn ci_before(
             "tests": test_results(&tests, &logs),
         } }))
     })
+}
+
+/// What a measure request asks for: a workflow the project lists, and the inputs given to it, each as its name and its
+/// value.
+type MeasureAsked<'a> = (&'a config::MeasureWorkflow, Vec<(String, String)>);
+
+/// The workflow a measure request asks for among those the project lists, with its inputs as `name=value` lines taken
+/// apart; or why the request cannot run: the project lists no workflow, it does not list this one, or an input is not
+/// one the workflow takes, is given twice or is not a `name=value` line.
+fn measure_request<'a>(listed: &'a [config::MeasureWorkflow], req: &Value) -> Result<MeasureAsked<'a>, String> {
+    if listed.is_empty() {
+        return Err(NO_MEASURE.to_string());
+    }
+    let asked = req["workflow"].as_str().unwrap_or_default().trim();
+    let Some(wf) = listed.iter().find(|m| m.workflow == asked) else {
+        let names: Vec<&str> = listed.iter().map(|m| m.workflow.as_str()).collect();
+        return Err(format!(
+            "{asked:?} is not a measurement workflow of this project (ci.measure); they are: {}",
+            names.join(", ")
+        ));
+    };
+    let takes = if wf.inputs.is_empty() {
+        "it takes no input".to_string()
+    } else {
+        format!("it takes: {}", wf.inputs.join(", "))
+    };
+    let mut inputs: Vec<(String, String)> = Vec::new();
+    for line in req["inputs"].as_str().unwrap_or_default().lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Some((name, value)) = line.split_once('=') else {
+            return Err(format!(
+                "The input line {line:?} is not name=value; give one input on each line, and a value on one line"
+            ));
+        };
+        let name = name.trim();
+        if !wf.inputs.iter().any(|i| i == name) {
+            return Err(format!("{name:?} is not an input of {}; {takes}", wf.workflow));
+        }
+        if inputs.iter().any(|(n, _)| n == name) {
+            return Err(format!("The input {name} is given twice"));
+        }
+        inputs.push((name.to_string(), value.trim().to_string()));
+    }
+    Ok((wf, inputs))
+}
+
+/// Writes a file, and the directories above it.
+fn save_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, bytes)
+}
+
+/// What a finished measurement run left, saved in a directory under the data directory, where the engineer's tools read
+/// it: the log of each of its jobs, and, when the workflow names an artifact it uploads, the files of that. Gives the
+/// paths saved, and what could not be fetched or written.
+fn keep_measurement(
+    github: &dyn hub::GitHub,
+    dir: &Path,
+    repo: &str,
+    artifact: Option<&str>,
+    checks: &[CheckRun],
+) -> (Vec<String>, Vec<String>) {
+    let (mut kept, mut missed) = (Vec::new(), Vec::new());
+    for (i, c) in checks.iter().enumerate() {
+        let name: String = c
+            .name
+            .chars()
+            .map(|x| if x.is_ascii_alphanumeric() { x } else { '-' })
+            .collect();
+        let path = dir.join(format!("job-{}-{name}.log", i + 1));
+        match github.job_log(repo, c) {
+            Ok(log) => match save_file(&path, hub::clean_log(&log).as_bytes()) {
+                Ok(()) => kept.push(path.display().to_string()),
+                Err(x) => missed.push(format!("the log of {} could not be saved: {x}", c.name)),
+            },
+            Err(f) => missed.push(format!("the log of {} could not be fetched: {}", c.name, f.what)),
+        }
+    }
+    // Every job of a run belongs to the run whose artifact it is.
+    if let (Some(name), Some(c)) = (artifact, checks.first()) {
+        match github.artifact(repo, c, name) {
+            Ok(Some(files)) => {
+                for (rel, bytes) in files {
+                    let at = Path::new(&rel);
+                    if !at.components().all(|x| matches!(x, std::path::Component::Normal(_))) {
+                        missed.push(format!("{rel} of the artifact {name} is not a path under it"));
+                        continue;
+                    }
+                    let path = dir.join(format!("artifact-{name}")).join(at);
+                    match save_file(&path, &bytes) {
+                        Ok(()) => kept.push(path.display().to_string()),
+                        Err(x) => missed.push(format!("{rel} of the artifact {name} could not be saved: {x}")),
+                    }
+                }
+            }
+            Ok(None) => missed.push(format!("the run uploaded no artifact {name}")),
+            Err(f) => missed.push(format!("the artifact {name} could not be fetched: {}", f.what)),
+        }
+    }
+    (kept, missed)
+}
+
+/// Runs a measurement workflow of the project, by hand, on the code the engineer handed in, and gives its logs and its
+/// artifact. The code goes to a temporary ref as a commit of its own, so that the run found by the commit is this
+/// one's and not an earlier measurement of the same head, and no push of the work's branch is made or needed. A refusal
+/// is a result, and every request, refused or not, is a row of tool_runs, which is what the checks and the views of a
+/// work's measurements read. A workflow that ends red has run: `ok` says it did not run to the end.
+fn measure(
+    e: &mut Engine,
+    w: &Work,
+    project: &config::Project,
+    round: RoundId,
+    n: usize,
+    req: &Value,
+    pushed: Option<&str>,
+) -> Result<Value, (Failure, String)> {
+    let wt = w
+        .worktree
+        .clone()
+        .ok_or_else(|| (Failure::other("the work has no worktree"), String::new()))?;
+    let head = req["head"].as_str().unwrap_or_default();
+    let asked = measure_request(&project.ci.measure, req).and_then(|asked| {
+        match push_refusal(&wt, head, pushed, &project.main) {
+            Some(why) => Err(why),
+            None => Ok(asked),
+        }
+    });
+    let (wf, inputs) = match asked {
+        Ok(asked) => asked,
+        Err(why) => {
+            return attempts(e, round, "measure", req, |_| {
+                Ok(json!({ "push": { "verdict": "refused", "why": why } }))
+            });
+        }
+    };
+    let sha = git::resolve(&wt, head).unwrap_or_default();
+    let branch = format!("{MEASURE}/{}-{}-{n}", round.work, round.n);
+    let refname = format!("refs/heads/{branch}");
+    let inputs: Vec<(&str, &str)> = inputs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    // A try again must not start another measurement, which takes as long as the workflow does: the commit is made
+    // once, and once the workflow has been dispatched a try again only waits for its run again.
+    let mut commit: Option<String> = None;
+    let mut dispatched = false;
+    let got = attempts(e, round, "measure", req, |e| {
+        let at = match commit.clone() {
+            Some(at) => at,
+            None => {
+                let message = format!("Measurement of {sha} for round {round}, request {n}, at {}", db::now());
+                let at = git::commit_over(&wt, &sha, &message).map_err(Failure::other)?;
+                commit = Some(at.clone());
+                at
+            }
+        };
+        let ran = if dispatched {
+            e.github().checks(&repo(project), &at, &wf.workflow)
+        } else {
+            hub::push(&wt, &at, &refname, true)
+                .and_then(|()| e.github().dispatch(&repo(project), &wf.workflow, &branch, &inputs))
+                .and_then(|()| {
+                    dispatched = true;
+                    e.github().checks(&repo(project), &at, &wf.workflow)
+                })
+        };
+        let checks = match ran {
+            Ok(checks) => checks,
+            // GitHub refused the request itself, such as an input the workflow requires and the request lacks: trying
+            // again cannot help, and the engineer, who can change the request, is told what GitHub said.
+            Err(f) if f.kind == "rejected" => {
+                return Ok(json!({ "push": { "verdict": "refused", "why": format!(
+                    "GitHub refused to run {}: {}", wf.workflow, f.what
+                ) } }));
+            }
+            // A run that did not start or did not finish in time is not tried again, which would start another and
+            // wait as long again; it is a measurement that did not run to the end, and says why.
+            Err(f) if matches!(f.kind, "ci_did_not_start" | "timed_out") => {
+                return Ok(json!({ "push": {
+                    "verdict": "ran", "head": sha, "run": "", "ok": "not_run", "files": [], "note": f.what,
+                } }));
+            }
+            Err(f) => return Err(f),
+        };
+        let dir = e.data.join("tool-output").join(format!("{round}-{n}-measure"));
+        let (files, missed) = keep_measurement(e.github(), &dir, &repo(project), wf.artifact.as_deref(), &checks);
+        let whole = !checks.is_empty() && checks.iter().all(|c| c.result == "green");
+        // The link to the run, not to its first job.
+        let run = checks
+            .first()
+            .map(|c| c.run.split("/job/").next().unwrap_or(&c.run))
+            .unwrap_or_default();
+        let mut push = json!({
+            "verdict": "ran",
+            "head": sha,
+            "run": run,
+            "ok": if whole { "ran" } else { "not_run" },
+            "files": files,
+        });
+        if checks.is_empty() {
+            // GitHub gives a run no job when it cannot read the workflow file (a syntax error, say): there is no link
+            // and no log, and this is all the engineer has to go on.
+            push["note"] = Value::String(format!(
+                "The run of {} had no job, so it left no log and no artifact; GitHub does this for a workflow file it \
+                 cannot read, so look at the workflow file on the head measured",
+                wf.workflow
+            ));
+        } else if !missed.is_empty() {
+            push["note"] = Value::String(format!(
+                "Not everything the run left could be kept: {}",
+                missed.join("; ")
+            ));
+        }
+        Ok(json!({ "push": push }))
+    });
+    // The run is over, or did not come, or no try will: the ref has served.
+    let _ = hub::delete_ref(&wt, &refname);
+    got
 }
 
 fn gh(
@@ -1227,9 +1491,10 @@ mod tests {
         assert!(gh_refusal(&allow, &w("api graphql")).is_some());
     }
 
-    /// GitHub whose runs hold one artifact, `generated`, with the files given, counting the times it is asked for an
-    /// artifact; asked for nothing else.
+    /// GitHub whose runs hold one artifact, of the name given, with the files given, counting the times it is asked for
+    /// an artifact; its jobs have a log, but the job `unreadable`'s, and it is asked for nothing else.
     struct OneArtifact {
+        name: &'static str,
         files: Vec<hub::ArtifactFile>,
         asked: std::sync::atomic::AtomicUsize,
     }
@@ -1274,6 +1539,17 @@ mod tests {
             unreachable!("no gh command runs here")
         }
 
+        fn job_log(&self, _repo: &str, check: &CheckRun) -> Result<String, Failure> {
+            if check.name == "unreadable" {
+                return Err(Failure::other("HTTP 404"));
+            }
+            // As gh gives a line of a job's log: the job, the step and the time before the text.
+            Ok(format!(
+                "{}\tRun\t2026-11-03T00:00:00.0000000Z the log of {}\n",
+                check.name, check.name
+            ))
+        }
+
         fn artifact(
             &self,
             _repo: &str,
@@ -1281,7 +1557,7 @@ mod tests {
             name: &str,
         ) -> Result<Option<Vec<hub::ArtifactFile>>, Failure> {
             self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok((name == "generated").then(|| self.files.clone()))
+            Ok((name == self.name).then(|| self.files.clone()))
         }
     }
 
@@ -1296,6 +1572,7 @@ mod tests {
         std::fs::write(wt.join("client/src/api.ts"), "export type A = { a: number, };\n").unwrap();
         std::fs::write(wt.join("same.txt"), "same\n").unwrap();
         let hub = OneArtifact {
+            name: "generated",
             files: vec![
                 (
                     "client/src/api.ts".to_string(),
@@ -1329,5 +1606,260 @@ mod tests {
         // Once they are there, nothing differs.
         assert_eq!(generated(&hub, "o/r", Some("generated"), &red, &wt), None);
         let _ = std::fs::remove_dir_all(&wt);
+    }
+
+    fn workflow(name: &str, inputs: &[&str], artifact: Option<&str>) -> config::MeasureWorkflow {
+        config::MeasureWorkflow {
+            workflow: name.to_string(),
+            inputs: inputs.iter().map(|i| i.to_string()).collect(),
+            artifact: artifact.map(str::to_string),
+        }
+    }
+
+    // A measure request runs only a workflow the project lists, with inputs that workflow takes, each once, as
+    // `name=value` lines; anything else is refused with what the project does list, and a project that lists none says
+    // so and says what to answer instead.
+    #[test]
+    fn a_measure_request_runs_only_what_the_project_lists() {
+        let listed = [
+            workflow("measure.yml", &["command", "base"], Some("measurement")),
+            workflow("quick.yml", &[], None),
+        ];
+        let ask = |wf: &str, inputs: &str| measure_request(&listed, &json!({ "workflow": wf, "inputs": inputs }));
+        // A value is what follows the first `=`, with its ends trimmed; a blank line is no input.
+        let (wf, inputs) = ask("measure.yml", "command = cargo test -- a=b \n\nbase=abc123\n").unwrap();
+        assert_eq!(wf.workflow, "measure.yml");
+        assert_eq!(
+            inputs,
+            [
+                ("command".to_string(), "cargo test -- a=b".to_string()),
+                ("base".to_string(), "abc123".to_string())
+            ]
+        );
+        assert_eq!(ask("quick.yml", "").unwrap().1, []);
+        let why = ask("other.yml", "").unwrap_err();
+        assert!(
+            why.contains("\"other.yml\"") && why.ends_with("they are: measure.yml, quick.yml"),
+            "{why}"
+        );
+        let why = ask("measure.yml", "pairs=3").unwrap_err();
+        assert!(
+            why.contains("\"pairs\"") && why.ends_with("it takes: command, base"),
+            "{why}"
+        );
+        assert!(ask("quick.yml", "base=x").unwrap_err().ends_with("it takes no input"));
+        assert!(
+            ask("measure.yml", "base=a\nbase=b")
+                .unwrap_err()
+                .contains("given twice")
+        );
+        assert!(ask("measure.yml", "command").unwrap_err().contains("is not name=value"));
+        // Nothing listed: the text names the setting and the answer to give.
+        let why = measure_request(&[], &json!({ "workflow": "measure.yml", "inputs": "" })).unwrap_err();
+        assert!(why.contains("ci.measure") && why.contains("not_measured"), "{why}");
+    }
+
+    // What a measurement run left is saved in a directory: the log of each job as a reader wants it, and the files of the
+    // artifact the workflow names, each under it; what could not be fetched or is not a path under the artifact is said,
+    // and the rest is kept. A workflow naming no artifact asks for none.
+    #[test]
+    fn a_measurement_run_s_logs_and_artifact_are_kept_and_what_is_missing_is_said() {
+        let root = std::env::temp_dir().join(format!("wf-agents-measurement-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("run");
+        let hub = OneArtifact {
+            name: "measurement",
+            files: vec![
+                ("pairs.tsv".to_string(), b"1\t2\n".to_vec()),
+                ("nested/runs.tsv".to_string(), b"x\n".to_vec()),
+                ("../escape.txt".to_string(), b"no\n".to_vec()),
+            ],
+            asked: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let check = |name: &str| CheckRun {
+            name: name.to_string(),
+            result: "green".to_string(),
+            run: "https://github.com/o/r/actions/runs/1/job/2".to_string(),
+            log_tail: None,
+            log_path: None,
+        };
+        let checks = [check("measure it"), check("unreadable")];
+        let (kept, missed) = keep_measurement(&hub, &dir, "o/r", Some("measurement"), &checks);
+        let at = |rel: &str| dir.join(rel).display().to_string();
+        assert_eq!(
+            kept,
+            [
+                at("job-1-measure-it.log"),
+                at("artifact-measurement/pairs.tsv"),
+                at("artifact-measurement/nested/runs.tsv")
+            ]
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("job-1-measure-it.log")).unwrap(),
+            "the log of measure it"
+        );
+        assert_eq!(
+            std::fs::read(dir.join("artifact-measurement/nested/runs.tsv")).unwrap(),
+            b"x\n"
+        );
+        assert_eq!(missed.len(), 2, "{missed:?}");
+        assert!(
+            missed[0].contains("unreadable") && missed[0].contains("HTTP 404"),
+            "{missed:?}"
+        );
+        assert!(missed[1].contains("../escape.txt"), "{missed:?}");
+        assert!(!root.join("escape.txt").exists() && !dir.join("escape.txt").exists());
+        // An artifact the run did not upload is said; a workflow naming none asks for none.
+        let (kept, missed) = keep_measurement(&hub, &dir, "o/r", Some("other"), &checks[..1]);
+        assert_eq!(kept, [at("job-1-measure-it.log")]);
+        assert_eq!(missed, ["the run uploaded no artifact other"]);
+        let before = hub.asked.load(std::sync::atomic::Ordering::SeqCst);
+        keep_measurement(&hub, &dir, "o/r", None, &checks[..1]);
+        assert_eq!(hub.asked.load(std::sync::atomic::Ordering::SeqCst), before);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The tool of that name in the flow, as `flow/flow.json` writes it.
+    fn flow_tool(name: &str) -> Value {
+        let flow: Value = serde_json::from_str(flow::FLOW).unwrap();
+        flow["tools"]
+            .as_array()
+            .and_then(|ts| ts.iter().find(|t| t["name"] == name))
+            .cloned()
+            .unwrap_or_else(|| panic!("the flow has no tool {name}"))
+    }
+
+    // What agents are told of the gh tool is what the code does: the allow list is the setting `gh.allow`, whose value
+    // the engine writes beside it, not a list copied into the flow; and `api` is told as the code refuses it, each flag
+    // that makes it write named, no GraphQL, and no log of run view downloaded (the engine downloads none).
+    #[test]
+    fn the_gh_tool_is_described_as_the_code_runs_it() {
+        let gh = flow_tool("gh");
+        let (desc, runs) = (gh["desc"].as_str().unwrap(), gh["runs"].as_str().unwrap());
+        assert!(desc.contains("`gh.allow`"), "{desc}");
+        for copied in [
+            "pr view",
+            "pr diff",
+            "pr checks",
+            "pr list",
+            "run view",
+            "run list",
+            "issue view",
+            "issue list",
+            "repo view",
+            "release view",
+            "search",
+        ] {
+            assert!(
+                !desc.contains(copied) && !runs.contains(copied),
+                "{copied}: {desc} {runs}"
+            );
+        }
+        for flag in API_WRITES {
+            assert!(desc.contains(&format!("`{flag}`")), "{flag}: {desc}");
+        }
+        for gone in ["GraphQL", "--method GET"] {
+            assert!(!desc.contains(gone) && !runs.contains(gone), "{gone}: {desc} {runs}");
+        }
+        assert!(!runs.contains("download"), "{runs}");
+        // The flags are those the code refuses.
+        let allow = ["api repos/".to_string()];
+        for flag in API_WRITES {
+            let args: Vec<String> = ["api", "repos/o/r/pulls", flag, "x"]
+                .iter()
+                .map(|a| a.to_string())
+                .collect();
+            assert!(
+                gh_refusal(&allow, &args).is_some_and(|why| why.contains(flag)),
+                "{flag}"
+            );
+        }
+    }
+
+    // What agents are told of the measure tool is what the code does: the workflow is one the project's configuration
+    // lists, the setting `project.ci.measure`, whose value the engine writes beside it; the tool does not wait for a
+    // machine that measures one run at a time, and keeps its files as a list.
+    #[test]
+    fn the_measure_tool_is_described_as_the_code_runs_it() {
+        let measure = flow_tool("measure");
+        let in_ = |name: &str| {
+            measure["in"]
+                .as_array()
+                .and_then(|fs| fs.iter().find(|f| f["name"] == name))
+                .cloned()
+                .unwrap_or_else(|| panic!("measure takes no {name}"))
+        };
+        let text = format!("{} {} {}", measure["desc"], measure["runs"], in_("workflow")["desc"]);
+        assert!(text.contains("`project.ci.measure`"), "{text}");
+        assert!(!text.contains("one run at a time"), "{text}");
+        assert!(in_("inputs")["desc"].as_str().unwrap().contains("name=value"));
+        let ran = measure["out"][0]["branches"]
+            .as_array()
+            .and_then(|bs| bs.iter().find(|b| b["value"] == "ran"))
+            .unwrap();
+        let files = ran["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == "files")
+            .unwrap();
+        assert_eq!(files["type"], "list");
+        // The check of an answer of measured looks at the whole work's runs, as the code does, not at one cell's.
+        let flow: Value = serde_json::from_str(flow::FLOW).unwrap();
+        let check = flow["engine"]["checks"]["measure_matches_runs"].as_str().unwrap();
+        assert!(
+            check.contains("a run of this work's measure tool") && !check.contains("in this cell"),
+            "{check}"
+        );
+    }
+
+    // A request of api only reads: a write flag is refused whichever way gh takes it, apart from its value
+    // (`-X POST`, `-XPOST`), joined to it (`-fname=value`, `--method=PATCH`) or in a group of short flags (`-iXPOST`);
+    // a read, with the flags that only shape the output, runs.
+    #[test]
+    fn a_write_flag_of_api_is_refused_however_it_is_given() {
+        let allow = ["api repos/".to_string()];
+        let refusal = |line: &str| gh_refusal(&allow, &words(line).unwrap());
+        for write in [
+            "api repos/o/r/issues -X POST",
+            "api repos/o/r/issues -XPOST",
+            "api repos/o/r/issues -XDELETE",
+            "api repos/o/r/issues -fname=value",
+            "api repos/o/r/issues -Fa=b",
+            "api repos/o/r/issues -iXPOST",
+            "api repos/o/r/issues --method=PATCH",
+            "api repos/o/r/issues --field a=b",
+            "api repos/o/r/issues --raw-field=a=b",
+            "api repos/o/r/issues --input=body.json",
+        ] {
+            assert!(
+                refusal(write).is_some_and(|why| why.contains("may only read")),
+                "{write}"
+            );
+        }
+        for read in [
+            "api repos/o/r/pulls/1",
+            "api repos/o/r/pulls/1 -i",
+            "api repos/o/r/pulls --paginate -q .[].title",
+            "api repos/o/r/pulls -q.[].fix -H Accept:text/plain",
+            "api repos/o/r/pulls -t {{.title}} --jq=.[]",
+        ] {
+            assert_eq!(refusal(read), None, "{read}");
+        }
+    }
+
+    // The fast CI and the measurement workflow leave the engine's temporary refs alone on push: a ref the engine pushes
+    // to run a workflow on by hand must not start the fast CI as well, or the measurement's own push runs.
+    #[test]
+    fn the_workflows_leave_the_engine_s_temporary_refs_alone_on_push() {
+        for (workflow, text) in [
+            ("ci.yml", include_str!("../../../.github/workflows/ci.yml")),
+            ("measure.yml", include_str!("../../../.github/workflows/measure.yml")),
+        ] {
+            for prefix in [BEFORE, MEASURE] {
+                let ignored = format!("      - '{prefix}/**'\n");
+                assert!(text.contains(&ignored), "{workflow} does not ignore {prefix}/**");
+            }
+        }
     }
 }
