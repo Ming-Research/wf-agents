@@ -174,7 +174,10 @@ fn the_engines_four_statements_of_a_return_agree_on_every_change_of_every_sample
     let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
     let (mut all, mut refused, mut left_out) = (0, 0, 0);
     for (cell, returns) in &samples {
-        let schema = g.cell(cell).unwrap().schema.clone().unwrap();
+        // A cell with no schema (a cell the engine runs) takes whatever it is given.
+        let Some(schema) = g.cell(cell).unwrap().schema.clone() else {
+            continue;
+        };
         let mut others = BTreeSet::new();
         names_in(&schema, &mut others);
         let refusal = format!("the return does not fit the schema of {cell}");

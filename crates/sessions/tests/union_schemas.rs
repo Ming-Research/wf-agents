@@ -326,7 +326,10 @@ fn a_sample_changed_in_one_place_that_its_cell_still_takes_is_taken_on_the_line_
     let (mut tried, mut taken_by_cell) = (0, 0);
     for (cell, returns) in &samples {
         let cc = g.cell(cell).unwrap();
-        let schema = cc.schema.clone().unwrap();
+        // The command line runs the cells of agents only.
+        let Some(schema) = cc.schema.clone().filter(|_| cc.kind == "agent") else {
+            continue;
+        };
         let line = sessions::cli::envelope(g, cc.line.as_deref());
         for s in returns {
             let mut all = Vec::new();
