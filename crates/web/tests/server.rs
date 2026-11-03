@@ -252,11 +252,11 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
     let (status, done) = post(s.port, "/api/v1/works/1/start-over", "{}", "application/json");
     assert_eq!(status, 200, "{done}");
     assert!(done.ends_with(r#"{"done":"work 1 is started over"}"#), "{done}");
-    assert!(db::start_over_asked(db.conn(), 1).unwrap());
+    assert!(db::stop_asked(db.conn(), 1).unwrap());
     assert_eq!(s.control.asked().woken, woken + 1);
     let (status, done) = post(s.port, "/api/v1/works/1/start-over", "{}", "application/json");
     assert_eq!(status, 422, "{done}");
-    assert!(done.contains("work 1 is being started over already"), "{done}");
+    assert!(done.contains("work 1 is stopping already"), "{done}");
     // A project's architect is started and paused the same way; the configuration's one project is the default, and a
     // project there is not is refused.
     let (status, done) = post(
@@ -372,6 +372,7 @@ fn status() -> api::Status {
         started: Vec::new(),
         releasing: Vec::new(),
         waiting_for_slot: Vec::new(),
+        stopping: Vec::new(),
         architects_started: Vec::new(),
         running: Vec::new(),
         stepping: Vec::new(),
@@ -516,7 +517,7 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
     let (status, said) = post(
         s.port,
         "/api/v1/works/1/say",
-        r#"{"text":"Look at the log."}"#,
+        r#"{"text":"Look at the log.","speaker":"owner"}"#,
         "application/json",
     );
     assert_eq!(status, 200, "{said}");
@@ -524,7 +525,7 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
     let (status, said) = post(
         s.port,
         "/api/v1/works/1/say",
-        r#"{"text":"Hold the merge.","to":"architect"}"#,
+        r#"{"text":"Hold the merge.","speaker":"owner","to":"architect"}"#,
         "application/json",
     );
     assert_eq!(status, 200, "{said}");
@@ -532,17 +533,25 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
     let (status, said) = post(
         s.port,
         "/api/v1/works/1/say",
-        r#"{"text":"Both of you.","to":"both"}"#,
+        r#"{"text":"Both of you.","speaker":"delegate","to":"both"}"#,
         "application/json",
     );
     assert_eq!(status, 200, "{said}");
     let (status, refused) = post(
         s.port,
         "/api/v1/works/1/say",
-        r#"{"text":"Not yours.","to":"review"}"#,
+        r#"{"text":"Not yours.","speaker":"owner","to":"review"}"#,
         "application/json",
     );
     assert_eq!(status, 422, "{refused}");
+    // A request that does not say who speaks, or names one that is neither the owner nor a delegate, is refused.
+    for body in [
+        r#"{"text":"No speaker."}"#,
+        r#"{"text":"The wrong one.","speaker":"architect"}"#,
+    ] {
+        let (status, refused) = post(s.port, "/api/v1/works/1/say", body, "application/json");
+        assert_eq!(status, 422, "{refused}");
+    }
     let (_, talk) = get(s.port, "/api/v1/conversation?key=work%3A1", &here, "");
     assert!(
         talk.contains(r#""source":"interjection""#) && talk.contains("Look at the log."),
@@ -675,7 +684,7 @@ fn the_owner_sends_images_with_words_and_the_page_reads_them_by_id() {
         )
     };
     let say = |images: Vec<String>| {
-        let body = format!(r#"{{"text":"","images":[{}]}}"#, images.join(","));
+        let body = format!(r#"{{"text":"","speaker":"owner","images":[{}]}}"#, images.join(","));
         post(s.port, "/api/v1/works/1/say", &body, "application/json")
     };
     let (status, said) = say(vec![image("image/png", &png)]);
@@ -750,7 +759,7 @@ fn the_owner_answers_and_rules_on_the_page() {
         Ok(())
     })
     .unwrap();
-    let answer = r#"{"text":"Chosen option: B."}"#;
+    let answer = r#"{"text":"Chosen option: B.","speaker":"owner"}"#;
     let (status, done) = post(s.port, "/api/v1/asks/1/answer", answer, "application/json");
     assert_eq!(status, 200, "{done}");
     assert!(done.ends_with(r#"{"done":"ask 1 answered"}"#), "{done}");

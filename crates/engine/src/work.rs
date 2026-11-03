@@ -325,6 +325,10 @@ pub fn start_numbered(
 pub struct Ended {
     pub output: Option<Value>,
     pub transition: Option<String>,
+    /// The counter the row the return took counts. Set only along with `transition`, by [`Ended::taking`], so that the
+    /// round keeps what its row counts as the flow version it ran on says it. A round that ended in no return
+    /// ([`finish_round`]) is not given one: its shared row is read when it ends.
+    pub counts: Option<String>,
     pub rejected: Option<Value>,
     pub usage: Option<Value>,
     pub model: Option<String>,
@@ -333,30 +337,64 @@ pub struct Ended {
     pub command: Option<Vec<String>>,
 }
 
+impl Ended {
+    /// The end of a round whose return took `row`, a row of the compiled flow the work runs on: the row's name and the
+    /// counter it counts, set together.
+    pub fn taking(self, row: &flow::CompiledRow) -> Ended {
+        Ended {
+            transition: Some(row.name.clone()),
+            counts: row.counts.clone(),
+            ..self
+        }
+    }
+}
+
 /// Ends a round still open as `e` says; what it cost, when already kept on it and `e` says nothing of it, stays, as for
-/// a round whose work is to be started over, which the takeover cuts off. A round already ended is an error, so that
-/// the transaction it is ended in rolls back: a step whose work was ended from outside it meanwhile, its round cut off,
-/// takes nothing of what it did over the end.
+/// a round whose work is asked to stop, which the end of the work cuts off. A round already ended is an error, so that
+/// the transaction it is ended in rolls back: no work ends while a step of it runs ([`crate::schedule`]), so a step that
+/// finds its round ended is a fault, which pauses the work for the owner to see.
 pub fn finish_round(conn: &Connection, id: RoundId, e: &Ended) -> Result<(), String> {
-    let n = conn.execute(
-        "UPDATE rounds SET output = ?3, transition = ?4, rejected = ?5, usage = coalesce(?6, usage), compactions = ?7,
-                model = coalesce(?8, model), ended_at = ?9
+    let n = conn
+        .execute(
+            "UPDATE rounds SET output = ?3, transition = ?4, counts = ?5, rejected = ?6,
+                usage = coalesce(?7, usage), compactions = ?8, model = coalesce(?9, model),
+                ended_at = ?10
          WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
-        params![
-            id.work,
-            id.n,
-            e.output.as_ref().map(Value::to_string),
-            e.transition,
-            e.rejected.as_ref().map(Value::to_string),
-            e.usage.as_ref().map(Value::to_string),
-            e.compactions,
-            e.model,
-            db::now()
-        ],
-    )
-    .map_err(sql)?;
+            params![
+                id.work,
+                id.n,
+                e.output.as_ref().map(Value::to_string),
+                e.transition,
+                e.counts,
+                e.rejected.as_ref().map(Value::to_string),
+                e.usage.as_ref().map(Value::to_string),
+                e.compactions,
+                e.model,
+                db::now()
+            ],
+        )
+        .map_err(sql)?;
     if n == 0 {
         return Err(format!("round {id} is not open: it was ended elsewhere"));
+    }
+    // A round that ended in no return its cell takes took a shared row (view `round_rows`), which no `Ended` carries:
+    // the few such rounds read it from the compiled flow the work is on, once, here, so that no way of ending one can
+    // leave out what the row counts. A row the flow does not have, or an end in an error, counts nothing.
+    if e.transition.is_none() && e.rejected.is_some() {
+        conn.execute(
+            "UPDATE rounds SET counts = (
+               SELECT json_extract(row.value, '$.counts')
+               FROM round_rows x
+               JOIN works w ON w.id = x.work
+               JOIN flow_versions v ON v.id = w.flow_version
+               JOIN json_each(v.compiled, '$.graphs') g ON json_extract(g.value, '$.name') = w.graph
+               JOIN json_each(g.value, '$.cells') c ON json_extract(c.value, '$.id') = x.cell
+               JOIN json_each(c.value, '$.rows') row ON json_extract(row.value, '$.name') = x.took
+               WHERE x.work = ?1 AND x.round = ?2)
+             WHERE work = ?1 AND n = ?2",
+            params![id.work, id.n],
+        )
+        .map_err(sql)?;
     }
     if let Some(c) = &e.command {
         conn.execute(
@@ -471,6 +509,66 @@ mod tests {
                 "{all} rows, uncounted"
             );
         }
+    }
+
+    // A round that ended in no return its cell takes keeps the counter of the shared row the engine took for it, as the
+    // flow the work is on says it: a return sent back, a failed run, a failed run past its bound (a row that counts
+    // nothing), a round cut off, and a round that ended in an error or at a cell the flow does not have, which
+    // count nothing. The rows are named as the view `round_rows` names them, which the migration reads too.
+    #[test]
+    fn a_round_that_ended_in_no_return_keeps_the_counter_of_the_shared_row() {
+        let flow = serde_json::json!({ "graphs": [{ "name": "engineer", "cells": [{ "id": "I1", "rows": [
+            { "name": "sent_back", "counts": "sent_back" },
+            { "name": "transient", "counts": "retries" },
+            { "name": "transient_too_often" },
+            { "name": "cut_off", "counts": "cut_offs" },
+        ] }] }] });
+        let mut db = db::Db::in_memory().unwrap();
+        let ended = |rejected: Value| Ended {
+            rejected: Some(rejected),
+            ..Ended::default()
+        };
+        let cases = [
+            ("I1", serde_json::json!({ "format": "x" }), Some("sent_back")),
+            (
+                "I1",
+                serde_json::json!({ "failed": { "kind": "transient", "what": "w" } }),
+                Some("retries"),
+            ),
+            (
+                "I1",
+                serde_json::json!({ "failed": { "kind": "transient", "what": "w", "over": 3 } }),
+                None,
+            ),
+            ("I1", serde_json::json!({ "interrupted": "stopped" }), Some("cut_offs")),
+            ("I1", serde_json::json!({ "error": "e" }), None),
+            ("ZZ", serde_json::json!({ "format": "x" }), None),
+        ];
+        let kept: Vec<Option<String>> = db
+            .write(db::Actor::Engine, |tx| {
+                tx.execute(
+                    "INSERT INTO flow_versions (digest, compiled) VALUES ('d', ?1)",
+                    [flow.to_string()],
+                )?;
+                tx.execute(
+                    "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'I1')",
+                    [],
+                )?;
+                let mut kept = Vec::new();
+                for (cell, rejected, _) in &cases {
+                    let id = start_round(tx, 1, cell, None, &serde_json::json!({}), "c", None).unwrap();
+                    finish_round(tx, id, &ended(rejected.clone())).unwrap();
+                    kept.push(tx.query_row(
+                        "SELECT counts FROM rounds WHERE work = ?1 AND n = ?2",
+                        params![id.work, id.n],
+                        |r| r.get(0),
+                    )?);
+                }
+                Ok(kept)
+            })
+            .unwrap();
+        let expected: Vec<Option<String>> = cases.iter().map(|c| c.2.map(String::from)).collect();
+        assert_eq!(kept, expected);
     }
 
     // A work on no item is named to the owner by what it is, from its graph, and never as one of the architect's works.

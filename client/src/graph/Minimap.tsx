@@ -51,7 +51,7 @@ export function mapGeom(chart: Size): MapGeom {
 
 /// A shape on the map, in the map's pixels: a stage box or a box of stores, or a cell or a store, with the class the
 /// chart draws it in (`styleOf` for a cell, a store's for a store), so that the two take their colours from one rule;
-/// on a work's chart a cell is the one the work is at (`running` while a round runs there) or one it never reached; a
+/// on a work's chart a cell is the one the work is at (`running` while a stage works there) or one it never reached; a
 /// stage's box with the letter its cells' codes start with, if they share one.
 export type MapShape = Box & {
   kind: 'box' | 'cell';

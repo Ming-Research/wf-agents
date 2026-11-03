@@ -13,7 +13,7 @@ use db::{Matter, queue_matter};
 use serde_json::{Value, json};
 
 use crate::actions::Ctx;
-use crate::{ENGINEER, cards};
+use crate::{ENGINEER, cards, decisions};
 
 /// The kind of matter an open question is.
 pub const KIND: &str = "open_question";
@@ -119,7 +119,8 @@ pub fn is_one(tx: &Transaction<'_>, matter: i64) -> Result<bool, String> {
 }
 
 /// The architect's reply to an open question, by its own judgment or carrying the owner's answer: what it decided and
-/// why is the question's answer, kept in the matter's body, and is said to the engineer of the work that asked as an
+/// why is the question's answer, kept in the matter's body with the time it came (a decision that quotes it is dated by
+/// that time, not by the time the question was raised), and is said to the engineer of the work that asked as an
 /// interjection, which turns the work, unless nothing can be said to it any more. An answer that goes against the
 /// design can only be a redirect, which the engineer judges.
 ///
@@ -178,6 +179,8 @@ pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), St
         }
     };
     body["answer"] = json!(answer);
+    // When it was answered: a decision that quotes the answer is dated by this, not by when the question was raised.
+    body["answered_at"] = json!(db::now());
     tx.execute(
         "UPDATE architect_matters SET body = ?2, reply_held = NULL WHERE id = ?1",
         params![matter, body.to_string()],
@@ -208,10 +211,11 @@ pub fn answer(tx: &Transaction<'_>, matter: i64, reply: &Value) -> Result<(), St
     Ok(())
 }
 
-/// `write_learned`: what the work learned, with the commits it merged, goes at the end of its item's `approach`, under
-/// the head `Learned:`, written as every change to an item is, in the transaction of the round, so that `changes` keeps
-/// it. A work that learned nothing a later agent would miss still records its commits, which lead from the code's
-/// history back to the item.
+/// `write_learned`: the decisions the work's records bear out go under the head `Decisions:` of its item's `approach`,
+/// each as the line the engine makes of it ([`crate::decisions`]); what the work learned, with the commits it merged,
+/// goes at the end, under the head `Learned:`. Written as every change to an item is, in the transaction of the round,
+/// so that `changes` keeps it. A work that learned nothing a later agent would miss still records its commits, which
+/// lead from the code's history back to the item.
 pub fn write_learned(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let Some(item) = &ctx.item else {
         return Ok(());
@@ -221,7 +225,12 @@ pub fn write_learned(ctx: &Ctx, tx: &Transaction<'_>) -> Result<(), String> {
     let now: Option<String> = tx
         .query_row("SELECT approach FROM items WHERE id = ?1", [item.id], |r| r.get(0))
         .map_err(sql)?;
-    let approach = with_learned(now.as_deref().unwrap_or_default(), learned, &commits);
+    let mut approach = now.unwrap_or_default();
+    for d in ctx.unwrapped["decisions"].as_array().into_iter().flatten() {
+        let r = decisions::resolve(tx, &item.project, d, "engineer", Some(item.id)).map_err(|why| why.join("\n"))?;
+        approach = decisions::insert(&approach, &r.line);
+    }
+    let approach = with_learned(&approach, learned, &commits);
     tx.execute(
         "UPDATE items SET approach = ?2 WHERE id = ?1",
         params![item.id, approach],

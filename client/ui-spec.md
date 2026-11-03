@@ -670,15 +670,36 @@ states (`WORK_MARK`) is the one every place that shows a work's state as an icon
 draws round the running cell (`RunningMark`, the one mark of a state that moves) at an icon's size, a ring 13px across
 in the 16px of an Octicon, its arcs `--chart-halo-width-mark` wide so that it reads beside an Octicon's strokes; ready
 `CircleIcon`, the halo's ring at rest; asking `QuestionIcon`; waiting `ClockIcon`; waiting for a free slot
-`HourglassIcon`; paused `PauseIcon`; halted `AlertIcon`, GitHub's mark of an alert; done `CheckCircleIcon`; ended
-`StopIcon`, GitHub's mark of a run stopped before its end (and a bubble of a thing that runs and then ends takes these
-marks for how it stands, below); each other than running in the colour its state's chip is filled in
-(`--bgColor-neutral-emphasis` ready and ended; `--bgColor-attention-emphasis` asking, waiting, waiting for a free slot
-and paused; `--bgColor-danger-emphasis` halted; `--bgColor-success-emphasis` done), and each saying on hovering its
+`HourglassIcon`; paused `PauseIcon`; halted `AlertIcon`, GitHub's mark of an alert; stopping `NoEntryIcon`; done
+`CheckCircleIcon`; ended `StopIcon`, GitHub's mark of a run stopped before its end (and a bubble of a thing that runs
+and then ends takes these marks for how it stands, below); each other than running in the colour its state's chip is
+filled in (`--bgColor-neutral-emphasis` ready and ended; `--bgColor-attention-emphasis` asking, waiting, waiting for a
+free slot, paused and stopping; `--bgColor-danger-emphasis` halted; `--bgColor-success-emphasis` done), and each saying
+on hovering its
 chip's words; while nothing is known yet the mark's room stays empty, so that the rows stay in line.
 
+The state an icon shows is worked out once, from what the work is doing now (`course` and `liveState`, components.tsx),
+and the words beside it, the running mark in the head of its group and the halo on its chart are worked out from the
+same, so that they never disagree. A stage is working, and wears the running halo, where a round of it runs or a tool
+of it is under way, or where the work goes on and its next step is due and the engine takes it; it is not working while
+it waits (for the owner, the architect, other items, a free slot, or a failed round to be run again), is held back, the
+engine has halted every work, or the page cannot reach the engine, and once it is over. Ready is the work whose next step
+is due and that nothing takes: the engine does not run it, as when it is out of reach or stopped, so that a ready ring
+at rest is a true sign that the work does not move. The engine's step of a work that waits, which only looks whether
+what it waits for came and writes no round, is not a round running and does not make the work look like it, and a work
+waiting for a failed round to be run again (the wait before a retry, which grows with each failure) is waiting, the
+clock, not ready, with the words "waiting to run the failed round again"; a work held back is not given that wait,
+since the engine opens no round of a work held back, which waits for nothing and may be given a Step. A paused work the
+owner started, which waits for a free slot, takes the icon of waiting for a free slot, as its words ("started, waiting
+for a free slot") say, not the paused icon. While the page cannot reach the engine, no work is marked as working.
+
+Instead of an icon worked out apart from the words, which drew a ring at rest for a work whose words said "paused by
+Pause all", and of a halo that came on for every step of the engine that looked at a waiting work, because the owner
+asked that the icon and the words say the same and that the mark show only what is at work.
+
 An architect takes the mark of a work in the state it stands in, as the head of its one-to-one works it out
-(`architectNow` and `architectMark`, architect.ts): a round of it running is running; held back (paused by the owner,
+(`architectNow` and `architectMark`, architect.ts): working, where a round of it runs or its next round is due and the
+engine takes it, is running; held back (paused by the owner,
 with every work or by itself) is paused, and halted by the engine is halted; waiting for the owner's next words, its
 answer to the owner's words having left the talk open, is waiting; a question of its own pinned for the owner's reply
 while it neither runs nor is held back is asking; between rounds, idle or never run is ready; and hovering says its
@@ -700,8 +721,11 @@ A work the engine stopped for a problem the owner looks at is halted, a state of
 page (`halted`), drawn in the danger tone with GitHub's alert mark wherever a work's state shows (the list of
 conversations and its buttons, the head of its group, the System view, the works' lists), the list's buttons showing it
 at first; a pause is paused whoever made it, worded by who: paused by you, by the architect or by Pause all, with its
-reason. The list keeps in the browser the states the owner hid, not those shown, so that a state the page comes to have
-shows until the owner hides it.
+reason. A work Pause all holds, one the owner has not started since, that is ready, waits or has asked, is paused
+(`PauseIcon`) wherever a work's state shows as an icon, a chip or a count (the list of conversations, the bubble of its
+stage, the item's page, the works' lists and their buttons), as its words say, "paused by Pause all"; a round of it still
+running goes on to its end and shows running until then. The list keeps in the browser the states the owner hid, not
+those shown, so that a state the page comes to have shows until the owner hides it.
 
 Instead of every pause one state, which the list drew as a yellow pause while the head drew the engine's stop in red,
 and of "stopped (you paused it)", because the owner asked that the same work read the same on the left and in the head,
@@ -713,7 +737,20 @@ of every work stays the bar's, since it is the engine's and lifts by itself.
 A work whose wait is over, the architect's answer come or what its row waited for, and that waits on, holding no slot,
 until its machine has a slot free, is waiting for a free slot, as the engine's status names it, and not ready, because
 the owner must see why a work whose answer came does not move; its chip says on hovering that it goes on once its
-machine has a slot free, before any new work starts.
+machine has a slot free, before any new work starts. So is a paused work whose pause was asked to be lifted, by the
+command line or the architect, while its machine has none free, because a resume that does not show looks as if it
+failed. It has Pause and no Start or Step, as a work the owner started and that waits for a slot has, because it is on
+its way to going on and the owner's later word must be able to keep it paused: Pause withdraws the request.
+
+### Stopping
+
+A work whose cancel or start over was asked and that the engine has not stopped yet is stopping, as the engine's status
+names it, in the attention tone with `NoEntryIcon`, in place of the state it reads, whatever that is (a round running,
+ready, waiting or paused), because it goes no further than the step it is in, and a work that looks as if it goes on
+after the owner cancelled it reads as a cancel that failed. Its chip says on hovering that it ends once the step it is in
+has ended, its round's timer is not shown, and it has no Start, Pause, Step or Start over, since none of them would
+change that. It is a state of its own and not a note beside the running chip, because the same word then stands for it
+on the left and in the head, and the list's buttons can show or hide it as any other state.
 
 ### A count
 
@@ -792,6 +829,57 @@ named it).
 
 Instead of a `Dialog` that holds the image, because a tab is the simplest way to see an image whole and at its own size,
 and the browser already zooms and saves it.
+
+### Words not yet sent
+
+What the owner has typed into a box and not sent is kept, in every box of the page that takes words: the box at the
+bottom of a conversation (its words, its images and whom it is for), the small box in a bubble that answers an ask and
+the one that answers an engineer's question, the box on a decision card, the reason for closing an observation, the
+settings form, the name of an account to add, and the ref of the flow box's comparison. The owner leaves a page for
+another, opens another conversation, reloads the page, or the browser drops a tab it kept in the background, and finds
+the words where they were left, because the owner said that losing them is a serious fault and that every box of the
+page should keep what is typed in it. Instead of keeping them while the box is shown (a `useState`), which loses them
+when the box goes away, and instead of keeping every page shown, which is what the page was made lighter to stop doing.
+
+- **One draft for each box, under a key made of the number of what the box belongs to.** A box takes its words from
+  `useDraft(key)` (`src/drafts.ts`): `conv:<conversation key>`, `ask:<id>`, `question:<work>:<matter>`, `card:<id>`,
+  `obs-close:<id>`, `settings`, `account:<cli>`, `flow-compare-ref`. A key is never made of where the box stands or
+  of a title, so that one box never shows another's words; two boxes with one key are one box. The keys are not
+  tied to a database: a draft the owner never sent goes after 30 days.
+- **Kept at each change, in this browser.** Every change is written to `localStorage` at once, with no timer and no hook
+  on leaving, because a browser that drops a tab does not promise to run one. The images of a box are kept apart, when
+  they change, so that images too big for the browser cost the words nothing; they stay in memory then. Where the
+  browser keeps nothing at all, drafts live in memory for as long as the page does. A change in another tab to a draft
+  (a send, a clear) is followed. A draft is not kept on the server and does not follow the owner to another browser,
+  because the owner asked for neither.
+- **Words come before images.** Images and words share the browser's room, so images could crowd out the words of
+  any box. When a write of words fails because the browser is full (and for no other failure), the images of drafts are
+  taken out of the browser one draft at a time, the draft changed longest ago first and the draft's own last, and the
+  write is tried again after each, until the words are in. The draft whose images were taken out keeps the time it was last
+  changed, because the order drafts give way in and their 30 days go by it. An image that does not fit when its own box
+  is written is left out the same way, and no other draft's images are taken out for it, since neither box's images are
+  clearly worth more.
+- **Images not kept are said, after the page is loaded again.** The entry of a draft records how many of its images the
+  browser did not keep (`lost`). A box says that after a reload, in the line under the images where it says what it
+  refused, "N images could not be kept when the page was left; paste them again", and not on the page where the images
+  are still in the box, since then it would be wrong. The line goes when an image is added or taken out, when the box is
+  emptied, and when what it holds is sent, as the line about what the box refused does; typing does not end it, and
+  there is no button to close it. An entry that holds only this count (a draft of images alone that lost them) goes
+  after 30 days like any other.
+- **Sending is the draft's.** A box sends with `draft.send(request, after)`. While the request is out the draft is
+  `busy`, and a box shown again meanwhile is greyed; a request that comes through empties the draft in the store, so
+  that a box that went away while it was on its way does not bring the words back; one that fails leaves the words and
+  says why (`error`), also in a box shown again.
+- **Not kept**: the option picked on an ask or a card, whom a reply answers, and the "hand it back" tick. They are not
+  words, and a box that comes back without them shows it; kept, they could turn into something else unseen.
+- **The settings form is kept against the configuration commit it was filled from.** The unsaved changes come back
+  where the commit is the same; where the files changed since, they are dropped and the form says so, because writing
+  them back would put old values over the new ones.
+- **Words put in from outside** (a quote, words taken back) go through `putDraft(key, words, 'append' | 'replace')`,
+  which works whether the box is shown or not.
+- **A new box takes a draft, and the lint holds it to that.** `SayBox`, `SendForm`, `DraftArea` and `DraftInput` (all in
+  `src/parts.tsx`) take a `Draft`, and `FieldInput` is for the fields of a form kept as one draft; Primer's `Textarea`
+  and `TextInput`, and the HTML `input` and `textarea`, are drawn nowhere else, and the page's lint refuses them.
 
 ### Asking before a command
 
@@ -1209,7 +1297,7 @@ with the arrows it lights on the chart, or the cell) and gives the page's panel 
 minimising nor closing the window. A click on the chart that opens what it lands on (a cell, a store, a rule) expands
 the window to show it, while a click on the chart's background leaves it as it is.
 
-Wherever the chart centres on a cell (opening on it, following the cell a round runs at, going to it from a link or the
+Wherever the chart centres on a cell (opening on it, following the cell a stage works at, going to it from a link or the
 map), it centres in the part of the chart the expanded window leaves, keeps a cell in view only while it is in that
 part, shows the whole chart in it and frames that part on its map, while panning moves the chart under the window as
 anywhere, so that every part of it can be brought out from under it. The window floats over the chart's other floating
@@ -1787,7 +1875,7 @@ it cost; the mark drawn as the list of conversations draws a work's state (`Stat
 is no work's, components.tsx): an Octicon in the colour of its state's chip, its words on hovering and as its name,
 taken from the maps of a work's and an item's marks where a mark already means the same, so that like states look alike,
 and the mark of going back, `UndoIcon` (`BACK_MARK`), which neither map has; a stage the work is at takes the work's own
-mark (the running halo while a round runs, paused, halted the alert, and so on), and a stage over how it ended: a work's
+mark (the running halo while a stage works, paused, halted the alert, and so on), and a stage over how it ended: a work's
 tick of done for done, stands, no findings, merged and main green, the mark of going back in the attention colour for
 sent back and does not stand, a work's mark of ended for ended; its one line, packed, in words with nothing before them,
 so that no line holds a chip alone: while it goes on, what happens now in the owner's words, as the head says it, with
@@ -1813,7 +1901,7 @@ is shown there once. A stretch of the engine's own steps that sent the work stra
 sending back is how the stage before it ended. A matter's head names what it is about, its kind ("Go through side
 reports"), then where it stands as a mark: back in the queue the mark of going back and held by your ask a work's mark
 of asking, both in the attention colour; done a work's tick; withdrawn an item's mark of cancelled, neutral; in hand the
-architect's own mark, as its row in the list of conversations shows it, the running halo while a round of it runs and
+architect's own mark, as its row in the list of conversations shows it, the running halo while it works and
 its trouble while it is held. Its line says in words: while in hand what happens now, as a stage's line says it; back in
 the queue or held, so; once withdrawn, why ("withdrawn: the work ended"); once done, what came of it, in one shape for
 every kind of result and every kind of matter, worked out by one function (`matterResult`, architect.ts) and drawn by
@@ -2264,7 +2352,7 @@ the point clicked to the middle at the zoom the chart has, dragging the frame mo
 fingers over it move and zoom the chart as anywhere over it; it is at most 200 px wide and 160 px tall, in the chart's
 proportions, drawn from the layout the chart already has, its frame following the view without the chart being drawn
 again, and it hides while the whole chart is in view and while what can be seen is too small for it to keep clear of the
-middle, where the chart centres on the cell a round runs at, the legend's "?" staying over it; under it the chart's zoom
+middle, where the chart centres on the cell a stage works at, the legend's "?" staying over it; under it the chart's zoom
 as a whole percentage, 100% at full size, following the view as the frame does, and in the map's place while the map
 hides, so that the owner always reads the zoom, as the owner asked; instead of finding a part of a large chart only by
 showing the whole with Space and going back, and instead of the arrows drawn on the map, which at the scale the whole
@@ -2592,26 +2680,43 @@ the cells alone, which left bright nodes and bold labels in a part never run.
 
 A work's chart opens at full size centred on the cell the work is at, and the arrows into and out of that cell end at
 the ring around it, because the owner opens a work to read where it is, and a chart opened too small to read hides it.
-When a round starts running at another cell than the one the chart last centred on, the chart centres on that cell at
-the zoom the owner has, because the owner watching a work follows where it runs.
+When a stage starts to work at another cell than the one the chart last centred on, the chart centres on that cell at
+the zoom the owner has, and on no other occasion: the page reading the same work again, or the engine's status changing
+while the same stage works, does not move it, because the owner watching a work follows where it works.
 
 ### The halo
 
-While a round of the work runs, the engine taking its step or a tool of it under way (a tool cell such as the full CI
-runs for minutes), its cell, and only that cell, wears a halo that moves (three arcs of colour running round the cell);
-a round the page sees come in since it last read the work's rounds counts as just run, so that a round over in
-milliseconds, as a tool's or an engine step's, is seen: the halo stays on its cell 1.5 seconds from when the page saw
-it, or, through several that came in together, on each in order for at least half a second, a round still running
-keeping it once it has it, and after the last that ended it lands on the cell the work is at for the rest of the time,
-instead of a ring that breathed, which the owner found too faint to notice, a glow and a spreading ring besides the
-arcs, which the owner found too much, and a halo only while a round still ran when the page drew, which no tool's round
-of milliseconds ever had; while no round runs at the cell the work is at, a still tag beside it says in a few words why
-the work waits there (waiting for Step, paused, waiting for you, waiting for the architect, waiting for other items,
-waiting for a free slot, halted, paused by the architect, as a work's states are worded) and in full on hovering,
-instead of two bars, as a pause is drawn, saying why only on hovering, and no mark for a work that waits for something,
-which left the owner looking at a work standing on a tool cell for half a minute with no sign of why; the last round
-that ended needs no mark, being the arrow taken into that cell; both marks are in the chart's "?", because the owner
-looks for where the work runs and where it stands still, and why.
+While a stage of the work works, its cell, and only that cell, wears a halo that moves (three arcs of colour running
+round the cell) and stays on that cell for as long as the stage works; when the work goes on to the next stage, the halo
+goes to that cell, with no gap and never on two cells at once. A stage works where a round of it runs, the engine taking
+its step, or a tool of it is under way (a tool cell such as the full CI runs for minutes), or where the work goes on and
+its next step is due and the engine takes it (`course`'s `working`, components.tsx), the one fact the halo, the ring of
+the cell, the map's mark, the centring of the chart, the running mark of the work's head and the icon of its state all
+take, so that they agree. It is a fact of the work and the engine's status as the page has them, never of when a round
+came to the page: a round that comes in and is over in milliseconds, as a tool's or an engine step's, draws nothing of
+its own, and reading the work's rounds again, or the status changing while the same stage works, does not make the halo
+go out or begin again. The halo is not drawn while the work waits (for the owner, the architect, other items, a free
+slot, or a failed round to be run again), is held back, the engine has halted every work, the page cannot reach the
+engine, and not for the engine's step of a waiting work that only looks whether what it waits for came, which runs
+whenever another work moves and writes no round. While the architect waits for the owner's next words, its cell, a still
+tag and no halo, the owner's words being what it waits for, not work. While no stage works at the cell the work is at, a
+still tag beside it says in a few words why the work waits there (waiting for Step, paused, waiting for you, waiting for
+the architect, waiting for other items, waiting to retry, waiting for a free slot, halted, paused by the architect, as a
+work's states are worded) and in full on hovering, instead of two bars, as a pause is drawn, saying why only on
+hovering, and no mark for a work that waits for something, which left the owner looking at a work standing on a tool
+cell for half a minute with no sign of why; the last round that ended needs no mark, being the arrow taken into that
+cell; both marks are in the chart's "?", because the owner looks for where the work works and where it stands still,
+and why.
+
+Instead of a halo that stayed 1.5 seconds on the cell of each round the page saw come in since it last read the work's
+rounds, or, through several that came in together, half a second on each in turn (so that a round over in milliseconds,
+as a tool's or an engine step's, was seen), which jumped from cell to cell through a batch of engine rounds that arrived
+together and again through the rounds a window of the architect's page read late, and went out and came again with the
+engine's steps of a waiting architect, because the owner said on 2 November 2026: "The mark itself going round is
+right: it tells me which stage the work is at. While a stage works it goes round, and when it is done it goes on to the
+next stage." A round too short to be seen is shown by the arrow the work took and the count of rounds at its cell, not
+by a halo. Earlier instead of a ring that breathed, which the owner found too faint to notice, and a glow and a
+spreading ring besides the arcs, which the owner found too much.
 
 ### A round's arrows
 
@@ -2876,7 +2981,11 @@ their arrows in sight while reading the chart.
 A view of its own, System, shows the state of the whole system in five parts, each saying on its title what the owner
 does with it: Now, whether the owner needs to step in (the asks to answer, the decision cards to rule on and the faults
 of wf-agents unread, each with how long the oldest has waited; the works by where they stand, each work in one place:
-running, ready, waiting for the owner, for the architect or for other items, paused, or halted by the engine; each
+running, ready (a work that waits to run a failed round again stands here, since it waits for nothing of the owner's or
+of other works'), waiting for the owner, for the architect or for other items, paused, or halted by the engine; a work
+held only by Pause all stands where it would without the pause, because a work's place answers where it is stuck and who
+is to step in, and the bar already says that every work is paused, while the works' lists and marks say it of each work;
+each
 project's architect, working, paused or idle, never by its works, with the matters in its queue and how long the oldest
 has waited, leading to its one-to-one; and the rounds running now, each with how large its context is and what it added
 and spent, the last two against the line the run guard judges them by, the numbers kept current by the event stream, not

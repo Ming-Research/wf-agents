@@ -41,6 +41,7 @@ const status = (extra: Partial<Status> = {}): Status => ({
   started: [],
   releasing: [],
   waiting_for_slot: [],
+  stopping: [],
   architects_started: [],
   running: [],
   stepping: [],
@@ -86,6 +87,15 @@ describe('the works by where they stand', () => {
     expect(standingOf(work(2, { paused_by: 'owner', paused: 'x' }), status({ releasing: [2] }))).toBe('ready');
     expect(standingOf(work(9, { state: 'ended' }), s)).toBe(null);
     expect(waitsWords({ kind: 'architect', matter: 7 })).toBe("waiting for the architect's reply to matter 7");
+    // A work that waits to run a failed round again waits for nothing of the owner's or of other works': it stands with
+    // the ready, whether the engine steps it to look at the wait or not.
+    const retry = work(10, { state: 'waiting', waits: { kind: 'retry' } });
+    expect(standingOf(retry, s)).toBe('ready');
+    expect(standingOf(retry, status({ running: [10] }))).toBe('ready');
+    expect(waitsWords({ kind: 'retry' })).toBe('waiting to run the failed round again');
+    // A work that waits, which the engine steps only to look whether what it waited for came (its wait over: nothing
+    // left to wait for), is not running for it.
+    expect(standingOf(work(11, { state: 'waiting' }), status({ running: [11] }))).toBe('ready');
   });
 });
 

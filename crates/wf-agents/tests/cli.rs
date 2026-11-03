@@ -49,11 +49,11 @@ const UNCHECKED: [&str; 18] = [
     "queue put 1",
     "asks",
     "ask 1",
-    "answer 1 --text x",
+    "answer 1 --text x --speaker owner",
     "design-cards",
     "design-card 1",
     "rule 1 --confirm",
-    "say 1 hello",
+    "say 1 hello --speaker owner",
     "pause 1 --why x",
     "resume 1",
     "status",
@@ -179,7 +179,7 @@ fn flow_check_passes_the_repository_flow_and_fails_a_broken_one() {
         .unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8(out.stdout).unwrap();
-    assert!(stdout.starts_with("engineer: 41 cells, 228 rows"), "{stdout}");
+    assert!(stdout.starts_with("engineer: 41 cells, 229 rows"), "{stdout}");
     // It says where each line's sessions start anew and how large the forms its returns share are.
     assert!(
         stdout.contains("engineer: format:common ")
@@ -328,10 +328,10 @@ fn init_refuses_a_place_that_is_not_a_data_directory() {
     }
 }
 
-// The owner's cancel ends the item's work as every work ends: its session ends, and its worktree's removal and its
-// pull request's closing are queued, saying why.
+// The owner's cancel of an item with a work that goes on says it waits for the step the work is in, and only asks the
+// engine: this process cannot know what the loop has in flight. Nothing of the work ends here; the loop ends it.
 #[test]
-fn the_owner_s_cancel_ends_the_work_as_every_work_ends() {
+fn the_owner_s_cancel_of_an_item_with_a_work_going_on_asks_the_engine() {
     let dir = data_directory("cancel");
     for line in [
         "init",
@@ -358,33 +358,31 @@ fn the_owner_s_cancel_ends_the_work_as_every_work_ends() {
     })
     .unwrap();
     drop(base);
-    let out = wf(&dir, "item cancel 1 --why duplicate");
-    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        printed(&dir, "item cancel 1 --why duplicate").trim(),
+        "item 1 is cancelled once its work has finished the step it is in"
+    );
     let base = db::Db::open(&config::database(&dir)).unwrap();
     let going: i64 = base
         .conn()
         .query_row("SELECT count(*) FROM sessions WHERE ended IS NULL", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(going, 0);
+    assert_eq!(going, 1);
+    let cancelled: Option<String> = base
+        .conn()
+        .query_row("SELECT cancelled FROM items WHERE id = 1", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(cancelled, None);
     let mut st = base
         .conn()
-        .prepare("SELECT kind, json_extract(args, '$.comment') FROM outbox ORDER BY id")
+        .prepare("SELECT kind, json_extract(args, '$.why') FROM outbox ORDER BY id")
         .unwrap();
     let queued: Vec<(String, Option<String>)> = st
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
         .unwrap()
         .map(|x| x.unwrap())
         .collect();
-    assert_eq!(
-        queued,
-        [
-            ("remove_worktree".to_string(), None),
-            (
-                "close_pr".to_string(),
-                Some("Its work ended without merging.".to_string())
-            )
-        ]
-    );
+    assert_eq!(queued, [("cancel_item".to_string(), Some("duplicate".to_string()))]);
     drop(st);
     drop(base);
     let _ = std::fs::remove_dir_all(&dir);
@@ -812,11 +810,11 @@ fn the_counters_past_their_limits_say_how_many_counters_were_not_checked() {
              (1, 'd', '{"graphs": [{"name": "engineer", "cells": [{"id": "I1", "rows": [{"name": "t", "counts": "fixes"}]}]}]}');
          WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
              INSERT INTO works (id, item, flow_version, graph, at) SELECT i, 1, 1, 'engineer', 'I1' FROM n;
-         INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at)
-             SELECT id, 1, 'I1', '{}', 't', 'c', 0 FROM works;
+         INSERT INTO rounds (work, n, cell, input, transition, counts, config_commit, started_at)
+             SELECT id, 1, 'I1', '{}', 't', 'fixes', 'c', 0 FROM works;
          WITH RECURSIVE n(i) AS (SELECT 2 UNION ALL SELECT i + 1 FROM n WHERE i < 6)
-             INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at)
-             SELECT 1, i, 'I1', '{}', 't', 'c', 0 FROM n;"#,
+             INSERT INTO rounds (work, n, cell, input, transition, counts, config_commit, started_at)
+             SELECT 1, i, 'I1', '{}', 't', 'fixes', 'c', 0 FROM n;"#,
     );
     let text = printed(&dir, "anomalies");
     assert_eq!(

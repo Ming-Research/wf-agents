@@ -51,16 +51,20 @@ pub struct Status {
     /// The works the owner started that are still paused, until their machine has a slot free: the engine then lifts
     /// their pause.
     pub releasing: Vec<i64>,
-    /// The works whose wait is over, the owner's or the architect's answer come or what their row waited for, that
-    /// wait on, holding no slot, until their machine has a slot free, as the engine's last step of each found: each
-    /// then goes on before any new work starts. A work's state on the page is waiting for a free slot while it is
-    /// named here.
+    /// The works that go on once their machine has a slot free, before any new work starts: those whose wait is over,
+    /// the owner's or the architect's answer come or what their row waited for, that wait on, holding no slot, as the
+    /// engine's last step of each found, and the paused works whose pause is asked to be lifted. A work's state on the
+    /// page is waiting for a free slot while it is named here.
     pub waiting_for_slot: Vec<i64>,
+    /// The works asked to stop, by a cancel of their item or a start over, that the engine has not stopped yet, as it
+    /// waits for the step of each to end. A work's state on the page is stopping while it is named here.
+    pub stopping: Vec<i64>,
     /// The projects whose architect the owner started since every work was last paused: its works go on whatever the
     /// global state.
     pub architects_started: Vec<String>,
-    /// The works the engine is taking a step of now, in the order of their ids: the round of each runs, beside the
-    /// others. While every work is paused they are the last rounds before the pause, unless the owner asked for them.
+    /// The works the engine is taking a step of now, in the order of their ids, beside one another. A step is not
+    /// always a round: a work that waits is stepped only to see whether what it waits for came, and that step writes
+    /// no round. While every work is paused they are the last steps before the pause, unless the owner asked for them.
     pub running: Vec<i64>,
     /// The works whose round the owner asked for, in the order asked, until each round has ended.
     pub stepping: Vec<i64>,
@@ -153,20 +157,27 @@ pub enum Event {
 pub enum WorkState {
     /// A round of it is running.
     Running,
-    /// Its next step is due; the engine takes it on its next pass.
+    /// Its next step is due; the engine takes it on its next pass, and the page shows it as running while the engine
+    /// takes it.
     Ready,
     /// It asked the owner or the architect, and waits for the ask to be answered.
     Asking,
-    /// It took a row that waits: for other works, or for its turn.
+    /// It took a row that waits: for other works, or for its turn; or its last round at the cell failed in a way the
+    /// flow runs again, and the cell waits to run again (`Waits::Retry`).
     Waiting,
     /// What it waited for came, and it waits on, holding no slot, until its machine has a slot free. The works as read
     /// never stand so: the engine's status names such works (`waiting_for_slot`), and the page gives a work so named
     /// this state in place of the one it reads.
     WaitingForSlot,
-    /// The owner, the architect or Pause all paused it.
+    /// The owner or the architect paused it. Pause all is the engine's global state, which the page adds from the
+    /// status: no work is read as paused by it.
     Paused,
     /// The engine stopped it for a problem, which the owner looks at before starting it again.
     Halted,
+    /// A cancel or a start over was asked, and it ends once the step it is in has ended. The works as read never stand
+    /// so: the engine's status names such works (`stopping`), and the page gives a work so named this state in place of
+    /// the one it reads.
+    Stopping,
     /// It reached the end of its graph.
     Done,
     /// It was stopped before its end, for example because its item was cancelled.
@@ -201,7 +212,8 @@ pub enum PausedBy {
     Architect,
 }
 
-/// What a work waits for: once it comes, the work goes on by itself, unless it is paused.
+/// What a work waits for: once it comes, the work goes on by itself, unless it is paused. Every wait of the engine
+/// that writes no round is read as one of these, or as the engine's halt or a wait for a free slot in its status.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Waits {
@@ -221,6 +233,11 @@ pub enum Waits {
     Items { items: Vec<i64> },
     /// What the row it took waits for, when it is none of these: the cell and the row.
     Row { cell: String, row: String },
+    /// Its last round at the cell ended without a return, of a kind of failed run the flow runs again, or is the record
+    /// of the engine's step before the cell's round that reached the network and failed (`step_network`), not past
+    /// its bound: the cell runs again after a wait that grows with each failure. Nothing the owner can do shortens it,
+    /// so it names no time. A paused work does not wait so.
+    Retry,
 }
 
 /// A work as a list shows it: what it works on, where it stands and what it has cost.
@@ -563,6 +580,13 @@ pub struct MarkRead {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct Answer {
     pub text: String,
+    /// Who the caller declares to answer, `owner` or `delegate`, as for the words said to one architect.
+    pub speaker: String,
+    /// The parts of the answer a delegate declares to be the owner's own words, each found letter for letter in it; the
+    /// page sends none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub relayed: Option<Vec<String>>,
     /// For what the architect is asked: why it was decided this way.
     #[serde(default)]
     #[ts(optional)]
@@ -1447,6 +1471,14 @@ pub struct Gap {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct WorkSaid {
     pub text: String,
+    /// Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect; kept with the
+    /// words wherever they go: the architect's matter, the answer to an engineer's question, or the engineer alone.
+    pub speaker: String,
+    /// The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them,
+    /// kept with the words wherever they go; the page sends none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub relayed: Option<Vec<String>>,
     /// engineer (the default), architect (the default of a question about a decision card) or both.
     #[serde(default)]
     #[ts(optional)]
@@ -1470,6 +1502,13 @@ pub struct ProjectsSaid {
     /// The group, by its key.
     pub key: String,
     pub text: String,
+    /// Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect.
+    pub speaker: String,
+    /// The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+    /// the page sends none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub relayed: Option<Vec<String>>,
     /// The project whose architect it is for; none for every architect of the group.
     #[serde(default)]
     #[ts(optional)]
@@ -1484,6 +1523,14 @@ pub struct ProjectsSaid {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct ArchitectSaid {
     pub text: String,
+    /// Who the caller declares to speak: `owner` at the page, `delegate` for a session that speaks for the owner. The
+    /// architect's record of a decision says which was declared; the engine cannot tell it from who speaks.
+    pub speaker: String,
+    /// The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+    /// the page sends none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub relayed: Option<Vec<String>>,
     /// The item it is about, if any.
     #[serde(default)]
     #[ts(optional)]

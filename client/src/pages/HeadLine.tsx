@@ -39,10 +39,10 @@ export function Held({ c, why }: { c: Course; why: string | null }) {
   );
 }
 
-/// How a work goes on, on one line: a round of it running and how long it has run, or what holds it back, then what it
-/// waits for, linked to where the owner gives it, or, what it waited for come, that it waits for a free slot, saying
-/// why on hovering, and its decision cards and asks waiting for the owner as small chips; then why the engine or the
-/// architect stopped it, or why it ended.
+/// How a work goes on, on one line: that it is stopping, saying why on hovering, or a round of it running and how long
+/// it has run, or what holds it back, then what it waits for, linked to where the owner gives it, or, what it waited for
+/// come or its pause asked to be lifted, that it waits for a free slot, saying why on hovering, and its decision cards
+/// and asks waiting for the owner as small chips; then why the engine or the architect stopped it, or why it ended.
 export function State({ w, c }: { w: WorkSummary; c: Course }) {
   if (c.over) {
     return (
@@ -52,9 +52,16 @@ export function State({ w, c }: { w: WorkSummary; c: Course }) {
       </span>
     );
   }
+  if (c.stopping) {
+    return (
+      <span className="course">
+        <WorkBadge state="stopping" />
+      </span>
+    );
+  }
   const why = held(c, w);
   const parts: ReactNode[] = [];
-  if (c.running !== null) {
+  if (c.working !== null) {
     parts.push(<Running key="running" words={runningWords(c)} since={w.running?.started_at ?? null} />);
   } else if (why !== null) {
     parts.push(<Held key="held" c={c} why={why} />);
@@ -73,8 +80,8 @@ export function State({ w, c }: { w: WorkSummary; c: Course }) {
       </LabelLink>,
     );
   }
-  if (c.slot && c.running === null) parts.push(<WorkBadge key="slot" state="waiting_for_slot" />);
-  if (c.running === null && why === null && waits === null && !c.slot) {
+  if (c.slot && c.working === null) parts.push(<WorkBadge key="slot" state="waiting_for_slot" />);
+  if (c.working === null && why === null && waits === null && !c.slot) {
     parts.push(
       c.started ? (
         <StateChip key="ready" tone="neutral">

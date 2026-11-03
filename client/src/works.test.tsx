@@ -44,6 +44,7 @@ const status = (extra: Partial<Status> = {}): Status =>
     started: [],
     releasing: [],
     waiting_for_slot: [],
+    stopping: [],
     stepping: [],
     architects_started: [],
     flow_version: 2,
@@ -99,7 +100,8 @@ const standing = (
 ): ArchitectStanding => ({ project, works: its, queue: [], asking: false, ...extra });
 
 // Project p: work 9 the engine runs, 8 done, 7 ended, 6 waiting. Project q: work 4 paused, and work 3 recorded as
-// running while the engine runs nothing of it, which is ready as it is in effect.
+// running while the engine runs nothing of it just now: it runs as it is in effect, the engine taking its next step,
+// which closes that round, and is ready where the engine cannot take it up (halted).
 const works = [
   work(3, { project: 'q', state: 'running' }),
   work(4, { project: 'q', state: 'paused', paused: 'the owner paused it', paused_by: 'owner' }),
@@ -201,7 +203,7 @@ describe('the works table', () => {
       ['1 work is ended. Click to show it.', 'false'],
     ]);
     expect(buttons(q)).toEqual([
-      ['1 work is ready. Click to hide it.', 'true'],
+      ['1 work is running. Click to hide it.', 'true'],
       ['1 work is paused. Click to hide it.', 'true'],
     ]);
     // Showing done and ended shows their rows, the buttons pressed; hiding running hides its row, newest first throughout.
@@ -209,7 +211,7 @@ describe('the works table', () => {
     expect(listed(view())).toEqual([9, 8, 7, 6, 4, 3]);
     expect(buttons(groups(view())[0]).map((b) => b[1])).toEqual(['true', 'true', 'true', 'true']);
     kept(['running', 'paused']);
-    expect(listed(view())).toEqual([8, 7, 6, 3]);
+    expect(listed(view())).toEqual([8, 7, 6]);
     expect(buttons(groups(view())[0]).map((b) => b[1])).toEqual(['false', 'true', 'true', 'true']);
   });
 
@@ -246,7 +248,9 @@ describe('the works table', () => {
     expect(shownInList()).toEqual([9, 6, 4, 3]);
   });
 
-  it('counts a work recorded as running that the engine does not run as ready: in its row and in both lists of buttons', () => {
+  it('counts a work recorded as running that the engine cannot take up as ready: in its row and in both lists of buttons', () => {
+    // The engine has halted every work: no round starts, so the round the work's last step left open is not run.
+    read.status = status({ running: [9], halt: { kind: 'offline', until: 1, why: 'no network' } });
     const html = view();
     const q = groups(html)[1];
     // Its row says ready, not running, and its project's button counts it so.
@@ -277,6 +281,22 @@ describe('the works table', () => {
       '1 work is ready. Click to hide it.',
       '1 work is paused. Click to hide it.',
     ]);
+  });
+});
+
+describe('the works table while every work is paused', () => {
+  it('counts a work Pause all holds as paused, in its row and in the buttons, as its words say', () => {
+    read.status = status({ paused: true, running: [] });
+    const [p, q] = groups(view());
+    // Work 9, recorded as running with no round running, and work 6, which waits, are held by Pause all.
+    expect(buttons(p).map((b) => b[0])).toEqual([
+      '2 works are paused. Click to hide them.',
+      '1 work is done. Click to show it.',
+      '1 work is ended. Click to show it.',
+    ]);
+    expect(buttons(q).map((b) => b[0])).toEqual(['2 works are paused. Click to hide them.']);
+    const row = p.split('<tr ').find((r) => r.includes('<td>W9</td>')) ?? '';
+    expect(row).toContain('paused by Pause all');
   });
 });
 

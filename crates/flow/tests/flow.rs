@@ -29,6 +29,44 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
+// A stop that comes before the merge is a row of the merge cell, drawn on the chart: it waits there for the engine's
+// loop to end the work, taken only at the work's turn in the queue. What depends on the order things happened in, and
+// not on a cell, no row can say, so the words the owner and the architect read say it: a cancel or a start over waits
+// for the step under way, a merge that came first stands, a cancel closes what a work taken over left, and a resume
+// waits for a free slot until a later pause withdraws it.
+#[test]
+fn a_stop_before_the_merge_is_a_row_and_the_rest_is_said_in_words() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let row = g.cell("M2").unwrap().rows.iter().find(|r| r.name == "stopped").unwrap();
+    assert_eq!(row.to, "M2");
+    assert!(row.waits && row.counts.is_none());
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let stop = v["engine"]["steps"]["stop_work"].as_str().unwrap();
+    assert!(stop.contains("once the step it is in has ended"), "{stop}");
+    assert!(stop.contains("A merge that came first stands"), "{stop}");
+    assert!(stop.contains("waits for its next start"), "{stop}");
+    assert!(
+        stop.contains("the cancel removes the worktree and closes the pull request"),
+        "{stop}"
+    );
+    let waits = v["engine"]["steps"]["wait_for_start"].as_str().unwrap();
+    assert!(waits.contains("withdraws a resume"), "{waits}");
+    for (said, want) in [
+        ("Cancel an item; its work ends", "once the step it is in has ended"),
+        (
+            "Cancel an item; its work ends",
+            "whose merge comes first, is not cancelled",
+        ),
+        ("Let a work you paused go on", "once its machine has a slot free"),
+        ("Let a work you paused go on", "later Pause or Step"),
+        ("Let a work you paused go on", "the engine's pause for a problem"),
+    ] {
+        let line = FLOW.lines().find(|l| l.contains(said)).unwrap();
+        assert!(line.contains(want), "{line}");
+    }
+}
+
 // The answers of a cell's list of forms are read from the flow built into the program: the fix has the answer made for
 // a fix in no commit, a field that is no list of forms and a cell the flow lacks give none.
 #[test]
@@ -85,8 +123,9 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 // and the start of its work, which only a new session understands the project at (`S0`, `S1`, `U1`), the queue (`Q0`)
 // and each matter's path, the check of the policy, the writing of a new one, or its draft dropped when the owner keeps
 // the policy in force, and its taking effect (`P1`, `P2`, `P12`),
-// the plan of what to do next (`N1`), the review of a batch of item changes and whether to plan or check again (`B1`,
-// `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds only its matter (`A3`), the tools (`X1`), the observer
+// the plan of what to do next (`N1`), the recording of the decisions in the owner's words, the review of a batch of item
+// changes and whether to plan or check again (`B1`, `B5`, `B2`, `B3`, `B4`), the end (`E2`), the owner's ask that holds
+// only its matter (`A3`), the tools (`X1`), the observer
 // (`X2`) and the wait for the owner's Start after a pause (`X3`): as many cells, rows and states. No wrap-up, no wait
 // for the owner's reply in a talk, and none of the setting of a policy as a stage of its own (its study, its readings by
 // new architects, the owner's buttons).
@@ -96,7 +135,7 @@ fn a_table_to_answer_with_no_row_goes_on_past_the_round() {
 fn the_architect_graph_compiles_as_its_reference_has_it() {
     let c = compiled();
     let s = c.stats.iter().find(|s| s.graph == "architect").unwrap();
-    assert_eq!((s.cells, s.rows, s.states), (30, 129, 186));
+    assert_eq!((s.cells, s.rows, s.states), (31, 136, 197));
     let g = c.graph("architect").unwrap();
     for gone in [
         "E1", "H6", "H11", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11",
@@ -194,7 +233,8 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     assert_eq!(
         keep,
         [
-            "U1", "P1", "N1", "P2", "Q1", "H1", "H2", "H3", "H4", "H5", "H7", "H8", "H9", "H10", "H12", "B3", "B4"
+            "U1", "P1", "N1", "P2", "Q1", "H1", "H2", "H3", "H4", "H5", "H7", "H8", "H9", "H10", "H12", "B5", "B3",
+            "B4"
         ]
     );
     for (cell, check) in [("U1", "understanding_written"), ("N1", "plan_written")] {
@@ -298,6 +338,15 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
         way(&row("B1", "nothing")),
         to("Q0", &["settle_straight_hold", "queue_group_talk"])
     );
+    // The owner's words a batch handled have their decisions recorded before its item changes are reviewed: the batch's
+    // end goes to the cell that records them, which goes on to the review when a decision or an item change is there to
+    // review, and to the rethink, as the end of a batch with none, when none is.
+    assert_eq!(way(&row("B1", "decisions")), to("B5", &[]));
+    assert_eq!(way(&row("B5", "decisions")), to("B2", &["open_session"]));
+    assert_eq!(way(&row("B5", "changes")), to("B2", &["open_session"]));
+    assert_eq!(way(&row("B5", "none")), to("B4", &["settle_straight_hold"]));
+    assert_eq!(way(&row("B1", "review")), to("B2", &["open_session"]));
+    assert_eq!(way(&row("B1", "done")), to("B4", &["settle_straight_hold"]));
     let into = |cell: &str| -> Vec<&str> {
         g.cells
             .iter()
@@ -309,6 +358,10 @@ fn the_check_of_the_policy_and_the_plan_are_matters_at_the_head_of_the_queue() {
     assert_eq!(into("N1"), ["Q2"]);
     assert_eq!(into("P2"), ["Q2"]);
     assert_eq!(into("P12"), ["Q2"]);
+    // Only the end of a batch goes to the recording of the decisions, and a batch's review comes from it, the end of the
+    // batch and the revision.
+    assert_eq!(into("B5"), ["B1"]);
+    assert_eq!(into("B2"), ["B1", "B5", "B3"]);
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     let ask = v["flows"][1]["nodes"]
         .as_array_mut()

@@ -19,26 +19,27 @@ import {
   Link as PrimerLink,
   PageLayout,
   Textarea,
+  TextInput,
 } from '@primer/react';
 import {
+  type ComponentProps,
   createContext,
   createElement,
-  type Dispatch,
   Fragment,
   type KeyboardEvent,
   type ReactNode,
-  type SetStateAction,
   useContext,
   useLayoutEffect,
   useRef,
   useState,
 } from 'react';
 
+import type { Draft } from './drafts';
 import { roundName, time } from './format';
-import { admit, IMAGE_KINDS, imageHref, IMAGES_MOST, megabytes, pastedFiles, type PendingImage, readImage } from './images';
+import { admit, IMAGE_KINDS, imageHref, IMAGES_MOST, megabytes, pastedFiles, readImage } from './images';
 import { useStatus } from './live';
 import { Link, workHref } from './route';
-import { t } from './text';
+import { t, tn } from './text';
 
 /// What opens a round of a work where the page shows it in place.
 export type OpenRound = (work: number, round: number) => void;
@@ -368,12 +369,10 @@ export function CommitLink({ project, sha }: { project: string | null; sha: stri
 /// images added wait over the words, each a thumbnail with a button that takes it out, with how many against the 10 a
 /// message carries; what the box refuses (a file that is no PNG, JPEG, GIF or WebP image, one over 5 MB, one past the
 /// tenth) is said under them, until the box takes or loses an image or is emptied. The words and the images go together
-/// when sent, and may be images alone.
-export function SayBox({ text, set, images, setImages, small = false, placeholder, label, title, disabled, onKeyDown }: {
-  text: string;
-  set: (text: string) => void;
-  images: PendingImage[];
-  setImages: Dispatch<SetStateAction<PendingImage[]>>;
+/// when sent, and may be images alone. The words and the images are the box's draft (`useDraft`), which keeps them when
+/// the box goes away and is shown again, and when the page is loaded again.
+export function SayBox({ draft, small = false, placeholder, label, title, disabled, onKeyDown }: {
+  draft: Draft;
   small?: boolean;
   placeholder: string;
   label?: string;
@@ -381,6 +380,7 @@ export function SayBox({ text, set, images, setImages, small = false, placeholde
   disabled: boolean;
   onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
 }) {
+  const { text, images, setText, setImages } = draft;
   const box = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const [refused, setRefused] = useState<string | null>(null);
@@ -430,6 +430,7 @@ export function SayBox({ text, set, images, setImages, small = false, placeholde
         </div>
       ) : null}
       {refused !== null ? <p className="say-refused">{refused}</p> : null}
+      {draft.lostImages > 0 ? <p className="say-refused">{tn('say_images_lost', draft.lostImages)}</p> : null}
       <div className="say-box-row">
         <IconButton
           icon={PaperclipIcon}
@@ -460,7 +461,7 @@ export function SayBox({ text, set, images, setImages, small = false, placeholde
           placeholder={placeholder}
           aria-label={label}
           title={title}
-          onChange={(e) => set(e.target.value)}
+          onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
           onPaste={(e) => {
             const files = pastedFiles([...e.clipboardData.types], [...e.clipboardData.files]);
@@ -490,50 +491,64 @@ export function Thumbs({ ids }: { ids: number[] }) {
   );
 }
 
-/// The words of a form, when it takes words.
-export type Words = { text: string; set: (text: string) => void; placeholder: string; rows?: number };
+/// Some words the owner writes, whose draft (`useDraft`) keeps them: Primer's `Textarea` over the draft's words, greyed
+/// while a request with them is out. Every box of words that is not a `SayBox` is this, so that no box loses what is
+/// typed in it when it goes away; Primer's `Textarea` is imported nowhere else (the page's lint refuses it).
+export function DraftArea({ draft, disabled, ...area }: { draft: Draft } & Omit<ComponentProps<typeof Textarea>, 'value' | 'onChange'>) {
+  return <Textarea {...area} disabled={disabled === true || draft.busy} value={draft.text} onChange={(e) => draft.setText(e.target.value)} />;
+}
 
-/// The form that answers or says something: what goes above its words (a choice, whom to); its words, which Ctrl or
-/// Cmd with Enter sends too; the button that sends, greyed with why while it cannot; and what failed.
-export function SendForm({ above, words, label, ready, busy, why, onSend, error }: {
+/// A line of words the owner writes, whose draft (`useDraft`) keeps them, as `DraftArea` keeps several lines: Primer's
+/// `TextInput` over the draft's words, greyed while a request with them is out.
+export function DraftInput({ draft, disabled, ...line }: { draft: Draft } & Omit<ComponentProps<typeof TextInput>, 'value' | 'onChange'>) {
+  return <TextInput {...line} disabled={disabled === true || draft.busy} value={draft.text} onChange={(e) => draft.setText(e.target.value)} />;
+}
+
+/// A field of a form whose values are kept together as one draft (the settings): Primer's `TextInput` as it is. The
+/// value and what it changes to are the form's, which writes them to its draft; a box of words of its own is a
+/// `DraftInput`.
+export function FieldInput(field: ComponentProps<typeof TextInput>) {
+  return <TextInput {...field} />;
+}
+
+/// The form that answers or says something: what goes above its words (a choice, whom to); its words, kept as a draft,
+/// which Ctrl or Cmd with Enter sends too; the button that sends, greyed with why while it cannot and while a request
+/// with the words is out; and what failed.
+export function SendForm({ above, draft, placeholder, rows = 3, label, ready, why, onSend }: {
   above?: ReactNode;
-  words?: Words;
+  draft: Draft;
+  placeholder: string;
+  rows?: number;
   label: string;
   ready: boolean;
-  busy: boolean;
   /// Why it cannot be sent yet, said on hovering the button.
   why?: string;
   onSend: () => void;
-  error: string | null;
 }) {
-  const can = ready && !busy;
+  const can = ready && !draft.busy;
   return (
     <div className="send-form">
       {above}
-      {words !== undefined ? (
-        <Textarea
-          block
-          resize="vertical"
-          value={words.text}
-          rows={words.rows ?? 3}
-          placeholder={words.placeholder}
-          title={t('send_keys_hint')}
-          onChange={(e) => words.set(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && can) {
-              e.preventDefault();
-              onSend();
-            }
-          }}
-          disabled={busy}
-        />
-      ) : null}
+      <DraftArea
+        draft={draft}
+        block
+        resize="vertical"
+        rows={rows}
+        placeholder={placeholder}
+        title={t('send_keys_hint')}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && can) {
+            e.preventDefault();
+            onSend();
+          }
+        }}
+      />
       <div className="send-form-row">
         <Button variant="primary" onClick={onSend} disabled={!can} title={ready ? undefined : why}>
           {label}
         </Button>
       </div>
-      {error !== null ? <Flash variant="danger">{t('request_failed', { error })}</Flash> : null}
+      {draft.error !== null ? <Flash variant="danger">{t('request_failed', { error: draft.error })}</Flash> : null}
     </div>
   );
 }

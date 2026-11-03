@@ -1,12 +1,15 @@
 //! The engine's loop and the jobs it dispatches. Only the loop schedules ([`Engine::dispatch`]): between jobs it alone
 //! reads what the owner asked, carries out the outbox, brings works on an older flow version to the version the engine
 //! runs, starts works, grants slots and finds the keep-warm pings due; and what the engine does to a work from outside
-//! its step (a start over the outbox holds, the takeover of a work on an older flow version) waits until that work has
-//! no job in flight. It hands each job it dispatches, a step of a work or the pings due to its sessions, to a thread of
-//! its own with an execution context of its own ([`Engine::fork`]), one job at most for each work, so that the rounds
-//! and tool runs of different works overlap while each work moves one step after another, and a pause of a work takes
-//! effect when the round under way ends. A job's thread marks its job as over and says so (the hook `ended`), and the
-//! loop reaps it ([`Engine::reap`]).
+//! its step waits until that work has no job in flight. Every such action but a pause comes through the outbox, where
+//! whoever asks writes it, the command line's process and an architect's step as much as the loop: a start over, a
+//! cancel of the work's item and the lifting of a pause, which also waits for a free slot; the loop alone takes a work
+//! over on an older flow version. So a work never ends while a step of it runs, and a step that finds its round ended
+//! is a fault, which pauses the work. The loop hands each job it dispatches, a step of a work or the pings due to its
+//! sessions, to a thread of its own with an execution context of its own ([`Engine::fork`]), one job at most for each
+//! work, so that the rounds and tool runs of different works overlap while each work moves one step after another,
+//! and a pause of a work takes effect when the round under way ends. A job's thread marks its job as over and says so
+//! (the hook `ended`), and the loop reaps it ([`Engine::reap`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -153,6 +156,16 @@ impl Engine {
     /// Whether a work has a job in flight.
     pub(crate) fn has_job(&self, work: i64) -> bool {
         lock(&self.shared.jobs).contains_key(&work)
+    }
+
+    /// The works with a step in flight, and not the keep-warm pings of their sessions: each holds its slot, if it holds
+    /// one, until the loop reaps the step, whatever happened to the work meanwhile.
+    pub(crate) fn stepping(&self) -> BTreeSet<i64> {
+        lock(&self.shared.jobs)
+            .iter()
+            .filter(|(_, j)| j.step)
+            .map(|(id, _)| *id)
+            .collect()
     }
 
     /// Whether the loop granted the step in flight of a work a free slot, for the work to leave its wait by.

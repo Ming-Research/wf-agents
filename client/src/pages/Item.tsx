@@ -12,7 +12,7 @@ import { ConfirmationDialog, Flash, IconButton, PageHeader } from '@primer/react
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 
 import type { DesignCard, ItemDetail, JsonValue, LinkedItem, OwnerAsk, Shown, Waits } from '../api';
-import { DependencyKind, Facts, ItemBadge, liveState, Loaded, StateChip, WorkBadge } from '../components';
+import { course, DependencyKind, Facts, ItemBadge, liveState, Loaded, StateChip, WorkBadge } from '../components';
 import { cost, time } from '../format';
 import {
   Acceptance,
@@ -556,6 +556,8 @@ function Head({ d }: { d: ItemDetail }) {
     </span>,
     i.pr !== null ? <PrLink project={i.project} n={i.pr} /> : null,
   ]);
+  // What the work waits for as its course says it, which a work held back by every work's pause does not wait to retry.
+  const waiting = w === undefined ? null : course(w, status).waits;
   const live =
     w === undefined
       ? []
@@ -568,7 +570,7 @@ function Head({ d }: { d: ItemDetail }) {
           <>
             <span className="cell-id">{w.at}</span> {w.at_title}
           </>,
-          w.waits !== null ? waitsWords(w.waits) : null,
+          waiting !== null ? waitsWords(waiting) : null,
           <Link to={href({ page: 'messages', open: `work:${w.id}` })} title={t('go_to_conversation_hint')}>
             {t('go_to_conversation')}
           </Link>,
