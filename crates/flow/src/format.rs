@@ -479,9 +479,9 @@ pub struct Line {
     pub name: String,
     pub desc: String,
     /// The colour the line's role is drawn in wherever the owner's page shows it; no two lines of the flow share one.
-    /// A flow that runs gives every line one (`crate::compile`); one written before lines had colours, which is only
-    /// shown (`crate::compile_shown`), has none.
-    #[serde(default)]
+    /// A flow that runs gives every line one (`crate::compile`); one written before lines had colours or with a colour
+    /// the page no longer draws ([`RETIRED_COLOURS`]), which is only shown (`crate::compile_shown`), has none.
+    #[serde(default, deserialize_with = "colour_or_retired")]
     pub colour: Option<Colour>,
     /// Whether the line's session expires with the CLI's prompt cache: a round of the line whose session's last call is
     /// a cache lifetime or more ago starts a new session, instead of writing the whole session to the cache again. The
@@ -507,8 +507,26 @@ pub enum Colour {
     Pink,
     Purple,
     Indigo,
-    Lime,
-    Olive,
+    Green,
+    Brown,
+}
+
+/// The colours the page drew lines in once and does not now, which a flow written then still names: such a flow is read
+/// for showing, its lines with none (their roles drawn in the grey of an agent with no colour), and is not run.
+const RETIRED_COLOURS: [&str; 2] = ["lime", "olive"];
+
+/// A line's colour as the flow writes it: one of [`Colour`], or, for a flow written when the page drew it, one of
+/// [`RETIRED_COLOURS`], read as none; any other name is an error, which says what the colours are.
+fn colour_or_retired<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Colour>, D::Error> {
+    let Some(name) = Option::<String>::deserialize(d)? else {
+        return Ok(None);
+    };
+    if RETIRED_COLOURS.contains(&name.as_str()) {
+        return Ok(None);
+    }
+    serde_json::from_value::<Colour>(Value::String(name))
+        .map(Some)
+        .map_err(<D::Error as serde::de::Error>::custom)
 }
 
 impl std::fmt::Display for Colour {

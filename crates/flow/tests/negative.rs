@@ -95,8 +95,8 @@ case!(an_unknown_key, "unknown field", |v| {
 case!(a_line_with_no_colour, "a line with no colour: engineer", |v| {
     obj(&mut graph(v)["sessions"]["lines"][0]).remove("colour");
 });
-case!(a_colour_the_page_does_not_know, "unknown variant `green`", |v| {
-    graph(v)["sessions"]["lines"][0]["colour"] = json!("green");
+case!(a_colour_the_page_does_not_know, "unknown variant `mauve`", |v| {
+    graph(v)["sessions"]["lines"][0]["colour"] = json!("mauve");
 });
 case!(a_colour_the_page_keeps_for_the_owner, "unknown variant `orange`", |v| {
     graph(v)["sessions"]["lines"][1]["colour"] = json!("orange");
@@ -142,10 +142,27 @@ fn a_flow_only_shown_with_a_colour_the_page_does_not_know() {
         flow::compile_shown,
         |v| {
             obj(&mut graph(v)["sessions"]["lines"][0]).remove("colour");
-            graph(v)["sessions"]["lines"][1]["colour"] = json!("green");
+            graph(v)["sessions"]["lines"][1]["colour"] = json!("mauve");
         },
-        "unknown variant `green`",
+        "unknown variant `mauve`",
     );
+}
+
+// A flow written when the page drew lines in olive and lime, as at an older commit, is read to be shown, those lines
+// with no colour, and is refused as a flow to run, which gives every line one. Any other name the page does not draw
+// is refused either way (the two tests before).
+#[test]
+fn a_flow_with_a_colour_the_page_no_longer_draws_is_only_shown() {
+    for old in ["olive", "lime"] {
+        let edit = |v: &mut Value| graph(v)["sessions"]["lines"][4]["colour"] = json!(old);
+        refused_by(flow::compile, edit, "a line with no colour: librarian");
+        let mut v: Value = serde_json::from_str(FLOW).unwrap();
+        edit(&mut v);
+        let text = serde_json::to_string(&v).unwrap();
+        if let Err(e) = flow::compile_shown(&text, &context()) {
+            panic!("{old}: a flow with it is not read to be shown:\n{e}");
+        }
+    }
 }
 case!(an_engine_step_nothing_uses, "an engine step nothing uses: extra", |v| {
     v["engine"]["steps"]["extra"] = json!("x");

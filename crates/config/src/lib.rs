@@ -536,7 +536,8 @@ fn default_main() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ci {
-    /// The workflow that runs on each push of a work's branch: the fast CI the ci tool waits for.
+    /// The workflow of the fast CI, which the ci tool waits for: it runs on each push of a work's branch, or, with
+    /// `on_demand`, when the tool runs it.
     pub fast: String,
     /// The workflows that make up the full CI, those of downstream projects included, each as owner/name:workflow
     /// or, for this project's own, its name.
@@ -546,7 +547,7 @@ pub struct Ci {
     /// The input of the fast CI's workflow that takes the tests to run, their names separated by spaces, when it has
     /// one: given it, the workflow runs exactly those tests, every one to its end, and the ci_before tool runs it so on
     /// its temporary ref, which the workflow's own runs on push leave alone; none when it has no such input, and
-    /// ci_before then waits for the whole fast CI its push runs.
+    /// ci_before then refuses to run, since the fast CI cannot run the tests it lists on their own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tests_input: Option<String>,
     /// The artifact a red run of the fast CI uploads with the files the code generates, such as types generated
@@ -554,6 +555,12 @@ pub struct Ci {
     /// work's worktree, for the engineer to commit; none when the CI uploads none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generated_artifact: Option<String>,
+    /// Whether the fast CI runs only when the engine asks for it: the ci tool then runs the fast workflow by hand on
+    /// the work's branch with the tests named (`tests_input`, which must be set), and the full CI, which no push of a
+    /// work's branch is to run, is run by hand too, by the tools that need it, when the commit has no run of it yet.
+    /// Off, the pushes of a work's branch run both, and the tools only wait for those runs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub on_demand: bool,
 }
 
 /// The settings the flow reads from a project, as `{"config": name}` inputs name them.
@@ -1048,6 +1055,13 @@ impl Config {
                 if !self.projects.contains_key(o) {
                     problems.push(format!("projects/{name}.toml: no such project: {o}"));
                 }
+            }
+            // A run on demand is run with the tests to run, which the workflow takes as the input `tests_input` names.
+            if p.ci.on_demand && p.ci.tests_input.is_none() {
+                problems.push(format!(
+                    "projects/{name}.toml: ci.on_demand needs ci.tests_input, the input of the fast workflow that takes \
+                     the tests to run"
+                ));
             }
             let mut tags = BTreeSet::new();
             for t in &p.observation_tags {
@@ -1952,6 +1966,29 @@ asks = 9
         let mut m = files(&[]);
         m.0.insert("install.toml", "[owner]\nlanguage = 1");
         assert!(read(&m).is_err());
+    }
+
+    // The CI runs on demand only where the fast workflow takes the tests to run: off unless set, and set without the
+    // input that names them, it is refused.
+    #[test]
+    fn a_ci_on_demand_needs_the_input_that_takes_the_tests_to_run() {
+        let own = |ci: &'static str| {
+            let text: &'static str = Box::leak(
+                format!(
+                    "repo = \"o/q\"\ncheckout = \"/q\"\ndesign_goal = \"d\"\ntest_paths = [\"tests/\"]\n[ci]\n\
+                     fast = \"fast\"\nfull = [\"ci\"]\nmerge_checks = [\"check\"]\n{ci}"
+                )
+                .into_boxed_str(),
+            );
+            read(&files(&[("projects/q.toml", text)]))
+        };
+        // The project that extends the shared file, which names the input, does not run on demand unless it says so.
+        assert!(!read(&files(&[])).unwrap().projects["p"].ci.on_demand);
+        let c = own("tests_input = \"tests\"\non_demand = true\n").unwrap();
+        assert!(c.projects["q"].ci.on_demand);
+        assert!(!own("").unwrap().projects["q"].ci.on_demand);
+        let e = own("on_demand = true\n").unwrap_err().to_string();
+        assert!(e.contains("projects/q.toml: ci.on_demand needs ci.tests_input"), "{e}");
     }
 
     // The architect's level is one of the levels, and a project's constitution a path in its repository; anything else

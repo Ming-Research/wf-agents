@@ -1,10 +1,11 @@
 name: ci
 
-# Every pushed commit on every branch is checked, not only pull requests, but for the engine's temporary branches of
-# the code before a change (its tool ci_before): the engine runs this workflow on one of those by hand, with the tests
-# to run, which then runs exactly them, each to its end, and skips the lint, so that each named test has a result of
-# its own on the code before the change instead of a run that stops at its first red test. The project's
-# configuration names the input (`tests_input`).
+# The full CI. Every pushed commit on every branch is checked, not only pull requests, but for the engine's temporary
+# branches of the code before a change (its tool ci_before): the engine runs the tests to run on one of those by hand,
+# which then runs exactly them, each to its end, and skips the lint, so that each named test has a result of its own
+# on the code before the change instead of a run that stops at its first red test. The project's configuration names
+# the workflow that does so (`fast`, which is fast.yml where it is set up so, and this one where it is not) and the
+# input that takes the tests (`tests_input`), which both workflows have.
 on:
   push:
     branches-ignore:
@@ -20,7 +21,8 @@ permissions:
   contents: read
 
 # A newer push to the same branch makes the older run pointless; main, which works merge into, keeps every run: the
-# engine watches the run on each merge commit.
+# engine watches the run on each merge commit. The group is not fast.yml's, so that a run of either does not cancel the
+# other's on the same branch.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -36,61 +38,8 @@ jobs:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # Installs the toolchain rust-toolchain.toml pins, with its components.
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24.21.0
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-      # Formatting first: it needs no build, so a misformatted push fails in seconds.
-      - name: Format
-        run: cargo fmt --all --check
-      # The page's TypeScript types are generated from the Rust types; the page is checked against what they generate
-      # now, and the last step fails when that differs from the committed file. The same run writes the flow as the
-      # engine stores it, which the page's tests read.
-      - name: Generate the page's types and the flow its tests read
-        run: WF_AGENTS_GENERATE=1 cargo test -p api --locked --test typescript
-      - name: Install the page's dependencies
-        working-directory: client
-        run: npm ci
-      - name: Type-check the page
-        working-directory: client
-        run: npm run typecheck
-      - name: Lint the page
-        working-directory: client
-        run: npm run lint
-      # Every colour, size and spacing in the page's styles is a token, as its UI spec says (client/ui-spec.md); the
-      # tests of the next step leave this to it.
-      - name: Check the page against its UI spec
-        working-directory: client
-        run: npm run check:ui
-      - name: Test the page
-        working-directory: client
-        run: npm test
-      # Before any cargo step that compiles the crate the page is built into.
-      - name: Build the page
-        working-directory: client
-        run: npm run build
-      - name: Lint
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: The page's types are current
-        run: git diff --exit-code -- client/src/api.ts
-      # What the Rust types generate, to commit when the step before fails, at its path in the repository: the engine's
-      # ci tool puts it in the work's worktree when it differs, the project's configuration naming the artifact
-      # (`generated_artifact`).
-      - name: Keep what the Rust types generate
-        if: failure()
-        run: |
-          mkdir -p "$RUNNER_TEMP/generated/client/src"
-          cp client/src/api.ts "$RUNNER_TEMP/generated/client/src/"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure()
-        with:
-          name: page-types
-          path: ${{ runner.temp }}/generated
-          if-no-files-found: ignore
+      # The steps are written once, for this workflow and fast.yml (.github/actions/lint).
+      - uses: ./.github/actions/lint
 
   test:
     name: test ${{ matrix.shard }} of 3

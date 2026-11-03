@@ -29,6 +29,37 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
+// The cells that read the histories and the observations judge what matters in a great many records, so they think:
+// the librarian's four cells and the architect's look-up at high effort, the search of observations at medium, and no
+// cell of any graph at low, which does not think. A line cannot hold low cells beside others, so that the librarian's
+// cell G3 goes with its line.
+#[test]
+fn the_cells_that_read_histories_and_observations_think() {
+    let c = compiled();
+    let effort = |graph: &str, cell: &str| {
+        let found = c.graph(graph).and_then(|g| g.cell(cell));
+        found
+            .unwrap_or_else(|| panic!("no cell {cell} in {graph}"))
+            .effort
+            .clone()
+    };
+    for (graph, cell) in [
+        ("engineer", "G1"),
+        ("engineer", "G2"),
+        ("engineer", "G3"),
+        ("engineer", "X5"),
+        ("architect", "X5"),
+    ] {
+        assert_eq!(effort(graph, cell).as_deref(), Some("high"), "{graph} {cell}");
+    }
+    assert_eq!(effort("architect", "X2").as_deref(), Some("medium"));
+    for g in &c.graphs {
+        for cell in &g.cells {
+            assert_ne!(cell.effort.as_deref(), Some("low"), "{} {}", g.name, cell.id);
+        }
+    }
+}
+
 // A stop that comes before the merge is a row of the merge cell, drawn on the chart: it waits there for the engine's
 // loop to end the work, taken only at the work's turn in the queue. What depends on the order things happened in, and
 // not on a cell, no row can say, so the words the owner and the architect read say it: a cancel or a start over waits
