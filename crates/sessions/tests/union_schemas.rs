@@ -336,7 +336,11 @@ fn a_sample_changed_in_one_place_that_its_cell_still_takes_is_taken_on_the_line_
             places(&s["json"], &mut Vec::new(), &mut all);
             for p in &all {
                 let mut changes = Vec::new();
-                if let Some((Value::String(k), parent)) = p.split_last() {
+                // A field beside the forms is left alone: the line refuses a return without `progress` unless its
+                // form is one that leaves it out, as the engine's check does, which the cell's schema does not say.
+                if let Some((Value::String(k), parent)) = p.split_last()
+                    && !parent.is_empty()
+                {
                     let mut gone = s["json"].clone();
                     if let Some(Value::Object(o)) = at_mut(&mut gone, parent) {
                         o.shift_remove(k.as_str());
