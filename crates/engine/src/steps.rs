@@ -289,11 +289,6 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         return failed::pause(e, w, &why);
     }
     let head = w.worktree.as_deref().and_then(|wt| git::head(wt).ok());
-    let change = w
-        .worktree
-        .as_deref()
-        .zip(project.as_ref())
-        .and_then(|(wt, p)| values::change_hash(wt, &p.main));
     let mut ids: Vec<i64> = interjections
         .iter()
         .filter_map(|i| i["interjection"].as_i64())
@@ -432,7 +427,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         "conditional": msg.record(),
         "call": call,
         "engine": {
-            "head": head, "change": change, "columns": columns, "table": table, "interjections": ids,
+            "head": head, "columns": columns, "table": table, "interjections": ids,
             "new_session": new_why, "guard": started.lines().record(),
         },
     });
@@ -1316,7 +1311,7 @@ pub fn engine(
         }
     }
     let commit = e.config.commit.clone();
-    let input = if starts {
+    let mut input = if starts {
         json!({})
     } else {
         json!({ "inputs": recorded_inputs(&gathered), "given": given })
@@ -1330,7 +1325,12 @@ pub fn engine(
     );
     if quick {
         let output = match step.as_deref() {
-            Some("choose_checks") => choose_checks(e, w, g)?,
+            Some("choose_checks") => {
+                // What the choice compared is in the round's input, where it is read with the choice.
+                let (output, compared) = choose_checks(e, w, g)?;
+                input["engine"] = json!({ "compared": compared });
+                output
+            }
             _ => json!({}),
         };
         let row = g.take(&cell.id, &output, &given)?.clone();
@@ -1833,10 +1833,14 @@ fn answers_a_row_of(fix: &Round, within: &str, side: &str) -> bool {
     })
 }
 
-/// Cell `T7`: what runs next, from what the design chose, what the review accepted, whether the change
+/// Cell `T7`: what runs next, from what the design chose, what the review accepted, whether the work's own lines
 /// changed since each side last looked, and what the fix answered: a side that raised a row the fix answered looks at
-/// it again, whatever the answer was.
-fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, String> {
+/// it again, whatever the answer was. It gives the choice, and what it compared for each side that has answered, which
+/// the round of `T7` records in `input.engine.compared`: the head the side left the work at, the head now, and whether
+/// the work's own lines at the two are the same (`same`), differ (`differs`), or could not be had to compare
+/// (`cannot_compare: <why>`). What cannot be compared counts as changed. The record is what was compared, not the
+/// choice: the review is also chosen as `changed` when adversarial testing runs again, though its own lines are `same`.
+fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<(Value, Value), String> {
     let project = e.project_of(w)?;
     let reviews = inputs::answered(e, w, g, "T4")?;
     let adversarial = inputs::answered(e, w, g, "T1")?;
@@ -1847,14 +1851,38 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
     let not_accepted = inputs::last_return(e, w, g, "T4", "no_adversarial")?
         .and_then(|r| at_path(&r, "no_adversarial.verdict"))
         .is_some_and(|v| v == "does_not_stand");
-    let now = w
-        .worktree
-        .as_deref()
-        .and_then(|wt| values::change_hash(wt, &project.main));
-    let changed_since = |rs: &[Round]| {
-        rs.first()
-            .is_some_and(|r| r.input["engine"]["change"].as_str() != now.as_deref())
+    let worktree = w.worktree.as_deref();
+    // The work's own lines at a commit, or why they cannot be had.
+    let own = |rev: &str| -> Result<Vec<u8>, String> {
+        let wt = worktree.ok_or("the work has no worktree")?;
+        git::own_lines(wt, &project.main, rev)
     };
+    let now_head = worktree.and_then(|wt| git::head(wt).ok());
+    let now = own("HEAD");
+    // For a side that has answered: the record of what was compared against its newest answer, and whether the work's
+    // own lines changed since. The work stood where the round ended (`head_after`), else where it began (`head`, for a
+    // round recorded before `head_after` existed), so that what the side committed itself is not a change.
+    let compare = |rs: &[Round]| -> Option<(Value, bool)> {
+        let side = rs.first()?;
+        let engine = &side.input["engine"];
+        let since = engine["head_after"].as_str().or_else(|| engine["head"].as_str());
+        let then = match since {
+            Some(head) => own(head),
+            None => Err("the round recorded no head".to_string()),
+        };
+        let (verdict, changed) = match (&then, &now) {
+            (Ok(a), Ok(b)) if a == b => ("same".to_string(), false),
+            (Ok(_), Ok(_)) => ("differs".to_string(), true),
+            (Err(why), _) | (_, Err(why)) => (format!("cannot_compare: {why}"), true),
+        };
+        Some((
+            json!({ "since": since, "now": now_head, "own_lines": verdict }),
+            changed,
+        ))
+    };
+    let adversarial_compared = compare(&adversarial);
+    let review_compared = compare(&reviews);
+    let changed = |compared: &Option<(Value, bool)>| compared.as_ref().is_some_and(|c| c.1);
     // Whether the fix answered, with any answer, a row that `side` raised since `side` last returned.
     let answered_since = |rs: &[Round], side: &str| -> bool {
         let since = rs.first().map(|r| r.id);
@@ -1865,7 +1893,7 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
     };
     let adv = if (chose || not_accepted) && adversarial.is_empty() {
         "all"
-    } else if !adversarial.is_empty() && changed_since(&adversarial) {
+    } else if changed(&adversarial_compared) {
         "changed"
     } else if !adversarial.is_empty() && answered_since(&adversarial, "T1") {
         "disputes"
@@ -1874,7 +1902,7 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
     };
     let mut review = if reviews.is_empty() {
         "all"
-    } else if changed_since(&reviews) {
+    } else if changed(&review_compared) {
         "changed"
     } else if answered_since(&reviews, "T4") || !crate::message::unverified_last(e, w, g).is_empty() {
         // The rows the fix answered, whatever the answer and whether or not it changed the code, and the columns the
@@ -1886,7 +1914,15 @@ fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Value, Strin
     if adv != "skipped" && matches!(review, "none" | "disputes") {
         review = "changed";
     }
-    Ok(json!({ "plan": { "review": review, "adversarial": adv } }))
+    // A side that has not answered has nothing to compare against.
+    let compared: Map<String, Value> = [("adversarial", adversarial_compared), ("review", review_compared)]
+        .into_iter()
+        .filter_map(|(side, c)| c.map(|(record, _)| (side.to_string(), record)))
+        .collect();
+    Ok((
+        json!({ "plan": { "review": review, "adversarial": adv } }),
+        Value::Object(compared),
+    ))
 }
 
 #[cfg(test)]

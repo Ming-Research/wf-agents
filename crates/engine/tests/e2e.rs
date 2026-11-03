@@ -2165,19 +2165,20 @@ fn returned(outcome: Value) -> Value {
     json!({ "outcome": outcome, "progress": "p", "side_reports": [], "flow_feedback": "none", "tell_owner": [] })
 }
 
-/// The input of a round of the review that was given the change as the blind review was: what the review is given
-/// again while no commit follows, as when a fix changes only the PR description.
+/// The input of a round of the review that looked at the change as the blind review left it: the head the work stood
+/// at when the blind review ended, as a review that sees it again while no commit follows would record, as when a fix
+/// changes only the PR description.
 fn input_of_the_change_reviewed(e: &Engine, work: i64) -> Value {
-    let change: Option<String> =
+    let head: String =
         e.db.conn()
             .query_row(
-                "SELECT json_extract(input, '$.engine.change') FROM rounds WHERE work = ?1 AND cell = 'T3'
+                "SELECT json_extract(input, '$.engine.head_after') FROM rounds WHERE work = ?1 AND cell = 'T3'
              ORDER BY n DESC LIMIT 1",
                 [work],
                 |r| r.get(0),
             )
             .unwrap();
-    json!({ "engine": { "change": change } })
+    json!({ "engine": { "head": head, "head_after": head } })
 }
 
 /// What the latest round of choosing what runs next planned for the review, and for adversarial testing.
@@ -2190,6 +2191,20 @@ fn planned(e: &Engine, work: i64) -> (String, String) {
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .unwrap()
+}
+
+/// What the latest round of choosing what runs next compared for each side that had answered, as its input records it.
+fn compared(e: &Engine, work: i64) -> Value {
+    let text: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(input, '$.engine.compared') FROM rounds
+                 WHERE work = ?1 AND cell = 'T7' ORDER BY n DESC LIMIT 1",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    serde_json::from_str(&text.expect("the choice recorded nothing it compared")).unwrap()
 }
 
 /// The row the latest round of the merge judgment took.
@@ -2313,6 +2328,227 @@ fn a_fix_that_answered_a_row_of_another_cell_without_a_commit_is_not_reviewed_ag
     e.step_work(work).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert_eq!(planned(&e, work), ("none".to_string(), "skipped".to_string()), "{log}");
+    // Only the side that has answered has anything recorded to compare.
+    let kept = compared(&e, work);
+    assert_eq!(
+        kept.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["review"],
+        "{kept}"
+    );
+    assert_eq!(kept["review"]["own_lines"], "same", "{kept}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Records adversarial testing and the review as having answered at the head the work stands at in `wt`, as sides that
+/// have looked at it, and gives that head.
+fn both_sides_looked(e: &mut Engine, work: i64, wt: &Path) -> String {
+    let head = git(wt, &["rev-parse", "HEAD"]);
+    let left = json!({ "engine": { "head": head, "head_after": head } });
+    let pass = json!({ "id": "1", "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } });
+    seed_round(e, work, "T1", &left, &json!({ "outcome": {} }), "done", "T4");
+    seed_round(
+        e,
+        work,
+        "T4",
+        &left,
+        &returned(json!({ "columns": [pass] })),
+        "done",
+        "T7",
+    );
+    head
+}
+
+/// Chooses what runs next for the work, and gives the plan for the review and for adversarial testing.
+fn choose_next(e: &mut Engine, work: i64) -> (String, String) {
+    move_to(e, work, "T7");
+    e.step_work(work).unwrap();
+    planned(e, work)
+}
+
+/// The plan for the review and for adversarial testing, as [`planned`] gives it.
+fn plan_of(review: &str, adversarial: &str) -> (String, String) {
+    (review.to_string(), adversarial.to_string())
+}
+
+// After both sides have looked, a merge of main is no reason for either to look again when the lines the work itself
+// adds and removes are as they were, though main changed the file the work changed too; it is when the conflict was
+// resolved by writing another line of the work's own. The round records what it compared, for each side.
+#[test]
+fn a_merge_of_main_sends_the_checks_back_only_if_it_changed_the_works_own_lines() {
+    let s = setup("merge-own-lines");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "T4");
+    let (work, _, _) = state(&e, item).unwrap();
+    let wt = worktree_of(&e, work);
+    let head = both_sides_looked(&mut e, work, &wt);
+    // Main adds a line above the file the work wrote, which merges without a conflict.
+    main_moves_on(&s.root, &[("src/lib.txt", "first\nold\n")], "Main adds a line above");
+    merge_main(&wt);
+    let merged = git(&wt, &["rev-parse", "HEAD"]);
+    assert_ne!(merged, head);
+    assert_eq!(
+        choose_next(&mut e, work),
+        plan_of("none", "skipped"),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let same = json!({ "since": head, "now": merged, "own_lines": "same" });
+    assert_eq!(compared(&e, work), json!({ "adversarial": same, "review": same }));
+
+    // Main writes the line after the work's own; the conflict is resolved by writing a third.
+    main_moves_on(
+        &s.root,
+        &[("src/lib.txt", "first\nold\nmain's feature\n")],
+        "Main writes the line too",
+    );
+    git(&wt, &["fetch", "-q", "origin", "main"]);
+    let merging = Command::new("git")
+        .arg("-C")
+        .arg(&wt)
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "merge",
+            "-q",
+            "--no-edit",
+            "origin/main",
+        ])
+        .output()
+        .unwrap();
+    assert!(!merging.status.success(), "the merge was expected to conflict");
+    write(&wt, "src/lib.txt", "first\nold\nresolved\n");
+    git(&wt, &["add", "-A"]);
+    git(&wt, &["commit", "-q", "-m", "Merge main"]);
+    let resolved = git(&wt, &["rev-parse", "HEAD"]);
+    assert_eq!(
+        choose_next(&mut e, work),
+        plan_of("changed", "changed"),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let differs = json!({ "since": head, "now": resolved, "own_lines": "differs" });
+    assert_eq!(compared(&e, work), json!({ "adversarial": differs, "review": differs }));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Adversarial testing commits the tests it writes, so the head its round ended at holds them: a fix that adds no commit
+// and brings in no main changes nothing since it looked. It is not sent back as changed; it is sent back to the rows it
+// raised that the fix answered.
+#[test]
+fn what_adversarial_testing_committed_itself_is_not_a_change_since_it_looked() {
+    let s = setup("own-commit");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "T4");
+    let (work, _, _) = state(&e, item).unwrap();
+    let wt = worktree_of(&e, work);
+    let began = git(&wt, &["rev-parse", "HEAD"]);
+    write(&wt, "tests/adversarial.txt", "A test.\n");
+    git(&wt, &["add", "-A"]);
+    git(&wt, &["commit", "-q", "-m", "Add a test of adversarial testing"]);
+    let ended = git(&wt, &["rev-parse", "HEAD"]);
+    // The round of adversarial testing began at one head and ended at the next; the review looked at the second.
+    let adversarial = json!({ "engine": { "head": began, "head_after": ended } });
+    seed_round(
+        &mut e,
+        work,
+        "T1",
+        &adversarial,
+        &json!({ "outcome": {} }),
+        "done",
+        "T4",
+    );
+    let pass = json!({ "id": "1", "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } });
+    let review = json!({ "engine": { "head": ended, "head_after": ended } });
+    seed_round(
+        &mut e,
+        work,
+        "T4",
+        &review,
+        &returned(json!({ "columns": [pass] })),
+        "done",
+        "T7",
+    );
+    let log = || said.lock().unwrap().join("\n");
+    assert_eq!(choose_next(&mut e, work), plan_of("none", "skipped"), "{}", log());
+    let same = json!({ "since": ended, "now": ended, "own_lines": "same" });
+    assert_eq!(compared(&e, work), json!({ "adversarial": same, "review": same }));
+
+    // The fix answers a row of a test adversarial testing wrote, in no commit.
+    let row = json!({ "row": "F1", "from": "T1·new_tests", "name": "t" });
+    let input = json!({ "engine": { "table": [row] } });
+    let rows = json!([{ "id": "F1", "answer": "fixed_outside_commit", "where": "The PR description." }]);
+    seed_round(
+        &mut e,
+        work,
+        "T6",
+        &input,
+        &returned(json!({ "rows": rows, "head": ended })),
+        "done",
+        "T7",
+    );
+    assert_eq!(choose_next(&mut e, work), plan_of("changed", "disputes"), "{}", log());
+    // The review is sent back because adversarial testing runs again, not because the work's own lines changed: the
+    // record says what was compared, which is the same for both sides.
+    assert_eq!(compared(&e, work), json!({ "adversarial": same, "review": same }));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A side whose head cannot be compared with the work as it is, because the repository has no such commit, the commit
+// shares no history with main, or the round recorded none, is not taken to have seen the work as it is: both sides look
+// again, and the round records why they could not be compared.
+#[test]
+fn a_side_whose_head_cannot_be_compared_looks_again() {
+    let s = setup("cannot-compare");
+    let (mut e, said, item) = start(&s, scripts());
+    step_to(&mut e, item, "T4");
+    let (work, _, _) = state(&e, item).unwrap();
+    let wt = worktree_of(&e, work);
+    let head = both_sides_looked(&mut e, work, &wt);
+    assert_eq!(
+        choose_next(&mut e, work),
+        plan_of("none", "skipped"),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let tree = git(&wt, &["rev-parse", "HEAD^{tree}"]);
+    let unrelated = git(&wt, &["commit-tree", &tree, "-m", "Shares no history with main"]);
+    let missing = "0123456789abcdef0123456789abcdef01234567";
+    let pass = json!({ "id": "1", "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } });
+    for (case, since) in [
+        ("a commit the repository does not have", Some(missing.to_string())),
+        ("a commit that shares no history with main", Some(unrelated)),
+        ("a round that recorded no head", None),
+    ] {
+        let left = match &since {
+            Some(h) => json!({ "engine": { "head": h, "head_after": h } }),
+            None => json!({ "engine": {} }),
+        };
+        seed_round(&mut e, work, "T1", &left, &json!({ "outcome": {} }), "done", "T4");
+        seed_round(
+            &mut e,
+            work,
+            "T4",
+            &left,
+            &returned(json!({ "columns": [pass.clone()] })),
+            "done",
+            "T7",
+        );
+        assert_eq!(
+            choose_next(&mut e, work),
+            plan_of("changed", "changed"),
+            "{case}\n{}",
+            said.lock().unwrap().join("\n")
+        );
+        let kept = compared(&e, work);
+        for side in ["adversarial", "review"] {
+            assert_eq!(kept[side]["since"], json!(since), "{case}: {kept}");
+            assert_eq!(kept[side]["now"], head, "{case}: {kept}");
+            let verdict = kept[side]["own_lines"].as_str().unwrap();
+            assert!(verdict.starts_with("cannot_compare: "), "{case}: {kept}");
+        }
+    }
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
