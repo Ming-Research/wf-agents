@@ -1567,12 +1567,14 @@ mod tests {
                 .unwrap()
         };
         assert!(sql(&old).contains("in English of at most 20 characters"));
-        old.conn()
-            .execute(
+        old.write(Actor::Engine, |tx| {
+            tx.execute(
                 "INSERT INTO observations (id, project, title, what, source) VALUES (7, 'p', 'Old title', 'w', 's')",
                 [],
-            )
-            .unwrap();
+            )?;
+            Ok(())
+        })
+        .unwrap();
         old.migrate(MIGRATIONS).unwrap();
         assert!(sql(&old).contains("in the owner's language, at most `items.title_max` wide"));
         assert!(!sql(&old).contains("in English of at most 20 characters"));

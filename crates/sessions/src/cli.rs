@@ -2296,9 +2296,14 @@ mod tests {
                 }
             }
         }
+        assert!(taken > 20 && refused_with > 5, "{taken} {refused_with}");
+        // The one union whose branches are not told apart on its line: `answer` of the architect's `H8`, a union by
+        // `way` there and a plain object in another cell of the line, so that the merge keeps no branches (it must take
+        // what either cell does). A union that stops being told apart anywhere else, or this one that starts to be,
+        // changes the list and fails here.
         assert_eq!(
-            (taken, refused_with, skipped.into_iter().collect::<Vec<_>>()),
-            (0, 0, Vec::new())
+            skipped.into_iter().collect::<Vec<_>>(),
+            ["graph architect, cell H8, at [Some(\"outcome\"), Some(\"answer\")] by way"]
         );
     }
 
