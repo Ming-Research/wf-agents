@@ -99,6 +99,99 @@ fn the_migration_keeps_every_round_and_what_points_at_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// A database at version 68, whose views read the compiled flow for every round, with rounds that ended in no return in
+// the shapes of `rounds.rejected` that sit at the edges of how the view of the rows (`round_rows`) reads them (a bound
+// that is false or null, a failed run with no kind or an empty one, an interrupt that is null, an error beside a
+// failed run, the JSON `null`, a kind that is a number, a failed run named like the cut-off row) is migrated to now:
+// the counters and the asks of every work are those the version 68 views gave before the migration. The reference is
+// those views, read from the file before it is migrated; the expected lists are worked out by hand from the rows
+// written. It passes before the change too, as the database is then at the version it has.
+#[test]
+fn the_migration_counts_the_odd_shapes_of_a_round_that_ended_in_no_return_as_the_old_views_did() {
+    let dir = temp("odd-rejected");
+    let path = dir.join("wf.db");
+    let flow = r#"{"graphs": [{"name": "engineer", "cells": [{"id": "I1", "rows": [
+        {"name": "sent_back", "counts": "sent_back"},
+        {"name": "transient", "counts": "retries"},
+        {"name": "transient_too_often", "counts": "over"},
+        {"name": "cut_off", "counts": "cut_offs"},
+        {"name": "asks_row", "counts": "asks"}
+    ]}]}]}"#;
+    let counters = "SELECT work, counter, times FROM work_counters ORDER BY work, counter";
+    let asking = "SELECT work, asks FROM work_asking ORDER BY work";
+    let before;
+    {
+        let conn = database_at_version_68(&path);
+        conn.execute(
+            "INSERT INTO flow_versions (id, digest, compiled) VALUES (1, 'd', ?1)",
+            [flow],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO works (id, flow_version, graph, at) VALUES (1, 1, 'engineer', 'I1')",
+            [],
+        )
+        .unwrap();
+        // Round number, then what `rejected` holds; the counters each should give are worked out below.
+        let shapes = [
+            // `over` false is not null: past its bound, so `transient_too_often`, which counts `over`.
+            r#"{"failed": {"kind": "transient", "over": false}}"#,
+            // `over` null is none: `transient`, which counts `retries`.
+            r#"{"failed": {"kind": "transient", "over": null}}"#,
+            // No kind: not a failed run the view knows, so a return sent back.
+            r#"{"failed": {"what": "w"}}"#,
+            // A failed run beside an interrupt: the failed run comes first.
+            r#"{"failed": {"kind": "transient"}, "interrupted": "x"}"#,
+            // An interrupt that is null beside an error: ended in an error, no row.
+            r#"{"interrupted": null, "error": "e"}"#,
+            // An interrupt that is false is still an interrupt: `cut_off`.
+            r#"{"interrupted": false}"#,
+            // The JSON null is a rejected return with nothing in it: sent back.
+            "null",
+            // A failed run of a kind named like the cut-off row takes that row.
+            r#"{"failed": {"kind": "cut_off"}}"#,
+            // An empty kind and a kind that is a number name no row.
+            r#"{"failed": {"kind": ""}}"#,
+            r#"{"failed": {"kind": 5}}"#,
+            // An error beside a failed run: the failed run comes first, `retries`.
+            r#"{"error": "e", "failed": {"kind": "transient"}}"#,
+        ];
+        for (i, rejected) in shapes.iter().enumerate() {
+            conn.execute(
+                "INSERT INTO rounds (work, n, cell, input, rejected, config_commit, started_at, ended_at)
+                 VALUES (1, ?1, 'I1', '{}', ?2, 'c', 0, 1)",
+                params![i as i64 + 1, rejected],
+            )
+            .unwrap();
+        }
+        // A return that took the row `asks_row`, so that asks are not only zero.
+        conn.execute(
+            "INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at, ended_at)
+             VALUES (1, 12, 'I1', '{}', 'asks_row', 'c', 0, 1)",
+            [],
+        )
+        .unwrap();
+        before = (rows(&conn, counters), rows(&conn, asking));
+    }
+    let text = |s: &str| Value::Text(s.into());
+    let one = |counter: &str, times: i64| vec![Value::Integer(1), text(counter), Value::Integer(times)];
+    assert_eq!(
+        before.0,
+        [
+            one("asks", 1),
+            one("cut_offs", 2),
+            one("over", 1),
+            one("retries", 3),
+            one("sent_back", 2)
+        ],
+        "the rows written do not come to the counters worked out by hand"
+    );
+    assert_eq!(before.1, [vec![Value::Integer(1), Value::Integer(1)]]);
+    let db = Db::open(&path).unwrap();
+    assert_eq!((rows(db.conn(), counters), rows(db.conn(), asking)), before);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A path under the temporary directory, made empty.
 fn temp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("wf-agents-db-{name}-{}", std::process::id()));
