@@ -4,12 +4,13 @@
 // item is at;
 // the one-to-one with an architect is one row: its Start, Pause and Step first, its name leading to its page, what it
 // handles now, at which cell, or that it is idle, paused or waits for the owner, and at the row's end the holds on the
-// project's new works, each with why, which the architect's page does not show, and, while the panel beside the
-// one-to-one is closed, the button that opens it; its queue is in that panel; wf-agents' own says where each new fault goes as it comes, which the owner sets there. The architect is
+// project's new works, each with why and its Release, the owner's Hold new starts while none of theirs stands, which the
+// architect's page does not show, and, while the panel beside the one-to-one is closed, the button that opens it; its
+// queue is in that panel; wf-agents' own says where each new fault goes as it comes, which the owner sets there. The architect is
 // always there to the owner: the page never names its works.
 
 import { BlockedIcon, SidebarExpandIcon } from '@primer/octicons-react';
-import { IconButton, Label, Select } from '@primer/react';
+import { Button, IconButton, Label, Select } from '@primer/react';
 import { Fragment, useState } from 'react';
 
 import type { Architect, Conversation, Forwarding, Settings, Status, WorkSummary } from '../api';
@@ -34,6 +35,7 @@ import { reread, useResource, useStatus } from '../live';
 import { architectHref, forProject, Link, navigate, workHref } from '../route';
 import { t } from '../text';
 import { factsAfter } from '../voices';
+import { HOLD, HoldAsk } from './StartsHold';
 
 /// A conversation's name as the list and its head show it: a work's group its item's number and title, cut where the
 /// line ends, then the work's name (`W35`), whole, in muted text; any other conversation its title.
@@ -263,11 +265,13 @@ function ArchitectNow({ a, status }: { a: Architect; status: Status | null }) {
 
 /// The head of the one-to-one with a project's architect, in one row: its Start, Pause and Step, whose architect (a link
 /// to its page, the way to each project's architect's page), what it does now, and at the row's end the holds on the
-/// project's new works, each with why, and, while the panel beside the one-to-one is closed, the button that opens it
-/// (`onSide`).
+/// project's new works, each with why and the button that releases it, the button that holds them while the owner does
+/// not, and, while the panel beside the one-to-one is closed, the button that opens it (`onSide`). A hold or a release
+/// asks first, in a form under the row (`HoldAsk`).
 export function ArchitectHead({ c, a, onSide }: { c: Conversation; a: Architect | null; onSide: (() => void) | null }) {
   const project = c.project ?? '';
   const status = useStatus();
+  const [asking, setAsking] = useState<string | null>(null);
   return (
     <header className="talk-head">
       <div className="talk-head-title">
@@ -285,14 +289,23 @@ export function ArchitectHead({ c, a, onSide }: { c: Conversation; a: Architect 
                 <BlockedIcon size={16} />
                 {holdWords(h.reason)}
                 {h.why !== null ? `: ${h.why}` : null}
+                <Button size="small" variant="invisible" title={t('hold_release_hint')} onClick={() => setAsking(h.reason)}>
+                  {t('hold_release')}
+                </Button>
               </span>
             ))}
+            {a.holds.some((h) => h.reason === 'owner') ? null : (
+              <Button size="small" title={t('hold_start_hint')} onClick={() => setAsking(HOLD)}>
+                {t('hold_start')}
+              </Button>
+            )}
             {onSide !== null ? (
               <IconButton size="small" variant="invisible" icon={SidebarExpandIcon} aria-label={t('side_open')} onClick={onSide} />
             ) : null}
           </span>
         ) : null}
       </div>
+      {a !== null && asking !== null ? <HoldAsk project={project} asking={asking} onDone={() => setAsking(null)} /> : null}
     </header>
   );
 }

@@ -334,4 +334,31 @@ describe('the head of the one-to-one with an architect', () => {
     // Its name leads to the architect's page, the way to each project's architect.
     expect(html).toMatch(/<a [^>]*href="\/works\/architect\?project=p"[^>]*>/);
   });
+
+  // Item #239: the sign of each hold, whoever holds, says who and why and has the owner's Release; the button that holds
+  // new starts is there while the owner has no hold of their own, and gives way to the owner's sign once they have.
+  it('shows each hold with its source, its reason and a Release, and the owner\'s Hold new starts while they hold none', () => {
+    const held: Architect = {
+      ...architect,
+      holds: [
+        { reason: 'owner', why: 'Leaving for a week.', since: 3 },
+        { reason: 'architect', why: 'Wrong order.', since: 4 },
+        { reason: 'set_straight', why: null, since: 5 },
+      ],
+    };
+    const html = renderToStaticMarkup(<ArchitectHead c={one} a={held} onSide={null} />);
+    expect(html).toMatch(/class="talk-head-hold"[^>]*>[\s\S]*You stopped new works from starting: Leaving for a week\./);
+    expect(html).toMatch(/class="talk-head-hold"[^>]*>[\s\S]*No new works start: the architect holds them: Wrong order\./);
+    expect(html).toContain('No new works start until the plan fixes are done');
+    expect(html.match(/>Release</g)?.length).toBe(3);
+    // The owner has a hold of their own: nothing offers another.
+    expect(html).not.toContain('>Hold new starts<');
+    const others: Architect = { ...held, holds: held.holds.filter((h) => h.reason !== 'owner') };
+    const html2 = renderToStaticMarkup(<ArchitectHead c={one} a={others} onSide={null} />);
+    expect(html2).toContain('>Hold new starts<');
+    expect(html2.match(/>Release</g)?.length).toBe(2);
+    const none = renderToStaticMarkup(<ArchitectHead c={one} a={{ ...architect, holds: [] }} onSide={null} />);
+    expect(none).toContain('>Hold new starts<');
+    expect(none).not.toContain('>Release<');
+  });
 });

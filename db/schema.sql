@@ -1018,18 +1018,19 @@ CREATE TABLE observations (
 ) STRICT;
 
 CREATE TABLE dispatch_holds (
-  -- What stops new works of a project from starting, one row for each: its architect's own hold, its architect setting
-  -- it straight. While a project has a row here, the engine starts no new work on its items; works already running go
-  -- on, and the other projects' works start as usual.
+  -- What stops new works of a project from starting, one row for each: the owner's hold, its architect's own hold, its
+  -- architect setting it straight. While a project has a row here, the engine starts no new work on its items; works
+  -- already running go on, and the other projects' works start as usual.
   -- Read by: the engine at cell `S0`; the architect, through its board; the owner's interface.
   project TEXT NOT NULL,
-  -- architect: held by the architect's own action. set_straight: its plan of what to do next found the whole must be
+  -- owner: held by the owner. architect: held by the architect's own action. set_straight: its plan of what to do next
+  -- found the whole must be set straight. The owner releases any of them; the architect only its own and the one to
   -- set straight.
-  reason TEXT NOT NULL CHECK (reason IN ('architect', 'set_straight')),
+  reason TEXT NOT NULL CHECK (reason IN ('owner', 'architect', 'set_straight')),
   -- When it began.
   since INTEGER NOT NULL,
-  -- Why, in the owner's language, as the architect said it for its own hold; NULL for the others, whose reason says
-  -- why. Read by: the owner's interface.
+  -- Why, in the owner's language, as the owner or the architect said it for their own hold; NULL for the one to set
+  -- straight, whose reason says why. Read by: the owner's interface.
   why TEXT,
   PRIMARY KEY (project, reason)
 ) STRICT;

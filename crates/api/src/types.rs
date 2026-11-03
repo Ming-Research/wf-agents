@@ -557,6 +557,19 @@ pub struct ForwardFault {
     pub project: String,
 }
 
+/// What the owner sends to hold a project's new starts: why, in the owner's words.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct HoldStarts {
+    pub why: String,
+}
+
+/// What the owner sends to release a hold on a project's new starts: whose it is, `owner`, `architect` or
+/// `set_straight`.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct ReleaseHold {
+    pub reason: String,
+}
+
 /// What the owner sends to set where each new fault of wf-agents goes as it comes: a project, whose architect takes
 /// it, or none for nobody.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
@@ -1629,9 +1642,9 @@ pub struct MatterCard {
     pub replaced_by: Option<i64>,
 }
 
-/// What stops a project's new works from starting: `architect`, its architect's own hold; `set_straight`, while its
-/// architect sets it straight (`policy`, while a new policy was set, a flow version before); since when; and for the
-/// architect's own hold, why, as it said it.
+/// What stops a project's new works from starting: `owner`, the owner's own hold; `architect`, its architect's own
+/// hold; `set_straight`, while its architect sets it straight (`policy`, while a new policy was set, a flow version
+/// before); since when; and for the owner's and the architect's own hold, why, as they said it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct DispatchHold {
     pub reason: String,

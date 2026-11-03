@@ -112,12 +112,21 @@ resume the work's session or start a new one, as the owner chooses. Start over, 
 at once, a round of it under way cut off, and a new work begins the item again from the first cell, taking over its
 branch, worktree and pull request; the item's architect can start a work over too.
 
+To let the system wind down without stopping what runs, the owner holds one project's new starts: the button Hold new
+starts at the right end of the architect's title row, or `wf-agents hold --why <words>` (`--project` when the
+configuration has more than one project). No new work of the project starts; works already running go on to their
+merge, and works waiting for a result go on after it. It is kept in the database, so it stands across a restart of the
+engine, and it is another thing from Pause all, which stops every work and is not kept. The owner releases it with the
+sign's Release or `wf-agents release`, and may release the architect's own hold and its hold to set the project
+straight too; the architect cannot release the owner's, and reads the holds in its board. Under Pause all the engine
+queues no matter of free slots for any architect, since no new work can start.
+
 The Messages view is the one place the owner acts: the one-to-one with each project's architect, wf-agents' own
 conversation (its faults), a group for each work of the owner, its engineer and its project's architect, where
 everything said reaches all three, and a group for the architects of connected projects. An ask of the owner waits where
 it was asked and is answered in its own bubble, and a decision card a work waits on is pinned at the top of its
 conversation and ruled, or asked about, in its stage's bubble, an item's design showing it read only; every other view
-only reads, but for the bar's Start all, Pause all and Keep warm, the Settings view, and the Observations view, where
+only reads, but for the bar's Start all, Pause all and Keep warm, the hold on a project's new starts, the Settings view, and the Observations view, where
 the owner closes an observation, saying why. `npm run dev` in `client/` serves the page
 from its sources and passes the interface's requests to a running `wf-agents run`.
 

@@ -855,6 +855,53 @@ fn a_matter_that_comes_again_is_not_queued_on_the_same_facts() {
     ));
 }
 
+// Item #239: the owner can hold a project's new starts, and the architect reads the holds. Every cell of the
+// architect that can hand in a hold or a release among its effects is given the board, where the holds are listed,
+// so that a cell added later which hands in effects without the board is found here; and the texts say who holds,
+// who releases which hold and when the engine queues no matter of free slots.
+#[test]
+fn every_cell_that_can_hold_or_release_new_starts_is_given_the_holds_and_the_texts_say_who_releases_which() {
+    let c = compiled();
+    let g = c.graph("architect").unwrap();
+    let handing_effects: Vec<&str> = g
+        .cells
+        .iter()
+        .filter(|cell| cell.schema.as_ref().is_some_and(|s| s.to_string().contains("$defs/effects")))
+        .map(|cell| cell.id.as_str())
+        .collect();
+    assert_eq!(handing_effects, ["H1", "H3", "H5", "H7", "H8", "H9", "H10", "H12"]);
+    for id in handing_effects {
+        let cell = g.cell(id).unwrap();
+        let board = cell
+            .inputs
+            .iter()
+            .any(|i| serde_json::to_string(&i.from).unwrap().contains(r#""engine":"board""#));
+        assert!(board, "{id} is given no board, where the architect reads the holds");
+    }
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let text = |path: &[&str]| -> String {
+        path.iter()
+            .fold(&v, |at, k| &at[*k])
+            .as_str()
+            .unwrap_or_else(|| panic!("{path:?}"))
+            .to_string()
+    };
+    assert!(text(&["engine", "inputs", "board"]).contains("`starts_held`"));
+    assert!(text(&["engine", "actions", "queue_slots_free"]).contains("the owner has paused every work"));
+    assert!(text(&["engine", "stores", "holds", "owner"]).contains("releases any hold"));
+    let held = &v["engine"]["stores"]["holds"]["inputs"];
+    assert!(held.as_array().unwrap().iter().any(|i| i == "board"), "{held}");
+    // The row of the cell where a new work starts that a hold keeps waiting says who releases which hold.
+    let start = c.graph("engineer").unwrap().cell("S0").unwrap();
+    let row = start.rows.iter().find(|r| r.name == "project_held").unwrap();
+    let note = row.note.as_deref().unwrap();
+    assert!(note.contains("the owner's, by the owner") && note.contains("by the architect or the owner"), "{note}");
+    assert!(!note.contains("sets a policy"), "{note}");
+    // The architect's release is said to leave the owner's hold alone.
+    let release = &v["shapes"]["arch_effects"];
+    assert!(release.to_string().contains("stays until the owner releases it"), "{release}");
+}
+
 // A part several cells' own answers hold alike, such as the architect's effects, is given once in the forms every
 // return shares, and each of those cells' own format refers to it there; a line none of whose cells holds it is not
 // given it. A part given once must be in two cells' own answers or more.

@@ -1,11 +1,12 @@
 //! What the owner decides, on the page and on the command line alike: an answer to an ask of the owner, a ruling on a
 //! decision card, what the owner says to a work's line, pausing a work and lifting a work's pause, starting a work over,
-//! the switch that keeps waiting sessions warm while every work is paused, forwarding a fault of wf-agents to an
-//! architect, the setting that forwards each new one as it comes, removing a dependency between items, and ending a
-//! talk with an architect. Each is written as the owner, so `changes` records it as theirs, and the engine reads it as
-//! it goes on; a start over is an action of the outbox, which the engine carries out and records as the owner's in the
-//! end it writes. What the owner says to the architect is `db::say_to_architect`. The owner's words and answers may
-//! carry images, kept with them in the same write, and may be images alone.
+//! the switch that keeps waiting sessions warm while every work is paused, holding a project's new starts and releasing
+//! a hold on them, forwarding a fault of wf-agents to an architect, the setting that forwards each new one as it comes,
+//! removing a dependency between items, and ending a talk with an architect. Each is written as the owner, so `changes`
+//! records it as theirs, and the engine reads it as it goes on; a start over is an action of the outbox, which the
+//! engine carries out and records as the owner's in the end it writes. What the owner says to the architect is
+//! `db::say_to_architect`. The owner's words and answers may carry images, kept with them in the same write, and may
+//! be images alone.
 
 use db::attachments::{self, Image, Words};
 use db::rusqlite::{Connection, OptionalExtension, params};
@@ -936,6 +937,53 @@ pub fn set_fault_forwarding(db: &mut Db, project: Option<&str>) -> Result<String
         Some(p) => format!("each new fault of wf-agents goes to the architect of {}", p.trim()),
         None => "new faults of wf-agents go to nobody: you forward each or not".into(),
     })
+}
+
+/// Holds a project's new starts, as the owner: the engine starts no new work on the project's items from its next
+/// look on, while works already running go on to their merge and works waiting for a result go on after it. Why is the
+/// owner's words and cannot be empty. The project is named or, when the configuration has one project only, left out;
+/// one the configuration does not have is refused, so that no hold is written for nothing. A hold of the owner's
+/// already there keeps its time and takes the new words. The page and the command line both write it through here.
+pub fn hold_starts(
+    db: &mut Db,
+    config: &config::Config,
+    project: Option<&str>,
+    why: &str,
+) -> Result<String, String> {
+    let project = project_named(config, project)?;
+    let why = why.trim();
+    if why.is_empty() {
+        return Err("holding new starts says why".into());
+    }
+    db.write(Actor::Owner, |tx| {
+        db::hold_starts(tx, &project, db::HoldReason::Owner, Some(why))
+    })
+    .map_err(sql)?;
+    Ok(format!("new works of {project} do not start; works already running go on"))
+}
+
+/// Releases a hold on a project's new starts, as the owner, who may release any of the three: their own (`owner`), the
+/// architect's (`architect`) and the architect's to set the project straight (`set_straight`). Refused, saying so, when
+/// the project has no hold of that reason, since nothing was released. Both the page and the command line release
+/// through here.
+pub fn release_hold(
+    db: &mut Db,
+    config: &config::Config,
+    project: Option<&str>,
+    reason: &str,
+) -> Result<String, String> {
+    let project = project_named(config, project)?;
+    let reason = db::HoldReason::parse(reason)?;
+    let released = db
+        .write(Actor::Owner, |tx| db::release_starts(tx, &project, reason))
+        .map_err(sql)?;
+    if !released {
+        return Err(format!("{project} has no hold of the reason {}", reason.name()));
+    }
+    Ok(format!(
+        "the hold of {} on {project} is released; its new works start again unless another hold remains",
+        reason.name()
+    ))
 }
 
 #[cfg(test)]

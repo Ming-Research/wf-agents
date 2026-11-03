@@ -178,6 +178,8 @@ fn router(app: App) -> Router {
         .route("/api/v1/architect/step", post(step_architect))
         .route("/api/v1/architect/start", post(start_architect))
         .route("/api/v1/architect/pause", post(pause_architect))
+        .route("/api/v1/projects/{project}/hold", post(hold_starts))
+        .route("/api/v1/projects/{project}/hold/release", post(release_hold))
         .route("/api/v1/observations", get(observations))
         .route("/api/v1/observations/{id}/close", post(close_observation))
         .route("/api/v1/files/{dir}/{name}", get(file))
@@ -863,6 +865,28 @@ async fn pause_architect(State(app): State<App>, Query(q): Query<OfProject>) -> 
     app.control.pause(&api::Fresh::Architect(project.clone()));
     tell_status(&app);
     decide(&app, move |db| api::pause_architect(db, &project)).await
+}
+
+/// Holds a project's new starts, as the owner, saying why: the engine starts no new work on the project from its next
+/// look, and works already running go on. It is the project's own hold, apart from Pause all, which it does not touch.
+async fn hold_starts(
+    State(app): State<App>,
+    Path(project): Path<String>,
+    Json(h): Json<api::HoldStarts>,
+) -> Result<Json<api::Done>, Fail> {
+    let (project, c) = project_of(&app, &OfProject { project: Some(project) })?;
+    decide(&app, move |db| api::hold_starts(db, &c, Some(project.as_str()), &h.why)).await
+}
+
+/// Releases a hold on a project's new starts, as the owner, whoever held: the owner, the architect, or the architect
+/// setting the project straight.
+async fn release_hold(
+    State(app): State<App>,
+    Path(project): Path<String>,
+    Json(r): Json<api::ReleaseHold>,
+) -> Result<Json<api::Done>, Fail> {
+    let (project, c) = project_of(&app, &OfProject { project: Some(project) })?;
+    decide(&app, move |db| api::release_hold(db, &c, Some(project.as_str()), &r.reason)).await
 }
 
 /// Writes what the owner decided, then wakes the engine's loop.
