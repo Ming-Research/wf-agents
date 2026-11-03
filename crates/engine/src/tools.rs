@@ -994,11 +994,66 @@ fn generated(
     (!put.is_empty()).then(|| json!({ "files": put, "note": GENERATED }))
 }
 
-/// A request for ci_before as the run records it: its head is the commit it resolved to, whatever the request called it.
-fn recorded_request(req: &Value, sha: &str) -> Value {
+/// A request for ci_before as the run records it: its head is the commit it resolved to, whatever the request called
+/// it, and so is its preparation commit, when it names one.
+fn recorded_request(req: &Value, sha: &str, prepared: Option<&str>) -> Value {
     let mut recorded = req.clone();
     recorded["head"] = json!(sha);
+    if let Some(p) = prepared {
+        recorded["prepared"] = json!(p);
+    }
     recorded
+}
+
+/// What ci_before adds when it refuses a file outside the test paths: a test written in a file of the implementation
+/// goes onto the code before the change only with that file's change, which is the change itself.
+const OUTSIDE_TEST_PATHS: &str = "A test written in a file of the implementation cannot be put on the code before the \
+    change without that file's change, which is the change itself: write it in a file of its own in the test paths. \
+    Where the code before the change lacks what that file needs to be built or to reach what it tests, such as a \
+    declaration that takes the file in, or code moved as it was into a function of its own, commit that apart, before \
+    the change and changing no behaviour, and name the commit as prepared";
+
+/// The commit ci_before puts the tests on in place of the code before the change, given as `prepared`, or each thing
+/// wrong with it: it must be a commit of the work's branch at or below the head, at or after `base`, the commit of main
+/// the head took in last, and leave every file of the test paths that `base` has as it is, so that those are the tests
+/// from before the change. That it changes no behaviour is the work's to keep and its reviewers' to read.
+fn prepared_commit(
+    wt: &Path,
+    given: &str,
+    head: &str,
+    base: &str,
+    test_paths: &[String],
+) -> Result<String, Vec<String>> {
+    let Some(at) = git::resolve(wt, given) else {
+        return Err(vec![format!("There is no commit {given} to take as prepared")]);
+    };
+    let mut wrong = Vec::new();
+    if !git::is_ancestor(wt, &at, head) {
+        wrong.push(format!(
+            "The prepared commit {at} is not on your branch at or below the head {head}"
+        ));
+    }
+    if !git::is_ancestor(wt, base, &at) {
+        wrong.push(format!(
+            "The prepared commit {at} does not follow {base}, the commit of main your head took in last, which the \
+             code before the change is: commit the preparation after it"
+        ));
+    } else {
+        match git::changed_or_removed(wt, base, &at) {
+            Ok(files) => {
+                let tests: Vec<String> = files.into_iter().filter(|f| git::under(f, test_paths)).collect();
+                if !tests.is_empty() {
+                    wrong.push(format!(
+                        "The prepared commit {at} changes or takes away tests the code before the change has: {}; it \
+                         must leave them as they are",
+                        tests.join(", ")
+                    ));
+                }
+            }
+            Err(x) => wrong.push(format!("The prepared commit {at} cannot be compared with {base}: {x}")),
+        }
+    }
+    if wrong.is_empty() { Ok(at) } else { Err(wrong) }
 }
 
 /// Whether a pushed head covers `sha`: the push recorded when the round began, or one the round's ci reports as it pushes
@@ -1045,20 +1100,39 @@ fn ci_before(
         .as_array()
         .map(|fs| fs.iter().filter_map(|f| f.as_str().map(str::to_string)).collect())
         .unwrap_or_default();
+    // Each thing wrong with the request is told at once: each costs a round to send back.
+    let mut wrong: Vec<String> = Vec::new();
     for f in &files {
         if !git::under(f, &project.test_paths) {
-            return refused(format!(
+            wrong.push(format!(
                 "{f} is outside the test paths: {}",
                 project.test_paths.join(", ")
             ));
+        } else if git::git(&wt, &["cat-file", "-e", &format!("{sha}:{f}")]).is_err() {
+            wrong.push(format!("{f} is not on the head {sha}"));
         }
-        if git::git(&wt, &["cat-file", "-e", &format!("{sha}:{f}")]).is_err() {
-            return refused(format!("{f} is not on the head {sha}"));
-        }
+    }
+    if files.iter().any(|f| !git::under(f, &project.test_paths)) {
+        wrong.push(OUTSIDE_TEST_PATHS.to_string());
     }
     let base = git::git(&wt, &["merge-base", &sha, &format!("origin/{}", project.main)])
         .map(|s| s.trim().to_string())
         .map_err(|x| (Failure::other(x), String::new()))?;
+    // The tests go on the code before the change, or on a commit of the work's that only prepares it for them.
+    let prepared = match req["prepared"].as_str().map(str::trim).filter(|p| !p.is_empty()) {
+        None => None,
+        Some(given) => match prepared_commit(&wt, given, &sha, &base, &project.test_paths) {
+            Ok(at) => Some(at),
+            Err(why) => {
+                wrong.extend(why);
+                None
+            }
+        },
+    };
+    if !wrong.is_empty() {
+        return refused(format!("{}; nothing was pushed", wrong.join("; ")));
+    }
+    let on = prepared.clone().unwrap_or(base);
     let tests: Vec<String> = req["tests"]
         .as_array()
         .map(|ts| ts.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
@@ -1082,9 +1156,9 @@ fn ci_before(
     let refname = format!("refs/heads/{branch}");
     // The run is recorded with the commit the head resolved to now: a head written as `HEAD` or a branch name names
     // another commit later, and the check of which files changed since the run compares against this one.
-    let recorded = recorded_request(req, &sha);
+    let recorded = recorded_request(req, &sha, prepared.as_deref());
     attempts(e, round, "ci_before", &recorded, |e| {
-        let commit = git::files_onto(&wt, &files, &sha, &base, &tag).map_err(Failure::other)?;
+        let commit = git::files_onto(&wt, &files, &sha, &on, &tag).map_err(Failure::other)?;
         hub::push(&wt, &commit, &refname, true)?;
         let mut ran = before_checks(e.github(), project, &branch, &commit, named, &listed);
         // The code before the change of a branch made before main's fast workflow took the request runs with main's CI
@@ -1127,6 +1201,9 @@ fn ci_before(
         });
         if let Some(note) = ci_files {
             ran["ci_files"] = Value::String(note);
+        }
+        if let Some(p) = &prepared {
+            ran["prepared"] = json!(p);
         }
         Ok(json!({ "ran": ran }))
     })
@@ -1697,11 +1774,17 @@ mod tests {
     fn a_ci_before_run_is_recorded_with_the_commit_its_head_resolved_to() {
         let req = json!({ "tool": "ci_before", "head": "HEAD", "files": ["t/a.rs"], "tests": ["a"] });
         let sha = "0123456789abcdef0123456789abcdef01234567";
-        let recorded = recorded_request(&req, sha);
+        let recorded = recorded_request(&req, sha, None);
         assert_eq!(recorded["head"], sha);
         assert_eq!(recorded["files"], req["files"]);
         assert_eq!(recorded["tests"], req["tests"]);
+        assert!(recorded.get("prepared").is_none());
         assert_eq!(req["head"], "HEAD");
+        // Item #270: a preparation commit named as `HEAD~1` is recorded as the commit it resolved to as well.
+        let mut req = req;
+        req["prepared"] = json!("HEAD~1");
+        let prepared = "89abcdef0123456789abcdef0123456789abcdef";
+        assert_eq!(recorded_request(&req, sha, Some(prepared))["prepared"], prepared);
     }
 
     // A pull request the engineer gave no title or description is named by its item's number, and holds none of the
@@ -2923,21 +3006,16 @@ timeout_ms = 1000
 
         /// The tool `ci_before` asked to run the tests on the code before the change.
         fn ci_before(&mut self, tests: &[&str]) -> Value {
+            let req = json!({ "tool": "ci_before", "head": self.head, "files": [], "tests": tests });
+            self.ci_before_asked(&req)
+        }
+
+        /// The tool `ci_before` asked as `req` puts it, the head pushed.
+        fn ci_before_asked(&mut self, req: &Value) -> Value {
             let w = Work::load(self.e.db.conn(), self.work, None).unwrap();
             let project = self.e.project_of(&w).unwrap();
             let round = RoundId { work: self.work, n: 1 };
-            let req = json!({ "tool": "ci_before", "head": self.head, "files": [], "tests": tests });
-            ci_before(
-                &mut self.e,
-                &w,
-                &project,
-                round,
-                0,
-                &req,
-                Some(self.head.as_str()),
-                None,
-            )
-            .unwrap()
+            ci_before(&mut self.e, &w, &project, round, 0, req, Some(self.head.as_str()), None).unwrap()
         }
     }
 
@@ -3092,6 +3170,97 @@ timeout_ms = 1000
         assert!(v["push"].get("no_pull_request").is_none(), "{v}");
         assert_eq!(r.runs.state().pull_requests, 1);
         assert_eq!(pr_of(&r), Some(1));
+    }
+
+    // Item #270: a test that needs what the code before the change lacks, such as code moved as it was into a function
+    // of its own, runs there on a commit of the work's that only prepares for it, named as prepared: the test files go
+    // on that commit in place of the code before the change, and nothing that follows it; the run and its record name
+    // it. A prepared commit that changes a test the code before the change has, is not on the branch at or below the
+    // head, or does not follow the commit of main the head took in last is refused, together with a file outside the
+    // test paths, said with how a test written in a file of the implementation can run there, and one not on the head;
+    // nothing is pushed.
+    #[test]
+    fn a_test_runs_before_the_change_on_a_commit_that_only_prepares_for_it() {
+        let mut r = rig("prepared");
+        let first = r.head.clone();
+        r.main_moves_on(&[("tests/old.rs", "old\n")]);
+        let who = ["-c", "user.name=t", "-c", "user.email=t@t"];
+        let main = config::main_refspec("main");
+        git::git(&r.wt, &["fetch", "-q", "origin", &main]).unwrap();
+        git::git(
+            &r.wt,
+            &[&who[..], &["merge", "-q", "--no-edit", "origin/main"]].concat(),
+        )
+        .unwrap();
+        let write = |r: &Rig, path: &str, text: &str| std::fs::write(r.wt.join(path), text).unwrap();
+        write(&r, "src.txt", "moved out\n");
+        let prepared = commit(&r.wt, "move the code out as it was");
+        write(&r, "tests/new.rs", "new\n");
+        commit(&r.wt, "the test");
+        write(&r, "tests/old.rs", "old, changed\n");
+        let changes_old = commit(&r.wt, "change an old test");
+        write(&r, "src.txt", "changed\n");
+        write(&r, "a.txt", "changed\n");
+        r.head = commit(&r.wt, "the change");
+        r.runs.makes("fast", &[("lint", "green"), ("fast", "green")]);
+        let head = r.head.clone();
+        let ask = |prepared: &str, files: &[&str]| json!({ "tool": "ci_before", "head": head, "files": files, "tests": ["a_test"], "prepared": prepared });
+        let wt = r.wt.clone();
+        let file = |commit: &str, path: &str| git::git(&wt, &["show", &format!("{commit}:{path}")]).unwrap();
+
+        let v = r.ci_before_asked(&ask(&prepared, &["tests/new.rs"]));
+        assert_eq!(v["ran"]["verdict"], "ran", "{v}");
+        assert_eq!(v["ran"]["prepared"], prepared.as_str());
+        let on = r.runs.dispatched_on()[0].clone();
+        assert_eq!(git::resolve(&r.wt, &format!("{on}^")).unwrap(), prepared);
+        assert_eq!(file(&on, "tests/new.rs"), "new\n");
+        assert_eq!(file(&on, "tests/old.rs"), "old\n");
+        assert_eq!(file(&on, "src.txt"), "moved out\n");
+        assert_eq!(file(&on, "a.txt"), "main\nwork\n");
+        let args: String =
+            r.e.db
+                .conn()
+                .query_row(
+                    "SELECT args FROM tool_runs WHERE work = ?1 AND tool = 'ci_before' ORDER BY id DESC LIMIT 1",
+                    [r.work],
+                    |row| row.get(0),
+                )
+                .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&args).unwrap()["prepared"],
+            prepared.as_str()
+        );
+
+        r.runs.clear();
+        let v = r.ci_before_asked(&ask(&changes_old, &["a.txt", "tests/new.rs", "tests/missing.rs"]));
+        assert_eq!(v["ran"]["verdict"], "refused", "{v}");
+        let why = v["ran"]["why"].as_str().unwrap();
+        for said in [
+            "a.txt is outside the test paths",
+            "A test written in a file of the implementation",
+            "tests/missing.rs is not on the head",
+            "changes or takes away tests the code before the change has: tests/old.rs",
+            "nothing was pushed",
+        ] {
+            assert!(why.contains(said), "{said}: {why}");
+        }
+        assert!(!why.contains("tests/new.rs"), "{why}");
+        let tree = format!("{prepared}^{{tree}}");
+        let aside = [&who[..], &["commit-tree", &tree, "-p", &prepared, "-m", "aside"]].concat();
+        let aside = git::git(&r.wt, &aside).unwrap().trim().to_string();
+        for (given, said) in [
+            (first.as_str(), "does not follow"),
+            (aside.as_str(), "is not on your branch"),
+            ("no-such-commit", "There is no commit no-such-commit"),
+        ] {
+            let v = r.ci_before_asked(&ask(given, &["tests/new.rs"]));
+            assert_eq!(v["ran"]["verdict"], "refused", "{given}: {v}");
+            let why = v["ran"]["why"].as_str().unwrap();
+            assert!(why.contains(said), "{given}: {why}");
+        }
+        assert!(r.runs.dispatched().is_empty());
+        let left = git::git(&r.origin, &["branch", "--list", "--format=%(refname:short)"]).unwrap();
+        assert!(!left.contains(BEFORE), "{left}");
     }
 
     /// The project's `[ci]` where the fast CI takes no tests to run on their own.

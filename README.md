@@ -46,7 +46,8 @@ when asked, by hand, with the tests to run (its input `tests`): those tests besi
 no job `check`, so that a head only it has run cannot be merged. Where a project's configuration sets `ci.on_demand`,
 the engine's tool `ci` runs it so, and runs the full CI by hand on a head that has no run of it yet, before the full
 CI on the draft and the merge; else a push runs the full CI and the engine only waits for it. The tool `ci_before` runs the tests it is given on the
-code before the change by hand with the same input; a project with no such input (`ci.tests_input`) has it push a
+code before the change by hand with the same input, or on a commit of the work's that only prepares that code for them
+where the request names one (`prepared`); a project with no such input (`ci.tests_input`) has it push a
 temporary branch and wait for the whole run, unless the project's configuration sets `ci.runs_on_before_branches` to
 false, which says its CI does not run on those branches and has the tool refuse at once. GitHub runs a workflow by hand
 on a branch by the file of it the branch holds, and refuses to on a branch made before main's took the request; `ci`

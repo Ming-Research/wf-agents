@@ -3451,8 +3451,8 @@
     },
     {
       "name": "ci_before",
-      "desc": "Runs the tests you list on the code before the change: the engine puts these tests' files on the code before the change, runs them, and gives you the result of each check and of each test. Nothing goes onto this work's branch",
-      "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, and commits that to a temporary branch. Where the project's fast CI takes the tests to run (its configuration's tests_input), the engine runs that workflow on the branch with the listed tests, which runs exactly them, each to its end. Otherwise the push runs the whole fast CI, which stops a job at its first red test, where the project's configuration says its CI runs on those branches (runs_on_before_branches, true unless set); where it says it does not, nothing is pushed, and the tool refuses, saying so. Where GitHub refuses to run the workflow by hand with the CI files (.github/) of the code before the change, as those of a branch made before main's took the request, and main's differ, the engine puts main's CI files on that code and runs it again. It waits for the run to finish, reads from the logs what became of each listed test, downloads the logs of red checks and deletes the temporary branch",
+      "desc": "Runs the tests you list on the code before the change: the engine puts these tests' files on the code before the change, runs them, and gives you the result of each check and of each test. Nothing goes onto this work's branch. Only files in the test paths go there: a test written in a file of the implementation cannot, since that file's change is the change itself, so write it in a file of its own in the test paths. A test that needs what the code before the change lacks to be built or to reach what it tests, such as a declaration that takes its file in or code moved as it was into a function of its own, runs there once you commit that apart, before the change and changing no behaviour, and name the commit as prepared",
+      "runs": "The engine takes the listed files from the pushed head, puts them on the commit this work's branch forked from main, or on the commit named as prepared once it has checked it, and commits that to a temporary branch. Where the project's fast CI takes the tests to run (its configuration's tests_input), the engine runs that workflow on the branch with the listed tests, which runs exactly them, each to its end. Otherwise the push runs the whole fast CI, which stops a job at its first red test, where the project's configuration says its CI runs on those branches (runs_on_before_branches, true unless set); where it says it does not, nothing is pushed, and the tool refuses, saying so. Where GitHub refuses to run the workflow by hand with the CI files (.github/) of the code before the change, as those of a branch made before main's took the request, and main's differ, the engine puts main's CI files on that code and runs it again. It waits for the run to finish, reads from the logs what became of each listed test, downloads the logs of red checks and deletes the temporary branch",
       "in": [
         {
           "name": "head",
@@ -3481,6 +3481,13 @@
             "desc": "The test's name"
           },
           "min": 1
+        },
+        {
+          "name": "prepared",
+          "title": "Preparation commit",
+          "type": "text",
+          "desc": "A commit of your branch that only prepares the code before the change for these tests, changing no behaviour: a declaration that takes a new test file in, code moved as it was into a function of its own. The engine puts the tests on it in place of the code before the change, once it has checked that it is on your branch at or below the head, follows the commit of main your head took in last and leaves the tests the code before the change has as they are; that it changes no behaviour is yours to keep, and the reviewers read its diff. Leave it out to put the tests on the code before the change itself",
+          "optional": true
         }
       ],
       "out": [
@@ -3516,6 +3523,13 @@
                   "title": "Main's CI files",
                   "type": "text",
                   "desc": "Only when the run was made with main's CI files, since GitHub refused to run the fast CI with those of the code before the change: what GitHub said",
+                  "optional": true
+                },
+                {
+                  "name": "prepared",
+                  "title": "Preparation commit",
+                  "type": "text",
+                  "desc": "Only when the request named one: the preparation commit the tests were put on in place of the code before the change",
                   "optional": true
                 },
                 {
@@ -3593,7 +3607,7 @@
                   "name": "why",
                   "title": "Why refused",
                   "type": "text",
-                  "desc": "Which check failed, or what GitHub said in refusing to run the fast CI on the tests: the head is not pushed, a file is not on this head, a file is outside the test paths, or the project's fast CI takes no tests to run on their own and does not run on the temporary branches the tests are put on"
+                  "desc": "Every check that failed, or what GitHub said in refusing to run the fast CI on the tests: the head is not pushed, a file is not on this head, a file is outside the test paths, with how a test written in a file of the implementation can run there, the commit named as prepared is not on this branch at or below the head, does not follow the commit of main the head took in last or changes tests the code before the change has, or the project's fast CI takes no tests to run on their own and does not run on the temporary branches the tests are put on"
                 }
               ]
             }

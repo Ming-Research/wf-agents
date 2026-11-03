@@ -66,6 +66,22 @@ pub fn changed_among(dir: &Path, from: &str, to: &str, paths: &[String]) -> Resu
     Ok(names(&git(dir, &args)?))
 }
 
+/// The files of one commit that another changes or no longer has, a file moved to another name counted at the name it
+/// had; a file only the other has is not among them.
+pub fn changed_or_removed(dir: &Path, from: &str, to: &str) -> Result<Vec<String>, String> {
+    Ok(names(&git(
+        dir,
+        &[
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "--diff-filter=MDT",
+            &format!("{from}..{to}"),
+        ],
+    )?))
+}
+
 /// The files the work itself changed from one commit to another: those changed between them that `to` also changes
 /// against main as merged into it. A file that only main changed, brought in by merging main, drops out; a file both
 /// main and the work changed stays.
@@ -669,6 +685,33 @@ mod tests {
         assert_eq!(run(&dir, &["show", &format!("{mains}:.github/own.yml")]), "main's");
         // The worktree is as it was.
         assert_eq!(run(&dir, &["status", "--porcelain"]), "");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Item #270: the files of a commit another changes or no longer has are those it edits, takes away or moves to
+    // another name, at the name they had; one it adds is none of them, nor one it leaves as it was.
+    #[test]
+    fn the_files_another_commit_changes_or_takes_away_leave_out_those_it_adds() {
+        let dir = fresh("changed-or-removed");
+        let start = commit(
+            &dir,
+            &[
+                ("kept.rs", "kept\n"),
+                ("edited.rs", "one\n"),
+                ("gone.rs", "gone\n"),
+                ("moved.rs", "moved\n"),
+            ],
+            "Start",
+        );
+        std::fs::remove_file(dir.join("gone.rs")).unwrap();
+        std::fs::rename(dir.join("moved.rs"), dir.join("renamed.rs")).unwrap();
+        let then = commit(&dir, &[("edited.rs", "two\n"), ("added.rs", "new\n")], "Change");
+        assert_eq!(
+            changed_or_removed(&dir, &start, &then).unwrap(),
+            ["edited.rs", "gone.rs", "moved.rs"]
+        );
+        assert!(changed_or_removed(&dir, &then, &then).unwrap().is_empty());
+        assert!(changed_or_removed(&dir, "no-such-commit", &then).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
