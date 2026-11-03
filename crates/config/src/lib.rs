@@ -2586,3 +2586,13 @@ asks = 9
         let _ = std::fs::remove_dir_all(&root);
     }
 }
+
+// A probe of the fast CI (#269): a unit test of the library that does not compile. Reverted in the next commit.
+#[cfg(test)]
+mod probe {
+    #[test]
+    fn a_probe_unit_test_that_does_not_compile() {
+        let n: u32 = "not a number";
+        assert_eq!(n, 0);
+    }
+}
