@@ -8998,7 +8998,7 @@ fn the_table_review_has_the_history_looked_up_by_the_reader_in_its_session() {
         }),
     );
     // The first round reads the table, so that the later round's answers know its columns, and asks instead.
-    let table = answers_columns(vec![("outcome.no_adversarial", "stands")]);
+    let table = answers_columns(|_| vec![("outcome.no_adversarial", "stands")]);
     agents.insert(
         "T4",
         Box::new(move |r: &Request, n: usize| {
