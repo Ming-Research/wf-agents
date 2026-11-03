@@ -12156,6 +12156,85 @@ fn a_reversal_is_left_out_when_the_review_drops_the_removal_it_needed() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The review drops the removal of a dependency and keeps a merge that the removal made room for. With the removal left
+// out, the merge would make an item depend on the item that depends on it: the merge alone is left out, saying why, and
+// nothing of it stays (the absorbed item keeps its dependency and is not cancelled), the change after it is made, and
+// the work of the architect does not fail.
+#[test]
+fn a_merge_is_left_out_whole_when_the_review_drops_the_removal_it_needed() {
+    let s = setup("merge-dropped");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, _: usize| {
+            // The parser (1) depends on the lexer (2), and the tokens (3) on the parser.
+            let changes = json!([
+                { "kind": "remove_dependency", "item": "3", "on": "1", "reason": "r" },
+                { "kind": "merge", "keep": "3", "absorbed": ["2"], "reason": "The lexer is the tokens." },
+                { "kind": "hold", "item": "1", "reason": "Held." },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let rows = json!([
+                { "change": 1, "verdict": "drop", "why": "The tokens need the parser." },
+                { "change": 2, "verdict": "ok", "why": "Sound." },
+                { "change": 3, "verdict": "ok", "why": "Sound." },
+            ]);
+            (Vec::new(), vec![("outcome.review", rows)])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let parser = an_item(&mut e);
+    let lexer = a_ready_item(&mut e, "Lex it");
+    let tokens = a_ready_item(&mut e, "Make the tokens");
+    assert_eq!((parser, lexer, tokens), (1, 2, 3));
+    e.db.write(Actor::Owner, |tx| {
+        db::add_dependency(tx, parser, lexer, "its lexer", "blocking")?;
+        db::add_dependency(tx, tokens, parser, "its parser", "parallel")
+    })
+    .unwrap();
+    say(&mut e, "Merge the lexer into the tokens.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let rows = engine::query_json(
+        e.db.conn(),
+        "SELECT state, json_extract(outcome, '$.what') AS why FROM architect_item_changes ORDER BY id",
+        &[],
+        10,
+    )
+    .unwrap();
+    let states: Vec<&str> = rows.iter().map(|r| r["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["dropped", "dropped", "made"], "{rows:?}\n{log}");
+    let why = rows[1]["why"].as_str().unwrap();
+    assert!(why.contains("cannot depend on"), "{why}");
+    // Both dependencies stand, the lexer is not cancelled, and the change after the refused one was made.
+    assert_eq!(links_of(&e), [(parser, lexer), (tokens, parser)], "{log}");
+    let cancelled: Option<String> =
+        e.db.conn()
+            .query_row("SELECT cancelled FROM items WHERE id = 2", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(cancelled, None, "{log}");
+    let held: Option<String> =
+        e.db.conn()
+            .query_row("SELECT held FROM items WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(held.as_deref(), Some("Held."), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A work that waits for an item at the merge's judge (`M1`) goes on when the dependency on that item is removed, with
 // nobody to say so to it: while the dependency stands it stays, though a slot is free; once it is removed it stays,
 // its blocker open, for as long as the machine's one slot is held by another work, and when that slot is free it takes
