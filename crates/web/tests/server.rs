@@ -15,15 +15,18 @@ struct Server {
     dir: PathBuf,
 }
 
-/// A configuration of one project, p, committed in the data directory, which the architect's routes read.
-fn configure(dir: &std::path::Path) {
+/// The part of project p's configuration that does not say where its checkout is or what its constitution is.
+const PROJECT_REST: &str = "design_goal = \"simple\"\n\
+                            test_paths = [\"tests/\"]\nobservation_tags = [{ name = \"perf\", desc = \"How fast\" }]\n\
+                            [ci]\nfast = \"ci\"\nfull = [\"ci\"]\nmerge_checks = []\n";
+
+/// A configuration of one project, p, committed in the data directory, which the architect's routes read: `project` is
+/// p's configuration.
+fn configure(dir: &std::path::Path, project: &str) {
     let install = "[owner]\nlanguage = \"English\"\n[items]\ntitle_max = 40\n[machines]\nworkstation = \"here\"\n\
                    heavy = \"builds\"\npoll_interval = 60\n[machines.hosts.here]\nslots = 1\n[agents.clis.claude]\n\
                    kind = \"claude\"\ncommand = \"claude\"\n[agents.levels.l]\ndesc = \"all\"\ncli = \"claude\"\n\
                    model = \"m\"\n[gh]\nallow = []\n[query]\nmax_rows = 10\ntimeout_ms = 1000\n";
-    let project = "repo = \"o/p\"\ncheckout = \"/p\"\ndesign_goal = \"simple\"\n\
-                   test_paths = [\"tests/\"]\nobservation_tags = [{ name = \"perf\", desc = \"How fast\" }]\n\
-                   [ci]\nfast = \"ci\"\nfull = [\"ci\"]\nmerge_checks = []\n";
     std::fs::create_dir_all(dir.join("projects")).unwrap();
     std::fs::write(dir.join("install.toml"), install).unwrap();
     std::fs::write(dir.join("projects/p.toml"), project).unwrap();
@@ -44,10 +47,15 @@ fn configure(dir: &std::path::Path) {
 }
 
 fn serve(name: &str) -> Server {
+    serve_project(name, &format!("repo = \"o/p\"\ncheckout = \"/p\"\n{PROJECT_REST}"))
+}
+
+/// A server over a data directory whose project p is configured as `project` says.
+fn serve_project(name: &str, project: &str) -> Server {
     let dir = std::env::temp_dir().join(format!("wf-agents-web-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("db")).unwrap();
-    configure(&dir);
+    configure(&dir, project);
     let path = dir.join("db/wf-agents.sqlite");
     db::Db::create(&path).unwrap();
     let bus = Arc::new(Bus::new(5));
@@ -244,11 +252,11 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
     let (status, done) = post(s.port, "/api/v1/works/1/start-over", "{}", "application/json");
     assert_eq!(status, 200, "{done}");
     assert!(done.ends_with(r#"{"done":"work 1 is started over"}"#), "{done}");
-    assert!(db::start_over_asked(db.conn(), 1).unwrap());
+    assert!(db::stop_asked(db.conn(), 1).unwrap());
     assert_eq!(s.control.asked().woken, woken + 1);
     let (status, done) = post(s.port, "/api/v1/works/1/start-over", "{}", "application/json");
     assert_eq!(status, 422, "{done}");
-    assert!(done.contains("work 1 is being started over already"), "{done}");
+    assert!(done.contains("work 1 is stopping already"), "{done}");
     // A project's architect is started and paused the same way; the configuration's one project is the default, and a
     // project there is not is refused.
     let (status, done) = post(
@@ -267,7 +275,8 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         post(s.port, "/api/v1/architect/start?project=q", "{}", "application/json").0,
         404
     );
-    // The architect's tab names its project and every project, and no constitution for a project that names none.
+    // The architect names its project and every project; the rest of its page is read apart, with no constitution for a
+    // project that names none.
     let here = format!("127.0.0.1:{}", s.port);
     let (status, tab) = get(s.port, "/api/v1/architect", &here, "");
     assert_eq!(status, 200, "{tab}");
@@ -275,7 +284,9 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         tab.contains(r#""project":"p""#) && tab.contains(r#""projects":["p"]"#),
         "{tab}"
     );
-    assert!(tab.contains(r#""constitution":null"#), "{tab}");
+    let (status, panel) = get(s.port, "/api/v1/architect/panel", &here, "");
+    assert_eq!(status, 200, "{panel}");
+    assert!(panel.contains(r#""constitution":null"#), "{panel}");
     // How every project's architect stands is read at once, one entry for each project of the configuration, with its
     // works, its queue and whether a question of its own waits, and none of the rest of the architect's page.
     let (status, standing) = get(s.port, "/api/v1/architects", &here, "");
@@ -284,16 +295,48 @@ fn the_owner_starts_and_pauses_every_work_and_runs_one_work_s_round() {
         standing.ends_with(r#"[{"project":"p","works":[],"queue":[],"asking":false}]"#),
         "{standing}"
     );
-    for page_only in ["notebook", "policy", "handled", "changes", "constitution"] {
+    for panel_only in ["notebook", "policy", "handled", "changes", "constitution"] {
         assert!(
-            !standing.contains(page_only),
-            "{page_only} is read for the page alone: {standing}"
+            !standing.contains(panel_only),
+            "{panel_only} is read for the panel alone: {standing}"
         );
         assert!(
-            tab.contains(&format!(r#""{page_only}""#)),
-            "the page holds {page_only}: {tab}"
+            !tab.contains(&format!(r#""{panel_only}""#)),
+            "the architect read for the one-to-one leaves {panel_only} to the panel: {tab}"
+        );
+        assert!(
+            panel.contains(&format!(r#""{panel_only}""#)),
+            "the panel holds {panel_only}: {panel}"
         );
     }
+    // Together the two reads hold exactly the fields the architect had before it was split, each in one of them.
+    let object = |text: &str| -> serde_json::Map<String, serde_json::Value> {
+        let (_, body) = text.split_once("\r\n\r\n").expect("a body");
+        serde_json::from_str::<serde_json::Value>(body)
+            .expect("JSON")
+            .as_object()
+            .expect("an object")
+            .clone()
+    };
+    let mut every: Vec<String> = object(&tab).keys().chain(object(&panel).keys()).cloned().collect();
+    every.sort();
+    assert_eq!(
+        every,
+        [
+            "asks",
+            "changes",
+            "constitution",
+            "draft",
+            "handled",
+            "holds",
+            "notebook",
+            "policy",
+            "project",
+            "projects",
+            "queue",
+            "works"
+        ]
+    );
     // Its rounds are read in windows across its works: none yet; a window is named by a round's name, and a round of
     // another work is not the architect's.
     let (status, rounds) = get(s.port, "/api/v1/architect/rounds?project=p", &here, "");
@@ -329,6 +372,7 @@ fn status() -> api::Status {
         started: Vec::new(),
         releasing: Vec::new(),
         waiting_for_slot: Vec::new(),
+        stopping: Vec::new(),
         architects_started: Vec::new(),
         running: Vec::new(),
         stepping: Vec::new(),
@@ -513,6 +557,82 @@ fn the_owner_reads_conversations_marks_them_read_and_says_something() {
     );
     let (_, list) = get(s.port, "/api/v1/conversations", &here, "");
     assert!(list.contains(r#""key":"architect:p""#), "{list}");
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
+// The page reads a conversation in a window of its latest entries, as many as the request names: whatever the number, the
+// entries given and the runs left out (`gaps`) are all the conversation has, the latest entry is always given, a number
+// above the most is the most, none at all is at least one entry, and a number that is no count is refused.
+#[test]
+fn a_conversation_is_read_in_the_window_the_request_names() {
+    let s = serve("window");
+    let mut db = db::Db::open(&s.dir.join("db/wf-agents.sqlite")).unwrap();
+    db.write(db::Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level) VALUES ('p', 't', 'x', 'y', 'change', '1')",
+            [],
+        )?;
+        tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+        tx.execute("INSERT INTO works (item, flow_version, graph, at) VALUES (1, 1, 'engineer', 'R1')", [])?;
+        tx.execute(
+            "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'T4', '{}', 'c', 1)",
+            [],
+        )?;
+        for i in 0..12 {
+            tx.execute(
+                "INSERT INTO owner_messages (work, round, text) VALUES (1, 1, ?1)",
+                [format!("m{i:02}")],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    let here = format!("127.0.0.1:{}", s.port);
+    let read = |limit: &str| -> (u16, serde_json::Value) {
+        let (status, out) = get(s.port, &format!("/api/v1/conversation?key=work%3A1{limit}"), &here, "");
+        let body = out.split_once("\r\n\r\n").map_or("null", |(_, b)| b);
+        (status, serde_json::from_str(body).unwrap_or(serde_json::Value::Null))
+    };
+    let (status, full) = read("");
+    assert_eq!(status, 200, "{full}");
+    let all = full["entries"].as_array().unwrap().len();
+    assert!(all >= 12, "{all}");
+    // Fewer entries than the window: nothing is left out.
+    assert!(full["gaps"].as_array().unwrap().is_empty(), "{full}");
+    let key = |e: &serde_json::Value| (e["source"].as_str().unwrap().to_string(), e["id"].as_i64().unwrap());
+    let last = key(full["entries"].as_array().unwrap().last().unwrap());
+    for limit in ["&limit=3", "&limit=1", "&limit=0"] {
+        let (status, d) = read(limit);
+        assert_eq!(status, 200, "{limit}: {d}");
+        let given: Vec<_> = d["entries"].as_array().unwrap().iter().map(key).collect();
+        let left: i64 = d["gaps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|g| g["count"].as_i64().unwrap())
+            .sum();
+        // The entries given and those left out are the conversation's, and the latest is given, whatever the number.
+        assert_eq!(given.len() as i64 + left, all as i64, "{limit}: {d}");
+        assert_eq!(given.last(), Some(&last), "{limit}");
+        assert!(!given.is_empty(), "{limit}");
+        // Each run left out is told by an entry given.
+        for g in d["gaps"].as_array().unwrap() {
+            assert!(g["count"].as_i64().unwrap() > 0, "{limit}: {d}");
+            assert!(given.contains(&key(g)), "{limit}: {d}");
+        }
+        // What the window does not touch.
+        assert_eq!(d["asks"], full["asks"], "{limit}");
+        assert_eq!(d["read_to"], full["read_to"], "{limit}");
+    }
+    // A number above the most is the most; here that is every entry.
+    let (_, big) = read("&limit=100000");
+    assert_eq!(big["entries"], full["entries"]);
+    assert!(big["gaps"].as_array().unwrap().is_empty());
+    // What is no count is refused, not read as the window.
+    for bad in ["&limit=abc", "&limit=-1"] {
+        let (status, _) = read(bad);
+        assert!((400..500).contains(&status), "{bad}: {status}");
+    }
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
@@ -755,4 +875,168 @@ fn the_stream_gives_each_event_and_what_a_client_missed() {
     let mut seen = String::new();
     read_until(&mut other, &mut seen, r#"{"kind":"resync"}"#);
     let _ = std::fs::remove_dir_all(&s.dir);
+}
+
+/// Runs git in a directory; a failure fails the test.
+fn git(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// Commits every file of a directory as one commit, and gives it.
+fn commit_all(dir: &std::path::Path, message: &str) -> String {
+    git(dir, &["add", "-A"]);
+    git(
+        dir,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            message,
+        ],
+    );
+    git(dir, &["rev-parse", "HEAD"])
+}
+
+// What the pages show of a project's text is its main's, as the last fetch left it: they fetch nothing, no file of the
+// checkout is read, and a text they cannot read says why in its own place and takes nothing else from the page.
+#[test]
+fn the_pages_show_the_project_as_its_main_has_it_and_say_why_when_they_cannot() {
+    let root = std::env::temp_dir().join(format!("wf-agents-web-{}-main-repos", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let (origin, checkout, other) = (root.join("origin.git"), root.join("checkout"), root.join("other"));
+    git(
+        &root,
+        &["init", "-q", "--bare", "-b", "main", &origin.to_string_lossy()],
+    );
+    git(
+        &root,
+        &["clone", "-q", &origin.to_string_lossy(), &checkout.to_string_lossy()],
+    );
+    std::fs::write(checkout.join("constitution.md"), "## Article 1. Old.\n").unwrap();
+    std::fs::write(checkout.join("AGENTS.md"), "Old way of work.\n").unwrap();
+    let first = commit_all(&checkout, "first");
+    git(&checkout, &["push", "-q", "origin", "HEAD:main"]);
+    let s = serve_project(
+        "main",
+        &format!(
+            "repo = \"o/p\"\ncheckout = \"{}\"\nconstitution = \"constitution.md\"\n{PROJECT_REST}",
+            checkout.display()
+        ),
+    );
+    let here = format!("127.0.0.1:{}", s.port);
+    let page = |path: &str| -> serde_json::Value {
+        let (status, out) = get(s.port, path, &here, "");
+        assert_eq!(status, 200, "{out}");
+        serde_json::from_str(out.split_once("\r\n\r\n").map_or("", |x| x.1)).unwrap()
+    };
+
+    // The page shows the constitution (in the panel beside the one-to-one) and the project guide at the commit main is
+    // at in the checkout.
+    let tab = page("/api/v1/architect/panel");
+    let law = &tab["constitution"];
+    assert_eq!(law["name"], "constitution.md");
+    assert_eq!(law["commit"], first.as_str());
+    assert_eq!(law["text"], "## Article 1. Old.\n");
+    assert_eq!(law["error"], serde_json::Value::Null);
+    // The time the commit was committed, which tells the owner how new the text is, in milliseconds.
+    let committed = git(&checkout, &["show", "-s", "--format=%ct", &first])
+        .parse::<i64>()
+        .unwrap()
+        * 1000;
+    assert_eq!(law["committed_at"], committed);
+    let now = page("/api/v1/inputs-now");
+    assert_eq!(now["projects"][0]["commit"], first.as_str());
+    assert_eq!(now["projects"][0]["committed_at"], committed);
+    assert_eq!(now["projects"][0]["agents_md"], "Old way of work.\n");
+    assert_eq!(now["projects"][0]["error"], serde_json::Value::Null);
+
+    // Main moves on the remote; the pages fetch nothing, so they still show the commit they showed.
+    git(
+        &root,
+        &["clone", "-q", &origin.to_string_lossy(), &other.to_string_lossy()],
+    );
+    std::fs::write(other.join("constitution.md"), "## Article 1. New.\n").unwrap();
+    std::fs::write(other.join("AGENTS.md"), "New way of work.\n").unwrap();
+    let second = commit_all(&other, "second");
+    git(&other, &["push", "-q", "origin", "HEAD:main"]);
+    assert_eq!(
+        page("/api/v1/architect/panel")["constitution"]["commit"],
+        first.as_str()
+    );
+    // Once the engine has fetched, both show the new text and the commit it is at, though no file of the checkout
+    // changed.
+    git(&checkout, &["fetch", "-q", "origin", "main"]);
+    let tab = page("/api/v1/architect/panel");
+    assert_eq!(tab["constitution"]["commit"], second.as_str());
+    assert_eq!(tab["constitution"]["text"], "## Article 1. New.\n");
+    let now = page("/api/v1/inputs-now");
+    assert_eq!(now["projects"][0]["commit"], second.as_str());
+    assert_eq!(now["projects"][0]["agents_md"], "New way of work.\n");
+    assert_eq!(
+        std::fs::read_to_string(checkout.join("constitution.md")).unwrap(),
+        "## Article 1. Old.\n"
+    );
+
+    // The configured path is not on main any more: the constitution says so, with the file and the commit, and is no
+    // empty text; the rest of the page is what it was.
+    git(&other, &["rm", "-q", "constitution.md"]);
+    let third = commit_all(&other, "third");
+    git(&other, &["push", "-q", "origin", "HEAD:main"]);
+    git(&checkout, &["fetch", "-q", "origin", "main"]);
+    let tab = page("/api/v1/architect/panel");
+    let law = &tab["constitution"];
+    let error = law["error"].as_str().unwrap_or_default();
+    assert!(error.contains("constitution.md") && error.contains(&third), "{law}");
+    assert_eq!(law["name"], "constitution.md");
+    assert_eq!(law["commit"], third.as_str());
+    assert_eq!(law["text"], "");
+    let tab = page("/api/v1/architect");
+    assert_eq!(tab["project"], "p");
+    assert_eq!(tab["projects"], serde_json::json!(["p"]));
+    assert_eq!(tab["works"], serde_json::json!([]));
+    // The project guide of the same commit is still read.
+    assert_eq!(
+        page("/api/v1/inputs-now")["projects"][0]["agents_md"],
+        "New way of work.\n"
+    );
+
+    // A checkout that is gone: the commit is none, both pages say why in the place of the text, and nothing else fails.
+    std::fs::remove_dir_all(&checkout).unwrap();
+    let tab = page("/api/v1/architect/panel");
+    assert_eq!(tab["constitution"]["commit"], serde_json::Value::Null);
+    assert!(
+        tab["constitution"]["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("origin/main")),
+        "{tab}"
+    );
+    assert_eq!(page("/api/v1/architect")["project"], "p");
+    let now = page("/api/v1/inputs-now");
+    let project = &now["projects"][0];
+    assert!(
+        project["error"].as_str().is_some_and(|e| e.contains("origin/main")),
+        "{now}"
+    );
+    assert_eq!(project["commit"], serde_json::Value::Null);
+    assert_eq!(project["agents_md"], "");
+    assert_eq!(project["records"], serde_json::json!([]));
+    assert_eq!(project["project"], "p");
+    let _ = std::fs::remove_dir_all(&s.dir);
+    let _ = std::fs::remove_dir_all(&root);
 }

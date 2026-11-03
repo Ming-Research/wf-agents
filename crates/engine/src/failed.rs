@@ -1,14 +1,15 @@
-//! Agent rounds that do not end in a return the cell takes, handled as the flow's rounds section says, which gives
-//! every agent's cell a shared row for each. A return sent back runs the cell again, and so many in a row pause the
-//! work. A run that ends without a return is told apart by what the command line reports, and is waited out for every
-//! work, run again until it passes, or pauses the work; it never counts as a return sent back, and never asks for a
-//! written answer.
+//! Agent rounds that do not end in a return the cell takes, and the engine's own steps before them that fail in
+//! passing, handled as the flow's rounds section says, which gives every agent's cell a shared row for each. A return
+//! sent back runs the cell again, and so many in a row pause the work. A run that ends without a return is told apart
+//! by what the command line reports, and is waited out for every work, run again, or pauses the work; it never counts
+//! as a return sent back, and never asks for a written answer. A row that runs again is bounded: the work took it so
+//! many times in a row, and the next time pauses it. "In a row" has one reading ([`since_outside`]).
 
 use std::time::Duration;
 
 use db::Actor;
 use db::rusqlite::params;
-use flow::format::{Failure, GUARDED, Handle, Rounds};
+use flow::format::{Atom, Failure, GUARDED, Handle, Rounds, STEP_NETWORK};
 use flow::{CompiledCell, CompiledGraph};
 use serde_json::json;
 
@@ -101,42 +102,81 @@ pub fn section(e: &mut Engine, g: &CompiledGraph) -> Result<Rounds, String> {
         .ok_or_else(|| "the flow has no rounds section".to_string())
 }
 
-/// Whether a round was cut off by the engine or ended without a return: neither is a return sent back.
-pub fn not_a_return(r: &Round) -> bool {
-    r.rejected
-        .as_ref()
-        .is_some_and(|x| x.get("interrupted").is_some() || x.get("failed").is_some() || x.get("error").is_some())
-}
-
-/// The returns of a cell sent back in a row, newest first, from its rounds newest first: rounds cut off and failed
-/// runs are passed over, and a round that started before the owner last let the work go on ends the row.
-pub fn sent_back(at_cell: &[Round], resumed: Option<i64>) -> Vec<&Round> {
-    at_cell
-        .iter()
-        .filter(|r| !not_a_return(r))
-        .take_while(|r| r.rejected.is_some() && resumed.is_none_or(|t| r.started_at > t))
-        .collect()
-}
-
 fn kind_of<'s>(s: &'s Rounds, name: &str) -> Option<&'s Failure> {
     s.failed.kinds.iter().find(|k| k.name == name)
 }
 
-/// The failed runs of a cell in a row whose kind is run again, newest first: since the cell last ran to a return,
-/// and since the owner last let the work go on. Rounds the engine cut off are passed over.
-fn retried<'r>(at_cell: &'r [Round], resumed: Option<i64>, s: &Rounds) -> Vec<&'r Round> {
-    at_cell
-        .iter()
-        .filter(|r| r.rejected.as_ref().is_none_or(|x| x.get("interrupted").is_none()))
-        .take_while(|r| resumed.is_none_or(|t| r.started_at > t))
-        .take_while(|r| {
-            r.rejected
-                .as_ref()
-                .and_then(|x| x["failed"]["kind"].as_str())
-                .and_then(|k| kind_of(s, k))
-                .is_some_and(|k| k.handle == Handle::Retry)
+/// A round of a work, as far as counting the rows the work took needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Took {
+    pub round: RoundId,
+    /// The cell the round ran at.
+    pub cell: String,
+    /// The row the round took, as the view `round_rows` says; none for a round still open and for one that ended with
+    /// the work paused.
+    pub row: Option<String>,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+}
+
+/// Whether a round took a row from outside the engine: a row taken because an agent returned, a tool ran or the owner
+/// answered, at a cell of one of those. The engine's own rows (the shared ones of a round that ended in no return, a
+/// line's new session, a table with no row), every row of a cell of the engine's, and a row that waits (the engine
+/// chose it without running the cell, and the work did not move) are not. A round of a cell or a row the work's graph
+/// no longer has, as when a flow edit renamed or removed it, is not known to be the engine's, so it ends the count.
+fn from_outside(g: &CompiledGraph, t: &Took) -> bool {
+    let Some(row) = t.row.as_deref() else {
+        return false;
+    };
+    let Some(cell) = g.cell(&t.cell) else {
+        return true;
+    };
+    let Some(r) = cell.rows.iter().find(|r| r.name == row) else {
+        return true;
+    };
+    cell.kind != "engine" && !r.waits && !r.conditions.iter().any(Atom::about_no_return)
+}
+
+/// The rounds of a work since it last took a row from outside the engine ([`from_outside`]), newest first; a round
+/// that started before the owner last let the work go on ends them too. This is what "in a row" means for every
+/// bounded row of the rounds section: how many times the work took the row in these rounds ([`count`]), whatever else
+/// the engine did between, which neither counts nor starts them afresh.
+pub fn since_outside(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<Vec<Took>, String> {
+    let resumed = work::resumed_at(e.db.conn(), w.id)?;
+    let mut st =
+        e.db.conn()
+            .prepare(
+                "SELECT x.round, x.cell, x.took, r.started_at, r.ended_at
+                 FROM round_rows x JOIN rounds r ON r.work = x.work AND r.n = x.round
+                 WHERE x.work = ?1 ORDER BY x.round DESC",
+            )
+            .map_err(sql)?;
+    let rounds = st
+        .query_map([w.id], |r| {
+            Ok(Took {
+                round: RoundId::new(w.id, r.get(0)?),
+                cell: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                row: r.get(2)?,
+                started_at: r.get(3)?,
+                ended_at: r.get(4)?,
+            })
         })
-        .collect()
+        .map_err(sql)?;
+    let mut out = Vec::new();
+    for t in rounds {
+        let t = t.map_err(sql)?;
+        if resumed.is_some_and(|at| t.started_at <= at) || from_outside(g, &t) {
+            break;
+        }
+        out.push(t);
+    }
+    Ok(out)
+}
+
+/// Whether a round is the record of a step of the engine's before an agent's round that failed in passing
+/// ([`networked`]): the agent ran no round, and is told of none.
+pub fn was_step(r: &Round) -> bool {
+    r.rejected.as_ref().is_some_and(|x| x["failed"]["kind"] == STEP_NETWORK)
 }
 
 /// Whether a cell's next round is the one the owner let go on after the run guard stopped the cell's last: the owner's
@@ -155,27 +195,159 @@ fn failed_as(r: &Round) -> Option<&str> {
 }
 
 /// Whether a round did not run to an end of its own: the engine cut it off, or it failed as another kind than `kind`,
-/// the one that is looked for.
+/// the one that is looked for. The record of a step before the cell's round ([`was_step`]) is one such: no run of the
+/// cell.
 fn cut_short(r: &Round, kind: &str) -> bool {
     let cut = |x: &serde_json::Value| x.get("interrupted").is_some() || x.get("error").is_some();
     r.rejected.as_ref().is_some_and(cut) || failed_as(r).is_some_and(|k| k != kind)
 }
 
-/// While the cell's last run, which failed, waits to run again, why; none when the cell's round may run now. Each
-/// time it runs again it waits twice as long as the time before, up to [`RETRY_MAX`].
-pub fn waiting(retry_wait: Duration, at_cell: &[Round], resumed: Option<i64>, s: &Rounds) -> Option<String> {
-    let fails = retried(at_cell, resumed, s);
-    let last = fails.first()?;
-    let n = (fails.len() as u32).saturating_sub(1).min(10);
-    let wait = retry_wait.saturating_mul(1 << n).min(RETRY_MAX).as_millis() as i64;
-    let due = last.ended_at.unwrap_or(last.started_at) + wait;
+/// How many times the work took a row in the rounds [`since_outside`] gave.
+pub fn count(took: &[Took], row: &str) -> usize {
+    took.iter().filter(|t| t.row.as_deref() == Some(row)).count()
+}
+
+/// The text a round was sent back with, for the owner.
+pub fn sent_back_reason(e: &Engine, round: RoundId) -> String {
+    e.db.conn()
+        .query_row(
+            "SELECT rejected FROM rounds WHERE work = ?1 AND n = ?2",
+            params![round.work, round.n],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+}
+
+/// Whether the error text of a step of the engine's is a failure of the network that passes by itself, as git and ssh
+/// word it: a connection refused, reset or closed, a host that does not resolve, a timeout, a server that fails. Text
+/// it does not know is not the network's, so that a step that fails for any other cause (the configuration, a
+/// permission) is not run again.
+pub fn network_failure(why: &str) -> bool {
+    const SIGNS: &[&str] = &[
+        "open failed",
+        "administratively prohibited",
+        "stdio forwarding failed",
+        "could not resolve host",
+        "name or service not known",
+        "temporary failure in name resolution",
+        "nodename nor servname provided",
+        "connection reset",
+        "connection refused",
+        "connection closed",
+        "connection abort",
+        "failed to connect",
+        "couldn't connect to server",
+        "timed out",
+        "network is unreachable",
+        "network is down",
+        "no route to host",
+        "broken pipe",
+        "remote end hung up",
+        "unexpected disconnect",
+        "early eof",
+        "rpc failed",
+        "returned error: 5",
+        "exchange_identification",
+    ];
+    let why = why.to_lowercase();
+    SIGNS.iter().any(|s| why.contains(s))
+}
+
+/// While the work's last round, which took a row that runs again, waits to run again, why; none when the cell's round
+/// may run now. A failed run waits twice as long each time as the time before, from `retry_wait` ([`Engine`]'s), up to
+/// [`RETRY_MAX`]; a step of the engine's waits as many seconds as the flow's backoff says for the time it failed, a
+/// second lasting `backoff_unit`.
+pub fn waiting(retry_wait: Duration, backoff_unit: Duration, took: &[Took], s: &Rounds) -> Option<String> {
+    let last = took.first()?;
+    let row = last.row.as_deref()?;
+    let n = (count(took, row) as u32).saturating_sub(1);
+    let ended = last.ended_at.unwrap_or(last.started_at);
+    if kind_of(s, row).is_some_and(|k| k.handle == Handle::Retry) {
+        let wait = retry_wait.saturating_mul(1 << n.min(10)).min(RETRY_MAX).as_millis() as i64;
+        let due = ended + wait;
+        return (db::now() < due).then(|| {
+            format!(
+                "{} ended without a return; the cell runs again at {}",
+                last.round,
+                utc(due)
+            )
+        });
+    }
+    let case = s.engine.iter().find(|c| c.name == row && c.in_row.is_some())?;
+    let secs = case.backoff.get(n as usize).or(case.backoff.last()).copied()?;
+    let due = ended + backoff_unit.saturating_mul(secs).as_millis() as i64;
     (db::now() < due).then(|| {
         format!(
-            "{} ended without a return; the cell runs again at {}",
-            last.id,
+            "{}: a step before the cell's round failed ({row}); it is taken again at {}",
+            last.round,
             utc(due)
         )
     })
+}
+
+/// Runs a step of the engine's before an agent's round that reaches the network, as every such step is run: when it
+/// fails the way the network does by itself ([`network_failure`]) and the flow's rounds section has the case
+/// `step_network`, the failure is recorded on the cell's round, the step waits as long as the backoff says
+/// ([`waiting`], at the cell's next step) and is run again, and the failure past the case's bound pauses the work and
+/// tells the owner, the architect's own work as much as any. A failure while the engine's own look finds the network
+/// down stops every work as a failed run of the kind `offline` does; any other failure pauses the work, as a step it
+/// cannot take does. `took` is [`since_outside`]. Gives what the step gave when it passed, and else what the step came
+/// to.
+pub fn networked<T>(
+    e: &mut Engine,
+    w: &Work,
+    cell: &CompiledCell,
+    section: &Rounds,
+    took: &[Took],
+    step: impl FnOnce(&Engine) -> Result<T, String>,
+) -> Result<Result<T, Advance>, String> {
+    let why = match step(&*e) {
+        Ok(passed) => return Ok(Ok(passed)),
+        Err(why) => why,
+    };
+    let why = format!("cell {}: {why}", cell.id);
+    if e.network_down() {
+        return e.wait_offline(w.id, &why).map(Err);
+    }
+    let case = section.engine.iter().find(|c| c.name == STEP_NETWORK);
+    let counter = case.and_then(|c| c.counts.clone());
+    let bound = case.and_then(|c| c.in_row).filter(|_| network_failure(&why));
+    let Some(bound) = bound else {
+        return pause(e, w, &why).map(Err);
+    };
+    let before = count(took, STEP_NETWORK);
+    let over = before >= bound as usize;
+    let mut failed = json!({ "kind": STEP_NETWORK, "what": why });
+    if over {
+        failed["over"] = json!(bound);
+    }
+    let input = json!({ "engine": { STEP_NETWORK: why } });
+    let commit = e.config.commit.clone();
+    let ended = Ended {
+        rejected: Some(json!({ "failed": failed })),
+        ..Ended::default()
+    };
+    let round =
+        e.db.write(Actor::Engine, |tx| {
+            let id = work::start_round(tx, w.id, &cell.id, None, &input, &commit, None).map_err(db::Error::Abort)?;
+            work::finish_round(tx, id, &ended).map_err(db::Error::Abort)?;
+            Ok(id)
+        })
+        .map_err(sql)?;
+    e.say(&format!("{round} could not take its step ({STEP_NETWORK}): {why}"));
+    if !over && let Some(counter) = counter {
+        crate::limits::tell_past(e, w, &counter)?;
+    }
+    if over {
+        let why = format!(
+            "{why}; the step failed {} times in a row, and running it again has not helped",
+            before + 1
+        );
+        return pause(e, w, &why).map(Err);
+    }
+    Ok(Err(Advance::Moved))
 }
 
 /// A work, as the owner is told of it.
@@ -194,6 +366,7 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
             "UPDATE works SET paused = ?2, paused_by = 'engine' WHERE id = ?1",
             params![w.id, why],
         )?;
+        db::withdraw_resume(tx, w.id)?;
         actions::notify(tx, Some(w.id), &text).map_err(db::Error::Abort)
     })
     .map_err(sql)?;
@@ -203,7 +376,8 @@ pub fn pause(e: &mut Engine, w: &Work, why: &str) -> Result<Advance, String> {
 
 /// The cell's round before `round` in its work, when its run ended as the same kind of failed run too: none when the
 /// round before at the cell did anything else. A run that failed in passing or was cut off between the two is that same
-/// round run again, and is passed over.
+/// round run again, and a record of a step before the cell's round ([`was_step`]) is no run of the cell: both are
+/// passed over.
 fn refused_before(e: &Engine, round: RoundId, cell: &str, kind: &str) -> Result<Option<RoundId>, String> {
     let at_cell = work::rounds_at(e.db.conn(), round.work, cell)?;
     let before = at_cell
@@ -216,6 +390,7 @@ fn refused_before(e: &Engine, round: RoundId, cell: &str, kind: &str) -> Result<
 /// What a round whose run ended without a return was, and what came of it.
 pub struct Failed<'a> {
     pub w: &'a Work,
+    pub g: &'a CompiledGraph,
     pub cell: &'a CompiledCell,
     pub round: RoundId,
     pub section: &'a Rounds,
@@ -253,6 +428,18 @@ impl Failed<'_> {
         }
         if let Some(g) = &self.guard {
             failed["guard"] = g.clone();
+        }
+        // A kind run again that has failed as often in a row as its bound says is not run again: the round records the
+        // bound it passed, and the work pauses.
+        let past = match (kind.handle, kind.in_row) {
+            (Handle::Retry, Some(bound)) => {
+                let took = since_outside(e, self.w, self.g)?;
+                (count(&took, &kind.name) >= bound as usize).then_some(bound)
+            }
+            _ => None,
+        };
+        if let Some(bound) = past {
+            failed["over"] = json!(bound);
         }
         e.say(&format!(
             "{} ended without a return ({}): {what}",
@@ -302,8 +489,22 @@ impl Failed<'_> {
                 }
                 Ok(Advance::Waits(format!("{} until {}", kind.name, utc(until))))
             }
-            // The cell runs again once its wait is over, until it passes.
-            Handle::Retry => Ok(Advance::Moved),
+            // The cell runs again once its wait is over, until it passes or its bound is passed.
+            Handle::Retry => match past {
+                None => {
+                    if let Some(counter) = &kind.counts {
+                        crate::limits::tell_past(e, self.w, counter)?;
+                    }
+                    Ok(Advance::Moved)
+                }
+                Some(bound) => {
+                    let why = format!(
+                        "cell {}: the agent's run ended without a return ({}) once more after {bound} times in a row, and running it again has not helped: {what}",
+                        self.cell.id, kind.name
+                    );
+                    pause(e, self.w, &why)
+                }
+            },
             // The same session would give the same context again: the line's session ends, whatever comes next, and the
             // first time the cell runs again in a new one; when the cell's round before ended the same way, passing
             // failures aside, the work pauses.
@@ -389,6 +590,35 @@ mod tests {
         assert_eq!(utc(951_782_400_000), "2000-02-29 00:00 UTC");
     }
 
+    /// The engineer's graph of the flow built into the engine, compiled once for every test here.
+    fn engineer() -> &'static CompiledGraph {
+        static GRAPH: std::sync::OnceLock<CompiledGraph> = std::sync::OnceLock::new();
+        GRAPH.get_or_init(|| {
+            let relations = db::relations(db::SCHEMA).unwrap();
+            let tables = db::index_of(db::SCHEMA).unwrap();
+            let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
+            f.graph(crate::ENGINEER).unwrap().clone()
+        })
+    }
+
+    /// The rounds section of the flow built into the engine.
+    fn section() -> Rounds {
+        engineer().rounds.clone().unwrap()
+    }
+
+    /// `n` rounds newest first that took `row`, all ended at `ended`.
+    fn took(row: &str, n: i64, ended: i64) -> Vec<Took> {
+        (0..n)
+            .map(|i| Took {
+                round: RoundId::new(1, n - i),
+                cell: "R1".into(),
+                row: Some(row.into()),
+                started_at: ended,
+                ended_at: Some(ended),
+            })
+            .collect()
+    }
+
     // The owner's Start waives the guard for the round after the one stopped, and for that round alone, however many
     // runs of it never came to an end; a Start from before the stop waives nothing.
     #[test]
@@ -426,34 +656,104 @@ mod tests {
         assert!(!waived(&sent_back, Some(11)));
     }
 
-    // Each time a passing failure runs again it waits twice as long, up to five minutes.
+    // Each time a failed run runs again it waits twice as long, up to five minutes; a step that failed waits as many
+    // seconds as the flow's backoff says for the time it failed, the last for every time after (a unit of a minute
+    // tells 5, 15, 45 minutes, 2 and 5 hours apart); a round that took any other row, and none, wait for nothing.
     #[test]
-    fn a_passing_failure_waits_longer_each_time_up_to_five_minutes() {
-        let relations = db::relations(db::SCHEMA).unwrap();
-        let tables = db::index_of(db::SCHEMA).unwrap();
-        let f = flow::compile(flow::FLOW, &flow::Context { relations, tables }).unwrap();
-        let section = f.graph(crate::ENGINEER).unwrap().rounds.clone().unwrap();
-        let ended = db::now();
-        let rounds = |n: i64| -> Vec<Round> {
-            (0..n)
-                .map(|i| Round {
-                    id: RoundId::new(1, n - i),
-                    cell: Some("R1".into()),
-                    session: None,
-                    input: json!({}),
-                    output: None,
-                    transition: None,
-                    rejected: Some(json!({ "failed": { "kind": "transient", "what": "529" } })),
-                    compactions: 0,
-                    started_at: ended,
-                    ended_at: Some(ended),
-                    usage: None,
-                })
-                .collect()
+    fn a_row_that_runs_again_waits_as_the_flow_says() {
+        let (section, ended) = (section(), db::now());
+        let due = |n: i64| {
+            waiting(
+                Duration::from_secs(10),
+                Duration::from_secs(1),
+                &took("transient", n, ended),
+                &section,
+            )
+            .unwrap()
         };
-        let due = |n: i64| waiting(Duration::from_secs(10), &rounds(n), None, &section).unwrap();
         assert!(due(1).ends_with(&utc(ended + 10_000)));
         assert!(due(2).ends_with(&utc(ended + 20_000)));
         assert!(due(9).ends_with(&utc(ended + 300_000)));
+        let minute = Duration::from_secs(60);
+        let due = |n: i64| waiting(Duration::from_secs(10), minute, &took(STEP_NETWORK, n, ended), &section).unwrap();
+        for (n, minutes) in [(1, 5), (2, 15), (3, 45), (4, 120), (5, 300), (6, 300)] {
+            assert!(due(n).ends_with(&utc(ended + minutes * 60_000)), "{n}: {}", due(n));
+        }
+        let sent_back = took("sent_back", 3, ended);
+        assert_eq!(waiting(Duration::from_secs(10), minute, &sent_back, &section), None);
+        assert_eq!(waiting(Duration::from_secs(10), minute, &[], &section), None);
+    }
+
+    // Only a row taken from outside the engine ends the rows in a row: a return of an agent does; a shared row of a
+    // round that ended in no return, a row that waits, and a round still open do not; a round of a cell or a row the
+    // graph does not have, as after a flow edit, is not known to be the engine's and does.
+    #[test]
+    fn only_a_row_from_outside_the_engine_ends_the_rows_in_a_row() {
+        let g = engineer();
+        let at = |cell: &str, row: Option<&str>| Took {
+            round: RoundId::new(1, 1),
+            cell: cell.into(),
+            row: row.map(str::to_string),
+            started_at: 0,
+            ended_at: Some(0),
+        };
+        let returned = g
+            .cell("R1")
+            .unwrap()
+            .rows
+            .iter()
+            .find(|r| !r.waits && !r.conditions.iter().any(Atom::about_no_return))
+            .unwrap();
+        assert!(from_outside(g, &at("R1", Some(&returned.name))));
+        for shared in [
+            "sent_back",
+            "transient",
+            "transient_too_often",
+            STEP_NETWORK,
+            "step_network_too_often",
+        ] {
+            assert!(!from_outside(g, &at("R1", Some(shared))), "{shared}");
+        }
+        assert!(!from_outside(g, &at("R1", None)));
+        assert!(from_outside(g, &at("ZZ", Some("gone"))));
+        assert!(from_outside(g, &at("R1", Some("no_such_row"))));
+        // A row that waits at a cell that is not the engine's: the engine took it without the cell running.
+        let (cell, waits) = g
+            .cells
+            .iter()
+            .filter(|c| c.kind != "engine")
+            .find_map(|c| {
+                c.rows
+                    .iter()
+                    .find(|r| r.waits && !r.conditions.iter().any(Atom::about_no_return))
+                    .map(|r| (c.id.clone(), r.name.clone()))
+            })
+            .unwrap();
+        assert!(!from_outside(g, &at(&cell, Some(&waits))), "{cell} {waits}");
+    }
+
+    // The cause of the step of work 243 that paused is the network's; a missing permission, an unknown branch, a
+    // configuration fault and text it does not know are not, so that a step that fails for those is not run again.
+    #[test]
+    fn a_step_is_run_again_only_for_a_failure_the_network_gives() {
+        assert!(network_failure(
+            "channel 0: open failed: administratively prohibited: open failed\nstdio forwarding failed\n\
+             ssh_exchange_identification: Connection closed by remote host\nfatal: Could not read from remote repository."
+        ));
+        assert!(network_failure(
+            "ssh: Could not resolve hostname github.com: Name or service not known"
+        ));
+        assert!(network_failure(
+            "fatal: unable to access 'https://github.com/o/r/': Failed to connect to github.com port 443: Connection timed out"
+        ));
+        assert!(network_failure(
+            "error: RPC failed; HTTP 502 curl 22 The requested URL returned error: 502"
+        ));
+        assert!(!network_failure(
+            "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository."
+        ));
+        assert!(!network_failure("fatal: couldn't find remote ref main"));
+        assert!(!network_failure("no project p in the configuration"));
+        assert!(!network_failure(""));
     }
 }

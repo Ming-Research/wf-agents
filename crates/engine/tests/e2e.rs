@@ -21,8 +21,8 @@ use serde_json::{Value, json};
 /// owner lets go on, each step on a thread of its own, and waits for every job to end, as `wf-agents run --once` does.
 trait Passes {
     /// One pass while every work goes on: what its first step that moved came to. A work it leaves gathering the
-    /// history (`G1`, `G2`) has that round taken too, in passes of their own: these tests are about the cells either
-    /// side of it, and those about gathering look at its rounds.
+    /// history (`G1`, `G2`, `G3`) has that round taken too, in passes of their own: these tests are about the cells
+    /// either side of it, and those about gathering look at its rounds.
     fn step(&mut self, after: Option<i64>) -> Result<Stepped, String>;
     /// One pass while every work goes on, a gathering of the history taken with it as [`Passes::step`] takes it:
     /// whether a step moved or a work started.
@@ -86,7 +86,7 @@ impl Passes for Engine {
                 .db
                 .conn()
                 .query_row(
-                    "SELECT count(*) FROM works WHERE at IN ('G1', 'G2') AND ended IS NULL AND paused IS NULL",
+                    "SELECT count(*) FROM works WHERE at IN ('G1', 'G2', 'G3') AND ended IS NULL AND paused IS NULL",
                     [],
                     |r| r.get(0),
                 )
@@ -533,11 +533,20 @@ impl Scripted {
     }
 }
 
-/// A pull request on the fake GitHub: the branch it is from and the branch it merges into.
+/// How a pull request stands on the fake GitHub.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrState {
+    Open,
+    Merged,
+    Closed,
+}
+
+/// A pull request on the fake GitHub: the branch it is from, the branch it merges into, and how it stands.
 #[derive(Clone)]
 struct Pr {
     branch: String,
     base: String,
+    state: PrState,
 }
 
 /// The pull requests of the fake GitHub, by number, which a test can read and change as GitHub keeps them.
@@ -593,13 +602,15 @@ impl Gate {
 }
 
 /// GitHub as the engine sees it, over a bare repository: CI is green, once `ci` lets each check through, a pull
-/// request keeps the base it was opened with until it is set, and a merge squashes the branch onto the pull request's
-/// base.
+/// request keeps the base it was opened with until it is set, a merge, once `merging` lets it through, squashes the
+/// branch onto the pull request's base, and closing a pull request that merged fails, as `gh pr close` does.
 struct FakeHub {
     origin: PathBuf,
     scratch: PathBuf,
     prs: Prs,
     ci: Gate,
+    merging: Gate,
+    closing: Gate,
 }
 
 impl GitHub for FakeHub {
@@ -624,6 +635,7 @@ impl GitHub for FakeHub {
             Pr {
                 branch: branch.to_string(),
                 base: base.to_string(),
+                state: PrState::Open,
             },
         );
         Ok(n)
@@ -661,7 +673,8 @@ impl GitHub for FakeHub {
     }
 
     fn merge(&self, _repo: &str, pr: i64) -> Result<String, Failure> {
-        let Pr { branch, base } = self
+        self.merging.pass();
+        let Pr { branch, base, .. } = self
             .prs
             .lock()
             .unwrap()
@@ -688,10 +701,20 @@ impl GitHub for FakeHub {
             &["commit", "-q", "--allow-empty", "-m", &format!("Merge PR {pr}")],
         );
         git(&dir, &["push", "-q", "origin", &format!("HEAD:{base}")]);
+        if let Some(p) = self.prs.lock().unwrap().get_mut(&pr) {
+            p.state = PrState::Merged;
+        }
         Ok(git(&dir, &["rev-parse", "HEAD"]))
     }
 
-    fn close(&self, _repo: &str, _pr: i64, _comment: &str) -> Result<(), Failure> {
+    fn close(&self, _repo: &str, pr: i64, _comment: &str) -> Result<(), Failure> {
+        self.closing.pass();
+        let mut prs = self.prs.lock().unwrap();
+        let p = prs.get_mut(&pr).ok_or_else(|| Failure::other("no such PR"))?;
+        if p.state == PrState::Merged {
+            return Err(Failure::other("a merged pull request cannot be closed"));
+        }
+        p.state = PrState::Closed;
         Ok(())
     }
 
@@ -744,6 +767,10 @@ struct Setup {
     prs: Prs,
     /// Where the fake GitHub's checks wait while a test keeps CI from coming back.
     ci: Gate,
+    /// Where the fake GitHub's merges wait while a test keeps a merge from coming back; it counts the merge calls.
+    merging: Gate,
+    /// Where the fake GitHub's closing of a pull request waits while a test keeps it from coming back.
+    closing: Gate,
 }
 
 fn setup(name: &str) -> Setup {
@@ -823,6 +850,8 @@ merge_checks = ["check"]
         origin,
         prs: Prs::default(),
         ci: Gate::default(),
+        merging: Gate::default(),
+        closing: Gate::default(),
     }
 }
 
@@ -968,6 +997,8 @@ fn engine_with(s: &Setup, scripts: BTreeMap<&'static str, Script>, hooks: Hooks)
         scratch: s.root.clone(),
         prs: s.prs.clone(),
         ci: s.ci.clone(),
+        merging: s.merging.clone(),
+        closing: s.closing.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let said = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -1175,6 +1206,8 @@ fn building_a_message_writes_nothing() {
         scratch: s.root.clone(),
         prs: s.prs.clone(),
         ci: s.ci.clone(),
+        merging: s.merging.clone(),
+        closing: s.closing.clone(),
     };
     let committed = config::committed(&s.data).unwrap();
     let mut r = Engine::reading(&s.data, committed, Box::new(agents), Box::new(hub)).unwrap();
@@ -1185,8 +1218,10 @@ fn building_a_message_writes_nothing() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// Puts a commit on main that writes the files given, as another pull request merged meanwhile would.
-fn main_moves_on(root: &Path, files: &[(&str, &str)], message: &str) {
+/// Makes, in a clone of the origin, the commit that writes the files given on top of main as it is now, as another pull
+/// request merged meanwhile would, and gives the clone. The commit is not on main until it is pushed from there
+/// ([`main_moves_on`]).
+fn commit_on_main(root: &Path, files: &[(&str, &str)], message: &str) -> PathBuf {
     let dir = root.join("elsewhere");
     if !dir.exists() {
         let origin = root.join("origin.git");
@@ -1202,7 +1237,123 @@ fn main_moves_on(root: &Path, files: &[(&str, &str)], message: &str) {
     }
     git(&dir, &["add", "-A"]);
     git(&dir, &["commit", "-q", "-m", message]);
+    dir
+}
+
+/// Puts a commit on main that writes the files given, as another pull request merged meanwhile would.
+fn main_moves_on(root: &Path, files: &[(&str, &str)], message: &str) {
+    let dir = commit_on_main(root, files, message);
     git(&dir, &["push", "-q", "origin", "HEAD:main"]);
+}
+
+/// Notes each fetch that reaches project p's remote from its checkout. A fetch runs `git upload-pack` at the remote,
+/// which the checkout's remote is set here to run as a script that notes the run and then does it; so every fetch is
+/// noted once, whoever makes it. The script can also push the commit that [`commit_on_main`] made right after the next
+/// fetch is answered, as another work's push reaching main while a fetch is under way.
+struct Fetches {
+    root: PathBuf,
+}
+
+impl Fetches {
+    fn watching(s: &Setup) -> Fetches {
+        let root = s.root.clone();
+        let script = root.join("upload-pack.sh");
+        let r = root.display();
+        write(
+            &root,
+            "upload-pack.sh",
+            &format!(
+                "#!/bin/sh\n\
+                 echo fetch >> '{r}/fetches'\n\
+                 git upload-pack \"$@\"\n\
+                 status=$?\n\
+                 if [ -f '{r}/push-after' ]; then\n\
+                 \x20 rm '{r}/push-after'\n\
+                 \x20 (unset GIT_DIR; git -C '{r}/elsewhere' push -q origin HEAD:main)\n\
+                 fi\n\
+                 exit $status\n"
+            ),
+        );
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        git(
+            &root.join("checkout"),
+            &["config", "remote.origin.uploadpack", &script.to_string_lossy()],
+        );
+        Fetches { root }
+    }
+
+    /// How many fetches there have been since the watching began.
+    fn so_far(&self) -> usize {
+        std::fs::read_to_string(self.root.join("fetches")).map_or(0, |t| t.lines().count())
+    }
+
+    /// Has the commit made with [`commit_on_main`] pushed to main right after the next fetch is answered.
+    fn push_after_the_next(&self) {
+        write(&self.root, "push-after", "");
+    }
+}
+
+/// Names `CONSTITUTION.md` as project p's constitution in its configuration.
+fn names_a_constitution(s: &Setup) {
+    let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    write(
+        &s.data,
+        "projects/p.toml",
+        &project.replace(
+            "rules = [\"ground\"]\n",
+            "rules = [\"ground\"]\nconstitution = \"CONSTITUTION.md\"\n",
+        ),
+    );
+    git(&s.data, &["commit", "-q", "-am", "a constitution"]);
+}
+
+/// What a fetch must leave as it is in a project's checkout: the files it tracks and their state, the commit it stands
+/// on and its branch.
+fn checkout_state(s: &Setup) -> String {
+    let dir = s.root.join("checkout");
+    let files = git(&dir, &["ls-files", "-s"]);
+    let status = git(&dir, &["status", "--porcelain", "--untracked-files=all"]);
+    let head = git(&dir, &["rev-parse", "HEAD"]);
+    let branch = git(&dir, &["branch", "--show-current"]);
+    let lib = std::fs::read_to_string(dir.join("src/lib.txt")).unwrap_or_default();
+    format!("{files}\n--\n{status}\n--\n{head}\n{branch}\n{lib}")
+}
+
+/// The commit of main the latest round of `work` at `cell` was pinned to, as its record keeps it.
+fn pinned_main(e: &Engine, work: i64, cell: &str) -> Option<String> {
+    e.db.conn()
+        .query_row(
+            "SELECT json_extract(input, '$.engine.main') FROM rounds WHERE work = ?1 AND cell = ?2
+             ORDER BY n DESC LIMIT 1",
+            params![work, cell],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// What a script hands in: the choices it makes and the fields it sets.
+type Handed = (Vec<(&'static str, &'static str)>, Vec<(&'static str, Value)>);
+
+/// Scripts that keep the prompt of each round of the cells named, each with its cell, and then hand in what `then`
+/// does.
+fn keeps_prompts(
+    agents: &mut BTreeMap<&'static str, Script>,
+    cells: &[&'static str],
+    then: impl Fn(&Request, usize) -> Handed + Send + Sync + Clone + 'static,
+) -> Arc<Mutex<Vec<(String, String)>>> {
+    let kept = Arc::new(Mutex::new(Vec::new()));
+    for &cell in cells {
+        let (kept, then) = (kept.clone(), then.clone());
+        agents.insert(
+            cell,
+            Box::new(move |r: &Request, n: usize| {
+                kept.lock().unwrap().push((r.cell.clone(), r.prompt.clone()));
+                then(r, n)
+            }),
+        );
+    }
+    kept
 }
 
 /// Merges main as it now is into a worktree's branch.
@@ -2148,7 +2299,7 @@ fn a_single_step_runs_exactly_one_round() {
         e.db.conn()
             .query_row(
                 "SELECT count(*) FROM rounds r JOIN works w ON w.id = r.work
-                 WHERE w.graph = 'engineer' AND r.cell NOT IN ('G1', 'G2')",
+                 WHERE w.graph = 'engineer' AND r.cell NOT IN ('G1', 'G2', 'G3')",
                 [],
                 |r| r.get(0),
             )
@@ -3024,6 +3175,7 @@ fn a_pull_request_opened_against_another_branch_merges_into_main_only() {
     let elsewhere = Pr {
         branch: "outside/feature".into(),
         base: "first-version".into(),
+        state: PrState::Open,
     };
     s.prs.lock().unwrap().insert(9, elsewhere.clone());
     let (mut e, said, item) = start(&s, scripts());
@@ -3108,7 +3260,10 @@ fn a_work_let_go_on_after_returns_were_sent_back_counts_afresh() {
     }
     let log = said.lock().unwrap().join("\n");
     let (id, why) = paused.unwrap_or_else(|| panic!("the work did not pause:\n{log}"));
-    assert!(why.starts_with("3 returns of cell R1 in a row were sent back"), "{why}");
+    assert!(
+        why.starts_with("3 returns in a row were sent back, the last at cell R1"),
+        "{why}"
+    );
     assert!(why.contains("outcome must be an object, and is a string"), "{why}");
     api::resume(&mut e.db, id).unwrap();
     for _ in 0..3 {
@@ -3126,7 +3281,7 @@ fn agent_rounds(e: &Engine, item: i64) -> Vec<(String, String, Value)> {
     engine::query_json(
         e.db.conn(),
         "SELECT 'R' || r.work || '-' || r.n AS name, r.cell, r.input FROM rounds r JOIN works w ON w.id = r.work
-         WHERE w.item = ?1 AND r.session IS NOT NULL AND r.cell NOT IN ('G1', 'G2') ORDER BY r.work, r.n",
+         WHERE w.item = ?1 AND r.session IS NOT NULL AND r.cell NOT IN ('G1', 'G2', 'G3') ORDER BY r.work, r.n",
         &[&item],
         1000,
     )
@@ -3578,9 +3733,11 @@ fn returns_sent_back_pause_the_work_after_as_many_as_its_flow_says() {
     assert!(
         paused
             .as_deref()
-            .is_some_and(|p| p.starts_with("2 returns of cell R1 in a row were sent back")),
+            .is_some_and(|p| p.starts_with("2 returns in a row were sent back, the last at cell R1")),
         "{paused:?}\n{log}"
     );
+    // Each return sent back is counted, and none is a retry.
+    assert_eq!((counted(&e, work, "sent_back"), counted(&e, work, "retries")), (2, 0));
     // After a return sent back the message only says why, and that the return is to be rewritten.
     let rounds = agent_rounds(&e, item);
     let (id, _, again) = &rounds[1];
@@ -3639,9 +3796,11 @@ fn sent_back(e: &Engine) -> i64 {
 
 fn rounds_count(e: &Engine) -> i64 {
     e.db.conn()
-        .query_row("SELECT count(*) FROM rounds WHERE cell NOT IN ('G1', 'G2')", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT count(*) FROM rounds WHERE cell NOT IN ('G1', 'G2', 'G3')",
+            [],
+            |r| r.get(0),
+        )
         .unwrap()
 }
 
@@ -3884,6 +4043,8 @@ fn a_passing_failure_runs_again_until_it_passes() {
     // The round after a failed run is told its kind only, never what the command line reported, which may quote the
     // run's own return. The report is looked for whole: the test's directory holds its process id, which may hold 529.
     let (work, _, _) = state(&e, item).unwrap();
+    // Each run again is a retry; none is a return sent back.
+    assert_eq!((counted(&e, work, "retries"), counted(&e, work, "sent_back")), (3, 0));
     let again = message_at(&e, work, "R1", true);
     assert!(
         again.contains("ended without a return (transient)") && !again.contains("529 Overloaded"),
@@ -6909,17 +7070,9 @@ fn a_new_session_queues_the_check_and_the_plan_and_takes_them_after_the_wait() {
 /// understands the project. Gives the matters at the head of the queue once it has.
 fn head_after_a_new_session(name: &str, kept: &str, now: &str, newer: bool) -> Vec<AtHead> {
     let s = setup(name);
-    let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
-    write(
-        &s.data,
-        "projects/p.toml",
-        &project.replace(
-            "rules = [\"ground\"]\n",
-            "rules = [\"ground\"]\nconstitution = \"CONSTITUTION.md\"\n",
-        ),
-    );
-    git(&s.data, &["commit", "-q", "-am", "a constitution"]);
-    write(&s.root.join("checkout"), "CONSTITUTION.md", now);
+    names_a_constitution(&s);
+    // The constitution is on main only: no file of the checkout holds it, and the checkout has not fetched main since.
+    main_moves_on(&s.root, &[("CONSTITUTION.md", now)], "The constitution");
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     let v = e.flow_now;
@@ -9482,6 +9635,271 @@ fn the_history_s_address_reads_the_live_database_in_wal_mode() {
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "Only in the log");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// The history of the files a change touches is gathered once, by the reader of the history, between the blind review
+// and the first table review, from the change's commits and where the history is. The table review is given it, and
+// is still given it at the re-review after a fix, which does not gather it again. The blind review is given neither
+// the brief nor what the table review is told to do with it.
+#[test]
+fn the_history_of_the_changed_files_is_gathered_once_and_the_table_review_is_given_it() {
+    let s = setup("history-of-the-change");
+    let mut agents = scripts();
+    let brief = "Dropped: a second table, for lack of room (#12), bears on src/lib.txt.";
+    agents.insert(
+        "G3",
+        Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.brief", json!(brief))])),
+    );
+    agents.insert(
+        "T4",
+        review_with_a_finding(vec![json!([{ "fid": "R1", "verdict": "closed" }])]),
+    );
+    agents.insert(
+        "T6",
+        fix_answering(vec![
+            json!([{ "answer": "fixed_outside_commit", "id": "F1", "where": "The pull request description." }]),
+        ]),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the review clearing the work", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "clear")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    // One gathering, between the blind review and the first table review; two table reviews, the second after a fix.
+    assert_eq!(transitions(&e, item, "G3"), ["done"], "{log}");
+    assert_eq!(transitions(&e, item, "T4"), ["done", "done"], "{log}");
+    let path = path_of(&e, work);
+    let blind = path.iter().position(|c| c == "T3").unwrap();
+    assert_eq!(path[blind..blind + 3].to_vec(), ["T3", "G3", "T4"], "{path:?}");
+    // The table review is given the brief and told what to do with it; the blind review neither.
+    let first = message_at(&e, work, "T4", false);
+    assert!(first.contains(brief), "{first}");
+    assert!(first.contains("records as dropped"), "{first}");
+    assert!(first.contains("`history`"), "{first}");
+    let blind = message_at(&e, work, "T3", false);
+    assert!(
+        !blind.contains(brief) && !blind.contains("records as dropped"),
+        "{blind}"
+    );
+    // The re-review has the brief still, which its session holds: it is referred to, not given again.
+    let given_to = |last: bool| given_ending(&input_at(&e, work, "T4", last), "·G3·brief");
+    assert_eq!((given_to(false), given_to(true)), (Some(true), Some(false)), "{log}");
+    // The gatherer is given the change by commits the worktree has. Where the history is, it is given as the reader's
+    // session was at the first gathering, which that session holds: the round refers to it.
+    let message = message_at(&e, work, "G3", false);
+    let base = given_value(&message, "·engine·review_base").expect(&message);
+    let fork = base["fork_point"].as_str().unwrap_or_default();
+    let head = base["head"].as_str().unwrap_or_default();
+    assert!(fork.len() == 40 && head.len() == 40, "{base}");
+    assert_eq!(base["change"], format!("git diff {fork}..{head}"));
+    assert!(base.get("last_reviewed").is_none(), "{base}");
+    let sources = given_value(&message_at(&e, work, "G1", false), "·engine·history_sources").expect(&log);
+    assert_eq!(sources["database"], config::database(&s.data).display().to_string());
+    assert!(sources["checkout"].is_string(), "{sources}");
+    let at_g3 = given_ending(&input_at(&e, work, "G3", false), "·engine·history_sources");
+    assert_eq!(at_g3, Some(false), "{message}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// What the sessions hold decides what a round is given. When the reader's session was compacted before the gathering
+// of the change's history, that round is given where the history is, and when the review's session was compacted
+// before the re-review, that round is given the brief again: the review and the gathering do not rest on a session
+// that holds what they need, they are given it.
+#[test]
+fn the_gathering_and_the_re_review_are_given_what_a_compacted_session_no_longer_holds() {
+    let s = setup("history-after-compaction");
+    let mut agents = scripts();
+    let brief = "Dropped: a second table, for lack of room (#12), bears on src/lib.txt.";
+    agents.insert(
+        "G2",
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.brief", json!("The code's history.")),
+                    ("@compactions", json!(1)),
+                ],
+            )
+        }),
+    );
+    agents.insert(
+        "G3",
+        Box::new(move |_: &Request, _: usize| (Vec::new(), vec![("outcome.brief", json!(brief))])),
+    );
+    let review = review_with_a_finding(vec![json!([{ "fid": "R1", "verdict": "closed" }])]);
+    agents.insert(
+        "T4",
+        Box::new(move |r: &Request, n: usize| {
+            let (set, mut put) = review(r, n);
+            if n == 1 {
+                put.push(("@compactions", json!(1)));
+            }
+            (set, put)
+        }),
+    );
+    agents.insert(
+        "T6",
+        fix_answering(vec![
+            json!([{ "answer": "fixed_outside_commit", "id": "F1", "where": "The pull request description." }]),
+        ]),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the review clearing the work", |e| {
+        transitions(e, item, "M1").iter().any(|t| t == "clear")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(transitions(&e, item, "G3"), ["done"], "{log}");
+    assert_eq!(transitions(&e, item, "T4"), ["done", "done"], "{log}");
+    // The gathering is given the change by the engine's review base, and where the history is, as the first gathering
+    // gave it, the value the same.
+    let at_g3 = input_at(&e, work, "G3", false);
+    assert_eq!(given_ending(&at_g3, "·engine·history_sources"), Some(true), "{log}");
+    let message = message_at(&e, work, "G3", false);
+    let base = given_value(&message, "·engine·review_base").expect(&message);
+    assert!(
+        base["change"].as_str().is_some_and(|c| c.starts_with("git diff ")),
+        "{base}"
+    );
+    let sources = given_value(&message, "·engine·history_sources").expect(&message);
+    assert_eq!(sources["database"], config::database(&s.data).display().to_string());
+    assert!(sources["checkout"].is_string(), "{sources}");
+    let first = given_value(&message_at(&e, work, "G1", false), "·engine·history_sources").expect(&log);
+    assert_eq!(sources, first);
+    // The re-review is given the brief again, in its text.
+    let given_to = |last: bool| given_ending(&input_at(&e, work, "T4", last), "·G3·brief");
+    assert_eq!((given_to(false), given_to(true)), (Some(true), Some(true)), "{log}");
+    assert!(message_at(&e, work, "T4", true).contains(brief), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The table review can have more looked up, as the research can: the look-up goes to the reader and back to the table
+// review, in the reader's session, which the first gathering started with the rule for gathering history, once; the
+// table review is given what was found, in the round after.
+#[test]
+fn the_table_review_has_the_history_looked_up_by_the_reader_in_its_session() {
+    let s = setup("history-for-the-review");
+    let mut agents = scripts();
+    agents.insert(
+        "X5",
+        Box::new(|_: &Request, _: usize| {
+            (
+                Vec::new(),
+                vec![("outcome.brief", json!("What was looked up for the review."))],
+            )
+        }),
+    );
+    // The first round reads the table, so that the later round's answers know its columns, and asks instead.
+    let table = answers_columns(|_| vec![("outcome.no_adversarial", "stands")]);
+    agents.insert(
+        "T4",
+        Box::new(move |r: &Request, n: usize| {
+            let answered = table(r, n);
+            if n > 1 {
+                return answered;
+            }
+            (
+                vec![("outcome", "history")],
+                vec![("outcome.history", json!("Was a second table dropped for src/lib.txt?"))],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_until(&mut e, item, &said, "the table review answering", |e| {
+        transitions(e, item, "T4").iter().any(|t| t == "done")
+    });
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(transitions(&e, item, "T4"), ["history", "done"], "{log}");
+    assert!(
+        message_at(&e, work, "X5", false).contains("Was a second table dropped for src/lib.txt?"),
+        "{log}"
+    );
+    assert!(
+        message_at(&e, work, "T4", true).contains("What was looked up for the review."),
+        "{log}"
+    );
+    let session = |cell: &str| session_of(&e, work, cell);
+    for cell in ["G2", "G3", "X5"] {
+        assert_eq!(session("G1"), session(cell), "{cell}");
+    }
+    assert_ne!(session("G1"), session("T4"));
+    // The rule for gathering, with the check of paths, is in the system prompt the reader's session started with, once,
+    // and every later round of it carries that prompt: no cell's own text says it again.
+    let opening = "You gather the history an agent needs before it works.";
+    let started = input_at(&e, work, "G1", false);
+    assert!(in_system(&started, "rule:history"), "{}", started["system"]);
+    let system = system_text(&started).expect("the reader's system prompt");
+    assert_eq!(system.matches(opening).count(), 1, "{system}");
+    assert!(
+        system.contains("put `(gone)` after a path the files do not have"),
+        "{system}"
+    );
+    for cell in ["G1", "G2", "G3", "X5"] {
+        assert_eq!(
+            system_text(&input_at(&e, work, cell, false)),
+            Some(system.clone()),
+            "{cell}"
+        );
+        assert!(!message_at(&e, work, cell, false).contains(opening), "{cell}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The architect's look-up of the history is given the same rule for gathering history as the engineer's reader is, by
+// name, since its line is the search of observations as well: the check of paths reaches every gatherer.
+#[test]
+fn the_architect_s_look_up_of_the_history_is_given_the_rule_for_gathering_it() {
+    let s = setup("architect-history");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n == 1 {
+                return (
+                    vec![("outcome", "history")],
+                    vec![("outcome.history", json!("Why is the parser's item so?"))],
+                );
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    db::say_to_architect(&mut e.db, "p", None, None, "Why is the parser's item so?", &[]).unwrap();
+    let arch = e.step(None).unwrap().work.unwrap();
+    let looked_up = |e: &mut Engine| -> bool {
+        let n: i64 =
+            e.db.conn()
+                .query_row(
+                    "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'X5' AND ended_at IS NOT NULL",
+                    [arch],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        n > 0
+    };
+    assert!(
+        steps_until(&mut e, 40, looked_up),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    // The rule is in the system prompt the look-up's session starts with or in its message, as every line's rules are.
+    let look_up = input_at(&e, arch, "X5", false);
+    let text = format!(
+        "{}\n{}",
+        system_text(&look_up).unwrap_or_default(),
+        look_up["message"].as_str().unwrap_or_default()
+    );
+    assert!(
+        text.contains("put `(gone)` after a path the files do not have"),
+        "{text}"
+    );
+    assert!(text.contains("(gone: moved to <path> in <commit>)"), "{text}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The architect pauses a work in its effects: the engine pauses it, with a reason that says the architect stopped it
 // and why. Every work let go on, it stays stopped; the owner's Start of that work lets it go on, which is the owner's
 // release of it: the architect is told in the owner's words.
@@ -9524,8 +9942,11 @@ fn a_work_the_architect_stops_stays_stopped_through_start_all() {
     assert_eq!((rounds_count(&e), state(&e, item).unwrap().2), (n, Some(why)), "{log}");
     assert_eq!(
         api::resume(&mut e.db, work).unwrap(),
-        format!("work {work} goes on; the architect, which had stopped it, is told")
+        format!("work {work} goes on once its machine has a slot free; the architect, which had stopped it, is told")
     );
+    // The engine's next turn lifts the pause, as its machine has a slot free, and tells the architect.
+    e.dispatch(&Go::default()).unwrap();
+    e.drain().unwrap();
     let told: String =
         e.db.conn()
             .query_row(
@@ -12371,6 +12792,62 @@ fn a_matter_s_items_are_read_from_its_fields_never_its_text() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// An item's material says what its state does not: a resume that waits for a free slot, on a work that still reads as
+// paused, and a stop asked of a work that still reads as going on. Without it the architect cannot tell the first from
+// a work no one resumed, and asks again or tells the owner the wrong thing.
+#[test]
+fn an_item_s_material_says_a_resume_waits_and_a_work_is_stopping() {
+    let s = setup("material-requests");
+    let (mut e, _) = engine(&s, scripts());
+    quiet(&mut e);
+    let resuming = a_ready_item(&mut e, "Lex it");
+    let stopped = a_ready_item(&mut e, "Parse it");
+    let left = a_ready_item(&mut e, "Check it");
+    let arch = architect_work_at(&mut e, "H8");
+    let v = e.flow_now;
+    let works: Vec<i64> =
+        e.db.write(Actor::Engine, |tx| {
+            let mut works = Vec::new();
+            for item in [resuming, stopped, left] {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, ?2, 'engineer', 'R1')",
+                    params![item, v],
+                )?;
+                works.push(tx.last_insert_rowid());
+            }
+            tx.execute(
+                "UPDATE works SET paused = 'wait for the parser', paused_by = 'owner' WHERE id IN (?1, ?2)",
+                params![works[0], works[2]],
+            )?;
+            Ok(works)
+        })
+        .unwrap();
+    api::resume(&mut e.db, works[0]).unwrap();
+    api::start_over(&mut e.db, works[1]).unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        let fix = json!({ "items": [resuming, stopped, left] });
+        let m = a_matter(tx, "Look at the three.", None, json!({ "fix": fix }))?;
+        record_round(
+            tx,
+            arch,
+            1,
+            "Q0",
+            &json!({ "queue": { "verdict": "one", "matter": m } }),
+            "one",
+        )
+    })
+    .unwrap();
+    let m = engine::next_message(&mut e, arch).unwrap().text;
+    let items = given_value(&m, "·engine·matter_items").expect(&m);
+    let said = |item: i64, field: &str| items[format!("#{item}")]["state"][0][field].as_bool();
+    assert_eq!(said(resuming, "resuming"), Some(true), "{items}");
+    assert_eq!(said(stopped, "stopping"), Some(true), "{items}");
+    assert_eq!(said(stopped, "resuming"), Some(false), "{items}");
+    assert_eq!(said(left, "resuming"), Some(false), "{items}");
+    assert_eq!(said(left, "stopping"), Some(false), "{items}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A side report a work handed in before, word for word, is not queued again.
 #[test]
 fn a_side_report_handed_in_again_is_queued_once() {
@@ -14249,11 +14726,67 @@ fn a_halt_dispatches_no_step_and_lets_the_step_under_way_end() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The owner cancels a work's item while its CI runs: the cancel ends the work and cuts its round off at once. The step
-// under way, at its end, finds its round ended: its transaction rolls back, the work and its rounds stay as the cancel
-// left them, and the loop does not pause the work.
+/// Cancels an item, as the owner's command line or an architect's batch does. What came of it the tests read from what
+/// stands afterwards, so that they say the same of the code before the requests as of the code with them.
+fn cancel(e: &mut Engine, item: i64, by: &str) {
+    let projects = e.config.config.projects.clone();
+    let actor = if by == "owner" { Actor::Owner } else { Actor::Architect };
+    e.db.write(actor, |tx| {
+        engine::ending::cancel_item(tx, item, "no longer needed", by, &projects)
+            .map(drop)
+            .map_err(db::Error::Abort)
+    })
+    .unwrap();
+}
+
+/// The works that go on with a request to stop waiting in the outbox, as the owner's page shows them stopping.
+fn stopping(e: &Engine) -> Vec<i64> {
+    let mut st =
+        e.db.conn()
+            .prepare(
+                "SELECT w.id FROM works w WHERE w.ended IS NULL AND EXISTS (SELECT 1 FROM outbox o
+                     WHERE (o.kind = 'start_over' AND o.work = w.id)
+                        OR (o.kind = 'cancel_item' AND json_extract(o.args, '$.item') = w.item))
+                 ORDER BY w.id",
+            )
+            .unwrap();
+    st.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
+}
+
+/// The works with a request to lift their pause waiting in the outbox.
+fn resumes_waiting(e: &Engine) -> Vec<i64> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT work FROM outbox WHERE kind = 'resume_work' ORDER BY work")
+            .unwrap();
+    st.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
+}
+
+/// Why an item was cancelled; none while it is not.
+fn cancelled_why(e: &Engine, item: i64) -> Option<String> {
+    e.db.conn()
+        .query_row("SELECT cancelled FROM items WHERE id = ?1", [item], |r| r.get(0))
+        .unwrap()
+}
+
+/// Why a work ended; none while it goes on.
+fn ended_why(e: &Engine, work: i64) -> Option<String> {
+    e.db.conn()
+        .query_row("SELECT ended FROM works WHERE id = ?1", [work], |r| r.get(0))
+        .unwrap()
+}
+
+/// How the pull requests on the fake GitHub stand, in the order of their numbers.
+fn pr_states(s: &Setup) -> Vec<PrState> {
+    s.prs.lock().unwrap().values().map(|p| p.state).collect()
+}
+
+// The owner cancels a work's item while its first CI runs: nothing ends yet. The pull request is recorded before that
+// wait, so that an engine that dies in it still knows what to close; the step goes on to its end, and the loop then ends
+// the work and closes it. A cancel that ended the work at once found no pull request recorded and left it open with no
+// one to close it, and so did one carried out first thing after a crash, when the tool wrote it only on coming back.
 #[test]
-fn a_work_whose_item_is_cancelled_during_its_ci_stays_as_the_cancel_left_it() {
+fn a_cancel_during_the_first_ci_waits_for_the_step_and_closes_its_pull_request() {
     let s = setup("cancel-in-ci");
     s.ci.shut();
     let (mut e, said, item) = start(&s, scripts());
@@ -14262,37 +14795,35 @@ fn a_work_whose_item_is_cancelled_during_its_ci_stays_as_the_cancel_left_it() {
     assert!(ci, "{log}");
     let work = state(&e, item).unwrap().0;
     assert!(tool_round_open(&e, work).is_some(), "{log}");
-    let projects = e.config.config.projects.clone();
-    e.db.write(Actor::Owner, |tx| {
-        engine::ending::cancel_item(tx, item, "no longer needed", "owner", &projects).map_err(db::Error::Abort)
-    })
-    .unwrap();
-    let rows = |e: &Engine| -> Vec<Value> {
-        let mut out = engine::query_json(
-            e.db.conn(),
-            "SELECT at, ended, paused, paused_by FROM works WHERE id = ?1",
-            &[&work],
-            10,
-        )
-        .unwrap();
-        out.extend(
-            engine::query_json(
-                e.db.conn(),
-                "SELECT n, cell, ended_at, transition, rejected FROM rounds WHERE work = ?1 ORDER BY n",
-                &[&work],
-                1000,
-            )
-            .unwrap(),
-        );
-        out
-    };
-    let cancelled = rows(&e);
-    assert!(!cancelled[0]["ended"].is_null(), "{cancelled:?}");
-    assert!(tool_round_open(&e, work).is_none(), "{log}");
+    assert_eq!(pr_states(&s), [PrState::Open], "{log}");
+    assert_eq!(works_of(&e, item)[0].4, Some(1), "{log}");
+    cancel(&mut e, item, "owner");
+    let ended_at_once = ended_why(&e, work);
+    let round_cut_off = tool_round_open(&e, work).is_none();
     s.ci.open();
+    // Until it closes, or the step has ended and the outbox holds nothing that could close it.
+    let settled = turns_until(&mut e, &Go::default(), |e| {
+        pr_states(&s) == [PrState::Closed]
+            || (e.in_flight().is_empty() && number(e, "SELECT count(*) FROM outbox") == 0)
+    });
     e.drain().unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(rows(&e), cancelled, "{log}");
+    assert!(settled, "{log}");
+    assert_eq!(pr_states(&s), [PrState::Closed], "{log}");
+    assert_eq!(ended_at_once, None, "{log}");
+    assert!(!round_cut_off, "{log}");
+    assert_eq!(cancelled_why(&e, item).as_deref(), Some("no longer needed"), "{log}");
+    assert!(ended_why(&e, work).is_some(), "{log}");
+    assert_eq!(paused_by(&e, work), None, "{log}");
+    let took: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT transition FROM rounds WHERE work = ?1 AND cell = 'X1'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(took.as_deref(), Some("ran"), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -14311,6 +14842,7 @@ fn a_start_over_asked_during_a_step_waits_until_the_step_ends() {
     e.dispatch(&Go::default()).unwrap();
     assert_eq!(works_of(&e, item).len(), 1, "{log}");
     assert!(tool_round_open(&e, work).is_some(), "{log}");
+    assert_eq!(stopping(&e), [work], "{log}");
     s.ci.open();
     e.drain().unwrap();
     let log = said.lock().unwrap().join("\n");
@@ -14329,6 +14861,7 @@ fn a_start_over_asked_during_a_step_waits_until_the_step_ends() {
     let works = works_of(&e, item);
     assert_eq!(works.len(), 2, "{works:?}\n{log}");
     assert!(works[0].5.is_some(), "{works:?}\n{log}");
+    assert_eq!(stopping(&e), Vec::<i64>::new(), "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -14464,12 +14997,12 @@ fn the_owner_s_step_of_a_work_whose_step_runs_waits_until_that_step_ends() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The owner cancels a work's item while its agent's round runs: the cancel ends the work and cuts the round off at
-// once. The step under way, as the round's call returns, takes nothing of what it handed in and keeps only what it
-// cost on the round; the work and its rounds otherwise stay as the cancel left them, and the loop neither pauses the
-// work nor dispatches it again.
+// The owner cancels a work's item while its agent's round runs: nothing ends yet, and nobody is told, which a cancel
+// that ended the work at once would have got wrong had the merge come first. The owner's page says the work is stopping.
+// The round's call returns and what it handed in is not taken; the loop then ends the work, cuts the round off keeping
+// what it cost, and tells the item that depended on it; the page says stopping no more, and the work is not paused.
 #[test]
-fn a_work_whose_item_is_cancelled_during_its_agent_s_round_takes_nothing_of_the_round() {
+fn a_cancel_during_an_agent_s_round_takes_nothing_of_it_and_tells_no_one_until_the_step_ends() {
     let s = setup("cancel-in-a-round");
     let hold = Gate::default();
     let h = hold.clone();
@@ -14490,51 +15023,65 @@ fn a_work_whose_item_is_cancelled_during_its_agent_s_round_takes_nothing_of_the_
     assert!(came, "{log}");
     let work = state(&e, item).unwrap().0;
     assert_eq!(open_rounds(&e, work), 1, "{log}");
-    let projects = e.config.config.projects.clone();
-    e.db.write(Actor::Owner, |tx| {
-        engine::ending::cancel_item(tx, item, "no longer needed", "owner", &projects).map_err(db::Error::Abort)
-    })
-    .unwrap();
-    let rows = |e: &Engine| -> Vec<Value> {
-        let mut out = engine::query_json(
-            e.db.conn(),
-            "SELECT at, ended, paused, paused_by FROM works WHERE id = ?1",
-            &[&work],
-            10,
-        )
+    // An item that depends on it and has no work: its architect is told, by a matter to set straight.
+    let dependent =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'After it', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            let id = tx.last_insert_rowid();
+            db::add_dependency(tx, id, item, "its tokens", "blocking")?;
+            Ok(id)
+        })
         .unwrap();
-        out.extend(
-            engine::query_json(
-                e.db.conn(),
-                "SELECT n, cell, ended_at, output, transition, rejected FROM rounds WHERE work = ?1 ORDER BY n",
-                &[&work],
-                1000,
+    let told = |e: &Engine| -> i64 {
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM architect_matters WHERE kind = 'set_straight' AND item = ?1",
+                [dependent],
+                |r| r.get(0),
             )
-            .unwrap(),
-        );
-        out
+            .unwrap()
     };
-    let cancelled = rows(&e);
-    assert!(!cancelled[0]["ended"].is_null(), "{cancelled:?}");
-    assert_eq!(open_rounds(&e, work), 0, "{log}");
+    cancel(&mut e, item, "owner");
+    // The loop's turn with the step in flight leaves it all as it was.
+    e.dispatch(&Go::default()).unwrap();
+    assert_eq!(told(&e), 0, "{log}");
+    assert_eq!(ended_why(&e, work), None, "{log}");
+    assert_eq!(open_rounds(&e, work), 1, "{log}");
+    assert_eq!(stopping(&e), [work], "{log}");
     hold.open();
     e.drain().unwrap();
     let log = said.lock().unwrap().join("\n");
-    assert_eq!(rows(&e), cancelled, "{log}");
-    // What the round cost is kept on it.
-    let cost: Option<String> =
+    assert_eq!(ended_why(&e, work), None, "{log}");
+    assert_eq!(told(&e), 0, "{log}");
+    e.dispatch(&Go::default()).unwrap();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(cancelled_why(&e, item).as_deref(), Some("no longer needed"), "{log}");
+    assert_eq!(
+        ended_why(&e, work).as_deref(),
+        Some("item cancelled: no longer needed"),
+        "{log}"
+    );
+    assert_eq!(told(&e), 1, "{log}");
+    assert_eq!(stopping(&e), Vec::<i64>::new(), "{log}");
+    assert_eq!(paused_by(&e, work), None, "{log}");
+    assert_eq!(open_rounds(&e, work), 0, "{log}");
+    // Nothing of what the round handed in is taken; what it cost is kept on it.
+    let (output, transition, rejected, cost): (Option<String>, Option<String>, Option<String>, Option<String>) =
         e.db.conn()
             .query_row(
-                "SELECT usage FROM rounds WHERE work = ?1 AND cell = 'R1'",
+                "SELECT output, transition, rejected, usage FROM rounds WHERE work = ?1 AND cell = 'R1'",
                 [work],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .unwrap();
+    assert_eq!((output, transition), (None, None), "{log}");
+    assert!(rejected.is_some_and(|r| r.contains("interrupted")), "{log}");
     assert!(cost.is_some(), "{log}");
-    e.dispatch(&Go::default()).unwrap();
-    assert!(!e.in_flight().contains(&work), "{log}");
-    e.drain().unwrap();
-    assert_eq!(rows(&e), cancelled, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -14970,6 +15517,1425 @@ fn the_owner_s_step_stopped_by_a_halt_before_its_round_stands_until_the_wait_is_
     );
     assert_eq!(rounds_at(&e), 1, "{log}");
     assert!(state(&e, second).unwrap().2.is_some(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// What is asked of a work from outside its step: a merge, which cannot be undone, against a stop asked around it, and
+// the slots against a pause lifted or a round that runs on.
+
+/// An engine over a setup whose one work stands at the merge step, which it has not begun, with its item and the work.
+fn at_the_merge(name: &str) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64, i64) {
+    let s = setup(name);
+    let (mut e, said, item) = start(&s, scripts());
+    let at = turns_until(&mut e, &Go::default(), |e| state(e, item).is_some_and(|w| w.1 == "M2"));
+    assert!(at, "{}", said.lock().unwrap().join("\n"));
+    let work = state(&e, item).unwrap().0;
+    (s, e, said, item, work)
+}
+
+// The full CI opens a pull request when the work has none recorded, and records it before the wait, as the first CI
+// does. The work here loses the one it has as its implementing ends, since no flow reaches this tool without one but a
+// work whose run stopped.
+#[test]
+fn the_full_ci_records_a_pull_request_it_opens_before_it_waits() {
+    let s = setup("full-ci-records-pr");
+    let path = config::database(&s.data);
+    let ci = s.ci.clone();
+    let came = Arc::new(AtomicUsize::new(usize::MAX));
+    let held = came.clone();
+    let mut agents = scripts();
+    let implement = agents.remove("I1").unwrap();
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            if n == 2 {
+                db::Db::open(&path)
+                    .unwrap()
+                    .write(Actor::Engine, |tx| {
+                        tx.execute("UPDATE works SET pr = NULL", [])?;
+                        Ok(())
+                    })
+                    .unwrap();
+                ci.shut();
+                held.store(ci.came(), Ordering::SeqCst);
+            }
+            implement(r, n)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let at = turns_until(&mut e, &Go::default(), |e| {
+        state(e, item).is_some_and(|w| w.1 == "T2") && s.ci.came() > came.load(Ordering::SeqCst)
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert!(at, "{log}");
+    assert_eq!(works_of(&e, item)[0].4, Some(1), "{log}");
+    s.ci.open();
+    e.drain().unwrap();
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Takes turns until the merge step waits for the full CI, which stays shut.
+fn held_at_full_ci(e: &mut Engine, s: &Setup, said: &Mutex<Vec<String>>) {
+    s.ci.shut();
+    let came = s.ci.came();
+    let held = turns_until(e, &Go::default(), |_| s.ci.came() > came);
+    assert!(held, "{}", said.lock().unwrap().join("\n"));
+}
+
+/// Takes turns until the merge step is in its merge call, which stays shut.
+fn held_at_the_merge_call(e: &mut Engine, s: &Setup, said: &Mutex<Vec<String>>) {
+    s.merging.shut();
+    let held = turns_until(e, &Go::default(), |_| s.merging.came() > 0);
+    assert!(held, "{}", said.lock().unwrap().join("\n"));
+}
+
+/// Takes turns until a work is done or has ended short of it, and gives what was said.
+fn done_after_watching_main(e: &mut Engine, work: i64, said: &Mutex<Vec<String>>) -> String {
+    let done = turns_until(e, &Go::default(), |e| {
+        if ended_why(e, work).is_some() {
+            return true;
+        }
+        let w = e.work(work).unwrap();
+        e.done(&w).unwrap()
+    });
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(done, "{log}");
+    log
+}
+
+/// How many notices the owner has that say a word.
+fn notices(e: &Engine, word: &str) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT count(*) FROM engine_notices WHERE instr(text, ?1) > 0",
+            [word],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// A cancel that comes while the merge step waits for the full CI stops the merge: nothing reaches GitHub's merge, the
+// step takes the row `stopped`, and the loop then ends the work and closes its pull request. Without the check before
+// the merge call, the merge goes through under a cancel the owner was told of.
+#[test]
+fn a_cancel_during_the_merge_s_full_ci_stops_the_merge() {
+    let (s, mut e, said, item, work) = at_the_merge("cancel-before-merge");
+    held_at_full_ci(&mut e, &s, &said);
+    cancel(&mut e, item, "owner");
+    s.ci.open();
+    let settled = turns_until(&mut e, &Go::default(), |_| pr_states(&s) != [PrState::Open]);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(s.merging.came(), 0, "{log}");
+    assert!(settled, "{log}");
+    assert_eq!(pr_states(&s), [PrState::Closed], "{log}");
+    assert_eq!(transitions_at(&e, work, "M2"), [Some("stopped".to_string())], "{log}");
+    assert_eq!(cancelled_why(&e, item).as_deref(), Some("no longer needed"), "{log}");
+    assert!(ended_why(&e, work).is_some(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A cancel asked by `by` while the merge call is under way: the merge came first, and stands.
+fn a_cancel_during_the_merge_call(name: &str, by: &str) -> (Setup, Engine, i64) {
+    let (s, mut e, said, item, work) = at_the_merge(name);
+    held_at_the_merge_call(&mut e, &s, &said);
+    cancel(&mut e, item, by);
+    s.merging.open();
+    let log = done_after_watching_main(&mut e, work, &said);
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    assert_eq!(cancelled_why(&e, item), None, "{log}");
+    assert_eq!(transitions_at(&e, work, "M2"), [Some("merged".to_string())], "{log}");
+    assert!(!transitions_at(&e, work, "L1").is_empty(), "{log}");
+    assert_eq!(ended_why(&e, work), None, "{log}");
+    assert_eq!(notices(&e, "is not cancelled"), 1, "{log}");
+    let closing: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM outbox WHERE kind = 'close_pr'", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(closing, 0, "{log}");
+    (s, e, item)
+}
+
+/// The reports the architect has that say an item is not cancelled.
+fn reports_of_a_merge_first(e: &Engine, item: i64) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT count(*) FROM architect_matters
+             WHERE kind = 'report' AND item = ?1 AND instr(what, 'is not cancelled') > 0",
+            [item],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// A cancel that comes while the merge call is under way comes too late: the database says merged as GitHub does, the
+// merged pull request is not closed, nothing says the item cancelled, the work watches main as after any merge, and the
+// owner is told. The cancel's request stands in the outbox until the merge is known, so no one was told otherwise.
+#[test]
+fn a_merge_under_way_outruns_the_owner_s_cancel() {
+    let (s, e, item) = a_cancel_during_the_merge_call("owner-cancel-in-merge", "owner");
+    assert_eq!(reports_of_a_merge_first(&e, item), 0);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// So for a cancel of the architect's, which is told by a report as well.
+#[test]
+fn a_merge_under_way_outruns_the_architect_s_cancel_and_it_is_told() {
+    let (s, e, item) = a_cancel_during_the_merge_call("architect-cancel-in-merge", "architect");
+    assert_eq!(reports_of_a_merge_first(&e, item), 1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A cancel asked of a work in the merge step keeps it at the head of the merge queue until the loop carries the cancel
+// out, so that the work behind it does not begin its merge beside that step. A cancel that ended the work at once
+// let the next work in while the first merge could still go through.
+#[test]
+fn the_work_behind_waits_while_a_cancel_of_the_merge_step_is_asked() {
+    let (s, mut e, said, item, work) = at_the_merge("cancel-keeps-queue");
+    held_at_full_ci(&mut e, &s, &said);
+    let v = e.flow_now;
+    let behind =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'Add another', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            let other = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO works (item, flow_version, graph, at, pr) VALUES (?1, ?2, 'engineer', 'M2', 9)",
+                params![other, v],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    let came = s.ci.came();
+    cancel(&mut e, item, "owner");
+    // A round of a row that waits is written open and then ended, by two writes of the step on its own thread. A work
+    // behind that began its merge instead comes to the full CI, or pauses on a pull request GitHub does not have.
+    let waits = turns_until(&mut e, &Go::default(), |e| {
+        transitions_at(e, behind, "M2").iter().any(Option::is_some)
+            || s.ci.came() > came
+            || paused_by(e, behind).is_some()
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert!(waits, "{log}");
+    assert_eq!(transitions_at(&e, behind, "M2"), [Some("behind".to_string())], "{log}");
+    assert_eq!(ended_why(&e, work), None, "{log}");
+    assert_eq!(s.merging.came(), 0, "{log}");
+    s.ci.open();
+    e.drain().unwrap();
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A start over that comes while the merge step waits for the full CI stops the merge, and a new work takes the item
+// over, with its pull request still open.
+#[test]
+fn a_start_over_during_the_merge_s_full_ci_stops_the_merge() {
+    let (s, mut e, said, item, work) = at_the_merge("start-over-before-merge");
+    held_at_full_ci(&mut e, &s, &said);
+    api::start_over(&mut e.db, work).unwrap();
+    s.ci.open();
+    let over = turns_until(&mut e, &Go::default(), |e| works_of(e, item).len() == 2);
+    let log = said.lock().unwrap().join("\n");
+    assert!(over, "{log}");
+    assert_eq!(s.merging.came(), 0, "{log}");
+    assert_eq!(transitions_at(&e, work, "M2"), [Some("stopped".to_string())], "{log}");
+    assert_eq!(pr_states(&s), [PrState::Open], "{log}");
+    e.drain().unwrap();
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A start over that comes while the merge call is under way comes too late: no new work takes the item over, the work
+// watches main as after any merge, and whoever asked is told.
+#[test]
+fn a_merge_under_way_outruns_a_start_over() {
+    let (s, mut e, said, item, work) = at_the_merge("start-over-in-merge");
+    held_at_the_merge_call(&mut e, &s, &said);
+    api::start_over(&mut e.db, work).unwrap();
+    s.merging.open();
+    let log = done_after_watching_main(&mut e, work, &said);
+    assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    assert_eq!(ended_why(&e, work), None, "{log}");
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    assert_eq!(notices(&e, "is not started over"), 1, "{log}");
+    assert!(!transitions_at(&e, work, "L1").is_empty(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Once its merge stands on main, an item is not cancelled nor its work started over, whether the work watches main or
+// is done; whoever asks is told, and nothing waits in the outbox.
+#[test]
+fn an_item_whose_merge_stands_on_main_is_not_cancelled() {
+    let (s, mut e, said, item, work) = at_the_merge("cancel-after-merge");
+    held_at_the_merge_call(&mut e, &s, &said);
+    s.ci.shut();
+    let came = s.ci.came();
+    s.merging.open();
+    let watching = turns_until(&mut e, &Go::default(), |_| s.ci.came() > came);
+    let log = said.lock().unwrap().join("\n");
+    assert!(watching, "{log}");
+    assert_eq!(state(&e, item).unwrap().1, "L1", "{log}");
+    cancel(&mut e, item, "owner");
+    assert_eq!(cancelled_why(&e, item), None, "{log}");
+    assert_eq!(stopping(&e), Vec::<i64>::new(), "{log}");
+    assert_eq!(
+        api::start_over(&mut e.db, work),
+        Err(format!("work {work} has merged, and its merge stands on main")),
+        "{log}"
+    );
+    s.ci.open();
+    let log = done_after_watching_main(&mut e, work, &said);
+    assert_eq!(ended_why(&e, work), None, "{log}");
+    cancel(&mut e, item, "owner");
+    assert_eq!(cancelled_why(&e, item), None, "{log}");
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    assert_eq!(notices(&e, "is not cancelled"), 2, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// What was asked while the engine did not run, as the command line can, is carried out at its next start: nothing of it
+// is held anywhere but the database.
+#[test]
+fn a_cancel_and_a_resume_asked_with_no_engine_running_are_carried_out_at_its_next_start() {
+    let (s, mut e, said, first, second) = two_works_with("asked-with-no-engine", scripts(), Hooks::default());
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let (a, b) = (state(&e, first).expect(&log).0, state(&e, second).expect(&log).0);
+    api::pause(&mut e.db, b, None).unwrap();
+    drop(e);
+    let projects = config::committed(&s.data).unwrap().config.projects;
+    let mut base = db::Db::open(&config::database(&s.data)).unwrap();
+    base.write(Actor::Owner, |tx| {
+        engine::ending::cancel_item(tx, first, "no longer needed", "owner", &projects)
+            .map(drop)
+            .map_err(db::Error::Abort)
+    })
+    .unwrap();
+    api::resume(&mut base, b).unwrap();
+    drop(base);
+    let (mut e, said) = engine(&s, scripts());
+    e.dispatch(&Go::default()).unwrap();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(cancelled_why(&e, first).as_deref(), Some("no longer needed"), "{log}");
+    assert!(ended_why(&e, a).is_some(), "{log}");
+    assert_eq!(paused_by(&e, b), None, "{log}");
+    let left: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM outbox WHERE kind IN ('cancel_item', 'resume_work')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(left, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Puts a second item in the queue of a setup.
+fn another_item(e: &mut Engine) -> i64 {
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute(
+            "INSERT INTO items (project, title, problem, why, deliver, level)
+             VALUES ('p', 'Add another', 'x', 'y', 'change', 'l')",
+            [],
+        )?;
+        let id = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO dispatch_queue (item, position) VALUES (?1, 2.0)",
+            params![id],
+        )?;
+        Ok(id)
+    })
+    .unwrap()
+}
+
+/// Scripts whose round of `R1` waits at the gate, but for the work `free` names.
+fn held_in_r1(hold: &Gate, free: &Arc<AtomicI64>) -> BTreeMap<&'static str, Script> {
+    let (h, f) = (hold.clone(), free.clone());
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |r: &Request, _: usize| {
+            if r.work != f.load(Ordering::SeqCst) {
+                h.pass();
+            }
+            (Vec::new(), Vec::new())
+        }),
+    );
+    agents
+}
+
+/// Takes three turns of the loop, none of which may wait for the job in flight.
+fn three_turns(e: &mut Engine) {
+    for _ in 0..3 {
+        e.reap().unwrap();
+        e.rouse();
+        e.dispatch(&Go::default()).unwrap();
+    }
+}
+
+/// How many times the requests to lift a pause failed.
+fn resume_failures(e: &Engine) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT coalesce(sum(attempts), 0) FROM outbox WHERE kind = 'resume_work'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// `wf-agents resume` on a machine whose one slot is taken does not run a second work on it: the pause stays, the engine
+// names the work as waiting for a free slot, and waiting is no failure of the request. Once the slot is free the pause
+// is lifted and the work goes on. Lifting it at once ran two works on the one slot.
+#[test]
+fn the_owner_s_resume_waits_for_a_free_slot() {
+    let s = setup("owner-resume-slot");
+    let (hold, free) = (Gate::default(), Arc::new(AtomicI64::new(0)));
+    let (mut e, said, _) = start(&s, held_in_r1(&hold, &free));
+    let work = e.step(None).unwrap().work.unwrap();
+    free.store(work, Ordering::SeqCst);
+    api::pause(&mut e.db, work, None).unwrap();
+    let second = another_item(&mut e);
+    hold.shut();
+    let came = hold.came();
+    let held = turns_until(&mut e, &Go::default(), |_| hold.came() > came);
+    let log = said.lock().unwrap().join("\n");
+    assert!(held, "{log}");
+    let other = state(&e, second).unwrap().0;
+    let rounds = rounds_after(&e, work, 0).0;
+    api::resume(&mut e.db, work).unwrap();
+    three_turns(&mut e);
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    assert_eq!(rounds_after(&e, work, 0).0, rounds, "{log}");
+    assert_eq!(e.free_slots().unwrap(), 0, "{log}");
+    assert_eq!(e.waiting_for_slot().unwrap(), [work], "{log}");
+    assert_eq!(resume_failures(&e), 0, "{log}");
+    api::pause(&mut e.db, other, None).unwrap();
+    hold.open();
+    let goes_on = turns_until(&mut e, &Go::default(), |e| rounds_after(e, work, 0).0 > rounds);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(goes_on, "{log}");
+    assert_eq!(paused_by(&e, work), None, "{log}");
+    assert_eq!(e.waiting_for_slot().unwrap(), Vec::<i64>::new(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The architect's `resume_work` on a machine whose one slot is taken waits as the owner's does, and the loop lifts the
+// pause once the slot is free, with no word to the architect, which asked for it itself.
+#[test]
+fn the_architect_s_resume_waits_for_a_free_slot() {
+    let s = setup("architect-resume-slot");
+    let (hold, free) = (Gate::default(), Arc::new(AtomicI64::new(0)));
+    let resuming = Arc::new(AtomicI64::new(0));
+    let r = resuming.clone();
+    let mut agents = held_in_r1(&hold, &free);
+    agents.insert(
+        "H8",
+        Box::new(move |_: &Request, n: usize| {
+            let kind = match (r.load(Ordering::SeqCst), n) {
+                (0, 1) => "pause_work",
+                (1, _) => "resume_work",
+                _ => return (Vec::new(), Vec::new()),
+            };
+            let action = json!({ "kind": kind, "item": 1, "reason": "It waits for the parser." });
+            (Vec::new(), vec![("outcome.effects", json!({ "actions": [action] }))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let work = e.step(None).unwrap().work.unwrap();
+    free.store(work, Ordering::SeqCst);
+    let second = another_item(&mut e);
+    hold.shut();
+    let came = hold.came();
+    say(&mut e, "Stop the feature until the parser is in.");
+    let stopped = turns_until(&mut e, &Go::default(), |e| {
+        paused_by(e, work).is_some() && hold.came() > came
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert!(stopped, "{log}");
+    assert_eq!(state(&e, item).unwrap().0, work, "{log}");
+    let other = state(&e, second).unwrap().0;
+    let rounds = rounds_after(&e, work, 0).0;
+    resuming.store(1, Ordering::SeqCst);
+    say(&mut e, "The parser is in: let the feature go on.");
+    let asked = turns_until(&mut e, &Go::default(), |e| {
+        resumes_waiting(e) == [work] || paused_by(e, work).is_none()
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert!(asked, "{log}");
+    three_turns(&mut e);
+    assert_eq!(paused_by(&e, work).as_deref(), Some("engine"), "{log}");
+    assert_eq!(rounds_after(&e, work, 0).0, rounds, "{log}");
+    assert_eq!(e.free_slots().unwrap(), 0, "{log}");
+    assert_eq!(e.waiting_for_slot().unwrap(), [work], "{log}");
+    assert_eq!(resume_failures(&e), 0, "{log}");
+    api::pause(&mut e.db, other, None).unwrap();
+    hold.open();
+    let goes_on = turns_until(&mut e, &Go::default(), |e| rounds_after(e, work, 0).0 > rounds);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(goes_on, "{log}");
+    let released: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM architect_matters WHERE kind = 'owner_words' AND detail = 'release'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(released, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A pause takes effect when the round under way ends, and until the loop reaps that step the work keeps its slot: no new
+// work starts in it. Counting only the works not paused ran two works on the one slot until that round ended.
+#[test]
+fn a_work_paused_while_its_round_runs_keeps_its_slot_until_the_step_ends() {
+    let s = setup("pause-keeps-slot");
+    let (hold, free) = (Gate::default(), Arc::new(AtomicI64::new(0)));
+    let (mut e, said, item) = start(&s, held_in_r1(&hold, &free));
+    hold.shut();
+    let held = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(held, "{log}");
+    let work = state(&e, item).unwrap().0;
+    let second = another_item(&mut e);
+    api::pause(&mut e.db, work, None).unwrap();
+    three_turns(&mut e);
+    assert!(state(&e, second).is_none(), "{log}");
+    assert_eq!(e.free_slots().unwrap(), 0, "{log}");
+    hold.open();
+    let started = turns_until(&mut e, &Go::default(), |e| state(e, second).is_some());
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(started, "{log}");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Requests that meet: a request of the outbox against another one, against the owner's next word and against a pause
+// that replaces the one it was for.
+
+// A start over and then a cancel asked of one work wait in the outbox together. The loop carries them out in the order
+// they were asked, so the start over must not leave the cancel with nothing to close: a cancel closes the pull request
+// of a work that ends without merging, and a new work that has not taken the pull request over yet holds none, while
+// the work that held it left it to that new work.
+#[test]
+fn a_cancel_asked_after_a_start_over_still_closes_the_pull_request() {
+    let (s, mut e, said, item, work) = at_the_merge("start-over-then-cancel");
+    let worktree = worktree_of(&e, work);
+    held_at_full_ci(&mut e, &s, &said);
+    api::start_over(&mut e.db, work).unwrap();
+    cancel(&mut e, item, "owner");
+    s.ci.open();
+    let cancelled = turns_until(&mut e, &Go::default(), |e| cancelled_why(e, item).is_some());
+    e.drain().unwrap();
+    three_turns(&mut e);
+    e.drain().unwrap();
+    three_turns(&mut e);
+    let log = said.lock().unwrap().join("\n");
+    assert!(cancelled, "{log}");
+    assert_eq!(s.merging.came(), 0, "{log}");
+    let works = works_of(&e, item);
+    assert!(works.iter().all(|w| w.5.is_some()), "{works:?}\n{log}");
+    assert_eq!(pr_states(&s), [PrState::Closed], "{works:?}\n{log}");
+    assert!(!worktree.exists(), "{works:?}\n{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The other order of the two: once a cancel is asked the work is stopping, a start over is refused, and the cancel is
+// carried out with no new work on the item.
+#[test]
+fn a_start_over_is_refused_once_a_cancel_is_asked() {
+    let s = setup("cancel-then-start-over");
+    let (mut e, said, item) = start(&s, scripts());
+    let work = e.step(None).unwrap().work.unwrap();
+    cancel(&mut e, item, "owner");
+    assert_eq!(
+        api::start_over(&mut e.db, work),
+        Err(format!("work {work} is stopping already"))
+    );
+    e.dispatch(&Go::default()).unwrap();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(cancelled_why(&e, item).as_deref(), Some("no longer needed"), "{log}");
+    assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Pause after a resume that still waits for a slot is the owner's later word, and the later word wins, as it
+// does over the owner's Start: the page's Pause answers that the work stays paused. So the request must not lift the
+// pause once the slot is free.
+#[test]
+fn the_owner_s_pause_after_a_resume_keeps_the_work_paused() {
+    let (s, mut e, said, hold, work, other) = a_resume_waiting_for_a_slot("pause-after-resume");
+    let rounds = rounds_after(&e, work, 0).0;
+    // As the page's Pause sends it, for which a work paused already stays paused.
+    let _ = api::pause(&mut e.db, work, None);
+    api::pause(&mut e.db, other, None).unwrap();
+    hold.open();
+    e.drain().unwrap();
+    three_turns(&mut e);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    assert_eq!(rounds_after(&e, work, 0).0, rounds, "{log}");
+    assert_eq!(resumes_waiting(&e), Vec::<i64>::new(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// So is the owner's Step, after which a work stays paused: the slot that frees later lifts nothing.
+#[test]
+fn the_owner_s_step_after_a_resume_keeps_the_work_paused() {
+    let (s, mut e, said, hold, work, other) = a_resume_waiting_for_a_slot("step-after-resume");
+    let rounds = rounds_after(&e, work, 0).0;
+    let go = Go {
+        steps: vec![work],
+        ..Go::default()
+    };
+    e.dispatch(&go).unwrap();
+    assert_eq!(resumes_waiting(&e), Vec::<i64>::new());
+    let stepped = turns_until(&mut e, &Go::default(), |e| {
+        !e.in_flight().contains(&work) && rounds_after(e, work, 0).0 > rounds
+    });
+    api::pause(&mut e.db, other, None).unwrap();
+    hold.open();
+    e.drain().unwrap();
+    three_turns(&mut e);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(stepped, "{log}");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    assert_eq!(rounds_after(&e, work, 0).0, rounds + 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// A paused work whose resume waits for a slot: the one slot is held by a second work, whose round stays in the gate.
+/// Gives the gate, the work and the second work.
+fn a_resume_waiting_for_a_slot(name: &str) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, Gate, i64, i64) {
+    let s = setup(name);
+    let (hold, free) = (Gate::default(), Arc::new(AtomicI64::new(0)));
+    let (mut e, said, _) = start(&s, held_in_r1(&hold, &free));
+    let work = e.step(None).unwrap().work.unwrap();
+    free.store(work, Ordering::SeqCst);
+    api::pause(&mut e.db, work, None).unwrap();
+    let second = another_item(&mut e);
+    hold.shut();
+    let came = hold.came();
+    let held = turns_until(&mut e, &Go::default(), |_| hold.came() > came);
+    let log = said.lock().unwrap().join("\n");
+    assert!(held, "{log}");
+    let other = state(&e, second).unwrap().0;
+    api::resume(&mut e.db, work).unwrap();
+    three_turns(&mut e);
+    assert_eq!(e.waiting_for_slot().unwrap(), [work], "{log}");
+    (s, e, said, hold, work, other)
+}
+
+// Two resumes on a machine with one slot free: each request reads the slots as the one before it left them, so that one
+// work goes on and the other waits, and a resume asked twice is one request.
+#[test]
+fn two_resumes_take_one_free_slot_one_at_a_time() {
+    let s = setup("two-resumes-one-slot");
+    let (mut e, said, _) = start(&s, scripts());
+    let first = e.step(None).unwrap().work.unwrap();
+    api::pause(&mut e.db, first, None).unwrap();
+    let item = another_item(&mut e);
+    e.tick().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let second = state(&e, item).expect(&log).0;
+    api::pause(&mut e.db, second, None).unwrap();
+    api::resume(&mut e.db, first).unwrap();
+    api::resume(&mut e.db, first).unwrap();
+    api::resume(&mut e.db, second).unwrap();
+    let asked: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM outbox WHERE kind = 'resume_work'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(asked, 2, "{log}");
+    e.rouse();
+    e.dispatch(&Go::default()).unwrap();
+    assert_eq!(paused_by(&e, first), None, "{log}");
+    assert_eq!(paused_by(&e, second).as_deref(), Some("owner"), "{log}");
+    assert_eq!(e.free_slots().unwrap(), 0, "{log}");
+    assert_eq!(e.waiting_for_slot().unwrap(), [second], "{log}");
+    assert_eq!(resume_failures(&e), 0, "{log}");
+    e.drain().unwrap();
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work paused while its round runs, with a resume asked for that pause, whose round then fails in a way the owner must
+// look at: the engine's pause replaces the owner's, and the resume asked for the one before lifts nothing.
+#[test]
+fn a_pause_for_a_problem_is_not_lifted_by_a_resume_asked_before_it() {
+    let s = setup("problem-after-resume");
+    let hold = Gate::default();
+    let h = hold.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, _: usize| {
+            h.pass();
+            (Vec::new(), vec![("@error", json!("Prompt is too long"))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    hold.shut();
+    let came = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(came, "{log}");
+    let work = state(&e, item).unwrap().0;
+    api::pause(&mut e.db, work, None).unwrap();
+    api::resume(&mut e.db, work).unwrap();
+    three_turns(&mut e);
+    hold.open();
+    e.drain().unwrap();
+    three_turns(&mut e);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let paused = state(&e, item)
+        .unwrap()
+        .2
+        .unwrap_or_else(|| panic!("the work went on:\n{log}"));
+    assert!(paused.contains("prompt_too_long"), "{paused}\n{log}");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("engine"), "{log}");
+    assert_eq!(resumes_waiting(&e), Vec::<i64>::new(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The same for a step that cannot be taken, which pauses its work by the other way a pause for a problem is written, as
+// a work's cell `wait_for_start` and a step whose thread panicked do too: a round that finds itself ended is such a step,
+// since no work ends under its step any more. The resume asked for the owner's pause lifts nothing of this one.
+#[test]
+fn a_pause_for_a_step_that_failed_is_not_lifted_by_a_resume_asked_before_it() {
+    let s = setup("failed-step-after-resume");
+    let hold = Gate::default();
+    let h = hold.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, _: usize| {
+            h.pass();
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    hold.shut();
+    let came = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(came, "{log}");
+    let work = state(&e, item).unwrap().0;
+    api::pause(&mut e.db, work, None).unwrap();
+    api::resume(&mut e.db, work).unwrap();
+    three_turns(&mut e);
+    // The request waits for the step in flight, and the owner's pause stands until then.
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    assert_eq!(resumes_waiting(&e), [work], "{log}");
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET ended_at = 1 WHERE work = ?1 AND ended_at IS NULL",
+            [work],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    hold.open();
+    e.drain().unwrap();
+    three_turns(&mut e);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let paused = state(&e, item)
+        .unwrap()
+        .2
+        .unwrap_or_else(|| panic!("the work went on:\n{log}"));
+    assert!(paused.starts_with("cell R1:"), "{paused}\n{log}");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("engine"), "{log}");
+    assert_eq!(resumes_waiting(&e), Vec::<i64>::new(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A resume that reads a work as paused while the loop lifts that pause writes its request after the lifting. The loop
+// drops such a request only at a turn with no step of the work in flight, which may be a long way off, since the work
+// went on; meanwhile the owner's Pause finds a work that goes on and pauses it. The request must not then lift that
+// later word, which it was never asked for. The thread stands for the loop, holding its transaction open for as long as
+// it takes the resume to read.
+#[test]
+fn a_resume_that_met_the_lifting_of_its_pause_does_not_lift_the_owner_s_next_pause() {
+    let s = setup("resume-meets-lifting");
+    let (mut e, said, _) = start(&s, scripts());
+    let work = e.step(None).unwrap().work.unwrap();
+    api::pause(&mut e.db, work, None).unwrap();
+    let (lifting, begun) = std::sync::mpsc::channel();
+    let path = config::database(&s.data);
+    let the_loop = std::thread::spawn(move || {
+        let mut base = db::Db::open(&path).unwrap();
+        base.write(Actor::Owner, |tx| {
+            db::lift_pause(tx, work)?;
+            lifting.send(()).unwrap();
+            // Long enough for a resume that reads apart from its write to read this pause as still there.
+            std::thread::sleep(Duration::from_millis(100));
+            Ok(())
+        })
+        .unwrap();
+    });
+    begun.recv().unwrap();
+    // Whichever way it answers: the work goes on by now.
+    let _ = api::resume(&mut e.db, work);
+    the_loop.join().unwrap();
+    assert_eq!(paused_by(&e, work), None);
+    api::pause(&mut e.db, work, None).unwrap();
+    e.rouse();
+    e.dispatch(&Go::default()).unwrap();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The loop reads what is due in the outbox once, and carries it out in turn; an action before a request to lift a pause
+// can take a while on GitHub. The owner's Pause in that time withdraws the request and answers that the work stays
+// paused, so the loop must find the request gone where it lifts, or it lifts the pause the owner was just told stands.
+// The thread stands for the owner's command line, at the moment the loop's turn is held at the action before.
+#[test]
+fn a_resume_withdrawn_during_the_loop_s_turn_lifts_nothing() {
+    let s = setup("resume-withdrawn-in-turn");
+    let (mut e, said, _) = start(&s, scripts());
+    let work = e.step(None).unwrap().work.unwrap();
+    api::pause(&mut e.db, work, None).unwrap();
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, 'close_pr', ?2, 0)",
+            params![work, json!({ "repo": "r", "pr": 1, "comment": "c" }).to_string()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    api::resume(&mut e.db, work).unwrap();
+    s.closing.shut();
+    let path = config::database(&s.data);
+    let closing = s.closing.clone();
+    let owner = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while closing.came() == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let answer = api::pause(&mut db::Db::open(&path).unwrap(), work, None);
+        closing.open();
+        answer
+    });
+    e.rouse();
+    e.dispatch(&Go::default()).unwrap();
+    let answer = owner.join().unwrap().unwrap();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(s.closing.came(), 1, "{log}");
+    assert_eq!(
+        answer,
+        format!("work {work} stays paused: the resume asked is withdrawn"),
+        "{log}"
+    );
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner and then the architect cancel an item while its merge call is under way. The merge comes first, and each
+// asker is told: the architect by its report, as it is when it asks alone. The two cancels are one request, so a request
+// that keeps only the first asker leaves the architect thinking its cancel was carried out.
+#[test]
+fn a_merge_under_way_outruns_two_cancels_and_the_architect_is_told_though_it_asked_second() {
+    let (s, mut e, said, item, work) = at_the_merge("two-cancels-in-merge");
+    held_at_the_merge_call(&mut e, &s, &said);
+    cancel(&mut e, item, "owner");
+    cancel(&mut e, item, "architect");
+    s.merging.open();
+    let log = done_after_watching_main(&mut e, work, &said);
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    assert_eq!(cancelled_why(&e, item), None, "{log}");
+    assert_eq!(reports_of_a_merge_first(&e, item), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A round of an engineer's work is given the project's constitution as the project's main has it when the round
+// starts, which the engine fetches for it, though main moved on the remote since the last fetch and meanwhile; nothing
+// in the project's checkout changes, no file and no commit, since the checkout is only where main is fetched into. The
+// round's record keeps the commit of main it was given.
+#[test]
+fn an_engineer_s_round_is_given_the_constitution_main_has_and_the_checkout_stays_as_it_is() {
+    let s = setup("main-engineer");
+    names_a_constitution(&s);
+    let small = "## Article 1. Small\n\nKeep it small.\n";
+    let smaller = "## Article 1. Small\n\nKeep it smaller, always.\n";
+    main_moves_on(&s.root, &[("CONSTITUTION.md", small)], "A constitution");
+    let first = git(&s.origin, &["rev-parse", "main"]);
+    let before = checkout_state(&s);
+    let (root, mut agents) = (s.root.clone(), scripts());
+    // Main moves on while the first round runs, after its message was made.
+    let seen = keeps_prompts(&mut agents, &["G1", "R1"], move |r: &Request, _: usize| {
+        if r.cell == "G1" {
+            main_moves_on(&root, &[("CONSTITUTION.md", smaller)], "A stricter constitution");
+        }
+        (Vec::new(), Vec::new())
+    });
+    let (mut e, said, item) = start(&s, agents);
+    for _ in 0..60 {
+        if seen.lock().unwrap().len() >= 2 {
+            break;
+        }
+        e.tick().unwrap();
+        if let Some((_, _, paused)) = state(&e, item) {
+            assert!(
+                paused.is_none(),
+                "paused: {paused:?}\n{}",
+                said.lock().unwrap().join("\n")
+            );
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let second = git(&s.origin, &["rev-parse", "main"]);
+    let seen = seen.lock().unwrap();
+    assert_eq!(
+        seen.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(),
+        ["G1", "R1"],
+        "{log}"
+    );
+    assert!(seen[0].1.contains("Keep it small."), "{}", seen[0].1);
+    assert!(seen[1].1.contains("Keep it smaller, always."), "{}", seen[1].1);
+    let work = state(&e, item).unwrap().0;
+    assert_eq!(pinned_main(&e, work, "G1").as_deref(), Some(first.as_str()), "{log}");
+    assert_eq!(pinned_main(&e, work, "R1").as_deref(), Some(second.as_str()), "{log}");
+    // The checkout fetched main, and nothing else of it changed: the constitution is in none of its files.
+    let checkout = s.root.join("checkout");
+    assert_eq!(git(&checkout, &["rev-parse", "origin/main"]), second);
+    assert_eq!(checkout_state(&s), before);
+    assert!(!checkout.join("CONSTITUTION.md").exists());
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A round of a project's architect reads the project at one commit of main, fetched for it: its constitution and its
+// guide are of the same commit, though main moves on while it runs and another work's fetch brings that into the
+// checkout. What its return is checked against, the articles of the constitution it was given, and the hash of the
+// constitution a check of the policy it queues keeps, are of that commit too.
+#[test]
+fn a_round_reads_one_commit_of_main_and_what_follows_it_reads_the_same() {
+    let s = setup("main-pinned");
+    no_reply_wait(&s);
+    names_a_constitution(&s);
+    let article = |n: usize, what: &str| format!("## Article {n}. {what}\n\nKeep it {}.\n", what.to_lowercase());
+    let two = format!("{}\n{}", article(1, "Small"), article(2, "Quick"));
+    let three = format!("{two}\n{}", article(3, "Plain"));
+    let four = format!("{three}\n{}", article(4, "Warm"));
+    main_moves_on(
+        &s.root,
+        &[
+            ("CONSTITUTION.md", two.as_str()),
+            ("AGENTS.md", "Work the second way.\n"),
+        ],
+        "Two articles",
+    );
+    let (first, checkout) = (git(&s.origin, &["rev-parse", "main"]), s.root.join("checkout"));
+    let (root, (to_three, to_four), mut agents) = (s.root.clone(), (three.clone(), four.clone()), scripts());
+    let seen = keeps_prompts(&mut agents, &["U1", "P1"], move |r: &Request, _: usize| {
+        // Main moves on while the round runs, and another work's fetch brings it into the checkout.
+        let (articles, rows) = if r.cell == "U1" { (&to_three, 0) } else { (&to_four, 3) };
+        main_moves_on(
+            &root,
+            &[
+                ("CONSTITUTION.md", articles.as_str()),
+                ("AGENTS.md", "Work the third way.\n"),
+            ],
+            "More articles",
+        );
+        git(&checkout, &["fetch", "-q", "origin", "main"]);
+        // The check of the policy was given the articles of the commit it read: three, then.
+        let against: Vec<Value> = ["Small", "Quick", "Plain"]
+            .iter()
+            .enumerate()
+            .take(rows)
+            .map(|(i, what)| {
+                json!({ "article": format!("Article {}. {what}", i + 1), "status": "kept", "where": "all", "grounds": "seen" })
+            })
+            .collect();
+        (
+            Vec::new(),
+            if rows == 0 {
+                Vec::new()
+            } else {
+                vec![("outcome.against", json!(against))]
+            },
+        )
+    });
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    for _ in 0..8 {
+        if seen.lock().unwrap().len() >= 2 {
+            break;
+        }
+        e.advance(arch).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    let second = git(&s.origin, &["rev-parse", "main~1"]);
+    let seen = seen.lock().unwrap();
+    assert_eq!(
+        seen.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(),
+        ["U1", "P1"],
+        "{log}"
+    );
+    // The constitution and the guide it was given are those of the commit it was pinned to, not of the later ones.
+    let (u1, p1) = (&seen[0].1, &seen[1].1);
+    assert!(
+        u1.contains("Keep it quick.") && u1.contains("Work the second way."),
+        "{u1}"
+    );
+    assert!(!u1.contains("Keep it plain.") && !u1.contains("third way"), "{u1}");
+    assert!(p1.contains("Keep it plain.") && !p1.contains("Keep it warm."), "{p1}");
+    assert_eq!(pinned_main(&e, arch, "U1").as_deref(), Some(first.as_str()), "{log}");
+    assert_eq!(pinned_main(&e, arch, "P1").as_deref(), Some(second.as_str()), "{log}");
+    // Its check of the policy was queued under the hash of the constitution of that commit.
+    let kept: Option<String> =
+        e.db.conn()
+            .query_row(
+                "SELECT json_extract(body, '$.constitution') FROM architect_matters
+                 WHERE project = 'p' AND kind = 'check_policy' ORDER BY id LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(kept, Some(db::content_hash(&two)), "{log}");
+    // The articles the check counted are those of the commit its round read: three, though main has four by now.
+    assert_eq!(rows_at(&e, arch, "P1"), ["holds"], "{log}");
+    let sent_back: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'P1' AND rejected IS NOT NULL",
+                [arch],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(sent_back, 0, "{log}");
+    assert_eq!(
+        git(&s.root.join("checkout"), &["rev-parse", "origin/main"]),
+        git(&s.origin, &["rev-parse", "main"])
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A round of a project's architect on its line makes one fetch of main, and the worktree it reads files in, the inputs
+// it is given and the commit its record keeps are of the commit that fetch brought, though main moves on the moment the
+// fetch has been answered: a second fetch would bring the worktree past the commit the inputs were read at. The
+// reference is the fetch count itself, which a second fetch adds one to, and the two commits compared with each other.
+#[test]
+fn an_architect_s_round_fetches_main_once_and_reads_one_commit_in_its_worktree_and_its_inputs() {
+    let s = setup("main-one-fetch");
+    no_reply_wait(&s);
+    main_moves_on(&s.root, &[("AGENTS.md", "Work the first way.\n")], "The first way");
+    let first = git(&s.origin, &["rev-parse", "main"]);
+    let fetches = Fetches::watching(&s);
+    // The second way is committed now and reaches main right after the round's first fetch is answered.
+    commit_on_main(&s.root, &[("AGENTS.md", "Work the second way.\n")], "The second way");
+    let mut agents = scripts();
+    let seen = keeps_prompts(&mut agents, &["U1"], |_: &Request, _: usize| (Vec::new(), Vec::new()));
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    let before = fetches.so_far();
+    fetches.push_after_the_next();
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(fetches.so_far() - before, 1, "{log}");
+    // Main did move on while the round was starting.
+    let second = git(&s.origin, &["rev-parse", "main"]);
+    assert_ne!(second, first, "the second way did not reach main\n{log}");
+    // The worktree, the record and the text the round was given are all of the commit the one fetch brought.
+    let worktree = s.data.join("worktrees").join("architect").join("p");
+    assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), first, "{log}");
+    assert_eq!(
+        std::fs::read_to_string(worktree.join("AGENTS.md")).unwrap(),
+        "Work the first way.\n"
+    );
+    assert_eq!(pinned_main(&e, arch, "U1").as_deref(), Some(first.as_str()), "{log}");
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1, "{log}");
+    assert!(seen[0].1.contains("Work the first way."), "{}", seen[0].1);
+    assert!(!seen[0].1.contains("Work the second way."), "{}", seen[0].1);
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// An engineer's round makes one fetch of main, at the first cell (`G1`) and at the next (`R1`) alike: every agent's cell
+// is given the constitution through the flow's common inputs, so each reads main, and the fetch is the round's own,
+// made before its inputs are gathered. The reference is the fetch count of each step. This is new behaviour: an
+// engineer's round read the checkout's files and made no fetch, so before the change both counts were 0 and the test
+// fails there. (No agent's cell of the flow declares none of the inputs that read main, so a round that makes no fetch
+// has no cell to be shown at here; that a cell reads main if and only if it declares one is held by the test of
+// `reads_main` in `inputs.rs`.)
+#[test]
+fn an_engineer_s_round_now_fetches_main_once_at_each_agent_cell() {
+    let s = setup("main-fetch-count");
+    names_a_constitution(&s);
+    main_moves_on(
+        &s.root,
+        &[("CONSTITUTION.md", "## Article 1. Small\n\nKeep it small.\n")],
+        "A constitution",
+    );
+    let fetches = Fetches::watching(&s);
+    let mut agents = scripts();
+    keeps_prompts(&mut agents, &["G1", "R1"], |_: &Request, _: usize| {
+        (Vec::new(), Vec::new())
+    });
+    let (mut e, said, item, _) = stands_at_g1(&s, agents, true);
+    let work = state(&e, item).unwrap().0;
+    let mut made: BTreeMap<String, usize> = BTreeMap::new();
+    for _ in 0..12 {
+        let Some((_, cell, _)) = state(&e, item) else { break };
+        let before = fetches.so_far();
+        e.advance(work).unwrap();
+        if cell == "G1" || cell == "R1" {
+            made.insert(cell, fetches.so_far() - before);
+        }
+        if made.len() == 2 {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        made,
+        BTreeMap::from([("G1".to_string(), 1), ("R1".to_string(), 1)]),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A project's architect whose worktree cannot be brought to main does not start its round: with the network up its work
+// is paused and says why, and with it down every work waits for it, and goes on from its cell once it is back (the
+// round then starts: its prompt is built once). It holds before and after the fetch for the inputs became the same
+// fetch as the worktree's.
+#[test]
+fn an_architect_whose_worktree_cannot_be_brought_to_main_is_paused_or_waits_and_goes_on_when_it_can() {
+    for up in [true, false] {
+        let s = setup(&format!("architect-no-main-{up}"));
+        no_reply_wait(&s);
+        let net = Arc::new(std::sync::atomic::AtomicBool::new(up));
+        let seen_net = net.clone();
+        let hooks = Hooks {
+            network: Some(Arc::new(move || seen_net.load(Ordering::SeqCst))),
+            ..Hooks::default()
+        };
+        let mut agents = scripts();
+        let seen = keeps_prompts(&mut agents, &["U1"], |_: &Request, _: usize| (Vec::new(), Vec::new()));
+        let (mut e, said) = engine_with(&s, agents, hooks);
+        quiet(&mut e);
+        let arch = architect_work_at(&mut e, "U1");
+        let away = s.root.join("origin-away");
+        std::fs::rename(&s.origin, &away).unwrap();
+        e.advance(arch).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        let paused: Option<String> =
+            e.db.conn()
+                .query_row("SELECT paused FROM works WHERE id = ?1", [arch], |r| r.get(0))
+                .unwrap();
+        assert!(seen.lock().unwrap().is_empty(), "{log}");
+        if up {
+            let why = paused.unwrap_or_else(|| panic!("not paused\n{log}"));
+            assert!(
+                why.starts_with("cell U1: the architect's worktree ") && why.contains("could not be brought to main"),
+                "{why}"
+            );
+            // Put right, the owner presses Start: the round starts, at the commit main has.
+            std::fs::rename(&away, &s.origin).unwrap();
+            api::resume(&mut e.db, arch).unwrap();
+        } else {
+            assert_eq!(paused, None, "{log}");
+            assert_eq!(e.halt().map(|h| h.kind).as_deref(), Some("offline"), "{log}");
+            std::fs::rename(&away, &s.origin).unwrap();
+            net.store(true, Ordering::SeqCst);
+            e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
+        }
+        e.advance(arch).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        assert_eq!(seen.lock().unwrap().len(), 1, "{log}");
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
+}
+
+// A constitution the configuration names that main does not have is no constitution to go without: no round of an
+// engineer's work or a project's architect starts, and the work is paused with which project, which file and which
+// commit, and how the owner puts it right.
+#[test]
+fn a_constitution_main_does_not_have_stops_the_rounds_and_says_how_to_put_it_right() {
+    let s = setup("main-missing");
+    names_a_constitution(&s);
+    let main = git(&s.origin, &["rev-parse", "main"]);
+    let mut agents = scripts();
+    let seen = keeps_prompts(&mut agents, &["G1", "U1"], |_: &Request, _: usize| {
+        (Vec::new(), Vec::new())
+    });
+    let (mut e, said, item) = start(&s, agents);
+    let arch = architect_work_at(&mut e, "U1");
+    for _ in 0..4 {
+        e.tick().unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert!(seen.lock().unwrap().is_empty(), "{log}");
+    let paused = |work: i64| -> Option<String> {
+        e.db.conn()
+            .query_row("SELECT paused FROM works WHERE id = ?1", [work], |r| r.get(0))
+            .unwrap()
+    };
+    for (work, cell) in [(state(&e, item).unwrap().0, "G1"), (arch, "U1")] {
+        let why = paused(work).unwrap_or_else(|| panic!("work {work} is not paused\n{log}"));
+        assert!(
+            why.starts_with(&format!("cell {cell}: project p: constitution: ")),
+            "{why}"
+        );
+        assert!(why.contains("CONSTITUTION.md") && why.contains(&main), "{why}");
+        assert!(
+            why.contains("change the constitution's path") && why.contains("press Start"),
+            "{why}"
+        );
+    }
+    assert!(told(&s, "CONSTITUTION.md") >= 2);
+    // The rounds did not start: none of the cells has one.
+    let started: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM rounds WHERE cell IN ('G1', 'U1')", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(started, 0, "{log}");
+    // The owner puts the file back on main and presses Start: both rounds start, and are given it.
+    main_moves_on(
+        &s.root,
+        &[("CONSTITUTION.md", "## Article 1. Small\n\nKeep it small.\n")],
+        "The constitution",
+    );
+    let engineer = state(&e, item).unwrap().0;
+    api::resume(&mut e.db, engineer).unwrap();
+    api::resume(&mut e.db, arch).unwrap();
+    for _ in 0..6 {
+        if seen.lock().unwrap().len() >= 2 {
+            break;
+        }
+        e.tick().unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    let seen = seen.lock().unwrap();
+    let mut cells: Vec<&str> = seen.iter().map(|x| x.0.as_str()).collect();
+    cells.sort_unstable();
+    assert_eq!(cells, ["G1", "U1"], "{log}");
+    assert!(seen.iter().all(|x| x.1.contains("Keep it small.")), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// An engine whose network the test sets to up or down, over a setup with the scripts given, whose item's work stands at
+/// the cell that gathers the history, before any round of it. Gives the engine, what it says, the item and the network.
+fn stands_at_g1(
+    s: &Setup,
+    scripts: BTreeMap<&'static str, Script>,
+    up: bool,
+) -> (Engine, Arc<Mutex<Vec<String>>>, i64, Arc<std::sync::atomic::AtomicBool>) {
+    let net = Arc::new(std::sync::atomic::AtomicBool::new(up));
+    let seen = net.clone();
+    let hooks = Hooks {
+        network: Some(Arc::new(move || seen.load(Ordering::SeqCst))),
+        ..Hooks::default()
+    };
+    let (mut e, said, item) = start_with(s, scripts, hooks);
+    for _ in 0..6 {
+        if state(&e, item).is_some_and(|x| x.1 == "G1") {
+            break;
+        }
+        e.pass(&Go::default()).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(state(&e, item).map(|x| x.1).as_deref(), Some("G1"), "{log}");
+    (e, said, item, net)
+}
+
+/// What the latest round of `work` at `cell` recorded of why main could not be fetched for it.
+fn main_fetch_failed(e: &Engine, work: i64, cell: &str) -> Option<String> {
+    e.db.conn()
+        .query_row(
+            "SELECT json_extract(input, '$.engine.main_fetch_failed') FROM rounds WHERE work = ?1 AND cell = ?2
+             ORDER BY n DESC LIMIT 1",
+            params![work, cell],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+// Main is fetched for a round of a cell that reads it. A fetch that fails does not stop the round while the checkout has
+// a commit of main from an earlier fetch, with the network up or down alike: the round goes on at that commit, is given
+// the text there, and its record names the commit and says why the fetch failed; no work is paused or waits. The next
+// round, with the remote back, is at the new commit and says nothing of a failure.
+#[test]
+fn a_failed_fetch_of_main_goes_on_at_the_commit_the_checkout_has_and_says_so() {
+    for up in [true, false] {
+        let s = setup(&format!("main-fetch-{up}"));
+        names_a_constitution(&s);
+        let old = "## Article 1. Small\n\nKeep it small.\n";
+        let new = "## Article 1. Small\n\nKeep it smaller, always.\n";
+        main_moves_on(&s.root, &[("CONSTITUTION.md", old)], "A constitution");
+        let mut agents = scripts();
+        let seen = keeps_prompts(&mut agents, &["G1", "R1"], |_: &Request, _: usize| {
+            (Vec::new(), Vec::new())
+        });
+        let (mut e, said, item, net) = stands_at_g1(&s, agents, up);
+        // The checkout has fetched the old constitution; main moves on, and the remote is then away.
+        let checkout = s.root.join("checkout");
+        let had = git(&checkout, &["rev-parse", "origin/main"]);
+        main_moves_on(&s.root, &[("CONSTITUTION.md", new)], "A stricter constitution");
+        let latest = git(&s.origin, &["rev-parse", "main"]);
+        let away = s.root.join("origin-away");
+        std::fs::rename(&s.origin, &away).unwrap();
+        e.pass(&Go::default()).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        let work = state(&e, item).unwrap().0;
+        {
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.len(), 1, "{log}");
+            assert!(seen[0].1.contains("Keep it small."), "{}", seen[0].1);
+            assert!(!seen[0].1.contains("Keep it smaller, always."), "{}", seen[0].1);
+        }
+        assert_eq!(pinned_main(&e, work, "G1").as_deref(), Some(had.as_str()), "{log}");
+        let why = main_fetch_failed(&e, work, "G1").unwrap_or_else(|| panic!("no failure recorded\n{log}"));
+        assert!(why.starts_with("project p: main of o/p could not be fetched"), "{why}");
+        assert!(log.contains(&format!("the round goes on at {had}")), "{log}");
+        assert_eq!(state(&e, item).unwrap().2, None, "{log}");
+        assert!(e.halt().is_none(), "{log}");
+        // The remote is back: the next round is at the new commit, with the new text, and records no failure.
+        std::fs::rename(&away, &s.origin).unwrap();
+        net.store(true, Ordering::SeqCst);
+        for _ in 0..6 {
+            if seen.lock().unwrap().len() >= 2 {
+                break;
+            }
+            e.pass(&Go::default()).unwrap();
+        }
+        let log = said.lock().unwrap().join("\n");
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2, "{log}");
+        assert!(seen[1].1.contains("Keep it smaller, always."), "{}", seen[1].1);
+        assert_eq!(pinned_main(&e, work, "R1").as_deref(), Some(latest.as_str()), "{log}");
+        assert_eq!(main_fetch_failed(&e, work, "R1"), None, "{log}");
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
+}
+
+// Where main cannot be fetched and the checkout has no commit of main either, the round does not start: with the network
+// up the work is paused and says why, the failed fetch first, and with it down every work waits for it, and goes on
+// from its cell once it is back.
+#[test]
+fn a_round_does_not_start_when_main_cannot_be_fetched_and_the_checkout_has_none() {
+    for up in [true, false] {
+        let s = setup(&format!("main-gone-{up}"));
+        let (mut e, said, item, net) = stands_at_g1(&s, scripts(), up);
+        git(
+            &s.root.join("checkout"),
+            &["update-ref", "-d", "refs/remotes/origin/main"],
+        );
+        let away = s.root.join("origin-away");
+        std::fs::rename(&s.origin, &away).unwrap();
+        e.pass(&Go::default()).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        let work = state(&e, item).unwrap().0;
+        let rounds_at_g1 = |e: &Engine| -> i64 {
+            e.db.conn()
+                .query_row(
+                    "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'G1'",
+                    [work],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(rounds_at_g1(&e), 0, "{log}");
+        let (_, _, paused) = state(&e, item).unwrap();
+        if up {
+            let why = paused.unwrap_or_else(|| panic!("not paused\n{log}"));
+            assert!(
+                why.starts_with("cell G1: project p: main of o/p could not be fetched"),
+                "{why}"
+            );
+            assert!(why.contains("origin/main is not in the checkout"), "{why}");
+        } else {
+            assert_eq!(paused, None, "{log}");
+            assert_eq!(e.halt().map(|h| h.kind).as_deref(), Some("offline"), "{log}");
+            // Back: the round starts from its cell.
+            std::fs::rename(&away, &s.origin).unwrap();
+            net.store(true, Ordering::SeqCst);
+            e.set_halt(e.halt().map(|h| engine::Halt { until: 0, ..h }));
+            e.pass(&Go::default()).unwrap();
+            let log = said.lock().unwrap().join("\n");
+            assert_eq!(rounds_at_g1(&e), 1, "{log}");
+            assert_eq!(state(&e, item).unwrap().2, None, "{log}");
+        }
+        let _ = std::fs::remove_dir_all(&s.root);
+    }
+}
+
+// The message a work's next round would be sent is built with nothing run, recorded or fetched: it shows the project as
+// main is in the checkout now, and leaves the checkout's refs as they were. The round itself fetches.
+#[test]
+fn the_preview_of_a_message_fetches_nothing_and_the_round_does() {
+    let s = setup("main-preview");
+    no_reply_wait(&s);
+    names_a_constitution(&s);
+    let checkout = s.root.join("checkout");
+    main_moves_on(
+        &s.root,
+        &[("CONSTITUTION.md", "## Article 1. Small\n\nKeep it small.\n")],
+        "A constitution",
+    );
+    git(&checkout, &["fetch", "-q", "origin", "main"]);
+    let fetched = git(&checkout, &["rev-parse", "origin/main"]);
+    main_moves_on(
+        &s.root,
+        &[("CONSTITUTION.md", "## Article 1. Small\n\nKeep it smaller, always.\n")],
+        "A stricter constitution",
+    );
+    let mut agents = scripts();
+    let seen = keeps_prompts(&mut agents, &["U1"], |_: &Request, _: usize| (Vec::new(), Vec::new()));
+    let (mut e, _) = engine(&s, agents);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    let preview = engine::next_message(&mut e, arch).unwrap().text;
+    assert!(preview.contains("Keep it small."), "{preview}");
+    assert!(!preview.contains("Keep it smaller, always."), "{preview}");
+    assert_eq!(git(&checkout, &["rev-parse", "origin/main"]), fetched);
+    // The round fetches main, and is given what it has.
+    e.advance(arch).unwrap();
+    let prompt = seen.lock().unwrap()[0].1.clone();
+    assert!(prompt.contains("Keep it smaller, always."), "{prompt}");
+    assert_eq!(
+        git(&checkout, &["rev-parse", "origin/main"]),
+        git(&s.origin, &["rev-parse", "main"])
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Nothing of a project is read from its checkout's own branch or files: a checkout with no `origin/main` has no text to
+// give, though its branch and its files are there, and the message says which ref is missing.
+#[test]
+fn a_checkout_without_the_remote_s_main_gives_no_text_from_its_own_branch() {
+    let s = setup("main-no-remote");
+    no_reply_wait(&s);
+    let checkout = s.root.join("checkout");
+    git(&checkout, &["update-ref", "-d", "refs/remotes/origin/main"]);
+    assert!(checkout.join("AGENTS.md").exists());
+    let (mut e, _) = engine(&s, scripts());
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    let err = match engine::next_message(&mut e, arch) {
+        Ok(m) => panic!("a message was built from the checkout's own files: {}", m.text),
+        Err(err) => err,
+    };
+    assert!(err.contains("project p") && err.contains("origin/main"), "{err}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -15486,6 +17452,46 @@ fn growing(name: &str, times: usize) -> (Setup, Engine, Arc<Mutex<Vec<String>>>,
     (s, e, said, item)
 }
 
+// A cancel asked while a round runs that the run guard then stops: the cancel is looked at first, so the cell does not
+// run again in a new session, nothing counts as a failed run, and the loop ends the work.
+#[test]
+fn a_round_the_run_guard_stops_under_a_cancel_is_not_run_again() {
+    let s = setup("guard-under-cancel");
+    let hold = Gate::default();
+    let h = hold.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, _: usize| {
+            h.pass();
+            (Vec::new(), vec![("@stream", calls_of(&[10_000, 30_000]))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    history(&mut e, "R1", 19, &usual);
+    hold.shut();
+    let came = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(came, "{log}");
+    let work = state(&e, item).unwrap().0;
+    cancel(&mut e, item, "owner");
+    hold.open();
+    let ended = turns_until(&mut e, &Go::default(), |e| ended_why(e, work).is_some());
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert!(ended, "{log}");
+    assert_eq!(
+        guard_events(&e),
+        [("growth".to_string(), "stopped".to_string())],
+        "{log}"
+    );
+    assert_eq!(hold.came(), 1, "{log}");
+    assert_eq!(failed_kinds(&e), Vec::<String>::new(), "{log}");
+    assert_eq!(paused_by(&e, work), None, "{log}");
+    assert_eq!(cancelled_why(&e, item).as_deref(), Some("no longer needed"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A round whose context grows past both of its cell's lines is stopped at the call that passes them: it is the kind
 // `guarded`, and not a run that merely failed; the line's session ends, the cell runs again in a new one told why, and
 // the owner hears of it. What the calls cost stands for the report the run never reached, and the round stopped joins
@@ -15940,5 +17946,574 @@ fn a_works_graph_is_made_once_and_shared() {
     let first = e.graph_of(&w).unwrap();
     let again = e.graph_of(&w).unwrap();
     assert!(std::sync::Arc::ptr_eq(&first, &again));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// How many times a work took the rows that count a counter, as the view `work_counters` says.
+fn counted(e: &Engine, work: i64, counter: &str) -> i64 {
+    e.db.conn()
+        .query_row(
+            "SELECT coalesce(sum(times), 0) FROM work_counters WHERE work = ?1 AND counter = ?2",
+            params![work, counter],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+
+/// The row each round of a work took at its cell, oldest first, as the view `round_rows` says.
+fn rows_taken(e: &Engine, work: i64) -> Vec<(String, Option<String>)> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT cell, took FROM round_rows WHERE work = ?1 ORDER BY round")
+            .unwrap();
+    st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// The architect's work at `U1`, with its project's remote at `url` from now on, and no wait for a step that failed to
+/// be taken again.
+fn architect_with_remote(s: &Setup, url: &str) -> (Engine, Arc<Mutex<Vec<String>>>, i64) {
+    no_reply_wait(s);
+    let (mut e, said) = engine(s, scripts());
+    quiet(&mut e);
+    e.backoff_unit = Duration::ZERO;
+    let arch = architect_work_at(&mut e, "U1");
+    git(&s.root.join("checkout"), &["remote", "set-url", "origin", url]);
+    (e, said, arch)
+}
+
+/// A remote that refuses every connection, as a network that fails in passing does.
+const REFUSED: &str = "http://127.0.0.1:1/p.git";
+
+/// Limits the project sets on counters of the flow, committed to the configuration.
+fn limit_on(s: &Setup, limits: &[(&str, u64)]) {
+    let project = std::fs::read_to_string(s.data.join("projects/p.toml")).unwrap();
+    let limits: String = limits.iter().map(|(c, n)| format!("{c} = {n}\n")).collect();
+    write(&s.data, "projects/p.toml", &format!("{project}\n[limits]\n{limits}"));
+    git(&s.data, &["commit", "-q", "-am", "limits on counters"]);
+}
+
+// The rows the engine itself takes for a round or a step that failed in passing count `retries`, and a return sent back
+// counts `sent_back`: a project's limit on either is told to the owner once, as the count passes it, and the work goes
+// on. Here a failed step of the architect's work passes a limit of 1 on its second time.
+#[test]
+fn a_step_taken_again_past_its_projects_limit_tells_the_owner_once() {
+    let s = setup("limit-step");
+    limit_on(&s, &[("retries", 1)]);
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    for _ in 0..3 {
+        e.advance(arch).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(counted(&e, arch, "retries"), 3, "{log}");
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(told(&s, "passed the limit its project sets on retries"), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The same for the agent's rounds: two runs that end in passing failures pass a limit of 1 on `retries` at the second,
+// and two returns sent back pass a limit of 1 on `sent_back` at the second; each is told once.
+#[test]
+fn a_round_run_again_or_sent_back_past_its_projects_limit_tells_the_owner_once() {
+    let s = setup("limit-round");
+    limit_on(&s, &[("retries", 1), ("sent_back", 1)]);
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| match n {
+            1 | 2 => (Vec::new(), vec![("@error", json!("API Error: 529 Overloaded"))]),
+            3 | 4 => (Vec::new(), vec![("outcome", json!("not an object"))]),
+            _ => (Vec::new(), Vec::new()),
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    for _ in 0..12 {
+        e.tick().unwrap();
+        let work = state(&e, item).unwrap().0;
+        if counted(&e, work, "retries") >= 2 && counted(&e, work, "sent_back") >= 2 {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let work = state(&e, item).unwrap().0;
+    assert_eq!(
+        (counted(&e, work, "retries"), counted(&e, work, "sent_back")),
+        (2, 2),
+        "{log}"
+    );
+    assert_eq!(told(&s, "passed the limit its project sets on retries"), 1, "{log}");
+    assert_eq!(told(&s, "passed the limit its project sets on sent_back"), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A step of the engine's before the architect's round that fails the way the network does by itself does not pause the
+// work: the failure is recorded on the cell with its text, counted as a retry, and the step is taken again, after which
+// the round runs as if nothing had happened, and is told nothing of the failed step.
+#[test]
+fn a_step_that_fails_like_the_network_is_taken_again() {
+    let s = setup("step-network");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    // First, that the work did not pause: this is what the code before the change fails, where there is no view
+    // `round_rows` to read the rows from yet.
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(
+        rows_taken(&e, arch),
+        [("U1".to_string(), Some("step_network".to_string()))],
+        "{log}"
+    );
+    assert_eq!(counted(&e, arch, "retries"), 1, "{log}");
+    let (input, rejected): (String, String) =
+        e.db.conn()
+            .query_row(
+                "SELECT input, rejected FROM rounds WHERE work = ?1 AND n = 1",
+                [arch],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert!(input.contains("127.0.0.1"), "{input}");
+    assert!(
+        rejected.contains("step_network") && !rejected.contains("over"),
+        "{rejected}"
+    );
+    // The remote answers again: the step is taken again and the round runs.
+    git(
+        &s.root.join("checkout"),
+        &["remote", "set-url", "origin", &s.origin.to_string_lossy()],
+    );
+    for _ in 0..3 {
+        e.advance(arch).unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    let rows = rows_taken(&e, arch);
+    assert_eq!(rows[0], ("U1".to_string(), Some("step_network".to_string())), "{log}");
+    assert!(
+        rows.len() > 1 && rows[1].1.as_deref() != Some("step_network"),
+        "{rows:?}\n{log}"
+    );
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(counted(&e, arch, "retries"), 1, "{log}");
+    // The round that ran is the cell's last; its message says nothing of the step that failed before it.
+    let message = message_at(&e, arch, "U1", true);
+    assert!(
+        message.contains("cell U1") && !message.contains("step_network"),
+        "{message}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A step that fails for any cause but the network's is not taken again: the work pauses at once, with the reason, and
+// no round records a retry.
+#[test]
+fn a_step_that_fails_for_another_cause_pauses_the_work_at_once() {
+    let s = setup("step-other");
+    let (mut e, said, arch) = architect_with_remote(&s, "/nonexistent/p.git");
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    let why: String =
+        e.db.conn()
+            .query_row("SELECT paused FROM works WHERE id = ?1", [arch], |r| r.get(0))
+            .unwrap();
+    assert!(why.contains("could not be brought to main"), "{why}");
+    assert!(rows_taken(&e, arch).is_empty(), "{log}");
+    assert_eq!(counted(&e, arch, "retries"), 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A step that keeps failing like the network pauses the work and tells the owner once the flow's bound of failures in a
+// row is passed, the architect's own work as much as any; the owner's Start counts afresh.
+#[test]
+fn a_step_that_keeps_failing_like_the_network_pauses_the_work_past_its_bound() {
+    let s = setup("step-bound");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    let mut advances = 0;
+    for _ in 0..12 {
+        e.advance(arch).unwrap();
+        advances += 1;
+        if paused_by(&e, arch).is_some() {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    // Five failures are taken again and the sixth pauses; the code before the change pauses at the first. This comes
+    // before any read of the view `round_rows`, which the code before the change does not have.
+    assert_eq!(advances, 6, "{log}");
+    let rows: Vec<Option<String>> = rows_taken(&e, arch).into_iter().map(|r| r.1).collect();
+    let mut want = vec![Some("step_network".to_string()); 5];
+    want.push(Some("step_network_too_often".to_string()));
+    assert_eq!(rows, want, "{log}");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    assert_eq!(counted(&e, arch, "retries"), 5, "{log}");
+    assert!(told(&s, "6 times in a row") > 0, "{log}");
+    // Once the owner lets the work go on, it counts afresh: the next failure is retried, not paused.
+    api::resume(&mut e.db, arch).unwrap();
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(
+        rows_taken(&e, arch).last().and_then(|r| r.1.clone()).as_deref(),
+        Some("step_network"),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A passing failure of the agent's run is run again only up to the flow's bound of failures in a row: past it, the work
+// pauses and the owner is told. Each run again is counted as a retry, and the run past the bound as none.
+#[test]
+fn a_passing_failure_pauses_the_work_past_its_bound() {
+    let (s, mut e, said, item) = failing("transient-bound", "API Error: 529 Overloaded".to_string(), 100);
+    for _ in 0..30 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "R1", "{log}");
+    assert!(
+        paused
+            .as_deref()
+            .is_some_and(|p| p.contains("once more after 8 times in a row")),
+        "{paused:?}\n{log}"
+    );
+    assert_eq!(failed_kinds(&e), vec!["transient"; 9], "{log}");
+    assert_eq!(counted(&e, work, "retries"), 8, "{log}");
+    assert_eq!(
+        rows_taken(&e, work).last().and_then(|r| r.1.clone()).as_deref(),
+        Some("transient_too_often"),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Failures are in a row only until a row of an agent is taken: eight failures, a return, and one more failure are not
+// nine in a row, and the ninth is not past the bound.
+#[test]
+fn failures_with_a_return_between_are_not_in_a_row() {
+    let s = setup("far-apart");
+    no_reply_wait(&s);
+    let mut scripts = scripts();
+    scripts.insert(
+        "U1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("@error", json!("API Error: 529 Overloaded"))])),
+    );
+    let (mut e, said) = engine(&s, scripts);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    // Eight failures, as many as the flow runs again, and a return of an agent after them.
+    let transient = Some(json!({ "failed": { "kind": "transient", "what": "529 Overloaded" } }));
+    let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..8).map(|_| ("U1", None, transient.clone())).collect();
+    past.push(("H9", Some("done"), None));
+    past_rounds(&mut e, arch, &past);
+    // The next failure is the first in its row: it is run again, not paused (it would be past the bound if the eight
+    // before the return were counted).
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(
+        rows_after(&e, arch, past.len()),
+        [Some("transient".to_string())],
+        "{log}"
+    );
+    assert_eq!(counted(&e, arch, "retries"), 9, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Rounds already in a work's history, oldest first, each as `(cell, row taken, rejected)`; they began an hour before
+/// now, so that an owner's Start after them ends the row they are in.
+fn past_rounds(e: &mut Engine, work: i64, rounds: &[(&str, Option<&str>, Option<Value>)]) {
+    let first = db::now() - 3_600_000;
+    e.db.write(Actor::Engine, |tx| {
+        for (i, (cell, row, rejected)) in rounds.iter().enumerate() {
+            let at = first + i as i64;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, output, transition, rejected, config_commit, started_at, ended_at)
+                 VALUES (?1, ?2, ?3, '{}', ?4, ?5, ?6, 'c', ?7, ?7)",
+                params![
+                    work,
+                    i as i64 + 1,
+                    cell,
+                    row.map(|_| "{}"),
+                    row,
+                    rejected.as_ref().map(Value::to_string),
+                    at
+                ],
+            )?;
+        }
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// The rejection a round has that a step of the engine's before it failed like the network.
+fn step_failed() -> Option<Value> {
+    Some(json!({ "failed": { "kind": "step_network", "what": "channel 0: open failed: administratively prohibited" } }))
+}
+
+/// The rows a work took after its first `skip` rounds.
+fn rows_after(e: &Engine, work: i64, skip: usize) -> Vec<Option<String>> {
+    rows_taken(e, work).into_iter().skip(skip).map(|r| r.1).collect()
+}
+
+/// Advances a work until it is paused, at most `most` times.
+fn advance_to_pause(e: &mut Engine, work: i64, most: usize) {
+    for _ in 0..most {
+        e.advance(work).unwrap();
+        if paused_by(e, work).is_some() {
+            break;
+        }
+    }
+}
+
+// Five failures of the step and then a return of an agent: the return is a row from outside the engine, so the
+// failures after it are counted afresh, and all five of them are run again before the sixth pauses (a count that kept
+// the five before the return would pause at the first).
+#[test]
+fn step_failures_before_a_return_of_an_agent_are_not_in_a_row_with_those_after_it() {
+    let s = setup("step-reset");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    let mut past: Vec<(&str, Option<&str>, Option<Value>)> = (0..5).map(|_| ("U1", None, step_failed())).collect();
+    past.push(("H9", Some("done"), None));
+    past_rounds(&mut e, arch, &past);
+    advance_to_pause(&mut e, arch, 12);
+    let log = said.lock().unwrap().join("\n");
+    let mut want = vec![Some("step_network".to_string()); 5];
+    want.push(Some("step_network_too_often".to_string()));
+    assert_eq!(rows_after(&e, arch, 6), want, "{log}");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Rows of the engine's between two failures of the step neither count nor start the count afresh: a failed run, a
+// round cut off and the engine's own cell between five failures leave the sixth past the bound.
+#[test]
+fn step_failures_with_only_rows_of_the_engine_between_are_in_a_row() {
+    let s = setup("step-engine-rows");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    let transient = Some(json!({ "failed": { "kind": "transient", "what": "529 Overloaded" } }));
+    let cut_off = Some(json!({ "interrupted": "the engine stopped before this round ended; it runs again" }));
+    let past: Vec<(&str, Option<&str>, Option<Value>)> = vec![
+        ("U1", None, step_failed()),
+        ("U1", None, step_failed()),
+        ("U1", None, step_failed()),
+        ("Q0", Some("waits"), None),
+        ("U1", None, transient),
+        ("U1", None, cut_off),
+        ("U1", None, step_failed()),
+        ("U1", None, step_failed()),
+    ];
+    past_rounds(&mut e, arch, &past);
+    advance_to_pause(&mut e, arch, 12);
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        rows_after(&e, arch, past.len()),
+        [Some("step_network_too_often".to_string())],
+        "{log}"
+    );
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    assert!(told(&s, "6 times in a row") > 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A record of a step that failed before the cell's round is no run of the cell: after a run the service refused and a
+// step that failed like the network, a run refused again pauses the work at once, since the run before the step's
+// record was refused too. (A reading that took the step's record for the round before would find the first refusal
+// of its kind and not pause the work yet.)
+#[test]
+fn a_run_refused_after_a_step_that_failed_pauses_the_work_at_once() {
+    let s = setup("refused-at-once");
+    no_reply_wait(&s);
+    let mut scripts = scripts();
+    scripts.insert(
+        "U1",
+        Box::new(|_: &Request, _: usize| {
+            let flagged = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup)";
+            (Vec::new(), vec![("@error", json!(flagged))])
+        }),
+    );
+    let (mut e, said) = engine(&s, scripts);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    let flagged = Some(json!({ "failed": { "kind": "flagged", "what": "flagged" } }));
+    past_rounds(&mut e, arch, &[("U1", None, flagged), ("U1", None, step_failed())]);
+    e.advance(arch).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, arch).as_deref(), Some("engine"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A step that failed waits as long as the flow's backoff says for the time it failed (5, 15, then 45 of its seconds, a
+// second here being an hour), and not for a shorter or a longer one: the round that runs it again is not begun before
+// the wait is over, and is begun once it is.
+#[test]
+fn a_step_that_failed_is_taken_again_only_after_the_waits_the_flow_gives() {
+    let s = setup("step-backoff");
+    let (mut e, said, arch) = architect_with_remote(&s, REFUSED);
+    e.backoff_unit = Duration::from_secs(3600);
+    let hour = 3_600_000;
+    // The round that failed ended `ago` ago.
+    let ended_ago = |e: &Engine, round: i64, ago: i64| {
+        e.db.conn()
+            .execute(
+                "UPDATE rounds SET ended_at = ?3 WHERE work = ?1 AND n = ?2",
+                params![arch, round, db::now() - ago],
+            )
+            .unwrap();
+    };
+    for (round, hours) in [(1_i64, 5_i64), (2, 15), (3, 45)] {
+        e.advance(arch).unwrap();
+        let log = said.lock().unwrap().join("\n");
+        assert_eq!(rows_taken(&e, arch).len() as i64, round, "{log}");
+        // A minute short of the wait: nothing runs.
+        ended_ago(&e, round, hours * hour - 60_000);
+        e.advance(arch).unwrap();
+        e.advance(arch).unwrap();
+        assert_eq!(rows_taken(&e, arch).len() as i64, round, "{round}: {log}");
+        assert_eq!(paused_by(&e, arch), None, "{log}");
+        // A minute past it: the step is taken again, and fails again.
+        ended_ago(&e, round, hours * hour + 60_000);
+    }
+    e.advance(arch).unwrap();
+    assert_eq!(rows_taken(&e, arch).len(), 4, "{}", said.lock().unwrap().join("\n"));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner's Start counts the failed runs of an agent afresh as it does the steps': once the work paused past the
+// bound is let go on, the next failure is run again, not paused.
+#[test]
+fn a_passing_failure_after_the_owner_s_start_is_run_again() {
+    let (s, mut e, said, item) = failing("transient-start", "API Error: 529 Overloaded".to_string(), 100);
+    for _ in 0..30 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let (work, _, paused) = state(&e, item).unwrap();
+    assert!(paused.is_some(), "{}", said.lock().unwrap().join("\n"));
+    let before = rows_taken(&e, work).len();
+    api::resume(&mut e.db, work).unwrap();
+    for _ in 0..2 {
+        e.tick().unwrap();
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(state(&e, item).unwrap().2, None, "{log}");
+    let rows = rows_after(&e, work, before);
+    assert_eq!(rows.first(), Some(&Some("transient".to_string())), "{rows:?}\n{log}");
+    assert!(
+        rows.iter().all(|r| r.as_deref() == Some("transient")),
+        "{rows:?}\n{log}"
+    );
+    assert_eq!(counted(&e, work, "retries"), 8 + rows.len() as i64, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Returns sent back pause the work after the flow's own number, 3, and each is counted.
+#[test]
+fn three_returns_sent_back_in_a_row_pause_the_work() {
+    let s = setup("sent-back-three");
+    let mut scripts = scripts();
+    scripts.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| (Vec::new(), vec![("outcome", json!("not an object"))])),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    for _ in 0..12 {
+        e.tick().unwrap();
+        if state(&e, item).unwrap().2.is_some() {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(at, "R1", "{log}");
+    assert!(
+        paused
+            .as_deref()
+            .is_some_and(|p| p.starts_with("3 returns in a row were sent back, the last at cell R1")),
+        "{paused:?}\n{log}"
+    );
+    assert_eq!(sent_back(&e), 3, "{log}");
+    assert_eq!(
+        (counted(&e, work, "sent_back"), counted(&e, work, "retries")),
+        (3, 0),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A return of an agent taken between two cells' returns sent back starts the count afresh: two sent back at one cell,
+// its return taken, and two at the next are four, and pause nothing (they would at three).
+#[test]
+fn returns_sent_back_either_side_of_a_return_taken_are_not_in_a_row() {
+    let s = setup("sent-back-apart");
+    let mut scripts = scripts();
+    for cell in ["R1", "R2"] {
+        scripts.insert(
+            cell,
+            Box::new(|_: &Request, n: usize| {
+                let bad = vec![("outcome", json!("not an object"))];
+                (Vec::new(), if n <= 2 { bad } else { Vec::new() })
+            }),
+        );
+    }
+    let (mut e, said, item) = start(&s, scripts);
+    for _ in 0..20 {
+        e.tick().unwrap();
+        let (_, at, paused) = state(&e, item).unwrap();
+        if paused.is_some() || !matches!(at.as_str(), "R1" | "R2") {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    let (work, at, paused) = state(&e, item).unwrap();
+    assert_eq!(paused, None, "{log}");
+    assert!(!matches!(at.as_str(), "R1" | "R2"), "{at}\n{log}");
+    assert_eq!(sent_back(&e), 4, "{log}");
+    assert_eq!(
+        (counted(&e, work, "sent_back"), counted(&e, work, "retries")),
+        (4, 0),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// `retries` is one counter for a step that failed and a run that failed: with a limit of 1, one step taken again and
+// then one run taken again pass it at the run, which is told once, and the next run taken again is told no more.
+#[test]
+fn a_limit_on_retries_is_told_once_whichever_row_takes_the_count_past_it() {
+    let s = setup("limit-mixed");
+    limit_on(&s, &[("retries", 1)]);
+    no_reply_wait(&s);
+    let mut scripts = scripts();
+    scripts.insert(
+        "U1",
+        Box::new(|_: &Request, n: usize| {
+            let fail = vec![("@error", json!("API Error: 529 Overloaded"))];
+            (Vec::new(), if n <= 2 { fail } else { Vec::new() })
+        }),
+    );
+    let (mut e, said) = engine(&s, scripts);
+    quiet(&mut e);
+    let arch = architect_work_at(&mut e, "U1");
+    // One step taken again already: the count is at the limit, not past it.
+    past_rounds(&mut e, arch, &[("U1", None, step_failed())]);
+    let phrase = "passed the limit its project sets on retries";
+    for _ in 0..6 {
+        e.advance(arch).unwrap();
+        if counted(&e, arch, "retries") >= 3 {
+            break;
+        }
+    }
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(counted(&e, arch, "retries"), 3, "{log}");
+    assert_eq!(paused_by(&e, arch), None, "{log}");
+    assert_eq!(told(&s, phrase), 1, "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }

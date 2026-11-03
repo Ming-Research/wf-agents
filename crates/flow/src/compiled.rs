@@ -13,7 +13,8 @@ use crate::check::Analysis;
 use crate::field::{Field, segment};
 use crate::format::{
     Always, Atom, BlockerCell, Blockers, Check, Choice, Counter, Do, EngineNames, EnumText, FRESH_SESSION, Form,
-    GUARDED, Handle, Kind, NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src,
+    GUARDED, Handle, Kind, NOTHING_TO_ANSWER, Named, OPEN_SESSION, PromptBy, ReadBy, Rounds, Rule, Src, Then,
+    too_often,
 };
 use crate::graph::{Cell, CellKind, Graph, ensure};
 
@@ -1055,7 +1056,7 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
         write: f.agent_common.returns.write.clone(),
         once: f.agent_common.returns.once.clone(),
         rounds: match &f.rounds {
-            Some(r) => Some(rounds(r, &cells)?),
+            Some(r) => Some(rounds(r, &f.limits.counters, &cells)?),
             None => None,
         },
         blockers: f.blockers.clone(),
@@ -1064,9 +1065,47 @@ pub(crate) fn graph(g: &Graph, a: &Analysis) -> Result<(CompiledGraph, Stats), S
     Ok((out, stats))
 }
 
-/// The rounds section as written, once every agent's cell can have a shared row of each kind's name.
-fn rounds(r: &Rounds, cells: &[CompiledCell]) -> Result<Rounds, String> {
+/// The rounds section as written, once every row that runs again is bounded and ends in a pause, every counter it names
+/// is one the flow has, and every agent's cell can have a shared row of each kind's name.
+fn rounds(r: &Rounds, counters: &[Counter], cells: &[CompiledCell]) -> Result<Rounds, String> {
     ensure!(r.sent_back.pause_after > 1, "rounds.sentBack.pauseAfter is less than 2");
+    for k in &r.failed.kinds {
+        let at = format!("rounds.failed.kinds[{}]", k.name);
+        if k.handle == Handle::Retry {
+            ensure!(
+                k.in_row.is_some_and(|n| n > 0) && k.then == Some(Then::Pause),
+                "{at} runs again with no bound: it needs inRow, at least 1, and then: pause"
+            );
+        } else {
+            ensure!(
+                k.in_row.is_none() && k.then.is_none(),
+                "{at} has inRow or then, and only a kind that runs again has them"
+            );
+        }
+        ensure!(
+            k.handle != Handle::Wait || k.counts.is_none(),
+            "{at} waits for someone, and a row that waits counts nothing"
+        );
+    }
+    for k in &r.engine {
+        let at = format!("rounds.engine[{}]", k.name);
+        if k.in_row.is_some() || !k.backoff.is_empty() || k.then.is_some() {
+            ensure!(
+                k.in_row.is_some_and(|n| n > 0) && !k.backoff.is_empty() && k.then == Some(Then::Pause),
+                "{at} runs again with no bound: it needs inRow, at least 1, backoff, and then: pause"
+            );
+            ensure!(
+                !k.pauses,
+                "{at} runs again, and its pause is the row for being taken too often"
+            );
+        }
+    }
+    for c in r.counters() {
+        ensure!(
+            counters.iter().any(|x| x.name == c && !x.time),
+            "rounds section: no such counter, or one the engine measures: {c}"
+        );
+    }
     // A round the guard stops takes this kind's row, which runs it again in a new session; a stop with no row would be
     // a step off the chart.
     let guarded = r.failed.kinds.iter().find(|k| k.name == GUARDED);
@@ -1146,10 +1185,36 @@ fn nothing_to_answer_row(c: &Cell) -> Option<CompiledRow> {
     })
 }
 
+/// The row a bounded row has for being taken as often in a row as its bound says: the work pauses, and the owner is
+/// told. It is the engine's case of its own, named after the row it bounds.
+fn too_often_row(name: &str, n: u32) -> CompiledRow {
+    let case = too_often(name);
+    CompiledRow {
+        name: case.clone(),
+        conditions: vec![Atom::Engine(case)],
+        to: "@self".to_string(),
+        sets: BTreeMap::new(),
+        actions: Vec::new(),
+        counts: None,
+        waits: false,
+        pauses: true,
+        interject: false,
+        main: false,
+        drops: false,
+        passes: false,
+        common: false,
+        fallback: true,
+        note: Some(format!(
+            "{n} times in a row the row {name} was taken, with no row of an agent, a tool or the owner between: the engine pauses the work at the cell and tells the owner, with the last reason. Once the owner lets the work go on, the cell runs again and the count starts afresh."
+        )),
+    }
+}
+
 /// The engine's fallback, the shared rows every agent's cell has for a round that ends in no return it takes, as the
 /// rounds section says: a return sent back runs the cell again, and so many in a row pause the work first; a failed
 /// run of each kind runs it again once the cause passes, or after a wait, or once the owner lets the paused work go
-/// on; and each of the engine's own cases does as it says.
+/// on, and one that runs again has a row of its own for so many in a row, which pauses the work; and each of the
+/// engine's own cases does as it says.
 fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
     let row = |name: &str, atom: Atom, note: &str| CompiledRow {
         name: name.to_string(),
@@ -1177,18 +1242,25 @@ fn no_return_rows(r: &Rounds) -> Vec<CompiledRow> {
                 &r.sent_back.pause,
             )
         },
-        row("sent_back", Atom::SentBack(None), &r.sent_back.desc),
+        CompiledRow {
+            counts: r.sent_back.counts.clone(),
+            ..row("sent_back", Atom::SentBack(None), &r.sent_back.desc)
+        },
     ];
     for k in &r.failed.kinds {
+        out.extend(k.in_row.map(|n| too_often_row(&k.name, n)));
         out.push(CompiledRow {
             waits: k.handle == Handle::Wait,
             pauses: matches!(k.handle, Handle::Pause | Handle::Fresh | Handle::Repair),
+            counts: k.counts.clone(),
             ..row(&k.name, Atom::Failed(k.name.clone()), &format!("{} {}", k.when, k.desc))
         });
     }
     for k in &r.engine {
+        out.extend(k.in_row.map(|n| too_often_row(&k.name, n)));
         out.push(CompiledRow {
             pauses: k.pauses,
+            counts: k.counts.clone(),
             ..row(&k.name, Atom::Engine(k.name.clone()), &format!("{} {}", k.when, k.desc))
         });
     }
@@ -1212,7 +1284,9 @@ mod tests {
         let mut section = flow["flows"][0]["rounds"].clone();
         change(&mut section);
         let r: Rounds = serde_json::from_value(section).unwrap();
-        rounds(&r, &[]).unwrap_err()
+        // The counters the rounds section names are the flow's, and no cell is checked for its shared rows here.
+        let counters: Vec<Counter> = serde_json::from_value(flow["flows"][0]["limits"]["counters"].clone()).unwrap();
+        rounds(&r, &counters, &[]).unwrap_err()
     }
 
     // A stop with no row to take, or a row no stop leads to, would not be what the chart says; the rule's rounds are the

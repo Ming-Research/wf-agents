@@ -341,14 +341,87 @@ pub fn answered(e: &Engine, w: &Work, g: &CompiledGraph, cell: &str) -> Result<V
         .collect())
 }
 
+/// Whether a cell has an input that reads the project's files on its main ([`crate::architect::MAIN_INPUTS`]).
+pub fn reads_main(cell: &CompiledCell) -> bool {
+    cell.inputs
+        .iter()
+        .flat_map(|x| &x.from)
+        .any(|s| matches!(s, Src::Engine(n) if crate::architect::MAIN_INPUTS.contains(&n.as_str())))
+}
+
+/// What a round is pinned to: the commit of the project's main its inputs that read the project's files on main are
+/// read at, and why main could not be fetched for it when it could not, with the commit it is read at all the same.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Pin {
+    /// The commit; none for a cell with no input that reads main.
+    pub commit: Option<String>,
+    /// Why the fetch of main failed, when it did and the commit is the one the checkout had from an earlier fetch.
+    pub fetch_failed: Option<String>,
+}
+
+impl Pin {
+    /// Writes what the round's record keeps of it into its `engine` part: `main`, the commit, and, when the fetch
+    /// failed, `main_fetch_failed`, why.
+    pub fn record(&self, engine: &mut Value) {
+        engine["main"] = json!(self.commit);
+        if let Some(why) = &self.fetch_failed {
+            engine["main_fetch_failed"] = json!(why);
+        }
+    }
+}
+
+/// The commit of the project's main that a round of a cell reads the project at, which every input of the cell that
+/// reads the project's files on its main is read at ([`crate::architect::MAIN_INPUTS`]), so that the round is given
+/// one version of the project, and which the round's record keeps ([`Pin::record`]): with `fetch`, after bringing
+/// `origin/<main>` in the project's checkout to the remote's main now, and else as the checkout has it. A fetch that
+/// fails does not stop the round while `origin/<main>` still has a commit from an earlier fetch: the round goes on at
+/// that commit, with why the fetch failed in the pin, and the engine says so. Nothing is retried. No commit of main is
+/// an error that names the project, the failed fetch first: the inputs cannot be computed, and the step that asked is
+/// paused or, with the network down, waits. A cell with no such input neither fetches nor reads main. A round that
+/// runs a cell on a project's architect's line is pinned by `steps::pin_round` instead: it brings the architect's
+/// worktree to main with the one fetch the round makes and pins the round to the commit the worktree is at.
+pub fn pin_main(e: &Engine, w: &Work, cell: &CompiledCell, item: Option<&Item>, fetch: bool) -> Result<Pin, String> {
+    if !reads_main(cell) {
+        return Ok(Pin::default());
+    }
+    let named = item.map(|i| i.project.as_str()).or(w.project.as_deref());
+    let Some((name, p)) = named.and_then(|n| e.config.config.projects.get(n).map(|p| (n, p))) else {
+        return Ok(Pin::default());
+    };
+    let fetch_failed = if fetch {
+        config::fetch_main(p).err().map(|x| format!("project {name}: {x}"))
+    } else {
+        None
+    };
+    match (config::main_commit(p), fetch_failed) {
+        (Ok(commit), failed) => {
+            if let Some(why) = &failed {
+                e.say(&format!(
+                    "work {} cell {}: {why}; the round goes on at {commit}, which an earlier fetch left",
+                    w.id, cell.id
+                ));
+            }
+            Ok(Pin {
+                commit: Some(commit),
+                fetch_failed: failed,
+            })
+        }
+        (Err(x), Some(failed)) => Err(format!("{failed}; and then {x}")),
+        (Err(x), None) => Err(format!("project {name}: {x}")),
+    }
+}
+
 /// Gathers every input of a cell. A work of the architect is on no item but for a project, so an input read for the
-/// item has nothing for it, and one read for the project is its project's.
+/// item has nothing for it, and one read for the project is its project's. `main` is the commit of the project's main
+/// the round is pinned to ([`Pin::commit`] of [`pin_main`]), which the inputs that read the project's files on main are
+/// read at; a step that starts no round gives none, and they are then read at the commit `origin/<main>` is at now.
 pub fn gather(
     e: &Engine,
     w: &Work,
     g: &CompiledGraph,
     cell: &CompiledCell,
     item: Option<&Item>,
+    main: Option<&str>,
 ) -> Result<Vec<Gathered>, String> {
     let mut out = Vec::new();
     // The cell's own last answer, which an input that reads only what it has not answered reads after.
@@ -361,7 +434,7 @@ pub fn gather(
                 // What the cell before this one answered of the matter, and for a group of matters, of the others too:
                 // one place of its return for each.
                 Src::Engine(n) if n == crate::architect::BEFORE => parts.extend(crate::architect::before(e, w, g)?),
-                _ => parts.extend(source(e, w, g, cell, item, s, x.newest, after)?),
+                _ => parts.extend(source(e, w, g, cell, item, s, x.newest, after, main)?),
             }
         }
         let value = match parts.as_slice() {
@@ -416,6 +489,7 @@ fn source(
     s: &Src,
     newest: bool,
     after: Option<RoundId>,
+    main: Option<&str>,
 ) -> Result<Option<Part>, String> {
     Ok(match s {
         Src::Place(c, p) => {
@@ -511,7 +585,7 @@ fn source(
             origin: Origin::Engine(n.clone()),
             value: v,
         }),
-        Src::Engine(n) => engine_input(e, w, g, item, n)?.map(|v| Part {
+        Src::Engine(n) => engine_input(e, w, g, item, n, main)?.map(|v| Part {
             origin: Origin::Engine(n.clone()),
             value: v,
         }),
@@ -657,23 +731,25 @@ fn design_paths(e: &Engine, item: &Item) -> Vec<String> {
 }
 
 /// What the engine computes for an input; none when there is nothing. What the architect's cells read is computed by
-/// [`crate::architect`]; what is about an item has nothing for a work on no item.
+/// [`crate::architect`]; what is about an item has nothing for a work on no item. `main` is the commit of the
+/// project's main the round is pinned to, for the inputs that read it ([`crate::architect::MAIN_INPUTS`]).
 pub fn engine_input(
     e: &Engine,
     w: &Work,
     g: &CompiledGraph,
     item: Option<&Item>,
     name: &str,
+    main: Option<&str>,
 ) -> Result<Option<Value>, String> {
     // What the architect knows of the project, for a cell of an engineer's work on one of its items.
     if w.project.is_none()
         && let Some(item) = item
         && crate::architect::KNOWLEDGE.contains(&name)
     {
-        return crate::architect::knowledge(e, &item.project, item.id, name);
+        return crate::architect::knowledge(e, &item.project, item.id, name, main);
     }
     if crate::architect::INPUTS.contains(&name) {
-        return crate::architect::input(e, w, g, name);
+        return crate::architect::input(e, w, g, name, main);
     }
     // The reasoning system's rules and check, for the project of the work, an architect's included.
     if crate::reasoning::is_input(name) {
@@ -1015,5 +1091,47 @@ mod tests {
         assert_eq!((&rows[6]["kind"], &rows[6]["name"]), (&json!("red"), &json!("check")));
         assert_eq!(row_key(&rows[0]), Some("R1"));
         assert_eq!(row_key(&rows[4]), Some("passes_before"));
+    }
+
+    // The inputs that read the project's files on its main are listed by the architect's module, and the flow's cells
+    // declare them: a cell triggers a fetch and a commit of main for its round if and only if it declares one, and only
+    // an agent's cell does, since only a round of an agent is pinned to a commit.
+    #[test]
+    fn a_cell_reads_main_if_and_only_if_it_declares_an_input_that_does() {
+        let cx = flow::Context {
+            relations: db::relations(db::SCHEMA).unwrap(),
+            tables: db::index_of(db::SCHEMA).unwrap(),
+        };
+        let compiled = flow::compile(flow::FLOW, &cx).unwrap_or_else(|e| panic!("{e}"));
+        let main_inputs = crate::architect::MAIN_INPUTS;
+        let declares = |c: &CompiledCell, name: &str| {
+            c.inputs
+                .iter()
+                .any(|x| x.from.iter().any(|s| matches!(s, Src::Engine(n) if n.as_str() == name)))
+        };
+        let mut declared: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+        let mut agent = None;
+        for g in &compiled.graphs {
+            for c in &g.cells {
+                let has = main_inputs.iter().any(|n| declares(c, n));
+                assert_eq!(reads_main(c), has, "{} {}", g.name, c.id);
+                assert!(!has || c.kind == "agent", "{} {} is no agent's cell", g.name, c.id);
+                declared.extend(main_inputs.iter().copied().filter(|n| declares(c, n)));
+                if has && agent.is_none() {
+                    agent = Some(c.clone());
+                }
+            }
+        }
+        // Each is declared by some cell of the flow, and computed by the module that takes the commit of main.
+        assert_eq!(declared.len(), main_inputs.len(), "{declared:?}");
+        assert!(main_inputs.iter().all(|n| crate::architect::INPUTS.contains(n)));
+        // A cell with none of them reads no main.
+        let mut bare = agent.expect("some agent's cell reads main");
+        bare.inputs.retain(|x| {
+            !x.from
+                .iter()
+                .any(|s| matches!(s, Src::Engine(n) if main_inputs.contains(&n.as_str())))
+        });
+        assert!(!reads_main(&bare));
     }
 }

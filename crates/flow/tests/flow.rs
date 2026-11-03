@@ -29,6 +29,44 @@ fn the_engineer_graph_compiles_as_its_reference_has_it() {
     );
 }
 
+// A stop that comes before the merge is a row of the merge cell, drawn on the chart: it waits there for the engine's
+// loop to end the work, taken only at the work's turn in the queue. What depends on the order things happened in, and
+// not on a cell, no row can say, so the words the owner and the architect read say it: a cancel or a start over waits
+// for the step under way, a merge that came first stands, a cancel closes what a work taken over left, and a resume
+// waits for a free slot until a later pause withdraws it.
+#[test]
+fn a_stop_before_the_merge_is_a_row_and_the_rest_is_said_in_words() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let row = g.cell("M2").unwrap().rows.iter().find(|r| r.name == "stopped").unwrap();
+    assert_eq!(row.to, "M2");
+    assert!(row.waits && row.counts.is_none());
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let stop = v["engine"]["steps"]["stop_work"].as_str().unwrap();
+    assert!(stop.contains("once the step it is in has ended"), "{stop}");
+    assert!(stop.contains("A merge that came first stands"), "{stop}");
+    assert!(stop.contains("waits for its next start"), "{stop}");
+    assert!(
+        stop.contains("the cancel removes the worktree and closes the pull request"),
+        "{stop}"
+    );
+    let waits = v["engine"]["steps"]["wait_for_start"].as_str().unwrap();
+    assert!(waits.contains("withdraws a resume"), "{waits}");
+    for (said, want) in [
+        ("Cancel an item; its work ends", "once the step it is in has ended"),
+        (
+            "Cancel an item; its work ends",
+            "whose merge comes first, is not cancelled",
+        ),
+        ("Let a work you paused go on", "once its machine has a slot free"),
+        ("Let a work you paused go on", "later Pause or Step"),
+        ("Let a work you paused go on", "the engine's pause for a problem"),
+    ] {
+        let line = FLOW.lines().find(|l| l.contains(said)).unwrap();
+        assert!(line.contains(want), "{line}");
+    }
+}
+
 // The answers of a cell's list of forms are read from the flow built into the program: the fix has the answer made for
 // a fix in no commit, a field that is no list of forms and a cell the flow lacks give none.
 #[test]
@@ -914,6 +952,7 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "sent_back",
                 "usage_limit",
                 "offline",
+                "transient_too_often",
                 "transient",
                 "flagged",
                 "guarded",
@@ -922,27 +961,40 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
                 "unparsed",
                 "cut_off",
                 "cannot_step",
+                "step_network_too_often",
+                "step_network",
                 "repeats",
                 "work_ended"
             ],
             "{}",
             cell.id
         );
-        assert!(
-            shared
-                .iter()
-                .all(|x| x.to == "@self" && x.fallback && !x.common && x.counts.is_none())
+        assert!(shared.iter().all(|x| x.to == "@self" && x.fallback && !x.common));
+        // The rows that run again count, and no other does; the row for being taken too often is the pause.
+        let counts: Vec<(&str, &str)> = shared
+            .iter()
+            .filter_map(|x| Some((x.name.as_str(), x.counts.as_deref()?)))
+            .collect();
+        assert_eq!(
+            counts,
+            [
+                ("sent_back", "sent_back"),
+                ("transient", "retries"),
+                ("step_network", "retries")
+            ]
         );
         let pauses: Vec<&str> = shared.iter().filter(|x| x.pauses).map(|x| x.name.as_str()).collect();
         assert_eq!(
             pauses,
             [
                 "sent_back_too_often",
+                "transient_too_often",
                 "flagged",
                 "guarded",
                 "prompt_too_long",
                 "unparsed",
                 "cannot_step",
+                "step_network_too_often",
                 "repeats"
             ]
         );
@@ -951,9 +1003,9 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
         assert_eq!(shared[0].conditions, [flow::format::Atom::SentBack(Some(3))]);
     }
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
-    v["flows"][0]["rounds"]["failed"]["kinds"][3]["then"] = "A3".into();
+    v["flows"][0]["rounds"]["failed"]["kinds"][3]["later"] = "A3".into();
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
-    assert!(e.contains("unknown field `then`"), "{e}");
+    assert!(e.contains("unknown field `later`"), "{e}");
     let mut v: Value = serde_json::from_str(FLOW).unwrap();
     v["flows"][0]["rounds"]["failed"]["kinds"][1]["name"] = "pause".into();
     let e = flow::compile(&v.to_string(), &context()).unwrap_err().to_string();
@@ -970,8 +1022,8 @@ fn the_rounds_section_gives_every_agent_cell_its_shared_rows() {
     );
 }
 
-// Every agent's cell but the reader of the history's, whose task says all it does, is given the general rules and the
-// project's design goal; every engineer's cell and the advisor's are given the engineering standards; no cell has an
+// Every agent's cell but the reader of the history's, whose task and rule `history` say all it does, is given the
+// general rules and the project's design goal; every engineer's cell and the advisor's are given the engineering standards; no cell has an
 // input that only says to read something itself; and the forms every return shares say how a return is written. A rule
 // given to a line cannot be named by a cell again.
 #[test]
@@ -1007,6 +1059,73 @@ fn the_rules_and_the_shared_inputs_reach_every_agent_cell() {
         e.contains("a cell names a rule every cell of its line is given: I1"),
         "{e}"
     );
+}
+
+// The history of the files a change touches is gathered once, by the reader of the history, between the blind review
+// and the table review. The table review is given it and may have more looked up; the blind review is given neither,
+// and a re-review reaches the table review by another row, not by the gathering.
+#[test]
+fn the_history_of_the_changed_files_is_gathered_between_the_two_reviews() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let to = |cell: &str, row: &str| {
+        let rows = &g.cell(cell).unwrap().rows;
+        rows.iter().find(|r| r.name == row).unwrap().to.clone()
+    };
+    assert_eq!(to("T3", "done"), "G3");
+    assert_eq!(to("G3", "done"), "T4");
+    for cell in ["T1", "T2", "T7"] {
+        assert_eq!(to(cell, "review_again"), "T4", "{cell}");
+    }
+    let gather = g.cell("G3").unwrap();
+    assert_eq!(
+        (gather.line.as_deref(), gather.stage.as_deref()),
+        (Some("librarian"), Some("test"))
+    );
+    let v: Value = serde_json::from_str(FLOW).unwrap();
+    let blocks = v["flows"][0]["blocks"].as_array().unwrap();
+    let develop = blocks.iter().find(|b| b["name"] == "develop").unwrap();
+    assert!(develop["nodes"].as_array().unwrap().iter().any(|n| *n == "G3"));
+    let brief = flow::format::Src::Place("G3".into(), "brief".into());
+    let table = g.cell("T4").unwrap();
+    let input = table.inputs.iter().find(|i| i.from == [brief.clone()]).unwrap();
+    assert!(input.maybe, "a re-review may come to it with no gathering run");
+    assert!(table.prompt.iter().any(|p| p.contains("records as dropped")));
+    let blind = g.cell("T3").unwrap();
+    assert!(!blind.inputs.iter().any(|i| i.from.contains(&brief)));
+    assert!(!format!("{:?} {:?}", blind.prompt, blind.prompt_by).contains("dropped"));
+    // The table review can have more looked up, the blind review cannot.
+    let history = serde_json::json!({
+        "side_reports": [], "flow_feedback": "none", "outcome": { "history": "Was this approach dropped?" }
+    });
+    assert_eq!(g.take("T4", &history, &Map::new()).unwrap().name, "history");
+    let e = g.take("T3", &history, &Map::new()).unwrap_err();
+    assert!(e.contains("does not fit the schema"), "{e}");
+}
+
+// What every gatherer of history is told is one rule of the flow, which the reader's line gives to every cell of it and
+// the architect's look-up names: the contract is written once, and what a gatherer does with a path is in it.
+#[test]
+fn what_every_gatherer_is_told_is_one_rule_with_the_check_of_paths() {
+    let opening = "You gather the history an agent needs before it works.";
+    assert_eq!(FLOW.matches(opening).count(), 1);
+    let c = compiled();
+    for (graph, id) in [
+        ("engineer", "G1"),
+        ("engineer", "G2"),
+        ("engineer", "G3"),
+        ("engineer", "X5"),
+        ("architect", "X5"),
+    ] {
+        let g = c.graph(graph).unwrap();
+        let cell = g.cell(id).unwrap();
+        let used = cell.rules.iter().find(|r| r.name == "history").unwrap();
+        assert_eq!(used.shared, graph == "engineer", "{graph} {id}");
+        assert!(!cell.prompt.iter().any(|p| p.starts_with(opening)), "{graph} {id}");
+        let rule = g.rules.iter().find(|r| r.name == "history").unwrap();
+        assert!(rule.text[0].starts_with(opening), "{graph} {id}");
+        assert!(rule.text.iter().any(|t| t.contains("`(gone)`")), "{graph} {id}");
+    }
 }
 
 // A field the flow lets a return leave out that the agent wrote as null is taken as left out, and the return fits; a
@@ -1279,7 +1398,10 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
             }
         }
     }
-    assert_eq!(helpers, ["G1", "G2", "X5", "T1", "T3", "T4", "A1", "B2", "X2", "X5"]);
+    assert_eq!(
+        helpers,
+        ["G1", "G2", "X5", "T1", "T3", "G3", "T4", "A1", "B2", "X2", "X5"]
+    );
 }
 
 // The architect tells the owner what the engineer does and no more: what only the owner can do (starting a work the

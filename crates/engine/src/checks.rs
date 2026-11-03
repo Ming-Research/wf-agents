@@ -44,6 +44,9 @@ pub struct Ctx<'a> {
     /// The rows of the cell's numbered table as this round was given them, each with its number.
     pub table: &'a [Value],
     pub interjections: &'a [Value],
+    /// The commit of the project's main the round was pinned to, which its inputs that read the project's files were
+    /// read at; none for a round of a cell with none.
+    pub main: Option<&'a str>,
 }
 
 /// What a row a fix answered by its number in the table it was given is known by outside the table: a finding's
@@ -412,7 +415,7 @@ impl Ctx<'_> {
         let rounds = work::rounds_at(self.e.db.conn(), self.w.id, &self.cell.id)?;
         Ok(rounds
             .iter()
-            .filter(|r| r.ended_at.is_some())
+            .filter(|r| r.ended_at.is_some() && !crate::failed::was_step(r))
             .take_while(|r| r.rejected.is_some())
             .last()
             .and_then(|r| r.input["engine"]["head"].as_str().map(str::to_string)))

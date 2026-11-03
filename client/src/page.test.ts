@@ -24,6 +24,7 @@ import type {
 } from './api';
 import { controls, course, heldName, heldWords } from './components';
 import { held, runningWords, StartOver, startOverWords, stepWhyNot, waitOf } from './course';
+import { standingWords } from './pages/System';
 import { cellTab, cellTabs, cellWhere, numbered } from './flow/CellPanel';
 import { inputName } from './flow/CellGiven';
 import { fieldActions, titleOf } from './flow/Returns';
@@ -247,6 +248,7 @@ describe('how a work goes on', () => {
     started: [],
     releasing: [],
     waiting_for_slot: [],
+    stopping: [],
     architects_started: [],
     running: [],
     stepping: [],
@@ -311,6 +313,16 @@ describe('how a work goes on', () => {
     expect([slot.held, heldName(slot).name]).toEqual(['you', 'started, waiting for a free slot']);
     expect([controls(slot, status({})).pause, controls(slot, status({})).start]).toEqual([true, false]);
     expect(controls(slot, status({})).step).toBe(false);
+    // A pause asked to be lifted by the command line or the architect waits the same way, and its Pause takes that back.
+    const resumed = course(
+      work({ paused: 'the owner paused it', paused_by: 'owner' }),
+      status({ waiting_for_slot: [5] }),
+    );
+    expect([resumed.held, resumed.releasing, resumed.slot]).toEqual(['you', false, true]);
+    expect(controls(resumed, status({}))).toEqual({ pause: true, start: false, step: false, canStep: true });
+    // A work that waits on for a slot under Pause all is not one a pause is asked to be lifted of: its Start stays.
+    const underAll = course(work({}), status({ paused: true, waiting_for_slot: [5] }));
+    expect([underAll.held, controls(underAll, status({})).start]).toEqual(['all', true]);
     // A work of an architect goes on while the owner started that project's architect, and not for another's.
     const arch = course(
       work({ graph: 'architect', item: null, project: 'p' }),
@@ -341,10 +353,22 @@ describe('how a work goes on', () => {
     expect([forSlot.slot, forSlot.waits]).toEqual([true, null]);
     expect(waitOf(forSlot, work({}), status({}))).toEqual({
       tag: 'waiting for a free slot',
-      why: 'What it waited for came: it goes on once its machine has a slot free, before any new work starts.',
+      why: 'It goes on once its machine has a slot free, before any new work starts.',
     });
     expect(course(work({}), status({})).slot).toBe(false);
-    const pausing = course(work({ paused: 'x', paused_by: 'owner' }), status({ running: [5] }));
+    // Its pause asked to be lifted while its machine has no slot free: the tag and the works list say the slot, as the
+    // head does, though the engine stopped it; the state it would look failed in otherwise.
+    const halted = work({ paused: 'cell implement: no', paused_by: 'engine' });
+    const lifting = status({ waiting_for_slot: [5] });
+    expect(waitOf(course(halted, lifting), halted, lifting)?.tag).toBe('waiting for a free slot');
+    expect(standingWords(halted, lifting)).toBe('waiting for a free slot');
+    // A work stopping waits for nothing beside its cell, and stands as stopping though a round of it runs on.
+    const going = work({ waits: { kind: 'items', items: [3] } });
+    const stopping = status({ stopping: [5] });
+    expect(waitOf(course(going, stopping), going, stopping)).toBeNull();
+    expect(standingWords(going, stopping)).toBe('stopping');
+    expect(standingWords(going, status({ stopping: [5], running: [5] }))).toBe('stopping');
+    const pausing =course(work({ paused: 'x', paused_by: 'owner' }), status({ running: [5] }));
     expect(pausing.running).toBe('pausing');
     expect(stepWhyNot(pausing, controls(pausing, status({ running: [5] })))).toBe('pausing after this round');
     expect(
@@ -375,6 +399,15 @@ describe('how a work goes on', () => {
     expect(controls(architect, status({ paused: true })).start).toBe(true);
     // An ended work goes on no more.
     expect(controls(course(work({ state: 'ended', ended: 'x' }), status({})), status({})).pause).toBe(false);
+  });
+
+  it('keeps the tag on the chart in step with the head for a work waiting for a slot under Pause all', () => {
+    // The head names Pause all, and the work does not go on when a slot comes free: the tag must not say that it does.
+    const w = work({});
+    const all = status({ paused: true, waiting_for_slot: [5] });
+    const c = course(w, all);
+    expect(c.held).toBe('all');
+    expect(waitOf(c, w, all)?.tag).not.toBe('waiting for a free slot');
   });
 
   // Start over is an icon button beside a work's Start, Pause and Step, only while a work on an item goes on, saying
@@ -2390,6 +2423,7 @@ describe("the owner's conversations", () => {
       waits_on: null,
       read_to: null,
       forwarding: null,
+      gaps: [],
     };
     expect(d.entries.map((e) => voiceOf(e))).toEqual([
       'agent',

@@ -56,12 +56,17 @@ started: Array<number>,
  */
 releasing: Array<number>,
 /**
- * The works whose wait is over, the owner's or the architect's answer come or what their row waited for, that
- * wait on, holding no slot, until their machine has a slot free, as the engine's last step of each found: each
- * then goes on before any new work starts. A work's state on the page is waiting for a free slot while it is
- * named here.
+ * The works that go on once their machine has a slot free, before any new work starts: those whose wait is over,
+ * the owner's or the architect's answer come or what their row waited for, that wait on, holding no slot, as the
+ * engine's last step of each found, and the paused works whose pause is asked to be lifted. A work's state on the
+ * page is waiting for a free slot while it is named here.
  */
 waiting_for_slot: Array<number>,
+/**
+ * The works asked to stop, by a cancel of their item or a start over, that the engine has not stopped yet, as it
+ * waits for the step of each to end. A work's state on the page is stopping while it is named here.
+ */
+stopping: Array<number>,
 /**
  * The projects whose architect the owner started since every work was last paused: its works go on whatever the
  * global state.
@@ -138,7 +143,7 @@ export type Event = { "kind": "ready" } | { "kind": "resync" } | { "kind": "stat
 /**
  * Where a work stands.
  */
-export type WorkState = "running" | "ready" | "asking" | "waiting" | "waiting_for_slot" | "paused" | "halted" | "done" | "ended";
+export type WorkState = "running" | "ready" | "asking" | "waiting" | "waiting_for_slot" | "paused" | "halted" | "stopping" | "done" | "ended";
 
 /**
  * The round of a work that is running.
@@ -852,7 +857,26 @@ read_to: number | null,
 /**
  * For wf-agents' own conversation: where its faults can go; none for another.
  */
-forwarding: Forwarding | null, };
+forwarding: Forwarding | null,
+/**
+ * What `entries` leaves out: the runs of entries not given, each by the entry it comes before; empty when every
+ * entry is given.
+ */
+gaps: Array<Gap>, };
+
+/**
+ * A run of a conversation's entries that were not given, because they are older than the latest ones asked for and
+ * nothing in them waits for the owner: how many, and the entry, given, that they come before.
+ */
+export type Gap = {
+/**
+ * The entry the run comes before, by its source and its row.
+ */
+source: string, id: number,
+/**
+ * How many entries it leaves out.
+ */
+count: number, };
 
 /**
  * What the owner says in a work's group: to its engineer, to its project's architect, or to both. Saying it to the
@@ -1460,7 +1484,7 @@ records: string | null,
  */
 ci_fast: string, ci_full: Array<string>, merge_checks: Array<string>,
 /**
- * Its constitution, a path in its checkout; none when it has none.
+ * Its constitution, a path in its repository as its main has it; none when it has none.
  */
 constitution: string | null,
 /**
@@ -1563,9 +1587,11 @@ export type AccountChoice = { cli: string, name: string, };
 export type NewLevel = { level: string, };
 
 /**
- * A project's architect, as its page and the panel beside its one-to-one show it: its works, its queue, what it asked
- * the owner, the matters it handled, the item changes its batches made, the policy it works by and the draft of a new
- * one, and its notebook. Its works are works of the architect's graph for the project, on no item.
+ * A project's architect, as the head of its one-to-one and its page show it: its works, its queue, what stops the
+ * project's new works, what its works asked the owner, and the draft of a new policy that waits for the owner's
+ * approval. What only the panel beside the one-to-one and the page's tab of item changes draw is `ArchitectPanel`,
+ * read apart, so that the one-to-one, which reads this on every event, does not read the notebook with it. Its works
+ * are works of the architect's graph for the project, on no item.
  */
 export type Architect = {
 /**
@@ -1593,6 +1619,18 @@ holds: Array<DispatchHold>,
  */
 asks: Array<OwnerAsk>,
 /**
+ * The draft of a new policy that waits for the owner's approval: the latest the architect wrote, until a new
+ * policy takes effect; none otherwise.
+ */
+draft: PolicyDraft | null, };
+
+/**
+ * What a project's architect has besides `Architect`, which the panel beside its one-to-one and its page's tab of item
+ * changes draw: the matters it handled, the item changes its batches made, the policy it works by, its notebook and
+ * the project's constitution.
+ */
+export type ArchitectPanel = {
+/**
  * The matters it handled, newest first, each with what became of it.
  */
 handled: Array<Handled>,
@@ -1605,21 +1643,16 @@ changes: Array<ItemChange>,
  */
 policy: PolicyInForce | null,
 /**
- * The draft of a new policy that waits for the owner's approval: the latest the architect wrote, until a new
- * policy takes effect; none otherwise.
- */
-draft: PolicyDraft | null,
-/**
  * Its notebook, by section in their order (what the project is now, the plan, what is unclear, anything else):
  * each section as it stands, with the round and the cell that wrote it, and every version of it, newest first.
  */
 notebook: Array<NotebookSection>,
 /**
- * The project's constitution, which the architect judges by with the policy: its path in the project's checkout,
- * as the configuration names it, and its text there now, empty when it cannot be read; none when the project names
- * none.
+ * The project's constitution, which the architect judges by with the policy, as the project's main has it: its
+ * path in the project's repository, as the configuration names it, with its text and the commit it was read at, or
+ * why it could not be read; none when the project names none.
  */
-constitution: NamedText | null, };
+constitution: MainText | null, };
 
 /**
  * One work of an architect.
@@ -2225,8 +2258,8 @@ export type CellInputOf = { "kind": "input", input: number, source: number, } | 
 
 /**
  * What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
- * project's settings, guide and rules, as its configuration and its checkout have them, and what each table and view
- * of the database holds.
+ * project's settings and rules, as its configuration has them, its guide, as its main has it in its checkout as the
+ * engine last fetched it, and what each table and view of the database holds.
  */
 export type InputsNow = { projects: Array<ProjectNow>,
 /**
@@ -2243,11 +2276,24 @@ export type ProjectNow = { project: string,
  */
 settings: Array<NamedText>,
 /**
- * The project's AGENTS.md as its checkout has it now.
+ * The commit of the project's main its AGENTS.md and the index of its records were read at: `origin/<main>` in its
+ * checkout as the engine last fetched it. None when main has no commit there.
+ */
+commit: string | null,
+/**
+ * When that commit was committed, in milliseconds since the epoch, which shows how new the text is.
+ */
+committed_at: number | null,
+/**
+ * Why they could not be read, in a sentence; none when they were. Then `agents_md` and `records` are empty.
+ */
+error: string | null,
+/**
+ * The project's AGENTS.md as its main has it at `commit`.
  */
 agents_md: string,
 /**
- * The index of its records as its checkout has it now: each file's path with its first line. The full text of
+ * The index of its records as its main has it at `commit`: each file's path with its first line. The full text of
  * the files an item cites is added for each item.
  */
 records: Array<NamedText>,
@@ -2260,6 +2306,32 @@ rules: Array<NamedText>, };
  * A name with a text.
  */
 export type NamedText = { name: string, text: string, };
+
+/**
+ * A file of a project as its main has it: read at a commit of `origin/<main>` in its checkout, as the engine last
+ * fetched it, never from the checkout's files.
+ */
+export type MainText = {
+/**
+ * Its path in the project's repository.
+ */
+name: string,
+/**
+ * The commit it was read at; none when main has no commit in the checkout.
+ */
+commit: string | null,
+/**
+ * When that commit was committed, in milliseconds since the epoch, which shows how new the text is.
+ */
+committed_at: number | null,
+/**
+ * Its text; empty when `error` is set.
+ */
+text: string,
+/**
+ * Why it could not be read, in a sentence that names the file and the commit; none when it was.
+ */
+error: string | null, };
 
 /**
  * What a cell hands back, as a tree of fields.
@@ -2662,9 +2734,14 @@ waits?: boolean, };
 
 export type SentBack = { desc: string,
 /**
- * How many returns of one cell in a row may be sent back before the engine pauses the work.
+ * How many returns in a row may be sent back before the engine pauses the work: the work's returns since it last
+ * took a row from outside the engine, whichever cells they were at.
  */
-pauseAfter: number, pause: string, };
+pauseAfter: number, pause: string,
+/**
+ * The counter that counts each return sent back, one of the flow's counters.
+ */
+counts?: string | null, };
 
 export type Failed = { desc: string, kinds: Array<Failure>, };
 
@@ -2675,19 +2752,57 @@ export type Failure = { name: string,
 /**
  * What the command line reports when this happens.
  */
-when: string, handle: Handle, desc: string, };
+when: string, handle: Handle, desc: string,
+/**
+ * A kind handled by running again: how many of its runs in a row end the running again. Every such kind has one,
+ * and `then`.
+ */
+inRow?: number | null,
+/**
+ * What the engine does once the kind has been taken `inRow` times in a row.
+ */
+then?: Then | null,
+/**
+ * The counter that counts each time the engine takes the kind's row, one of the flow's counters.
+ */
+counts?: string | null, };
 
 export type Handle = "wait" | "retry" | "pause" | "fresh" | "repair";
 
 /**
  * A way a round ends that is the engine's, not the agent's: a round cut off, a step it cannot take, a message it does
- * not send, a work that ended meanwhile.
+ * not send, a work that ended meanwhile, a step of the engine's before the round that reached the network and could
+ * not.
  */
 export type EngineCase = { name: string, when: string, desc: string,
 /**
  * The work pauses, and the owner is told: a blocker the owner holds at the cell.
  */
-pauses?: boolean, };
+pauses?: boolean,
+/**
+ * A case the engine takes by running its step again, as `step_network` does: how many of its runs in a row end
+ * the running again. `backoff` and `then` go with it.
+ */
+inRow?: number | null,
+/**
+ * The seconds the step waits before it runs again, after its first failure, its second and so on; the last holds
+ * for every failure after.
+ */
+backoff?: Array<number>,
+/**
+ * What the engine does once the case has been taken `inRow` times in a row.
+ */
+then?: Then | null,
+/**
+ * The counter that counts each time the engine takes the case, one of the flow's counters.
+ */
+counts?: string | null, };
+
+/**
+ * What the engine does once a row that runs a round or a step again has been taken so many times in a row as its
+ * bound says.
+ */
+export type Then = "pause";
 
 /**
  * The run guard's rule: how a running round is compared with the rounds before it. The lines themselves are not here:

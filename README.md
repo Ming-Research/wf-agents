@@ -23,6 +23,7 @@ configuration, outside this repository. [constitution.md](constitution.md) holds
 - `flow/flow.json`: the flow every piece of work goes through.
 - `db/schema.sql`: the only definition of the database's tables and views.
 - `constitution.md`: the lasting values designs are judged by, which the owner sets.
+- `delegate/AGENTS.md`: the role of the session the owner starts there to think with and watch over the system.
 - `.github/workflows/ci.yml`: the checks every pushed commit runs; `.config/nextest.toml`: how they run the tests;
   `.config/english-exempt.txt`: the files the check that the repository is in English leaves out.
 
@@ -87,8 +88,9 @@ new version of the command line stop telling its calls there, rounds run unjudge
 Each project has an architect of its own. It runs at the level `install.toml` names under `[agents]` as `architect`
 (such as `architect = "4"`), the top level when it names none; its search of observations runs at the level named as
 `observer`, `1` when none is named, and the reading of a work's history at the level named as `librarian`, the lowest
-when none is named. Each project's file names its constitution, a path in the project's checkout, such
-as `constitution = "constitution.md"`, which its architect checks the project against article by article (the
+when none is named. Each project's file names its constitution, a path in the project's repository, such
+as `constitution = "constitution.md"`, which agents read as the project's main has it (fetched for each round, spelled
+exactly as on main, never read from the checkout's files) and its architect checks the project against article by article (the
 level-two headings that start with "Article"), and the tags its observations may carry, each with what it covers:
 `observation_tags = [{ name = "ui", desc = "What the owner sees on the page" }]`.
 

@@ -15,13 +15,13 @@ use serde_json::Value;
 
 use crate::view;
 use crate::{
-    Architect, ArchitectRounds, ArchitectStanding, ArchitectWork, CardFlow, DesignCard, DispatchHold, FlowSnapshot,
-    FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail, ItemLink,
-    ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, Matter, MatterCard, NamedText, NotebookSection,
-    NotebookVersion, Observation, ObservationChange, OwnerAsk, OwnerMessage, PausedBy, Ping, PolicyDraft,
-    PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional, RoundDetail, RoundImage, RoundInput,
-    RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts, ToolRun, Waits, WorkDetail,
-    WorkSession, WorkState, WorkSummary,
+    Architect, ArchitectPanel, ArchitectRounds, ArchitectStanding, ArchitectWork, CardFlow, DesignCard, DispatchHold,
+    FlowSnapshot, FlowVersion, FlowView, Handled, HandledAction, InputsNow, Interjection, ItemChange, ItemDetail,
+    ItemLink, ItemState, ItemSummary, Items, KeptFile, LevelChange, LinkedItem, MainText, Matter, MatterCard,
+    NamedText, NotebookSection, NotebookVersion, Observation, ObservationChange, OwnerAsk, OwnerMessage, PausedBy,
+    Ping, PolicyDraft, PolicyInForce, ProjectNow, ProjectObservations, Replacement, RoundConditional, RoundDetail,
+    RoundImage, RoundInput, RoundOutcome, RoundSummary, RoundTokens, RunningRound, Session, Shown, Tag, TokenCosts,
+    ToolRun, Waits, WorkDetail, WorkSession, WorkState, WorkSummary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1451,9 +1451,72 @@ pub fn flow_view(conn: &Connection, flows: &Flows, version: i64) -> Result<FlowV
     Ok(view::view(&c))
 }
 
+/// The commit of a project's main the page reads at, and when it was committed.
+type MainAt = (String, Option<i64>);
+
+/// What the page reads of a project's files: the text, or in a sentence why it could not be read.
+type Reading<T> = std::result::Result<T, String>;
+
+/// The commit of a project's main its files are read at on the page: `origin/<main>` in its checkout as the engine last
+/// fetched it (the page fetches nothing), with when it was committed, which shows how new the text read there is; none
+/// of either when main has no commit there, with why.
+fn main_now(p: &config::Project) -> Reading<MainAt> {
+    let commit = config::main_commit(p)?;
+    let at = config::committed_at(p, &commit).ok();
+    Ok((commit, at))
+}
+
+/// A project's guide on the page: the commit of its main it is read at, when that was committed, and the guide as that
+/// commit has it. The reason, in a sentence, when it cannot be had; the commit is then still given when main has one.
+fn guide_now(p: &config::Project) -> (Option<MainAt>, Reading<Value>) {
+    match main_now(p) {
+        Ok((commit, at)) => {
+            let guide = config::project_guide_at(&p.checkout, &commit, &p.design_paths(), "")
+                .map_err(|x| format!("the guide cannot be read at {commit}: {x}"));
+            (Some((commit, at)), guide)
+        }
+        Err(why) => (None, Err(why)),
+    }
+}
+
+/// A project's constitution as its main has it, on the page: the file its configuration names, with its text and the
+/// commit of `origin/<main>` it was read at in its checkout as the engine last fetched it (the page fetches nothing),
+/// or the reason it could not be read, in a sentence naming the file and the commit; none when the project names none.
+pub fn constitution_now(p: &config::Project) -> Option<MainText> {
+    let path = p.constitution.as_ref()?;
+    let name = path.display().to_string();
+    let (at, read) = match main_now(p) {
+        Ok((commit, committed)) => {
+            let read = config::read_at(p, &commit, path);
+            (Some((commit, committed)), read)
+        }
+        Err(why) => (None, Err(why)),
+    };
+    let (commit, committed_at) = match at {
+        Some((commit, committed)) => (Some(commit), committed),
+        None => (None, None),
+    };
+    Some(match read {
+        Ok(text) => MainText {
+            name,
+            commit,
+            committed_at,
+            text,
+            error: None,
+        },
+        Err(why) => MainText {
+            name,
+            commit,
+            committed_at,
+            text: String::new(),
+            error: Some(why),
+        },
+    })
+}
+
 /// What the inputs that come from outside the flow hold now, as far as the page can know outside a round: each
-/// project's settings, project guide and rules, as the configuration and the project's checkout have them, and what
-/// each table and view of the database holds.
+/// project's settings and rules, as the configuration has them, its project guide, as its main has it in its checkout
+/// as the engine last fetched it, and what each table and view of the database holds.
 pub fn inputs_now(conn: &Connection, config: &config::Config) -> Result<InputsNow> {
     let text = |v: Value| match v {
         Value::String(s) => s,
@@ -1463,9 +1526,18 @@ pub fn inputs_now(conn: &Connection, config: &config::Config) -> Result<InputsNo
         .projects
         .iter()
         .map(|(name, p)| {
-            let guide = config::project_guide(&p.checkout, &p.design_paths(), "");
+            let (at, guide) = guide_now(p);
+            let error = guide.as_ref().err().cloned();
+            let guide = guide.unwrap_or(Value::Null);
+            let (commit, committed_at) = match at {
+                Some((commit, committed)) => (Some(commit), committed),
+                None => (None, None),
+            };
             ProjectNow {
                 project: name.clone(),
+                commit,
+                committed_at,
+                error,
                 settings: config::SETTINGS
                     .iter()
                     .filter_map(|s| {
@@ -1805,16 +1877,9 @@ pub(crate) fn shown_where(conn: &Connection, flows: &Flows, filter: &str, args: 
     Ok(out)
 }
 
-/// A project's architect, as its page and the panel beside its one-to-one show it: `projects` are every project of the
-/// configuration, and `constitution` the project's constitution as its checkout has it. Its cells are named as the
-/// views over its rounds name them.
-pub fn architect(
-    conn: &Connection,
-    flows: &Flows,
-    project: &str,
-    projects: Vec<String>,
-    constitution: Option<NamedText>,
-) -> Result<Architect> {
+/// A project's architect, as the head of its one-to-one and its page show it: `projects` are every project of the
+/// configuration. What the panel beside the one-to-one adds is `architect_panel`.
+pub fn architect(conn: &Connection, flows: &Flows, project: &str, projects: Vec<String>) -> Result<Architect> {
     let (mine, works) = architect_works(conn, flows, project)?;
     let mut asks = asks(conn, "WHERE w.graph IN ('architect', 'policy')", &[])?;
     asks.retain(|a| mine.contains(&a.work));
@@ -1825,10 +1890,18 @@ pub fn architect(
         queue: queue(conn, project)?,
         holds: holds(conn, project)?,
         asks,
+        draft: draft(conn, project)?,
+    })
+}
+
+/// What a project's architect has besides `architect`, for the panel beside its one-to-one and its page's tab of item
+/// changes: `constitution` is the project's constitution as its main has it ([`constitution_now`]). Its cells are named
+/// as the views over its rounds name them.
+pub fn architect_panel(conn: &Connection, project: &str, constitution: Option<MainText>) -> Result<ArchitectPanel> {
+    Ok(ArchitectPanel {
         handled: matters_handled(conn, project)?,
         changes: item_changes(conn, project)?,
         policy: policy(conn, project)?,
-        draft: draft(conn, project)?,
         notebook: notebook(conn, project)?,
         constitution,
     })
@@ -3403,7 +3476,14 @@ mod tests {
             ("work", Some(1), Some(1), Some("First"), false)
         );
         assert!(w.unread > 0, "{w:?}");
-        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let d = crate::conversation(
+            s.db.conn(),
+            &Flows::default(),
+            &t,
+            "architect:p",
+            crate::CONVERSATION_WINDOW,
+        )
+        .unwrap();
         type Seen<'a> = (&'a str, &'a str, &'a str, i64, bool, bool);
         let seen: Vec<Seen> = d
             .entries
@@ -3446,7 +3526,8 @@ mod tests {
             })
             .collect();
         assert_eq!(cards, [(1, "done", Some(1), 208), (3, "held", Some(1), 208)]);
-        let work = crate::conversation(s.db.conn(), &Flows::default(), &t, "work:1").unwrap();
+        let work =
+            crate::conversation(s.db.conn(), &Flows::default(), &t, "work:1", crate::CONVERSATION_WINDOW).unwrap();
         let said: Vec<(&str, &str, &str)> = work
             .entries
             .iter()
@@ -3459,6 +3540,91 @@ mod tests {
             "{said:?}"
         );
         assert!(work.entries.iter().any(|e| e.stage.is_some()), "{said:?}");
+    }
+
+    // A conversation of 355 entries gives its latest 100 and every older entry something waits on, and says where it
+    // left the rest out; what waits for the owner, and how far the owner read, are of the whole conversation, whatever
+    // the window; and the window is much lighter. The older entries are the heavier here, as the cards and plans of a
+    // long conversation are: a window of 100 of 355 entries of one size could not be a quarter of the whole.
+    #[test]
+    fn a_conversation_gives_its_latest_entries_and_whatever_waits_for_the_owner() {
+        let mut s = architect_setup("window");
+        let t = crate::Talks {
+            projects: vec!["p".into(), "q".into()],
+            sets: Vec::new(),
+            ..crate::Talks::default()
+        };
+        let read = |s: &Setup, limit: usize| {
+            crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p", limit).unwrap()
+        };
+        let base = read(&s, crate::CONVERSATION_WINDOW_MOST).entries.len();
+        let more = 355usize.saturating_sub(base) as i64;
+        s.db.write(Actor::Engine, |tx| {
+            for i in 0..more {
+                // Words the architect handled, long until the last hundred or so, which are short.
+                let text = format!("{i:03} {}", "w".repeat(if i + 110 < more { 1200 } else { 80 }));
+                tx.execute(
+                    "INSERT INTO architect_matters (project, kind, detail, what, body, at, handled_work, handled_round)
+                     VALUES ('p', 'owner_words', 'said', 'The owner said', json_object('text', ?1), ?2, 2, 8)",
+                    db::rusqlite::params![text, 1000 + i],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let full = read(&s, crate::CONVERSATION_WINDOW_MOST);
+        assert!(full.entries.len() >= 355, "{}", full.entries.len());
+        assert!(full.gaps.is_empty());
+        let window = read(&s, crate::CONVERSATION_WINDOW);
+        let waits = |e: &crate::ConversationEntry| e.waiting || e.pending || e.undelivered;
+        // The latest 100, and those before them something waits on, in the same order.
+        let before = full.entries.len() - crate::CONVERSATION_WINDOW;
+        let kept: Vec<_> = full.entries[..before].iter().filter(|e| waits(e)).collect();
+        assert!(!kept.is_empty() && kept.len() <= 5, "{}", kept.len());
+        let key = |e: &crate::ConversationEntry| (e.source.clone(), e.id);
+        let expected: Vec<_> = kept.iter().copied().chain(&full.entries[before..]).map(key).collect();
+        assert_eq!(window.entries.iter().map(key).collect::<Vec<_>>(), expected);
+        // The earliest ask that waits is given, though it is outside the latest 100.
+        let ask = full
+            .entries
+            .iter()
+            .position(|e| e.source == "ask" && e.waiting)
+            .unwrap();
+        assert!(ask < before);
+        assert!(
+            window
+                .entries
+                .iter()
+                .any(|e| e.source == "ask" && e.id == full.entries[ask].id)
+        );
+        // The runs left out add up to the entries left out, and each is before an entry given.
+        assert_eq!(
+            window.gaps.iter().map(|g| g.count).sum::<i64>() as usize,
+            full.entries.len() - window.entries.len()
+        );
+        assert!(
+            window
+                .gaps
+                .iter()
+                .all(|g| window.entries.iter().any(|e| e.source == g.source && e.id == g.id))
+        );
+        // What waits, and how far the owner read, are the whole conversation's.
+        assert_eq!(window.asks, full.asks);
+        assert_eq!(window.design_cards, full.design_cards);
+        assert_eq!(window.questions, full.questions);
+        assert_eq!(window.waits_on, full.waits_on);
+        assert_eq!(window.read_to, full.read_to);
+        let bytes = |d: &crate::ConversationDetail| serde_json::to_string(d).unwrap().len();
+        assert!(
+            bytes(&window) * 4 <= bytes(&full),
+            "{} of {}",
+            bytes(&window),
+            bytes(&full)
+        );
+        // The window is at least one entry, and at most `CONVERSATION_WINDOW_MOST`, whatever is asked.
+        let one = read(&s, 0);
+        assert_eq!(one.entries.last().map(key), full.entries.last().map(key));
+        assert_eq!(read(&s, usize::MAX).entries.len(), full.entries.len());
     }
 
     // A work's group is a chat: what its members said, and the work's own bubble for each stage it entered, posted when
@@ -3558,7 +3724,16 @@ mod tests {
             ..crate::Talks::default()
         };
         let flows = Flows::default();
-        let group = |work: i64| crate::conversation(s.db.conn(), &flows, &t, &format!("work:{work}")).unwrap();
+        let group = |work: i64| {
+            crate::conversation(
+                s.db.conn(),
+                &flows,
+                &t,
+                &format!("work:{work}"),
+                crate::CONVERSATION_WINDOW,
+            )
+            .unwrap()
+        };
         let d = group(2);
         let seen: Vec<(&str, i64, String)> = d
             .entries
@@ -3683,7 +3858,14 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             ..crate::Talks::default()
         };
-        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let d = crate::conversation(
+            s.db.conn(),
+            &Flows::default(),
+            &t,
+            "architect:p",
+            crate::CONVERSATION_WINDOW,
+        )
+        .unwrap();
         let said: Vec<(&str, &str)> = d
             .entries
             .iter()
@@ -3737,7 +3919,14 @@ mod tests {
             projects: vec!["p".into(), "q".into()],
             ..crate::Talks::default()
         };
-        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let d = crate::conversation(
+            s.db.conn(),
+            &Flows::default(),
+            &t,
+            "architect:p",
+            crate::CONVERSATION_WINDOW,
+        )
+        .unwrap();
         assert!(d.entries.iter().all(|e| e.source != "notice"), "{:?}", d.entries);
         let matters: Vec<i64> = d
             .entries
@@ -3852,7 +4041,14 @@ mod tests {
             sets: Vec::new(),
             ..crate::Talks::default()
         };
-        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let d = crate::conversation(
+            s.db.conn(),
+            &Flows::default(),
+            &t,
+            "architect:p",
+            crate::CONVERSATION_WINDOW,
+        )
+        .unwrap();
         // Each stands where it last changed, its head saying when the architect took it up.
         let cards: Vec<(i64, &str, i64, i64)> = d
             .entries
@@ -3885,7 +4081,7 @@ mod tests {
     type WordsLine = (String, i64, Option<String>, Option<(i64, i64, String)>, bool);
 
     fn words_lines(s: &Setup, t: &crate::Talks, key: &str) -> (Vec<WordsLine>, Vec<String>) {
-        let d = crate::conversation(s.db.conn(), &Flows::default(), t, key).unwrap();
+        let d = crate::conversation(s.db.conn(), &Flows::default(), t, key, crate::CONVERSATION_WINDOW).unwrap();
         assert!(
             d.entries
                 .iter()
@@ -4109,7 +4305,14 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        let d = crate::conversation(s.db.conn(), &Flows::default(), &t, "architect:p").unwrap();
+        let d = crate::conversation(
+            s.db.conn(),
+            &Flows::default(),
+            &t,
+            "architect:p",
+            crate::CONVERSATION_WINDOW,
+        )
+        .unwrap();
         let of_ask: Vec<&str> = d
             .entries
             .iter()
@@ -4140,7 +4343,14 @@ mod tests {
             reply_wait: wait,
         };
         let read = |s: &Setup, wait: i64| {
-            let d = crate::conversation(s.db.conn(), &Flows::default(), &talks(wait), "architect:p").unwrap();
+            let d = crate::conversation(
+                s.db.conn(),
+                &Flows::default(),
+                &talks(wait),
+                "architect:p",
+                crate::CONVERSATION_WINDOW,
+            )
+            .unwrap();
             (d.questions.iter().map(|a| a.id).collect::<Vec<_>>(), d.waits_on)
         };
         // Question 2 parks matter 3; a newer one, 4, parks matter 9 and is the one waited on.
@@ -4344,7 +4554,8 @@ mod tests {
     #[test]
     fn the_architect_says_its_works_queue_log_policy_and_understanding() {
         let s = architect_setup("architect");
-        let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into(), "q".into()], None).unwrap();
+        let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into(), "q".into()]).unwrap();
+        let panel = architect_panel(s.db.conn(), "p", None).unwrap();
         assert_eq!((a.project.as_str(), a.projects.len()), ("p", 2));
         assert_eq!(a.works.iter().map(|w| w.work.id).collect::<Vec<_>>(), [3, 2]);
         let (now, last) = (&a.works[0], &a.works[1]);
@@ -4381,16 +4592,16 @@ mod tests {
         assert_eq!(a.asks.iter().map(|x| x.id).collect::<Vec<_>>(), [1, 2]);
 
         // The matter handled, by the round that closed it, with the item change it collected, which the batch made.
-        let h = a.handled.iter().find(|h| h.matter == 1).unwrap();
+        let h = panel.handled.iter().find(|h| h.matter == 1).unwrap();
         assert_eq!(
             (h.kind.as_str(), h.work, h.round, h.made, h.dropped),
             ("engineer_question", 2, 8, 1, 0)
         );
         assert!(h.why.is_none(), "{h:?}");
-        assert_eq!(a.changes.len(), 1);
-        assert_eq!(a.changes[0].change["kind"], "hold");
+        assert_eq!(panel.changes.len(), 1);
+        assert_eq!(panel.changes[0].change["kind"], "hold");
 
-        assert_eq!(a.policy, None);
+        assert_eq!(panel.policy, None);
         // A study a setting of a flow version before wrote, in a work of its own, is no draft of a new policy.
         assert_eq!(a.draft, None);
     }
@@ -4408,7 +4619,7 @@ mod tests {
             queue.into_iter().map(|m| Matter { waited_ms: None, ..m }).collect()
         };
         let same = |s: &Setup, project: &str| -> bool {
-            let page = architect(s.db.conn(), &cache, project, projects(), None).unwrap();
+            let page = architect(s.db.conn(), &cache, project, projects()).unwrap();
             let now = architect_standing(s.db.conn(), &cache, project).unwrap();
             assert_eq!(now.project, project);
             assert_eq!(now.works, page.works, "{project}");
@@ -4492,7 +4703,8 @@ mod tests {
         let out = |v: Value| json!({ "outcome": v, "progress": "p" }).to_string();
         let first = json!({ "direction": "d1", "why": "w", "principles": [{ "no": 1, "text": "t" }], "signals": [] });
         let second = json!({ "direction": "d2", "why": "w", "principles": [{ "no": 1, "text": "t" }], "signals": [] });
-        let read = |s: &Setup| architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()], None).unwrap();
+        let read = |s: &Setup| architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()]).unwrap();
+        let in_force = |s: &Setup| architect_panel(s.db.conn(), "p", None).unwrap().policy;
         let round = |s: &mut Setup, work: i64, n: i64, cell: &str, output: String, transition: &str| {
             s.db.write(Actor::Engine, |tx| {
                 tx.execute(
@@ -4534,9 +4746,8 @@ mod tests {
         let d = read(&s).draft.unwrap();
         assert_eq!((d.work, d.round, d.policy), (5, 2, first.clone()));
         round(&mut s, 6, 1, "P12", "{}".into(), "next");
-        let a = read(&s);
-        assert_eq!(a.draft, None);
-        assert_eq!(a.policy.map(|p| (p.work, p.round, p.policy)), Some((6, 1, first)));
+        assert_eq!(read(&s).draft, None);
+        assert_eq!(in_force(&s).map(|p| (p.work, p.round, p.policy)), Some((6, 1, first)));
         round(
             &mut s,
             6,
@@ -4566,7 +4777,7 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        let a = architect(s.db.conn(), &Flows::default(), "p", vec!["p".into()], None).unwrap();
+        let a = architect_panel(s.db.conn(), "p", None).unwrap();
         let version = |text: &str, round: i64, cell: &str| NotebookVersion {
             text: text.into(),
             work: 2,

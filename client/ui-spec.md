@@ -670,11 +670,12 @@ states (`WORK_MARK`) is the one every place that shows a work's state as an icon
 draws round the running cell (`RunningMark`, the one mark of a state that moves) at an icon's size, a ring 13px across
 in the 16px of an Octicon, its arcs `--chart-halo-width-mark` wide so that it reads beside an Octicon's strokes; ready
 `CircleIcon`, the halo's ring at rest; asking `QuestionIcon`; waiting `ClockIcon`; waiting for a free slot
-`HourglassIcon`; paused `PauseIcon`; halted `AlertIcon`, GitHub's mark of an alert; done `CheckCircleIcon`; ended
-`StopIcon`, GitHub's mark of a run stopped before its end (and a bubble of a thing that runs and then ends takes these
-marks for how it stands, below); each other than running in the colour its state's chip is filled in
-(`--bgColor-neutral-emphasis` ready and ended; `--bgColor-attention-emphasis` asking, waiting, waiting for a free slot
-and paused; `--bgColor-danger-emphasis` halted; `--bgColor-success-emphasis` done), and each saying on hovering its
+`HourglassIcon`; paused `PauseIcon`; halted `AlertIcon`, GitHub's mark of an alert; stopping `NoEntryIcon`; done
+`CheckCircleIcon`; ended `StopIcon`, GitHub's mark of a run stopped before its end (and a bubble of a thing that runs
+and then ends takes these marks for how it stands, below); each other than running in the colour its state's chip is
+filled in (`--bgColor-neutral-emphasis` ready and ended; `--bgColor-attention-emphasis` asking, waiting, waiting for a
+free slot, paused and stopping; `--bgColor-danger-emphasis` halted; `--bgColor-success-emphasis` done), and each saying
+on hovering its
 chip's words; while nothing is known yet the mark's room stays empty, so that the rows stay in line.
 
 An architect takes the mark of a work in the state it stands in, as the head of its one-to-one works it out
@@ -713,7 +714,20 @@ of every work stays the bar's, since it is the engine's and lifts by itself.
 A work whose wait is over, the architect's answer come or what its row waited for, and that waits on, holding no slot,
 until its machine has a slot free, is waiting for a free slot, as the engine's status names it, and not ready, because
 the owner must see why a work whose answer came does not move; its chip says on hovering that it goes on once its
-machine has a slot free, before any new work starts.
+machine has a slot free, before any new work starts. So is a paused work whose pause was asked to be lifted, by the
+command line or the architect, while its machine has none free, because a resume that does not show looks as if it
+failed. It has Pause and no Start or Step, as a work the owner started and that waits for a slot has, because it is on
+its way to going on and the owner's later word must be able to keep it paused: Pause withdraws the request.
+
+### Stopping
+
+A work whose cancel or start over was asked and that the engine has not stopped yet is stopping, as the engine's status
+names it, in the attention tone with `NoEntryIcon`, in place of the state it reads, whatever that is (a round running,
+ready, waiting or paused), because it goes no further than the step it is in, and a work that looks as if it goes on
+after the owner cancelled it reads as a cancel that failed. Its chip says on hovering that it ends once the step it is in
+has ended, its round's timer is not shown, and it has no Start, Pause, Step or Start over, since none of them would
+change that. It is a state of its own and not a note beside the running chip, because the same word then stands for it
+on the left and in the head, and the list's buttons can show or hide it as any other state.
 
 ### A count
 
@@ -1960,6 +1974,17 @@ head's Start does; while the engine halted the architect's work, its trouble, th
 with the pin in `--fgColor-danger`. Scrolled up away from the newest, a round `IconButton` with an `ArrowDownIcon` at
 the stream's bottom right, `--shadow-floating-small`, goes back to it.
 
+The stream holds the latest 100 entries of the conversation and, whatever their age, every entry something waits on (an
+ask or a question that waits, the bubble of the stage that holds a decision card to rule on, words not taken up yet), so
+that nothing the bar pins is left out; the bar, the counts and the box that replies are worked out from the whole
+conversation. Where older entries are left out, a line of `--fgColor-muted` small text in the stream says "N earlier
+entries are folded away", with a small invisible `Button`, Show earlier, that reads 100 more of the latest, the line
+closing up as the entries reach the next one that stayed; the stream stays as it is while they are read, and is not
+scrolled to the newest when they join it above. A bubble that links to an entry left out has no link. At the most the
+interface gives (1000), the line has no button. It is a line and not a scroll that reads on its own, because the owner
+goes back that far now and then, and a read that follows the scroll would make the page read as often as a long
+conversation is scrolled.
+
 Instead of a band holding the cards, asks and questions themselves, under the head and over the box, with a firm edge
 the owner dragged, a cap of 45% to 85% of the conversation and a fade where it held more, because the owner found the
 band at the top and the bottom odd in a conversation where everything else is a bubble, and what a chat app pins is a
@@ -2097,7 +2122,9 @@ wrote it yet, its earlier versions folded under it, newest first, each under the
 Policy, the draft that waits for the owner's approval on top while one does, headed as such, then the policy in force
 with the project's constitution folded under it; and Queue, counting the matters left, how many are left, how long the
 oldest waited and how many were handled today over the list of the matters, the one in hand marked, then those handled
-with nothing to do, which leave the one-to-one once done, each with why folded.
+with nothing to do, which leave the one-to-one once done, each with why folded. The panel reads the notebook, the policy,
+the constitution and the matters handled itself (`/api/v1/architect/panel`), while it is open, and not with the
+architect the one-to-one reads at every event; until they are read, its tabs say "Loading…" where they would show them.
 
 The question whether to approve a draft does not carry the draft: its bubble leads to the panel's Policy tab.
 
@@ -2124,11 +2151,15 @@ Instead of a look of its own, because like things look alike: a panel in tabs is
 
 ### The constitution in the Policy tab
 
-The panel beside the one-to-one with an architect shows the project's constitution, the file its configuration names in
-its checkout (`constitution`), whole, in its Policy tab under the policy in force, each a section, the constitution
-folded at first and saying which file it is, instead of on the Settings page, because the constitution is the project's
-own file, not a setting, and the architect judges the project by it with the policy, so the owner reads the two
-together; the settings name only its path.
+The panel beside the one-to-one with an architect shows the project's constitution, the file its configuration names
+(`constitution`), as the project's main has it, whole, in its Policy tab under the policy in force, each a section, the
+constitution folded at first and saying which file it is and at which commit of main it was read, the commit short and
+with when it was committed, so that the owner sees how new the text is, instead of on the Settings page, because the
+constitution is the project's own file, not a setting, and the architect judges the project by it with the policy, so
+the owner reads the two together; the settings name only its path. The commit is the one the engine last fetched: the
+page fetches nothing, so after main was pushed to with the engine idle the page shows the earlier commit, and its time,
+until the next round that reads main. A constitution that cannot be read is never an empty one: its section opens to
+say why, in a sentence that names the file and the commit, and the rest of the panel is shown as it is.
 
 ### Forwarding a fault
 
@@ -2690,8 +2721,9 @@ round happens, what is given, the task, what to work from by each input's number
 to hand in) with what each round fills in; the inputs in the order the message numbers them, a row each with its name,
 its addresses, where it comes from and "if any", each opening to what the agent is told it is and to what it holds as
 far as the page can know outside a round (the flow's own texts in full, a setting as each project's configuration has
-it, the project guide as each project's checkout has it now, what else the engine computes as the flow says it, a table
-or view as its definition describes it); and the rules and formats, a row each with its size, opening to their text.
+it, the project guide as each project's main has it now, at the commit named, short and with when it was committed, or
+in the place of both, why its main could not be read, what else the engine computes as the flow says it, a table or view as its definition describes
+it); and the rules and formats, a row each with its size, opening to their text.
 
 Out: the pattern of its return as JSON, in the sheet of what is sent to an agent, since the agent is sent it as its
 format: the forms it may hand in, its own answer first, one of them in the field that holds one, each its fields with

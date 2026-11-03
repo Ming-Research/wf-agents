@@ -34,14 +34,14 @@ pub use owner::{
     set_fault_forwarding, set_keep_warm_paused, start_over,
 };
 pub use read::{
-    Error, Flows, ROUNDS_WINDOW, ROUNDS_WINDOW_MOST, RoundsWindow, architect, architect_rounds, architect_standing,
-    attachment, compiled_flow, content, file, flow_snapshot, flow_view, flows, inputs_now, item, items,
-    observations_by_project, round, snapshot_compiled, version_of, work, works,
+    Error, Flows, ROUNDS_WINDOW, ROUNDS_WINDOW_MOST, RoundsWindow, architect, architect_panel, architect_rounds,
+    architect_standing, attachment, compiled_flow, constitution_now, content, file, flow_snapshot, flow_view, flows,
+    inputs_now, item, items, observations_by_project, round, snapshot_compiled, version_of, work, works,
 };
 pub use settings::{accounts, save_settings, set_level, settings, switch_account};
 pub use source::{Sources, refs};
 pub use system::{SystemAsk, system};
-pub use talk::{Talks, conversation, conversations};
+pub use talk::{CONVERSATION_WINDOW, CONVERSATION_WINDOW_MOST, Talks, conversation, conversations};
 pub use types::*;
 pub use typescript::typescript;
 pub use view::{flow_lines, view};

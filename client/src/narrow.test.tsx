@@ -28,6 +28,7 @@ const status = (extra: Partial<Status> = {}): Status => ({
   started: [30],
   releasing: [],
   waiting_for_slot: [],
+  stopping: [],
   architects_started: [],
   running: [],
   stepping: [],
