@@ -185,7 +185,10 @@ fn api_write(arg: &str) -> bool {
         return false;
     };
     for c in shorts.chars() {
-        if API_WRITES.iter().any(|x| x.strip_prefix('-').is_some_and(|s| s.chars().eq([c]))) {
+        if API_WRITES
+            .iter()
+            .any(|x| x.strip_prefix('-').is_some_and(|s| s.chars().eq([c])))
+        {
             return true;
         }
         if API_SHORT_WITH_VALUE.contains(c) {
@@ -1787,7 +1790,10 @@ mod tests {
             "api repos/o/r/issues --raw-field=a=b",
             "api repos/o/r/issues --input=body.json",
         ] {
-            assert!(refusal(write).is_some_and(|why| why.contains("may only read")), "{write}");
+            assert!(
+                refusal(write).is_some_and(|why| why.contains("may only read")),
+                "{write}"
+            );
         }
         for read in [
             "api repos/o/r/pulls/1",
