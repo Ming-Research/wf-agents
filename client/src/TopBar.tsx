@@ -113,9 +113,11 @@ function Switch({ status, works }: { status: Status; works: WorkSummary[] | unde
       return;
     }
     // The works that go on once all start: those paused by themselves stay paused.
-    const taken = (works ?? []).filter((w) => course(w, status).outdated && w.paused_by === null).length;
+    const outdated = (works ?? []).filter((w) => course(w, status).outdated && w.paused_by === null).length;
     const ask =
-      taken > 0 ? tn('confirm_start_all_takeover', taken, { version: status.flow_version }) : t('confirm_start_all');
+      outdated > 0
+        ? tn('confirm_start_all_outdated', outdated, { version: status.flow_version })
+        : t('confirm_start_all');
     if (!window.confirm(ask)) return;
     post('/api/v1/engine/start');
   };

@@ -132,7 +132,7 @@ export function nowWords(c: Course, w: WorkSummary): string {
 
 /// What bringing a work on an older flow version to the new one will do, for the note beside a control and the
 /// question before it.
-export function takeoverWords(w: WorkSummary, status: Status | null): string {
+export function bringUpWords(w: WorkSummary, status: Status | null): string {
   return t('course_outdated_hint', { version: w.flow_version, now: status?.flow_version ?? '' });
 }
 
@@ -164,7 +164,7 @@ export function sessionKey(w: WorkSummary): string {
 
 /// The owner's Start, Pause and Step of a work, each a request, its Start over, which `StartOver` asks first, and what
 /// failed. With `ask`, Start and Step ask first what they will do (the cell that runs again, the round that runs, the
-/// takeover, the architect's stop the owner lifts); without, the place they are pressed from has said it. A work of the
+/// bringing of a work on an older flow version to the new one, the architect's stop the owner lifts); without, the place they are pressed from has said it. A work of the
 /// architect is started and paused as the architect is: its later works go on the same way.
 export function useActions(w: WorkSummary, status: Status | null, ask: boolean) {
   const c = course(w, status);
@@ -189,13 +189,13 @@ export function useActions(w: WorkSummary, status: Status | null, ask: boolean) 
     );
   };
   const cell = `${w.at}${w.at_title ? ` (${w.at_title})` : ''}`;
-  const takeover = () =>
+  const bringUp = () =>
     window.confirm(
-      t('confirm_takeover', { id: w.id, version: w.flow_version, now: status?.flow_version ?? '', item: w.item ?? '' }),
+      t('confirm_bring_up', { id: w.id, version: w.flow_version, now: status?.flow_version ?? '', item: w.item ?? '' }),
     );
   const pause = () => post(arch ? forProject('/api/v1/architect/pause', w.project) : `/api/v1/works/${w.id}/pause`, {});
   const start = () => {
-    if (c.outdated && !takeover()) return;
+    if (c.outdated && !bringUp()) return;
     if (c.held === 'architect' && !window.confirm(t('start_release_confirm', { id: w.id }))) return;
     if (!c.outdated && c.held === 'engine' && !window.confirm(t('resume_confirm', { id: w.id, cell }))) return;
     post(arch ? forProject('/api/v1/architect/start', w.project) : `/api/v1/works/${w.id}/start`, { new_session: newSession }, () =>
@@ -203,7 +203,7 @@ export function useActions(w: WorkSummary, status: Status | null, ask: boolean) 
     );
   };
   const step = (then?: () => void) => {
-    if (c.outdated ? ask && !takeover() : ask && !window.confirm(t('confirm_step', { id: w.id, cell }))) return;
+    if (c.outdated ? ask && !bringUp() : ask && !window.confirm(t('confirm_step', { id: w.id, cell }))) return;
     post(`/api/v1/works/${w.id}/step`, { new_session: newSession }, () => {
       setNewSession(false);
       then?.();
@@ -387,7 +387,7 @@ export function Controls({ a, w, status, onStep }: {
   const { c, can } = a;
   const live = can.start || can.pause;
   const startHint = c.outdated
-    ? takeoverWords(w, status)
+    ? bringUpWords(w, status)
     : c.held === 'architect'
       ? t('work_start_architect_hint')
       : c.held === 'engine'
@@ -408,7 +408,7 @@ export function Controls({ a, w, status, onStep }: {
       {live && onStep !== null ? (
         <Control
           icon="step"
-          hint={whyNot ?? (c.outdated ? t('step_takeover_note', { now: status?.flow_version ?? '' }) : t('work_step_hint'))}
+          hint={whyNot ?? (c.outdated ? t('step_bring_up_note', { now: status?.flow_version ?? '' }) : t('work_step_hint'))}
           onClick={onStep}
           disabled={a.busy || whyNot !== null}
         />

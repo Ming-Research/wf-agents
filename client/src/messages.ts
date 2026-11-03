@@ -512,9 +512,9 @@ const messages = {
     'Every work goes on but those paused by themselves, and new works start on ready items as slots free. A work you or the architect paused, or the engine halted, stays so until you start it.',
   confirm_start_all:
     'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items.',
-  confirm_start_all_takeover:
+  confirm_start_all_outdated:
     'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items. {n} works are on an older flow version: each moves to version {version}, the same work, at its cell when that version can take it on there, else back to an earlier cell through cell V1, or paused at V1 when it can go back to none.',
-  confirm_start_all_takeover_one:
+  confirm_start_all_outdated_one:
     'Start all? Every work goes on with real rounds on your account but those paused by themselves, and new works start on ready items. 1 work is on an older flow version: it moves to version {version}, the same work, at its cell when that version can take it on there, else back to an earlier cell through cell V1, or paused at V1 when it can go back to none.',
   slots: 'Slots {used}/{total}',
   slots_hint: "Works holding a slot (started and not waiting for someone) / the machines' slots.",
@@ -646,9 +646,9 @@ const messages = {
   work_step_later: 'The round you asked for is under way, or something stops every work: Step waits until it ends.',
   work_step_goes_on: 'It goes on: Step runs a round of it only while it is paused.',
   confirm_step: 'Run one round of W{id} at cell {cell} now? It is a real round on your account.',
-  confirm_takeover:
+  confirm_bring_up:
     'W{id} is on flow version {version}; the engine runs version {now}. Going on, it moves to version {now}: at its cell when that version can take it on there, else back to an earlier cell through cell V1, or paused at V1 when it can go back to none. Go on?',
-  step_takeover_note:
+  step_bring_up_note:
     'This work is on an older flow version: Step moves it to version {now} and runs its next round, at its cell or at the cell it goes back to through cell V1; one that version can take on at no cell stays at V1, paused, and that is the step.',
   branch: 'Branch',
   resume_confirm: 'Let W{id} go on? Cell {cell} runs again.',

@@ -3772,12 +3772,39 @@ fn a_cell_under_way_that_the_version_changed_is_done_again_from_its_start() {
         let (mut e, said, item) = start(&s, scripts());
         step_to(&mut e, item, "I1");
         let (work, _, _) = state(&e, item).unwrap();
+        let line = what.ends_with("line");
+        // For the line, cell I1 runs on the version that puts it on the review line, so that its rounds are in a
+        // session of that line; the engine then runs the version it started with again, where I1 is the engineer's.
+        let now = e.flow_now;
+        let v = if line {
+            let v = older(&mut e, &[work], change);
+            e.flow_now = v;
+            v
+        } else {
+            0
+        };
         // Cell I1 asks for tools, and is back from them with their results.
         e.advance(work).unwrap();
         e.advance(work).unwrap();
         let log = said.lock().unwrap().join("\n");
         assert_eq!(state(&e, item).unwrap().1, "I1", "{log}");
-        let v = older(&mut e, &[work], change);
+        let before = session_of(&e, work, "I1");
+        let v = if line {
+            e.flow_now = now;
+            v
+        } else {
+            older(&mut e, &[work], change)
+        };
+        let line_of = |e: &Engine, session: i64| -> String {
+            e.db.conn()
+                .query_row("SELECT line FROM sessions WHERE id = ?1", [session], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(
+            line_of(&e, before),
+            if line { "review" } else { "engineer" },
+            "{what}\n{log}"
+        );
         e.advance(work).unwrap();
         let log = said.lock().unwrap().join("\n");
         let v1 = brought(&e, work);
@@ -3806,7 +3833,11 @@ fn a_cell_under_way_that_the_version_changed_is_done_again_from_its_start() {
                     |r| r.get(0),
                 )
                 .unwrap();
-        assert_eq!(session_of(&e, work, "I1"), engineer, "{what}\n{log}");
+        // The round done again runs in the session of I1's line in the version the engine runs: for the line, not the
+        // review session its earlier rounds ran in; for the inputs, the same session as before.
+        let after = session_of(&e, work, "I1");
+        assert_eq!((after, line_of(&e, after).as_str()), (engineer, "engineer"), "{what}\n{log}");
+        assert_eq!(after != before, line, "{what}\n{log}");
         let _ = std::fs::remove_dir_all(&s.root);
     }
 }

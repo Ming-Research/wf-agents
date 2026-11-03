@@ -1490,10 +1490,12 @@ pub fn bring_up(
         .map_err(sql)?;
     let moved = finish(e, w, g, cell, round, output, &row, Ended::default(), &[], None, &given)?;
     if row.pauses {
+        // A paused work is brought to a newer version only as it goes on, so the owner's Start is what looks again.
+        let again = "Start it once a flow version that has a cell it walked is installed, and it looks again";
         let then = match (&back_to, w.graph == ARCHITECT) {
             (Some(t), _) => format!("Start takes it back to cell {t} all the same"),
-            (None, true) => "It waits here for a flow version that has a cell it walked".to_string(),
-            (None, false) => "Start it over, or cancel its item".to_string(),
+            (None, true) => again.to_string(),
+            (None, false) => format!("Start it over, or cancel its item; or {again}"),
         };
         let now = e.flow_now;
         e.pause(w.id, &format!("it cannot go on in flow version {now}: {why}. {then}"))?;
