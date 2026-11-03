@@ -829,7 +829,8 @@ pub fn close_observation(db: &mut Db, id: i64, why: &str) -> Result<String, Stri
 
 /// Removes a dependency between two items, as the owner: `item` no longer depends on `on`, and a work on `item` that
 /// waits for `on` goes on without it, since its wait reads the dependencies as they are. Nobody is told, as nobody is
-/// when a dependency is made.
+/// when a dependency is made. A project's architect removes one the same way by a change of its batch of item changes,
+/// `remove_dependency`, which the batch's review makes.
 pub fn remove_dependency(db: &mut Db, item: i64, on: i64) -> Result<String, String> {
     let removed = db
         .write(Actor::Owner, |tx| {
