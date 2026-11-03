@@ -570,6 +570,13 @@ pub struct MarkRead {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct Answer {
     pub text: String,
+    /// Who the caller declares to answer, `owner` or `delegate`, as for the words said to one architect.
+    pub speaker: String,
+    /// The parts of the answer a delegate declares to be the owner's own words, each found letter for letter in it; the
+    /// page sends none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub relayed: Option<Vec<String>>,
     /// For what the architect is asked: why it was decided this way.
     #[serde(default)]
     #[ts(optional)]
@@ -1454,6 +1461,14 @@ pub struct Gap {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct WorkSaid {
     pub text: String,
+    /// Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect; kept with the
+    /// words wherever they go: the architect's matter, the answer to an engineer's question, or the engineer alone.
+    pub speaker: String,
+    /// The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them,
+    /// kept with the words wherever they go; the page sends none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub relayed: Option<Vec<String>>,
     /// engineer (the default), architect (the default of a question about a decision card) or both.
     #[serde(default)]
     #[ts(optional)]
@@ -1477,6 +1492,13 @@ pub struct ProjectsSaid {
     /// The group, by its key.
     pub key: String,
     pub text: String,
+    /// Who the caller declares to speak, `owner` or `delegate`, as for the words said to one architect.
+    pub speaker: String,
+    /// The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+    /// the page sends none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub relayed: Option<Vec<String>>,
     /// The project whose architect it is for; none for every architect of the group.
     #[serde(default)]
     #[ts(optional)]
@@ -1491,6 +1513,14 @@ pub struct ProjectsSaid {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 pub struct ArchitectSaid {
     pub text: String,
+    /// Who the caller declares to speak: `owner` at the page, `delegate` for a session that speaks for the owner. The
+    /// architect's record of a decision says which was declared; the engine cannot tell it from who speaks.
+    pub speaker: String,
+    /// The parts of the words a delegate declares to be the owner's own words, each found letter for letter in them;
+    /// the page sends none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub relayed: Option<Vec<String>>,
     /// The item it is about, if any.
     #[serde(default)]
     #[ts(optional)]

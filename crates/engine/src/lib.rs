@@ -31,6 +31,7 @@ mod arch_changes;
 mod architect;
 mod cards;
 mod checks;
+mod decisions;
 mod failed;
 mod faults;
 mod inputs;
