@@ -1257,7 +1257,7 @@ const AWAY = 160;
 /// the next words are sent; the one-to-one with an architect has the panel of its notebook, policy and queue beside it, while it
 /// is open, on the tab the address names (`side`), else on the notebook. Reading it marks it read up to its latest
 /// entry.
-function Open({ c, works, side }: { c: Conversation; works: WorkSummary[] | undefined; side: SideTab | null }) {
+export function Open({ c, works, side }:{ c: Conversation; works: WorkSummary[] | undefined; side: SideTab | null }) {
   // How many of its latest entries are read: more each time the owner asks for the ones before. The conversation read
   // with the window before stays on the page until the larger one is read, so the stream does not flash.
   const [limit, setLimit] = useState(CONVERSATION_WINDOW);

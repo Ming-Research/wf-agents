@@ -24,6 +24,18 @@ describe('the import of a raw read', () => {
     expect(restricted('src/item/Probe.tsx', "import { getJson } from '../http';\nexport const x = getJson;\n")).toHaveLength(1);
   });
 
+  it('is refused under another name or as the whole module, and from a part nested deeper', () => {
+    expect(restricted('src/pages/Probe.tsx', "import { getJson as read } from '../http';\nexport const x = read;\n")).toHaveLength(1);
+    expect(restricted('src/pages/Probe.tsx', "import * as http from '../http';\nexport const x = http;\n")).toHaveLength(1);
+    expect(restricted('src/pages/deep/Probe.tsx', "import { getBody } from '../../http';\nexport const x = getBody;\n")).toHaveLength(1);
+  });
+
+  it('is allowed where the owner opens or scrolls to read: the rounds and the round panel', () => {
+    const raw = "import { getJson } from './http';\nexport const x = getJson;\n";
+    expect(restricted('src/rounds.ts', raw)).toEqual([]);
+    expect(restricted('src/pages/RoundView.tsx', "import { getJson } from '../http';\nexport const x = getJson;\n")).toEqual([]);
+  });
+
   it('is allowed in the reader and the hooks over it, and a read that is no event-driven read stays allowed', () => {
     const raw = "import { getBody } from './http';\nexport const x = getBody;\n";
     expect(restricted('src/reader.ts', raw)).toEqual([]);
