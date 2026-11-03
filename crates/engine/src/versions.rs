@@ -14,7 +14,7 @@
 //! begun afresh), is none, and the new version reads it as the old one did.
 
 use flow::{CompiledCell, CompiledGraph, Position};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::RoundId;
 
@@ -61,7 +61,10 @@ pub fn why_not(old: &CompiledGraph, new: &CompiledGraph, pos: &Position, handed:
                 h.cell
             ));
         };
-        let misfits = is.schema.as_ref().map(|s| flow::misfits(s, &h.output, ""));
+        let misfits = is.schema.as_ref().map(|s| {
+            let (schema, output) = outcome_only(s, &h.output);
+            flow::misfits(&schema, &output, "")
+        });
         if let Some(why) = misfits.filter(|m| !m.is_empty()) {
             return Some(format!(
                 "the return of cell {} in round {} no longer fits it ({})",
@@ -72,6 +75,25 @@ pub fn why_not(old: &CompiledGraph, new: &CompiledGraph, pos: &Position, handed:
         }
     }
     None
+}
+
+/// The part of an agent's return a later round reads, its outcome, with the schema cut down to it: the fields every
+/// agent's return holds beside it (what it told the owner, its progress, its side reports, its flow feedback) are acted
+/// on as its round ends and read by no later row, so a version that changes them, as one that narrows the kinds of side
+/// reports, moves a work all the same. A return of a tool or of the engine, which has no outcome, is whole.
+fn outcome_only(schema: &Value, output: &Value) -> (Value, Value) {
+    if schema["properties"].get("outcome").is_none() {
+        return (schema.clone(), output.clone());
+    }
+    let mut schema = schema.clone();
+    if let Some(p) = schema.get_mut("properties").and_then(Value::as_object_mut) {
+        p.retain(|k, _| k == "outcome");
+    }
+    if let Some(r) = schema.get_mut("required").and_then(Value::as_array_mut) {
+        r.retain(|k| k == "outcome");
+    }
+    let outcome = output.get("outcome").cloned().unwrap_or(Value::Null);
+    (schema, json!({ "outcome": outcome }))
 }
 
 /// What of a cell changed between two versions, in words: its kind, its line, its inputs or its rows; none when none
@@ -252,6 +274,37 @@ mod tests {
             why_not(&now, &gone, &at("R2"), &[fits]).as_deref(),
             Some("cell X1, which the work handed a return in at, is gone")
         );
+    }
+
+    // An agent's return whose fields beside the outcome no longer fit the new version moves all the same: what it told
+    // the owner and its side reports were acted on as its round ended, and no later row reads them. Its outcome still
+    // has to fit.
+    #[test]
+    fn a_work_whose_return_differs_only_beside_its_outcome_moves() {
+        let now = architect();
+        let pick = |extra: Value| {
+            let mut h = handed_in(1, "Q1", json!({ "pick": { "matter": 4, "why": "w" } }));
+            for (k, v) in extra.as_object().unwrap() {
+                h.output[k] = v.clone();
+            }
+            h
+        };
+        let mut old = now.clone();
+        let schema = cell(&mut old, "Q1").schema.as_mut().unwrap();
+        schema["properties"]["tell_owner"] = json!({ "type": "array" });
+        schema["properties"]["side_reports"] = json!({ "type": "array" });
+        let told = pick(json!({ "tell_owner": [], "side_reports": [{ "kind": "other", "what": "w" }] }));
+        let taken = old.cell("Q1").unwrap().schema.as_ref().unwrap();
+        assert!(
+            flow::valid(taken, &told.output),
+            "{:?}",
+            flow::misfits(taken, &told.output, "")
+        );
+        assert!(!flow::valid(
+            now.cell("Q1").unwrap().schema.as_ref().unwrap(),
+            &told.output
+        ));
+        assert_eq!(why_not(&old, &now, &at("B2"), &[told]), None);
     }
 
     // A return that does not fit the new version in several places is told with every place, joined by semicolons, not
