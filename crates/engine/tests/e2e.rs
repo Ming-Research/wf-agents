@@ -19427,7 +19427,8 @@ fn a_round_due_in_its_middle_hands_its_progress_over_to_a_new_session() {
             .unwrap();
     let out: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(out["handover"], handed(1), "{out}");
-    let (rent, buy) = (out["rent"].as_f64().unwrap(), out["buy"].as_f64().unwrap());
+    let session = &out["session"];
+    let (rent, buy) = (session["rent"].as_f64().unwrap(), session["buy"].as_f64().unwrap());
     assert!((rent - 0.28).abs() < 1e-9 && (buy - 0.275).abs() < 1e-9, "{out}");
     assert_eq!(counted(&e, work, "handovers"), 1, "{log}");
     // The round came due at the 29th call it told, and the hook asked after the one tool use that followed.

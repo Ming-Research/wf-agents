@@ -1,18 +1,20 @@
--- Replays every CLI session the engine recorded through the hand-over rule (crates/sessions/src/handover.rs), from what
--- each round's usage record keeps: the prompt of its first call and of its last, how many calls it made and their
--- prompts in total. The calls between are put on the quadratic through the first and the last prompt whose sum is the
--- total. At each call the replay adds the rent; once the rent comes to the buy, the session hands over after that call,
+-- Replays every session the engine recorded through the hand-over rule (crates/sessions/src/handover.rs), from what
+-- each round's usage record keeps: the prompt of its first call and of its last, its turns, from which its calls are
+-- counted, and the prompts of its calls in total. The calls between are put on the quadratic through the first and the
+-- last prompt whose sum is the total. At each call the replay adds the rent; once the rent comes to the buy, the session hands over after that call,
 -- and from then on each of its calls holds what it added past the hand-over on top of a new opening: the session's
 -- first prompt and the hand-over's tokens. A session due at its last call never hands over, as nothing follows.
 --
 -- Net saving = the reads saved - for each hand-over, writing its whole context to the cache again and the call that
 -- writes the hand-over (reading that context, and writing the hand-over as output).
 --
--- One row for each session that hands over, as `session`, and the totals of the sessions replayed, as `total`, and of
--- those left out, as `left_out`. Read-only; run on the engine's database. The README beside it gives the result.
+-- One row for each session that hands over, as `session`; the totals of the sessions replayed, as `total`; where their
+-- first hand-overs came, as `first_handover`; and the totals of those left out, as `left_out`. Read-only; run on the
+-- engine's database. The README beside it gives the result.
 WITH RECURSIVE
--- The tokens the call that hands over writes, which the new session opens with on top of the session's first prompt.
-given(handover) AS (VALUES (3000)),
+-- The tokens the call that hands over writes, which the new session opens with on top of the session's first prompt;
+-- and how a round's calls are counted (`sized` below): 'turns' or 'linear'.
+given(handover, counted) AS (VALUES (3000, 'turns')),
 -- What a million tokens cost each model, in US dollars, as crates/sessions/src/cost.rs has it: a read from the cache,
 -- a write to it kept five minutes or an hour, and output; a call of Haiku 5.5 over 100,000 tokens at its higher prices.
 prices(model, above, read, w5, w1, output) AS (VALUES
@@ -27,7 +29,7 @@ prices(model, above, read, w5, w1, output) AS (VALUES
 told AS MATERIALIZED (
   SELECT r.session AS s, r.work, r.n, r.cell, r.started_at,
     CASE WHEN instr(r.model, '[') > 0 THEN substr(r.model, 1, instr(r.model, '[') - 1) ELSE r.model END AS model,
-    max(coalesce(json_extract(r.usage, '$.turns'), 1), 1) AS calls,
+    coalesce(json_extract(r.usage, '$.turns'), 1) AS turns,
     coalesce(json_extract(r.usage, '$.first_call.input_tokens'), 0)
       + coalesce(json_extract(r.usage, '$.first_call.cache_read_input_tokens'), 0)
       + coalesce(json_extract(r.usage, '$.first_call.cache_creation_input_tokens'), 0) AS opening,
@@ -51,27 +53,42 @@ whole AS MATERIALIZED (
                   ELSE 0 END) = 1
     AND max(total) > 0
 ),
+-- How many calls each round replayed made. The record's turns are not its calls: a round of 2 turns made one call,
+-- and a round of 3 or 4 turns one or more. A round whose total is less than its last prompt and its least made one
+-- call; else at least two, and no more than its total over the least of its first and last prompt, since a call holds
+-- at least that much. Within those bounds, `counted` says: `turns`, its turns less the one the return takes; `linear`,
+-- as many as its total over the mean of its first and last prompt.
+sized AS MATERIALIZED (
+  SELECT t.*,
+    CASE WHEN t.total < t.closing + min(t.opening, t.closing) THEN 1
+      ELSE max(2, min(CASE g.counted WHEN 'turns' THEN t.turns - 1
+                        ELSE CAST(round(2.0 * t.total / (t.opening + t.closing)) AS INTEGER) END,
+                      t.total / min(t.opening, t.closing)))
+    END AS calls
+  FROM told t JOIN whole USING (s) JOIN given g
+  WHERE t.total > 0
+),
 -- The rounds replayed, in the order they ran in their session, each with the number of the session's calls before it.
 ran AS MATERIALIZED (
   SELECT t.*, sum(calls) OVER w - calls AS before, max(hour) OVER (PARTITION BY t.s) AS hour_s
-  FROM told t JOIN whole USING (s)
-  WHERE t.total > 0
+  FROM sized t
   WINDOW w AS (PARTITION BY t.s ORDER BY started_at, work, n ROWS UNBOUNDED PRECEDING)
 ),
 nums(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM nums WHERE i + 1 < (SELECT max(calls) FROM ran)),
 -- Each call of each round, numbered across its session from 1 (i) and in its round from 1 (j): its prompt on the
--- quadratic through the round's first and last prompt whose sum over the round's calls is the round's total, never
--- below 0. For t = j-1 over calls-1, the prompt is first + (last - first) t + k t (1 - t), and the sum of t (1 - t) over
--- the calls is calls (calls - 2) / (6 (calls - 1)).
+-- quadratic through the round's first and last prompt whose sum over the round's calls is the round's total, kept
+-- between the least and the most of those two, as a round's context neither falls below where it started or ended nor
+-- rises above. For t = j-1 over calls-1, the prompt is first + (last - first) t + k t (1 - t), and the sum of t (1 - t)
+-- over the calls is calls (calls - 2) / (6 (calls - 1)).
 calls AS MATERIALIZED (
   SELECT r.s, r.before + x.i + 1 AS i, r.work, r.n, x.i + 1 AS j, r.model, r.hour_s AS hour,
-    max(CASE
+    max(min(CASE
       WHEN r.calls = 1 THEN r.closing
       WHEN r.calls = 2 THEN CASE x.i WHEN 0 THEN r.opening ELSE r.closing END
       ELSE r.opening + (r.closing - r.opening) * (x.i * 1.0 / (r.calls - 1))
         + (r.total - r.calls * (r.opening + r.closing) / 2.0) * 6.0 * (r.calls - 1) / (r.calls * (r.calls - 2.0))
           * (x.i * 1.0 / (r.calls - 1)) * (1 - x.i * 1.0 / (r.calls - 1))
-    END, 0) AS p
+    END, max(r.opening, r.closing)), min(r.opening, r.closing)) AS p
   FROM ran r JOIN nums x ON x.i < r.calls
 ),
 -- The rule, call by call; a row holds the session as it stands after call i, and the next row hands over first when
@@ -150,7 +167,7 @@ SELECT * FROM (
     NULL, max(due1), 'least, median and most of the session call the first hand-over came after', NULL, NULL, NULL
   FROM per WHERE handed > 0
   UNION ALL
-  SELECT 'left_out', count(DISTINCT s) || ' sessions', count(*), sum(calls), round(sum(cost), 2), NULL,
+  SELECT 'left_out', count(DISTINCT s) || ' sessions', count(*), sum(turns), round(sum(cost), 2), NULL,
     'a round that used tokens has no first or last prompt, or a model with no prices', NULL, NULL, NULL
   FROM told WHERE s NOT IN (SELECT s FROM whole)
 )

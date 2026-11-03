@@ -6982,6 +6982,12 @@
           "out": [
             {
               "$ref": "handover_form"
+            },
+            {
+              "name": "session",
+              "title": "The session handed over",
+              "type": "obj",
+              "desc": "What the session that handed over came to, by its calls the ledger kept: rent, what they paid to read again what it added past its first prompt, and buy, what writing its whole context to the cache again would cost, in US dollars, none for a model with no prices; opening and last_prompt, the prompts of its first and last calls, in tokens; and model, its last call's"
             }
           ],
           "cases": [
@@ -18400,6 +18406,12 @@
           "out": [
             {
               "$ref": "handover_form"
+            },
+            {
+              "name": "session",
+              "title": "The session handed over",
+              "type": "obj",
+              "desc": "What the session that handed over came to, by its calls the ledger kept: rent, what they paid to read again what it added past its first prompt, and buy, what writing its whole context to the cache again would cost, in US dollars, none for a model with no prices; opening and last_prompt, the prompts of its first and last calls, in tokens; and model, its last call's"
             }
           ],
           "cases": [

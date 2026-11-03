@@ -116,11 +116,12 @@ CREATE TABLE rounds (
   CHECK (transition IS NULL OR rejected IS NULL)
 ) STRICT;
 
+-- The rows keep the order they had, which the rounds' rowids follow.
 INSERT INTO rounds (work, n, cell, session, input, output, transition, rejected, config_commit, model, usage,
     compactions, started_at, ended_at, counts)
   SELECT work, n, cell, session, input, output, transition, rejected, config_commit, model, usage, compactions,
     started_at, ended_at, counts
-  FROM rounds_version_70 ORDER BY work, n;
+  FROM rounds_version_70;
 DROP TABLE rounds_version_70;
 
 CREATE INDEX rounds_counts ON rounds (work, counts) WHERE counts IS NOT NULL;

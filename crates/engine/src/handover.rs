@@ -159,11 +159,13 @@ pub(crate) fn hand_over(e: &mut Engine, w: &Work, gathered: &[Gathered]) -> Resu
     let (last_prompt, last_model) = rent.last.clone().unzip();
     Ok(json!({
         "handover": handed,
-        "rent": costs.map(|c| c.0),
-        "buy": costs.map(|c| c.1),
-        "opening": rent.opening,
-        "last_prompt": last_prompt,
-        "model": last_model.unwrap_or(model),
+        "session": {
+            "rent": costs.map(|c| c.0),
+            "buy": costs.map(|c| c.1),
+            "opening": rent.opening,
+            "last_prompt": last_prompt,
+            "model": last_model.unwrap_or(model),
+        },
     }))
 }
 
