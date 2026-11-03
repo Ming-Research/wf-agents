@@ -105,3 +105,30 @@ fn a_mode_a_missing_newline_a_deleted_file_and_an_empty_file_are_the_works_own_c
     commit(&dir, &[("empty.txt", "")], "Adds an empty file");
     must_differ("empty file added", &dir, &before);
 }
+
+// A work with no change has no lines of its own: the text is empty, so that "the work has none at the start" can be
+// told from a change.
+#[test]
+fn a_work_with_no_change_has_no_lines_of_its_own() {
+    let dir = forked("none", &[("a.txt", "a\n")]);
+    assert!(own_lines(&dir, "main", "HEAD").unwrap().is_empty());
+    commit(&dir, &[("a.txt", "a\nb\n")], "The work");
+    assert!(!own_lines(&dir, "main", "HEAD").unwrap().is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// The limit of the text: a line added after the first of four equal lines, and then after the third, has the same
+// neighbours both times, so its own lines read the same. The text keeps one line of context to tell places apart; it
+// cannot tell apart places whose neighbours are equal, and the full CI after catching up with main is the gate there.
+#[test]
+fn a_change_moved_between_places_with_equal_neighbours_is_not_told_apart() {
+    let dir = forked("equal-neighbours", &[("a.txt", "x\nx\nx\nx\n")]);
+    let before = commit(&dir, &[("a.txt", "x\ny\nx\nx\nx\n")], "The work");
+    commit(&dir, &[("a.txt", "x\nx\nx\ny\nx\n")], "Moves it");
+    assert!(!run(&dir, &["diff", &before, "HEAD"]).is_empty());
+    assert_eq!(
+        own_lines(&dir, "main", &before).unwrap(),
+        own_lines(&dir, "main", "HEAD").unwrap()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -57,8 +57,10 @@ pub fn own_changes(dir: &Path, main: &str, from: &str, to: &str) -> Result<Vec<S
 /// The lines the work itself adds and removes at `rev`, against main as merged into `rev`, as the text of a diff with
 /// nothing in it that main's changes elsewhere move: no blob ids, no line numbers and no function names, but one line
 /// of context around each change, which says where it is. What main does in another place of a file the work changed,
-/// or in a file the work did not, does not show in it; two commits have the same text exactly when the work's own
-/// lines are the same in both, in the same place (main changing the neighbours of the work's lines also counts). The
+/// or in a file the work did not, does not show in it. Equal text means the same lines written or removed with the
+/// same neighbouring line on each side; main changing those neighbours makes the text differ. A change moved between
+/// two places whose neighbours are equal (a line added after the first of four equal lines, then after the third) is
+/// not told apart, which can skip a retest; the full CI that follows catching up with main is the gate for it. The
 /// text is bytes, since a line that is not UTF-8 would otherwise be read as another that is not.
 pub fn own_lines(dir: &Path, main: &str, rev: &str) -> Result<Vec<u8>, String> {
     let fork = main_merged_into(dir, rev, main)?;
@@ -92,15 +94,15 @@ pub fn own_lines(dir: &Path, main: &str, rev: &str) -> Result<Vec<u8>, String> {
         ));
     }
     let mut text = Vec::with_capacity(out.stdout.len());
-    for line in out.stdout.split(|b| *b == b'\n') {
+    // Every line of git's output ends with a newline, so a diff with no change is an empty text.
+    for line in out.stdout.split_inclusive(|b| *b == b'\n') {
         // The blob ids on both sides change whenever main changes the file.
         if line.starts_with(b"index ") {
             continue;
         }
         // A hunk's line numbers change with what main adds above, and so does the function name git prints after
         // them (the nearest line above that begins with a letter); the context lines say where the hunk is.
-        text.extend_from_slice(if line.starts_with(b"@@") { &b"@@"[..] } else { line });
-        text.push(b'\n');
+        text.extend_from_slice(if line.starts_with(b"@@") { &b"@@\n"[..] } else { line });
     }
     Ok(text)
 }

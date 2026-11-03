@@ -1810,7 +1810,8 @@ fn answers_a_row_of(fix: &Round, within: &str, side: &str) -> bool {
 /// it again, whatever the answer was. It gives the choice, and what it compared for each side that has answered, which
 /// the round of `T7` records in `input.engine.compared`: the head the side left the work at, the head now, and whether
 /// the work's own lines at the two are the same (`same`), differ (`differs`), or could not be had to compare
-/// (`cannot_compare: <why>`). What cannot be compared counts as changed.
+/// (`cannot_compare: <why>`). What cannot be compared counts as changed. The record is what was compared, not the
+/// choice: the review is also chosen as `changed` when adversarial testing runs again, though its own lines are `same`.
 fn choose_checks(e: &Engine, w: &Work, g: &CompiledGraph) -> Result<(Value, Value), String> {
     let project = e.project_of(w)?;
     let reviews = inputs::answered(e, w, g, "T4")?;

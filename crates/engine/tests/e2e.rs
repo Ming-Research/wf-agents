@@ -2476,6 +2476,9 @@ fn what_adversarial_testing_committed_itself_is_not_a_change_since_it_looked() {
         "T7",
     );
     assert_eq!(choose_next(&mut e, work), plan_of("changed", "disputes"), "{}", log());
+    // The review is sent back because adversarial testing runs again, not because the work's own lines changed: the
+    // record says what was compared, which is the same for both sides.
+    assert_eq!(compared(&e, work), json!({ "adversarial": same, "review": same }));
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
