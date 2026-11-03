@@ -313,8 +313,8 @@ fn full_checks_on(
 
 /// `commit` with main's CI files ([`git::with_ci_files_of`]), for a workflow GitHub refused to run by hand with the
 /// commit's own, as on a branch made before main's workflow took the request: GitHub runs a workflow on a ref by the
-/// file of it the ref holds. Main is fetched first, so that its CI files are those of now. Where `own`, the commit is the
-/// work's head, and the CI files the work changed itself stay as it has them. None when main's CI files are the
+/// file of it the ref holds. Main is fetched first, so that its CI files are those of now. Where `own`, the commit is
+/// the work's head, and the CI files the work changed itself stay as it has them. None when main's CI files are the
 /// commit's, which a run cannot be refused for.
 fn with_main_ci(
     project: &config::Project,
@@ -336,8 +336,8 @@ fn with_main_ci(
 
 /// Where GitHub refused to run a workflow with a commit's own CI files (`refused`), runs it again with main's when they
 /// differ: `run`, given the commit with main's CI files ([`with_main_ci`]) once it is pushed to `refname`. Gives what
-/// that run gave, with both of GitHub's answers when it refused that too; the refusal as it was when main's CI files are
-/// the commit's.
+/// that run gave, with both of GitHub's answers when it refused that too; the refusal as it was when main's CI files
+/// are the commit's.
 #[allow(clippy::too_many_arguments)]
 fn again_with_main_ci<T>(
     project: &config::Project,
@@ -370,8 +370,8 @@ fn again_with_main_ci<T>(
 /// the commit, which `holder` names as the tool's reader knows it ("your branch has"), saying `said`.
 fn main_ci_note(fast: &str, holder: &str, said: &str) -> String {
     format!(
-        "GitHub refused to run {fast} with the CI files ({}/) {holder}, as it does those of a branch made before main's \
-         took the request: {said}. It ran with main's CI files instead",
+        "GitHub refused to run {fast} with the CI files ({}/) {holder}, as it does those of a branch made before \
+         main's took the request: {said}. It ran with main's CI files instead",
         git::CI_FILES
     )
 }
@@ -792,10 +792,10 @@ fn push_refusal(wt: &Path, head: &str, pushed: Option<&str>, main: &str) -> Opti
     None
 }
 
-/// The title and description a pull request is opened with when the engineer has handed in none, at its first push
-/// (`ci`) or when the full CI opens it (`full_ci`): fixed English text naming the item by its number, and none of the
-/// item's own text, which is in the owner's language, since everything in a pull request is in English. The engineer's
-/// `pr` at a later push replaces both.
+/// The title and description a pull request is opened with when the engineer has handed in none, at the first push of
+/// a commit of the work's own (`ci`) or when the full CI opens it (`full_ci`): fixed English text naming the item by
+/// its number, and none of the item's own text, which is in the owner's language, since everything in a pull request
+/// is in English. The engineer's `pr` at a later push replaces both.
 fn pr_fallback(item: &Item) -> (String, String) {
     (
         format!("Item {}", item.id),
@@ -847,26 +847,32 @@ fn ci(
     let tag = format!("{}-{}-{n}", round.work, round.n);
     let main_ci = format!("{MAIN_CI}/{tag}");
     let main_ci_ref = format!("refs/heads/{main_ci}");
+    // GitHub opens no pull request for a branch with no commit beyond main, as a work's before its first commit: the
+    // first push of a commit of the work's own opens it. One open already stays the work's, whatever the branch holds.
+    let own_commit = !git::is_ancestor(&wt, &sha, &format!("origin/{}", project.main));
     let got = attempts(e, round, "ci", req, |e| {
         hub::push(&wt, &sha, &format!("refs/heads/{branch}"), false)?;
         told(&sha);
-        let tb = title_body
-            .clone()
-            .or_else(|| pr.get().is_none().then(|| fallback.clone()));
-        let n = e.github().pull_request(
-            &repo(project),
-            &branch,
-            &project.main,
-            tb.as_ref().map(|(t, b)| (t.as_str(), b.as_str())),
-            pr.get(),
-        )?;
-        // Known only once written: an attempt whose write failed leaves it unknown, and the next writes it.
-        if pr.get() != Some(n) {
-            record_push(e, w, None, Some(n)).map_err(Failure::other)?;
-            pr.set(Some(n));
+        if pr.get().is_some() || own_commit {
+            let tb = title_body
+                .clone()
+                .or_else(|| pr.get().is_none().then(|| fallback.clone()));
+            let n = e.github().pull_request(
+                &repo(project),
+                &branch,
+                &project.main,
+                tb.as_ref().map(|(t, b)| (t.as_str(), b.as_str())),
+                pr.get(),
+            )?;
+            // Known only once written: an attempt whose write failed leaves it unknown, and the next writes it.
+            if pr.get() != Some(n) {
+                record_push(e, w, None, Some(n)).map_err(Failure::other)?;
+                pr.set(Some(n));
+            }
+            // A pull request that was open already, one a work took over among them, keeps the base it was opened
+            // with.
+            hub::ensure_base(e.github(), &repo(project), n, &project.main)?;
         }
-        // A pull request that was open already, one a work took over among them, keeps the base it was opened with.
-        hub::ensure_base(e.github(), &repo(project), n, &project.main)?;
         let (ran, ci_files) = match fast_checks(e.github(), project, &branch, &sha, &tests) {
             // A branch made before main's fast workflow took the request: the head runs with main's CI files, on a
             // temporary ref, since the branch is the engineer's; its result is the head's.
@@ -900,11 +906,18 @@ fn ci(
         if let Some(note) = ci_files {
             push["ci_files"] = Value::String(note);
         }
+        if pr.get().is_none() {
+            push["no_pull_request"] = Value::String(NO_PULL_REQUEST.to_string());
+        }
         let artifact = project.ci.generated_artifact.as_deref();
         if let Some(g) = generated(e.github(), &repo(project), artifact, &checks, &wt) {
             push["generated"] = g;
         }
-        Ok(json!({ "push": push, "pr": n }))
+        // The pull request is recorded from the tool's run (`record_tool_runs`), and is not the engineer's to read.
+        Ok(match pr.get() {
+            Some(n) => json!({ "push": push, "pr": n }),
+            None => json!({ "push": push }),
+        })
     });
     // GitHub refused the request to run the fast CI itself, such as an input the workflow does not take: trying again
     // cannot help, and the engineer, who can change the request, is told what GitHub said.
@@ -923,6 +936,12 @@ fn ci(
     }
     Ok(v)
 }
+
+/// What `ci` says when the work has no pull request after its push: the branch has no commit beyond main, and GitHub
+/// opens none for it.
+const NO_PULL_REQUEST: &str = "No pull request was opened: your branch has no commit beyond main, and GitHub opens \
+                               none for such a branch. The first push of a commit of your own opens it, with the title \
+                               and description handed in with that push";
 
 /// What the engineer is told of the generated files put in its worktree.
 const GENERATED: &str = "What the run generated from your head, put in your worktree uncommitted: commit these files \
@@ -2281,6 +2300,8 @@ mod ci_on_demand {
         dispatched: Vec<Dispatch>,
         /// The commit each workflow run by hand was asked for on, in the order of `dispatched`.
         dispatched_on: Vec<String>,
+        /// How many times a pull request was asked to be opened or updated.
+        pull_requests: usize,
         reruns: usize,
         merges: usize,
         /// The number of the last run made.
@@ -2415,11 +2436,22 @@ mod ci_on_demand {
         fn pull_request(
             &self,
             _repo: &str,
-            _branch: &str,
-            _base: &str,
+            branch: &str,
+            base: &str,
             _title_body: Option<(&str, &str)>,
-            _existing: Option<i64>,
+            existing: Option<i64>,
         ) -> Result<i64, Failure> {
+            self.state().pull_requests += 1;
+            // GitHub opens none for a branch with no commit beyond its base, and says so.
+            let empty = |origin: &PathBuf| {
+                let (branch, base) = (format!("refs/heads/{branch}"), format!("refs/heads/{base}"));
+                git::git(origin, &["merge-base", "--is-ancestor", &branch, &base]).is_ok()
+            };
+            if existing.is_none() && self.origin.as_ref().is_some_and(empty) {
+                return Err(Failure::network(format!(
+                    "pull request create failed: GraphQL: No commits between {base} and {branch} (createPullRequest)"
+                )));
+            }
             Ok(1)
         }
 
@@ -2959,11 +2991,11 @@ timeout_ms = 1000
         assert_eq!(v["push"]["run"], "lint", "{v}");
     }
 
-    // Item #268: GitHub runs a workflow on a ref by the file of it the ref holds, and refuses to on a branch made before
-    // main's took a request to run by hand, here before main had it at all. The fast CI then runs with main's CI files:
-    // for ci, on a temporary ref holding the head with them, the CI files the work changed itself kept as it has them,
-    // and the run is the head's; for ci_before, on the code before the change with them, wholly main's. Each result
-    // says so, and no temporary ref is left once the run is read.
+    // Item #268: GitHub runs a workflow on a ref by the file of it the ref holds, and refuses to on a branch made
+    // before main's took a request to run by hand, here before main had it at all. The fast CI then runs with main's
+    // CI files: for ci, on a temporary ref holding the head with them, the CI files the work changed itself kept as it
+    // has them, and the run is the head's; for ci_before, on the code before the change with them, wholly main's. Each
+    // result says so, and no temporary ref is left once the run is read.
     #[test]
     fn a_branch_made_before_main_s_workflow_runs_the_fast_ci_with_main_s_ci_files() {
         let mut r = rig("main-ci-files");
@@ -3019,6 +3051,47 @@ timeout_ms = 1000
 
         let left = git::git(&r.origin, &["branch", "--list", "--format=%(refname:short)"]).unwrap();
         assert!(!left.contains(MAIN_CI) && !left.contains(BEFORE), "{left}");
+    }
+
+    // W288 asked for ci on a branch with no commit beyond main, and GitHub refused the pull request it opened first,
+    // each try: such a branch is pushed and its fast CI run, no pull request is asked for and none recorded, and the
+    // result says so. The first push of a commit of its own opens it.
+    #[test]
+    fn a_branch_with_no_commit_of_its_own_runs_its_fast_ci_and_opens_no_pull_request() {
+        let mut r = rig("no-commit-of-its-own");
+        let main = git::resolve(&r.wt, "origin/main").unwrap();
+        git::git(&r.wt, &["checkout", "-q", "-b", "fresh", &main]).unwrap();
+        r.e.db
+            .write(Actor::Engine, |tx| {
+                tx.execute(
+                    "UPDATE works SET branch = 'fresh', pr = NULL, pushed_head = NULL WHERE id = ?1",
+                    [r.work],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        r.head = main.clone();
+        r.runs.makes("fast", &[("lint", "green"), ("fast", "green")]);
+        let pr_of = |r: &Rig| Work::load(r.e.db.conn(), r.work, None).unwrap().pr;
+
+        let v = r.ci(&["a_test"]);
+        assert_eq!(v["push"]["verdict"], "pushed", "{v}");
+        assert_eq!(v["push"]["head"], main.as_str());
+        assert!(v["push"]["checks"].as_array().is_some_and(|cs| !cs.is_empty()), "{v}");
+        let said = v["push"]["no_pull_request"].as_str().unwrap();
+        assert!(said.contains("no commit beyond main"), "{said}");
+        assert!(v.get("pr").is_none(), "{v}");
+        assert_eq!(r.runs.state().pull_requests, 0);
+        assert_eq!(pr_of(&r), None);
+        assert_eq!(git::git(&r.origin, &["rev-parse", "fresh"]).unwrap().trim(), main);
+
+        std::fs::write(r.wt.join("b.txt"), "the work's\n").unwrap();
+        r.head = commit(&r.wt, "the work's first commit");
+        let v = r.ci(&["a_test"]);
+        assert_eq!(v["push"]["verdict"], "pushed", "{v}");
+        assert!(v["push"].get("no_pull_request").is_none(), "{v}");
+        assert_eq!(r.runs.state().pull_requests, 1);
+        assert_eq!(pr_of(&r), Some(1));
     }
 
     /// The project's `[ci]` where the fast CI takes no tests to run on their own.

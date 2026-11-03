@@ -3247,7 +3247,7 @@
     {
       "name": "ci",
       "desc": "Pushes your local commits and runs the repository's fast CI on the commit (where the project runs its CI on demand: the tests you list and the lint); when it is done, gives you the result of each check, and puts in your worktree, uncommitted, the files a red run generated that differ from yours, such as the files as the formatter makes them",
-      "runs": "The engine checks the head and pushes. On the first push it opens a draft PR with the title and description handed in, and updates them when new ones come. Where the project's configuration has its CI run on demand (on_demand), the push runs nothing: the engine runs the fast CI workflow the configuration names on the branch by hand with the tests listed, which runs those tests, each to its end, and the lint, or the lint only when none is listed, and it takes only the run it made, never one made before. Otherwise the push runs the fast CI workflow, the whole of it, which stops a job at its first red test. GitHub runs a workflow by hand on a branch by the file of it the branch holds; where it refuses to, as on a branch made before main's workflow took the request, and main's CI files (.github/) differ from the branch's, the engine runs it on a temporary ref holding the head with main's CI files, those the work changed itself kept as the work has them, gives that run as the head's and deletes the ref. The engine waits for the run to finish and downloads the logs of red checks. It reads from the logs of every job what became of each listed test and how long it took; a test the run did not reach is not run. When the run is red and uploaded the artifact of generated files the configuration names (generated_artifact), such as the files as the formatter makes them, it writes those that differ from the worktree's into it",
+      "runs": "The engine checks the head and pushes. On the first push of a commit beyond main it opens a draft PR with the title and description handed in, and updates them when new ones come; GitHub opens none for a branch with no commit beyond main, so a push of such a branch opens none and only runs the fast CI. Where the project's configuration has its CI run on demand (on_demand), the push runs nothing: the engine runs the fast CI workflow the configuration names on the branch by hand with the tests listed, which runs those tests, each to its end, and the lint, or the lint only when none is listed, and it takes only the run it made, never one made before. Otherwise the push runs the fast CI workflow, the whole of it, which stops a job at its first red test. GitHub runs a workflow by hand on a branch by the file of it the branch holds; where it refuses to, as on a branch made before main's workflow took the request, and main's CI files (.github/) differ from the branch's, the engine runs it on a temporary ref holding the head with main's CI files, those the work changed itself kept as the work has them, gives that run as the head's and deletes the ref. The engine waits for the run to finish and downloads the logs of red checks. It reads from the logs of every job what became of each listed test and how long it took; a test the run did not reach is not run. When the run is red and uploaded the artifact of generated files the configuration names (generated_artifact), such as the files as the formatter makes them, it writes those that differ from the worktree's into it",
       "in": [
         {
           "name": "head",
@@ -3270,7 +3270,7 @@
           "name": "pr",
           "title": "Pull request",
           "type": "obj",
-          "desc": "The PR's title and description, in English. Hand them in with the first push, and again when the title or description must change or the work is done; not otherwise",
+          "desc": "The PR's title and description, in English. Hand them in with the first push of a commit of your own, which opens the PR, and again when the title or description must change or the work is done; not otherwise",
           "optional": true,
           "fields": [
             {
@@ -3397,6 +3397,13 @@
                   "title": "Main's CI files",
                   "type": "text",
                   "desc": "Only when the run was made with main's CI files, since GitHub refused to run the fast CI with your branch's: what GitHub said, and what the run was made on",
+                  "optional": true
+                },
+                {
+                  "name": "no_pull_request",
+                  "title": "No pull request",
+                  "type": "text",
+                  "desc": "Only when the work has no PR after this push, its branch having no commit beyond main: why, and which push opens it",
                   "optional": true
                 },
                 {

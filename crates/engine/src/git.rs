@@ -620,8 +620,8 @@ mod tests {
     }
 
     // Item #268: a commit with main's CI files has main's in place of its own, but for those named as its own, which
-    // stay as it has them, one it took away staying away; its other files are its own and its parent is the commit. There
-    // is none when main's CI files are the commit's.
+    // stay as it has them, one it took away staying away; its other files are its own and its parent is the commit.
+    // There is none when main's CI files are the commit's.
     #[test]
     fn a_commit_with_main_s_ci_files_keeps_those_named_as_its_own() {
         let dir = fresh("main-ci-files");
