@@ -15075,3 +15075,18 @@ fn a_run_that_never_wrote_its_message_leaves_the_guards_reason_to_the_next() {
     assert!(told.contains(r#""last_tools":"#), "{told}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// The loop asks for a work's graph many times a pass: a copy of it each time, for every work not ended, kept a core of
+// the machine busy with nothing to do.
+#[test]
+fn a_works_graph_is_made_once_and_shared() {
+    let s = setup("graph-once");
+    let (mut e, _, item) = start(&s, scripts());
+    e.tick().unwrap();
+    let (work, _, _) = state(&e, item).unwrap();
+    let w = e.work(work).unwrap();
+    let first = e.graph_of(&w).unwrap();
+    let again = e.graph_of(&w).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&first, &again));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
