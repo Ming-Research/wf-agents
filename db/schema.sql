@@ -1351,7 +1351,7 @@ CREATE VIEW work_owner_words AS
 CREATE VIEW work_ci AS
   -- The CI on each work: the latest run of the fast CI (the tool ci), of the full CI on the draft and of the tests on
   -- the code before the change (the tool ci_before), each with the head it ran on and its result, which holds the
-  -- links to its runs; and the head last pushed. Read by: cells `T4` and `T5`.
+  -- links to its runs; and the head last pushed. Read by: cells `T3`, `T4` and `T5`.
   SELECT w.id AS work, w.pushed_head AS head,
     (SELECT json_object('head', json_extract(t.args, '$.head'), 'result', json(t.result)) FROM tool_runs t
      WHERE t.work = w.id AND t.tool = 'ci' AND t.result IS NOT NULL ORDER BY t.id DESC LIMIT 1) AS fast_ci,

@@ -228,17 +228,31 @@ export function OptionBoxes(props: {
   );
 }
 
-/// How an acceptance condition was met, as the work said at its end: by which tests, by which measurement, or where
-/// the report answers it.
+/// How an acceptance condition was met, as the work said at its end: by which tests, by which measurement, by which
+/// jobs and commands of the CI, by reading which part of the change, or where the report answers it.
 export type Met = Obj;
+
+/// The strings a list of the row holds, as the row says them.
+function strings(v: JsonValue | undefined): string[] {
+  return Array.isArray(v) ? v.map((x) => str(x)) : [];
+}
 
 function MetLine({ m }: { m: Met }) {
   const how = str(m.how);
   if (how === 'tested') {
-    const tests = Array.isArray(m.tests) ? m.tests.map((x) => str(x)) : [];
-    return <span className="good">{t('met_tested', { tests: tests.join(', ') })}</span>;
+    return <span className="good">{t('met_tested', { tests: strings(m.tests).join(', ') })}</span>;
   }
   if (how === 'measured') return <span className="good">{t('met_measured', { run: str(m.run), criterion: str(m.criterion) })}</span>;
+  if (how === 'ci_job') {
+    const steps = strings(m.steps);
+    const jobs = strings(m.jobs).join(', ');
+    return (
+      <span className="good">
+        {steps.length > 0 ? t('met_ci_steps', { jobs, steps: steps.join(', ') }) : t('met_ci', { jobs })}
+      </span>
+    );
+  }
+  if (how === 'read_diff') return <span className="good">{t('met_diff', { where: str(m.where), what: str(m.what) })}</span>;
   if (how === 'report_answer') return <span className="good">{t('met_report', { where: str(m.where) })}</span>;
   return <Labelled value={m} />;
 }
@@ -269,9 +283,13 @@ export function Acceptance({ value, met }: { value: JsonValue; met: Map<string, 
                   ? t('acc_by_test')
                   : by === 'measurement'
                     ? t('acc_by_measurement', { criterion: str(r.criterion) })
-                    : by === 'report_answer'
-                      ? t('acc_by_report')
-                      : words(by)}
+                    : by === 'ci'
+                      ? t('acc_by_ci')
+                      : by === 'diff'
+                        ? t('acc_by_diff')
+                        : by === 'report_answer'
+                          ? t('acc_by_report')
+                          : words(by)}
               </td>
             </tr>
           );

@@ -945,7 +945,10 @@ fn compose(
     } else {
         Vec::new()
     };
-    let columns = message::columns(e, w, g, cell, item);
+    let message::ReviewColumns {
+        columns,
+        renumbered: columns_renumbered,
+    } = message::columns(e, w, g, cell, item);
     let table = inputs::table(&gathered);
     let context = message::Context {
         e,
@@ -958,6 +961,7 @@ fn compose(
         gathered: &gathered,
         given: &given,
         columns: &columns,
+        columns_renumbered,
         table: &table,
         held: &held,
         registry: &registry,
