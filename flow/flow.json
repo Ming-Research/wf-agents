@@ -3915,10 +3915,11 @@
       "place": {
         "title": "The work's place",
         "layer": "work",
-        "desc": "The cell the work is at, where it stopped, the cells waiting for an answer, and the project's merge queue",
+        "desc": "The cell the work is at, where it stopped, the cells waiting for an answer, the route it goes, and the project's merge queue",
         "relations": [
           "merge_queue",
-          "work_history"
+          "work_history",
+          "work_routes"
         ],
         "inputs": []
       },
@@ -4419,7 +4420,7 @@
         "stores": [
           "items",
           "counters",
-          "work_routes"
+          "place"
         ]
       },
       "route": {
