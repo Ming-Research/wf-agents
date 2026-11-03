@@ -19693,3 +19693,57 @@ fn a_round_asked_to_hand_over_records_where_it_came_due() {
     assert_eq!(asked, [rounds[0].0], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
+
+// Two hand-overs in a row at one cell, after a round that ran tools. The design makes the hand-over cell transparent to
+// the input Tool results, whose source the round after it reads as the round that handed over read it; so the third
+// session, which carries on from the second hand-over, is still given the results the first session's tools gave.
+// Each hand-over is whole (the design has the agent write again all of the one before that still holds), so the third
+// session is given the latest, and not the one before it.
+#[test]
+fn a_second_hand_over_in_a_row_still_gives_the_tools_results_and_only_the_latest_hand_over() {
+    let s = setup_priced("handover-twice");
+    let mut scripts = scripts();
+    let sent: Sent = Arc::default();
+    let seen = sent.clone();
+    scripts.insert(
+        "R1",
+        Box::new(move |r: &Request, n: usize| {
+            keep_sent(&seen, r);
+            match n {
+                1 => (vec![("outcome", "tools")], vec![a_query()]),
+                // The first session after its tools, then the session that took over from it, each come due in the
+                // middle of their round and hand over when the hook asks.
+                2 | 3 => (
+                    Vec::new(),
+                    vec![("@stream", due_stream(n, &[json!({ "hook": "obey" })]))],
+                ),
+                _ => (Vec::new(), Vec::new()),
+            }
+        }),
+    );
+    let (mut e, said, item) = start(&s, scripts);
+    tick_until(&mut e, 24, |e| {
+        state(e, item).is_some_and(|(w, _, _)| handover_rounds(e, w, "R1").get(3).is_some_and(|r| r.1.is_some()))
+    });
+    let log = said.lock().unwrap().join("\n");
+    let (work, _, _) = state(&e, item).unwrap();
+    let rounds = handover_rounds(&e, work, "R1");
+    assert!(rounds.len() >= 4, "{rounds:?}\n{log}");
+    let rows: Vec<Option<&str>> = rounds[..3].iter().map(|r| r.1.as_deref()).collect();
+    assert_eq!(rows, [Some("tools"), Some("handover"), Some("handover")], "{log}");
+    assert_eq!(counted(&e, work, "handovers"), 2, "{log}");
+    let lines = line_sessions(&e, work, "engineer");
+    let started: Vec<&str> = lines.iter().take(3).map(|l| l.0.as_str()).collect();
+    assert_eq!(started, ["line", "handover", "handover"], "{lines:?}");
+    // The first session after the hand-over is given the tools' results, as acceptance A10 says; the second must be too.
+    let second = input_of(&e, work, rounds[2].0);
+    assert_eq!(given_ending(&second, "·X1·results"), Some(true), "{second}");
+    let third = input_of(&e, work, rounds[3].0);
+    assert_eq!(given_ending(&third, "·X1·results"), Some(true), "{third}");
+    assert_eq!(given_ending(&third, "·X6·handover"), Some(true), "{third}");
+    let prompt = sent.lock().unwrap()[3].1.clone();
+    let done = |n: usize| handed(n)["done"].as_str().unwrap().to_string();
+    assert!(prompt.contains(&done(3)), "{prompt}");
+    assert!(!prompt.contains(&done(2)), "{prompt}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
