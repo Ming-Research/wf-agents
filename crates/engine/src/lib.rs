@@ -663,8 +663,8 @@ impl Engine {
 
     /// Lifts a work's pause as the outbox holds it asked by `by`, the owner or its project's architect, as the loop does:
     /// not yet while a work on an item finds no slot free on its machine, the bar the owner's Start meets
-    /// ([`Engine::release_started`]). A work that ended or goes on since, or that the architect asked for once the pause
-    /// is no longer its own, is left as it is.
+    /// ([`Engine::release_started`]). A work that ended or goes on since, that the architect asked for once the pause is
+    /// no longer its own, or whose request a later word withdrew, is left as it is.
     pub(crate) fn resume_asked(&mut self, id: i64, by: &str) -> Result<actions::Carried, String> {
         let w = self.work(id)?;
         let architect = by == db::Actor::Architect.name();
@@ -677,17 +677,26 @@ impl Engine {
         if w.graph == ENGINEER && !self.room_for(&w)? {
             return Ok(actions::Carried::NotYet);
         }
-        if architect {
-            // No word to the architect, which asked for it itself ([`db::lift_pause`] is the owner's).
-            self.db
-                .write(Actor::Architect, |tx| {
-                    tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [id])?;
-                    Ok(())
-                })
-                .map_err(|e| e.to_string())?;
-            self.say(&format!("work {id} goes on, as the architect let it"));
-        } else {
-            self.lift(id)?;
+        let actor = if architect { Actor::Architect } else { Actor::Owner };
+        let lifted = self
+            .db
+            .write(actor, |tx| {
+                // Read with the lifting, not as the loop read what was due, which an action before may have held up: the
+                // owner's Pause or Step since withdrew the request and stands, and the owner's own resume joined it.
+                let Some(by) = db::resume_asker(tx, id)? else {
+                    return Ok(None);
+                };
+                if by != db::Actor::Architect.name() {
+                    return db::lift_pause(tx, id).map(|told| Some(owner_started(id, told)));
+                }
+                // No word to the architect, which asked for it itself ([`db::lift_pause`] is the owner's).
+                tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [id])?;
+                db::withdraw_resume(tx, id)?;
+                Ok(Some(format!("work {id} goes on, as the architect let it")))
+            })
+            .map_err(|e| e.to_string())?;
+        if let Some(said) = lifted {
+            self.say(&said);
         }
         Ok(actions::Carried::Done)
     }
@@ -1480,14 +1489,7 @@ impl Engine {
             .db
             .write(Actor::Owner, |tx| db::lift_pause(tx, id))
             .map_err(|e| e.to_string())?;
-        self.say(&format!(
-            "work {id} goes on, as the owner started it{}",
-            if told {
-                "; the architect, which had stopped it, is told"
-            } else {
-                ""
-            }
-        ));
+        self.say(&owner_started(id, told));
         Ok(())
     }
 
@@ -1499,6 +1501,17 @@ impl Engine {
         let cell = rows.last().and_then(|(_, _, c)| c.clone());
         Ok((rows.into_iter().map(|(w, n, _)| RoundId::new(w, n)).collect(), cell))
     }
+}
+
+/// What the engine says of a work whose pause the owner's Start or resume lifted, `told` whether the architect, which had
+/// stopped it, is told.
+fn owner_started(id: i64, told: bool) -> String {
+    let told = if told {
+        "; the architect, which had stopped it, is told"
+    } else {
+        ""
+    };
+    format!("work {id} goes on, as the owner started it{told}")
 }
 
 /// What one step came to: the work it took a step of, none when no work had a step to take; the item the loop started

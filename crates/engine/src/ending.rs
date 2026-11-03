@@ -661,8 +661,9 @@ mod tests {
         assert_eq!(outbox(&db).len(), 2);
     }
 
-    // Cancelling an item with a work going on only asks, once however often it is asked; an item with no work going on
-    // is cancelled at once. One whose merge stands is not cancelled, and whoever asked is told; once watching main has
+    // Cancelling an item with a work going on only asks, once however often it is asked, keeping the first asker's words
+    // and each asker; an item with no work going on is cancelled at once. One whose merge stands is not cancelled, and
+    // whoever asked is told; once watching main has
     // reverted that merge it can be cancelled, and the pull request of its fix, which never merged, is closed, though
     // the work's rounds hold the merge of the one before.
     #[test]
@@ -682,7 +683,7 @@ mod tests {
             asked,
             [(
                 db::CANCEL_ITEM.to_string(),
-                json!({ "item": item, "why": "a duplicate", "by": "owner" })
+                json!({ "item": item, "why": "a duplicate", "by": "owner", "also": "architect" })
             )]
         );
         db.write(Actor::Engine, |tx| {
