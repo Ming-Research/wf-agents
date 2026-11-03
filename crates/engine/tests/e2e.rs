@@ -6057,7 +6057,11 @@ fn a_question_asked_by_a_tool_cell_is_not_withdrawn_for_words_waiting_for_the_en
     let log = said.lock().unwrap().join("\n");
     let turns: i64 =
         e.db.conn()
-            .query_row("SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'A2'", [work], |r| r.get(0))
+            .query_row(
+                "SELECT count(*) FROM rounds WHERE work = ?1 AND cell = 'A2'",
+                [work],
+                |r| r.get(0),
+            )
             .unwrap();
     assert!(turns > 0, "{log}");
     assert_eq!(question_took(&e, work), None, "{log}");
