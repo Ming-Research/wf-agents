@@ -248,13 +248,15 @@ mod tests {
     }
 
     fn tests_of(c: &Changed) -> Vec<(&str, &str)> {
-        let of = |r: &Value| (r["test"].as_str().unwrap(), r["round"].as_str().unwrap());
-        c.tests.iter().map(of).collect()
+        let rows = c.tests.iter();
+        rows.map(|r| (r["test"].as_str().unwrap(), r["round"].as_str().unwrap()))
+            .collect()
     }
 
     fn weakened_of(c: &Changed) -> Vec<(&str, &str)> {
-        let of = |r: &Value| (r["change"].as_str().unwrap(), r["test"].as_str().unwrap());
-        c.weakened.iter().map(of).collect()
+        let rows = c.weakened.iter();
+        rows.map(|r| (r["change"].as_str().unwrap(), r["test"].as_str().unwrap()))
+            .collect()
     }
 
     // Item #274: a row of an earlier return stays when a later return has none for the test, and the rows go by the

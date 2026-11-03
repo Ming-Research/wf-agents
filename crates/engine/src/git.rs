@@ -96,7 +96,7 @@ pub fn grep_files(dir: &Path, words: &[String], files: &[String]) -> Result<Vec<
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)
-        .args(&args)
+        .args(args)
         .output()
         .map_err(|e| format!("git: {e}"))?;
     let said = String::from_utf8_lossy(&out.stderr);
