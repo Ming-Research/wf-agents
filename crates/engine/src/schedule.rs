@@ -438,8 +438,9 @@ impl Engine {
     }
 
     /// Records, as the loop reaps a step of a work, whether the work waits on for a free slot: a step that found its
-    /// wait over and was granted no slot (`held`) opens a wait for one, unless one is open; any other closes the one
-    /// open, as the work ended, went on (`moved`) or was paused. Writes only when the wait begins or ends.
+    /// wait over and was granted no slot (`held`) opens a wait for one, unless one is open or the work ended or was
+    /// paused since, which then waits for no slot; any other closes the one open, as the work ended, went on (`moved`)
+    /// or was paused. Writes only when the wait begins or ends.
     fn record_slot_wait(&mut self, work: i64, held: bool, moved: bool) -> Result<(), String> {
         let open = db::slot_waiting(self.db.conn())
             .map_err(|e| e.to_string())?
@@ -447,10 +448,13 @@ impl Engine {
         if held == open {
             return Ok(());
         }
+        let w = self.work(work)?;
         let how = if held {
+            if w.ended.is_some() || w.paused.is_some() {
+                return Ok(());
+            }
             None
         } else {
-            let w = self.work(work)?;
             Some(if w.ended.is_some() {
                 SlotWaitEnd::Ended
             } else if w.paused.is_some() && !moved {
@@ -611,7 +615,10 @@ impl Engine {
                 }
             }
             if job.step {
-                self.record_slot_wait(work, outcome.held, !outcome.rounds.is_empty())?;
+                // A wait that could not be recorded loses no other outcome of the turn: the work's next step records it.
+                if let Err(x) = self.record_slot_wait(work, outcome.held, !outcome.rounds.is_empty()) {
+                    self.say(&format!("work {work}: its wait for a free slot is not recorded: {x}"));
+                }
                 out.push(Stepped {
                     work: Some(work),
                     started_item: job.started_item,

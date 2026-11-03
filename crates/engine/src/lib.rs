@@ -473,13 +473,24 @@ impl Engine {
 
     /// Brings a work on an older flow version to the version the engine runs, as its plan says ([`Engine::plan`]): it
     /// moves where it stands ([`Engine::move_up`]), or comes to its graph's cell for a work on an older version, to go
-    /// back from there or stay there stuck ([`Engine::bring_back`]). Gives the plan.
+    /// back from there or stay there stuck ([`Engine::bring_back`]). A work brought so no longer waits where it waited:
+    /// its wait for a free slot, if one is open, ends, as gone on, or as ended when the version could not run it at all.
+    /// Gives the plan.
     fn bring(&mut self, w: &Work) -> Result<versions::Plan, String> {
         let plan = self.plan(w)?;
         match &plan {
             versions::Plan::Move => self.move_up(w)?,
             versions::Plan::GoBack { to, why } => self.bring_back(w, Some(to), why, false)?,
             versions::Plan::Stuck { why, back_to } => self.bring_back(w, back_to.as_deref(), why, true)?,
+        }
+        if !matches!(plan, versions::Plan::Move) {
+            let how = match self.ended(w.id)? {
+                Some(_) => db::SlotWaitEnd::Ended,
+                None => db::SlotWaitEnd::GoneOn,
+            };
+            self.db
+                .write(Actor::Engine, |tx| db::close_slot_wait(tx, w.id, how, db::now()))
+                .map_err(|e| e.to_string())?;
         }
         Ok(plan)
     }
