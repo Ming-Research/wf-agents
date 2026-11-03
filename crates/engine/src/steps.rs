@@ -835,7 +835,7 @@ pub fn cell_request(
     };
     let readable = readable_dirs(e);
     let permissions = &e.config.config.install.agents.permissions;
-    let (allowed, refused) = (permissions.allowed(&line), permissions.refused(&line, &cli));
+    let (allowed, refused) = (permissions.allowed(&line, &cli), permissions.refused(&line, &cli));
     Ok(Request {
         work: w.id,
         cell: cell.id.clone(),

@@ -2759,7 +2759,7 @@ mod tests {
             images: Vec::new(),
             schema: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
             envelope: json!({ "type": "object", "properties": { "outcome": {}, "progress": { "type": "string" } } }),
-            allowed: permissions.allowed("engineer"),
+            allowed: permissions.allowed("engineer", &cli),
             refused: permissions.refused("engineer", &cli),
             readable: vec![PathBuf::from("/data/tool-output")],
             replay: None,
@@ -2794,7 +2794,7 @@ mod tests {
         let flag = |f: &str| line.iter().rposition(|a| a == f).unwrap();
         let (allowed, refused) = (flag("--allowedTools"), flag("--disallowedTools"));
         assert!(allowed > 7);
-        assert_eq!(line[allowed + 1..refused], permissions.allowed("engineer")[..]);
+        assert_eq!(line[allowed + 1..refused], permissions.allowed("engineer", &cli)[..]);
         assert!(line[allowed + 1..refused].iter().any(|a| a == "Bash(cargo update *)"));
         for a in ["Bash(npm run *)", "Bash(cargo fmt *)", "Bash(npm install *=*)"] {
             assert!(line[refused..].iter().any(|x| x == a), "{a}: {line:?}");
@@ -2814,7 +2814,7 @@ mod tests {
             assert!(refused.iter().any(|a| a == "Edit") && refused.iter().any(|a| a == "Bash(git commit *)"));
             let reader = command_line(&Request {
                 line: l.into(),
-                allowed: permissions.allowed(l),
+                allowed: permissions.allowed(l, &cli),
                 refused,
                 ..r.clone()
             });

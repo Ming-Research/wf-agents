@@ -627,9 +627,10 @@ impl Context<'_> {
                 rules.push(m.give(format!("rule:{}", rule.name), flow_rule(e, named, rule)));
             }
         }
-        // A line the configuration keeps from changing anything only reads the worktree. An architect reads its
-        // project in its graph's worktree at main; its cell on no line, which knows only what its inputs hold, runs in
-        // an empty directory and is told of none.
+        // A line the configuration keeps from changing anything only reads the worktree, and one that writes code is
+        // told the lock commands the round's CLI lets it run. An architect reads its project in its graph's worktree
+        // at main; its cell on no line, which knows only what its inputs hold, runs in an empty directory and is told
+        // of none.
         let line = crate::line_of(g, c);
         let permissions = &e.config.config.install.agents.permissions;
         let workspace = if item.is_none() && c.line.is_none() {
@@ -638,7 +639,11 @@ impl Context<'_> {
             let text = architect_workspace(e, &g.name, named);
             Some(m.give(format!("work:{}", g.name), Value::String(text)))
         } else {
-            workspace(w, project, permissions, &line).map(|text| m.give(format!("work:{}", w.id), Value::String(text)))
+            let locks = crate::steps::level_of(e, g, c, item)
+                .map(|(_, _, cli)| permissions.locks_of(&line, &cli))
+                .unwrap_or_default();
+            workspace(w, project, permissions.reads_only(&line), &locks)
+                .map(|text| m.give(format!("work:{}", w.id), Value::String(text)))
         };
         // The inputs, each by its number in `inputs:<cell>` and the addresses of what it holds; what the agent reads
         // itself is said in full. A cell's own input that has nothing says none, so that it is not taken for one
@@ -984,13 +989,9 @@ fn architect_workspace(e: &Engine, graph: &str, project: &str) -> String {
 
 /// Where the work's agents work: its worktree and branch, and the project's branch the flow calls main; what
 /// `work:<id>` gives. An agent on a read-only line is told that it only reads the worktree, and one on a line that
-/// writes code the commands it updates a lock file with. None for a work of no project the configuration knows.
-fn workspace(
-    w: &Work,
-    project: Option<&config::Project>,
-    permissions: &config::Permissions,
-    line: &str,
-) -> Option<String> {
+/// writes code the commands it may update a lock file with, `locks`. None for a work of no project the configuration
+/// knows.
+fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool, locks: &[String]) -> Option<String> {
     let p = project?;
     let main = format!(
         "Main, wherever the flow says it, is the branch {0}: the work branches from it, its PR merges into it, and a \
@@ -999,7 +1000,7 @@ fn workspace(
         p.main
     );
     Some(match (&w.worktree, &w.branch) {
-        (Some(wt), Some(branch)) if permissions.reads_only(line) => format!(
+        (Some(wt), Some(branch)) if read_only => format!(
             "Your working directory is the worktree {}, on the branch {branch}: you only read it, and change and \
              commit nothing there. {main}",
             wt.display()
@@ -1008,7 +1009,7 @@ fn workspace(
             "Your working directory is the worktree {}, on the branch {branch}: commit there, and the engine pushes \
              when you ask it to with a tool.{} {main}",
             wt.display(),
-            lock_commands(permissions.locks_of(line))
+            lock_commands(locks)
         ),
         _ => main,
     })
@@ -1720,7 +1721,28 @@ mod tests {
         }))
         .unwrap();
         let permissions = config::Permissions::default();
-        let told = |line: &str, permissions: &config::Permissions| workspace(&w, Some(&p), permissions, line).unwrap();
+        let cli = |args: &[&str]| config::Cli {
+            kind: config::CliKind::Claude,
+            command: "claude".into(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            config_dir: None,
+        };
+        let installed = cli(&[
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Bash(cargo fmt *)",
+        ]);
+        let told_in = |line: &str, permissions: &config::Permissions, cli: &config::Cli| {
+            workspace(
+                &w,
+                Some(&p),
+                permissions.reads_only(line),
+                &permissions.locks_of(line, cli),
+            )
+            .unwrap()
+        };
+        let told = |line: &str, permissions: &config::Permissions| told_in(line, permissions, &installed);
         for line in ["engineer", "adversarial"] {
             let text = told(line, &permissions);
             for c in [
@@ -1742,6 +1764,15 @@ mod tests {
             ..permissions.clone()
         };
         assert!(!told("engineer", &npm_only).contains("cargo update"));
+        // A CLI whose own arguments allow all of cargo keeps cargo refused whole, and the agent is told none of the
+        // cargo lock commands, which it would be refused; one that lets every command run is told none at all.
+        let cargo_whole = told_in("engineer", &permissions, &cli(&["--allowedTools", "Bash(cargo:*)"]));
+        assert!(
+            !cargo_whole.contains("`cargo") && cargo_whole.contains("`npm install --package-lock-only"),
+            "{cargo_whole}"
+        );
+        let open = told_in("engineer", &permissions, &cli(&["--permission-mode", "auto"]));
+        assert!(!open.contains("lock file"), "{open}");
         let review = told("review", &permissions);
         assert!(
             review.contains("you only read it") && !review.contains("lock file"),
