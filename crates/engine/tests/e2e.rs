@@ -2137,6 +2137,7 @@ fn a_work_whose_earlier_returns_still_fit_moves() {
 // A round that takes a row keeps the counter the row counts (`rounds.counts`), by the flow the work runs on: the
 // implementer's asking for tools gives `tool_requests`, a row that counts nothing and a round that took no row give
 // none. The expected counter of each round is read from the compiled flow, by its cell and the row it took.
+// The views read the counter from the round, not from the version the work is on now.
 #[test]
 fn a_round_keeps_the_counter_of_the_row_it_took() {
     let s = setup("round-counts");
@@ -2175,19 +2176,9 @@ fn a_round_keeps_the_counter_of_the_row_it_took() {
     assert_eq!(tools.len(), 1, "{rounds:?}\n{log}");
     assert_eq!(tools[0]["counts"], "tool_requests", "{log}");
     assert!(counting >= 1 && counting_nothing >= 1, "{rounds:?}");
-    let _ = std::fs::remove_dir_all(&s.root);
-}
-
-// A round counts the counter its row counted when it took it, whatever flow version its work is on afterwards: a work
-// that goes on in a version in which the same row counts another counter keeps the counter of the rounds it took
-// before, and the counters the views give do not change with it. The version the work is put on counts `tools` as
-// `asks`.
-#[test]
-fn a_round_keeps_its_counter_when_its_work_is_on_a_version_that_counts_its_row_otherwise() {
-    let s = setup("round-counts-moved");
-    let (mut e, said, item) = start(&s, scripts());
-    step_to(&mut e, item, "X1");
-    let (work, _, _) = state(&e, item).unwrap();
+    // And it keeps it whatever flow version its work is on afterwards: a work put on a version in which the same row
+    // counts another counter (`tools` as `asks`) keeps the counter of the round it took before, and the counters the
+    // views give do not change with it.
     let counters = |e: &Engine| -> Vec<(String, i64)> {
         let mut st =
             e.db.conn()
@@ -2206,7 +2197,6 @@ fn a_round_keeps_its_counter_when_its_work_is_on_a_version_that_counts_its_row_o
             .query_row("SELECT asks FROM work_asking WHERE work = ?1", [work], |r| r.get(0))
             .unwrap()
     };
-    let log = said.lock().unwrap().join("\n");
     assert_eq!(counters(&e), [("tool_requests".to_string(), 1)], "{log}");
     assert_eq!(asked(&e), 0);
     older(&mut e, &[work], |g| {
