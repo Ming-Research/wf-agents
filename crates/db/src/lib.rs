@@ -104,6 +104,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0065.sql"),
     include_str!("../../../db/migrations/0066.sql"),
     include_str!("../../../db/migrations/0067.sql"),
+    include_str!("../../../db/migrations/0068.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -2718,5 +2719,308 @@ mod tests {
         let mut st = old.conn().prepare("SELECT started FROM sessions ORDER BY id").unwrap();
         let started: Vec<String> = st.query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
         assert_eq!(started, ["line", "carried"]);
+    }
+
+    /// The cells of a graph in the flows of the counters tests: each with its id and its rows, as `(name, counts)`.
+    type Cells<'a> = &'a [(&'a str, &'a [(&'a str, Option<&'a str>)])];
+
+    /// A compiled flow of an engineer's graph and an architect's, with the cells given.
+    fn counting_flow(engineer: Cells<'_>, architect: Cells<'_>) -> String {
+        let graph = |name: &str, cells: Cells<'_>| {
+            let cells: Vec<serde_json::Value> = cells
+                .iter()
+                .map(|(id, rows)| {
+                    let rows: Vec<serde_json::Value> = rows
+                        .iter()
+                        .map(|(row, counts)| match counts {
+                            Some(c) => serde_json::json!({ "name": row, "counts": c }),
+                            None => serde_json::json!({ "name": row }),
+                        })
+                        .collect();
+                    serde_json::json!({ "id": id, "rows": rows })
+                })
+                .collect();
+            serde_json::json!({ "name": name, "cells": cells })
+        };
+        serde_json::json!({ "graphs": [graph("engineer", engineer), graph("architect", architect)] }).to_string()
+    }
+
+    /// What the counters views say: each work's counters with their times, and each work's asks.
+    type Counters = (Vec<(i64, String, i64)>, Vec<(i64, i64)>);
+
+    fn counters(db: &Db) -> Counters {
+        let mut st = db
+            .conn()
+            .prepare("SELECT work, counter, times FROM work_counters ORDER BY work, counter")
+            .unwrap();
+        let counted = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        let mut st = db
+            .conn()
+            .prepare("SELECT work, asks FROM work_asking ORDER BY work")
+            .unwrap();
+        let asking = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        (counted, asking)
+    }
+
+    // The counters of a database migrated from version 67, where the views parsed the compiled flow of the version
+    // each work is on now for every round, are what those views gave before the migration, for every work: rows that
+    // count nothing, a row counted as total time, rounds that took no row, a cell or a row the version does not
+    // have, two graphs with a cell of one id, a work that moved to a version that counts the same row otherwise, a
+    // version no work is on, and a name two rows of a cell share when only one counts. The counts written to the
+    // rounds are those of the rows by that rule. The expected lists are worked out from the rows written.
+    #[test]
+    fn counters_migrated_from_version_67_are_those_the_old_views_gave() {
+        let mut old = at_version(67);
+        // Version 1: asks and fixes count; `pause` counts the total time; a cell has two rows named `again`, the
+        // second of which counts. Version 2: the same row `ask` counts another counter, and `fix` counts none.
+        let v1 = counting_flow(
+            &[
+                ("A4", &[("ask", Some("asks")), ("go", None)]),
+                (
+                    "I1",
+                    &[
+                        ("fix", Some("fixes")),
+                        ("pause", Some("total_time")),
+                        ("again", None),
+                        ("again", Some("retries")),
+                    ],
+                ),
+            ],
+            &[("A4", &[("ask", Some("architect_asks"))])],
+        );
+        let v2 = counting_flow(
+            &[
+                ("A4", &[("ask", Some("questions")), ("go", None)]),
+                ("I1", &[("fix", None), ("pause", Some("total_time"))]),
+            ],
+            &[("A4", &[("ask", Some("architect_asks"))])],
+        );
+        // Version 3 is no work's, and has two rows of a name that both count: nothing reads it.
+        let v3 = counting_flow(&[("A4", &[("ask", Some("asks")), ("ask", Some("other"))])], &[]);
+        old.write(Actor::Engine, |tx| {
+            for (digest, compiled) in [("one", &v1), ("two", &v2), ("three", &v3)] {
+                tx.execute(
+                    "INSERT INTO flow_versions (digest, compiled) VALUES (?1, ?2)",
+                    params![digest, compiled],
+                )?;
+            }
+            for (graph, version, moved_from) in [
+                ("engineer", 1, None),
+                ("engineer", 2, Some(1)),
+                ("architect", 1, None),
+                ("engineer", 2, None),
+                ("engineer", 1, None),
+            ] {
+                tx.execute(
+                    "INSERT INTO works (flow_version, moved_from, graph, at) VALUES (?1, ?2, ?3, 'A4')",
+                    params![version, moved_from, graph],
+                )?;
+            }
+            // Work 1 on version 1; work 2 on version 2 after version 1; work 3 the architect's on version 1; work 4
+            // on version 2 with no round; work 5 on version 1. Each round: work, number, cell, row taken.
+            let rounds = [
+                (1, 1, Some("A4"), Some("ask")),
+                (1, 2, Some("A4"), Some("ask")),
+                (1, 3, Some("A4"), Some("ask")),
+                (1, 4, Some("A4"), Some("go")),
+                (1, 5, Some("I1"), Some("fix")),
+                (1, 6, Some("I1"), Some("fix")),
+                (1, 7, Some("I1"), Some("pause")),
+                (1, 8, Some("ZZ"), Some("ask")),
+                (1, 9, Some("A4"), Some("nothing")),
+                (1, 10, Some("A4"), None),
+                (1, 11, Some("I1"), Some("again")),
+                (2, 1, Some("A4"), Some("ask")),
+                (2, 2, Some("A4"), Some("ask")),
+                (2, 3, Some("I1"), Some("fix")),
+                (3, 1, Some("A4"), Some("ask")),
+                (3, 2, Some("I1"), Some("fix")),
+                (5, 1, Some("A4"), Some("ask")),
+            ];
+            for (work, n, cell, row) in rounds {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at, ended_at)
+                     VALUES (?1, ?2, ?3, '{}', ?4, 'c', 0, 1)",
+                    params![work, n, cell, row],
+                )?;
+            }
+            // A round off the graph, which has no cell; and a round of the tools cell that lasted two minutes, which
+            // counts the total time.
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at, ended_at)
+                 VALUES (1, 12, NULL, '{}', 'c', 0, 1), (1, 13, 'X1', '{}', 'c', 0, 120000)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let before = counters(&old);
+        // Worked out by hand: work 1 took `ask` 3 times (asks), `fix` 2 times (fixes) and the second `again` once
+        // (retries); `pause` adds no counter of its own, and the total time is the two minutes of its round at `X1`.
+        // Work 2 is on version 2: its `ask` is a question, its `fix` counts nothing. Work 3 is the architect's: its one
+        // `ask` counts architect_asks, and it has no `I1`.
+        let counted = |work: i64, counter: &str, times: i64| (work, counter.to_string(), times);
+        assert_eq!(
+            before.0,
+            [
+                counted(1, "asks", 3),
+                counted(1, "fixes", 2),
+                counted(1, "retries", 1),
+                counted(1, "total_time", 2),
+                counted(2, "questions", 2),
+                counted(3, "architect_asks", 1),
+                counted(5, "asks", 1),
+            ]
+        );
+        assert_eq!(before.1, [(1, 3), (2, 0), (3, 0), (4, 0), (5, 1)]);
+        old.migrate(MIGRATIONS).unwrap();
+        assert_eq!(counters(&old), before);
+        // The rounds hold the counter of the row they took, as the version their work is on says it.
+        let mut st = old
+            .conn()
+            .prepare("SELECT work, n, counts FROM rounds WHERE counts IS NOT NULL ORDER BY work, n")
+            .unwrap();
+        let kept: Vec<(i64, i64, String)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        let kept_as = |work: i64, n: i64, counts: &str| (work, n, counts.to_string());
+        assert_eq!(
+            kept,
+            [
+                kept_as(1, 1, "asks"),
+                kept_as(1, 2, "asks"),
+                kept_as(1, 3, "asks"),
+                kept_as(1, 5, "fixes"),
+                kept_as(1, 6, "fixes"),
+                kept_as(1, 7, "total_time"),
+                kept_as(1, 11, "retries"),
+                kept_as(2, 1, "questions"),
+                kept_as(2, 2, "questions"),
+                kept_as(3, 1, "architect_asks"),
+                kept_as(5, 1, "asks"),
+            ]
+        );
+        let new = Db::in_memory().unwrap();
+        assert_eq!(shape(old.conn()).unwrap(), shape(new.conn()).unwrap());
+    }
+
+    // A flow version a work is on that has two rows of one name in a cell which both count something cannot be told
+    // apart by the rule the old views used, which counted such a round twice: the migration fails and keeps the
+    // database as it was.
+    #[test]
+    fn a_flow_version_with_two_counting_rows_of_a_name_stops_the_migration() {
+        let mut old = at_version(67);
+        let flow = counting_flow(&[("A4", &[("ask", Some("asks")), ("ask", Some("other"))])], &[]);
+        old.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', ?1)", [&flow])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'A4')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(old.migrate(MIGRATIONS).is_err());
+        assert_eq!(version_of(old.conn()).unwrap(), 67);
+        let has_counts: i64 = old
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('rounds') WHERE name = 'counts'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_counts, 0);
+    }
+
+    // A round counts something only if it took a row: the database refuses a counter on a round that took none, when
+    // it is written and when it is ended; a round that took a row may count nothing or something.
+    #[test]
+    fn a_round_that_took_no_row_counts_nothing() {
+        let mut db = Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at) VALUES (1, 'engineer', 'A4')",
+                [],
+            )?;
+            tx.execute(
+                "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (1, 1, 'A4', '{}', 'c', 0)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        let refused = |db: &mut Db, sql: &str| db.write(Actor::Engine, |tx| Ok(tx.execute(sql, [])?)).is_err();
+        assert!(refused(
+            &mut db,
+            "INSERT INTO rounds (work, n, cell, input, counts, config_commit, started_at)
+             VALUES (1, 2, 'A4', '{}', 'asks', 'c', 0)"
+        ));
+        assert!(refused(
+            &mut db,
+            "UPDATE rounds SET counts = 'asks' WHERE work = 1 AND n = 1"
+        ));
+        assert!(!refused(
+            &mut db,
+            "UPDATE rounds SET transition = 'ask', counts = 'asks' WHERE work = 1 AND n = 1"
+        ));
+        assert!(!refused(
+            &mut db,
+            "INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at)
+             VALUES (1, 2, 'A4', '{}', 'go', 'c', 0)"
+        ));
+    }
+
+    // The counters of one work are read from the index on its counted rounds alone: the plans of the two views for
+    // one work search `rounds_counts`, which holds the counter without the round's inputs and outputs, and parse no
+    // JSON and scan no table of rounds. The total time in `work_counters` is its other part, found by the work's
+    // primary key. The views before version 68 parsed the compiled flow for every round with `json_each`, and
+    // `work_asking` scanned every round of every work.
+    #[test]
+    fn the_counters_of_a_work_are_read_from_the_index_of_its_counted_rounds() {
+        let db = Db::in_memory().unwrap();
+        let plan = |sql: &str| -> Vec<String> {
+            let mut st = db.conn().prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+            st.query_map([], |r| r.get::<_, String>(3))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect()
+        };
+        for view in ["work_asking", "work_counters"] {
+            let steps = plan(&format!("SELECT * FROM {view} WHERE work = 1"));
+            let text = steps.join("\n");
+            assert!(
+                steps.iter().any(|s| s.contains("COVERING INDEX rounds_counts")),
+                "{view} does not read rounds_counts alone:\n{text}"
+            );
+            assert!(
+                !text.contains("json_each") && !text.contains("VIRTUAL TABLE"),
+                "{view} parses JSON:\n{text}"
+            );
+            assert!(
+                !steps.iter().any(|s| s.starts_with("SCAN r")),
+                "{view} scans a table of rounds:\n{text}"
+            );
+        }
+        let steps = plan("SELECT * FROM work_asking WHERE work = 1");
+        assert!(
+            steps
+                .iter()
+                .filter(|s| s.contains(" r "))
+                .all(|s| s.contains("COVERING INDEX rounds_counts")),
+            "work_asking reads rounds other than by rounds_counts:\n{}",
+            steps.join("\n")
+        );
     }
 }

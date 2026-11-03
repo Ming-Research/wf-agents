@@ -325,6 +325,9 @@ pub fn start_numbered(
 pub struct Ended {
     pub output: Option<Value>,
     pub transition: Option<String>,
+    /// The counter the row taken counts. Set only along with `transition`, by [`Ended::taking`], so that the round
+    /// keeps what its row counts as the flow version it ran on says it.
+    pub counts: Option<String>,
     pub rejected: Option<Value>,
     pub usage: Option<Value>,
     pub model: Option<String>,
@@ -333,28 +336,43 @@ pub struct Ended {
     pub command: Option<Vec<String>>,
 }
 
+impl Ended {
+    /// The end of a round whose return took `row`, a row of the compiled flow the work runs on: the row's name and the
+    /// counter it counts, set together.
+    pub fn taking(self, row: &flow::CompiledRow) -> Ended {
+        Ended {
+            transition: Some(row.name.clone()),
+            counts: row.counts.clone(),
+            ..self
+        }
+    }
+}
+
 /// Ends a round still open as `e` says; what it cost, when already kept on it and `e` says nothing of it, stays, as for
 /// a round whose work is to be started over, which the takeover cuts off. A round already ended is an error, so that
 /// the transaction it is ended in rolls back: a step whose work was ended from outside it meanwhile, its round cut off,
 /// takes nothing of what it did over the end.
 pub fn finish_round(conn: &Connection, id: RoundId, e: &Ended) -> Result<(), String> {
-    let n = conn.execute(
-        "UPDATE rounds SET output = ?3, transition = ?4, rejected = ?5, usage = coalesce(?6, usage), compactions = ?7,
-                model = coalesce(?8, model), ended_at = ?9
+    let n = conn
+        .execute(
+            "UPDATE rounds SET output = ?3, transition = ?4, counts = ?5, rejected = ?6,
+                usage = coalesce(?7, usage), compactions = ?8, model = coalesce(?9, model),
+                ended_at = ?10
          WHERE work = ?1 AND n = ?2 AND ended_at IS NULL",
-        params![
-            id.work,
-            id.n,
-            e.output.as_ref().map(Value::to_string),
-            e.transition,
-            e.rejected.as_ref().map(Value::to_string),
-            e.usage.as_ref().map(Value::to_string),
-            e.compactions,
-            e.model,
-            db::now()
-        ],
-    )
-    .map_err(sql)?;
+            params![
+                id.work,
+                id.n,
+                e.output.as_ref().map(Value::to_string),
+                e.transition,
+                e.counts,
+                e.rejected.as_ref().map(Value::to_string),
+                e.usage.as_ref().map(Value::to_string),
+                e.compactions,
+                e.model,
+                db::now()
+            ],
+        )
+        .map_err(sql)?;
     if n == 0 {
         return Err(format!("round {id} is not open: it was ended elsewhere"));
     }

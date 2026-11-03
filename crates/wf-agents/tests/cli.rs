@@ -812,11 +812,11 @@ fn the_counters_past_their_limits_say_how_many_counters_were_not_checked() {
              (1, 'd', '{"graphs": [{"name": "engineer", "cells": [{"id": "I1", "rows": [{"name": "t", "counts": "fixes"}]}]}]}');
          WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10002)
              INSERT INTO works (id, item, flow_version, graph, at) SELECT i, 1, 1, 'engineer', 'I1' FROM n;
-         INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at)
-             SELECT id, 1, 'I1', '{}', 't', 'c', 0 FROM works;
+         INSERT INTO rounds (work, n, cell, input, transition, counts, config_commit, started_at)
+             SELECT id, 1, 'I1', '{}', 't', 'fixes', 'c', 0 FROM works;
          WITH RECURSIVE n(i) AS (SELECT 2 UNION ALL SELECT i + 1 FROM n WHERE i < 6)
-             INSERT INTO rounds (work, n, cell, input, transition, config_commit, started_at)
-             SELECT 1, i, 'I1', '{}', 't', 'c', 0 FROM n;"#,
+             INSERT INTO rounds (work, n, cell, input, transition, counts, config_commit, started_at)
+             SELECT 1, i, 'I1', '{}', 't', 'fixes', 'c', 0 FROM n;"#,
     );
     let text = printed(&dir, "anomalies");
     assert_eq!(
