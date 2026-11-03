@@ -1003,12 +1003,16 @@ fn workspace(w: &Work, project: Option<&config::Project>, read_only: bool) -> Op
     })
 }
 
-/// What the column of an acceptance condition adds about the rows of the conditions table that name no test: a CI job
-/// is judged by its result on the head to be merged, and a read of the diff by reading it, with the question whether a
-/// test could have proved the condition.
+/// What the column of an acceptance condition adds about the rows of the conditions table that name no test. The engine
+/// looks a CI job up among the checks recorded and a command up as text in the branch's files, and cannot tell where a
+/// command runs, so the review is told to: a CI job is judged by its result on the head to be merged and by whether
+/// each command runs in the job named; a read of the diff by reading it; and for either, whether a test could have
+/// proved the condition.
 const ACCEPTANCE_PROOFS: &str = "If the table meets it with a CI job (`ci_job`), read that job's result on this \
-                                 head; if with a read of the diff (`read_diff`), read the diff at its `where` \
-                                 yourself, and if a test could prove the condition instead, that is a finding.";
+                                 head, and check that each command in its `steps` runs in the job it names, not only \
+                                 that the command is written in a file of the branch; one that does not is a finding. \
+                                 If with a read of the diff (`read_diff`), read the diff at its `where` yourself. \
+                                 For either, if a test could prove the condition instead, that is a finding.";
 
 /// What a message says when a review of disputes only is given all the columns, not those it could not verify.
 const COLUMNS_CHANGED: &str = "The columns changed since your last review, so all of them are listed, not only the \
@@ -1534,6 +1538,36 @@ mod tests {
             columns_line(&columns, &held(true, false), true).as_deref(),
             Some(COLUMNS_CHANGED)
         );
+    }
+
+    // The column of an acceptance condition and the rule tell the review how to judge the rows the engine can only look
+    // up by text: for a CI job, its result, and whether each command runs in the job named, not merely is written in a
+    // file of the branch; for a reading of the diff, to read it; and for either, whether a test could have proved it.
+    #[test]
+    fn the_acceptance_column_tells_the_review_how_to_judge_a_ci_job_and_a_reading_of_the_diff() {
+        for want in [
+            "(`ci_job`), read that job's result on this head",
+            "each command in its `steps` runs in the job it names, not only that the command is written in a file of the branch; one that does not is a finding",
+            "(`read_diff`), read the diff at its `where` yourself",
+            "For either, if a test could prove the condition instead, that is a finding.",
+        ] {
+            assert!(ACCEPTANCE_PROOFS.contains(want), "{want}: {ACCEPTANCE_PROOFS}");
+        }
+        let g = graph();
+        let rule = g
+            .rules
+            .iter()
+            .find(|r| r.name == "review_table")
+            .unwrap()
+            .text
+            .join("\n");
+        for want in [
+            "that job's result on the head to be merged",
+            "each command in its steps runs in the job it names",
+            "for either, if a test could prove the condition instead, that is a finding",
+        ] {
+            assert!(rule.contains(want), "{want}: {rule}");
+        }
     }
 
     fn pairs(xs: &[(&str, &str)]) -> Vec<(String, String)> {

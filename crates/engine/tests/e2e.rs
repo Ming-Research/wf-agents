@@ -1829,12 +1829,19 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
         e.step(None).unwrap();
     }
     let (work, _, _) = state(&e, item).unwrap();
-    let add = |e: &mut Engine, cell: &str, output: &Value, row: &str, at: &str| {
+    let add = |e: &mut Engine, cell: &str, input: &Value, output: &Value, row: &str, at: &str| {
         e.db.write(Actor::Engine, |tx| {
             tx.execute(
                 "INSERT INTO rounds (work, n, cell, input, output, transition, config_commit, started_at, ended_at)
-                 VALUES (?1, ?2, ?3, '{}', ?4, ?5, 'c', 1, 2)",
-                params![work, next_round(tx, work)?, cell, output.to_string(), row],
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'c', 1, 2)",
+                params![
+                    work,
+                    next_round(tx, work)?,
+                    cell,
+                    input.to_string(),
+                    output.to_string(),
+                    row
+                ],
             )?;
             tx.execute("UPDATE works SET at = ?2 WHERE id = ?1", params![work, at])?;
             Ok(())
@@ -1854,15 +1861,31 @@ fn the_merge_judgment_reads_the_newest_review_as_the_fix_does() {
         { "id": "1", "verdict": "pass", "evidence": { "files": [], "ran": [], "nodes": [] } },
         { "id": "4", "verdict": "cannot_verify", "reason": "Nothing was measured." },
     ] }));
-    add(&mut e, "T4", &first, "done", "M1");
+    // The first review's round records the columns it was given, as a real round does; a disputes-only review is
+    // narrowed by them.
+    let given = {
+        let w = e.work(work).unwrap();
+        let g = e.graph_of(&w).unwrap();
+        let subject = e.subject(&w).unwrap();
+        engine::message::columns(&e, &w, &g, g.cell("T4").unwrap(), subject.as_ref()).columns
+    };
+    assert!(given.len() >= 4, "{given:?}");
+    add(
+        &mut e,
+        "T4",
+        &json!({ "engine": { "columns": given } }),
+        &first,
+        "done",
+        "M1",
+    );
     e.step_work(work).unwrap();
     assert_eq!(took(&e), "fix", "{}", said.lock().unwrap().join("\n"));
     let disputes = json!({ "plan": { "review": "disputes", "adversarial": "skipped" } });
-    add(&mut e, "T7", &disputes, "review_first", "T4");
+    add(&mut e, "T7", &json!({}), &disputes, "review_first", "T4");
     let m = engine::next_message(&mut e, work).unwrap().text;
     assert_eq!(columns(&m), ["4"], "{m}");
     let again = returned(json!({ "previous": [{ "fid": "F1", "verdict": "withdraw" }] }));
-    add(&mut e, "T4", &again, "done", "M1");
+    add(&mut e, "T4", &json!({}), &again, "done", "M1");
     e.step_work(work).unwrap();
     let log = said.lock().unwrap().join("\n");
     assert!(!took(&e).starts_with("fix"), "{}\n{log}", took(&e));
@@ -19572,7 +19595,11 @@ fn conditions_met_by_a_ci_job_or_a_reading_of_the_change_are_taken_and_a_job_or_
     assert_eq!(rows[2]["how"], "read_diff", "{rows}");
     assert_eq!(rows[2]["where"], "src/lib.txt", "{rows}");
     assert!(
-        review.contains("If the table meets it with a CI job (`ci_job`), read that job's result on this head"),
+        review.contains("If the table meets it with a CI job (`ci_job`), read that job's result on this head, and check that each command in its `steps` runs in the job it names"),
+        "{review}"
+    );
+    assert!(
+        review.contains("For either, if a test could prove the condition instead, that is a finding."),
         "{review}"
     );
     let _ = std::fs::remove_dir_all(&s.root);
