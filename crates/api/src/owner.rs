@@ -754,9 +754,11 @@ pub fn start_over(db: &mut Db, work: i64) -> Result<String, String> {
 /// (`with_note`) is refused for a work the architect did not stop, since nothing would carry the note to anyone.
 pub fn can_start(conn: &Connection, work: i64, with_note: bool) -> Result<String, String> {
     let found: Option<(Option<String>, Option<String>, Option<String>)> = conn
-        .query_row("SELECT ended, paused, paused_by FROM works WHERE id = ?1", [work], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        })
+        .query_row(
+            "SELECT ended, paused, paused_by FROM works WHERE id = ?1",
+            [work],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
         .optional()
         .map_err(sql)?;
     match found {
@@ -964,6 +966,7 @@ pub fn set_fault_forwarding(db: &mut Db, project: Option<&str>) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::RunAsk;
 
     /// A decision card of two options, recommending the first.
     const CARD: &str = r#"{"key": "red-run", "question": "Stop at the first failure or run every test?",
@@ -1245,6 +1248,71 @@ mod tests {
             )
             .unwrap();
         assert_eq!(actor, "owner");
+    }
+
+    // The owner may leave a note with the Start of a work the architect stopped: it is kept with the request, and with the
+    // release the architect is told, with who declared it. A Start with none leaves neither; for a work the architect did
+    // not stop, a note is refused before anything is written, as a note with no speaker is.
+    #[test]
+    fn a_note_goes_with_the_release_of_a_work_the_architect_stopped_and_with_no_other_start() {
+        let mut db = setup();
+        let note = db::StartNote::declared(Some(" api.ts is changed. "), Some("owner"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(note.text, "api.ts is changed.");
+        let pause = |db: &mut Db, why: &str, by: &str| {
+            db.write(Actor::Engine, |tx| {
+                tx.execute("UPDATE works SET paused = ?1, paused_by = ?2 WHERE id = 1", params![why, by])?;
+                Ok(())
+            })
+            .unwrap();
+        };
+        let told = |db: &Db| -> (Option<String>, Option<String>) {
+            db.conn()
+                .query_row(
+                    "SELECT body ->> 'note', body ->> 'speaker' FROM architect_matters ORDER BY id DESC LIMIT 1",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap()
+        };
+        // A work the engine paused for another reason takes none: nothing is asked of the engine.
+        pause(&mut db, "cell tools: no", "engine");
+        assert!(can_start(db.conn(), 1, false).is_ok());
+        assert!(can_start(db.conn(), 1, true).unwrap_err().contains("not stopped by the architect"));
+        let refused = resume_with_note(&mut db, 1, Some(&note)).unwrap_err();
+        assert!(refused.contains("not stopped by the architect"), "{refused}");
+        assert_eq!(db::resume_asked(db.conn()).unwrap(), Vec::<i64>::new());
+        // A work the architect stopped takes it, in the request and then in what the architect is told.
+        pause(&mut db, &format!("{}: it waits for the parser", db::STOPPED_BY_ARCHITECT), "engine");
+        assert!(can_start(db.conn(), 1, true).is_ok());
+        resume_with_note(&mut db, 1, Some(&note)).unwrap();
+        assert_eq!(db::resume_note(db.conn(), 1).unwrap(), Some(note.clone()));
+        db.write(Actor::Owner, |tx| {
+            let n = db::resume_note(tx, 1)?;
+            db::lift_pause(tx, 1, n.as_ref())
+        })
+        .unwrap();
+        assert_eq!(told(&db), (Some("api.ts is changed.".to_string()), Some("owner".to_string())));
+        // A Start with no note leaves neither.
+        pause(&mut db, &format!("{}: it waits again", db::STOPPED_BY_ARCHITECT), "engine");
+        resume_with_note(&mut db, 1, None).unwrap();
+        assert_eq!(db::resume_note(db.conn(), 1).unwrap(), None);
+        db.write(Actor::Owner, |tx| db::lift_pause(tx, 1, None)).unwrap();
+        assert_eq!(told(&db), (None, None));
+        // The request on the page: a note needs its speaker, and a Step takes none.
+        let ask = RunAsk {
+            note: Some("Done.".into()),
+            ..RunAsk::default()
+        };
+        assert!(ask.note(true).unwrap_err().contains("says who speaks"));
+        let spoken = RunAsk {
+            speaker: Some("delegate".into()),
+            ..ask.clone()
+        };
+        assert_eq!(spoken.note(true).unwrap().map(|n| n.speaker), Some(db::Speaker::Delegate));
+        assert!(spoken.note(false).unwrap_err().contains("only with the Start"));
+        assert_eq!(RunAsk::default().note(false).unwrap(), None);
     }
 
     // The switch that keeps waiting sessions warm while every work is paused is on at first, and the owner's once set.

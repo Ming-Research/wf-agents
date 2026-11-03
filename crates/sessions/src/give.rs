@@ -707,4 +707,49 @@ mod tests {
         );
         assert!(!text.contains("matters"), "{text}");
     }
+
+    // A value the engine computed that came back (A, then B, then A again) is referred to by the round that first had A,
+    // which reads as an old value next to B; the message says it is the value now, and which round gave another value
+    // since. A value that never changed says only that it is the value now; one given in the message, and anything the
+    // engine did not compute, says nothing.
+    #[test]
+    fn a_value_that_came_back_is_the_value_now_and_the_one_between_is_no_longer_current() {
+        let (a, b) = (json!({ "engine": { "runs": "running" } }), json!({ "engine": { "runs": "paused" } }));
+        let record = |address: &str, v: &Value| json!({ "conditional": [{ "address": address, "hash": hash(v), "given": true }] });
+        let first = round(2, record("R1-2·engine·slots", &a), Some(json!({})), 0);
+        let second = round(4, record("R1-4·engine·slots", &b), Some(json!({})), 0);
+        // The third round referred to A by the address of the first, as the session holds it.
+        let third = round(6, record("R1-2·engine·slots", &a), Some(json!({})), 0);
+        let conn = Connection::open_in_memory().unwrap();
+        let registry = HashMap::new();
+        let said = |session: &[Round], address: &str, content: &Value| {
+            let held = Held::of(session);
+            let mut m = Giver::new(&held, &registry, &conn, session);
+            m.add(address.to_string(), content.clone());
+            m.current(address)
+        };
+        // Never changed: the value now, the same as the first round gave.
+        assert_eq!(
+            said(&[first.clone()], "R1-2·engine·slots", &a).as_deref(),
+            Some("the value now, the same as given in R1-2")
+        );
+        // Another value came between: A is the value now, and the second round's B is not.
+        assert_eq!(
+            said(&[first.clone(), second.clone()], "R1-2·engine·slots", &a).as_deref(),
+            Some("the value now, the same as given in R1-2; R1-4 gave another value since, which is no longer current")
+        );
+        // Once the third round referred to A, nothing since is another value.
+        assert_eq!(
+            said(&[first.clone(), second.clone(), third], "R1-2·engine·slots", &a).as_deref(),
+            Some("the value now, the same as given in R1-2")
+        );
+        // B, the latest, and a value this message gives whole, are the value now without a word of it.
+        assert_eq!(
+            said(&[first.clone(), second.clone()], "R1-4·engine·slots", &b).as_deref(),
+            Some("the value now, the same as given in R1-4")
+        );
+        assert_eq!(said(&[first.clone()], "R1-6·engine·slots", &b), None);
+        // What the engine did not compute is no value of an input.
+        assert_eq!(said(&[first], "rule:ground", &json!("Facts first.")), None);
+    }
 }

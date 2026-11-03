@@ -389,6 +389,32 @@ mod tests {
         assert!(!c.asked().architects_started.contains("p"));
     }
 
+    // The note the owner leaves with the Start of a work waits with the request to lift its pause, and goes when the
+    // pause is lifted, when the owner pauses or steps the work, and when a work takes its item over; a later Start
+    // replaces it, one with no note takes it away.
+    #[test]
+    fn the_note_with_a_start_waits_with_the_request_and_goes_with_it() {
+        let note = |text: &str| db::StartNote::declared(Some(text), Some("owner")).unwrap();
+        let c = Control::default();
+        c.start(Fresh::Work(3), false, note("First."));
+        c.start(Fresh::Work(4), false, note("Second."));
+        c.start(Fresh::Work(5), false, note("Third."));
+        c.start(Fresh::Work(6), false, note("Fourth."));
+        assert_eq!(c.asked().release_notes.get(&3).map(|n| n.text.as_str()), Some("First."));
+        c.start(Fresh::Work(3), false, note("Again."));
+        assert_eq!(c.asked().release_notes.get(&3).map(|n| n.text.as_str()), Some("Again."));
+        c.start(Fresh::Work(3), false, None);
+        assert_eq!(c.asked().release_notes.get(&3), None);
+        c.released(&[4], &[]);
+        c.pause(&Fresh::Work(5));
+        c.replaced(6, 7);
+        assert!(c.asked().release_notes.is_empty(), "{:?}", c.asked().release_notes);
+        c.start(Fresh::Work(8), false, note("Eighth."));
+        c.ask_step(8, false).unwrap();
+        c.stepped(8);
+        assert!(c.asked().release_notes.is_empty());
+    }
+
     // The owner's Start of a work taken over goes on in the work that took its item over, its pause still to lift with
     // it; a work the owner did not start hands on nothing.
     #[test]

@@ -5036,7 +5036,9 @@ fn spent(e: &Engine, work: i64) -> Result<f64, String> {
 /// a blocking dependency before it starts, and its place in the owner's start queue; the owner's start queue, the
 /// project's items the owner put first to start, in the owner's order, which start ahead of the ranks (`dispatch_queue`);
 /// the release items, each an item nothing depends on with items under it, with the items under it; and the
-/// dependencies with other projects' items. A work at a cell of no stage, which asks or
+/// dependencies with other projects' items. Each work running shows its card ([`arch_inputs::card`]), and each item with
+/// no work running what keeps it from starting by the judgment the engine makes when it starts one (`starts`, from
+/// [`Engine::waits_to_start`]: a batch's change that names it is `in_batch`). A work at a cell of no stage, which asks or
 /// runs tools for another, is at the stage of the cell it stopped at, or else of the innermost cell that waits for it
 /// with one.
 fn board(e: &Engine, project: &str) -> Result<Value, String> {
@@ -8362,5 +8364,146 @@ mod tests {
         .unwrap();
         assert_eq!(handled_in_batch(db.conn(), 1).unwrap(), 4);
         assert_eq!(group_of(db.conn(), 1).unwrap(), [1]);
+    }
+
+    /// A database with two engineer works (1 and 2, on items 1 and 2) and an architect work (3) of project p, which
+    /// handled matter 1 (a failure of work 1, queued at 200) in its round 3; the owner's words in the groups: 1 in work
+    /// 1 at 50, 2 in work 1 at 100, 3 in work 2 at 150, and 4 in work 1 at 300.
+    fn talk_db() -> db::Db {
+        let mut db = db::Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for title in ["Parse it", "Lex it"] {
+                tx.execute(
+                    "INSERT INTO items (project, title, problem, why, deliver, level)
+                     VALUES ('p', ?1, 'P', 'W', 'change', 'l')",
+                    [title],
+                )?;
+            }
+            for item in [1, 2] {
+                tx.execute(
+                    "INSERT INTO works (item, flow_version, graph, at) VALUES (?1, 1, 'engineer', 'I1')",
+                    [item],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO works (flow_version, graph, at, project) VALUES (1, 'architect', 'H7', 'p')",
+                [],
+            )?;
+            for (work, n) in [(1, 1), (3, 3)] {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, ?2, 'H7', '{}', 'c', 1)",
+                    [work, n],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, item, work, round, at, handled_work, handled_round)
+                 VALUES ('p', 'failure', 'It failed', '{}', 1, 1, 1, 200, 3, 3)",
+                [],
+            )?;
+            for (work, text, at) in [(1, "Use Dialog.", 50), (1, "Keep the title.", 100), (2, "Lex first.", 150), (1, "Later.", 300)] {
+                tx.execute(
+                    "INSERT INTO interjections (work, speaker, text) VALUES (?1, 'owner', ?2)",
+                    params![work, text],
+                )?;
+                let id = tx.last_insert_rowid();
+                tx.execute(
+                    "UPDATE changes SET at = ?1 WHERE table_name = 'interjections' AND json_extract(row_key, '$.id') = ?2",
+                    params![at, id],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        db
+    }
+
+    fn said_texts(said: &[Value]) -> Vec<&str> {
+        said.iter().filter_map(|x| x["text"].as_str()).collect()
+    }
+
+    // What a work's group said that the architect has not read and came before a matter of that work was queued is the
+    // matter's material: only that work's words, nothing from before the architect last read the groups, nothing after
+    // the matter was queued; and what the groups' reading gives lists every work's, each that came before a handled
+    // matter of its work saying which matter's material held it.
+    #[test]
+    fn a_work_s_words_before_its_matter_are_the_matter_s_material_and_the_groups_mark_what_was_given() {
+        let db = talk_db();
+        let conn = db.conn();
+        let of_work_one = group_said(conn, "p", 60, Some(1), Some(200), false).unwrap();
+        assert_eq!(said_texts(&of_work_one), ["Keep the title."], "{of_work_one:?}");
+        assert!(of_work_one[0].get("given_with").is_none());
+        // The words of the other work, and of after the matter was queued, are not the matter's.
+        assert_eq!(said_texts(&group_said(conn, "p", 60, Some(2), Some(200), false).unwrap()), ["Lex first."]);
+        assert_eq!(
+            said_texts(&group_said(conn, "p", 60, Some(1), None, false).unwrap()),
+            ["Keep the title.", "Later."]
+        );
+        // What was read before 60 is not unread.
+        assert_eq!(said_texts(&group_said(conn, "p", 0, Some(1), Some(200), false).unwrap()), ["Use Dialog.", "Keep the title."]);
+        // The groups' reading: every work's words, the ones that came before matter 1 (work 1's, handled in round 3 of
+        // work 3) marked, those of another work and those that came after it not.
+        let all = group_said(conn, "p", 60, None, None, true).unwrap();
+        assert_eq!(said_texts(&all), ["Keep the title.", "Lex first.", "Later."]);
+        assert_eq!(all[0]["given_with"], json!({ "matter": 1, "round": "R3-3" }), "{all:?}");
+        assert!(all[1].get("given_with").is_none() && all[2].get("given_with").is_none(), "{all:?}");
+        // A matter not handled yet gave the architect nothing.
+        db.conn().execute("UPDATE architect_matters SET handled_work = NULL, handled_round = NULL", []).unwrap();
+        assert!(group_said(conn, "p", 60, None, None, true).unwrap()[0].get("given_with").is_none());
+    }
+
+    // The item changes waiting for a review are those of every architect work of the project that has not ended, this
+    // batch's and another's, each saying whose batch it is in and the items it names; a work that ended, another
+    // project's and a change already made are not among them, though the engine holds an item of another project's
+    // batch too, since it starts no work on any item a collected change names.
+    #[test]
+    fn the_changes_waiting_for_a_review_are_listed_with_the_batch_they_are_in() {
+        let mut db = db::Db::in_memory().unwrap();
+        db.write(Actor::Engine, |tx| {
+            tx.execute("INSERT INTO flow_versions (digest, compiled) VALUES ('d', '{}')", [])?;
+            for (project, ended) in [("p", None), ("p", None), ("p", Some("done")), ("q", None)] {
+                tx.execute(
+                    "INSERT INTO works (flow_version, graph, at, project, ended) VALUES (1, 'architect', 'H7', ?1, ?2)",
+                    params![project, ended],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO architect_matters (project, kind, what, body, at) VALUES ('p', 'report', 'w', '{}', 1)",
+                [],
+            )?;
+            for work in 1..=4 {
+                tx.execute(
+                    "INSERT INTO rounds (work, n, cell, input, config_commit, started_at) VALUES (?1, 1, 'H3', '{}', 'c', 1)",
+                    [work],
+                )?;
+            }
+            let hold = |item: &str| json!({ "kind": "hold", "item": item, "reason": "r" });
+            let merge = json!({ "kind": "merge", "keep": "6", "absorbed": ["7", "8"], "reason": "r2" });
+            for (work, change, state) in [
+                (1, hold("5"), "collected"),
+                (2, merge, "collected"),
+                (3, hold("9"), "collected"),
+                (4, hold("20"), "collected"),
+                (1, hold("10"), "made"),
+            ] {
+                tx.execute(
+                    "INSERT INTO architect_item_changes (work, round, matter, change, state) VALUES (?1, 1, 1, ?2, ?3)",
+                    params![work, change.to_string(), state],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let waiting = unreviewed_changes(db.conn(), "p", 1).unwrap();
+        assert_eq!(waiting.len(), 2, "{waiting:?}");
+        assert_eq!(
+            (&waiting[0]["batch_of_work"], &waiting[0]["this_batch"], &waiting[0]["kind"], &waiting[0]["items"]),
+            (&json!(1), &json!(true), &json!("hold"), &json!(["#5"]))
+        );
+        assert_eq!(
+            (&waiting[1]["batch_of_work"], &waiting[1]["this_batch"], &waiting[1]["items"]),
+            (&json!(2), &json!(false), &json!(["#6", "#7", "#8"]))
+        );
+        assert_eq!(held_by_batches(db.conn()).unwrap(), BTreeSet::from([5, 6, 7, 8, 20]));
     }
 }
