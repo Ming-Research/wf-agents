@@ -8092,6 +8092,142 @@ fn a_member_that_needs_the_owner_goes_back_to_the_queue_while_the_rest_of_its_gr
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Item #228, from the adversarial tests. Two members of a group sent back for the owner in one round: the matter picked
+// is closed alone by that round and its engineer told, and each of the two is taken later on its own, by a round of its
+// own, closed there and its engineer told once. Reference: acceptance condition A11 (a member sent back is not closed or
+// answered by the round, and is taken from the queue as any matter) and the design's one rule that a matter outside the
+// group is neither closed nor answered.
+#[test]
+fn two_members_sent_back_for_the_owner_are_each_taken_later_on_their_own() {
+    let s = setup("group-back-two");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        if n > 1 {
+            return (Vec::new(), Vec::new());
+        }
+        let ids = given.lock().unwrap();
+        let others = json!([
+            { "matter": ids[1], "way": "back_for_owner", "why": "The owner decides." },
+            { "matter": ids[2], "way": "back_for_owner", "why": "The owner decides too." }
+        ]);
+        (
+            vec![("outcome.take.way", "nothing")],
+            vec![("outcome.take.why", json!("Lead why.")), ("outcome.with", others)],
+        )
+    });
+    let (mut e, said, reports, arch) = group_found(&s, &ids, take_in, |_| ());
+    assert!(
+        steps_until(&mut e, 200, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let round_of = |m: i64| -> i64 {
+        e.db.conn()
+            .query_row("SELECT handled_round FROM architect_matters WHERE id = ?1", [m], |r| {
+                r.get::<_, Option<i64>>(0)
+            })
+            .unwrap()
+            .unwrap_or_else(|| panic!("matter {m} is not handled\n{log}"))
+    };
+    let rounds = (round_of(matters[0]), round_of(matters[1]), round_of(matters[2]));
+    assert!(
+        rounds.0 < rounds.1 && rounds.0 < rounds.2 && rounds.1 != rounds.2,
+        "{rounds:?}\n{log}"
+    );
+    // The matter picked is closed alone by the round that took the group in.
+    assert_eq!(
+        closed_by(&e, arch, "H5")
+            .into_iter()
+            .filter(|m| round_of(*m) == rounds.0)
+            .collect::<Vec<_>>(),
+        &matters[..1],
+        "{log}"
+    );
+    // Each engineer is told once, and the matter picked its own way.
+    for (i, (work, _)) in reports.iter().enumerate() {
+        assert_eq!(lines_told(&e, *work).len(), 1, "report {i}\n{log}");
+    }
+    assert!(
+        lines_told(&e, reports[0].0)[0].contains("nothing to take in: Lead why"),
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Item #228, from the adversarial tests. The one return of the cell that takes a group in is sent back with every
+// problem of the new way at once, together with a miss of A2: the matter in hand given the way `back_for_owner`, a member
+// left out, and an item change that comes of a member sent back; the round sent back releases no member, so the sound
+// round that follows takes the whole group in. Reference: acceptance condition A12 (one send-back lists them all with
+// the A2 misses), and the rule of #216 that a check reports every problem it can find at once.
+#[test]
+fn a_return_that_misuses_back_for_the_owner_is_sent_back_with_all_its_problems_and_releases_no_member() {
+    let s = setup("group-back-bad");
+    let ids = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let given = ids.clone();
+    let take_in: Script = Box::new(move |_: &Request, n: usize| {
+        let ids = given.lock().unwrap();
+        if n == 1 {
+            let change = json!({ "kind": "edit_item", "item": "1", "part": "title", "text": "Write the parser",
+                                 "reason": "r", "matter": ids[1] });
+            let others = json!([{ "matter": ids[1], "way": "back_for_owner", "why": "The owner decides." }]);
+            return (
+                vec![("outcome.take.way", "back_for_owner")],
+                vec![
+                    ("outcome.take.why", json!("Lead why.")),
+                    ("outcome.with", others),
+                    ("outcome.effects", json!({ "item_changes": [change] })),
+                ],
+            );
+        }
+        if n > 2 {
+            return (Vec::new(), Vec::new());
+        }
+        let others = json!([
+            { "matter": ids[1], "way": "nothing", "why": "Second why." },
+            { "matter": ids[2], "way": "nothing", "why": "Third why." }
+        ]);
+        (
+            vec![("outcome.take.way", "nothing")],
+            vec![("outcome.take.why", json!("Lead why.")), ("outcome.with", others)],
+        )
+    });
+    let (mut e, said, reports, arch) = group_found(&s, &ids, take_in, |_| ());
+    assert!(
+        steps_until(&mut e, 160, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    let matters: Vec<i64> = reports.iter().map(|r| r.1).collect();
+    let rejected: Vec<String> = engine::query_json(
+        e.db.conn(),
+        "SELECT rejected FROM rounds WHERE work = ?1 AND cell = 'H5' AND rejected IS NOT NULL ORDER BY n",
+        &[&arch],
+        10,
+    )
+    .unwrap()
+    .iter()
+    .map(|r| r["rejected"].to_string())
+    .collect();
+    assert_eq!(rejected.len(), 1, "{rejected:?}\n{log}");
+    for part in [
+        "take has the way back_for_owner",
+        &format!("with has no entry for matter {}", matters[2]),
+        &format!("item change 1 comes of matter {}", matters[1]),
+    ] {
+        assert!(rejected[0].contains(part), "{part}\n{}", rejected[0]);
+    }
+    // The sound round took the whole group in at once.
+    assert_eq!(closed_by(&e, arch, "H5"), matters, "{log}");
+    for (i, (work, _)) in reports.iter().enumerate() {
+        assert_eq!(lines_told(&e, *work).len(), 1, "report {i}\n{log}");
+    }
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // The group does not fall apart between the cell that finds what its matters are and the cell that takes them in,
 // though the owner speaks in between and the architect's session starts anew: the owner's words are answered first,
 // then the same group is taken in, by the cell given what was found for each matter of it.
