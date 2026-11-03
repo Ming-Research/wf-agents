@@ -19367,7 +19367,7 @@ fn a_query() -> (&'static str, Value) {
 // Acceptance A4: a round whose session comes due in its middle is asked by the hook after its next tool use, and hands
 // its progress over: the work goes through the hand-over cell back to the same cell, whose next round runs in a new
 // session started for the hand-over and is given what was handed over, word for word. The session before ended, the
-// hand-over cell's record keeps the rent and the buy, and the hand-over is counted once.
+// round that handed over records the rent and the buy as it ended, and the hand-over is counted once.
 #[test]
 fn a_round_due_in_its_middle_hands_its_progress_over_to_a_new_session() {
     let s = setup_priced("handover-mid");
@@ -19416,7 +19416,7 @@ fn a_round_due_in_its_middle_hands_its_progress_over_to_a_new_session() {
     let done = handed(1)["done"].as_str().unwrap().to_string();
     assert!(prompt.contains(&done), "{prompt}");
     assert!(prompt.contains("handed its progress over"), "{prompt}");
-    // The hand-over cell keeps what was handed over, with the rent paid and the buy.
+    // The hand-over cell passes what was handed over on, word for word.
     let out: String =
         e.db.conn()
             .query_row(
@@ -19426,18 +19426,25 @@ fn a_round_due_in_its_middle_hands_its_progress_over_to_a_new_session() {
             )
             .unwrap();
     let out: Value = serde_json::from_str(&out).unwrap();
-    assert_eq!(out["handover"], handed(1), "{out}");
-    let session = &out["session"];
-    let (rent, buy) = (session["rent"].as_f64().unwrap(), session["buy"].as_f64().unwrap());
-    assert!((rent - 0.28).abs() < 1e-9 && (buy - 0.275).abs() < 1e-9, "{out}");
+    assert_eq!(out, json!({ "handover": handed(1) }), "{out}");
     assert_eq!(counted(&e, work, "handovers"), 1, "{log}");
-    // The round came due at the 29th call it told, and the hook asked after the one tool use that followed.
+    // The round came due at the 29th call it told, and the hook asked after the one tool use that followed. As it
+    // ended, its session had opened at 10,000 tokens and held 110,000 on Sonnet 5.5, its rent $0.28 against a buy of
+    // $0.275.
     let first = &handover_rounds(&e, work, "R1")[0].2;
     assert_eq!(
         (&first["due_at"], &first["tools_after"], &first["at_top"]),
         (&json!(29), &json!(1), &json!(false)),
         "{first}"
     );
+    let last = &first["last"];
+    assert_eq!(
+        (&first["opening"], &last["prompt"], &last["model"]),
+        (&json!(10_000), &json!(110_000), &json!("claude-sonnet-5-5")),
+        "{first}"
+    );
+    let (rent, buy) = (last["rent"].as_f64().unwrap(), last["buy"].as_f64().unwrap());
+    assert!((rent - 0.28).abs() < 1e-9 && (buy - 0.275).abs() < 1e-9, "{first}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 

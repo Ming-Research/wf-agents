@@ -3238,7 +3238,7 @@
       "end_architect_work": "Ends the architect's work.",
       "look_at_queue": "Looks at the project's queue: which matters can be picked now (not parked by a question the owner has not replied to, due, flow feedback, its own or forwarded by another project's architect, and what was said in the works' groups only when it came before the architect's work started, and while new starts are held to set things straight, those that set them straight and those an agent stopped waiting for), and how many this batch handled. The owner's words are taken first, the oldest of them, then a matter back with the owner's reply, the oldest of them; then, when the newest question pending was put less than the wait for the owner's reply ago and the owner said nothing to the architect since, the architect waits for the reply (a question that pins an open question of an engineer's design is not waited for: that engineer's work goes on without its answer); then, when the architect answered the owner's words less than that wait ago and the owner said nothing since, it waits for the owner's next words; then a matter of two cells waiting for its second cell; then the matters at the head of the queue, the check of the policy before the plan of what to do next; and exactly one matter that can be picked is taken here, each without a round.",
       "wait_to_start": "No work exists yet: the engine takes this cell's rows for each item that waits, without a round, and the first that takes `ready` gets a work, which starts at the cell that row leads to. Of the items ready, those the owner queued start first, in the owner's order; then the projects with items ready take the free slots in turn, each in its architect's order.",
-      "hand_over_session": "The agent handed its progress over when the engine asked it to, its session due to hand over. The step ends the line's session and opens a new one, which the cell that handed over carries on in; puts back what was said to that round, which it never answered, for the new session's message to give; and records what was handed over, word for word, with what the session came to: the rent its calls paid to read again what it added past its first prompt, the buy, its first and last prompts, and the model.",
+      "hand_over_session": "The agent handed its progress over when the engine asked it to, its session due to hand over. The step ends the line's session and opens a new one, which the cell that handed over carries on in; puts back what was said to that round, which it never answered, for the new session's message to give; and passes what was handed over on, word for word. What the session came to, the round that handed over records.",
       "wait_for_start": "The agent paused: the engine pauses the work, tells the owner, and waits for the owner's Start; then the work goes back to the cell that paused, in the same session. This pause withdraws a resume that still waits for a free slot, as `resume_work` says. A work on an item that paused for its time budget also has its project's architect look at where it is stuck, as a place to set straight.",
       "stop_work": "A work cancelled, taken over by a work on a newer flow version because the cell it stands at is not the same there or a return it handed in does not fit its cell there (else it moves to that version and goes on where it stands), or started over by the owner or its project's architect, which a new work on the version the engine runs takes over as it would on a newer one, ends here from the cell it stands at, which it keeps as where it stopped. It ends once the step it is in has ended: a cancel or a start over is a request the engine's loop carries out then, and until then the owner's page shows the work stopping; while the engine does not run, the request waits for its next start. A round running when it is asked hands in nothing, and a round still open is cut off. A merge that came first stands, on main or still being made: the work is not cancelled or started over, whoever asked is told, and it goes on to watch main; the engine does not revert it, which is someone's decision. A work taken over leaves its worktree and pull request to the work that takes it over; if the item is cancelled before that work takes them up in its first cell, the cancel removes the worktree and closes the pull request."
     },
@@ -6982,12 +6982,6 @@
           "out": [
             {
               "$ref": "handover_form"
-            },
-            {
-              "name": "session",
-              "title": "The session handed over",
-              "type": "obj",
-              "desc": "What the session that handed over came to, by its calls the ledger kept: rent, what they paid to read again what it added past its first prompt, and buy, what writing its whole context to the cache again would cost, in US dollars, none for a model with no prices; opening and last_prompt, the prompts of its first and last calls, in tokens; and model, its last call's"
             }
           ],
           "cases": [
@@ -11893,7 +11887,7 @@
           "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing.",
           "A round whose return the command line could not parse keeps the whole text of each of its attempts, rebuilt from the stream, and how it was repaired or handed in again, with what that cost, which the round's cost includes.",
           "Each round records the lines the run guard judged it by, and the ledger keeps every call it made; a round stopped keeps what those calls cost at the prices the engine knows, marked as an estimate, since it never reached the command line's report of its cost.",
-          "A round the engine may ask to hand over records, once its session came due, the call it came due at (0 for due when the round started), the rent and the buy then, whether its message asked, and how many tool uses came after, after each of which the hook asked; its row says whether it handed over."
+          "A round the engine may ask to hand over records, once its session came due, the call it came due at (0 for due when the round started), the rent and the buy then, whether its message asked, and how many tool uses came after, after each of which the hook asked; and, as it ended, the session's first prompt, its last call's prompt and model, and the rent and the buy then, by which what a hand-over cost the new session can be looked at afterwards. Its row says whether it handed over."
         ],
         "environment": [
           "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration.",
@@ -18406,12 +18400,6 @@
           "out": [
             {
               "$ref": "handover_form"
-            },
-            {
-              "name": "session",
-              "title": "The session handed over",
-              "type": "obj",
-              "desc": "What the session that handed over came to, by its calls the ledger kept: rent, what they paid to read again what it added past its first prompt, and buy, what writing its whole context to the cache again would cost, in US dollars, none for a model with no prices; opening and last_prompt, the prompts of its first and last calls, in tokens; and model, its last call's"
             }
           ],
           "cases": [
@@ -18504,7 +18492,7 @@
           "Each round records, besides the message it was given and each conditional input in it, the whole command line it ran with (the arguments, the structured-output schema, the session it started or resumed), the engine's version and the command line's version, so that what the agent saw can be told afterwards without guessing.",
           "A round whose return the command line could not parse keeps the whole text of each of its attempts, rebuilt from the stream, and how it was repaired or handed in again, with what that cost, which the round's cost includes.",
           "Each round records the lines the run guard judged it by, and the ledger keeps every call it made; a round stopped keeps what those calls cost at the prices the engine knows, marked as an estimate, since it never reached the command line's report of its cost.",
-          "A round the engine may ask to hand over records, once its session came due, the call it came due at (0 for due when the round started), the rent and the buy then, whether its message asked, and how many tool uses came after, after each of which the hook asked; its row says whether it handed over."
+          "A round the engine may ask to hand over records, once its session came due, the call it came due at (0 for due when the round started), the rent and the buy then, whether its message asked, and how many tool uses came after, after each of which the hook asked; and, as it ended, the session's first prompt, its last call's prompt and model, and the rent and the buy then, by which what a hand-over cost the new session can be looked at afterwards. Its row says whether it handed over."
         ],
         "environment": [
           "The engine starts every agent's command line with a configuration directory of its own, so the owner's own settings, memory, plugins and tool servers never reach an agent: what an agent is given comes only from the flow and the project's configuration.",

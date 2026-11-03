@@ -1,20 +1,22 @@
 -- Replays every session the engine recorded through the hand-over rule (crates/sessions/src/handover.rs), from what
 -- each round's usage record keeps: the prompt of its first call and of its last, its turns, from which its calls are
 -- counted, and the prompts of its calls in total. The calls between are put on the quadratic through the first and the
--- last prompt whose sum is the total. At each call the replay adds the rent; once the rent comes to the buy, the session hands over after that call,
--- and from then on each of its calls holds what it added past the hand-over on top of a new opening: the session's
--- first prompt and the hand-over's tokens. A session due at its last call never hands over, as nothing follows.
+-- last prompt whose sum is the total. At each call the replay adds the rent; once the rent comes to the buy, the
+-- session hands over after that call, and from then on each of its calls holds what it added past the hand-over on top
+-- of a new opening: the session's first prompt and the hand-over's tokens. A session due at its last call never hands
+-- over, as nothing follows.
 --
--- Net saving = the reads saved - for each hand-over, writing its whole context to the cache again and the call that
--- writes the hand-over (reading that context, and writing the hand-over as output).
+-- Net saving = the reads saved - for each hand-over, writing its context to the cache again (`rebuild` below) and the
+-- call that writes the hand-over (reading that context, and writing the hand-over as output).
 --
 -- One row for each session that hands over, as `session`; the totals of the sessions replayed, as `total`; where their
 -- first hand-overs came, as `first_handover`; and the totals of those left out, as `left_out`. Read-only; run on the
 -- engine's database. The README beside it gives the result.
 WITH RECURSIVE
 -- The tokens the call that hands over writes, which the new session opens with on top of the session's first prompt;
--- and how a round's calls are counted (`sized` below): 'turns' or 'linear'.
-given(handover, counted) AS (VALUES (3000, 'turns')),
+-- how a round's calls are counted (`sized` below): 'turns' or 'linear'; and what a new session writes to the cache:
+-- 'whole', the whole context again, the most it can; 'opening', only what it opens with, the least.
+given(handover, counted, rebuild) AS (VALUES (3000, 'turns', 'whole')),
 -- What a million tokens cost each model, in US dollars, as crates/sessions/src/cost.rs has it: a read from the cache,
 -- a write to it kept five minutes or an hour, and output; a call of Haiku 5.5 over 100,000 tokens at its higher prices.
 prices(model, above, read, w5, w1, output) AS (VALUES
@@ -125,8 +127,11 @@ step(s, i, work, n, j, o0, d, o, e, rd, wr, outp, rent, saved, paid, handed, at,
                                    * max(st.e - st.o0 - g.handover, 0)),
                           min(c.p, CASE WHEN st.rent > 0 AND st.rent >= st.e * st.wr / 1e6
                                         THEN st.o0 + g.handover ELSE st.o END))) * pr.read / 1e6,
-    -- paid: a hand-over writes the whole context again, and its call reads it and writes the hand-over.
-    st.paid + (st.rent > 0 AND st.rent >= st.e * st.wr / 1e6) * (st.e * (st.wr + st.rd) + g.handover * st.outp) / 1e6,
+    -- paid: a hand-over writes the context again, the whole or only the new opening, and its call reads it and writes
+    -- the hand-over.
+    st.paid + (st.rent > 0 AND st.rent >= st.e * st.wr / 1e6)
+      * ((CASE g.rebuild WHEN 'whole' THEN st.e ELSE st.o0 + g.handover END) * st.wr + st.e * st.rd
+         + g.handover * st.outp) / 1e6,
     st.handed + (st.rent > 0 AND st.rent >= st.e * st.wr / 1e6),
     st.at || CASE WHEN st.rent > 0 AND st.rent >= st.e * st.wr / 1e6
                   THEN ' R' || st.work || '-' || st.n || '#' || st.j ELSE '' END,

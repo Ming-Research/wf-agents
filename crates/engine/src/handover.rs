@@ -90,15 +90,26 @@ impl Watched {
         }
     }
 
-    /// What the round's record keeps under `$.engine.handover` once its session came due; none while it never did.
+    /// What the round's record keeps under `$.engine.handover` once its session came due; none while it never did. Its
+    /// session's first prompt and, as the round ended, its last call's prompt and model with the rent and the buy then,
+    /// by which what a hand-over cost the new session can be looked at afterwards.
     pub fn record(&self) -> Option<Value> {
         let (due_at, rent, buy) = self.due?;
+        let (prompt, model) = self.rent.last.clone().unzip();
+        let costs = self.rent.judged().and_then(|j| j.costs());
         Some(json!({
             "due_at": due_at,
             "rent": rent,
             "buy": buy,
             "at_top": self.at_top,
             "tools_after": self.tools_after,
+            "opening": self.rent.opening,
+            "last": {
+                "prompt": prompt,
+                "model": model,
+                "rent": costs.map(|c| c.0),
+                "buy": costs.map(|c| c.1),
+            },
         }))
     }
 
@@ -114,8 +125,8 @@ impl Watched {
 /// The hand-over cell's step: the cell that called it handed its progress over. Its session ends and a new one of its
 /// line opens, which the cell's next round runs in, so that the line's next round is given the cell's whole input with
 /// what was handed over. What was said to the round that handed over and is recorded as delivered in it waits again,
-/// since that round answered none of it. Gives what was handed over, word for word, with the rent and the buy the
-/// session came to, its first and last prompts and the model, by which a hand-over's cost can be looked at afterwards.
+/// since that round answered none of it. Gives what was handed over, word for word; what the session came to, the round
+/// that handed over records ([`Watched::record`]).
 pub(crate) fn hand_over(e: &mut Engine, w: &Work, gathered: &[Gathered]) -> Result<Value, String> {
     let caller = w
         .pos
@@ -132,18 +143,12 @@ pub(crate) fn hand_over(e: &mut Engine, w: &Work, gathered: &[Gathered]) -> Resu
     let session = from
         .session
         .ok_or_else(|| format!("{}: handed its progress over in no session", from.id))?;
-    let (line, cli, cli_session, model): (String, String, String, Option<String>) =
+    let (line, cli): (String, String) =
         e.db.conn()
-            .query_row(
-                "SELECT s.line, s.cli, s.cli_session, (SELECT model FROM rounds WHERE work = ?2 AND n = ?3)
-                 FROM sessions s WHERE s.id = ?1",
-                db::rusqlite::params![session, from.id.work, from.id.n],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )
+            .query_row("SELECT line, cli FROM sessions WHERE id = ?1", [session], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .map_err(|x| x.to_string())?;
-    let model = model.unwrap_or_default();
-    let rent = sessions::handover::rent_of(e.db.conn(), &cli_session, &model)?;
-    let costs = rent.judged().and_then(|j| j.costs());
     let handed = gathered.iter().find_map(|x| x.value.clone()).unwrap_or(Value::Null);
     let fresh = agent::new_session_id();
     let round = from.id;
@@ -156,17 +161,7 @@ pub(crate) fn hand_over(e: &mut Engine, w: &Work, gathered: &[Gathered]) -> Resu
     e.say(&format!(
         "{round}: cell {caller} handed its progress over; the {line}'s session ends, and the cell carries on in a new one"
     ));
-    let (last_prompt, last_model) = rent.last.clone().unzip();
-    Ok(json!({
-        "handover": handed,
-        "session": {
-            "rent": costs.map(|c| c.0),
-            "buy": costs.map(|c| c.1),
-            "opening": rent.opening,
-            "last_prompt": last_prompt,
-            "model": last_model.unwrap_or(model),
-        },
-    }))
+    Ok(json!({ "handover": handed }))
 }
 
 #[cfg(test)]

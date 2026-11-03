@@ -505,8 +505,9 @@ CREATE TABLE rounds (
   -- `$.engine.handover`: due_at, the call it came due at by its seq in round_calls, 0 for due when the round started;
   -- rent and buy, what the session's calls had paid to read again what it added past its first prompt and what writing
   -- its context to the cache again would cost then, in US dollars; at_top, whether its message asked it to hand over;
-  -- tools_after, the tool uses after it came due, after each of which the hook asked. Its transition says whether it
-  -- handed over. A round never due has none.
+  -- tools_after, the tool uses after it came due, after each of which the hook asked; opening, the session's first
+  -- prompt; last, as the round ended, its last call's prompt and model and the rent and the buy then. Its transition
+  -- says whether it handed over. A round never due has none.
   -- Read by: the engine, to tell what a session already holds; the owner's interface.
   input TEXT NOT NULL CHECK (json_valid(input)),
   -- The whole return, JSON: for the engine's own step what it computed, for a tool cell the tools' results, for the
