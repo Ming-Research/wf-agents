@@ -1146,8 +1146,7 @@ fn an_item_goes_from_the_queue_to_main() {
     assert!(!columns.contains("cross-project dependency"), "{columns}");
     assert!(columns.contains("unsure facts"), "{columns}");
     // The table review is given its columns under their address, which a later review of its session refers to or
-    // is given what changed in, and the CI on the work as one object, whose entries a later review is given as they
-    // change.
+    // is given what changed in.
     let review = input_of("T4");
     let m = review["message"].as_str().unwrap_or_default();
     assert!(
@@ -1156,15 +1155,18 @@ fn an_item_goes_from_the_queue_to_main() {
     );
     // The first review has the columns whole in its message, and is not told again which to answer.
     assert!(!m.contains(COLUMNS_TO_ANSWER), "{m}");
-    let ci = given_value(m, "·engine·work_ci").expect(m);
-    assert!(ci.is_object() && ci.get("fast_ci").is_some(), "{ci}");
-    // The review line's session is given the worktree once, at its first round, the blind review.
+    // The review line's session is given the worktree once, at its first round, the blind review, and the CI on the
+    // work as one object, whose entries a later review is given as they change: the table review of the same session
+    // is not given the whole object again.
     let blind = input_of("T3");
     let message = blind["message"].as_str().unwrap_or_default();
     assert!(
         message.contains("you only read it, and change and commit nothing there"),
         "{message}"
     );
+    let ci = given_value(message, "·engine·work_ci").expect(message);
+    assert!(ci.is_object() && ci.get("fast_ci").is_some(), "{ci}");
+    assert!(given_value(m, "·engine·work_ci").is_none(), "{m}");
     // The review is given what it reviews by commits the worktree has: main as fetched, the commit the branch was cut
     // from, the head under review and the command that reads the change between them.
     let base = given_value(message, "·engine·review_base").expect(message);
@@ -19371,10 +19373,14 @@ fn the_reviews_and_a_re_check_are_told_what_the_branch_took_in_and_did_since() {
             .collect()
     };
     assert_eq!(after["head"], json!(second), "{after}");
-    assert_eq!(commits_of(&after["main_merges"]), [merge.clone()], "{after}");
+    assert_eq!(
+        commits_of(&after["main_merges"]),
+        std::slice::from_ref(&merge),
+        "{after}"
+    );
     assert_eq!(
         commits_of(&after["merges_since_last_review"]),
-        [merge.clone()],
+        std::slice::from_ref(&merge),
         "{after}"
     );
 
