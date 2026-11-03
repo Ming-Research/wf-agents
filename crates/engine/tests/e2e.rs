@@ -14925,6 +14925,112 @@ fn a_pause_for_a_problem_is_not_lifted_by_a_resume_asked_before_it() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The same for a step that cannot be taken, which pauses its work by the other way a pause for a problem is written, as
+// a work's cell `wait_for_start` and a step whose thread panicked do too: a round that finds itself ended is such a step,
+// since no work ends under its step any more. The resume asked for the owner's pause lifts nothing of this one.
+#[test]
+fn a_pause_for_a_step_that_failed_is_not_lifted_by_a_resume_asked_before_it() {
+    let s = setup("failed-step-after-resume");
+    let hold = Gate::default();
+    let h = hold.clone();
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(move |_: &Request, _: usize| {
+            h.pass();
+            (Vec::new(), Vec::new())
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    hold.shut();
+    let came = turns_until(&mut e, &Go::default(), |_| hold.came() > 0);
+    let log = said.lock().unwrap().join("\n");
+    assert!(came, "{log}");
+    let work = state(&e, item).unwrap().0;
+    api::pause(&mut e.db, work, None).unwrap();
+    api::resume(&mut e.db, work).unwrap();
+    three_turns(&mut e);
+    // The request waits for the step in flight, and the owner's pause stands until then.
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    assert_eq!(resumes_waiting(&e), [work], "{log}");
+    e.db.write(Actor::Engine, |tx| {
+        tx.execute(
+            "UPDATE rounds SET ended_at = 1 WHERE work = ?1 AND ended_at IS NULL",
+            [work],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    hold.open();
+    e.drain().unwrap();
+    three_turns(&mut e);
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let paused = state(&e, item)
+        .unwrap()
+        .2
+        .unwrap_or_else(|| panic!("the work went on:\n{log}"));
+    assert!(paused.starts_with("cell R1:"), "{paused}\n{log}");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("engine"), "{log}");
+    assert_eq!(resumes_waiting(&e), Vec::<i64>::new(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A resume that reads a work as paused while the loop lifts that pause writes its request after the lifting. The loop
+// drops such a request only at a turn with no step of the work in flight, which may be a long way off, since the work
+// went on; meanwhile the owner's Pause finds a work that goes on and pauses it. The request must not then lift that
+// later word, which it was never asked for. The thread stands for the loop, holding its transaction open for as long as
+// it takes the resume to read.
+#[test]
+fn a_resume_that_met_the_lifting_of_its_pause_does_not_lift_the_owner_s_next_pause() {
+    let s = setup("resume-meets-lifting");
+    let (mut e, said, _) = start(&s, scripts());
+    let work = e.step(None).unwrap().work.unwrap();
+    api::pause(&mut e.db, work, None).unwrap();
+    let (lifting, begun) = std::sync::mpsc::channel();
+    let path = config::database(&s.data);
+    let the_loop = std::thread::spawn(move || {
+        let mut base = db::Db::open(&path).unwrap();
+        base.write(Actor::Owner, |tx| {
+            db::lift_pause(tx, work)?;
+            lifting.send(()).unwrap();
+            // Long enough for a resume that reads apart from its write to read this pause as still there.
+            std::thread::sleep(Duration::from_millis(100));
+            Ok(())
+        })
+        .unwrap();
+    });
+    begun.recv().unwrap();
+    // Whichever way it answers: the work goes on by now.
+    let _ = api::resume(&mut e.db, work);
+    the_loop.join().unwrap();
+    assert_eq!(paused_by(&e, work), None);
+    api::pause(&mut e.db, work, None).unwrap();
+    e.rouse();
+    e.dispatch(&Go::default()).unwrap();
+    e.drain().unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(paused_by(&e, work).as_deref(), Some("owner"), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The owner and then the architect cancel an item while its merge call is under way. The merge comes first, and each
+// asker is told: the architect by its report, as it is when it asks alone. The two cancels are one request, so a request
+// that keeps only the first asker leaves the architect thinking its cancel was carried out.
+#[test]
+fn a_merge_under_way_outruns_two_cancels_and_the_architect_is_told_though_it_asked_second() {
+    let (s, mut e, said, item, work) = at_the_merge("two-cancels-in-merge");
+    held_at_the_merge_call(&mut e, &s, &said);
+    cancel(&mut e, item, "owner");
+    cancel(&mut e, item, "architect");
+    s.merging.open();
+    let log = done_after_watching_main(&mut e, work, &said);
+    assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
+    assert_eq!(cancelled_why(&e, item), None, "{log}");
+    assert_eq!(reports_of_a_merge_first(&e, item), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 /// The message the first round of the understanding of project p's architect was sent, when the owner had said each of
 /// `texts` to it, oldest first, and the project's notebook holds nothing yet.
 fn first_understanding_after(name: &str, texts: &[String]) -> String {
