@@ -2939,12 +2939,18 @@ fn a_work_at_an_unchanged_cell_moves_and_keeps_its_session() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-/// A change of a flow version at cell `R1`: its return may hold a field `before`, which the version the engine runs
-/// does not have.
+/// A change of a flow version at cell `R1`: the outcome of its return, in any of its forms, may hold a field `before`,
+/// which the version the engine runs does not have.
 fn with_before(g: &mut flow::CompiledGraph) {
     let r1 = g.cells.iter_mut().find(|c| c.id == "R1").unwrap();
-    if let Some(Value::Object(props)) = r1.schema.as_mut().and_then(|s| s.get_mut("properties")) {
-        props.insert("before".into(), json!({ "type": "string" }));
+    let forms = r1
+        .schema
+        .as_mut()
+        .and_then(|s| s["properties"]["outcome"]["anyOf"].as_array_mut());
+    for form in forms.into_iter().flatten() {
+        if let Some(Value::Object(props)) = form.get_mut("properties") {
+            props.insert("before".into(), json!({ "type": "string" }));
+        }
     }
 }
 
@@ -3060,7 +3066,7 @@ fn a_work_whose_earlier_return_no_longer_fits_is_taken_over() {
                 |r| r.get(0),
             )?;
             tx.execute(
-                "UPDATE rounds SET output = json_set(output, '$.before', 'kept') WHERE work = ?1 AND n = ?2",
+                "UPDATE rounds SET output = json_set(output, '$.outcome.before', 'kept') WHERE work = ?1 AND n = ?2",
                 params![work, n],
             )?;
             Ok(n)
@@ -3076,7 +3082,7 @@ fn a_work_whose_earlier_return_no_longer_fits_is_taken_over() {
     assert!(
         ended.starts_with(&format!(
             "stopped: the flow moved to version {now}, where the return of cell R1 in round R{work}-{n} no longer \
-             fits it (the return has before, which is not one of its fields: "
+             fits it (outcome "
         )),
         "{ended}\n{log}"
     );
