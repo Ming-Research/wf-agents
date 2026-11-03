@@ -4493,12 +4493,11 @@ fn a_measurement_is_tried_again_only_by_waiting_for_the_run_it_started() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// A run that never got started, a run with no job to read, and a start that failed once before GitHub was reached are
-// each one result the engineer can read: the first is a measurement that did not run to the end and is not tried again,
-// the second says why it left nothing (it has no run to link to and no log to keep, so the note is all there is to read),
-// and the third is tried again with the same temporary commit, so that no second workflow is started on another one.
+// A run that never got started is a measurement that did not run to the end and is not tried again, and a start that
+// failed once before GitHub was reached is tried again with the same temporary commit, so that no second workflow is
+// started on another one.
 #[test]
-fn a_measurement_with_no_run_or_no_job_says_why_and_a_start_that_failed_once_is_made_again() {
+fn a_measurement_that_never_started_is_not_tried_again_and_a_start_that_failed_once_is_made() {
     let s = setup("measure-edges");
     lists_a_measurement_workflow(&s);
     let mut agents = scripts();
@@ -4512,7 +4511,6 @@ fn a_measurement_with_no_run_or_no_job_says_why_and_a_start_that_failed_once_is_
             let head = git(wt, &["rev-parse", "HEAD"]);
             let tools = json!([
                 measure_request(&head, "measure.yml", "command=nostart"),
-                measure_request(&head, "measure.yml", "command=nojobs"),
                 measure_request(&head, "measure.yml", "command=flaky_dispatch"),
             ]);
             (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
@@ -4525,7 +4523,7 @@ fn a_measurement_with_no_run_or_no_job_says_why_and_a_start_that_failed_once_is_
     assert_eq!(ended_at(&e, item, "X1"), [(Some("ran".to_string()), None)], "{log}");
     let runs = tool_runs(&e, item, "measure");
     let attempts: Vec<i64> = runs.iter().map(|r| r.0).collect();
-    assert_eq!(attempts, [1, 1, 1, 2], "{runs:?}\n{log}");
+    assert_eq!(attempts, [1, 1, 2], "{runs:?}\n{log}");
     // A run that never started has run, not to the end, and the note says it did not start.
     let nostart = &runs[0].1["push"];
     assert_eq!(
@@ -4537,8 +4535,45 @@ fn a_measurement_with_no_run_or_no_job_says_why_and_a_start_that_failed_once_is_
         nostart["note"].as_str().is_some_and(|n| n.contains("no run of")),
         "{runs:?}"
     );
-    // A run with no job has run, not to the end, and has nothing to link to or keep: it still says why there is nothing.
-    let nojobs = &runs[1].1["push"];
+    // The start that failed once failed as an attempt, and the next attempt ran the measurement.
+    assert_eq!(runs[1].1["failed"]["kind"], "network_or_api", "{runs:?}");
+    assert_eq!(runs[2].1["push"]["ok"], "ran", "{runs:?}");
+    // The workflow was asked for twice for the last request, on the same branch and the same commit.
+    let by_hand = s.by_hand.lock().unwrap().clone();
+    assert_eq!(by_hand.len(), 3, "{by_hand:?}");
+    assert_eq!(by_hand[1].branch, by_hand[2].branch, "{by_hand:?}");
+    assert!(by_hand[1].commit.is_some(), "{by_hand:?}");
+    assert_eq!(by_hand[1].commit, by_hand[2].commit, "{by_hand:?}");
+    assert_eq!(remote_branches(&s), ["refs/heads/main"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A run with no job (GitHub gives one for a workflow file it cannot read) has run, not to the end, and has no run to link
+// to and no log to keep; the note is all the engineer has to read, and it says why there is nothing.
+#[test]
+fn a_run_with_no_job_says_why_it_left_nothing() {
+    let s = setup("measure-nojobs");
+    lists_a_measurement_workflow(&s);
+    let mut agents = scripts();
+    agents.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            write(wt, "src/lib.txt", "old\nfeature\n");
+            git(wt, &["add", "-A"]);
+            git(wt, &["commit", "-q", "-m", "Add the feature"]);
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            let tools = json!([measure_request(&head, "measure.yml", "command=nojobs")]);
+            (vec![("outcome", "tools")], vec![("outcome.tools", tools)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "X1");
+    e.step(None).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    let runs = tool_runs(&e, item, "measure");
+    assert_eq!(runs.len(), 1, "{runs:?}\n{log}");
+    let nojobs = &runs[0].1["push"];
     assert_eq!(
         (&nojobs["verdict"], &nojobs["ok"]),
         (&json!("ran"), &json!("not_run")),
@@ -4549,16 +4584,6 @@ fn a_measurement_with_no_run_or_no_job_says_why_and_a_start_that_failed_once_is_
         nojobs["note"].as_str().is_some_and(|n| !n.trim().is_empty()),
         "a run with no job gave neither a run to link to, a file, nor a note: {nojobs}"
     );
-    // The start that failed once failed as an attempt, and the next attempt ran the measurement.
-    assert_eq!(runs[2].1["failed"]["kind"], "network_or_api", "{runs:?}");
-    assert_eq!(runs[3].1["push"]["ok"], "ran", "{runs:?}");
-    // The workflow was asked for twice for the last request, on the same branch and the same commit.
-    let by_hand = s.by_hand.lock().unwrap().clone();
-    assert_eq!(by_hand.len(), 4, "{by_hand:?}");
-    assert_eq!(by_hand[2].branch, by_hand[3].branch, "{by_hand:?}");
-    assert!(by_hand[2].commit.is_some(), "{by_hand:?}");
-    assert_eq!(by_hand[2].commit, by_hand[3].commit, "{by_hand:?}");
-    assert_eq!(remote_branches(&s), ["refs/heads/main"], "{log}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
