@@ -11833,6 +11833,91 @@ fn a_design_written_again_after_the_work_went_back_to_design_is_reviewed_again()
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// The design (part 5) says that when whoever made a decision turns a departure down, the engineer redesigns from D1. A
+// design written again that still departs from the same decision has had no ruling: the ruling given was on the earlier
+// design, and it said no. So the work waits at the wait for a ruling again, and does not go on to implement. Here the
+// architect turns down a departure from its own decision, the engineer redesigns, and the new design departs in the
+// same way.
+#[test]
+fn a_design_written_again_that_still_departs_after_its_departure_was_turned_down_waits_again() {
+    let s = setup("departs-again");
+    let mut agents = scripts();
+    departing(&mut agents);
+    // The first ruling sends the work back to design; any later one lets it carry on.
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, n: usize| {
+            let next = if n == 1 { "redesign" } else { "carry_on" };
+            (vec![("outcome.next", next)], Vec::new())
+        }),
+    );
+    // The architect turns the departure down each time it is asked.
+    agents.insert(
+        "H3",
+        Box::new(|_: &Request, _: usize| {
+            let reply = json!({ "text": "No: keep the light way on a path of its own.", "why": "My decision stands." });
+            (Vec::new(), vec![("outcome.reply", reply)])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    set_approach(&mut e, item, &format!("Decisions:\n{ARCHITECT_DECIDED}"));
+    step_to(&mut e, item, "D12");
+    let (work, _, _) = state(&e, item).unwrap();
+    e.advance(work).unwrap();
+    // The wait, the ruling coming in as an interjection, and the wait for the design written again.
+    let judged_again = |e: &mut Engine| transitions(e, item, "D12").len() >= 3;
+    assert!(
+        steps_until(&mut e, 200, judged_again),
+        "{:?}\n{}",
+        transitions(&e, item, "D12"),
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(transitions(&e, item, "D2"), ["first", "first"], "{log}");
+    let rows = transitions(&e, item, "D12");
+    // The design written again departs from the decision the ruling kept, so it waits for a ruling of its own; going on
+    // to implement here means a turned-down departure got past the wait.
+    assert_eq!(
+        rows[..3],
+        ["wait_architect", "interjection", "wait_architect"],
+        "{rows:?}\n{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A design answers a decision by its number with blanks around it, as a model sometimes writes it: the check of the
+// design's answers trims the number and takes the return. The departure it answers is then a departure like any other,
+// and the work waits at the wait for a ruling. Reading the number untrimmed elsewhere would let the design go on to
+// implement with no ruling and no open question put.
+#[test]
+fn a_departure_answered_by_a_number_with_blanks_around_it_still_waits_for_a_ruling() {
+    let s = setup("departs-padded");
+    let mut agents = scripts();
+    departing(&mut agents);
+    let row = json!({ "decision": "L1 ", "verdict": "departs", "passage": ON_THE_MAIN_PATH, "instead": "One path is simpler to keep." });
+    agents.insert("D2", designs_answering(json!([row])));
+    let (mut e, said, item) = start(&s, agents);
+    set_approach(&mut e, item, &format!("Decisions:\n- {OWNER_DECIDED}"));
+    step_to(&mut e, item, "D12");
+    let (work, _, _) = state(&e, item).unwrap();
+    e.advance(work).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    // The design's return was taken as it was handed in, the number with its blanks.
+    assert!(sent_back_at(&e, "D2").is_empty(), "{log}");
+    assert_eq!(
+        transitions(&e, item, "D12").first().map(String::as_str),
+        Some("wait_owner"),
+        "{log}"
+    );
+    let asked = open_questions(&e, work);
+    assert_eq!(asked.len(), 1, "{asked:?}\n{log}");
+    assert_eq!(
+        asked[0].1,
+        format!("The design departs from this decision of the item: - {OWNER_DECIDED}")
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // What the work learned goes into its item's approach once it merged, with the commit it merged, through the one write
 // path, so that the changes keep it.
 #[test]
