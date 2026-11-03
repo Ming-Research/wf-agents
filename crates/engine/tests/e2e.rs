@@ -14423,22 +14423,22 @@ fn the_board_lists_each_hold_and_the_owner_releases_any_of_them() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// Item #239: an architect work the engine stops, here because the flow version it ran on can no longer be gone on
-// with, leaves behind no hold to set the project straight, and takes nothing else: the owner's hold, the architect's
-// own hold and a hold of another project all stay.
+// Item #239: an architect work the engine stops, here because the flow version it ran on had a graph for it that the
+// version the engine runs lacks (the setting of a policy, a graph of its own before; item #230 ends such a work),
+// leaves behind no hold to set the project straight, and takes nothing else: the owner's hold, the architect's own
+// hold and a hold of another project all stay.
 #[test]
 fn an_architect_work_taken_over_releases_only_its_projects_hold_to_set_straight() {
     let s = setup("takeover-holds");
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     let work = architect_work_at(&mut e, "H10");
-    // The work ran on a flow version where its cell was another.
+    // The work ran on a flow version where it was a setting of a policy, a graph the version the engine runs lacks.
     let now = e.flow_now;
     let mut f = flow::Compiled::clone(&e.flow(now).unwrap());
-    renamed(
-        f.graphs.iter_mut().find(|g| g.name == engine::ARCHITECT).unwrap(),
-        "H10",
-    );
+    let mut policy = f.graph(engine::ARCHITECT).unwrap().clone();
+    policy.name = engine::POLICY.into();
+    f.graphs.push(policy);
     let text = f.json();
     e.db.write(Actor::Engine, |tx| {
         tx.execute(
@@ -14446,7 +14446,10 @@ fn an_architect_work_taken_over_releases_only_its_projects_hold_to_set_straight(
             [&text],
         )?;
         let v = tx.last_insert_rowid();
-        tx.execute("UPDATE works SET flow_version = ?2 WHERE id = ?1", params![work, v])?;
+        tx.execute(
+            "UPDATE works SET flow_version = ?2, graph = ?3 WHERE id = ?1",
+            params![work, v, engine::POLICY],
+        )?;
         Ok(())
     })
     .unwrap();
