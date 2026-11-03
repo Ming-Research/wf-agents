@@ -34,8 +34,15 @@ fn record(address: &str, v: &Value, given: bool) -> Value {
 
 /// The number of the work's round that a sentence such as "R1-6 gave another value since" names.
 fn named_round(said: &str) -> i64 {
-    let (named, _) = said.split_once(" gave another value since").unwrap_or_else(|| panic!("{said}"));
-    named.rsplit('-').next().unwrap().parse().unwrap_or_else(|_| panic!("{said}"))
+    let (named, _) = said
+        .split_once(" gave another value since")
+        .unwrap_or_else(|| panic!("{said}"));
+    named
+        .rsplit('-')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap_or_else(|_| panic!("{said}"))
 }
 
 // The slots are A in round 2, B in round 4, and A again in round 6, which refers to round 2's address. In round 8 they
@@ -58,9 +65,17 @@ fn the_round_named_as_having_given_another_value_since_comes_after_the_value_it_
     let registry = HashMap::new();
     let mut giver = Giver::new(&held, &registry, &conn, &session);
     giver.add("R1-4·engine·slots".to_string(), b);
-    let said = giver.current("R1-4·engine·slots").expect("a value the engine computed, referred to");
+    let said = giver
+        .current("R1-4·engine·slots")
+        .expect("a value the engine computed, referred to");
     assert!(said.starts_with("the value now, the same as given in R1-4"), "{said}");
-    assert!(said.contains("no longer current"), "the other value is told as not current: {said}");
+    assert!(
+        said.contains("no longer current"),
+        "the other value is told as not current: {said}"
+    );
     let since = named_round(said.split("; ").nth(1).unwrap_or_else(|| panic!("{said}")));
-    assert!(since > 4, "{since} is not after round 4, which the address names: {said}");
+    assert!(
+        since > 4,
+        "{since} is not after round 4, which the address names: {said}"
+    );
 }

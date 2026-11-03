@@ -17925,14 +17925,13 @@ fn a_note_with_the_owner_s_start_reaches_the_architect_by_the_page_s_way_and_by_
         .unwrap();
     };
     let told = |e: &Engine| -> Vec<(Option<String>, Option<String>)> {
-        let mut st = e
-            .db
-            .conn()
-            .prepare(
-                "SELECT body ->> 'note', body ->> 'speaker' FROM architect_matters
+        let mut st =
+            e.db.conn()
+                .prepare(
+                    "SELECT body ->> 'note', body ->> 'speaker' FROM architect_matters
                  WHERE kind = 'owner_words' AND detail = 'release' ORDER BY id",
-            )
-            .unwrap();
+                )
+                .unwrap();
         st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap()
             .map(|r| r.unwrap())
@@ -17942,7 +17941,11 @@ fn a_note_with_the_owner_s_start_reaches_the_architect_by_the_page_s_way_and_by_
     c.set_paused(true);
     // The page's way: the note stays with the request in memory until the loop lifts the pause.
     stop(&mut e, "it waits for the parser");
-    c.start(api::Fresh::Work(work), false, Some(note("The parser is in.", "delegate")));
+    c.start(
+        api::Fresh::Work(work),
+        false,
+        Some(note("The parser is in.", "delegate")),
+    );
     turns(&mut e, &c, 1);
     assert_eq!(paused_by(&e, work), None, "{}", said.lock().unwrap().join("\n"));
     assert_eq!(
