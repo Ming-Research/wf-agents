@@ -1568,9 +1568,9 @@ fn an_agent_schema_holds_its_forms_in_outcome() {
 }
 
 // Only the engineer and the architect tell the owner: an agent's cell of a line that helps them (the reader of the
-// history, the review, adversarial testing, the advisor, the review of the architect's batch and the search of
-// observations) has no `tell_owner` in its
-// return, its description does not name one, and nothing is done with it or shown of it there. The helpers of a work
+// history, the review, adversarial testing, the advisor, the review of the architect's batch, the search of
+// observations and the pick of the architect's next matter) has no `tell_owner` in its return, its description does not
+// name one, and nothing is done with it or shown of it there. The helpers of a work
 // still hand in side reports, which the architect reads.
 #[test]
 fn only_the_engineer_and_the_architect_tell_the_owner() {
@@ -1598,7 +1598,7 @@ fn only_the_engineer_and_the_architect_tell_the_owner() {
     }
     assert_eq!(
         helpers,
-        ["G1", "G2", "X5", "T1", "T3", "G3", "T4", "A1", "B2", "X2", "X5"]
+        ["G1", "G2", "X5", "T1", "T3", "G3", "T4", "A1", "Q1", "B2", "X2", "X5"]
     );
 }
 

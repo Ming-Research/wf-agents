@@ -532,13 +532,6 @@
                 "title": "What differed",
                 "type": "text",
                 "desc": "What differed"
-              },
-              {
-                "name": "why",
-                "title": "Why",
-                "type": "text",
-                "optional": true,
-                "desc": "Why it differed, when you know"
               }
             ]
           },
