@@ -33,13 +33,14 @@ fn sql(e: impl std::fmt::Display) -> String {
 }
 
 /// Runs one tool up to [`ATTEMPTS`] times, each attempt a row of tool_runs; gives what the last attempt gave, or the
-/// failure with what each attempt gave.
+/// failure with what each attempt gave. An attempt is given the engine, so that what it must keep before a long wait it
+/// can write ([`record_push`]).
 fn attempts(
-    e: &Engine,
+    e: &mut Engine,
     round: RoundId,
     tool: &str,
     args: &Value,
-    mut f: impl FnMut() -> Result<Value, Failure>,
+    mut f: impl FnMut(&mut Engine) -> Result<Value, Failure>,
 ) -> Result<Value, (Failure, String)> {
     let mut tried = Vec::new();
     for n in 1..=ATTEMPTS {
@@ -52,7 +53,7 @@ fn attempts(
             )
             .map_err(|x| (Failure::other(x.to_string()), String::new()))?;
         let id = e.db.conn().last_insert_rowid();
-        let got = f();
+        let got = f(e);
         let result = match &got {
             Ok(v) => v.clone(),
             Err(x) => json!({ "failed": { "kind": x.kind, "what": x.what } }),
@@ -286,9 +287,9 @@ fn checks_json(cs: &[CheckRun]) -> Value {
     serde_json::to_value(cs).unwrap_or(Value::Null)
 }
 
-/// Records the head pushed and the PR once the tool that made them has come back, before its step ends, so that
-/// whatever ends the work afterwards knows the PR to close. A crash while the tool runs loses them; the next run finds
-/// a PR open from the branch ([`GitHub::pull_request`]).
+/// Records the head pushed and the PR, a PR the moment it is opened, before the tool that opened it waits for CI, so
+/// that whatever ends the work afterwards knows the PR to close, though the engine dies in that wait and a cancel is the
+/// first thing it carries out when it starts again. The head a crash loses does no harm: the next push follows it.
 fn record_push(e: &mut Engine, w: &Work, head: Option<&str>, pr: Option<i64>) -> Result<(), String> {
     e.db.write(Actor::Engine, |tx| {
         if let Some(h) = head {
@@ -434,7 +435,6 @@ pub fn run_tools(
     order.sort_by_key(|r| r["tool"] != "ci");
     let mut failed: Vec<Value> = Vec::new();
     let pr = Cell::new(w.pr);
-    let mut recorded = w.pr;
     let mut pushed = w.pushed_head.clone();
     for (n, req) in order.into_iter().enumerate() {
         let tool = req["tool"].as_str().unwrap_or_default().to_string();
@@ -460,10 +460,6 @@ pub fn run_tools(
                 results.push(v);
             }
             Err((f, tried)) => failed.push(json!({ "tool": tool, "kind": f.kind, "what": f.what, "tried": tried })),
-        }
-        if pr.get() != recorded {
-            record_push(e, w, None, pr.get())?;
-            recorded = pr.get();
         }
     }
     Ok(json!({ "results": results, "failed": failed }))
@@ -524,7 +520,7 @@ fn pr_fallback(item: &Item) -> (String, String) {
 
 #[allow(clippy::too_many_arguments)]
 fn ci(
-    e: &Engine,
+    e: &mut Engine,
     w: &Work,
     project: &config::Project,
     item: &Item,
@@ -554,7 +550,7 @@ fn ci(
         .as_array()
         .map(|ts| ts.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
         .unwrap_or_default();
-    let got = attempts(e, round, "ci", req, || {
+    let got = attempts(e, round, "ci", req, |e| {
         hub::push(&wt, &sha, &format!("refs/heads/{branch}"), false)?;
         let tb = title_body
             .clone()
@@ -566,7 +562,9 @@ fn ci(
             tb.as_ref().map(|(t, b)| (t.as_str(), b.as_str())),
             pr.get(),
         )?;
-        pr.set(Some(n));
+        if pr.replace(Some(n)) != Some(n) {
+            record_push(e, w, None, Some(n)).map_err(Failure::other)?;
+        }
         // A pull request that was open already, one a work took over among them, keeps the base it was opened with.
         hub::ensure_base(e.github(), &repo(project), n, &project.main)?;
         let checks = e.github().checks(&repo(project), &sha, &project.ci.fast)?;
@@ -646,7 +644,7 @@ fn generated(
 }
 
 fn ci_before(
-    e: &Engine,
+    e: &mut Engine,
     w: &Work,
     project: &config::Project,
     round: RoundId,
@@ -694,7 +692,7 @@ fn ci_before(
     let listed = tests.join(" ");
     let branch = format!("{BEFORE}/{}-{}-{n}", round.work, round.n);
     let refname = format!("refs/heads/{branch}");
-    attempts(e, round, "ci_before", req, || {
+    attempts(e, round, "ci_before", req, |e| {
         let commit = git::files_onto(&wt, &files, &sha, &base).map_err(Failure::other)?;
         hub::push(&wt, &commit, &refname, true)?;
         let dispatched = match named {
@@ -725,7 +723,7 @@ fn ci_before(
 }
 
 fn gh(
-    e: &Engine,
+    e: &mut Engine,
     w: &Work,
     project: Option<&config::Project>,
     round: RoundId,
@@ -762,7 +760,7 @@ fn gh(
             }
         }
     };
-    let (code, out) = attempts(e, round, "gh", req, || {
+    let (code, out) = attempts(e, round, "gh", req, |e| {
         let (code, out) = e.github().gh(&dir, &args)?;
         Ok(json!([code, out]))
     })
@@ -775,11 +773,11 @@ fn gh(
     Ok(json!({ "ran": { "verdict": "ran", "exit": code, "output": inline_or_saved(e, round, n, out) } }))
 }
 
-fn query(e: &Engine, round: RoundId, n: usize, req: &Value) -> Result<Value, (Failure, String)> {
+fn query(e: &mut Engine, round: RoundId, n: usize, req: &Value) -> Result<Value, (Failure, String)> {
     let text = req["sql"].as_str().unwrap_or_default().to_string();
     let limits = e.config.config.install.query.clone();
     let path = config::database(&e.data);
-    attempts(e, round, "query", req, || {
+    attempts(e, round, "query", req, |e| {
         let run = || -> Result<(Vec<Value>, bool), String> {
             let conn = db::open_for_agents(&path, Duration::from_millis(limits.timeout_ms)).map_err(sql)?;
             let max = limits.max_rows as usize;
@@ -864,7 +862,7 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<
     let branch = w.branch.clone().unwrap_or_default();
     let pr = Cell::new(w.pr);
     let args = json!({ "head": head });
-    let got = attempts(e, round, "full_ci", &args, || {
+    let got = attempts(e, round, "full_ci", &args, |e| {
         if w.pushed_head.as_deref() != Some(head.as_str()) {
             hub::push(&wt, &head, &format!("refs/heads/{branch}"), false)?;
         }
@@ -878,13 +876,14 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<
                 None,
             )?;
             pr.set(Some(n));
+            record_push(e, w, None, Some(n)).map_err(Failure::other)?;
             // The pull request found open from the branch, when a run that stopped had opened it, keeps its base.
             hub::ensure_base(e.github(), &repo(&project), n, &project.main)?;
         }
         let first = full_checks(e, &project, &head)?;
         Ok(json!({ "first": checks_json(&first) }))
     });
-    record_push(e, w, Some(&head), pr.get())?;
+    record_push(e, w, Some(&head), None)?;
     let first: Vec<CheckRun> = match got {
         Ok(v) => serde_json::from_value(v["first"].clone()).unwrap_or_default(),
         Err(x) => return Ok(not_run("result", x)),
@@ -893,7 +892,7 @@ pub fn full_ci(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<
     if reds(&counted(&first, &project, &known)).is_empty() {
         return Ok(json!({ "result": { "kind": "green", "head": head } }));
     }
-    let again = match attempts(e, round, "full_ci", &args, || {
+    let again = match attempts(e, round, "full_ci", &args, |e| {
         rerun_full(e, &project, &head, &first).map(|cs| checks_json(&cs))
     }) {
         Ok(v) => serde_json::from_value::<Vec<CheckRun>>(v).unwrap_or_default(),
@@ -925,7 +924,7 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
     };
     let branch = w.branch.clone().unwrap_or_default();
     let args = json!({ "head": head, "pr": pr });
-    let checked = attempts(e, round, "merge", &args, || {
+    let checked = attempts(e, round, "merge", &args, |e| {
         if w.pushed_head.as_deref() != Some(head.as_str()) {
             hub::push(&wt, &head, &format!("refs/heads/{branch}"), false)?;
         }
@@ -938,7 +937,7 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
     };
     let known = known_red(e, &item.project)?;
     if !reds(&counted(&checks, &project, &known)).is_empty() {
-        checks = match attempts(e, round, "merge", &args, || {
+        checks = match attempts(e, round, "merge", &args, |e| {
             rerun_full(e, &project, &head, &checks).map(|cs| checks_json(&cs))
         }) {
             Ok(v) => serde_json::from_value(v).unwrap_or_default(),
@@ -954,7 +953,7 @@ pub fn merge(e: &mut Engine, w: &Work, item: &Item, round: RoundId) -> Result<Va
         return Ok(json!({ "result": { "kind": "stopped" } }));
     }
     // The pull request merges into the project's main, whatever base it was opened with, or does not merge.
-    match attempts(e, round, "merge", &args, || {
+    match attempts(e, round, "merge", &args, |e| {
         hub::merge_into(e.github(), &repo(&project), pr, &project.main).map(Value::String)
     }) {
         Ok(Value::String(sha)) => Ok(json!({ "result": { "kind": "merged", "merge_commit": sha } })),
@@ -983,7 +982,7 @@ pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, roun
         .ok_or("the work has no merge commit")?;
     let wt = w.worktree.clone().unwrap_or_else(|| project.checkout.clone());
     let args = json!({ "merge_commit": merged });
-    let first = match attempts(e, round, "watch_main", &args, || {
+    let first = match attempts(e, round, "watch_main", &args, |e| {
         full_checks(e, &project, &merged).map(|c| checks_json(&c))
     }) {
         Ok(v) => serde_json::from_value::<Vec<CheckRun>>(v).unwrap_or_default(),
@@ -993,7 +992,7 @@ pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, roun
     if reds(&required(&first)).is_empty() {
         return Ok(json!({ "main": { "kind": "green" } }));
     }
-    let again = match attempts(e, round, "watch_main", &args, || {
+    let again = match attempts(e, round, "watch_main", &args, |e| {
         rerun_full(e, &project, &merged, &first).map(|c| checks_json(&c))
     }) {
         Ok(v) => serde_json::from_value::<Vec<CheckRun>>(v).unwrap_or_default(),
@@ -1009,7 +1008,7 @@ pub fn watch_main(e: &mut Engine, w: &Work, g: &CompiledGraph, item: &Item, roun
     }
     let _ = git::git(&wt, &["fetch", "-q", "origin", &project.main]);
     let before = git::resolve(&wt, &format!("{merged}^1")).ok_or("main's commit before the merge is not known here")?;
-    let earlier = match attempts(e, round, "watch_main", &json!({ "before": before }), || {
+    let earlier = match attempts(e, round, "watch_main", &json!({ "before": before }), |e| {
         full_checks(e, &project, &before).map(|c| checks_json(&c))
     }) {
         Ok(v) => serde_json::from_value::<Vec<CheckRun>>(v).unwrap_or_default(),

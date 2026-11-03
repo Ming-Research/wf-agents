@@ -243,7 +243,7 @@ fn remove_worktree(tx: &Transaction<'_>, work: i64, p: &config::Project, dir: &s
 /// architect's words, in the owner's language, and everything in a pull request is in English.
 fn close_pr(tx: &Transaction<'_>, work: i64, item: Option<i64>, n: i64, p: &config::Project) -> Result<(), String> {
     // A pull request whose merge stands, here or in an earlier work on the item that had it, is not closed. Once that
-    // merge is reverted the work has let go of it (the action `revert_merge`), and the one it has now is the fix's,
+    // merge is reverted the work has let go of it (the action `reopen_with_fix`), and the one it has now is the fix's,
     // which never merged: a merge on its record says nothing of that one, though the work's rounds hold it.
     let merged = item
         .map(|i| db::merge_stands(tx, i))

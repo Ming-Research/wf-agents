@@ -24,6 +24,7 @@ import type {
 } from './api';
 import { controls, course, heldName, heldWords } from './components';
 import { held, runningWords, StartOver, startOverWords, stepWhyNot, waitOf } from './course';
+import { standingWords } from './pages/System';
 import { cellTab, cellTabs, cellWhere, numbered } from './flow/CellPanel';
 import { inputName } from './flow/CellGiven';
 import { fieldActions, titleOf } from './flow/Returns';
@@ -355,7 +356,19 @@ describe('how a work goes on', () => {
       why: 'It goes on once its machine has a slot free, before any new work starts.',
     });
     expect(course(work({}), status({})).slot).toBe(false);
-    const pausing = course(work({ paused: 'x', paused_by: 'owner' }), status({ running: [5] }));
+    // Its pause asked to be lifted while its machine has no slot free: the tag and the works list say the slot, as the
+    // head does, though the engine stopped it; the state it would look failed in otherwise.
+    const halted = work({ paused: 'cell implement: no', paused_by: 'engine' });
+    const lifting = status({ waiting_for_slot: [5] });
+    expect(waitOf(course(halted, lifting), halted, lifting)?.tag).toBe('waiting for a free slot');
+    expect(standingWords(halted, lifting)).toBe('waiting for a free slot');
+    // A work stopping waits for nothing beside its cell, and stands as stopping though a round of it runs on.
+    const going = work({ waits: { kind: 'items', items: [3] } });
+    const stopping = status({ stopping: [5] });
+    expect(waitOf(course(going, stopping), going, stopping)).toBeNull();
+    expect(standingWords(going, stopping)).toBe('stopping');
+    expect(standingWords(going, status({ stopping: [5], running: [5] }))).toBe('stopping');
+    const pausing =course(work({ paused: 'x', paused_by: 'owner' }), status({ running: [5] }));
     expect(pausing.running).toBe('pausing');
     expect(stepWhyNot(pausing, controls(pausing, status({ running: [5] })))).toBe('pausing after this round');
     expect(

@@ -13756,9 +13756,10 @@ fn pr_states(s: &Setup) -> Vec<PrState> {
     s.prs.lock().unwrap().values().map(|p| p.state).collect()
 }
 
-// The owner cancels a work's item while its first CI runs, its pull request opened and not yet recorded: nothing ends
-// yet. The step goes on to its end and records the pull request; the loop then ends the work and closes it. A cancel
-// that ended the work at once found no pull request recorded and left it open with no one to close it.
+// The owner cancels a work's item while its first CI runs: nothing ends yet. The pull request is recorded before that
+// wait, so that an engine that dies in it still knows what to close; the step goes on to its end, and the loop then ends
+// the work and closes it. A cancel that ended the work at once found no pull request recorded and left it open with no
+// one to close it, and so did one carried out first thing after a crash, when the tool wrote it only on coming back.
 #[test]
 fn a_cancel_during_the_first_ci_waits_for_the_step_and_closes_its_pull_request() {
     let s = setup("cancel-in-ci");
@@ -13770,7 +13771,7 @@ fn a_cancel_during_the_first_ci_waits_for_the_step_and_closes_its_pull_request()
     let work = state(&e, item).unwrap().0;
     assert!(tool_round_open(&e, work).is_some(), "{log}");
     assert_eq!(pr_states(&s), [PrState::Open], "{log}");
-    assert_eq!(works_of(&e, item)[0].4, None, "{log}");
+    assert_eq!(works_of(&e, item)[0].4, Some(1), "{log}");
     cancel(&mut e, item, "owner");
     let ended_at_once = ended_why(&e, work);
     let round_cut_off = tool_round_open(&e, work).is_none();
@@ -14505,6 +14506,47 @@ fn at_the_merge(name: &str) -> (Setup, Engine, Arc<Mutex<Vec<String>>>, i64, i64
     assert!(at, "{}", said.lock().unwrap().join("\n"));
     let work = state(&e, item).unwrap().0;
     (s, e, said, item, work)
+}
+
+// The full CI opens a pull request when the work has none recorded, and records it before the wait, as the first CI
+// does. The work here loses the one it has as its implementing ends, since no flow reaches this tool without one but a
+// work whose run stopped.
+#[test]
+fn the_full_ci_records_a_pull_request_it_opens_before_it_waits() {
+    let s = setup("full-ci-records-pr");
+    let path = config::database(&s.data);
+    let ci = s.ci.clone();
+    let came = Arc::new(AtomicUsize::new(usize::MAX));
+    let held = came.clone();
+    let mut agents = scripts();
+    let implement = agents.remove("I1").unwrap();
+    agents.insert(
+        "I1",
+        Box::new(move |r: &Request, n: usize| {
+            if n == 2 {
+                db::Db::open(&path)
+                    .unwrap()
+                    .write(Actor::Engine, |tx| {
+                        tx.execute("UPDATE works SET pr = NULL", [])?;
+                        Ok(())
+                    })
+                    .unwrap();
+                ci.shut();
+                held.store(ci.came(), Ordering::SeqCst);
+            }
+            implement(r, n)
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    let at = turns_until(&mut e, &Go::default(), |e| {
+        state(e, item).is_some_and(|w| w.1 == "T2") && s.ci.came() > came.load(Ordering::SeqCst)
+    });
+    let log = said.lock().unwrap().join("\n");
+    assert!(at, "{log}");
+    assert_eq!(works_of(&e, item)[0].4, Some(1), "{log}");
+    s.ci.open();
+    e.drain().unwrap();
+    let _ = std::fs::remove_dir_all(&s.root);
 }
 
 /// Takes turns until the merge step waits for the full CI, which stays shut.

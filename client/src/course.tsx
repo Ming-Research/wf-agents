@@ -71,9 +71,10 @@ const sentence = (s: string): string => (s === '' ? s : s[0].toUpperCase() + s.s
 
 /// What holds a work and what it waits for, in the order they act, as the head of its group says it after its state's
 /// chip, which names the hold: why it is held, then what it waits for once it goes on; or what it waits for alone.
-/// None when nothing holds it and it waits for nothing.
+/// None when nothing holds it and it waits for nothing, and for a work stopping, which goes no further, so that nothing
+/// it would wait for or be started from still matters.
 export function holdsWords(c: Course, w: WorkSummary): string | null {
-  if (c.over || c.running !== null) return null;
+  if (c.over || c.stopping || c.running !== null) return null;
   const parts: string[] = [];
   if (c.held !== null) {
     const why = heldWhy(c, w);
@@ -107,20 +108,21 @@ function waitsFor(w: Waits): string {
 
 /// What happens to a work now, in a few words, as the live line of the bubble of the stage it is at says it, in step
 /// with its head and in the owner's words, with no cell's title or code, which its rounds' link leads to: who is at
-/// work while a round runs; what holds it, and what it waits for once it goes on; what it waits for; a free slot; or
-/// its next round due; a work stopping says so before any of these. At the merge stage what it waits for is what it must
-/// have before it can merge, and the line says so; at the others the stage the bubble names is where it waits.
+/// work while a round runs; a free slot, whatever pause it was asked to lift, as the head says; what holds it, and what
+/// it waits for once it goes on; what it waits for; or its next round due; a work stopping says so before any of these.
+/// At the merge stage what it waits for is what it must have before it can merge, and the line says so; at the others
+/// the stage the bubble names is where it waits.
 export function nowWords(c: Course, w: WorkSummary): string {
   if (c.stopping) return t('state_stopping');
   if (c.running !== null && w.running !== null) return atWork(w.running);
   if (c.running !== null) return runningWords(c);
+  if (c.slot && c.held !== 'all') return t('state_waiting_for_slot');
   const until = (now: string) => (w.stage === 'merge' ? t('now_before_merge', { now }) : now);
   if (c.held !== null) {
     const held = c.held === 'engine' ? heldWords(c, w.paused) : heldName(c).name;
     return c.waits !== null ? until(t('now_held_then', { held, what: waitsFor(c.waits) })) : held;
   }
   if (c.waits !== null) return until(t('now_waits', { what: waitsFor(c.waits) }));
-  if (c.slot) return t('state_waiting_for_slot');
   return t('now_ready');
 }
 
@@ -419,12 +421,14 @@ export function held(c: Course, w: WorkSummary): string | null {
 }
 
 /// Why a work waits at the cell it is at while no round of it runs, for the tag beside that cell on its chart, in a
-/// few words and in full: stopped by the engine or the architect, which the owner looks at first; what it waits for,
-/// after which it goes on by itself; a free slot, what it waited for come; a free slot for the Start the owner gave;
-/// or, held back by the owner's pause or every work's, Step while Step can run a round of it now, and else paused.
-/// None for a work that runs, goes on by itself or is over.
+/// few words and in full: a free slot, what it waited for come or its pause asked to be lifted, as its head says;
+/// stopped by the engine or the architect, which the owner looks at first; what it waits for, after which it goes on by
+/// itself; a free slot for the Start the owner gave; or, held back by the owner's pause or every work's, Step while Step
+/// can run a round of it now, and else paused. None for a work that runs, goes on by itself or is over, and for a work
+/// stopping, which waits for nothing and whose head says so.
 export function waitOf(c: Course, w: WorkSummary, status: Status | null): Wait | null {
-  if (c.over || c.running !== null) return null;
+  if (c.over || c.stopping || c.running !== null) return null;
+  if (c.slot) return { tag: t('wait_slot'), why: t('course_slot_why') };
   const why = held(c, w) ?? '';
   if (c.held === 'engine') return { tag: t('wait_engine'), why };
   if (c.held === 'architect') return { tag: t('wait_architect_stop'), why };
@@ -440,7 +444,6 @@ export function waitOf(c: Course, w: WorkSummary, status: Status | null): Wait |
             : t('wait_row');
     return { tag, why: waitsWords(c.waits) };
   }
-  if (c.slot) return { tag: t('wait_slot'), why: t('course_slot_why') };
   if (c.releasing) return { tag: t('wait_slot'), why };
   if (c.held === null) return null;
   const can = controls(c, status);

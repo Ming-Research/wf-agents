@@ -212,7 +212,9 @@ enum ItemCommand {
         #[arg(long, value_parser = ["blocking", "parallel"])]
         kind: String,
     },
-    /// Cancels an item, and ends its work.
+    /// Cancels an item. A work that goes on ends once the running engine has finished the step it is in, so while the
+    /// engine does not run the cancel waits for its next start; an item whose merge stands on main, or whose merge comes
+    /// first, is not cancelled.
     Cancel {
         item: i64,
         #[arg(long)]

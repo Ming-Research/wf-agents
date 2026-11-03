@@ -1157,6 +1157,18 @@ describe("a work's group as a chat", () => {
     );
   });
 
+  it('keeps the live line and the head in step for a work waiting for a free slot or stopping', () => {
+    const w = work();
+    const halted = work({ paused_by: 'engine' });
+    // A paused work whose resume waits for a slot: the line says the slot, as the head's chip does, whoever paused it.
+    expect(nowWords({ ...course(w, null), slot: true }, w)).toBe('waiting for a free slot');
+    expect(nowWords({ ...course(halted, null), slot: true }, halted)).toBe('waiting for a free slot');
+    // Every work's pause keeps it whatever a slot does.
+    expect(nowWords({ ...course(w, null), slot: true, held: 'all' }, w)).not.toBe('waiting for a free slot');
+    // A work stopping has no Start, so the head says nothing of what it would wait for once started.
+    expect(holdsWords({ ...course(w, null), stopping: true }, w)).toBeNull();
+  });
+
   it('names every hold in the head in the order they act: the pause and why, then what it waits for once started', () => {
     const w = work();
     expect(holdsWords(course(w, null), w)).toBe(
