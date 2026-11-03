@@ -5783,8 +5783,19 @@ fn t1_asks_with_words_waiting(
 #[test]
 fn a_question_asked_from_another_line_is_not_withdrawn_for_words_waiting_for_the_engineer() {
     let s = setup("ask-off-line");
-    let text = "Halt every work on a red check.";
-    let (mut e, said, work) = t1_asks_with_words_waiting(&s, |e, work| owner_says(e, work, text));
+    let text = "The design's open question is answered: keep the page's tests out.";
+    // The architect's answer to an open question of the design, as it reaches the engineer's line: not the owner's
+    // word, which would be a matter of its own for the architect.
+    let (mut e, said, work) = t1_asks_with_words_waiting(&s, |e, work| {
+        e.db.write(Actor::Architect, |tx| {
+            tx.execute(
+                "INSERT INTO interjections (work, line, speaker, text) VALUES (?1, 'engineer', 'architect', ?2)",
+                params![work, text],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    });
     let log = said.lock().unwrap().join("\n");
     assert_eq!(question_took(&e, work), None, "{log}");
     assert_eq!(questions_of_engineers(&e), [(true, false)], "{log}");
