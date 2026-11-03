@@ -19,6 +19,8 @@ const item = (id: number, project: string, state: ItemState): ItemSummary => ({
   title: `Item ${id}`,
   deliver: 'change',
   level: 'l',
+  route: 'normal',
+  route_taken: null,
   cancelled: null,
   state,
   queued: null,

@@ -1687,7 +1687,8 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
         blocked.entry(item).or_default().push(on);
     }
     let mut st = conn.prepare(
-        "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled, q.position, i.imported_pr
+        "SELECT i.id, i.project, i.title, i.deliver, i.level, i.cancelled, q.position, i.imported_pr, i.route,
+                (SELECT r.route FROM work_routes r WHERE r.item = i.id ORDER BY r.work DESC LIMIT 1)
          FROM items i LEFT JOIN dispatch_queue q ON q.item = i.id ORDER BY i.id",
     )?;
     let items = st
@@ -1707,6 +1708,8 @@ fn all_items(conn: &Connection, flows: &Flows) -> Result<(Items, Vec<WorkSummary
                 title: r.get(2)?,
                 deliver: r.get(3)?,
                 level: r.get(4)?,
+                route: r.get(8)?,
+                route_taken: r.get(9)?,
                 state,
                 cancelled,
                 queued,

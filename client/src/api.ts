@@ -1298,7 +1298,16 @@ export type ItemSummary = { id: number, project: string, title: string,
 /**
  * change or report.
  */
-deliver: string, level: string, cancelled: string | null, state: ItemState,
+deliver: string, level: string,
+/**
+ * The route its works go, as its creator marked it: normal, or bugfix or feature, which go the light route.
+ */
+route: string,
+/**
+ * The route its latest work goes (light, normal, or turned: went light, then turned to the normal route); none
+ * before a work starts. A work keeps the route its research took, whatever the item's mark became since.
+ */
+route_taken: string | null, cancelled: string | null, state: ItemState,
 /**
  * Its place in the dispatch queue, lower first; none when it is not queued.
  */

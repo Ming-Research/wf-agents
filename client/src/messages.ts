@@ -467,6 +467,16 @@ const messages = {
   design_leans: 'Where the engineer stands, as its latest round said:',
   design_waits: 'The choice waits for: {what}.',
   item_tier: 'Tier {tier}',
+  item_route_bugfix: 'Bug fix, light route',
+  item_route_feature: 'Feature, light route',
+  item_route_light: 'Light route',
+  item_route_hint:
+    'A plan reviewed before it is implemented takes the place of the design and its checks, with no blind review and no adversarial testing; the engineer turns the work to the normal route when it needs more',
+  item_route_turned_bugfix: 'Bug fix, turned to the normal route',
+  item_route_turned_feature: 'Feature, turned to the normal route',
+  item_route_turned: 'Turned to the normal route',
+  item_route_turned_hint:
+    'The work went the light route, then needed more: it goes on as a work on the normal route does, with a design and its checks and the blind review',
   item_live_work: 'W{id}',
   helpers_tab: 'Helpers',
   helpers_none: 'No helper of this work has run yet.',

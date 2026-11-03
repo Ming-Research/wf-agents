@@ -563,7 +563,24 @@ describe('the flow as the engine stores it', () => {
             const b = box(x.id);
             return x.kind === 'cell' && x.part === n.part && b.y >= a.y + a.height && b.y + b.height <= t.y;
           });
-          expect(between.map((x) => x.cell), n.id).toEqual([]);
+          // Where each box lies, to tell from a failure which layers the layout put them in.
+          const at = (id: string) => {
+            const b = box(id);
+            return `${id} y ${Math.round(b.y)} to ${Math.round(b.y + b.height)}`;
+          };
+          const froms = c.edges.filter((e) => e.target === n.id).map((e) => at(e.source));
+          const column = c.nodes
+            .filter((x) => x.kind === 'cell' && x.group === n.group)
+            .sort((x, y) => box(x.id).y - box(y.id).y)
+            .map((x) => at(x.id));
+          const said = [
+            at(n.id),
+            at(into.id),
+            ...between.map((x) => at(x.id)),
+            `from ${froms.join(', ')}`,
+            `the box's cells ${column.join(', ')}`,
+          ].join('; ');
+          expect(between.map((x) => x.cell), said).toEqual([]);
         }
       });
 
