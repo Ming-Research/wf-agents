@@ -199,6 +199,10 @@ pub struct Agents {
     /// lowest level when none is named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub librarian: Option<String>,
+    /// The level the pick of the architect's next matter runs at (the line `picker`), by its name among the levels; the
+    /// lowest level when none is named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picker: Option<String>,
     /// The context, in tokens, past which a line's session is replaced by a new one at the line's next round: the
     /// prompt of the last call of the session's latest round, as recorded.
     #[serde(default = "context_limit")]
@@ -318,6 +322,7 @@ fn read_only() -> Vec<String> {
         "architect",
         "architect_review",
         "observer",
+        "picker",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -1114,6 +1119,11 @@ impl Config {
         {
             problems.push(format!("install.toml: agents.librarian names no level: {l}"));
         }
+        if let Some(p) = &self.install.agents.picker
+            && !self.install.agents.levels.contains_key(p)
+        {
+            problems.push(format!("install.toml: agents.picker names no level: {p}"));
+        }
         if let Some(h) = &self.install.items.highest_level
             && !self.install.agents.levels.contains_key(h)
         {
@@ -1287,6 +1297,18 @@ impl Config {
     pub fn observer_level(&self) -> String {
         match &self.install.agents.observer {
             Some(o) => o.clone(),
+            None => self
+                .levels_in_order()
+                .first()
+                .map(|n| n.to_string())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The level the pick of the architect's next matter runs at: the one the installation names, or else the lowest.
+    pub fn picker_level(&self) -> String {
+        match &self.install.agents.picker {
+            Some(p) => p.clone(),
             None => self
                 .levels_in_order()
                 .first()
@@ -1889,6 +1911,7 @@ asks = 9
             "architect",
             "architect_review",
             "observer",
+            "picker",
             "review",
             "advisor",
             "librarian",

@@ -244,14 +244,15 @@ pub fn opens(conn: &Connection, work: i64, cell: &CompiledCell) -> Result<bool, 
     }
 }
 
-/// The line of the architect's works, whose session goes on from one of a project's architect works to the next.
-const ARCHITECT: &str = "architect";
+/// The lines of the architect's works whose session goes on from one of a project's architect works to the next: the
+/// architect's own, and the pick of its next matter.
+const CARRIED: [&str; 2] = ["architect", "picker"];
 
 /// The session a work of a project's architect takes up at its line's first round in the work: the one the project's
-/// previous architect work left on the line, its row and the CLI's id for it, unless it ended; none for another line,
-/// once the work's line had a session, and at the project's first architect work.
+/// previous architect work left on the line, its row and the CLI's id for it, unless it ended; none for a line not
+/// carried, once the work's line had a session, and at the project's first architect work.
 fn left(conn: &Connection, work: i64, line: &str) -> Result<Option<(i64, String)>, String> {
-    if line != ARCHITECT {
+    if !CARRIED.contains(&line) {
         return Ok(None);
     }
     let had: i64 = conn

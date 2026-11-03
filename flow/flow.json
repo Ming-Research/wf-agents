@@ -4453,7 +4453,8 @@
         "adversarial",
         "advisor",
         "architect",
-        "architect_review"
+        "architect_review",
+        "picker"
       ],
       "text": [
         "Check each fact when you write it: resolve with a tool every commit id, path, number and measurement you report as fact. Another agent's or a reviewer's report is only a lead.",
@@ -4495,7 +4496,8 @@
         "To learn why the code or a decision is as it is: with an address (#item, R<work>-<n>, a commit), read it yourself with sqlite3 or git. With none, or when the question is broad, hand in `history`: a reader of its own searches the items and git and gives back quotes with their sources, and its reading stays out of your session. Before recording a decision of the owner's, look for the earlier one on the same matter this way."
       ],
       "lines": [
-        "architect"
+        "architect",
+        "picker"
       ]
     },
     {
@@ -12399,13 +12401,19 @@
             "name": "observer",
             "desc": "The search of the project's observations and the look-up of its history: the first of a work of the architect starts a new session, and later ones continue it",
             "colour": "brown"
+          },
+          {
+            "name": "picker",
+            "desc": "The pick of the architect's next matter, on the level the installation names for it (`agents.picker`): a work of the architect goes on in the session the project's previous architect work left on this line, as on the architect's; the session's prompt cache expiring also starts a new session",
+            "colour": "cyan",
+            "cacheExpiry": true
           }
         ],
         "rules": [
           "A work of the architect goes on in the session the project's previous architect work left. A new session starts at the project's first architect work, when the owner asks for one, past the context limit, before a matter taken afresh once the context is past the architect's limit (`agents.architect_context_limit`), when the model or the login account changes and when the session's prompt cache expired (its last call, a round's or a keep-warm ping's, a cache lifetime or more ago). A new session goes on from the notebook while the project's latest understanding holds (`agents.understanding_life`); the first, one the owner asked for and one past that understands the project first, and is told what was said in the one-to-one with the owner since the previous session began. A session that goes on never understands it again.",
           "The setting of a new policy is a matter of the architect's work, in its session: none starts for it, and a new policy that takes effect leaves the session going on.",
           "In the loop that takes matters one by one, each round adds little to the session: the constitution, the guide, the policy, the board, the numbers, the observations, the queue and the batch are given once in a session and after that only as what changed, with the numbers of the matters that can be picked and of those handled each time; a matter's material is given to the first cell of its path, and the second refers to it.",
-          "The review of a batch's item changes is a line of its own, a new session for each batch, so that it reads them afresh; the search of observations is a line of its own on a cheap model.",
+          "The review of a batch's item changes is a line of its own, a new session for each batch, so that it reads them afresh; the search of observations is a line of its own on a cheap model; the pick of the next matter is a line of its own on the level the installation names for it, its session going on from one architect work to the next as the architect's does, so that picking reads a short session and adds nothing to the architect's.",
           "When the architect hands in pause, the architect's work waits at cell `X3` for the owner's Start, then the same cell runs again in the same session, saying to carry on, and refers to what the session already holds instead of giving it again.",
           "The lines of the architect's work only read, in a worktree of the project's architect's own, detached at the project's main, which the engine brings to the latest main before each round, dropping whatever was changed there; another branch is read there with git, without switching."
         ]
@@ -12645,7 +12653,8 @@
               ],
               "lines": [
                 "architect",
-                "architect_review"
+                "architect_review",
+                "picker"
               ]
             },
             {
@@ -14366,7 +14375,7 @@
           "kind": "agent",
           "title": "Pick the next matter",
           "effort": "medium",
-          "line": "architect",
+          "line": "picker",
           "tools": [
             "query"
           ],

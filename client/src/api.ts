@@ -2567,7 +2567,7 @@ colour: Colour, };
  * those it keeps for other things: orange for the owner's cells, yellow for the tools', red for danger and grey for
  * the engine's own steps.
  */
-export type Colour = "blue" | "teal" | "auburn" | "pink" | "purple" | "indigo" | "green" | "brown";
+export type Colour = "blue" | "teal" | "auburn" | "pink" | "purple" | "indigo" | "green" | "brown" | "cyan";
 
 export type Compiled = { format: string, engine: EngineNames, tools: Array<ToolUse>, graphs: Array<CompiledGraph>,
 /**

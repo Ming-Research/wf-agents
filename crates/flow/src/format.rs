@@ -509,6 +509,7 @@ pub enum Colour {
     Indigo,
     Green,
     Brown,
+    Cyan,
 }
 
 /// The colours the page drew lines in once and does not now, which a flow written then still names: such a flow is read

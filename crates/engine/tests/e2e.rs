@@ -6898,8 +6898,8 @@ fn a_new_session_goes_on_from_the_notebook_while_the_understanding_holds() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
-// The architect's session past the architect's limit ends at the look at the queue before a matter taken afresh, which
-// says so: the matter is taken in a new session, which goes on from the notebook while the understanding holds.
+// The architect's session past the architect's limit ends at the look at the queue before a matter taken afresh, whose
+// round records it: the matter is taken in a new session, which goes on from the notebook while the understanding holds.
 #[test]
 fn a_long_session_of_the_architect_s_ends_before_a_matter_taken_afresh() {
     let s = setup("architect-limit");
@@ -6930,8 +6930,8 @@ fn a_long_session_of_the_architect_s_ends_before_a_matter_taken_afresh() {
     let ended: Value =
         e.db.conn()
             .query_row(
-                "SELECT json_extract(output, '$.session_ended') FROM rounds WHERE work = ?1 AND cell = 'Q0'
-                 AND json_extract(output, '$.session_ended') IS NOT NULL",
+                "SELECT json_extract(input, '$.session_ended') FROM rounds WHERE work = ?1 AND cell = 'Q0'
+                 AND json_extract(input, '$.session_ended') IS NOT NULL",
                 [arch],
                 |r| r.get::<_, String>(0),
             )
@@ -20330,6 +20330,7 @@ fn say_with_an_image(e: &mut Engine, text: &str) {
 #[test]
 fn a_new_session_is_told_the_talk_from_the_start_of_the_session_before_with_its_asks_and_images() {
     let s = setup("owner-talk-window");
+    understanding_each_session(&s);
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     an_item(&mut e);
@@ -20588,6 +20589,7 @@ fn the_first_understanding_is_told_the_same_talk_at_every_round_with_no_lower_bo
 #[test]
 fn a_new_session_is_told_an_interjection_and_a_talk_entry_made_since_the_session_before_began() {
     let s = setup("owner-talk-kinds");
+    understanding_each_session(&s);
     let (mut e, said) = engine(&s, scripts());
     quiet(&mut e);
     an_item(&mut e);

@@ -195,12 +195,12 @@ fn the_architect_graph_compiles_as_its_reference_has_it() {
     assert!(c.graph("policy").is_none());
 }
 
-// Every agent's cell of the architect's line but the review of a batch and the observer's search may rewrite sections
-// of the notebook in its own answer, beside its effects, the edit made at once and its size checked; the understanding
-// and the plan must, each its own sections. Each such cell is given the four sections, each an engine input of its own,
-// but the understanding, which writes what the project is now afresh and is given only what is unclear, as questions
-// to settle, and the other section; no cell reads the state of things, the notes, the log or the last plan, which the
-// notebook took the place of.
+// Every agent's cell of the architect's line and of its pick but the review of a batch and the observer's search may
+// rewrite sections of the notebook in its own answer, beside its effects, the edit made at once and its size checked;
+// the understanding and the plan must, each its own sections. Each such cell is given the four sections, each an engine
+// input of its own, but the understanding, which writes what the project is now afresh and is given only what is
+// unclear, as questions to settle, and the other section; no cell reads the state of things, the notes, the log or the
+// last plan, which the notebook took the place of.
 #[test]
 fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     let c = compiled();
@@ -210,7 +210,7 @@ fn every_cell_of_the_architect_s_line_keeps_the_notebook() {
     let sections = ["project_now", "plan", "unclear", "other"];
     let mut keep = Vec::new();
     for cell in &g.cells {
-        if cell.kind != "agent" || cell.line.as_deref() != Some("architect") {
+        if cell.kind != "agent" || !matches!(cell.line.as_deref(), Some("architect" | "picker")) {
             continue;
         }
         keep.push(cell.id.as_str());
@@ -1734,9 +1734,9 @@ fn a_work_moves_by_its_rows() {
     assert_eq!(l2.rows.iter().find(|r| r.name == "done").unwrap().to, "E1");
 }
 
-// The architect's line says its session expires with the CLI's prompt cache, so that every cell on it carries that, and
-// no cell of any other line does. A flow version stored before lines could say so has no such field in its cells, and
-// reads back with it false.
+// The architect's line and the pick of its next matter say their session expires with the CLI's prompt cache, so that
+// every cell on them carries that, and no cell of any other line does. A flow version stored before lines could say so
+// has no such field in its cells, and reads back with it false.
 #[test]
 fn only_the_architects_line_expires_with_the_cache() {
     let c = compiled();
@@ -1744,7 +1744,12 @@ fn only_the_architects_line_expires_with_the_cache() {
     for g in &c.graphs {
         for x in &g.cells {
             if x.cache_expiry {
-                assert_eq!(x.line.as_deref(), Some("architect"), "{} {}", g.name, x.id);
+                assert!(
+                    matches!(x.line.as_deref(), Some("architect" | "picker")),
+                    "{} {}",
+                    g.name,
+                    x.id
+                );
                 expiring.push((g.name.as_str(), x.id.as_str()));
             }
         }
