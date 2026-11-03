@@ -8680,7 +8680,8 @@ fn the_history_of_the_changed_files_is_gathered_once_and_the_table_review_is_giv
     // The re-review has the brief still, which its session holds: it is referred to, not given again.
     let given_to = |last: bool| given_ending(&input_at(&e, work, "T4", last), "·G3·brief");
     assert_eq!((given_to(false), given_to(true)), (Some(true), Some(false)), "{log}");
-    // The gatherer is given the change by commits the worktree has, and where the history is.
+    // The gatherer is given the change by commits the worktree has. Where the history is, it is given as the reader's
+    // session was at the first gathering, which that session holds: the round refers to it.
     let message = message_at(&e, work, "G3", false);
     let base = given_value(&message, "·engine·review_base").expect(&message);
     let fork = base["fork_point"].as_str().unwrap_or_default();
@@ -8688,9 +8689,11 @@ fn the_history_of_the_changed_files_is_gathered_once_and_the_table_review_is_giv
     assert!(fork.len() == 40 && head.len() == 40, "{base}");
     assert_eq!(base["change"], format!("git diff {fork}..{head}"));
     assert!(base.get("last_reviewed").is_none(), "{base}");
-    let sources = given_value(&message, "·engine·history_sources").expect(&message);
+    let sources = given_value(&message_at(&e, work, "G1", false), "·engine·history_sources").expect(&log);
     assert_eq!(sources["database"], config::database(&s.data).display().to_string());
     assert!(sources["checkout"].is_string(), "{sources}");
+    let at_g3 = given_ending(&input_at(&e, work, "G3", false), "·engine·history_sources");
+    assert_eq!(at_g3, Some(false), "{message}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
