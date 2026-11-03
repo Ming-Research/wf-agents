@@ -28,6 +28,7 @@ use serde_json::{Map, Value, json};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::actions::{self, Ctx};
+use crate::arch_inputs::{self, Holding};
 use crate::checks::{self, Problems};
 use crate::decisions;
 use crate::inputs::{self, Gathered, Origin, Part};
@@ -39,7 +40,7 @@ use crate::{ARCHITECT, Advance, ENGINEER, Engine, git, values};
 pub const HOUR: i64 = 3_600_000;
 
 /// The engine's inputs the architect's cells read, each computed by [`input`], but [`BEFORE`], which [`before`] gives.
-pub const INPUTS: [&str; 33] = [
+pub const INPUTS: [&str; 37] = [
     "constitution",
     "guide",
     "cited_nodes",
@@ -73,6 +74,10 @@ pub const INPUTS: [&str; 33] = [
     "notebook_plan",
     "notebook_unclear",
     "notebook_other",
+    "cells",
+    "observations_named",
+    "batch_observation_changes",
+    "design_asked",
 ];
 
 /// The engine's inputs that read the project's files on its main, each as one commit of it has them. A round whose cell
@@ -304,7 +309,7 @@ fn markdown_link_targets(s: &str) -> Vec<&str> {
 }
 
 /// A time to the minute, in UTC, as `2026-10-28 14:03 UTC`.
-fn utc_minute(ms: i64) -> String {
+pub(crate) fn utc_minute(ms: i64) -> String {
     crate::utc(ms)
 }
 
@@ -754,7 +759,7 @@ fn group_in_hand(conn: &Connection, work: i64) -> Result<Vec<i64>, String> {
 }
 
 /// The round an architect work's batch began after: its latest rethink, which ends a batch; 0 when it had none.
-fn batch_start(conn: &Connection, work: i64) -> Result<i64, String> {
+pub(crate) fn batch_start(conn: &Connection, work: i64) -> Result<i64, String> {
     count(
         conn,
         "SELECT coalesce(max(n), 0) FROM rounds WHERE work = ?1 AND cell = ?2 AND transition IS NOT NULL",
@@ -801,6 +806,23 @@ fn collected(conn: &Connection, work: i64) -> Result<Vec<Change>, String> {
 /// The items a change collected in an architect work's open batch names, on which the engine starts no work until the
 /// batch ends: the item it changes, the item a split splits or another is moved under, and the items a merge keeps and
 /// absorbs.
+fn change_items(c: &Value) -> BTreeSet<i64> {
+    let mut ids = BTreeSet::new();
+    for k in ["item", "keep"] {
+        ids_of(&c[k], &mut ids);
+    }
+    ids_of(&c["under"]["item"], &mut ids);
+    if c["to"]["place"] == "under" {
+        ids_of(&c["to"]["item"], &mut ids);
+    }
+    for a in items(c.get("absorbed")) {
+        ids_of(&a, &mut ids);
+    }
+    ids
+}
+
+/// The items every change collected in an unfinished architect work's open batch names ([`change_items`]), on which the
+/// engine starts no work until the batch ends.
 pub fn held_by_batches(conn: &Connection) -> Result<BTreeSet<i64>, String> {
     let rows = query_json(
         conn,
@@ -809,21 +831,38 @@ pub fn held_by_batches(conn: &Connection) -> Result<BTreeSet<i64>, String> {
         &[],
         100_000,
     )?;
-    let mut ids = BTreeSet::new();
-    for r in rows {
-        let c = &r["change"];
-        for k in ["item", "keep"] {
-            ids_of(&c[k], &mut ids);
-        }
-        ids_of(&c["under"]["item"], &mut ids);
-        if c["to"]["place"] == "under" {
-            ids_of(&c["to"]["item"], &mut ids);
-        }
-        for a in items(c.get("absorbed")) {
-            ids_of(&a, &mut ids);
-        }
-    }
-    Ok(ids)
+    Ok(rows.iter().flat_map(|r| change_items(&r["change"])).collect())
+}
+
+/// The item changes waiting for a review in the open batches of a project's architect works that have not ended, this
+/// work's batch and any other's, each with the architect work whose batch it is in (`this_batch` for the work asking),
+/// the round that handed it in, its matter, its kind, the items it names and its reason: the engine starts no work on
+/// those items until the batch ends, so that an item that is ready and does not start may be held by a batch that is
+/// not this one.
+fn unreviewed_changes(conn: &Connection, project: &str, work: i64) -> Result<Vec<Value>, String> {
+    let rows = query_json(
+        conn,
+        "SELECT c.work, c.round, c.matter, c.change FROM architect_item_changes c JOIN works w ON w.id = c.work
+         WHERE c.state = 'collected' AND w.ended IS NULL AND w.project = ?1 ORDER BY c.work, c.id",
+        &[&project],
+        ROWS,
+    )?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let c = &r["change"];
+            let of = r["work"].as_i64().unwrap_or_default();
+            json!({
+                "batch_of_work": of,
+                "this_batch": of == work,
+                "round": format!("R{of}-{}", r["round"]),
+                "matter": r["matter"],
+                "kind": c["kind"],
+                "items": change_items(c).into_iter().map(|i| format!("#{i}")).collect::<Vec<_>>(),
+                "reason": c["reason"],
+            })
+        })
+        .collect())
 }
 
 /// Whether a project's new starts are held to set it straight.
@@ -2083,7 +2122,7 @@ fn act_now(tx: &Transaction<'_>, project: &str, a: &Value) -> Result<(), String>
             };
             // The loop lifts it, once the work's machine has a slot free: this transaction cannot know the slots.
             if db::stopped_by_architect(Some(p.as_str()), by.as_deref()) {
-                db::ask_resume(tx, work, db::Actor::Architect).map_err(sql)?;
+                db::ask_resume(tx, work, db::Actor::Architect, None).map_err(sql)?;
             }
             Ok(())
         }
@@ -4785,6 +4824,13 @@ pub fn input(e: &Engine, w: &Work, g: &CompiledGraph, name: &str, main: Option<&
             Ok(notebook_section(e.db.conn(), project, section)?.map(Value::String))
         }
         "questions" => questions(e, project),
+        "cells" => arch_inputs::cells(e).map(Some),
+        "observations_named" => arch_inputs::observations_named(e.db.conn(), w.id),
+        "batch_observation_changes" => arch_inputs::batch_observation_changes(e.db.conn(), w.id),
+        "design_asked" => match picked(e.db.conn(), w.id)? {
+            Some(lead) => arch_inputs::design_asked(e.db.conn(), lead),
+            None => Ok(None),
+        },
         other => Err(format!("no such engine input: {other}")),
     }
 }
@@ -5023,6 +5069,11 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
     )?;
     let mut out = Map::new();
     let mut open: BTreeSet<i64> = BTreeSet::new();
+    // Who holds a slot, and which items a change of an open batch holds back, and the slots free: each worked out once
+    // for the board, not for each row.
+    let holding = Holding::of(e)?;
+    let changing = held_by_batches(e.db.conn())?;
+    let free = e.free_slots()?;
     for mut r in rows {
         let at = r["at"].as_str().unwrap_or_default().to_string();
         if !at.is_empty() && at == end {
@@ -5032,6 +5083,9 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
         open.insert(id);
         let stopped = r["ended"].as_str().map(str::to_string);
         if let (Some(work), None) = (r["work"].as_i64(), &stopped) {
+            if let Some(o) = r.as_object_mut() {
+                o.extend(arch_inputs::card(e.db.conn(), work, &holding)?);
+            }
             let stage_of = |c: &str| g.and_then(|g| g.cell(c)).and_then(|c| c.stage.clone());
             let callers = items(r.get("waiting"));
             let stage = stage_of(&at)
@@ -5053,9 +5107,13 @@ fn board(e: &Engine, project: &str) -> Result<Value, String> {
             if let Some(o) = r.as_object_mut() {
                 o.remove("blocked_by");
             }
-        } else if let Some(o) = r.as_object_mut() {
-            for k in ["work", "at", "paused", "since"] {
-                o.remove(k);
+        } else {
+            // What keeps an item with no work running from starting, by the engine's own judgment when it starts one.
+            r["starts"] = json!(e.waits_to_start(id, project, &changing, free)?);
+            if let Some(o) = r.as_object_mut() {
+                for k in ["work", "at", "paused", "since"] {
+                    o.remove(k);
+                }
             }
         }
         if let Some(o) = r.as_object_mut() {
@@ -5277,27 +5335,67 @@ fn group_talk_due(conn: &Connection, project: &str, by: Option<i64>) -> Result<O
 /// week before the work; none when nothing was said.
 fn group_talk(e: &Engine, w: &Work, project: &str) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
-    let since = match last_read(conn, project, w.id)? {
-        Some(t) => t,
-        None => work_start(conn, w.id)? - 7 * 24 * HOUR,
-    };
-    let said = said_in_groups(conn, project, since)?;
+    let since = group_read_since(conn, w, project)?;
+    let said = group_said(conn, project, since, None, None, true)?;
     if said.is_empty() {
         return Ok(None);
     }
-    let said: Vec<Value> = said
-        .into_iter()
-        .map(|mut x| {
-            if let Some(at) = x["at"].as_i64() {
-                x["at"] = json!(utc_minute(at));
-            }
-            if let Some(o) = x.as_object_mut() {
-                o.retain(|_, v| !v.is_null());
-            }
-            x
-        })
-        .collect();
     Ok(Some(json!({ "since": utc_minute(since), "said": said })))
+}
+
+/// When the architect's work `w` last read what was said in the groups of its project's works: the start of the latest
+/// round given it ([`last_read`]); at its first read, the week before the work.
+fn group_read_since(conn: &Connection, w: &Work, project: &str) -> Result<i64, String> {
+    Ok(match last_read(conn, project, w.id)? {
+        Some(t) => t,
+        None => work_start(conn, w.id)? - 7 * 24 * HOUR,
+    })
+}
+
+/// What was said in the groups of a project's works after `since` ([`said_in_groups`]), as the architect is given it:
+/// the time of each in minutes, and what it lacks left out. Only what was said in the group of one work (`work`), and
+/// up to a time (`until`, in milliseconds), when they are given. With `mark_given`, each that came before a matter of
+/// its work that the architect has handled says which: that matter's material held it (`given_with`, the matter and the
+/// round that handled it), since the architect handled that matter after it was said and not before the groups were
+/// read. The engine works this out from the matters' records; it holds no mark that a text was given.
+fn group_said(
+    conn: &Connection,
+    project: &str,
+    since: i64,
+    work: Option<i64>,
+    until: Option<i64>,
+    mark_given: bool,
+) -> Result<Vec<Value>, String> {
+    let mut out = Vec::new();
+    for mut x in said_in_groups(conn, project, since)? {
+        let at = x["at"].as_i64();
+        if work.is_some_and(|w| x["work"].as_i64() != Some(w)) || until.is_some_and(|t| at.is_none_or(|at| at > t)) {
+            continue;
+        }
+        if mark_given
+            && let (Some(of), Some(at)) = (x["work"].as_i64(), at)
+            && let Some(m) = query_json(
+                conn,
+                "SELECT id AS matter, 'R' || handled_work || '-' || handled_round AS round FROM architect_matters
+                 WHERE work = ?1 AND at >= ?2 AND handled_round IS NOT NULL AND withdrawn IS NULL
+                 ORDER BY id LIMIT 1",
+                &[&of, &at],
+                1,
+            )?
+            .into_iter()
+            .next()
+        {
+            x["given_with"] = m;
+        }
+        if let Some(at) = at {
+            x["at"] = json!(utc_minute(at));
+        }
+        if let Some(o) = x.as_object_mut() {
+            o.retain(|_, v| !v.is_null());
+        }
+        out.push(x);
+    }
+    Ok(out)
 }
 
 /// The latest [`LATEST`] of a list given latest first, and after them how many earlier ones there are since `since`,
@@ -5375,6 +5473,17 @@ fn since_last_work(e: &Engine, w: &Work, project: &str) -> Result<Value, String>
          ORDER BY w.id DESC",
         db::cells_sql(ENGINEER, &[ENGINEER_END])
     ))?;
+    // Each work with its card, as the board and an item in full show it.
+    let holding = Holding::of(e)?;
+    let works = works
+        .into_iter()
+        .map(|mut r| {
+            if let (Some(work), Some(o)) = (r["work"].as_i64(), r.as_object_mut()) {
+                o.extend(arch_inputs::card(conn, work, &holding)?);
+            }
+            Ok(r)
+        })
+        .collect::<Result<Vec<Value>, String>>()?;
     let main_ci = all(&format!(
         "SELECT w.item, r.transition, json_extract(r.output, '$.main.kind') AS kind, r.ended_at AS at
          FROM rounds r JOIN works w ON w.id = r.work JOIN items i ON i.id = w.item
@@ -5583,15 +5692,24 @@ fn levels(e: &Engine) -> Value {
     )
 }
 
-/// The policy in force for a project; none before the first takes effect.
+/// The policy in force for a project, with when it took effect (`in_force_since`): the end of the round that took it
+/// in, as the owner's page shows it; none before the first takes effect.
 fn policy(e: &Engine, project: &str) -> Result<Option<Value>, String> {
     let rows = query_json(
         e.db.conn(),
-        "SELECT policy FROM policy_current WHERE project = ?1",
+        "SELECT p.policy, r.ended_at FROM policy_current p
+         LEFT JOIN rounds r ON r.work = p.work AND r.n = p.round WHERE p.project = ?1",
         &[&project],
         1,
     )?;
-    Ok(rows.first().map(|r| r["policy"].clone()).filter(|p| p.is_object()))
+    Ok(rows.first().and_then(|r| {
+        let mut policy = r["policy"].clone();
+        let o = policy.as_object_mut()?;
+        if let Some(since) = r["ended_at"].as_i64() {
+            o.insert("in_force_since".into(), json!(utc_minute(since)));
+        }
+        Some(policy)
+    }))
 }
 
 /// The signals of the policy in force for a project that the engine measures, each with its numbers: a signal whose
@@ -5656,38 +5774,6 @@ fn total_slots(e: &Engine) -> i64 {
         .sum()
 }
 
-/// How many works hold a slot: the engineer's works going on by themselves that wait for nothing.
-fn holding(e: &Engine) -> Result<i64, String> {
-    let f = flow_now(e);
-    let Some(g) = engineer_graph(f.as_deref()) else {
-        return Ok(0);
-    };
-    let works = query_json(
-        e.db.conn(),
-        "SELECT w.id, w.at, (SELECT r.transition FROM rounds r WHERE r.work = w.id ORDER BY r.n DESC LIMIT 1) AS last,
-                (SELECT r.cell FROM rounds r WHERE r.work = w.id ORDER BY r.n DESC LIMIT 1) AS last_cell
-         FROM works w WHERE w.graph = 'engineer' AND w.ended IS NULL AND w.paused IS NULL",
-        &[],
-        10_000,
-    )?;
-    let mut n = 0;
-    for w in works {
-        let at = w["at"].as_str().unwrap_or_default();
-        let Some(cell) = g.cell(at) else { continue };
-        if at == g.end || matches!(cell.step.as_deref(), Some("ask_owner" | "ask_architect")) {
-            continue;
-        }
-        let waits = w["last_cell"] == at
-            && w["last"]
-                .as_str()
-                .is_some_and(|t| cell.rows.iter().any(|r| r.name == t && r.waits));
-        if !waits {
-            n += 1;
-        }
-    }
-    Ok(n)
-}
-
 /// Whether the engine runs works now: every work going on that is not paused by itself; every work paused by the owner,
 /// but those the owner started; or every work stopped by a failed run's cause until when it says.
 fn engine_state(e: &Engine) -> Value {
@@ -5709,11 +5795,13 @@ fn engine_state(e: &Engine) -> Value {
     }
 }
 
-/// The machines' slots, which every project shares: how many there are, used and free, how many items are ready, by
-/// project, and whether the engine runs works now ([`engine_state`]).
+/// The machines' slots, which every project shares: how many there are, used and free, which works hold them and at
+/// which cell, as the loop counts them ([`Engine::slot_holders`]), how many items are ready, by project, and whether
+/// the engine runs works now ([`engine_state`]).
 fn slots(e: &Engine) -> Result<Value, String> {
     let total = total_slots(e);
-    let held = holding(e)?;
+    let holding = Holding::of(e)?;
+    let held = i64::try_from(holding.count()).unwrap_or(i64::MAX);
     let ready = query_json(
         e.db.conn(),
         "SELECT project, count(*) AS ready FROM ready_items GROUP BY project ORDER BY project",
@@ -5739,6 +5827,7 @@ fn slots(e: &Engine) -> Result<Value, String> {
         "total": total,
         "used": held,
         "free": total - held,
+        "holders": holding.listed(),
         "ready": ready,
     }))
 }
@@ -5890,14 +5979,7 @@ fn batch(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         ((i + 1).to_string(), r)
     })
     .collect();
-    let since: i64 = conn
-        .query_row(
-            "SELECT coalesce((SELECT ended_at FROM rounds WHERE work = ?1 AND n = ?2),
-                             (SELECT min(started_at) FROM rounds WHERE work = ?1), 0)",
-            params![w.id, from],
-            |r| r.get(0),
-        )
-        .map_err(sql)?;
+    let since = arch_inputs::batch_since(conn, w.id, from)?;
     let released = count(
         conn,
         "SELECT count(*) FROM changes WHERE table_name = 'dispatch_holds' AND new_row IS NULL AND at >= ?1
@@ -5909,6 +5991,7 @@ fn batch(e: &Engine, w: &Work, project: &str) -> Result<Value, String> {
         "handled": by_matter(handled),
         "held_for_owner": by_matter(asked),
         "item_changes": changes,
+        "unreviewed_changes": unreviewed_changes(conn, project, w.id)?,
         "straight_hold_released": released,
     }))
 }
@@ -5919,12 +6002,12 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let Some(lead) = picked(conn, w.id)? else {
         return Ok(None);
     };
-    let Some(mut given) = matter_given(e, lead)? else {
+    let Some(mut given) = matter_given(e, w, lead)? else {
         return Ok(None);
     };
     let mut with = Vec::new();
     for m in members(conn, lead)? {
-        with.extend(matter_given(e, m)?);
+        with.extend(matter_given(e, w, m)?);
     }
     if !with.is_empty() {
         given["with"] = Value::Array(with);
@@ -5932,8 +6015,8 @@ fn matter(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     Ok(Some(given))
 }
 
-/// A matter, with its material by its kind.
-fn matter_given(e: &Engine, m: i64) -> Result<Option<Value>, String> {
+/// A matter, with its material by its kind, for the work `w` of the architect that handles it.
+fn matter_given(e: &Engine, w: &Work, m: i64) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let row = query_json(
         conn,
@@ -5944,6 +6027,7 @@ fn matter_given(e: &Engine, m: i64) -> Result<Option<Value>, String> {
     let Some(mut matter) = row.into_iter().next() else {
         return Ok(None);
     };
+    let queued_at = matter["at"].as_i64().unwrap_or_default();
     matter["at"] = json!(matter["at"].as_i64().map(utc_minute));
     // The images the owner sent with the words it holds, or with the answer it holds.
     let mut images = attachments::of(conn, Words::Matter(m)).map_err(sql)?;
@@ -5971,8 +6055,19 @@ fn matter_given(e: &Engine, m: i64) -> Result<Option<Value>, String> {
                     30,
                 )?),
             );
+            // What was said in the group of that work before the matter was queued that the architect has not read:
+            // it comes to the architect's attention here, with the matter, and not only when it next reads the
+            // groups ([`group_talk`]).
+            let project = project_of(w)?;
+            let since = group_read_since(conn, w, project)?;
+            let said = group_said(conn, project, since, Some(work), Some(queued_at), false)?;
+            if !said.is_empty() {
+                material.insert("said_in_the_group".into(), Value::Array(said));
+            }
         }
     }
+    // The design an open question comes of is the input `design_asked`, not part of its matter, so that a session given
+    // the design with one question is only referred to it for the others.
     match matter["kind"].as_str().unwrap_or_default() {
         // Flow feedback names the project that is wf-agents, whose architect what belongs to wf-agents goes to.
         "report" if matter["detail"] == FLOW_FEEDBACK => {
@@ -6032,18 +6127,21 @@ fn matter_given(e: &Engine, m: i64) -> Result<Option<Value>, String> {
                 }
             }
         }
-        // An open question: the design that hands it in, for the architect to answer it by.
-        crate::open_questions::KIND => {
-            if let Some(round) = matter["round"].as_i64() {
-                let design = query_json(
-                    conn,
-                    "SELECT json_extract(output, '$.outcome') AS design FROM rounds WHERE work = ?1 AND n = ?2",
-                    &[&matter["work"].as_i64().unwrap_or_default(), &round],
-                    1,
-                )?;
-                if let Some(d) = design.first().map(|r| r["design"].clone()).filter(|d| !d.is_null()) {
-                    material.insert("design".into(), d);
-                }
+        // The owner's Start of a work the architect stopped: the worktree the architect asked the owner to change, and
+        // what is not committed in it now, which tells whether the owner did it.
+        "owner_words" if matter["detail"] == "release" => {
+            let work = matter["body"]["work"].as_i64();
+            let worktree: Option<String> = match work {
+                Some(work) => conn
+                    .query_row("SELECT worktree FROM works WHERE id = ?1", [work], |r| r.get(0))
+                    .optional()
+                    .map_err(sql)?
+                    .flatten(),
+                None => None,
+            };
+            if let Some(wt) = worktree {
+                let uncommitted = arch_inputs::uncommitted(Path::new(&wt));
+                material.insert("worktree".into(), json!({ "path": wt, "uncommitted": uncommitted }));
             }
         }
         "set_straight" => {
@@ -6165,7 +6263,7 @@ fn side_reports_once(e: &Engine, reports: &[Value]) -> Result<Value, String> {
 }
 
 /// An item's number given as a number or as a text of one, added to a set.
-fn ids_of(v: &Value, ids: &mut BTreeSet<i64>) {
+pub(crate) fn ids_of(v: &Value, ids: &mut BTreeSet<i64>) {
     match v {
         Value::Number(n) => ids.extend(n.as_i64()),
         Value::String(s) => ids.extend(s.trim().trim_start_matches('#').parse::<i64>().ok()),
@@ -6174,8 +6272,11 @@ fn ids_of(v: &Value, ids: &mut BTreeSet<i64>) {
 }
 
 /// One item in full: as its creator wrote it, its locked acceptance, its dependencies and who waits for it, each with
-/// the dependency's kind, its decision cards, and its latest work's cell, state and what it waits for.
-fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
+/// the dependency's kind, its decision cards, and its latest work's cell, state, what it waits for, its card (branch,
+/// worktree, pull request as the engine recorded it, whether it holds a slot) and, for a work that goes on, the files
+/// its branch changes against main. When the matter in hand names a work (`named`) that is not the item's latest, that
+/// work's card stands beside, as `named_work`, since the failure or the pause the matter reports is of that work.
+fn item_in_full(e: &Engine, item: i64, named: Option<i64>, holding: &Holding) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let Some(body) = query_json(conn, "SELECT * FROM item_body WHERE item = ?1", &[&item], 1)?
         .into_iter()
@@ -6204,7 +6305,7 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
         ),
         (
             "state",
-            "SELECT i.rank, i.held, i.cancelled, i.level, w.id AS work, w.at, w.paused, w.pr FROM items i
+            "SELECT i.rank, i.held, i.cancelled, i.level, w.id AS work, w.at, w.paused, w.ended FROM items i
              LEFT JOIN works w ON w.id = (SELECT max(x.id) FROM works x WHERE x.item = i.id) WHERE i.id = ?1",
         ),
     ] {
@@ -6213,6 +6314,7 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
             out[name] = Value::Array(rows);
         }
     }
+    let project = text(&out["item"]["project"]).to_string();
     if let Some(work) = out["state"][0]["work"].as_i64() {
         let at = text(&out["state"][0]["at"]).to_string();
         let f = flow_now(e);
@@ -6221,8 +6323,49 @@ fn item_in_full(e: &Engine, item: i64) -> Result<Option<Value>, String> {
         out["state"][0]["stopping"] = json!(db::stop_asked(conn, work).map_err(sql)?);
         // A resume asked waits for a free slot, and the work still reads as paused: this tells it from one with no resume.
         out["state"][0]["resuming"] = json!(db::resume_asked(conn).map_err(sql)?.contains(&work));
+        let ended = !out["state"][0]["ended"].is_null();
+        work_card_in_full(e, &project, work, ended, holding, &mut out["state"][0])?;
+    }
+    if let Some(named) = named.filter(|n| Some(*n) != out["state"][0]["work"].as_i64()) {
+        let rows = query_json(
+            conn,
+            "SELECT w.id AS work, w.at, w.paused, w.ended FROM works w WHERE w.id = ?1 AND w.item = ?2",
+            &[&named, &item],
+            1,
+        )?;
+        if let Some(mut w) = rows.into_iter().next() {
+            let ended = !w["ended"].is_null();
+            work_card_in_full(e, &project, named, ended, holding, &mut w)?;
+            out["named_work"] = w;
+        }
     }
     Ok(Some(out))
+}
+
+/// Adds a work's card to the row that tells where it stands, and, for a work that goes on whose worktree is there, the
+/// files its branch changes against its project's main.
+fn work_card_in_full(
+    e: &Engine,
+    project: &str,
+    work: i64,
+    ended: bool,
+    holding: &Holding,
+    row: &mut Value,
+) -> Result<(), String> {
+    let card = arch_inputs::card(e.db.conn(), work, holding)?;
+    let Some(o) = row.as_object_mut() else {
+        return Ok(());
+    };
+    o.extend(card);
+    if let (false, Some(wt), Some(p)) = (
+        ended,
+        o.get("worktree").and_then(Value::as_str).map(PathBuf::from),
+        e.config.config.projects.get(project),
+    ) && wt.exists()
+    {
+        o.insert("changed_files".into(), arch_inputs::branch_files(&wt, &p.main));
+    }
+    Ok(())
 }
 
 /// The items and works the matter picked concerns, each in full, as the fields of the matter and of its material name
@@ -6234,10 +6377,30 @@ fn matter_items(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
     let conn = e.db.conn();
     let group = group_in_hand(conn, w.id)?;
     let mut ids = BTreeSet::new();
+    // The work a matter names, by its item: the work the failure or the pause the matter reports is of.
+    let mut named: BTreeMap<i64, i64> = BTreeMap::new();
     for m in &group {
-        let row = query_json(conn, "SELECT item, body FROM architect_matters WHERE id = ?1", &[m], 1)?;
+        let row = query_json(
+            conn,
+            "SELECT item, work, body FROM architect_matters WHERE id = ?1",
+            &[m],
+            1,
+        )?;
         let Some(r) = row.first() else { continue };
         ids_of(&r["item"], &mut ids);
+        // The work that raised the matter is the one it names for its item, when it is a work on that item.
+        if let (Some(raised), Some(item)) = (r["work"].as_i64(), r["item"].as_i64()) {
+            let of: Option<i64> = conn
+                .query_row("SELECT item FROM works WHERE id = ?1", [raised], |x| {
+                    x.get::<_, Option<i64>>(0)
+                })
+                .optional()
+                .map_err(sql)?
+                .flatten();
+            if of == Some(item) {
+                named.entry(item).or_insert(raised);
+            }
+        }
         let body = &r["body"];
         for part in [body, &body["fix"], &body["cancelled"]] {
             ids_of(&part["item"], &mut ids);
@@ -6258,12 +6421,16 @@ fn matter_items(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
                     .map_err(sql)?
                     .flatten();
                 ids.extend(item);
+                if let Some(item) = item {
+                    named.entry(item).or_insert(work);
+                }
             }
         }
     }
+    let holding = Holding::of(e)?;
     let mut out = Map::new();
     for id in ids.into_iter().take(12 * group.len()) {
-        if let Some(x) = item_in_full(e, id)? {
+        if let Some(x) = item_in_full(e, id, named.get(&id).copied(), &holding)? {
             out.insert(format!("#{id}"), x);
         }
     }
@@ -6749,9 +6916,10 @@ fn batch_items(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
             }
         }
     }
+    let holding = Holding::of(e)?;
     let mut out = Map::new();
     for id in ids.into_iter().take(MOST) {
-        if let Some(x) = item_in_full(e, id)? {
+        if let Some(x) = item_in_full(e, id, None, &holding)? {
             out.insert(format!("#{id}"), x);
         }
     }
@@ -6779,9 +6947,10 @@ fn changes_touch(e: &Engine, w: &Work) -> Result<Option<Value>, String> {
             ids_of(&a, &mut item_ids);
         }
     }
+    let holding = Holding::of(e)?;
     let mut out = Map::new();
     for id in item_ids {
-        if let Some(x) = item_in_full(e, id)? {
+        if let Some(x) = item_in_full(e, id, None, &holding)? {
             out.insert(format!("#{id}"), x);
         }
     }

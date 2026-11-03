@@ -5,9 +5,20 @@ export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in
 
 /**
  * What the owner sends with a work's or the architect's Start and Step: whether its next round resumes the session
- * its line goes on in (the default) or starts a new one.
+ * its line goes on in (the default) or starts a new one; and with the Start of a work the architect stopped, a note
+ * for the architect.
  */
-export type RunAsk = { new_session: boolean, };
+export type RunAsk = { new_session: boolean,
+/**
+ * What the owner leaves for the architect with the Start of a work it stopped: the architect is told it with the
+ * release, beside why it stopped the work and what the worktree holds. Refused for any other Start or Step,
+ * where nothing would carry it to anyone; none leaves no note.
+ */
+note?: string,
+/**
+ * Who the caller declares to leave the note, `owner` or `delegate`; a note needs it.
+ */
+speaker?: string, };
 
 /**
  * What the owner sends with the switch that keeps waiting sessions warm while every work is paused.

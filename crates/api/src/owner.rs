@@ -750,16 +750,24 @@ pub fn start_over(db: &mut Db, work: i64) -> Result<String, String> {
     Ok(format!("work {work} is started over"))
 }
 
-/// What the owner's Start of a work says, once the work is one that can go on: not ended.
-pub fn can_start(conn: &Connection, work: i64) -> Result<String, String> {
-    let ended: Option<Option<String>> = conn
-        .query_row("SELECT ended FROM works WHERE id = ?1", [work], |r| r.get(0))
+/// What the owner's Start of a work says, once the work is one that can go on: not ended. A Start with a note
+/// (`with_note`) is refused for a work the architect did not stop, since nothing would carry the note to anyone.
+pub fn can_start(conn: &Connection, work: i64, with_note: bool) -> Result<String, String> {
+    let found: Option<(Option<String>, Option<String>, Option<String>)> = conn
+        .query_row("SELECT ended, paused, paused_by FROM works WHERE id = ?1", [work], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
         .optional()
         .map_err(sql)?;
-    match ended {
+    match found {
         None => Err(format!("no work {work}")),
-        Some(Some(_)) => Err(format!("work {work} has ended")),
-        Some(None) => Ok(format!("work {work} goes on")),
+        Some((Some(_), _, _)) => Err(format!("work {work} has ended")),
+        Some((None, paused, by)) => {
+            if with_note && !db::stopped_by_architect(paused.as_deref(), by.as_deref()) {
+                return Err(note_refused(work));
+            }
+            Ok(format!("work {work} goes on"))
+        }
     }
 }
 
@@ -852,6 +860,18 @@ pub fn remove_dependency(db: &mut Db, item: i64, on: i64) -> Result<String, Stri
 /// in one transaction, so that a request is only ever written under the pause it is for: one written after the loop
 /// lifted that pause would wait on through the work's next step and lift the pause that comes after.
 pub fn resume(db: &mut Db, work: i64) -> Result<String, String> {
+    resume_with_note(db, work, None)
+}
+
+/// Why a note is refused for a work the architect did not stop.
+pub fn note_refused(work: i64) -> String {
+    format!("work {work} was not stopped by the architect: a note goes only with the Start of a work it stopped")
+}
+
+/// [`resume`] with the note the owner leaves for the architect that stopped the work (`wf-agents resume --note`). A note
+/// goes only with the release of a work the architect stopped: for any other work it is refused, since nothing would
+/// carry it to anyone.
+pub fn resume_with_note(db: &mut Db, work: i64, note: Option<&db::StartNote>) -> Result<String, String> {
     let stopped = db
         .write(Actor::Owner, |tx| {
             let paused: Option<(Option<String>, Option<String>)> = tx
@@ -864,7 +884,10 @@ pub fn resume(db: &mut Db, work: i64) -> Result<String, String> {
                 Some((None, _)) => return Err(db::Error::Abort(format!("work {work} is not paused"))),
                 Some((p, by)) => db::stopped_by_architect(p.as_deref(), by.as_deref()),
             };
-            db::ask_resume(tx, work, Actor::Owner)?;
+            if note.is_some() && !stopped {
+                return Err(db::Error::Abort(note_refused(work)));
+            }
+            db::ask_resume(tx, work, Actor::Owner, note)?;
             Ok(stopped)
         })
         .map_err(sql)?;
@@ -1181,7 +1204,7 @@ mod tests {
             paused(&db),
             (Some("cell tools: no".to_string()), Some("engine".to_string()))
         );
-        db.write(Actor::Owner, |tx| db::lift_pause(tx, 1)).unwrap();
+        db.write(Actor::Owner, |tx| db::lift_pause(tx, 1, None)).unwrap();
         assert_eq!(paused(&db), (None, None));
         assert_eq!(db::resume_asked(db.conn()).unwrap(), Vec::<i64>::new());
         assert!(resume(&mut db, 9).is_err());
@@ -1198,7 +1221,7 @@ mod tests {
             resume(&mut db, 1).unwrap(),
             "work 1 goes on once its machine has a slot free; the architect, which had stopped it, is told"
         );
-        db.write(Actor::Owner, |tx| db::lift_pause(tx, 1)).unwrap();
+        db.write(Actor::Owner, |tx| db::lift_pause(tx, 1, None)).unwrap();
         let told: (String, String, i64) = db
             .conn()
             .query_row("SELECT kind, body ->> 'text', item FROM architect_matters", [], |r| {
@@ -1263,7 +1286,7 @@ mod tests {
         );
         assert!(pause(&mut db, 1, None).is_err());
         // A resume that still waits for a slot is withdrawn: the owner's Pause is the later word.
-        db.write(Actor::Owner, |tx| db::ask_resume(tx, 1, Actor::Owner))
+        db.write(Actor::Owner, |tx| db::ask_resume(tx, 1, Actor::Owner, None))
             .unwrap();
         assert_eq!(
             pause(&mut db, 1, None).unwrap(),
@@ -1287,7 +1310,7 @@ mod tests {
         assert_eq!(pause_architect(&mut db, "p").unwrap(), "work 2 pauses");
         assert_eq!(paused(&db, 2).1.as_deref(), Some("owner"));
         // The owner's words, when given, say why.
-        db.write(Actor::Owner, |tx| db::lift_pause(tx, 1)).unwrap();
+        db.write(Actor::Owner, |tx| db::lift_pause(tx, 1, None)).unwrap();
         pause(&mut db, 1, Some("Wait for the release.")).unwrap();
         assert_eq!(paused(&db, 1).0.as_deref(), Some("Wait for the release."));
     }
@@ -1306,7 +1329,7 @@ mod tests {
                 "UPDATE works SET paused = 'cell tools: no', paused_by = 'engine' WHERE id = 1",
                 [],
             )?;
-            db::ask_resume(tx, 1, Actor::Owner)
+            db::ask_resume(tx, 1, Actor::Owner, None)
         })
         .unwrap();
         let (lifting, begun) = std::sync::mpsc::channel();
@@ -1315,7 +1338,7 @@ mod tests {
             std::thread::spawn(move || {
                 let mut db = Db::open(&path).unwrap();
                 db.write(Actor::Owner, |tx| {
-                    db::lift_pause(tx, 1)?;
+                    db::lift_pause(tx, 1, None)?;
                     lifting.send(()).unwrap();
                     // Long enough for a Pause that reads apart from its write to read this pause as still there.
                     std::thread::sleep(std::time::Duration::from_millis(100));

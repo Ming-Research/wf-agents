@@ -685,7 +685,16 @@ impl Context<'_> {
                 }
             }
             if !addrs.is_empty() {
-                work_from.push(format!("{number}. {}", addrs.join(", ")));
+                // What the engine computed and the message only refers to says it is the value now, and whether
+                // another value of it came since: the address is the earliest round that had the content.
+                let listed: Vec<String> = addrs
+                    .iter()
+                    .map(|a| match m.current(a) {
+                        Some(said) => format!("{a} ({said})"),
+                        None => a.clone(),
+                    })
+                    .collect();
+                work_from.push(format!("{number}. {}", listed.join(", ")));
             } else if !x.input.common || x.parts.iter().any(|p| matches!(p.origin, Origin::Place { .. })) {
                 work_from.push(format!("{number}. none"));
             }

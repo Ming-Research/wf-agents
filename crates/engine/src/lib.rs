@@ -28,6 +28,7 @@ pub mod limits;
 
 mod actions;
 mod arch_changes;
+mod arch_inputs;
 mod architect;
 mod cards;
 mod checks;
@@ -700,7 +701,8 @@ impl Engine {
                     return Ok(None);
                 };
                 if by != db::Actor::Architect.name() {
-                    return db::lift_pause(tx, id).map(|told| Some(owner_started(id, told)));
+                    let note = db::resume_note(tx, id)?;
+                    return db::lift_pause(tx, id, note.as_ref()).map(|told| Some(owner_started(id, told)));
                 }
                 // No word to the architect, which asked for it itself ([`db::lift_pause`] is the owner's).
                 tx.execute("UPDATE works SET paused = NULL, paused_by = NULL WHERE id = ?1", [id])?;
@@ -932,7 +934,7 @@ impl Engine {
     /// the project does not meet, such as flow feedback the project's configuration turned off. Shared, so the engine
     /// can be borrowed while it is in use; made once for each flow, graph, project and configuration, since the loop
     /// asks for it for every work many times a pass and a copy of a graph is large.
-    pub fn graph_of(&mut self, w: &Work) -> Result<Arc<CompiledGraph>, String> {
+    pub fn graph_of(&self, w: &Work) -> Result<Arc<CompiledGraph>, String> {
         let project = self.project_named(w)?;
         let key = (w.flow_version, w.graph.clone(), project, self.config.commit.clone());
         if let Some(g) = self
@@ -980,7 +982,7 @@ impl Engine {
         self.config.config.wf_agents_project()
     }
 
-    pub fn work(&mut self, id: i64) -> Result<Work, String> {
+    pub fn work(&self, id: i64) -> Result<Work, String> {
         let w = Work::load(self.db.conn(), id, None)?;
         let g = self.graph_of(&w)?;
         Work::load(self.db.conn(), id, Some(&g))
@@ -1037,7 +1039,7 @@ impl Engine {
     }
 
     /// Whether the work is at its graph's end and the end has run.
-    pub fn done(&mut self, w: &Work) -> Result<bool, String> {
+    pub fn done(&self, w: &Work) -> Result<bool, String> {
         let g = self.graph_of(w)?;
         if w.pos.at != g.end {
             return Ok(false);
@@ -1047,7 +1049,7 @@ impl Engine {
     }
 
     /// The works still to take further: not ended, not paused, not done.
-    pub fn active(&mut self) -> Result<Vec<i64>, String> {
+    pub fn active(&self) -> Result<Vec<i64>, String> {
         let ids: Vec<i64> = {
             let mut st = self
                 .db
@@ -1239,24 +1241,32 @@ impl Engine {
     /// How many more works can hold a slot: the machines' slots less the works holding one, as the session manager
     /// reports them. A work holds no slot while it waits for the owner or for other works, unless the loop granted its
     /// step one.
-    pub fn free_slots(&mut self) -> Result<i64, String> {
+    pub fn free_slots(&self) -> Result<i64, String> {
         Ok(self.slots_by_machine()?.values().sum())
     }
 
-    /// Each machine's free slots, as the session manager reports them from the works holding one: a work of the
-    /// architect holds none, and a work holds none while it waits, unless the loop granted its step one, which it holds
-    /// until the loop reaps that step. A work paused or asked to stop whose step runs on holds its slot until the loop
-    /// reaps that step too, since a pause takes effect when the round under way ends.
-    pub fn slots_by_machine(&mut self) -> Result<BTreeMap<String, i64>, String> {
+    /// The works that hold a slot now, the one judgment the loop and the architect's inputs share: an engineer's work
+    /// that goes on and does not wait, or whose step the loop granted a slot, which it holds until the loop reaps that
+    /// step. A work of the architect holds none, and a work holds none while it waits ([`Engine::waiting`], by the flow
+    /// version the work runs on). A work paused or asked to stop whose step runs on holds its slot until the loop reaps
+    /// that step too, since a pause takes effect when the round under way ends.
+    pub fn slot_holders(&self) -> Result<Vec<Work>, String> {
         let mut works: BTreeSet<i64> = self.active()?.into_iter().collect();
         works.extend(self.stepping());
         let mut holding = Vec::new();
         for id in works {
             let w = self.work(id)?;
             if w.graph == ENGINEER && (!self.waiting(&w)? || self.granted(id)) {
-                holding.push(w.machine.clone());
+                holding.push(w);
             }
         }
+        Ok(holding)
+    }
+
+    /// Each machine's free slots, as the session manager reports them from the works holding one
+    /// ([`Engine::slot_holders`]).
+    pub fn slots_by_machine(&self) -> Result<BTreeMap<String, i64>, String> {
+        let holding: Vec<Option<String>> = self.slot_holders()?.into_iter().map(|w| w.machine).collect();
         Ok(sessions::worktree::free_slots(
             &self.config.config.install.machines.hosts,
             &holding,
@@ -1289,7 +1299,7 @@ impl Engine {
 
     /// Whether a work that holds no slot may take one: its machine has a slot free, or, before it has a machine, any
     /// machine has.
-    fn room_for(&mut self, w: &Work) -> Result<bool, String> {
+    fn room_for(&self, w: &Work) -> Result<bool, String> {
         let free = self.slots_by_machine()?;
         Ok(match &w.machine {
             Some(m) => free.get(m).copied().unwrap_or(0) > 0,
@@ -1300,7 +1310,7 @@ impl Engine {
     /// Whether the work stands waiting: at the owner's or the architect's cell with its question asked, or at a row
     /// that waits. It reads the cell where the work stands and its last round only, since every step asks it of every
     /// work for the slots.
-    pub fn waiting(&mut self, w: &Work) -> Result<bool, String> {
+    pub fn waiting(&self, w: &Work) -> Result<bool, String> {
         let waits_by: Vec<String> = {
             let flow = self.flow(w.flow_version)?;
             let g = flow
@@ -1471,6 +1481,7 @@ impl Engine {
     pub fn release_started(
         &mut self,
         releasing: &BTreeSet<i64>,
+        notes: &BTreeMap<i64, db::StartNote>,
         architects: &BTreeSet<String>,
     ) -> Result<(Vec<i64>, Vec<String>), String> {
         let mut done = Vec::new();
@@ -1480,7 +1491,7 @@ impl Engine {
                 continue;
             }
             if w.paused.is_some() && w.ended.is_none() {
-                self.lift(id)?;
+                self.lift(id, notes.get(&id))?;
             }
             done.push(id);
         }
@@ -1489,18 +1500,19 @@ impl Engine {
             if let Some(id) = architect::running(self, project)?
                 && self.work(id)?.paused.is_some()
             {
-                self.lift(id)?;
+                self.lift(id, None)?;
             }
             projects.push(project.clone());
         }
         Ok((done, projects))
     }
 
-    /// Lifts a work's pause as the owner's Start does, saying so.
-    fn lift(&mut self, id: i64) -> Result<(), String> {
+    /// Lifts a work's pause as the owner's Start does, saying so; the architect that stopped the work is told the
+    /// owner's `note` with it, if the owner left one.
+    fn lift(&mut self, id: i64, note: Option<&db::StartNote>) -> Result<(), String> {
         let told = self
             .db
-            .write(Actor::Owner, |tx| db::lift_pause(tx, id))
+            .write(Actor::Owner, |tx| db::lift_pause(tx, id, note))
             .map_err(|e| e.to_string())?;
         self.say(&owner_started(id, told));
         Ok(())

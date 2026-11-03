@@ -6672,7 +6672,7 @@ fn the_owner_s_start_goes_on_in_the_work_that_starts_a_work_over() {
     let (mut e, said, item) = start(&s, scripts());
     let c = api::Control::default();
     let work = e.create_work(item).unwrap();
-    c.start(api::Fresh::Work(work), false);
+    c.start(api::Fresh::Work(work), false, None);
     assert_eq!(
         turns(&mut e, &c, 2),
         [work, work],
@@ -8048,7 +8048,7 @@ fn an_action_only_the_owner_can_do_pauses_the_work_until_the_owner_starts_it() {
     // The owner has done it, and starts the work.
     let c = api::Control::default();
     c.set_paused(true);
-    c.start(api::Fresh::Work(work), false);
+    c.start(api::Fresh::Work(work), false, None);
     for _ in 0..10 {
         if question_took(&e, work).is_some() {
             break;
@@ -16835,7 +16835,7 @@ fn pass_turn(e: &mut Engine, c: &api::Control) -> Passed {
     }
     let asked = c.asked();
     let (done, architects) = e
-        .release_started(&asked.releasing, &asked.architects_releasing)
+        .release_started(&asked.releasing, &asked.release_notes, &asked.architects_releasing)
         .unwrap();
     c.released(&done, &architects);
     let asked = c.asked();
@@ -17071,7 +17071,7 @@ fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
     // Paused again: nothing moves, until the owner starts one work, which alone goes on.
     c.set_paused(true);
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
-    c.start(api::Fresh::Work(one), false);
+    c.start(api::Fresh::Work(one), false, None);
     let log = said.lock().unwrap().join("\n");
     assert_eq!(turns(&mut e, &c, 3), [one, one, one], "{log}");
     // A later global pause makes it follow the global state again.
@@ -17084,7 +17084,7 @@ fn the_owner_s_later_start_or_pause_of_a_work_wins_over_the_global_state() {
     assert!(!moved.is_empty() && !moved.contains(&two), "{moved:?}");
     assert_eq!(paused_by(&e, two).as_deref(), Some("owner"));
     // Its Start lifts its pause, as the owner, and it goes on.
-    c.start(api::Fresh::Work(two), false);
+    c.start(api::Fresh::Work(two), false, None);
     let moved = turns(&mut e, &c, 4);
     let log = said.lock().unwrap().join("\n");
     assert!(moved.contains(&two), "{moved:?}\n{log}");
@@ -17138,7 +17138,7 @@ fn a_work_the_owner_starts_still_needs_a_free_slot() {
     let log = said.lock().unwrap().join("\n");
     assert_ne!(second, first, "{log}");
     c.set_paused(true);
-    c.start(api::Fresh::Work(first), false);
+    c.start(api::Fresh::Work(first), false, None);
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
     assert_eq!(paused_by(&e, first).as_deref(), Some("owner"));
     assert!(c.asked().releasing.contains(&first));
@@ -17169,7 +17169,7 @@ fn the_owner_s_start_of_a_work_the_architect_stopped_tells_the_architect() {
     })
     .unwrap();
     c.set_paused(true);
-    c.start(api::Fresh::Work(work), false);
+    c.start(api::Fresh::Work(work), false, None);
     let moved = turns(&mut e, &c, 1);
     let log = said.lock().unwrap().join("\n");
     assert_eq!(moved, [work], "{log}");
@@ -17203,7 +17203,7 @@ fn the_architect_the_owner_starts_works_and_goes_on_while_every_work_is_paused()
     let c = api::Control::default();
     say(&mut e, "Look at the queue.");
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
-    c.start(api::Fresh::Architect("p".into()), false);
+    c.start(api::Fresh::Architect("p".into()), false, None);
     let moved = turns(&mut e, &c, 3);
     let log = said.lock().unwrap().join("\n");
     assert_eq!(moved.len(), 3, "{log}");
@@ -17216,7 +17216,7 @@ fn the_architect_the_owner_starts_works_and_goes_on_while_every_work_is_paused()
     assert_eq!(turns(&mut e, &c, 2), Vec::<i64>::new());
     assert_eq!(paused_by(&e, arch).as_deref(), Some("owner"));
     // Started again, its pause is lifted; a round asked for leaves it paused by the owner.
-    c.start(api::Fresh::Architect("p".into()), false);
+    c.start(api::Fresh::Architect("p".into()), false, None);
     assert_eq!(turns(&mut e, &c, 1), [arch]);
     assert_eq!(paused_by(&e, arch), None);
     c.ask_step_architect("p", false).unwrap();
@@ -17259,7 +17259,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     }
     assert!(two["call"]["session"]["started"].is_string(), "{}", two["call"]);
     // Started as it is, the work's next round goes on in that session; started in a new session, the next starts one.
-    c.start(api::Fresh::Work(work), false);
+    c.start(api::Fresh::Work(work), false, None);
     let n = agent_rounds(&e, item).len();
     for _ in 0..10 {
         if agent_rounds(&e, item).len() > n {
@@ -17270,7 +17270,7 @@ fn the_owner_asks_for_a_new_session_with_a_step_or_a_start() {
     let lines = line_sessions(&e, work, "engineer");
     assert_eq!(lines.len(), 2, "{lines:?}\n{}", said.lock().unwrap().join("\n"));
     owner_pauses(&mut e, &c, work);
-    c.start(api::Fresh::Work(work), true);
+    c.start(api::Fresh::Work(work), true, None);
     let n = agent_rounds(&e, item).len();
     for _ in 0..10 {
         if agent_rounds(&e, item).len() > n {
@@ -17296,7 +17296,7 @@ fn the_owner_asks_for_a_new_session_for_the_architect_s_work() {
     quiet(&mut e);
     let c = api::Control::default();
     say(&mut e, "Look at the queue.");
-    c.start(api::Fresh::Architect("p".into()), false);
+    c.start(api::Fresh::Architect("p".into()), false, None);
     // Starting takes the engine's own step, which finds the session has not understood the project; then the first
     // round.
     let arch = turns(&mut e, &c, 2)[0];
@@ -20207,7 +20207,7 @@ fn a_resume_that_met_the_lifting_of_its_pause_does_not_lift_the_owner_s_next_pau
     let the_loop = std::thread::spawn(move || {
         let mut base = db::Db::open(&path).unwrap();
         base.write(Actor::Owner, |tx| {
-            db::lift_pause(tx, work)?;
+            db::lift_pause(tx, work, None)?;
             lifting.send(()).unwrap();
             // Long enough for a resume that reads apart from its write to read this pause as still there.
             std::thread::sleep(Duration::from_millis(100));

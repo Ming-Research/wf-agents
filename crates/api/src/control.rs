@@ -9,9 +9,11 @@
 //! whatever the global state, and a work's own pause, which the database keeps, holds until the owner starts it again.
 //! Each project's architect's works are taken the same way.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::Duration;
+
+use db::StartNote;
 
 use crate::Status;
 
@@ -31,6 +33,9 @@ pub struct Asked {
     /// The works the owner started whose own pause the engine is still to lift, as the owner: a work on an item holds no
     /// slot while it is paused, so its pause is lifted once its machine has a slot free.
     pub releasing: BTreeSet<i64>,
+    /// The notes the owner left with the Start of works in `releasing`, which the architect that stopped the work is
+    /// told with the release; a work without one was started with none.
+    pub release_notes: BTreeMap<i64, StartNote>,
     /// The projects whose architect the owner started since every work was last paused: its works go on, and one starts
     /// when its queue has a matter, whatever the global state.
     pub architects_started: BTreeSet<String>,
@@ -97,6 +102,7 @@ impl Default for Control {
                     keep_warm: true,
                     started: BTreeSet::new(),
                     releasing: BTreeSet::new(),
+                    release_notes: BTreeMap::new(),
                     architects_started: BTreeSet::new(),
                     architects_releasing: BTreeSet::new(),
                     steps: Vec::new(),
@@ -142,8 +148,10 @@ impl Control {
     }
 
     /// The owner's Start of a work or of a project's architect: it goes on whatever the global state, its own pause
-    /// lifted; its next round starts a new session when `new_session`.
-    pub fn start(&self, which: Fresh, new_session: bool) {
+    /// lifted; its next round starts a new session when `new_session`. The `note` the owner leaves with the Start of a
+    /// work the architect stopped goes with the lifting of its pause, to the architect; a later Start replaces the
+    /// note of an earlier one that was not carried out yet.
+    pub fn start(&self, which: Fresh, new_session: bool, note: Option<StartNote>) {
         if new_session {
             lock(&self.fresh).push(which.clone());
         }
@@ -151,6 +159,10 @@ impl Control {
             Fresh::Work(w) => {
                 a.started.insert(w);
                 a.releasing.insert(w);
+                match note {
+                    Some(n) => a.release_notes.insert(w, n),
+                    None => a.release_notes.remove(&w),
+                };
             }
             Fresh::Architect(p) => {
                 a.architects_started.insert(p.clone());
@@ -166,6 +178,7 @@ impl Control {
             Fresh::Work(w) => {
                 a.started.remove(w);
                 a.releasing.remove(w);
+                a.release_notes.remove(w);
             }
             Fresh::Architect(p) => {
                 a.architects_started.remove(p);
@@ -180,6 +193,7 @@ impl Control {
         let a = &mut lock(&self.state).asked;
         for w in works {
             a.releasing.remove(w);
+            a.release_notes.remove(w);
         }
         for p in architects {
             a.architects_releasing.remove(p);
@@ -196,6 +210,8 @@ impl Control {
             if a.releasing.remove(&old) {
                 a.releasing.insert(new);
             }
+            // The note was for the stop of the old work; the new one is paused as the owner had paused the old.
+            a.release_notes.remove(&old);
         });
     }
 
@@ -246,6 +262,7 @@ impl Control {
             a.steps.retain(|w| *w != work);
             a.started.remove(&work);
             a.releasing.remove(&work);
+            a.release_notes.remove(&work);
         });
     }
 
@@ -342,7 +359,7 @@ mod tests {
     #[test]
     fn a_work_the_owner_started_goes_on_until_a_later_pause() {
         let c = Control::default();
-        c.start(Fresh::Work(3), false);
+        c.start(Fresh::Work(3), false, None);
         let a = c.asked();
         assert!(!a.holds(3, None) && a.holds(4, None) && a.holds(9, Some("p")));
         assert_eq!(a.releasing, BTreeSet::from([3]));
@@ -350,8 +367,8 @@ mod tests {
         assert!(c.asked().releasing.is_empty() && c.asked().started.contains(&3));
         c.pause(&Fresh::Work(3));
         assert!(c.asked().holds(3, None));
-        c.start(Fresh::Work(3), false);
-        c.start(Fresh::Architect("p".into()), false);
+        c.start(Fresh::Work(3), false, None);
+        c.start(Fresh::Architect("p".into()), false, None);
         assert!(!c.asked().holds(9, Some("p")) && c.asked().holds(9, Some("q")));
         // Every work paused again: the works the owner started follow it; a pause still to lift stays asked.
         c.set_paused(true);
@@ -362,7 +379,7 @@ mod tests {
         assert!(!c.asked().holds(4, None));
         // A round the owner asked for leaves the work paused by the owner: its Start is over.
         c.set_paused(true);
-        c.start(Fresh::Work(5), false);
+        c.start(Fresh::Work(5), false, None);
         c.ask_step(5, false).unwrap();
         c.stepped(5);
         assert!(!c.asked().started.contains(&5) && !c.asked().releasing.contains(&5));
@@ -377,7 +394,7 @@ mod tests {
     #[test]
     fn the_owner_s_start_goes_on_in_the_work_that_takes_a_work_over() {
         let c = Control::default();
-        c.start(Fresh::Work(3), false);
+        c.start(Fresh::Work(3), false, None);
         c.replaced(3, 7);
         c.replaced(4, 8);
         let a = c.asked();
@@ -396,8 +413,8 @@ mod tests {
         assert!(c.take_new_sessions().is_empty());
         c.stepped(3);
         c.ask_step_architect("p", true).unwrap();
-        c.start(Fresh::Work(7), true);
-        c.start(Fresh::Work(8), false);
+        c.start(Fresh::Work(7), true, None);
+        c.start(Fresh::Work(8), false, None);
         assert_eq!(
             c.take_new_sessions(),
             vec![Fresh::Architect("p".into()), Fresh::Work(7)]
@@ -430,8 +447,8 @@ mod tests {
         let s = c.status(base.clone());
         assert!(s.paused && s.keep_warm);
         assert!(s.running.is_empty() && s.stepping.is_empty());
-        c.start(Fresh::Work(4), false);
-        c.start(Fresh::Architect("p".into()), false);
+        c.start(Fresh::Work(4), false, None);
+        c.start(Fresh::Architect("p".into()), false, None);
         let s = c.status(base.clone());
         assert_eq!(
             (s.started, s.releasing, s.architects_started),
@@ -478,7 +495,7 @@ mod tests {
             |c| c.wake(),
             |c| c.set_paused(false),
             |c| c.set_keep_warm(false),
-            |c| c.start(Fresh::Work(9), false),
+            |c| c.start(Fresh::Work(9), false, None),
             |c| c.pause(&Fresh::Work(9)),
         ];
         for ask in asks {

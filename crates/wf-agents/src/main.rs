@@ -132,7 +132,16 @@ enum Command {
     /// work's machine has a slot free, and one the architect stopped is the owner's release of it, which the architect
     /// is told. It then goes on as every work does, which while every work is paused on the page is only once the
     /// owner starts it there or lets every work go on.
-    Resume { work: i64 },
+    Resume {
+        work: i64,
+        /// What the owner leaves for the architect that stopped the work, told with the release; only for a work the
+        /// architect stopped. The speaker is then needed.
+        #[arg(long)]
+        note: Option<String>,
+        /// Who leaves the note: `owner`, or `delegate` for a session that speaks for the owner.
+        #[arg(long)]
+        speaker: Option<String>,
+    },
     /// Where each work stands.
     Status,
     /// A work's rounds.
@@ -563,7 +572,7 @@ fn owners(d: &Path, c: Command) -> Result<(), String> {
             to,
         } => print(owner::say(d, work, &to, &text, &speaker, &relayed)),
         Command::Pause { work, why } => print(owner::pause(d, work, &why)),
-        Command::Resume { work } => print(owner::resume(d, work)),
+        Command::Resume { work, note, speaker } => print(owner::resume(d, work, note.as_deref(), speaker.as_deref())),
         Command::Status => print(owner::status(d)),
         Command::History { work, full } => print(owner::history(d, work, full)),
         Command::Message { work, json } => message(d, work, json),
@@ -817,7 +826,7 @@ fn run(d: &Path, once: bool, port: u16) -> Result<(), String> {
             }
             e.reload_config();
             let asked = control.asked();
-            match e.release_started(&asked.releasing, &asked.architects_releasing) {
+            match e.release_started(&asked.releasing, &asked.release_notes, &asked.architects_releasing) {
                 Ok((done, architects)) => control.released(&done, &architects),
                 Err(x) => e.say(&format!("lifting the pause of the works the owner started: {x}")),
             }

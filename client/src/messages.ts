@@ -635,7 +635,7 @@ const messages = {
   work_start_architect_hint:
     'Your release of the work the architect paused: it goes on whatever the global state, and the architect is told.',
   start_release_confirm:
-    'The architect paused W{id}. Start it? This is your release of it, and the architect is told in your words.',
+    'The architect paused W{id}. Start it? This is your release of it, and the architect is told in your words. Write a note for the architect below, or leave it empty.',
   session_choice_hint:
     'Pressed, the next Start or Step runs its round in a new session given everything its cell needs; else in the session its line goes on in. The session before is left as it is.',
   session_new: 'New session',

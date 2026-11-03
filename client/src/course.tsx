@@ -5,7 +5,7 @@
 import { ConfirmationDialog, IconButton } from '@primer/react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
-import type { RunningRound, Status, Waits, WorkSummary } from './api';
+import type { RunAsk, RunningRound, Status, Waits, WorkSummary } from './api';
 import { controls, type Course, course, heldName, heldWords, PAUSED_BY_OWNER } from './components';
 import type { Wait } from './graph/flowModel';
 import { postJson } from './http';
@@ -161,6 +161,13 @@ export function sessionKey(w: WorkSummary): string {
   return w.graph === 'architect' ? 'architect' : `work:${w.id}`;
 }
 
+/// What a Start sends: the session choice, and, when the owner left a note with the release of a work the architect
+/// stopped, the note with the speaker, who is the owner at the page; an empty note is none.
+export function startBody(newSession: boolean, note: string | null): RunAsk {
+  const text = note?.trim() ?? '';
+  return text === '' ? { new_session: newSession } : { new_session: newSession, note: text, speaker: 'owner' };
+}
+
 /// The owner's Start, Pause and Step of a work, each a request, its Start over, which `StartOver` asks first, and what
 /// failed. With `ask`, Start and Step ask first what they will do (the cell that runs again, the round that runs, the
 /// takeover, the architect's stop the owner lifts); without, the place they are pressed from has said it. A work of the
@@ -195,9 +202,15 @@ export function useActions(w: WorkSummary, status: Status | null, ask: boolean) 
   const pause = () => post(arch ? forProject('/api/v1/architect/pause', w.project) : `/api/v1/works/${w.id}/pause`, {});
   const start = () => {
     if (c.outdated && !takeover()) return;
-    if (c.held === 'architect' && !window.confirm(t('start_release_confirm', { id: w.id }))) return;
+    // The release of a work the architect stopped asks for a note too, which the owner may leave empty; cancelling
+    // does not start it.
+    let note: string | null = null;
+    if (c.held === 'architect') {
+      note = window.prompt(t('start_release_confirm', { id: w.id }), '');
+      if (note === null) return;
+    }
     if (!c.outdated && c.held === 'engine' && !window.confirm(t('resume_confirm', { id: w.id, cell }))) return;
-    post(arch ? forProject('/api/v1/architect/start', w.project) : `/api/v1/works/${w.id}/start`, { new_session: newSession }, () =>
+    post(arch ? forProject('/api/v1/architect/start', w.project) : `/api/v1/works/${w.id}/start`, startBody(newSession, note), () =>
       setNewSession(false),
     );
   };

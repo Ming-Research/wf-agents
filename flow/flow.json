@@ -3972,26 +3972,26 @@
       "constitution": "The project's constitution, as its configuration names it.",
       "guide": "The project's guide as its main has it: its AGENTS.md, its design goal, and the index of its records.",
       "cited_nodes": "The files of the records the matter at hand names, in full, as the project's main has them.",
-      "since_last_work": "What happened in the project since its architect's last work: commits merged on main, works ended or stopped, the CI on main, the owner's words and decision cards ruled, reports that came in; at the architect's first work, the same over the last week. Each list is the latest first, at most 60 of it, then how many earlier ones there are; a commit is given by its message's first sentence, cut at a word to 120 characters.",
-      "board": "The project's items running and queued, each with its rank, cell, stage, the route it is marked for and the route its latest work goes (light, normal, or turned to the normal route), what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items.",
+      "since_last_work": "What happened in the project since its architect's last work: commits merged on main, works ended or stopped, the CI on main, the owner's words and decision cards ruled, reports that came in; at the architect's first work, the same over the last week. Each list is the latest first, at most 60 of it, then how many earlier ones there are; a commit is given by its message's first sentence, cut at a word to 120 characters. The works that ended or stopped show their card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now).",
+      "board": "The project's items running and queued, each with its rank, cell, stage, the route it is marked for and the route its latest work goes (light, normal, or turned to the normal route), what it waits for and who waits for it, each blocking or parallel, what keeps one not running from starting, how long it has run, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, the items the owner put first to start, in the owner's order, which start ahead of the ranks, and each item's place in it; the release items with the items under them; dependencies with other projects' items. Each running work shows its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now), and each item with no work running says what keeps it from starting, by the judgment the engine makes when it starts a work (starts: held, blocked, project_held, in_batch, no_slot or ready).",
       "numbers": "The numbers the engine measures for the project, each as the architect's work started and earlier, for the trend.",
       "observations_overview": "The project's observations: open per tag, recently recorded or reported again, recently closed.",
       "observation_tags": "The project's set of tags for observations, each with what it covers.",
-      "policy": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change.",
+      "policy": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change. With when it took effect (in_force_since).",
       "policy_signals": "The signals of the project's policy the engine measures, each with its numbers: a signal that names a measure of the numbers by its name.",
-      "slots": "The machines' slots, which every project shares: how many there are, used and free, and how many items are ready; and whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run's cause stops every work.",
+      "slots": "The machines' slots, which every project shares: how many there are, used and free, and how many items are ready; and whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run's cause stops every work. With the works that hold a slot now, as the loop counts them, each with the cell it stands at (holders).",
       "queue": "The project's queue: the numbers of the matters that can be picked now, and each matter with its kind, item, who waits and since when, and what it is, and for a side report or an engineer's answer an excerpt of its text (its first 400 characters, cut at a word); those held by an ask; whether new starts are held to set things straight.",
-      "batch": "The batch so far: the numbers of the matters handled, and each with how it ended; its item changes, those collected so far each whole with the key of an item it creates, made only once the review finds them sound, and those made or dropped; and whether a hold to set things straight was released.",
-      "matter": "The matter picked, with its material by its kind, and, for a question whose reply was not sent since an item it named was not made, that reply, the items it named that were made and why each other one was not; for a group, `with` holds each of the other matters of the group in the same way.",
-      "matter_items": "The items and works the matter picked concerns, in full; for a group, those of every matter of it.",
+      "batch": "The batch so far: the numbers of the matters handled, and each with how it ended; its item changes, those collected so far each whole with the key of an item it creates, made only once the review finds them sound, and those made or dropped; and whether a hold to set things straight was released. With the item changes still waiting for a review in this batch and in any other batch of an architect work of the project that has not ended, each with the batch it is in, its kind and the items it names (unreviewed_changes): the engine starts no work on those items until their batch ends.",
+      "matter": "The matter picked, with its material by its kind, and, for a question whose reply was not sent since an item it named was not made, that reply, the items it named that were made and why each other one was not; for a group, `with` holds each of the other matters of the group in the same way. For a matter that a work of an engineer raised, what was said in the group of that work before the matter was queued that you have not read yet (said_in_the_group); for the Start by the owner of a work you stopped, the note the owner left if there is one (note, with who spoke it, speaker) and what the worktree of the work holds that is not committed (worktree). The design of an open question is the input design_asked, not in the matter.",
+      "matter_items": "The items and works the matter picked concerns, in full; for a group, those of every matter of it. The latest work of each item shows its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now) and the files its branch changes against main (changed_files); when the matter names a work that is not the latest of its item, the card of that work is there too (named_work).",
       "item_log": "The architect's recent log entries on the item the matter concerns.",
       "similar_items": "The items whose title or problem is close to those at hand, and the works under way whose branches changed the same paths.",
       "before": "What the cell before this one on the matter's path answered of it, as that round handed it in; for a group, its answer for the other matters of the group too, as the same round handed them in (`with`).",
       "owner_answer": "The owner's answer to what was asked about the matter picked, when it comes back with one.",
       "cross_project": "The dependencies between the project's items and other projects' items, each blocking or parallel.",
       "batch_changes": "The item changes of the batch, numbered, each with its reason and the matter it came from.",
-      "changes_touch": "The items the batch's changes touch, each in full: as its creator wrote it, its locked acceptance, its rank and level, its dependencies and who waits for it, each blocking or parallel, its decision cards, and its latest work's cell, pull request and what it waits for.",
-      "group_talk": "What was said in the groups of the project's works since the architect last read it, at its last reading of it (`H12`), other than to it: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item.",
+      "changes_touch": "The items the batch's changes touch, each in full: as its creator wrote it, its locked acceptance, its rank and level, its dependencies and who waits for it, each blocking or parallel, its decision cards, and its latest work's cell, pull request and what it waits for. The latest work of each item shows its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now) and the files its branch changes against main (changed_files).",
+      "group_talk": "What was said in the groups of the project's works since the architect last read it, at its last reading of it (`H12`), other than to it: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item. What was already given to you with a matter of its work says so (given_with: the matter and the round that handled it).",
       "told_owner": "What the project's architect told the owner lately: its latest messages to the owner, each with when and at which cell, oldest first.",
       "owner_talk": "What was said in the project's one-to-one between the owner and its architect since the first round of the architect's previous session (the session of the project's latest understanding that was answered, across the works it ran in): each entry as the owner's page shows it, whole and oldest first, with when, who said it to whom and the words, an ask of the architect's with the owner's answer (counted as made when it was answered, if that was after the session began), and only how many images came with an entry. Before the project's first session there is no lower bound. Over 60,000 characters, the latest whole entries, then one line saying how many earlier ones there are; none when nothing was said since.",
       "questions": "The questions the project's architect put to the owner that wait for the owner's reply, newest first: each question, the cell that asked and when, and the matter it parked.",
@@ -4001,13 +4001,17 @@
       "notebook_other": "The text of the section other of the project's architect's notebook, as the latest round that rewrote it wrote it; none before any did.",
       "words_behind_changes": "The owner's words behind the batch's changes: each matter of the owner's words a change came from, with the words whole, where and when they were said, who the record says spoke them, and what the architect said in that place before them.",
       "batch_words": "The owner's words the batch handled, each by its matter: the words whole, where and when they were said, who the record says spoke them (owner, delegate, or unrecorded) and the parts of them a delegate declared to be the owner's own words (`relayed`), the question they reply to, what the architect said in that place before them, and how the architect handled them: its round, the way on it took and its reply.",
-      "batch_items": "The items the batch's owner's words concern, each in full with the lines of the decisions it holds: the item each matter names, the item of the work it was said in, and each item the words or the reply to them name by its number, at most twelve.",
+      "batch_items": "The items the batch's owner's words concern, each in full with the lines of the decisions it holds: the item each matter names, the item of the work it was said in, and each item the words or the reply to them name by its number, at most twelve. The latest work of each item shows its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now) and the files its branch changes against main (changed_files).",
       "fix_table": "The table the work's latest fix answered, as the fix was given it: each row with its number and what it held, a red check with its run and the end of its log.",
       "new_tests": "The engineer's tests of new behaviour with their two results, one row for each: read from the test changes of implementing and fixing (the rows added or extended with the kind new_behaviour), a test written again in a later round having its later row. Nothing is written back to a return.",
       "guard_tests": "The engineer's tests of old behaviour with their two results, one row for each: read from the test changes of implementing and fixing (the rows added or extended with the kind old_behaviour), a test written again in a later round having its later row. Nothing is written back to a return.",
       "levels": "The levels of the installation an item may be at, lowest first, each with its model and what work it is for.",
       "design_change": "For a check after design: what the design changed since the check last answered, field by field as a difference of lines between the design it was given then and the design now, with its answer then and why; none at the first design, and none when the design did not change since.",
-      "history_sources": "The database's read-only address and the project's checkout, for the gatherer's `sqlite3` and git."
+      "history_sources": "The database's read-only address and the project's checkout, for the gatherer's `sqlite3` and git.",
+      "cells": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot: those of the current flow, and those that unfinished works stand at on an older flow version, which that version names.",
+      "observations_named": "The observations the batch names, each in full with how many times it was reported (times_reported), its tags, source and references, and why the batch names it: those a change of the batch merged a report into or closed, those a collected change folds into an item, those the batch recorded, and those a search in it found; at most twelve, and how many more there are. The numbers are the values when the input was read.",
+      "batch_observation_changes": "The changes to observations this batch made so far, each with the round that handed it in and the matter it comes of. They are made at once and are no item changes, so they are not among the item changes of the batch; changes of earlier batches are not among them.",
+      "design_asked": "The design that the open question of the picked engineer comes of, whole: the same text for every open question of one design, so that it is given with the first and only referred to for the others. None for a matter that is no open question."
     },
     "values": {
       "came_by": "How the work came to choose the way on.",
@@ -14299,7 +14303,7 @@
             },
             {
               "name": "What happened since the architect's last work",
-              "what": "What happened in the project since the architect's last work: the commits merged on main, the latest 60, each by its first sentence; read the rest with git. Then the works that ended or stopped, the CI on main, the owner's words, the decision cards ruled and the reports that came in, the latest 60 of each. Every list is latest first, then how many earlier ones there are. At the architect's first work on the project, the same over the last week",
+              "what": "What happened in the project since the architect's last work: the commits merged on main, the latest 60, each by its first sentence; read the rest with git. Then the works that ended or stopped, the CI on main, the owner's words, the decision cards ruled and the reports that came in, the latest 60 of each. Every list is latest first, then how many earlier ones there are. At the architect's first work on the project, the same over the last week; the works that ended or stopped with their card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now)",
               "from": [
                 {
                   "engine": "since_last_work"
@@ -14308,7 +14312,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, each blocking or parallel, what keeps it from starting, since when it runs, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items",
+              "what": "The project's items running and queued: each with its rank, its cell and stage, what it waits for and who waits for it, each blocking or parallel, what keeps it from starting, since when it runs, what it spent and its own pause with who paused it and why, or why its last work stopped; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items (those nothing depends on that others are under) with the items under them; the dependencies with other projects' items; for each work running, its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now); for each item with no work running, what keeps it from starting, by the judgment the engine makes when it starts a work (starts)",
               "from": [
                 {
                   "engine": "board"
@@ -14369,6 +14373,16 @@
               "from": [
                 {
                   "engine": "owner_talk"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
                 }
               ],
               "maybe": true
@@ -14467,7 +14481,7 @@
             },
             {
               "name": "Policy in force",
-              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect; with when it took effect (in_force_since)",
               "from": [
                 {
                   "engine": "policy"
@@ -14743,7 +14757,7 @@
             },
             {
               "name": "Policy in force",
-              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect; with when it took effect (in_force_since)",
               "from": [
                 {
                   "engine": "policy"
@@ -14753,7 +14767,7 @@
             },
             {
               "name": "Items running and queued",
-              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for, its own pause with who paused it and why) and the items queued (rank, dependencies, each blocking or parallel, ready or not, what each waits for); the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the dependencies with other projects' items",
+              "what": "The items: the works running (item, cell, since when, what it spent, what it waits for, its own pause with who paused it and why) and the items queued (rank, dependencies, each blocking or parallel, ready or not, what each waits for); the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; the dependencies with other projects' items; for each work running, its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now); for each item with no work running, what keeps it from starting, by the judgment the engine makes when it starts a work (starts)",
               "from": [
                 {
                   "engine": "board"
@@ -14762,7 +14776,7 @@
             },
             {
               "name": "Slots",
-              "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work",
+              "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work; the works that hold a slot now and the cell each stands at (holders)",
               "from": [
                 {
                   "engine": "slots"
@@ -14853,6 +14867,16 @@
               "from": [
                 {
                   "engine": "told_owner"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
                 }
               ],
               "maybe": true
@@ -15073,7 +15097,7 @@
             },
             {
               "name": "Policy in force",
-              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect; with when it took effect (in_force_since)",
               "from": [
                 {
                   "engine": "policy"
@@ -15665,7 +15689,7 @@
             },
             {
               "name": "Policy in force",
-              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect; with when it took effect (in_force_since)",
               "from": [
                 {
                   "engine": "policy"
@@ -16136,7 +16160,7 @@
             },
             {
               "name": "Items and works concerned",
-              "what": "The items and works it concerns, in full: each item's problem, why, acceptance, dependencies and decision cards, and its work's cell, state and what it waits for",
+              "what": "The items and works it concerns, in full: each item's problem, why, acceptance, dependencies and decision cards, and its work's cell, state and what it waits for; the card of its latest work (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now) and the files its branch changes against main; the work the matter names when it is not the latest",
               "from": [
                 {
                   "engine": "matter_items"
@@ -16145,7 +16169,7 @@
             },
             {
               "name": "Policy in force",
-              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect; with when it took effect (in_force_since)",
               "from": [
                 {
                   "engine": "policy"
@@ -16245,6 +16269,26 @@
               "from": [
                 {
                   "engine": "told_owner"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Observations the batch names",
+              "what": "The observations the batch names, each in full with how many times it was reported, its tags and source, and why the batch names it (a report merged into it, closed, folded into an item, recorded in this batch, found by a search); at most twelve, with how many more there are. A merge counts a report once more, and an observation reported three times is work to fold into an item",
+              "from": [
+                {
+                  "engine": "observations_named"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
                 }
               ],
               "maybe": true
@@ -16359,7 +16403,7 @@
             },
             {
               "name": "The item and those around it",
-              "what": "The item and the items around it, in full: above it, beside it, below it, who waits for it",
+              "what": "The item and the items around it, in full: above it, beside it, below it, who waits for it; the card of its latest work (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now) and the files its branch changes against main; the work the matter names when it is not the latest",
               "from": [
                 {
                   "engine": "matter_items"
@@ -16368,7 +16412,7 @@
             },
             {
               "name": "Policy in force",
-              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect; with when it took effect (in_force_since)",
               "from": [
                 {
                   "engine": "policy"
@@ -16458,6 +16502,26 @@
               "from": [
                 {
                   "engine": "told_owner"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The design asked about",
+              "what": "The design that the open question of the engineer comes of, whole, as its round handed it in: the same for every open question of one design, so that it is given with the first and only referred to for the others",
+              "from": [
+                {
+                  "engine": "design_asked"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
                 }
               ],
               "maybe": true
@@ -16583,7 +16647,7 @@
             },
             {
               "name": "The item and those around it",
-              "what": "The item and the items around it, in full: above it, beside it, below it, who waits for it",
+              "what": "The item and the items around it, in full: above it, beside it, below it, who waits for it; the card of its latest work (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now) and the files its branch changes against main; the work the matter names when it is not the latest",
               "from": [
                 {
                   "engine": "matter_items"
@@ -16592,7 +16656,7 @@
             },
             {
               "name": "Policy in force",
-              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect; with when it took effect (in_force_since)",
               "from": [
                 {
                   "engine": "policy"
@@ -16741,6 +16805,36 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Observations the batch names",
+              "what": "The observations the batch names, each in full with how many times it was reported, its tags and source, and why the batch names it (a report merged into it, closed, folded into an item, recorded in this batch, found by a search); at most twelve, with how many more there are. A merge counts a report once more, and an observation reported three times is work to fold into an item",
+              "from": [
+                {
+                  "engine": "observations_named"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The design asked about",
+              "what": "The design that the open question of the engineer comes of, whole, as its round handed it in: the same for every open question of one design, so that it is given with the first and only referred to for the others",
+              "from": [
+                {
+                  "engine": "design_asked"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -16849,7 +16943,7 @@
             },
             {
               "name": "Items concerned",
-              "what": "The item it came from and the items it names, in full",
+              "what": "The item it came from and the items it names, in full; the card of its latest work (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now) and the files its branch changes against main; the work the matter names when it is not the latest",
               "from": [
                 {
                   "engine": "matter_items"
@@ -16912,6 +17006,16 @@
               "from": [
                 {
                   "engine": "told_owner"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
                 }
               ],
               "maybe": true
@@ -17179,6 +17283,26 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Observations the batch names",
+              "what": "The observations the batch names, each in full with how many times it was reported, its tags and source, and why the batch names it (a report merged into it, closed, folded into an item, recorded in this batch, found by a search); at most twelve, with how many more there are. A merge counts a report once more, and an observation reported three times is work to fold into an item",
+              "from": [
+                {
+                  "engine": "observations_named"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -17361,7 +17485,7 @@
             },
             {
               "name": "The work and its item",
-              "what": "The work and its item, in full",
+              "what": "The work and its item, in full; the card of its latest work (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now) and the files its branch changes against main; the work the matter names when it is not the latest",
               "from": [
                 {
                   "engine": "matter_items"
@@ -17451,6 +17575,26 @@
               "from": [
                 {
                   "engine": "told_owner"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Observations the batch names",
+              "what": "The observations the batch names, each in full with how many times it was reported, its tags and source, and why the batch names it (a report merged into it, closed, folded into an item, recorded in this batch, found by a search); at most twelve, with how many more there are. A merge counts a report once more, and an observation reported three times is work to fold into an item",
+              "from": [
+                {
+                  "engine": "observations_named"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
                 }
               ],
               "maybe": true
@@ -17578,7 +17722,7 @@
             },
             {
               "name": "Items concerned",
-              "what": "The items the owner's words concern, in full",
+              "what": "The items the owner's words concern, in full; the card of its latest work (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now) and the files its branch changes against main; the work the matter names when it is not the latest",
               "from": [
                 {
                   "engine": "matter_items"
@@ -17587,7 +17731,7 @@
             },
             {
               "name": "Policy in force",
-              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect; with when it took effect (in_force_since)",
               "from": [
                 {
                   "engine": "policy"
@@ -17688,6 +17832,26 @@
               "from": [
                 {
                   "engine": "told_owner"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Observations the batch names",
+              "what": "The observations the batch names, each in full with how many times it was reported, its tags and source, and why the batch names it (a report merged into it, closed, folded into an item, recorded in this batch, found by a search); at most twelve, with how many more there are. A merge counts a report once more, and an observation reported three times is work to fold into an item",
+              "from": [
+                {
+                  "engine": "observations_named"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
                 }
               ],
               "maybe": true
@@ -17882,7 +18046,7 @@
             },
             {
               "name": "Items named",
-              "what": "The items it names, of both projects, in full",
+              "what": "The items it names, of both projects, in full; the card of its latest work (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now) and the files its branch changes against main; the work the matter names when it is not the latest",
               "from": [
                 {
                   "engine": "matter_items"
@@ -17984,6 +18148,26 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Observations the batch names",
+              "what": "The observations the batch names, each in full with how many times it was reported, its tags and source, and why the batch names it (a report merged into it, closed, folded into an item, recorded in this batch, found by a search); at most twelve, with how many more there are. A merge counts a report once more, and an observation reported three times is work to fold into an item",
+              "from": [
+                {
+                  "engine": "observations_named"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -18074,7 +18258,7 @@
           "inputs": [
             {
               "name": "Slots",
-              "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work",
+              "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work; the works that hold a slot now and the cell each stands at (holders)",
               "from": [
                 {
                   "engine": "slots"
@@ -18083,7 +18267,7 @@
             },
             {
               "name": "Items queued",
-              "what": "The items queued, with rank, and why each is not ready: held, waiting for an item it depends on by a blocking dependency to be merged, or done; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them",
+              "what": "The items queued, with rank, and why each is not ready: held, waiting for an item it depends on by a blocking dependency to be merged, or done; the owner's start queue, which starts ahead of the ranks, and each item's place in it; the release items with the items under them; for each work running, its card (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now); for each item with no work running, what keeps it from starting, by the judgment the engine makes when it starts a work (starts)",
               "from": [
                 {
                   "engine": "board"
@@ -18101,7 +18285,7 @@
             },
             {
               "name": "Policy in force",
-              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect; with when it took effect (in_force_since)",
               "from": [
                 {
                   "engine": "policy"
@@ -18111,7 +18295,7 @@
             },
             {
               "name": "The batch so far",
-              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound",
+              "what": "The batch so far: the matters handled in it and how each ended, and its item changes, each whole with the key of an item it creates, made only once the review finds them sound; the item changes waiting for a review in this batch and in any other batch of an architect work of the project that has not ended, each with its batch and the items it names (unreviewed_changes): the engine starts no work on those items until their batch ends",
               "from": [
                 {
                   "engine": "batch"
@@ -18183,6 +18367,26 @@
               "from": [
                 {
                   "engine": "told_owner"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Observations the batch names",
+              "what": "The observations the batch names, each in full with how many times it was reported, its tags and source, and why the batch names it (a report merged into it, closed, folded into an item, recorded in this batch, found by a search); at most twelve, with how many more there are. A merge counts a report once more, and an observation reported three times is work to fold into an item",
+              "from": [
+                {
+                  "engine": "observations_named"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
                 }
               ],
               "maybe": true
@@ -18288,7 +18492,7 @@
           "inputs": [
             {
               "name": "Said in the works' groups",
-              "what": "What was said in the groups of your project's works since you last read it, other than to you: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item",
+              "what": "What was said in the groups of your project's works since you last read it, other than to you: the owner's words to the engineers, what the engineers told the owner, and the owner's answers, each with its work and item; what was already given to you with a matter of its work says so (given_with)",
               "from": [
                 {
                   "engine": "group_talk"
@@ -18298,7 +18502,7 @@
             },
             {
               "name": "Policy in force",
-              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect; with when it took effect (in_force_since)",
               "from": [
                 {
                   "engine": "policy"
@@ -18379,6 +18583,26 @@
               "from": [
                 {
                   "engine": "told_owner"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Observations the batch names",
+              "what": "The observations the batch names, each in full with how many times it was reported, its tags and source, and why the batch names it (a report merged into it, closed, folded into an item, recorded in this batch, found by a search); at most twelve, with how many more there are. A merge counts a report once more, and an observation reported three times is work to fold into an item",
+              "from": [
+                {
+                  "engine": "observations_named"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
                 }
               ],
               "maybe": true
@@ -18709,7 +18933,7 @@
             },
             {
               "name": "Items the words concern",
-              "what": "The items the owner's words concern, each in full, with the lines of the decisions it holds already: the item each matter names, the item of the work it was said in, and each item the words or your reply name by its number",
+              "what": "The items the owner's words concern, each in full, with the lines of the decisions it holds already: the item each matter names, the item of the work it was said in, and each item the words or your reply name by its number; the card of its latest work (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now) and the files its branch changes against main",
               "from": [
                 {
                   "engine": "batch_items"
@@ -18729,7 +18953,7 @@
             },
             {
               "name": "Policy in force",
-              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect; with when it took effect (in_force_since)",
               "from": [
                 {
                   "engine": "policy"
@@ -18773,6 +18997,26 @@
               "from": [
                 {
                   "engine": "notebook_other"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Observations the batch names",
+              "what": "The observations the batch names, each in full with how many times it was reported, its tags and source, and why the batch names it (a report merged into it, closed, folded into an item, recorded in this batch, found by a search); at most twelve, with how many more there are. A merge counts a report once more, and an observation reported three times is work to fold into an item",
+              "from": [
+                {
+                  "engine": "observations_named"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
                 }
               ],
               "maybe": true
@@ -18985,7 +19229,7 @@
             },
             {
               "name": "Items the changes touch",
-              "what": "The items the changes touch, each in full as it is now: its text and acceptance, its rank and level, what it depends on and who waits for it, each blocking or parallel, its decision cards, and its latest work's cell, pull request and what it waits for",
+              "what": "The items the changes touch, each in full as it is now: its text and acceptance, its rank and level, what it depends on and who waits for it, each blocking or parallel, its decision cards, and its latest work's cell, pull request and what it waits for; the card of its latest work (the branch, the path of the worktree, the number of the pull request and what the engine recorded of it, not what GitHub says now: whether it merged, the head last pushed and how the latest runs of the fast and the full CI came out; and whether the work holds a slot now) and the files its branch changes against main",
               "from": [
                 {
                   "engine": "changes_touch"
@@ -18994,7 +19238,7 @@
             },
             {
               "name": "Policy in force",
-              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect",
+              "what": "The policy in force for the project: its direction, why, its principles and the signals that the direction may have to change; none before the first takes effect; with when it took effect (in_force_since)",
               "from": [
                 {
                   "engine": "policy"
@@ -19029,6 +19273,36 @@
                   "engine": "levels"
                 }
               ]
+            },
+            {
+              "name": "Observations the batch names",
+              "what": "The observations the batch names, each in full with how many times it was reported, its tags and source, and why the batch names it (a report merged into it, closed, folded into an item, recorded in this batch, found by a search); at most twelve, with how many more there are. A merge counts a report once more, and an observation reported three times is work to fold into an item",
+              "from": [
+                {
+                  "engine": "observations_named"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Observation changes of this batch",
+              "what": "The changes to observations this batch made so far, each with its round and the matter it comes of: they are made at once, are no item changes, and are not among the changes to review, yet a review of item changes weighs them",
+              "from": [
+                {
+                  "engine": "batch_observation_changes"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -19317,6 +19591,26 @@
                 }
               ],
               "maybe": true
+            },
+            {
+              "name": "Observations the batch names",
+              "what": "The observations the batch names, each in full with how many times it was reported, its tags and source, and why the batch names it (a report merged into it, closed, folded into an item, recorded in this batch, found by a search); at most twelve, with how many more there are. A merge counts a report once more, and an observation reported three times is work to fold into an item",
+              "from": [
+                {
+                  "engine": "observations_named"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "Observation changes of this batch",
+              "what": "The changes to observations this batch made so far, each with its round and the matter it comes of: they are made at once, are no item changes, and are not among the changes to review, yet a review of item changes weighs them",
+              "from": [
+                {
+                  "engine": "batch_observation_changes"
+                }
+              ],
+              "maybe": true
             }
           ],
           "prompt": [
@@ -19430,7 +19724,7 @@
             },
             {
               "name": "Slots",
-              "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work",
+              "what": "The slots, which every project shares: each machine's slots, how many are used and free, and how many items are ready, this project's and the others'; whether the engine runs works, the owner paused every work, with those that run despite it, or a failed run stops every work; the works that hold a slot now and the cell each stands at (holders)",
               "from": [
                 {
                   "engine": "slots"
@@ -19483,6 +19777,16 @@
               "from": [
                 {
                   "engine": "told_owner"
+                }
+              ],
+              "maybe": true
+            },
+            {
+              "name": "The cells the board names",
+              "what": "The cells of the graph of the engineer that the board and the lists of works name by their ids, each with its name, kind, stage and whether a work standing at it holds a slot, including the cells older flow versions have that unfinished works stand at; given once, and then referred to",
+              "from": [
+                {
+                  "engine": "cells"
                 }
               ],
               "maybe": true

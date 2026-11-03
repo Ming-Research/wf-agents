@@ -61,11 +61,36 @@ pub fn project_of_item(tx: &Transaction<'_>, item: i64) -> Result<Option<String>
         .optional()?)
 }
 
+/// What the owner leaves with the Start of a work the architect stopped, and who the caller declares to leave it. The
+/// owner may leave none. Only a work the architect stopped takes it: the architect, which asked the owner to do
+/// something before the work goes on, is told the note with the release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartNote {
+    pub text: String,
+    pub speaker: Speaker,
+}
+
+impl StartNote {
+    /// The note a request declares: its text and the speaker's name. None for a request with no text; an error for a
+    /// text with no speaker declared, or one that is neither the owner nor a delegate.
+    pub fn declared(text: Option<&str>, speaker: Option<&str>) -> std::result::Result<Option<StartNote>, String> {
+        let Some(text) = text.map(str::trim).filter(|t| !t.is_empty()) else {
+            return Ok(None);
+        };
+        let speaker = Speaker::parse(speaker.unwrap_or_default())?;
+        Ok(Some(StartNote {
+            text: text.to_string(),
+            speaker,
+        }))
+    }
+}
+
 /// Lifts a work's pause, in a write made as the owner, as the owner's Start of it does: a work the architect stopped is
-/// then the owner's release of it, which the architect of its project is told as the owner's words. A request to lift
-/// the pause still in the outbox goes with it, so that none outlives the pause it was for and lifts a later one. Gives
-/// whether the architect had stopped it.
-pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
+/// then the owner's release of it, which the architect of its project is told as the owner's words, with the `note` the
+/// owner left with the Start (kept as `note` in the matter, with the speaker declared as `speaker`; a Start with none
+/// leaves neither). A request to lift the pause still in the outbox goes with it, so that none outlives the pause it
+/// was for and lifts a later one. Gives whether the architect had stopped it.
+pub fn lift_pause(tx: &Transaction<'_>, work: i64, note: Option<&StartNote>) -> Result<bool> {
     let (paused, by, item): (Option<String>, Option<String>, Option<i64>) =
         tx.query_row("SELECT paused, paused_by, item FROM works WHERE id = ?1", [work], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -83,12 +108,19 @@ pub fn lift_pause(tx: &Transaction<'_>, work: i64) -> Result<bool> {
     let Some(project) = item.map(|i| project_of_item(tx, i)).transpose()?.flatten() else {
         return Ok(true);
     };
+    let mut body = serde_json::json!({ "text": text, "work": work });
+    let mut what = format!("The owner says: {}", one_sentence(&text));
+    if let Some(n) = note {
+        body["note"] = Value::String(n.text.clone());
+        body["speaker"] = Value::String(n.speaker.as_str().into());
+        what.push_str(" A note comes with it.");
+    }
     let m = Matter {
         project,
         kind: "owner_words".into(),
         detail: Some("release".into()),
-        what: format!("The owner says: {}", one_sentence(&text)),
-        body: serde_json::json!({ "text": text, "work": work }),
+        what,
+        body,
         item,
         ..Matter::default()
     };

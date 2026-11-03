@@ -7,7 +7,7 @@
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::json;
 
-use crate::{Actor, Error, Result, cells_sql, now};
+use crate::{Actor, Error, Result, StartNote, cells_sql, now};
 
 /// The outbox's action that starts a work over.
 pub const START_OVER: &str = "start_over";
@@ -114,9 +114,15 @@ pub fn cancel_asked_too(conn: &Connection, item: i64) -> Result<Option<String>> 
 
 /// Asks the engine to lift a work's pause once its machine has a slot free, as `by` asks it. A work asked already keeps
 /// its place, and stays as it was first asked unless the owner asks now: the owner's release of a work is what tells the
-/// architect, which an owner's request that found the architect's would otherwise promise and not do.
-pub fn ask_resume(tx: &Transaction<'_>, work: i64, by: Actor) -> Result<()> {
-    let args = json!({ "by": by.name() }).to_string();
+/// architect, which an owner's request that found the architect's would otherwise promise and not do. The owner's note
+/// ([`StartNote`]) is kept in the request, for the architect to be told with the release.
+pub fn ask_resume(tx: &Transaction<'_>, work: i64, by: Actor, note: Option<&StartNote>) -> Result<()> {
+    let mut args = json!({ "by": by.name() });
+    if let Some(n) = note {
+        args["note"] = json!(n.text);
+        args["speaker"] = json!(n.speaker.as_str());
+    }
+    let args = args.to_string();
     if resume_asker(tx, work)?.is_none() {
         tx.execute(
             "INSERT INTO outbox (work, kind, args, run_after) VALUES (?1, ?2, ?3, ?4)",
@@ -141,6 +147,20 @@ pub fn resume_asker(conn: &Connection, work: i64) -> Result<Option<String>> {
         )
         .optional()?
         .flatten())
+}
+
+/// The note the owner left with the request to lift a work's pause, as the outbox holds it now; none when no request
+/// waits or it carries none.
+pub fn resume_note(conn: &Connection, work: i64) -> Result<Option<StartNote>> {
+    let args: Option<(Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT json_extract(args, '$.note'), json_extract(args, '$.speaker') FROM outbox
+             WHERE work = ?1 AND kind = ?2",
+            params![work, RESUME_WORK],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    Ok(args.and_then(|(text, speaker)| StartNote::declared(text.as_deref(), speaker.as_deref()).ok().flatten()))
 }
 
 /// Withdraws a request to lift a work's pause: the pause it was for is gone or replaced, as by the engine's pause for a
@@ -358,7 +378,7 @@ mod tests {
         assert_eq!(also(&db, 2).as_deref(), Some("owner"));
 
         let resume = |db: &mut Db, work: i64, by: Actor| {
-            db.write(Actor::Engine, |tx| ask_resume(tx, work, by)).unwrap();
+            db.write(Actor::Engine, |tx| ask_resume(tx, work, by, None)).unwrap();
         };
         resume(&mut db, 1, Actor::Architect);
         resume(&mut db, 2, Actor::Owner);

@@ -97,6 +97,14 @@ pub fn standard(address: &str) -> Option<&str> {
         .then_some(address)
 }
 
+/// The name of what the engine computed for a round, for an address of such a value (`R26-31·engine·slots` is
+/// `slots`); none for any other address.
+pub fn engine_name(address: &str) -> Option<&str> {
+    let (round, name) = address.split_once("·engine·")?;
+    RoundId::parse(round)?;
+    Some(name)
+}
+
 /// A version of an input of the standard context a session holds: its address, the hash of its content, the round
 /// the session got it in, and the key `contents` keeps it under, none for a version recorded before rounds kept it.
 #[derive(Debug, Clone)]
@@ -123,6 +131,11 @@ pub struct Held {
     pub got: HashMap<String, (RoundId, String)>,
     /// The latest version it holds of each input of the standard context, by which input it is.
     pub standard: HashMap<String, Version>,
+    /// The latest version of each input the engine computed that a round gave it or referred to, by the input's name
+    /// ([`engine_name`]), standard context or not: a content it holds under the address of the round that first had it
+    /// is the latest one only when no round since gave or referred to another. The round of a version is the round
+    /// that first gave that content.
+    pub engine_latest: HashMap<String, Version>,
     /// The parts of its system prompt ([`crate::system`]), each as the round that started the session recorded it: it
     /// holds them from its start to its end, compacted or not.
     pub system: Vec<Version>,
@@ -214,6 +227,17 @@ impl Held {
             }
             for x in recorded(&r.input) {
                 let round = h.got.entry(x.hash.clone()).or_insert((r.id, x.address.clone())).0;
+                if let Some(name) = engine_name(&x.address) {
+                    h.engine_latest.insert(
+                        name.to_string(),
+                        Version {
+                            address: x.address.clone(),
+                            hash: x.hash.clone(),
+                            round,
+                            text: None,
+                        },
+                    );
+                }
                 // What the engine computes is a version of its input only where the round kept it whole: one recorded
                 // before it was standard context was given whole, and may not be of the kind its versions are now.
                 let unkept = x.text.is_none()

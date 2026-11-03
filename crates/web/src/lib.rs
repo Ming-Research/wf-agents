@@ -310,6 +310,8 @@ async fn keep_warm(State(app): State<App>, Json(k): Json<api::KeepWarm>) -> Resu
 /// Runs one round of one work, whatever the global state, resuming its line's session or in a new one as the owner
 /// chose: one real round, after which the work is paused by the owner.
 async fn step(State(app): State<App>, Path(id): Path<i64>, Json(r): Json<api::RunAsk>) -> Result<StatusCode, Fail> {
+    r.note(false)
+        .map_err(|e| Fail::new(StatusCode::UNPROCESSABLE_ENTITY, e))?;
     app.control
         .ask_step(id, r.new_session)
         .map(|_| StatusCode::ACCEPTED)
@@ -324,8 +326,12 @@ async fn start_work(
     Path(id): Path<i64>,
     Json(r): Json<api::RunAsk>,
 ) -> Result<Json<api::Done>, Fail> {
+    let note = r
+        .note(true)
+        .map_err(|e| Fail::new(StatusCode::UNPROCESSABLE_ENTITY, e))?;
+    let with_note = note.is_some();
     let done = read(&app, move |c, _| {
-        api::can_start(c, id).map_err(|e| {
+        api::can_start(c, id, with_note).map_err(|e| {
             if e.starts_with("no work") {
                 api::Error::NotFound(e)
             } else {
@@ -334,7 +340,7 @@ async fn start_work(
         })
     })
     .await?;
-    app.control.start(api::Fresh::Work(id), r.new_session);
+    app.control.start(api::Fresh::Work(id), r.new_session, note);
     tell_status(&app);
     Ok(Json(api::Done { done }))
 }
@@ -805,6 +811,8 @@ async fn step_architect(
     Json(r): Json<api::RunAsk>,
 ) -> Result<StatusCode, Fail> {
     let (project, _) = project_of(&app, &q)?;
+    r.note(false)
+        .map_err(|e| Fail::new(StatusCode::UNPROCESSABLE_ENTITY, e))?;
     app.control
         .ask_step_architect(&project, r.new_session)
         .map(|_| StatusCode::ACCEPTED)
@@ -820,7 +828,10 @@ async fn start_architect(
     Json(r): Json<api::RunAsk>,
 ) -> Result<Json<api::Done>, Fail> {
     let (project, _) = project_of(&app, &q)?;
-    app.control.start(api::Fresh::Architect(project.clone()), r.new_session);
+    r.note(false)
+        .map_err(|e| Fail::new(StatusCode::UNPROCESSABLE_ENTITY, e))?;
+    app.control
+        .start(api::Fresh::Architect(project.clone()), r.new_session, None);
     tell_status(&app);
     Ok(Json(api::Done {
         done: format!("the architect of {project} goes on"),

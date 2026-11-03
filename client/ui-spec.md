@@ -1216,7 +1216,11 @@ over after them, are small `IconButton`s, the choice an `IconButton` with `aria-
 page's own at Octicons' size (a triangle, two bars, a triangle against a bar, a speech bubble holding a plus, an arrow
 that turns back round to where it began), since Octicons has no step, no new session and no start over and draws play
 and pause in circles; what each does, or why it cannot now, is said on hovering, because the five are one set and must
-look it.
+look it. Start of a work the architect stopped asks first, in the browser's own prompt, as the page already asks before
+that release: the prompt says it is the owner's release of the work, which the architect is told, and has a line for a
+note to the architect that the owner may leave empty, since the architect asked the owner to do something and cannot
+see from the release alone whether it was done or why the owner went on; Cancel does not start the work, and a note
+that is empty is sent as none. The prompt is for that Start alone: no other Start or Step has a note.
 
 ### A choice from a list that grows
 

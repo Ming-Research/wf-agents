@@ -10,7 +10,7 @@ use flow::formats::hash;
 use serde_json::{Value, json};
 
 use crate::diff;
-use crate::held::{Held, Version, round_of, standard};
+use crate::held::{Held, Version, engine_name, round_of, standard};
 use crate::round::{Round, RoundId};
 
 /// One conditional input of a message.
@@ -255,7 +255,7 @@ impl<'a> Giver<'a> {
 
     /// The address of what the engine read or computed for a round under a name: the earliest round it was the same
     /// for; or, when it never was before and the session got the same content under another address, that address,
-    /// as the text of a new policy the session wrote and read is the policy in force once the owner approved it.
+    /// as a text the session wrote itself is the content the engine reads back to it.
     pub fn computed(&self, round: RoundId, name: &str, content: &Value) -> String {
         let h = hash(content);
         let suffix = format!("·engine·{name}");
@@ -270,6 +270,29 @@ impl<'a> Giver<'a> {
             Some((_, at)) if copied(content) => at.clone(),
             _ => format!("{round}{suffix}"),
         }
+    }
+
+    /// What the message says of an input the engine computed that it only refers to by an address (so that the content
+    /// is in the session already): that the value is the one now, and, when a round since gave or referred to another
+    /// value of the same input, that the other is no longer current. The address names the earliest round that had the
+    /// content, so that a value which came back (A, then B, then A again) is referred to by the round that gave A
+    /// first, which a reader takes for an old value without being told. None for an address that is not an engine's
+    /// value, and for an input given in the message, which holds its content or what changed in it.
+    pub fn current(&self, address: &str) -> Option<String> {
+        let name = engine_name(address)?;
+        let c = self.list.iter().find(|c| c.address == address)?;
+        if c.given {
+            return None;
+        }
+        let first = round_of(address)?;
+        let mut said = format!("the value now, the same as given in {first}");
+        if let Some(later) = self.held.engine_latest.get(name).filter(|v| v.hash != c.hash) {
+            said.push_str(&format!(
+                "; {} gave another value since, which is no longer current",
+                later.round
+            ));
+        }
+        Some(said)
     }
 
     /// What changed in an input of the standard context since the latest version the session holds, when that is

@@ -24,13 +24,14 @@ mod start_over;
 
 pub use cells::{cells_sql, code_of, is_cell};
 pub use matters::{
-    Declared, FAULT, Forwarder, Matter, Speaker, fault_forwarding, forward_fault, forward_new_fault, lift_pause,
-    one_sentence, project_of_item, queue_matter, say_to_architect, set_fault_forwarding, without_final_terminal,
+    Declared, FAULT, Forwarder, Matter, Speaker, StartNote, fault_forwarding, forward_fault, forward_new_fault,
+    lift_pause, one_sentence, project_of_item, queue_matter, say_to_architect, set_fault_forwarding,
+    without_final_terminal,
 };
 pub use questions::{QUESTIONS_PENDING, question_waited_on};
 pub use start_over::{
     CANCEL_ITEM, RESUME_WORK, START_OVER, ask_cancel, ask_resume, cancel_asked_too, cannot_start_over, merge_stands,
-    resume_asked, resume_asker, start_over, stop_asked, stopping, withdraw_resume,
+    resume_asked, resume_asker, resume_note, start_over, stop_asked, stopping, withdraw_resume,
 };
 
 /// The database's definition, as `db/schema.sql` writes it.

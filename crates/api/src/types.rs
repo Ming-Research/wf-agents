@@ -10,11 +10,35 @@ use serde_json::Value;
 use ts_rs::TS;
 
 /// What the owner sends with a work's or the architect's Start and Step: whether its next round resumes the session
-/// its line goes on in (the default) or starts a new one.
+/// its line goes on in (the default) or starts a new one; and with the Start of a work the architect stopped, a note
+/// for the architect.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 pub struct RunAsk {
     #[serde(default)]
     pub new_session: bool,
+    /// What the owner leaves for the architect with the Start of a work it stopped: the architect is told it with the
+    /// release, beside why it stopped the work and what the worktree holds. Refused for any other Start or Step,
+    /// where nothing would carry it to anyone; none leaves no note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub note: Option<String>,
+    /// Who the caller declares to leave the note, `owner` or `delegate`; a note needs it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub speaker: Option<String>,
+}
+
+impl RunAsk {
+    /// The note the request leaves, with who declares it; none when it leaves none. A note with no speaker, or a note
+    /// on a request that cannot carry one (`carries` says whether it can: a Step and the architect's Start cannot), is
+    /// an error.
+    pub fn note(&self, carries: bool) -> Result<Option<db::StartNote>, String> {
+        let note = db::StartNote::declared(self.note.as_deref(), self.speaker.as_deref())?;
+        if note.is_some() && !carries {
+            return Err("a note goes only with the Start of a work the architect stopped".into());
+        }
+        Ok(note)
+    }
 }
 
 /// What the owner sends with the switch that keeps waiting sessions warm while every work is paused.

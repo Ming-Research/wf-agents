@@ -274,10 +274,12 @@ pub fn say(data: &Path, work: i64, to: &str, text: &str, speaker: &str, relayed:
 }
 
 /// Asks to lift a work's pause, as its Start on the page does: the running engine lifts it once the work's machine has a
-/// slot free, so while the engine does not run the pause stays until its next start.
-pub fn resume(data: &Path, work: i64) -> Result<String, String> {
+/// slot free, so while the engine does not run the pause stays until its next start. With a `note` for the architect
+/// that stopped the work, and who declares it.
+pub fn resume(data: &Path, work: i64, note: Option<&str>, speaker: Option<&str>) -> Result<String, String> {
+    let note = db::StartNote::declared(note, speaker)?;
     let mut db = open(data)?;
-    api::resume(&mut db, work)
+    api::resume_with_note(&mut db, work, note.as_ref())
 }
 
 /// Pauses a work, as the page does, saying why.
