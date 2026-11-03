@@ -15018,7 +15018,6 @@ fn a_resume_that_met_the_lifting_of_its_pause_does_not_lift_the_owner_s_next_pau
 // asker is told: the architect by its report, as it is when it asks alone. The two cancels are one request, so a request
 // that keeps only the first asker leaves the architect thinking its cancel was carried out.
 #[test]
-#[ignore = "held out for one run: it stops its job before the other tests are reached"]
 fn a_merge_under_way_outruns_two_cancels_and_the_architect_is_told_though_it_asked_second() {
     let (s, mut e, said, item, work) = at_the_merge("two-cancels-in-merge");
     held_at_the_merge_call(&mut e, &s, &said);
