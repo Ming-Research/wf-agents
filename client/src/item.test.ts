@@ -5,8 +5,9 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import type { CompiledCell, CompiledGraph, CompiledRow, ItemLink, ItemSummary, RoundSummary } from './api';
+import type { CompiledCell, CompiledGraph, CompiledRow, ItemLink, ItemSummary, JsonValue, RoundSummary } from './api';
 import { byStage, mainPath, progress, type Step } from './item/checklist';
+import { Acceptance, type Met } from './item/Shapes';
 import { depsDone, firstShown, stageAt, tree, type TreeRow } from './item/tree';
 import { inline, Markdown, parse } from './markdown';
 
@@ -384,3 +385,41 @@ describe('the markdown agents write', () => {
   });
 });
 
+
+// An acceptance condition is shown with how it is checked and how the work met it: by tests, a measurement, a job or
+// command of the CI, a reading of the change, or the report's answer; a kind the page does not know is shown in words,
+// never dropped.
+describe('the acceptance of an item', () => {
+  const shown = (value: JsonValue, met: Map<string, Met> = new Map()) =>
+    renderToStaticMarkup(createElement(Acceptance, { value, met }));
+
+  it('says how a condition is checked, by a job or command of the CI and by reading the change among them', () => {
+    const html = shown([
+      { by: 'test', id: 'A1', condition: 'It works.' },
+      { by: 'ci', id: 'A2', condition: 'The page passes its check.' },
+      { by: 'diff', id: 'A3', condition: 'The rule says all columns.' },
+      { by: 'other_kind', id: 'A4', condition: 'Something new.' },
+    ]);
+    expect(html).toContain('by tests');
+    expect(html).toContain('by a job or command of the CI');
+    expect(html).toContain('by reading the change');
+    expect(html).toContain('other kind');
+  });
+
+  it('says how a condition was met, with the jobs and commands or what was read', () => {
+    const value = [
+      { by: 'ci', id: 'A1', condition: 'The page passes its check.' },
+      { by: 'ci', id: 'A2', condition: 'The whole CI is green.' },
+      { by: 'diff', id: 'A3', condition: 'The rule says all columns.' },
+    ];
+    const met = new Map<string, Met>([
+      ['A1', { how: 'ci_job', id: 'A1', jobs: ['lint'], steps: ['npm run check:ui'] }],
+      ['A2', { how: 'ci_job', id: 'A2', jobs: ['check', 'test 1 of 3'], steps: [] }],
+      ['A3', { how: 'read_diff', id: 'A3', where: 'flow/flow.json', what: 'the rule lists all columns' }],
+    ]);
+    const html = shown(value, met);
+    expect(html).toContain('Met: green in the CI: lint, which run npm run check:ui');
+    expect(html).toContain('Met: green in the CI: check, test 1 of 3<');
+    expect(html).toContain('Met: read in flow/flow.json: the rule lists all columns');
+  });
+});

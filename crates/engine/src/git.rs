@@ -79,6 +79,112 @@ pub fn own_changes(dir: &Path, main: &str, from: &str, to: &str) -> Result<Vec<S
     Ok(all.into_iter().filter(|f| own.contains(f)).collect())
 }
 
+/// One commit of a branch, as the log of its first parents gives it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Commit {
+    pub id: String,
+    /// The first line of its message.
+    pub subject: String,
+    /// Whether it has more than one parent: a merge, such as the work's branch taking main in.
+    pub merge: bool,
+}
+
+/// What happened on a branch from `base` to `head`, read from git alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Changes {
+    /// The commits of the branch after `base`, following first parents only, newest first; a merge shows as one
+    /// commit, not as the commits it brought in.
+    pub commits: Vec<Commit>,
+    /// The merges among them, newest first, so that the reader can set aside what main brought.
+    pub merges: Vec<Commit>,
+    /// The files the work itself changed from `base` to `head`; what merging main brought is left out.
+    pub own_files: Vec<String>,
+    /// Whether `base` is not an ancestor of `head` (the branch was rewritten, or `base` is main, which went on): the
+    /// commits are those of `head` that `base` lacks, and the files are counted from the commit they share.
+    pub diverged: bool,
+}
+
+/// The commits of a branch from `base` to `head`, without the files: what an input needs that lists commits only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Log {
+    /// As [`Changes::commits`].
+    pub commits: Vec<Commit>,
+    /// As [`Changes::merges`].
+    pub merges: Vec<Commit>,
+    /// As [`Changes::diverged`].
+    pub diverged: bool,
+}
+
+/// The merges of main into the branch from `base` to `head`, newest first, and whether `base` is no ancestor of
+/// `head`: only the merges that took in a commit of the fetched main, which is what a reader setting aside what main
+/// brought needs, not a merge of anything else. Only the log is read, not the files.
+pub fn main_merges_since(dir: &Path, main: &str, base: &str, head: &str) -> Result<(Vec<Commit>, bool), String> {
+    let log = log_since(dir, base, head)?;
+    let tip = format!("origin/{main}");
+    let mut took = Vec::new();
+    for merge in log.merges {
+        // A merge's first parent is the branch; main is in what the others bring.
+        let parents = git(dir, &["rev-list", "--parents", "-n", "1", &merge.id])?;
+        if parents.split_whitespace().skip(2).any(|p| is_ancestor(dir, p, &tip)) {
+            took.push(merge);
+        }
+    }
+    Ok((took, log.diverged))
+}
+
+/// The commits from `base` to `head`, following first parents, newest first, with the merges among them marked.
+pub fn log_since(dir: &Path, base: &str, head: &str) -> Result<Log, String> {
+    let log = git(
+        dir,
+        &[
+            "log",
+            "--first-parent",
+            "--format=%H%x09%P%x09%s",
+            &format!("{base}..{head}"),
+        ],
+    )?;
+    let commits: Vec<Commit> = log
+        .lines()
+        .filter_map(|l| {
+            let mut parts = l.splitn(3, '\t');
+            let id = parts.next().filter(|id| !id.is_empty())?;
+            let parents = parts.next()?;
+            Some(Commit {
+                id: id.to_string(),
+                subject: parts.next().unwrap_or_default().trim().to_string(),
+                merge: parents.split_whitespace().count() > 1,
+            })
+        })
+        .collect();
+    let merges = commits.iter().filter(|c| c.merge).cloned().collect();
+    Ok(Log {
+        commits,
+        merges,
+        diverged: !is_ancestor(dir, base, head),
+    })
+}
+
+/// What happened on the branch from `base` to `head`: the single definition of "since" that the cells' inputs share.
+/// `main` is the name of the project's main branch, which the work's own files are told from main's by.
+pub fn changes_since(dir: &Path, main: &str, base: &str, head: &str) -> Result<Changes, String> {
+    let Log {
+        commits,
+        merges,
+        diverged,
+    } = log_since(dir, base, head)?;
+    let from = if diverged {
+        git(dir, &["merge-base", base, head])?.trim().to_string()
+    } else {
+        base.to_string()
+    };
+    Ok(Changes {
+        commits,
+        merges,
+        own_files: own_changes(dir, main, &from, head)?,
+        diverged,
+    })
+}
+
 /// The lines the work itself adds and removes at `rev`, against main as merged into `rev`, as the text of a diff with
 /// nothing in it that main's changes elsewhere move: no blob ids, no line numbers and no function names, but one line
 /// of context around each change, which says where it is. What main does in another place of a file the work changed,
@@ -349,6 +455,99 @@ mod tests {
             vec!["design/a.md", "src/x.txt"]
         );
         assert!(own_changes(&dir, "main", "HEAD", "HEAD").unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A new repository whose first branch is main, in a directory of its own to the test.
+    fn fresh(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("wf-agents-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q"]);
+        dir
+    }
+
+    // What happened on a branch since a commit is told from git alone: the commits by first parent with the merges
+    // marked, those merges apart, and the work's own files without what a merge of main brought. Where main is the
+    // base, the merges are the branch's taking main in, and none when it never did.
+    #[test]
+    fn what_happened_since_a_commit_marks_the_merges_and_leaves_out_what_main_brought() {
+        let dir = fresh("changes-since");
+        let start = commit(&dir, &[("a.txt", "a\n")], "Start");
+        run(&dir, &["checkout", "-q", "-b", "plain"]);
+        let plain = commit(&dir, &[("plain.txt", "p\n")], "A branch that never took main in");
+        run(&dir, &["checkout", "-q", "-b", "work", &start]);
+        let w1 = commit(&dir, &[("own1.txt", "1\n")], "First");
+        run(&dir, &["checkout", "-q", "main"]);
+        commit(&dir, &[("main1.txt", "m\n")], "Main's change");
+        run(&dir, &["update-ref", "refs/remotes/origin/main", "main"]);
+        run(&dir, &["checkout", "-q", "work"]);
+        let w2 = commit(&dir, &[("own2.txt", "2\n")], "Second");
+        run(&dir, &["merge", "-q", "--no-edit", "origin/main"]);
+        let merge = run(&dir, &["rev-parse", "HEAD"]);
+        let w3 = commit(&dir, &[("own3.txt", "3\n")], "Third");
+
+        // Since the first commit: the second, the merge and the third, newest first, the merge marked; main's file is
+        // not the work's own.
+        let since = changes_since(&dir, "main", &w1, "HEAD").unwrap();
+        let ids: Vec<(&str, bool)> = since.commits.iter().map(|c| (c.id.as_str(), c.merge)).collect();
+        assert_eq!(
+            ids,
+            [(w3.as_str(), false), (merge.as_str(), true), (w2.as_str(), false)]
+        );
+        assert_eq!(since.commits[0].subject, "Third");
+        assert_eq!(since.merges.len(), 1);
+        assert_eq!(since.merges[0].id, merge);
+        assert_eq!(since.own_files, ["own2.txt", "own3.txt"]);
+        assert!(!since.diverged);
+
+        // Against main, the merge is the branch taking main in, and every commit of the branch is there.
+        let from_main = changes_since(&dir, "main", "origin/main", "HEAD").unwrap();
+        assert_eq!(from_main.merges.len(), 1);
+        assert_eq!(from_main.merges[0].id, merge);
+        assert_eq!(from_main.commits.len(), 4);
+        assert_eq!(from_main.own_files, ["own1.txt", "own2.txt", "own3.txt"]);
+
+        // A branch that never took main in has no merge, though main went on past where it was cut.
+        let never = changes_since(&dir, "main", "origin/main", &plain).unwrap();
+        assert!(never.merges.is_empty(), "{never:?}");
+        assert_eq!(never.own_files, ["plain.txt"]);
+
+        // Nothing since the head itself.
+        let none = changes_since(&dir, "main", "HEAD", "HEAD").unwrap();
+        assert!(none.commits.is_empty() && none.merges.is_empty() && none.own_files.is_empty() && !none.diverged);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A base that is no ancestor of the head, as after the branch was rebuilt on main, still gives what the head has
+    // that the base lacks, with the files counted from the commit they share, and says so; a head the base is ahead
+    // of gives nothing new.
+    #[test]
+    fn a_base_that_is_not_an_ancestor_of_the_head_is_said_and_counted_from_the_shared_commit() {
+        let dir = fresh("changes-diverged");
+        commit(&dir, &[("a.txt", "a\n")], "Start");
+        run(&dir, &["checkout", "-q", "-b", "work"]);
+        let w1 = commit(&dir, &[("own1.txt", "1\n")], "First");
+        let w2 = commit(&dir, &[("own2.txt", "2\n")], "Second");
+        run(&dir, &["checkout", "-q", "main"]);
+        run(&dir, &["update-ref", "refs/remotes/origin/main", "main"]);
+        // The branch rebuilt: one commit on main in place of the two, which has another id.
+        run(&dir, &["checkout", "-q", "-b", "rebuilt"]);
+        let r1 = commit(&dir, &[("own1.txt", "1\n"), ("own2.txt", "2\n")], "Both");
+        let rebuilt = changes_since(&dir, "main", &w2, &r1).unwrap();
+        assert!(rebuilt.diverged);
+        assert_eq!(rebuilt.commits.len(), 1);
+        assert_eq!(rebuilt.commits[0].id, r1);
+        assert!(rebuilt.merges.is_empty());
+        assert_eq!(rebuilt.own_files, ["own1.txt", "own2.txt"]);
+        // The base ahead of the head: nothing of the head's is new.
+        let behind = changes_since(&dir, "main", &w2, &w1).unwrap();
+        assert!(
+            behind.diverged && behind.commits.is_empty() && behind.own_files.is_empty(),
+            "{behind:?}"
+        );
+        // A base that is no commit is an error, not an empty answer.
+        assert!(changes_since(&dir, "main", "no-such-commit", &r1).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

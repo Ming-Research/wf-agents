@@ -1376,6 +1376,56 @@ fn every_sample_takes_its_row() {
     assert_eq!(n, 47);
 }
 
+// The acceptance takes a condition met by a job of the CI or by reading the change, besides tests and measurements, and
+// the conditions table takes a row of either kind beside the others; a kind that is none of these, a row of the CI
+// naming no job, and a reading naming neither where nor what fit no schema.
+#[test]
+fn the_acceptance_and_the_conditions_table_take_a_ci_job_and_a_reading_of_the_diff() {
+    let c = compiled();
+    let g = c.graph("engineer").unwrap();
+    let samples: BTreeMap<String, Vec<Value>> = serde_json::from_str(include_str!("samples.json")).unwrap();
+    let fits = |cell: &str, sample: &Value, place: &str, value: Value| -> Result<String, String> {
+        let mut x = sample.clone();
+        x["outcome"][place] = value;
+        let given: Map<String, Value> = samples[cell][0]["given"].as_object().cloned().unwrap_or_default();
+        g.take(cell, &x, &given).map(|r| r.name.clone())
+    };
+    let design = &samples["D2"][0]["json"];
+    let acceptance = |by: &str| {
+        serde_json::json!([
+            { "by": "test", "id": "A1", "condition": "It works." },
+            { "by": by, "id": "A2", "condition": "The page passes its check." }
+        ])
+    };
+    assert_eq!(fits("D2", design, "acceptance", acceptance("ci")).unwrap(), "first");
+    assert_eq!(fits("D2", design, "acceptance", acceptance("diff")).unwrap(), "first");
+    let e = fits("D2", design, "acceptance", acceptance("by_hand")).unwrap_err();
+    assert!(e.contains("does not fit the schema"), "{e}");
+    // Of the conditions table, adversarial testing's and the engineer's alike.
+    let sample = &samples["T1"][0]["json"];
+    let conditions = |rows: Value| fits("T1", sample, "conditions", rows);
+    let ci_job = serde_json::json!({ "how": "ci_job", "id": "A1", "jobs": ["lint"], "steps": ["npm run check:ui"] });
+    let read_diff =
+        serde_json::json!({ "how": "read_diff", "id": "A2", "where": "flow/flow.json", "what": "The rule." });
+    assert_eq!(
+        conditions(serde_json::json!([ci_job, read_diff])).unwrap(),
+        "for_engineer"
+    );
+    // The steps may be left out, and the whole CI is a job.
+    let whole = serde_json::json!({ "how": "ci_job", "id": "A1", "jobs": ["check"] });
+    assert_eq!(conditions(serde_json::json!([whole])).unwrap(), "for_engineer");
+    for bad in [
+        serde_json::json!({ "how": "ci_job", "id": "A1", "jobs": [] }),
+        serde_json::json!({ "how": "ci_job", "id": "A1", "steps": ["npm run check:ui"] }),
+        serde_json::json!({ "how": "read_diff", "id": "A2", "where": "flow/flow.json" }),
+        serde_json::json!({ "how": "read_diff", "id": "A2", "what": "The rule." }),
+        serde_json::json!({ "how": "by_hand", "id": "A2" }),
+    ] {
+        let e = conditions(serde_json::json!([bad.clone()])).unwrap_err();
+        assert!(e.contains("does not fit the schema"), "{bad}: {e}");
+    }
+}
+
 // A return with its form outside the field it sits in fits no schema; a recorded value changes the row taken.
 #[test]
 fn a_sample_that_does_not_fit_or_takes_another_row_is_found() {
@@ -1837,8 +1887,8 @@ fn a_light_work_plans_in_place_of_the_design_and_goes_straight_to_the_table_revi
 }
 
 // A work on the light route turns to the normal route, to be judged whether it stands, when the research, the plan or
-// the review of the plan says it needs it, or when the review sends the plan back a third time; each of these rows
-// counts `route_to_normal`. A plan sent back before that goes back to be planned again, and counts as a revision.
+// the review of the plan says it needs it, or when the review sends the plan back a third time, and to design when the
+// way on after a reply or an interjection is a redesign; each of these rows counts `route_to_normal`. A plan sent back before that goes back to be planned again, and counts as a revision.
 #[test]
 fn a_light_work_turns_to_the_normal_route_by_rows_that_count_it() {
     let c = compiled();
@@ -1866,6 +1916,29 @@ fn a_light_work_turns_to_the_normal_route_by_rows_that_count_it() {
     );
     let (_, two) = sampled("F2", "revised_out", &[]);
     assert_eq!(g.take("F2", &ret, &two).unwrap().name, "revised_out");
+    // A work redesigned after a reply or an interjection goes to design either way, and is counted only when it was on
+    // the light route.
+    let redesign = serde_json::json!({ "outcome": { "next": { "way": "redesign" } } });
+    for (route, row, counts) in [
+        ("light", "redesign_from_light", Some("route_to_normal")),
+        ("normal", "redesign", None),
+    ] {
+        let given = Map::from_iter(
+            [
+                ("stage", "code"),
+                ("split", "not_split"),
+                ("must_wait", "no"),
+                ("route_taken", route),
+            ]
+            .map(|(k, v)| (k.to_string(), Value::from(v))),
+        );
+        let taken = g.take("A4", &redesign, &given).unwrap();
+        assert_eq!(
+            (taken.name.as_str(), taken.to.as_str(), taken.counts.as_deref()),
+            (row, "D1", counts),
+            "{route}"
+        );
+    }
     // The research of a work its item does not mark goes the normal route whatever it says of the route; one on the
     // light route that says nothing of it goes on light, which the engine's check of the research sends back first.
     let (ret, _) = sampled("R1", "light", &[]);
