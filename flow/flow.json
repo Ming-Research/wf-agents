@@ -5726,7 +5726,8 @@
               ],
               "to": "G4",
               "sets": {
-                "stage": "design_on"
+                "stage": "design_on",
+                "rethought": "no"
               },
               "main": true,
               "note": "The check of the research has the route said whenever the work goes the light route."
@@ -5885,10 +5886,14 @@
             },
             {
               "name": "The code's history",
-              "what": "What the history holds on the code this work touches",
+              "what": "What the history holds on the code this work touches; on a redesign from the light route, the history of like fixes and of that code gathered for the plan",
               "from": [
                 [
                   "G2",
+                  "brief"
+                ],
+                [
+                  "G4",
                   "brief"
                 ]
               ]
@@ -7894,11 +7899,15 @@
             },
             {
               "name": "The design",
-              "what": "The design's description",
+              "what": "The design's description; on the light route, which writes no design, the plan of the fix the review found sound",
               "from": [
                 [
                   "D2",
                   "design"
+                ],
+                [
+                  "F1",
+                  "plan[planned]"
                 ]
               ]
             },
@@ -9941,11 +9950,15 @@
             },
             {
               "name": "The design",
-              "what": "The design's description",
+              "what": "The design's description; on the light route, which writes no design, the plan of the fix the review found sound",
               "from": [
                 [
                   "D2",
                   "design"
+                ],
+                [
+                  "F1",
+                  "plan[planned]"
                 ]
               ]
             },
@@ -11022,11 +11035,15 @@
           "inputs": [
             {
               "name": "The design",
-              "what": "The design as it was merged",
+              "what": "The design as it was merged; on the light route, which writes no design, the plan of the fix the review found sound",
               "from": [
                 [
                   "D2",
                   "design"
+                ],
+                [
+                  "F1",
+                  "plan[planned]"
                 ]
               ]
             },
