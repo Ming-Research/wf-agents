@@ -63,9 +63,25 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             }
             s("implementation")
         }
+        // The light route has no blind review: its first review goes straight to the table.
         "review_round" => {
             let reviewed = !answered(e, w, g, "T3")?.is_empty() || !answered(e, w, g, "T4")?.is_empty();
-            s(if reviewed { "table" } else { "blind" })
+            s(if reviewed || light_route(e, w)? {
+                "table"
+            } else {
+                "blind"
+            })
+        }
+        "route_taken" => s(if light_route(e, w)? { "light" } else { "normal" }),
+        // The reviews of the plan that sent it back since the work last researched the problem, which a plan made
+        // afresh after the item changed counts from.
+        "revisions_before" => {
+            let since = answered(e, w, g, "R1")?.first().map(|r| r.id);
+            let sent_back = answered(e, w, g, "F2")?
+                .iter()
+                .filter(|r| since.is_none_or(|s| r.id > s) && r.transition.as_deref() == Some(PLAN_SENT_BACK))
+                .count();
+            s(if sent_back >= 2 { "two" } else { "fewer" })
         }
         // What the project's configuration says of it, which the design stage's cells choose the way by.
         "records" => s(if e.project_of(w)?.records.is_some() {
@@ -97,6 +113,8 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             Some(_) => "questions",
         }),
         "held" => crate::blockers::held(e, w, g),
+        // Whose ruling the work waits for on where its latest design departs from the decisions of its item.
+        "departures" => s(crate::open_questions::ruling_due(e.db.conn(), w.id, &g.within)?),
         // The notice that an item the work's item depended on was cancelled, which the cells where the work waits take
         // to choose the way on by a row of their own.
         "cancelled" => {
@@ -141,7 +159,13 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
             })
         }
         // A flow version stored before this value was named so calls it `card`.
-        "design_card_disputed" | "card" => s(if design_card_disputed(e, w)? { "yes" } else { "no" }),
+        "design_card_disputed" | "card" => s(
+            if design_card_disputed(e, w)? || crate::open_questions::turned_down(e.db.conn(), w.id, &g.within)? {
+                "yes"
+            } else {
+                "no"
+            },
+        ),
         "came_by" => {
             let from = arrived_from(e, w, g)?.unwrap_or_default();
             let fc = g.cell(&from);
@@ -187,6 +211,20 @@ pub fn value(e: &Engine, w: &Work, g: &CompiledGraph, item: Option<&Item>, name:
         }
         other => Err(format!("no such engine value: {other}")),
     }
+}
+
+/// The row of the review of the plan (cell `F2`) that sends the plan back to be planned again.
+const PLAN_SENT_BACK: &str = "revise";
+
+/// Whether the work goes the light route, as the database's view `work_routes` defines it: by its item's mark before
+/// its research answers, by the research's latest row after, and never again once it turned to the normal route.
+pub fn light_route(e: &Engine, w: &Work) -> Result<bool, String> {
+    let route: Option<String> =
+        e.db.conn()
+            .query_row("SELECT route FROM work_routes WHERE work = ?1", [w.id], |r| r.get(0))
+            .optional()
+            .map_err(|e| e.to_string())?;
+    Ok(route.as_deref() == Some("light"))
 }
 
 /// How many words said to a work are waiting for the line it stands on, which turn its way on.
@@ -266,7 +304,8 @@ pub fn item_merged(e: &Engine, item: i64) -> Result<bool, String> {
 /// Whether the owner chose another option on a current decision card of the work, or disagreed with one: a work that
 /// holds such a card from a flow version before open questions designs again. An answer to an open question is free
 /// text, which only the engineer can judge against the design: it turns the work as an interjection, and a redirect
-/// takes it back to design by the rows of cell `A4`.
+/// takes it back to design by the rows of cell `A4`. The one answer the engine reads is the ruling on a departure from a
+/// decision of the item ([`crate::open_questions::turned_down`]), which the value `design_card_disputed` adds to this.
 fn design_card_disputed(e: &Engine, w: &Work) -> Result<bool, String> {
     Ok(crate::cards::current(e.db.conn(), w.id)?
         .iter()

@@ -503,3 +503,281 @@ impl Analysis<'_, '_> {
         Ok(())
     }
 }
+
+// The walk on a small graph whose states are counted by hand. The count follows from the rules in the text at the top
+// of this file and from nothing in `flow/flow.json`, so it changes only when the walk's rules change, never when a
+// cell or a row of the flow does.
+//
+// Every cell is the engine's own. `pick` and `way` are values the engine knows; `visited` and `stage` are recorded by
+// rows. Q and R are the asking part; X and F answer whoever called them. The rows:
+//
+//   S  left   (pick left)             -> A, records visited no
+//      right  (pick right)            -> B, records visited no
+//      skip   (pick skip)             -> A, records visited skip
+//   A  move   (visited no, way move)  -> Q, entering the asking part
+//      call   (visited no, way call)  -> X, which it calls; records visited yes and stage fresh
+//      finish (visited yes or skip)   -> E
+//   B  the same rows as A
+//   Q  in     -> R
+//   R  back   -> the cell the work stopped at; records visited yes
+//   X  ask    (stage fresh)           -> F, which it calls; records stage asked
+//      answer (stage asked)           -> the cell that called it
+//   F  back   -> the cell that called it
+//   E  the end
+//
+// Walking from S, the states are, by the rules at the top of this file:
+//   S                      the start: 1
+//   A, B from S            left, right and skip, all with nothing stopped and nothing waiting: 3
+//   Q from A or B          move: the work enters the asking part from outside, so it notes where it stopped: 2
+//   X from A or B          call: the cell that calls is added to those that wait: 2
+//   E from A, visited skip finish: 1
+//   R from Q               inside the asking part the note stays: 2
+//   F from X               X calls F, and is added behind the cell that called it: 2
+//   A, B from R            back: the work returns to the cell it stopped at, and forgets the note: 2
+//   X from F               F answers X, the last that waits, which comes off: 2
+//   A, B from X            X answers the cell that called it: 2
+//   E from A or B          finish, after back and after the answer: 4
+// That is 23 states. The tests list them.
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::format::Source;
+
+    const WAY: &[&str] = &["move", "call"];
+    const VISITED: &[&str] = &["no", "yes", "skip"];
+    const STAGE: &[&str] = &["fresh", "asked"];
+
+    /// A row of an engine's cell: it holds when each value it names is one of those listed (always, when it names
+    /// none), goes to `to`, and records `sets`.
+    fn row(name: &str, when: &[(&str, &[&str])], to: &str, sets: &[(&str, &str)]) -> Value {
+        let when: Vec<Value> = match when {
+            [] => vec![json!(["all"])],
+            _ => when.iter().map(|(value, of)| json!(["inp", value, of])).collect(),
+        };
+        let sets: BTreeMap<&str, &str> = sets.iter().copied().collect();
+        json!({ "name": name, "if": when, "to": to, "sets": sets })
+    }
+
+    /// An engine's cell that reads values the engine knows (`known`) and values rows recorded (`recorded`), each with
+    /// the values it can have, and goes on by `rows`.
+    fn cell(id: &str, known: &[(&str, &[&str])], recorded: &[(&str, &[&str])], rows: Vec<Value>) -> Value {
+        let known_inputs = known
+            .iter()
+            .map(|(n, _)| json!({ "name": n, "what": "a value the engine knows", "from": [{ "engine": n }] }));
+        let recorded_inputs = recorded
+            .iter()
+            .map(|(n, _)| json!({ "name": n, "what": "a value rows recorded", "from": [{ "recorded": n }] }));
+        let inputs: Vec<Value> = known_inputs.chain(recorded_inputs).collect();
+        let values: BTreeMap<&str, Vec<[&str; 2]>> = known
+            .iter()
+            .chain(recorded)
+            .map(|(n, vs)| (*n, vs.iter().map(|v| [*v, *v]).collect()))
+            .collect();
+        json!({ "id": id, "kind": "engine", "title": id, "inputs": inputs, "inenums": values, "cases": rows })
+    }
+
+    /// The graph above in a flow with the least a flow needs besides its cells: no line, no role, no tool, and the one
+    /// counter the total time. The graph is built and walked on its own, not compiled, so the engine's names, which
+    /// only `compile` checks, are not given.
+    fn small_graph() -> Source {
+        // A and B have the same rows.
+        let enters = |id: &str| {
+            cell(
+                id,
+                &[("way", WAY)],
+                &[("visited", VISITED)],
+                vec![
+                    row("move", &[("visited", &["no"]), ("way", &["move"])], "Q", &[]),
+                    row(
+                        "call",
+                        &[("visited", &["no"]), ("way", &["call"])],
+                        "X",
+                        &[("visited", "yes"), ("stage", "fresh")],
+                    ),
+                    row("finish", &[("visited", &["yes", "skip"])], "E", &[]),
+                ],
+            )
+        };
+        let nodes = vec![
+            cell(
+                "S",
+                &[("pick", &["left", "right", "skip"])],
+                &[],
+                vec![
+                    row("left", &[("pick", &["left"])], "A", &[("visited", "no")]),
+                    row("right", &[("pick", &["right"])], "B", &[("visited", "no")]),
+                    row("skip", &[("pick", &["skip"])], "A", &[("visited", "skip")]),
+                ],
+            ),
+            enters("A"),
+            enters("B"),
+            cell("Q", &[], &[], vec![row("in", &[], "R", &[])]),
+            cell("R", &[], &[], vec![row("back", &[], "@stopped", &[("visited", "yes")])]),
+            cell(
+                "X",
+                &[],
+                &[("stage", STAGE)],
+                vec![
+                    row("ask", &[("stage", &["fresh"])], "F", &[("stage", "asked")]),
+                    row("answer", &[("stage", &["asked"])], "@caller", &[]),
+                ],
+            ),
+            cell("F", &[], &[], vec![row("back", &[], "@caller", &[])]),
+            cell("E", &[], &[], vec![]),
+        ];
+        let ids: Vec<&str> = nodes.iter().filter_map(|n| n["id"].as_str()).collect();
+        let flow = json!({
+            "format": crate::FORMAT,
+            "shapes": {},
+            "tools": [],
+            "enumText": {
+                "withDesc": "{desc}: {values}",
+                "alone": "{values}",
+                "value": "{value}: {means}",
+                "valueJoin": "; "
+            },
+            "engine": { "steps": {}, "actions": {}, "checks": {}, "inputs": {}, "values": {}, "needs": {} },
+            "flows": [{
+                "name": "small",
+                "start": "S",
+                "end": "E",
+                "blocks": [{ "name": "all", "nodes": ids, "entries": ["S"] }],
+                "sessions": { "lines": [], "rules": [] },
+                "rules": [],
+                "stages": { "rules": [], "list": [{ "name": "run", "desc": "every cell", "nodes": ids }] },
+                "asking": { "nodes": ["Q", "R"], "roles": [], "counts": "time" },
+                "limits": {
+                    "where": "nowhere",
+                    "waits": "nowhere",
+                    "over": "nowhere",
+                    "counters": [{ "name": "time", "desc": "the total time", "time": true }]
+                },
+                "agentCommon": {
+                    "returns": {
+                        "forms": [
+                            { "own": true, "say": "its own answer" },
+                            { "field": "ask", "say": "a question" },
+                            { "field": "tools", "say": "a request for tools" }
+                        ],
+                        "every": [],
+                        "say": "Hand in {forms} in {in}, and {every}.",
+                        "in": { "name": "return", "desc": "the return" },
+                        "join": ", ",
+                        "name": "{name}"
+                    },
+                    "rows": [],
+                    "out": [
+                        { "name": "ask", "title": "Ask", "type": "union", "by": "to", "branches": "askRoles" },
+                        {
+                            "name": "tools",
+                            "title": "Tools",
+                            "type": "list",
+                            "item": { "type": "union", "by": "tool", "branches": "tools" }
+                        }
+                    ]
+                },
+                "nodes": nodes
+            }]
+        });
+        serde_json::from_value(flow).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Builds the small graph, walks it, and hands the analysis to `then`.
+    fn walked<T>(then: impl FnOnce(&Analysis) -> T) -> T {
+        let source = small_graph();
+        let g = Graph::build(&source, &source.flows[0]).unwrap_or_else(|e| panic!("{e}"));
+        let a = Analysis::run(&g).unwrap_or_else(|e| panic!("{e}"));
+        then(&a)
+    }
+
+    /// A state written as one line: the cell, where the work stopped, the cells that wait, the cell the row came from
+    /// and what rows recorded.
+    fn show(a: &Analysis, s: &State) -> String {
+        let id = |i: usize| a.g.cells[i].id.as_str();
+        let callers: Vec<&str> = s.callers.iter().map(|c| id(*c)).collect();
+        let recorded: Vec<String> = s.recorded.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        format!(
+            "{} stopped={} callers=[{}] from={} recorded=[{}]",
+            id(s.at),
+            s.stopped.map_or("-", id),
+            callers.join(","),
+            s.from.map_or("-", id),
+            recorded.join(",")
+        )
+    }
+
+    // The walk finds exactly the states counted by hand above, and the small graph has nothing wrong with it (a row
+    // never taken or a cell never reached would leave states out of the count unnoticed).
+    #[test]
+    fn the_small_graph_has_the_states_counted_by_hand() {
+        let counted = [
+            "S stopped=- callers=[] from=- recorded=[]",
+            "A stopped=- callers=[] from=S recorded=[visited=no]",
+            "B stopped=- callers=[] from=S recorded=[visited=no]",
+            "A stopped=- callers=[] from=S recorded=[visited=skip]",
+            "Q stopped=A callers=[] from=A recorded=[visited=no]",
+            "Q stopped=B callers=[] from=B recorded=[visited=no]",
+            "X stopped=- callers=[A] from=A recorded=[stage=fresh,visited=yes]",
+            "X stopped=- callers=[B] from=B recorded=[stage=fresh,visited=yes]",
+            "E stopped=- callers=[] from=A recorded=[visited=skip]",
+            "R stopped=A callers=[] from=Q recorded=[visited=no]",
+            "R stopped=B callers=[] from=Q recorded=[visited=no]",
+            "F stopped=- callers=[A,X] from=X recorded=[stage=asked,visited=yes]",
+            "F stopped=- callers=[B,X] from=X recorded=[stage=asked,visited=yes]",
+            "A stopped=- callers=[] from=R recorded=[visited=yes]",
+            "B stopped=- callers=[] from=R recorded=[visited=yes]",
+            "X stopped=- callers=[A] from=F recorded=[stage=asked,visited=yes]",
+            "X stopped=- callers=[B] from=F recorded=[stage=asked,visited=yes]",
+            "A stopped=- callers=[] from=X recorded=[stage=asked,visited=yes]",
+            "B stopped=- callers=[] from=X recorded=[stage=asked,visited=yes]",
+            "E stopped=- callers=[] from=A recorded=[visited=yes]",
+            "E stopped=- callers=[] from=B recorded=[visited=yes]",
+            "E stopped=- callers=[] from=A recorded=[stage=asked,visited=yes]",
+            "E stopped=- callers=[] from=B recorded=[stage=asked,visited=yes]",
+        ];
+        assert_eq!(counted.len(), 23);
+        walked(|a| {
+            assert!(a.findings.lines().is_empty(), "{:?}", a.findings.lines());
+            let mut found: Vec<String> = a.states.iter().map(|s| show(a, s)).collect();
+            found.sort();
+            let mut want: Vec<String> = counted.iter().map(|s| s.to_string()).collect();
+            want.sort();
+            assert_eq!(found, want);
+        });
+    }
+
+    // Each of the four parts of a state is what tells two states of the small graph apart: with one part left out,
+    // states that differ in nothing else are one, by the count of what is left:
+    // - stopped: R with the work stopped at A and at B, both from Q (2 states become 1);
+    // - callers: F from X with A and X waiting and with B and X waiting, and X from F with A waiting and with B
+    //   waiting (4 become 2);
+    // - from: E from A and from B after the back, and after the answer (4 become 2);
+    // - recorded: A from S with visited no and with skip (2 become 1), and E from A with skip, with yes, and with yes
+    //   and stage asked (3 become 1), and E from B with yes and with yes and stage asked (2 become 1).
+    #[test]
+    fn each_part_of_a_state_tells_two_states_of_the_small_graph_apart() {
+        walked(|a| {
+            let without = |part: fn(&mut State)| {
+                let left: HashSet<State> = a
+                    .states
+                    .iter()
+                    .cloned()
+                    .map(|mut s| {
+                        part(&mut s);
+                        s
+                    })
+                    .collect();
+                left.len()
+            };
+            assert_eq!(a.states.len(), 23);
+            assert_eq!(without(|s| s.stopped = None), 22);
+            assert_eq!(without(|s| s.callers.clear()), 21);
+            assert_eq!(without(|s| s.from = None), 21);
+            assert_eq!(without(|s| s.recorded.clear()), 19);
+        });
+    }
+}

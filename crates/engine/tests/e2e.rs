@@ -740,12 +740,12 @@ impl GitHub for FakeHub {
                 return Err(Failure::network("gh run list: connection reset"));
             }
         }
-        let red = command("red");
+        let red = command("red") || self.regression_red(sha);
         Ok(vec![CheckRun {
             name: "check".into(),
             result: if red { "red" } else { "green" }.into(),
             run: format!("https://example.invalid/{workflow}/{sha}"),
-            log_tail: None,
+            log_tail: red.then(|| format!("test {REGRESSION} ... FAILED")),
             log_path: None,
         }])
     }
@@ -860,6 +860,28 @@ impl GitHub for FakeHub {
     /// Says the command and the directory it ran in, where the real gh reads which repository it is about.
     fn gh(&self, dir: &Path, args: &[String]) -> Result<(i32, String), Failure> {
         Ok((0, format!("{} in {}", args.join(" "), dir.display())))
+    }
+}
+
+/// The regression test a bug fix of the light route adds, as a file in the test paths that names it.
+const REGRESSION: &str = "regression";
+
+impl FakeHub {
+    /// Whether the commit holds the regression test and not the fix it tests, the word `fixed` in `src/lib.txt`: the
+    /// CI of such a commit is red, as a regression test run on the code before its fix is. No other test makes either.
+    fn regression_red(&self, sha: &str) -> bool {
+        let shown = |path: &str| {
+            std::process::Command::new("git")
+                .arg("--git-dir")
+                .arg(&self.origin)
+                .args(["show", &format!("{sha}:{path}")])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        };
+        shown(&format!("tests/{REGRESSION}.txt")).is_some()
+            && shown("src/lib.txt").is_none_or(|lib| !lib.contains("fixed"))
     }
 }
 
@@ -1323,6 +1345,395 @@ fn an_item_goes_from_the_queue_to_main() {
         base["change"],
         format!("git diff {fork}..{}", base["head"].as_str().unwrap())
     );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// Marks an item for the route its works go.
+fn marked(e: &mut Engine, item: i64, route: &str) {
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET route = ?2 WHERE id = ?1", params![item, route])?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// Runs the engine until the work on the item ends, failing if it pauses or does not end; gives the work.
+fn ran_to_its_end(e: &mut Engine, item: i64, said: &Arc<Mutex<Vec<String>>>) -> i64 {
+    for _ in 0..300 {
+        e.tick().unwrap();
+        if let Some((id, _, paused)) = &state(e, item) {
+            assert!(
+                paused.is_none(),
+                "the work paused: {paused:?}\n{}",
+                said.lock().unwrap().join("\n")
+            );
+            if e.advance(*id).unwrap() == Advance::Stopped {
+                return *id;
+            }
+        }
+    }
+    panic!("the work did not end:\n{}", said.lock().unwrap().join("\n"));
+}
+
+/// The rows a work's rounds took, each as `cell:row`, in order.
+fn rows_said(e: &Engine, work: i64) -> Vec<String> {
+    rows_taken(e, work)
+        .into_iter()
+        .filter_map(|(cell, row)| Some(format!("{cell}:{}", row?)))
+        .collect()
+}
+
+/// The scripts of a bug fix on the light route. The research says the work goes the light route, at its second round:
+/// its first says nothing of the route. The plan has one condition. Implementing fixes the bug with a regression test,
+/// asking for ci on the head and ci_before on the test, then hands in both results of the test; the table review
+/// answers its columns, and nothing of adversarial testing, which the light route has none of.
+fn light_scripts() -> BTreeMap<&'static str, Script> {
+    let mut s = scripts();
+    s.insert(
+        "R1",
+        Box::new(|_: &Request, n: usize| {
+            let route = if n == 1 {
+                Vec::new()
+            } else {
+                vec![("outcome.route", "light")]
+            };
+            (route, Vec::new())
+        }),
+    );
+    s.insert(
+        "F1",
+        Box::new(|_: &Request, _: usize| {
+            let plan = json!({
+                "verdict": "planned", "cause": "The parser drops the last line.", "change": "Keep the last line.",
+                "tests": "regression: red before the fix, green after it.",
+                "acceptance": [{ "by": "test", "id": "A1", "condition": "The last line is kept." }],
+            });
+            (Vec::new(), vec![("outcome.plan", plan)])
+        }),
+    );
+    s.insert(
+        "I1",
+        Box::new(|r: &Request, _: usize| {
+            let wt = &r.worktree;
+            let done = git(wt, &["log", "--format=%s"]).lines().any(|l| l == "Fix the bug");
+            if !done {
+                write(wt, "src/lib.txt", "old\nfixed\n");
+                write(wt, &format!("tests/{REGRESSION}.txt"), &format!("{REGRESSION}\n"));
+                git(wt, &["add", "-A"]);
+                git(wt, &["commit", "-q", "-m", "Fix the bug"]);
+                let head = git(wt, &["rev-parse", "HEAD"]);
+                let tools = json!([
+                    { "tool": "ci", "head": head, "tests": [REGRESSION],
+                      "pr": { "title": "Fix the bug", "body": "It fixes it." } },
+                    { "tool": "ci_before", "head": head, "files": [format!("tests/{REGRESSION}.txt")],
+                      "tests": [REGRESSION] },
+                ]);
+                return (vec![("outcome", "tools")], vec![("outcome.tools", tools)]);
+            }
+            let head = git(wt, &["rev-parse", "HEAD"]);
+            // The regression test is written once, in the test changes, with its two results.
+            let added = json!([{ "change": "added", "test": REGRESSION, "catches": "The last line dropped.",
+                                 "kind": "new_behaviour", "on_head": "green", "on_base": "red",
+                                 "time": "1 ms", "worth": "No other test reads the last line." }]);
+            (
+                Vec::new(),
+                vec![
+                    ("outcome.head", json!(head)),
+                    ("outcome.test_changes", added),
+                    (
+                        "outcome.conditions",
+                        json!([{ "how": "tested", "id": "A1", "tests": [REGRESSION] }]),
+                    ),
+                ],
+            )
+        }),
+    );
+    s.insert("T4", answers_columns(|_| Vec::new()));
+    s
+}
+
+// A bug fix goes the light route from its start to main. Its research, sent back once for saying nothing of the route
+// its item is marked for, says it goes light; like fixes are gathered, the plan is made and found sound, which locks the
+// plan's acceptance, and the fix is implemented with a regression test that ci_before shows red before the change and ci
+// green after it. The full CI runs on the draft, and the table review, which goes on in the session that reviewed the
+// plan, is given both results of the test. No round of the judgment whether it stands, the design, its checks,
+// adversarial testing or the blind review runs.
+#[test]
+fn a_bug_fix_goes_the_light_route_from_its_start_to_main() {
+    let s = setup("light-route");
+    let (mut e, said, item) = start(&s, light_scripts());
+    marked(&mut e, item, "bugfix");
+    let work = ran_to_its_end(&mut e, item, &said);
+    let log = said.lock().unwrap().join("\n");
+    let rows = rows_said(&e, work);
+    let wanted = [
+        "R1:light",
+        "G4:done",
+        "F1:planned",
+        "F2:sound",
+        "I1:done",
+        "T7:full_ci",
+        "T2:review_again",
+        "T4:done",
+        "M2:merged",
+    ];
+    let mut at = rows.iter();
+    for w in wanted {
+        assert!(at.any(|r| r == w), "no {w} in order: {rows:?}\n{log}");
+    }
+    let ran: Vec<String> = path_of(&e, work);
+    for skipped in [
+        "R2", "G2", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11", "T1", "T3", "G3",
+    ] {
+        assert!(!ran.iter().any(|c| c == skipped), "{skipped} ran: {ran:?}");
+    }
+    assert_eq!(counted(&e, work, "route_to_normal"), 0, "{rows:?}");
+    assert_eq!(route_of(&e, work), "light");
+    // The research that said nothing of the route was sent back for it, once.
+    let back = why_sent_back(&e, work, "R1");
+    assert_eq!(back.len(), 1, "{back:?}");
+    assert!(
+        back[0].contains("the work goes the light route: say in route whether"),
+        "{back:?}"
+    );
+    // The plan found sound locked its acceptance, from the plan's round.
+    let (acceptance, locked_at): (String, i64) =
+        e.db.conn()
+            .query_row(
+                "SELECT acceptance, acceptance_round FROM items WHERE id = ?1",
+                [item],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+    assert!(acceptance.contains("The last line is kept."), "{acceptance}");
+    let planned: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT n FROM rounds WHERE work = ?1 AND cell = 'F1' AND transition = 'planned'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(locked_at, planned);
+    // ci_before ran the regression test on the code before the change, which was red.
+    let before: String =
+        e.db.conn()
+            .query_row(
+                "SELECT result FROM tool_runs WHERE work = ?1 AND tool = 'ci_before'",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(before.contains("\"result\":\"red\""), "{before}");
+    // The table review is given the test's results before and after the change, in the session of the plan's review.
+    let review = message_at(&e, work, "T4", false);
+    let results = given_value(&review, "·engine·new_tests").expect(&review);
+    assert_eq!(
+        results,
+        json!([{ "name": REGRESSION, "by": "engineer", "on_head": "green", "on_base": "red" }])
+    );
+    assert_eq!(session_of(&e, work, "T4"), session_of(&e, work, "F2"));
+    let main = git(
+        &s.root,
+        &["--git-dir", &s.origin.to_string_lossy(), "show", "main:src/lib.txt"],
+    );
+    assert_eq!(main, "old\nfixed");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The review of the plan sends it back twice, and each time the work plans it again; the third time it still sends it
+// back, the work turns to the normal route, counted once. It is then judged to stand, designed and checked, and its first
+// review is the blind review, in a session of its own and not the one that reviewed the plan, which the table review goes
+// on in.
+#[test]
+fn a_plan_sent_back_a_third_time_turns_the_work_to_the_normal_route() {
+    let s = setup("light-to-normal");
+    let mut agents = scripts();
+    agents.insert(
+        "R1",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.route", "light")], Vec::new())),
+    );
+    agents.insert(
+        "F2",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.review", "revise")], Vec::new())),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    marked(&mut e, item, "feature");
+    let work = ran_to_its_end(&mut e, item, &said);
+    let rows = rows_said(&e, work);
+    let wanted = [
+        "R1:light",
+        "G4:done",
+        "F1:planned",
+        "F2:revise",
+        "F1:planned",
+        "F2:revise",
+        "F1:planned",
+        "F2:revised_out",
+        "R2:stands",
+        "D2:first",
+        "D11:not_needed",
+        "I1:done",
+        "T2:review_first",
+        "T3:done",
+        "G3:done",
+        "T4:done",
+        "M2:merged",
+    ];
+    let mut at = rows.iter();
+    for w in wanted {
+        assert!(at.any(|r| r == w), "no {w} in order: {rows:?}");
+    }
+    assert_eq!(counted(&e, work, "plan_revisions"), 2, "{rows:?}");
+    assert_eq!(counted(&e, work, "route_to_normal"), 1, "{rows:?}");
+    // The design's acceptance is the one locked, not the last plan's.
+    let acceptance: String =
+        e.db.conn()
+            .query_row("SELECT acceptance FROM items WHERE id = ?1", [item], |r| r.get(0))
+            .unwrap();
+    assert!(acceptance.contains("The feature is there."), "{acceptance}");
+    let (plan, blind, table) = (
+        session_of(&e, work, "F2"),
+        session_of(&e, work, "T3"),
+        session_of(&e, work, "T4"),
+    );
+    assert_ne!(plan, blind);
+    assert_eq!(blind, table);
+    assert_eq!(route_of(&e, work), "turned");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+/// The route the work goes, as the view the engine, the owner's page and the architect's board read it.
+fn route_of(e: &Engine, work: i64) -> String {
+    e.db.conn()
+        .query_row("SELECT route FROM work_routes WHERE work = ?1", [work], |r| r.get(0))
+        .unwrap()
+}
+
+// A bug fix on the light route that the owner's word sends back to design after it was implemented turns to the normal
+// route by the way on's own row, counted as any turn is, and is designed, checked and blind reviewed. Its table review
+// has the columns of what ran: the plan its review found sound and the plan's tests, and no judgment that the work
+// stands, which never ran.
+#[test]
+fn a_bug_fix_redesigned_from_the_light_route_turns_to_the_normal_route() {
+    let s = setup("light-redesign");
+    let mut agents = light_scripts();
+    // Turned to the normal route, its table review judges its design's choice of no adversarial testing, as any first
+    // review of such a design does.
+    agents.insert("T4", answers_columns(|_| vec![("outcome.no_adversarial", "stands")]));
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, n: usize| {
+            let next = if n == 1 { "redesign" } else { "carry_on" };
+            (vec![("outcome.next", next)], Vec::new())
+        }),
+    );
+    // The design hands in the acceptance the plan locked, word for word.
+    agents.insert(
+        "D2",
+        Box::new(|_: &Request, _: usize| {
+            (
+                vec![("outcome.measure", "not_measured")],
+                vec![(
+                    "outcome.acceptance",
+                    json!([{ "by": "test", "id": "A1", "condition": "The last line is kept." }]),
+                )],
+            )
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    marked(&mut e, item, "bugfix");
+    step_to(&mut e, item, "T7");
+    let (work, _, _) = state(&e, item).unwrap();
+    assert_eq!(route_of(&e, work), "light");
+    owner_says(&mut e, work, "Design it after all: the parser's interface changes.");
+    let ended = ran_to_its_end(&mut e, item, &said);
+    assert_eq!(ended, work);
+    let rows = rows_said(&e, work);
+    let wanted = [
+        "R1:light",
+        "F2:sound",
+        "I1:done",
+        "A4:redesign_from_light",
+        "D2:first",
+        "T2:review_first",
+        "T3:done",
+        "T4:done",
+        "M2:merged",
+    ];
+    let mut at = rows.iter();
+    for w in wanted {
+        assert!(at.any(|r| r == w), "no {w} in order: {rows:?}");
+    }
+    assert_eq!(counted(&e, work, "route_to_normal"), 1, "{rows:?}");
+    assert_eq!(route_of(&e, work), "turned");
+    let review = message_at(&e, work, "T4", false);
+    assert!(review.contains("The plan the review found sound"), "{review}");
+    assert!(review.contains("The plan's tests"), "{review}");
+    assert!(
+        !review.contains("The research's judgment that the work stands"),
+        "{review}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work past its research keeps the route it took, as the design and the items' table say: an item that went the
+// normal route and is marked a bug fix once its research answered still has its work judged whether it stands, designed
+// and checked, and its first review is the blind review; nothing of the light route runs, and no turn is counted.
+#[test]
+fn an_item_marked_a_bug_fix_after_its_research_keeps_its_work_on_the_normal_route() {
+    let s = setup("marked-late");
+    let (mut e, said, item) = start(&s, scripts());
+    let mut researched = None;
+    for _ in 0..100 {
+        e.tick().unwrap();
+        if let Some((id, _, paused)) = &state(&e, item) {
+            assert!(paused.is_none(), "the work paused: {paused:?}");
+            if rows_said(&e, *id).iter().any(|r| r == "R1:done") {
+                researched = Some(*id);
+                break;
+            }
+            e.advance(*id).unwrap();
+        }
+    }
+    let work = researched.expect("the research did not answer");
+    // The item is marked while the work is still well before its review.
+    let before = path_of(&e, work);
+    assert!(!before.iter().any(|c| c == "T7"), "{before:?}");
+    marked(&mut e, item, "bugfix");
+    let ended = ran_to_its_end(&mut e, item, &said);
+    assert_eq!(ended, work);
+    let rows = rows_said(&e, work);
+    let wanted = [
+        "R1:done",
+        "R2:stands",
+        "D2:first",
+        "D11:not_needed",
+        "I1:done",
+        "T2:review_first",
+        "T3:done",
+        "G3:done",
+        "T4:done",
+        "M2:merged",
+    ];
+    let mut at = rows.iter();
+    for w in wanted {
+        assert!(at.any(|r| r == w), "no {w} in order: {rows:?}");
+    }
+    let ran = path_of(&e, work);
+    for light in ["G4", "F1", "F2"] {
+        assert!(!ran.iter().any(|c| c == light), "{light} ran: {ran:?}");
+    }
+    assert_eq!(counted(&e, work, "route_to_normal"), 0, "{rows:?}");
+    // The work goes the normal route as its page and the board show it, whatever the item's mark says now.
+    assert_eq!(route_of(&e, work), "normal");
+    // The table review is asked of the judgment that the work stands, and not of a plan.
+    let review = message_at(&e, work, "T4", false);
+    assert!(
+        review.contains("The research's judgment that the work stands"),
+        "{review}"
+    );
+    assert!(!review.contains("The plan the review found sound"), "{review}");
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
@@ -3497,7 +3908,8 @@ fn the_design_stage_goes_its_way_by_the_engines_rows() {
     let (mut e, said, item) = start(&s, scripts());
     step_to(&mut e, item, "I1");
     let log = said.lock().unwrap().join("\n");
-    for (cell, row) in [("D4", "no"), ("D8", "no")] {
+    // An item with no decision has none its design departs from: the wait for a ruling lets the work go at once.
+    for (cell, row) in [("D4", "no"), ("D8", "no"), ("D12", "clear")] {
         assert_eq!(
             ended_at(&e, item, cell),
             [(Some(row.to_string()), None)],
@@ -11544,6 +11956,679 @@ fn an_open_question_handed_in_again_is_put_once() {
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+/// The line of a decision the owner made, as an item written by hand lists it under its head, after a list mark.
+const OWNER_DECIDED: &str = "Decision (2026-11-01, owner): Keep the light way on a path of its own. Situation: s. \
+                             Reason: r. Replaces: none. Words: \"own path\" (matter 99, 2026-11-01)";
+
+/// The line of a decision the architect made.
+const ARCHITECT_DECIDED: &str = "Decision (2026-11-01, architect): Keep the light way on a path of its own. Situation: \
+                                 s. Reason: r. Replaces: none. Words: \"own path\" (matter 98, 2026-11-01)";
+
+/// What the designs of these tests do, in their solution: otherwise than the decisions above.
+const ON_THE_MAIN_PATH: &str = "Keep the light way on the main path, skipping cells.";
+
+/// The owner's ruling on the departure, which lets the design's way stand.
+const LET_IT_STAND: &str = "Let the main path stand.";
+
+/// Writes an item's approach, as the owner does.
+fn set_approach(e: &mut Engine, item: i64, approach: &str) {
+    e.db.write(Actor::Owner, |tx| {
+        tx.execute("UPDATE items SET approach = ?2 WHERE id = ?1", params![item, approach])?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// An item's approach as it stands.
+fn approach_of(e: &Engine, item: i64) -> String {
+    e.db.conn()
+        .query_row("SELECT coalesce(approach, '') FROM items WHERE id = ?1", [item], |r| {
+            r.get(0)
+        })
+        .unwrap()
+}
+
+/// A design whose solution keeps the light way on the main path, answering the item's decisions by `rows`.
+fn designs_answering(rows: Value) -> Script {
+    Box::new(move |_: &Request, _: usize| {
+        (
+            vec![("outcome.measure", "not_measured")],
+            vec![
+                (
+                    "outcome.acceptance",
+                    json!([{ "by": "test", "id": "A1", "condition": "The feature is there." }]),
+                ),
+                (
+                    "outcome.design",
+                    json!({ "solution": ON_THE_MAIN_PATH, "where": "The flow.", "excluded": "Nothing.", "pitfalls": "None." }),
+                ),
+                ("outcome.item_decisions", rows.clone()),
+            ],
+        )
+    })
+}
+
+/// A review of the design that finds the design's answer to each decision `ids` names stands against its solution.
+fn tries_the_answers(ids: &'static [&'static str]) -> Script {
+    Box::new(move |_: &Request, _: usize| {
+        let rows: Vec<Value> = ids
+            .iter()
+            .map(|id| json!({ "decision": id, "verdict": "holds", "passage": ON_THE_MAIN_PATH, "why": "It is what it does." }))
+            .collect();
+        (
+            vec![("outcome.better", "present_best")],
+            vec![("outcome.claims", json!({ "articles": [], "decisions": rows }))],
+        )
+    })
+}
+
+/// A design that departs from the item's one decision, and the review that finds it does.
+fn departing(agents: &mut BTreeMap<&'static str, Script>) {
+    let row = json!({ "decision": "L1", "verdict": "departs", "passage": ON_THE_MAIN_PATH, "instead": "One path is simpler to keep." });
+    agents.insert("D2", designs_answering(json!([row])));
+    agents.insert("D3", tries_the_answers(&["L1"]));
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "carry_on")], Vec::new())),
+    );
+}
+
+/// The architect ruling on a departure from its own decision each time it is asked, by `ruling`: `stands` or
+/// `turned_down`.
+fn rules_on_its_own(ruling: &'static str) -> Script {
+    Box::new(move |_: &Request, _: usize| {
+        let reply = json!({ "text": "As ruled.", "why": "My own decision.", "departure": ruling });
+        (Vec::new(), vec![("outcome.reply", reply)])
+    })
+}
+
+/// A work's blockers, oldest first: each with the cell that raised it, its holder, its kind and whether it ended.
+fn blockers_of(e: &Engine, work: i64) -> Vec<(String, String, String, bool)> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT cell, holder, kind, ended IS NOT NULL FROM blockers WHERE work = ?1 ORDER BY id")
+            .unwrap();
+    st.query_map([work], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// Why each return of a cell of any work was sent back, in order.
+fn sent_back_at(e: &Engine, cell: &str) -> Vec<String> {
+    let mut st =
+        e.db.conn()
+            .prepare("SELECT rejected FROM rounds WHERE cell = ?1 AND rejected IS NOT NULL ORDER BY work, n")
+            .unwrap();
+    st.query_map([cell], |r| r.get(0))
+        .unwrap()
+        .map(|x| x.unwrap())
+        .collect()
+}
+
+/// The record of the owner's ruling on a departure, at the cell that records the decisions of a batch: first as nothing
+/// to record, which is sent back; then as a decision of another item than the one the departure is about (the
+/// project's other item, the newest), which is sent back too; then as a decision of the item the departure is about,
+/// quoting the owner's words in the ask, that replaces the decision departed from.
+fn records_the_ruling(path: PathBuf) -> Script {
+    Box::new(move |_: &Request, n: usize| {
+        let c = db::open_read(&path).unwrap();
+        let (m, item, ask): (i64, i64, i64) = c
+            .query_row(
+                "SELECT m.id, m.item, a.id FROM architect_matters m, owner_asks a, json_each(a.body, '$.holds') h
+                 WHERE m.kind = 'open_question' AND h.value = m.id AND a.answer IS NOT NULL
+                 ORDER BY a.id DESC LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        if n == 1 {
+            let looked = json!([{ "matter": m, "verdict": "nothing", "why": "Nothing to record." }]);
+            return (Vec::new(), vec![("outcome.looked", looked)]);
+        }
+        // The second record puts the ruling in the project's other item, not the one whose decision was departed from.
+        let into = if n == 2 {
+            c.query_row("SELECT max(id) FROM items WHERE id <> ?1", [item], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap()
+        } else {
+            item
+        };
+        let decision = json!({
+            "item": into.to_string(),
+            "what": "The light way stays on the main path",
+            "situation": "The design departed from the decision",
+            "reason": "One path is simpler to keep",
+            "reason_by": "said",
+            "replaces": "Keep the light way on a path of its own (2026-11-01)",
+            "words": [{ "from": "ask", "id": ask, "quote": LET_IT_STAND }],
+        });
+        (
+            Vec::new(),
+            vec![
+                (
+                    "outcome.looked",
+                    json!([{ "matter": m, "verdict": "decision", "why": "It rules on the departure." }]),
+                ),
+                ("outcome.decisions", json!([decision])),
+            ],
+        )
+    })
+}
+
+// A design that departs from a decision the owner made stops the work once the checks after design passed, before it
+// implements: it waits for the ruling, the owner holds its blocker, and the architect's queue has the open question
+// that names the decision's line. The architect's reply on its own judgment is sent back, since only whoever made a
+// decision rules on a departure from it; it pins the question for the owner, and replies once the owner answered. The
+// engineer is told the ruling, carries on, comes back to the wait, which now lets it go, and implements, its blocker
+// ended. The batch that handled the ruling records it in the item by the owner's words in the ask, replacing the
+// decision departed from; a record that leaves the ruling out is sent back.
+#[test]
+fn a_design_departing_from_the_owner_s_decision_waits_for_the_owner_s_ruling_before_it_implements() {
+    let s = setup("departs-owner");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    departing(&mut agents);
+    let at = path.clone();
+    agents.insert(
+        "H3",
+        Box::new(move |r: &Request, n: usize| {
+            if r.prompt.contains(LET_IT_STAND) {
+                let reply =
+                    json!({ "text": "Keep it on the main path.", "why": "The owner let it stand.", "departure": "stands" });
+                return (Vec::new(), vec![("outcome.reply", reply)]);
+            }
+            if n == 1 {
+                let reply = json!({ "text": "Go on.", "why": "It is small." });
+                return (Vec::new(), vec![("outcome.reply", reply)]);
+            }
+            let c = db::open_read(&at).unwrap();
+            let link: String = c
+                .query_row(
+                    "SELECT body ->> '$.design_link' FROM architect_matters WHERE kind = 'open_question' ORDER BY id LIMIT 1",
+                    [],
+                    |x| x.get(0),
+                )
+                .unwrap();
+            asks_the_owner(&format!("The design departs from your decision. See [the design]({link})."))
+        }),
+    );
+    agents.insert("B5", records_the_ruling(path.clone()));
+    agents.insert("B2", review_all_sound(path.clone()));
+    let (mut e, said, item) = start(&s, agents);
+    set_approach(
+        &mut e,
+        item,
+        &format!("Approach:\n- Do it.\n\nDecisions:\n- {OWNER_DECIDED}"),
+    );
+    // Another item of the project, which a record of the ruling may wrongly name; it waits in no queue.
+    let other =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'Another', 'x', 'y', 'change', 'l')",
+                [],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })
+        .unwrap();
+    step_to(&mut e, item, "D12");
+    let (work, _, _) = state(&e, item).unwrap();
+    e.advance(work).unwrap();
+    let log = |said: &Arc<Mutex<Vec<String>>>| said.lock().unwrap().join("\n");
+    assert_eq!(
+        ended_at(&e, item, "D12").first().map(|x| x.0.clone()),
+        Some(Some("wait_owner".to_string())),
+        "{}",
+        log(&said)
+    );
+    assert!(ended_at(&e, item, "I1").is_empty(), "{}", log(&said));
+    assert_eq!(
+        blockers_of(&e, work),
+        [("D12".to_string(), "owner".to_string(), "ruling".to_string(), false)],
+        "{}",
+        log(&said)
+    );
+    let asked = open_questions(&e, work);
+    assert_eq!(asked.len(), 1, "{}", log(&said));
+    assert_eq!(
+        asked[0].1,
+        format!("The design departs from this decision of the item: - {OWNER_DECIDED}")
+    );
+    let matter = asked[0].0;
+    let departs = matter_body(&e, matter);
+    assert_eq!(
+        (&departs["departs"]["by"], &departs["passage"]),
+        (&json!("owner"), &json!(ON_THE_MAIN_PATH)),
+        "{departs}"
+    );
+    // The architect's own reply is sent back, and it pins the question for the owner instead.
+    let pinned = |e: &mut Engine| parked_for(e, matter).is_some();
+    assert!(steps_until(&mut e, 80, pinned), "{}", log(&said));
+    let back = sent_back_at(&e, "H3");
+    assert!(
+        back.len() == 1 && back[0].contains("departure_ruled_by_owner"),
+        "{back:?}"
+    );
+    // The work waits for the ruling meanwhile, and implements nothing.
+    for _ in 0..3 {
+        e.advance(work).unwrap();
+    }
+    assert!(ended_at(&e, item, "I1").is_empty(), "{}", log(&said));
+    assert_eq!(open_questions(&e, work)[0].2, None);
+    let (ask, _) = parked_for(&e, matter).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, LET_IT_STAND, &[], db::Speaker::Owner).unwrap();
+    let implements =
+        |e: &mut Engine| state(e, item).is_some_and(|x| x.1 == "I1") || !ended_at(e, item, "I1").is_empty();
+    assert!(steps_until(&mut e, 160, implements), "{}", log(&said));
+    let rows = transitions(&e, item, "D12");
+    assert!(
+        rows.first().map(String::as_str) == Some("wait_owner")
+            && rows.iter().any(|r| r == "interjection")
+            && rows.last().map(String::as_str) == Some("clear"),
+        "{rows:?}\n{}",
+        log(&said)
+    );
+    assert!(
+        transitions(&e, item, "A4").iter().any(|r| r == "carry_on"),
+        "{}",
+        log(&said)
+    );
+    assert!(blockers_of(&e, work).iter().all(|b| b.3), "{:?}", blockers_of(&e, work));
+    // The ruling is recorded in the item as a decision of the owner's that replaces the one departed from, once a record
+    // that left it out was sent back.
+    let recorded = |e: &mut Engine| approach_of(e, item).contains(LET_IT_STAND);
+    assert!(steps_until(&mut e, 160, recorded), "{}", log(&said));
+    let approach = approach_of(&e, item);
+    let line = approach.lines().find(|l| l.contains(LET_IT_STAND)).unwrap();
+    assert!(
+        line.starts_with("Decision (")
+            && line.contains(", owner): The light way stays on the main path.")
+            && line.contains("Replaces: Keep the light way on a path of its own (2026-11-01)."),
+        "{line}"
+    );
+    assert!(approach.contains(OWNER_DECIDED), "{approach}");
+    let back = sent_back_at(&e, "B5");
+    // A record that put the ruling in another item was sent back too, and that item holds no line of it.
+    assert!(
+        back.len() == 2
+            && back[0].contains(&format!("matter {matter} is the owner's ruling"))
+            && back[1].contains(&format!("record it in item {item}, beside the decision departed from")),
+        "{back:?}"
+    );
+    assert!(
+        !approach_of(&e, other).contains(LET_IT_STAND),
+        "{}",
+        approach_of(&e, other)
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A design that departs only from a decision the architect made waits for the architect's ruling: the architect holds
+// its blocker, and its reply on its own judgment rules on it, with nothing asked of the owner; the engineer carries on
+// and the work implements, its blocker ended. The architect's own answer is no word of the owner's: no batch records it.
+#[test]
+fn a_design_departing_from_the_architect_s_decision_waits_for_the_architect() {
+    let s = setup("departs-architect");
+    let mut agents = scripts();
+    departing(&mut agents);
+    agents.insert("H3", rules_on_its_own("stands"));
+    let (mut e, said, item) = start(&s, agents);
+    set_approach(&mut e, item, &format!("Decisions:\n{ARCHITECT_DECIDED}"));
+    step_to(&mut e, item, "D12");
+    let (work, _, _) = state(&e, item).unwrap();
+    e.advance(work).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        ended_at(&e, item, "D12").first().map(|x| x.0.clone()),
+        Some(Some("wait_architect".to_string())),
+        "{log}"
+    );
+    assert_eq!(
+        blockers_of(&e, work),
+        [("D12".to_string(), "architect".to_string(), "ruling".to_string(), false)],
+        "{log}"
+    );
+    let implements =
+        |e: &mut Engine| state(e, item).is_some_and(|x| x.1 == "I1") || !ended_at(e, item, "I1").is_empty();
+    assert!(
+        steps_until(&mut e, 120, implements),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        transitions(&e, item, "D12").last().map(String::as_str),
+        Some("clear"),
+        "{log}"
+    );
+    assert!(blockers_of(&e, work).iter().all(|b| b.3), "{:?}", blockers_of(&e, work));
+    assert!(sent_back_at(&e, "H3").is_empty(), "{log}");
+    let asks: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM owner_asks", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(asks, 0, "{log}");
+    let b5: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM rounds WHERE cell = 'B5'", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(b5, 0, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A design that follows each decision of its item, or is not concerned by it, goes on past the wait for a ruling at
+// once, as a design of an item with no decision does: no blocker, and no question put.
+#[test]
+fn a_design_true_to_its_item_s_decisions_goes_on_past_the_wait_for_a_ruling() {
+    let s = setup("departs-none");
+    let mut agents = scripts();
+    let rows = json!([
+        { "decision": "L1", "verdict": "follows", "passage": ON_THE_MAIN_PATH },
+        { "decision": "L2", "verdict": "not_concerned", "why": "It is about the page." },
+    ]);
+    agents.insert("D2", designs_answering(rows));
+    agents.insert("D3", tries_the_answers(&["L1", "L2"]));
+    let (mut e, said, item) = start(&s, agents);
+    set_approach(
+        &mut e,
+        item,
+        "Decisions:\n- Decision (2026-11-01, owner): Keep it on the main path.\nDecision (2026-11-02, owner): Blue \
+         buttons.",
+    );
+    step_to(&mut e, item, "I1");
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(ended_at(&e, item, "D12"), [(Some("clear".to_string()), None)], "{log}");
+    assert!(blockers_of(&e, work).is_empty(), "{log}");
+    assert!(open_questions(&e, work).is_empty(), "{log}");
+    // The design's round was given the two decisions, the line listed by hand among them, and keeps them as numbered.
+    let given = input_at(&e, work, "D2", false)["engine"]["decisions"].clone();
+    assert_eq!(
+        given,
+        json!([
+            { "decision": "L1", "line": "- Decision (2026-11-01, owner): Keep it on the main path.", "by": "owner" },
+            { "decision": "L2", "line": "Decision (2026-11-02, owner): Blue buttons.", "by": "owner" },
+        ])
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A work that delivers a report goes on from the checks after design by its own way, past the wait for a ruling, which
+// lets it go at once when its design departs from nothing.
+#[test]
+fn a_report_goes_on_past_the_wait_for_a_ruling() {
+    let s = setup("departs-report");
+    let (mut e, said) = engine(&s, scripts());
+    quiet(&mut e);
+    let item =
+        e.db.write(Actor::Owner, |tx| {
+            tx.execute(
+                "INSERT INTO items (project, title, problem, why, deliver, level)
+                 VALUES ('p', 'Study the parser', 'x', 'y', 'report', 'l')",
+                [],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO dispatch_queue (item, position) VALUES (?1, 1.0)",
+                params![id],
+            )?;
+            Ok(id)
+        })
+        .unwrap();
+    step_to(&mut e, item, "I1");
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(transitions(&e, item, "D10"), ["report"], "{log}");
+    assert_eq!(transitions(&e, item, "D12"), ["clear"], "{log}");
+    assert!(ended_at(&e, item, "D11").is_empty(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// Each version of a design is through its review once: the review's better design is written and goes on past it,
+// and a design written again after the work went back to design for what was said to it is reviewed again, not sent
+// straight on to the checks after design.
+#[test]
+fn a_design_written_again_after_the_work_went_back_to_design_is_reviewed_again() {
+    let s = setup("redesign-reviewed");
+    let mut agents = scripts();
+    agents.insert(
+        "D3",
+        Box::new(|_: &Request, n: usize| {
+            let verdict = if n == 1 { "found" } else { "present_best" };
+            (vec![("outcome.better", verdict)], Vec::new())
+        }),
+    );
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, _: usize| (vec![("outcome.next", "redesign")], Vec::new())),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    step_to(&mut e, item, "T7");
+    let (work, _, _) = state(&e, item).unwrap();
+    owner_says(&mut e, work, "Design it again.");
+    advance_until(&mut e, work, |e| transitions(e, item, "D3").len() == 2);
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(transitions(&e, item, "D2"), ["first", "revised", "first"], "{log}");
+    assert_eq!(transitions(&e, item, "D3"), ["found", "present_best"], "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// The design (part 5) says that when whoever made a decision turns a departure down, the engineer redesigns from D1. A
+// design written again that still departs from the same decision has had no ruling: the ruling given was on the earlier
+// design, and it said no. So the work waits at the wait for a ruling again, and does not go on to implement. Here the
+// architect turns down a departure from its own decision, the engineer redesigns, and the new design departs in the
+// same way. Once that one is turned down too, the engineer's choice to carry on with it anyway is a flow anomaly, not a
+// way to implement: the ruling the engine reads says the design must change.
+#[test]
+fn a_design_written_again_that_still_departs_after_its_departure_was_turned_down_waits_again() {
+    let s = setup("departs-again");
+    let mut agents = scripts();
+    departing(&mut agents);
+    // The first ruling sends the work back to design; any later one lets it carry on.
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, n: usize| {
+            let next = if n == 1 { "redesign" } else { "carry_on" };
+            (vec![("outcome.next", next)], Vec::new())
+        }),
+    );
+    // The architect turns the departure down each time it is asked.
+    agents.insert("H3", rules_on_its_own("turned_down"));
+    let (mut e, said, item) = start(&s, agents);
+    set_approach(&mut e, item, &format!("Decisions:\n{ARCHITECT_DECIDED}"));
+    step_to(&mut e, item, "D12");
+    let (work, _, _) = state(&e, item).unwrap();
+    e.advance(work).unwrap();
+    // The wait, the ruling coming in as an interjection, and the wait for the design written again.
+    let judged_again = |e: &mut Engine| transitions(e, item, "D12").len() >= 3;
+    assert!(
+        steps_until(&mut e, 200, judged_again),
+        "{:?}\n{}",
+        transitions(&e, item, "D12"),
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(transitions(&e, item, "D2"), ["first", "first"], "{log}");
+    let rows = transitions(&e, item, "D12");
+    // The design written again departs from the decision the ruling kept, so it waits for a ruling of its own; going on
+    // to implement here means a turned-down departure got past the wait.
+    assert_eq!(
+        rows[..3],
+        ["wait_architect", "interjection", "wait_architect"],
+        "{rows:?}\n{log}"
+    );
+    // The second design turned down, carrying on with it goes to the architect as a flow anomaly.
+    let chose_again = |e: &mut Engine| transitions(e, item, "A4").len() >= 2;
+    assert!(
+        steps_until(&mut e, 200, chose_again),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        transitions(&e, item, "A4")[..2],
+        ["redesign", "carry_on_unfit"],
+        "{log}"
+    );
+    assert!(ended_at(&e, item, "I1").is_empty(), "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A ruling that lets a departure stand holds for the work: a design written again after it, for another reason, that
+// departs from the same decision is not asked about again, and goes on past the wait for a ruling at once.
+#[test]
+fn a_departure_let_stand_is_not_asked_about_again_when_the_design_is_written_again() {
+    let s = setup("departs-stands");
+    let mut agents = scripts();
+    departing(&mut agents);
+    // After the ruling the engineer designs again; after that it carries on.
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, n: usize| {
+            let next = if n == 1 { "redesign" } else { "carry_on" };
+            (vec![("outcome.next", next)], Vec::new())
+        }),
+    );
+    agents.insert("H3", rules_on_its_own("stands"));
+    let (mut e, said, item) = start(&s, agents);
+    set_approach(&mut e, item, &format!("Decisions:\n{ARCHITECT_DECIDED}"));
+    let implements =
+        |e: &mut Engine| state(e, item).is_some_and(|x| x.1 == "I1") || !ended_at(e, item, "I1").is_empty();
+    assert!(
+        steps_until(&mut e, 250, implements),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(transitions(&e, item, "D2"), ["first", "first"], "{log}");
+    assert_eq!(
+        transitions(&e, item, "D12"),
+        ["wait_architect", "interjection", "clear"],
+        "{log}"
+    );
+    assert_eq!(open_questions(&e, work).len(), 1, "{log}");
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
+// A design written again while the owner has not ruled on where the earlier one departed withdraws that question: it is
+// about a design that is no more. The ask that pinned it for the owner needs no answer, the merge does not wait for it,
+// and the owner rules once, on the design written again. Here the owner asks for a new design while the work waits.
+#[test]
+fn a_design_written_again_withdraws_the_unanswered_question_on_the_earlier_one() {
+    let s = setup("departs-superseded");
+    let path = config::database(&s.data);
+    let mut agents = scripts();
+    departing(&mut agents);
+    agents.insert(
+        "A4",
+        Box::new(|_: &Request, n: usize| {
+            let next = if n == 1 { "redesign" } else { "carry_on" };
+            (vec![("outcome.next", next)], Vec::new())
+        }),
+    );
+    let at = path.clone();
+    // The architect pins each departure for the owner, linking the design it is about, and rules once they answered.
+    agents.insert(
+        "H3",
+        Box::new(move |r: &Request, _: usize| {
+            if r.prompt.contains(LET_IT_STAND) {
+                let reply = json!({ "text": "Keep it.", "why": "The owner let it stand.", "departure": "stands" });
+                return (Vec::new(), vec![("outcome.reply", reply)]);
+            }
+            let c = db::open_read(&at).unwrap();
+            let link: String = c
+                .query_row(
+                    "SELECT body ->> '$.design_link' FROM architect_matters WHERE kind = 'open_question'
+                       AND withdrawn IS NULL AND body ->> '$.answer' IS NULL ORDER BY id DESC LIMIT 1",
+                    [],
+                    |x| x.get(0),
+                )
+                .unwrap();
+            asks_the_owner(&format!(
+                "The design departs from your decision. See [the design]({link})."
+            ))
+        }),
+    );
+    // The architect's pick, when its queue holds several matters, takes an open question first.
+    let at = path.clone();
+    agents.insert(
+        "Q1",
+        Box::new(move |_: &Request, _: usize| {
+            let c = db::open_read(&at).unwrap();
+            let first: i64 = c
+                .query_row(
+                    "SELECT matter FROM architect_queue WHERE project = 'p'
+                     ORDER BY kind = 'open_question' DESC, matter LIMIT 1",
+                    [],
+                    |x| x.get(0),
+                )
+                .unwrap();
+            (Vec::new(), vec![("outcome.pick.matter", json!(first))])
+        }),
+    );
+    let (mut e, said, item) = start(&s, agents);
+    set_approach(&mut e, item, &format!("Decisions:\n- {OWNER_DECIDED}"));
+    step_to(&mut e, item, "D12");
+    let (work, _, _) = state(&e, item).unwrap();
+    let log = |said: &Arc<Mutex<Vec<String>>>| said.lock().unwrap().join("\n");
+    let first = open_questions(&e, work)[0].0;
+    // The owner asks for a new design while the work waits for the ruling.
+    owner_says(&mut e, work, "Design it again.");
+    let asked_again = |e: &mut Engine| open_questions(e, work).len() == 2;
+    assert!(steps_until(&mut e, 200, asked_again), "{}", log(&said));
+    let withdrawn: Option<String> =
+        e.db.conn()
+            .query_row("SELECT withdrawn FROM architect_matters WHERE id = ?1", [first], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert!(
+        withdrawn.as_deref().is_some_and(|w| w.contains("written again")),
+        "{withdrawn:?}\n{}",
+        log(&said)
+    );
+    // The owner rules on the question the design written again put, once it is pinned for them.
+    let second = open_questions(&e, work)[1].0;
+    let pinned = |e: &mut Engine| parked_for(e, second).is_some();
+    assert!(steps_until(&mut e, 120, pinned), "{}", log(&said));
+    let (ask, _) = parked_for(&e, second).unwrap();
+    api::reply_to_question(&mut e.db, "p", ask, LET_IT_STAND, &[], db::Speaker::Owner).unwrap();
+    let implements =
+        |e: &mut Engine| state(e, item).is_some_and(|x| x.1 == "I1") || !ended_at(e, item, "I1").is_empty();
+    assert!(steps_until(&mut e, 200, implements), "{}", log(&said));
+    // No ask is left for the owner, the owner answered one, and the merge waits for no question.
+    let asks: Vec<(i64, Option<String>)> = {
+        let mut st =
+            e.db.conn()
+                .prepare("SELECT id, answer ->> '$.by' FROM owner_asks WHERE answer IS NOT NULL ORDER BY id")
+                .unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect()
+    };
+    let unanswered: i64 =
+        e.db.conn()
+            .query_row("SELECT count(*) FROM owner_asks WHERE answer IS NULL", [], |r| r.get(0))
+            .unwrap();
+    assert_eq!(unanswered, 0, "{asks:?}");
+    let by_owner = asks.iter().filter(|a| a.1.as_deref() != Some("engine")).count();
+    assert_eq!(by_owner, 1, "{asks:?}");
+    let waiting: i64 =
+        e.db.conn()
+            .query_row(
+                "SELECT count(*) FROM work_open_questions q JOIN architect_matters m ON m.id = q.matter
+                 WHERE q.work = ?1 AND q.answer IS NULL AND m.withdrawn IS NULL",
+                [work],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(waiting, 0, "{}", log(&said));
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // What the work learned goes into its item's approach once it merged, with the commit it merged, through the one write
 // path, so that the changes keep it.
 #[test]
@@ -15016,6 +16101,86 @@ fn a_work_waiting_for_an_item_goes_on_when_the_dependency_is_removed_and_a_slot_
     let _ = std::fs::remove_dir_all(&s.root);
 }
 
+// Only an item that delivers a change goes the light route: an answer that creates a report marked a bug fix, and marks
+// that report a feature, is sent back saying so of each; handed in again with the report on the normal route and a
+// change marked a bug fix, its changes are made, each item with its route.
+#[test]
+fn a_report_marked_for_the_light_route_is_sent_back() {
+    let s = setup("route-of-a-report");
+    let mut agents = scripts();
+    agents.insert(
+        "H8",
+        Box::new(|_: &Request, n: usize| {
+            if n > 2 {
+                return (Vec::new(), Vec::new());
+            }
+            let (route, item, part) = if n == 1 {
+                ("bugfix", "measure", "feature")
+            } else {
+                ("normal", "1", "bugfix")
+            };
+            let changes = json!([
+                { "kind": "create_item", "key": "measure", "project": "p", "title": "Measure the parse",
+                  "problem": "Its time is unknown.", "why": "Needed.", "acceptance": ["It is measured."], "level": "l",
+                  "deliver": "report", "route": route, "reason": "r" },
+                { "kind": "edit_item", "item": item, "part": "route", "text": part, "reason": "r" },
+            ]);
+            (
+                Vec::new(),
+                vec![("outcome.effects", json!({ "item_changes": changes }))],
+            )
+        }),
+    );
+    agents.insert(
+        "B2",
+        Box::new(|_: &Request, _: usize| {
+            let ok = |n: i64| json!({ "change": n, "verdict": "ok", "why": "Sound." });
+            (Vec::new(), vec![("outcome.review", json!([ok(1), ok(2)]))])
+        }),
+    );
+    let (mut e, said) = engine(&s, agents);
+    quiet(&mut e);
+    an_item(&mut e);
+    say(&mut e, "Measure the parse.");
+    let arch = e.step(None).unwrap().work.unwrap();
+    assert!(
+        steps_until(&mut e, 40, |e| architect_work_done(e, arch)),
+        "{}",
+        said.lock().unwrap().join("\n")
+    );
+    let rejected = why_sent_back(&e, arch, "H8");
+    assert_eq!(rejected.len(), 1, "{rejected:?}");
+    assert!(
+        rejected[0].contains(
+            "item change 1 (create_item): it gives the route bugfix to an item that delivers a report: only a change \
+             goes the light route"
+        ) && rejected[0]
+            .contains("item change 2 (edit_item): it gives the route feature to an item that delivers a report"),
+        "{rejected:?}"
+    );
+    let routes: Vec<(String, String)> =
+        engine::query_json(e.db.conn(), "SELECT deliver, route FROM items ORDER BY id", &[], 10)
+            .unwrap()
+            .iter()
+            .map(|r| {
+                (
+                    r["deliver"].as_str().unwrap().to_string(),
+                    r["route"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+    let log = said.lock().unwrap().join("\n");
+    assert_eq!(
+        routes,
+        [
+            ("change".to_string(), "bugfix".to_string()),
+            ("report".to_string(), "normal".to_string())
+        ],
+        "{log}"
+    );
+    let _ = std::fs::remove_dir_all(&s.root);
+}
+
 // A cancel of an item the batch creates, named by its key, cancels the create out: the item is never made, and the
 // create, the changes that name its key and the cancel are dropped as they are collected, saying so, so that the review
 // is not given them; in the sixth trial a batch held a create, a move and a cancel of one item, which the review could
@@ -16967,7 +18132,11 @@ fn two_works_side_by_side_merge_in_turn_and_record_every_change_once() {
     };
     let merging = turns_until(&mut e, &only_b, |_| s.ci.came() > held);
     assert!(merging, "{}", said_so_far());
-    let in_the_queue = turns_until(&mut e, &Go::default(), |e| !merge_rounds(&*e, a).is_empty());
+    // A step's round is written when it starts and its row when it ends, in two transactions: wait for `a`'s first
+    // merge round to end, or the row is read before it is written. A merge round of `a` would not end, held at the CI.
+    let in_the_queue = turns_until(&mut e, &Go::default(), |e| {
+        merge_rounds(&*e, a).first().is_some_and(|r| r.2.is_some())
+    });
     let (a_rounds, b_rounds) = (merge_rounds(&e, a), merge_rounds(&e, b));
     s.ci.open();
     assert!(in_the_queue, "{}", said_so_far());

@@ -496,7 +496,18 @@ impl Ctx<'_> {
         Ok(last_return(self.e, self.w, self.g, cell, path)?.and_then(|r| at_path(&r, path)))
     }
 
-    /// The acceptance conditions in force: those locked on the item, or else those the design handed in.
+    /// The plan of the work a review of it tries: the cell that wrote it, its return as the rows read it, and the
+    /// decisions of the item its round was given, numbered as that round had them; the newest design. None before any.
+    fn plan_reviewed(&self) -> Result<Option<(String, Value, Vec<Value>)>, String> {
+        let Some(r) = self.accepted("D2")?.into_iter().next() else {
+            return Ok(None);
+        };
+        let plan = r.output.as_ref().map(|o| self.g.unwrap(o)).unwrap_or(Value::Null);
+        Ok(Some(("D2".to_string(), plan, crate::inputs::decisions_of(&r))))
+    }
+
+    /// The acceptance conditions in force: those locked on the item, or else those the latest design handed in, or on
+    /// the light route the latest plan.
     fn acceptance(&self) -> Result<Vec<Value>, String> {
         let locked: Option<String> = self
             .e
@@ -506,10 +517,18 @@ impl Ctx<'_> {
                 r.get(0)
             })
             .map_err(|e| e.to_string())?;
-        match work::json_col(locked) {
-            Some(Value::Array(xs)) => Ok(xs),
-            _ => Ok(items(self.last("D2", "acceptance")?.as_ref())),
+        if let Some(Value::Array(xs)) = work::json_col(locked) {
+            return Ok(xs);
         }
+        let mut written: Vec<(RoundId, Value)> = Vec::new();
+        for (cell, path) in [("D2", "acceptance"), ("F1", "plan.acceptance")] {
+            let returns = crate::inputs::returns_holding(self.e, self.w, self.g, cell, path)?;
+            if let Some((round, conditions)) = returns.iter().find_map(|(r, x)| Some((*r, at_path(x, path)?))) {
+                written.push((round, conditions));
+            }
+        }
+        let newest = written.into_iter().max_by_key(|(r, _)| *r).map(|(_, v)| v);
+        Ok(items(newest.as_ref()))
     }
 
     /// The results of the ci and ci_before runs of this work, newest first: the tool, the head it ran on, and its
@@ -637,6 +656,7 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             };
             research_problems(clean, &outside).into_result()
         }
+        "route_given" => route_problems(values::light_route(c.e, c.w)?, v).into_result(),
         "design_paths_unchanged" => {
             let wt = c.wt()?;
             let Some(start) = &c.head_start else { return Ok(()) };
@@ -773,6 +793,10 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             crate::cards::check(&handed, &revised, &current, &earlier).or_else(fail)
         }
         "acceptance_matches_locked" => {
+            // A plan that turns the work to the normal route hands in no conditions.
+            if v.is_none() {
+                return Ok(());
+            }
             let given = items(v);
             let report_answer = c.item()?.deliver == "change" && given.iter().any(|a| a["by"] == "report_answer");
             let locked: Option<String> =
@@ -1031,10 +1055,12 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
         }
         "no_adversarial_when_due" => {
             let first = c.accepted("T4")?.is_empty();
-            let chose = c.last("D11", "T1")?.is_some_and(|a| a["verdict"] == "needed");
+            let chose = c.last("D11", "adversarial")?.is_some_and(|a| a["verdict"] == "needed");
             let ran = !c.accepted("T1")?.is_empty();
             let kind = values::value(c.e, c.w, c.g, c.item, "work")?;
-            let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran;
+            // The light route has no design to choose adversarial testing or not, and no judgment of that choice.
+            let light = values::light_route(c.e, c.w)?;
+            let due = c.item()?.deliver == "change" && kind == "implementation" && !chose && !ran && !light;
             let verdict = v.and_then(|x| x["verdict"].as_str());
             match (due, first, verdict) {
                 (true, true, None) => fail(
@@ -1146,8 +1172,330 @@ fn one(c: &Ctx<'_>, check: &str, at: Option<&str>, v: Option<&Value>) -> Result<
             let speakers: Vec<String> = speakers.into_iter().collect();
             speaker_problems(&speakers, &strs(v)).into_result()
         }
+        "constitution_covered" => {
+            let project = match c.item {
+                Some(i) => i.project.clone(),
+                None => crate::architect::project_of(c.w)?.to_string(),
+            };
+            let articles = articles(c.e, &project, c.main)?;
+            constitution_problems(&articles, &items(v)).into_result()
+        }
+        // A plan of the work answers each decision of its item, a passage it quotes found in its own sections.
+        "decisions_answered" => {
+            let listed = crate::decisions::listed(c.item()?.approach.as_deref().unwrap_or_default());
+            let sections = plan_sections(&c.cell.id, &c.unwrapped);
+            decisions_problems(&listed, &items(v), &sections).into_result()
+        }
+        // A review of a plan tries each claim the plan makes against the passage of the plan's sections most likely to
+        // refute it.
+        "claims_answered" => {
+            let Some((cell, plan, given)) = c.plan_reviewed()? else {
+                return fail("there is no plan of the work to review");
+            };
+            let project = c.item()?.project.clone();
+            let articles = articles(c.e, &project, c.main)?;
+            let claims = Claims {
+                sections: plan_sections(&cell, &plan),
+                claimed: plan.get("articles").and_then(Value::as_array).cloned(),
+                answered: plan_answers(&plan, &given),
+                listed: crate::decisions::listed(c.item()?.approach.as_deref().unwrap_or_default()),
+            };
+            let tried = v.cloned().unwrap_or(Value::Null);
+            claims
+                .problems(&articles, &items(tried.get("articles")), &items(tried.get("decisions")))
+                .into_result()
+        }
+        "claims_fit_verdict" => {
+            let tried = v.cloned().unwrap_or(Value::Null);
+            let verdict = c.unwrapped.pointer(REVIEW_VERDICT).and_then(Value::as_str);
+            verdict_problems(&refuted(&tried), verdict).into_result()
+        }
         other => crate::architect::check(c, other, at, v),
     }
+}
+
+/// Where a review of a design says whether a better design is found, in its return.
+const REVIEW_VERDICT: &str = "/better/verdict";
+
+/// The articles of a project's constitution, in its order: its level-two headings that start with "Article". They are
+/// counted in the constitution at the commit of main the round was pinned to (`main`), the one its agent was given, so
+/// that the count is of the articles the agent read.
+pub(crate) fn articles(e: &Engine, project: &str, main: Option<&str>) -> Result<Vec<String>, String> {
+    let Some(text) = crate::architect::constitution(e, project, main)? else {
+        return Ok(Vec::new());
+    };
+    Ok(text
+        .lines()
+        .filter_map(|line| line.strip_prefix("## "))
+        .filter(|h| h.trim_start().to_lowercase().starts_with("article"))
+        .map(|h| h.trim().to_string())
+        .collect())
+}
+
+/// Whether a row names an article: by its number, as "Article 2", or by its title.
+pub(crate) fn names_article(principle: &str, article: &str) -> bool {
+    let p = principle.to_lowercase();
+    let a = article.to_lowercase();
+    let (number, title) = a.split_once('.').unwrap_or((a.as_str(), ""));
+    let number = number.trim();
+    let by_number = p
+        .match_indices(number)
+        .any(|(i, _)| !p[i + number.len()..].chars().next().is_some_and(|c| c.is_ascii_digit()));
+    let title = title.trim();
+    by_number || (!title.is_empty() && p.contains(title))
+}
+
+/// What is wrong with the articles of a project's constitution a table covers (`rows`, one for each article of
+/// `articles`, in its order): a table with the wrong number of rows, and nothing else, since which row is for which
+/// article is told by position; otherwise every row that names another article than its own.
+pub(crate) fn constitution_problems(articles: &[String], rows: &[Value]) -> Problems {
+    let mut problems = Problems::default();
+    if rows.len() != articles.len() {
+        problems.push(format!(
+            "there is one row for each article of the project's constitution, {} of them, and there are {}",
+            articles.len(),
+            rows.len()
+        ));
+        return problems;
+    }
+    for (i, (row, article)) in rows.iter().zip(articles).enumerate() {
+        let named = row["article"].as_str().unwrap_or_default();
+        if !names_article(named, article) {
+            problems.push(format!(
+                "row {} is for \"{article}\", in the constitution's order, and names \"{named}\"",
+                i + 1
+            ));
+        }
+    }
+    problems
+}
+
+/// A text on one line, each run of white space one space: how a passage quoted from a plan is compared with it.
+fn flat(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The sections of a plan of the work that a passage of a claim about it is quoted from, by the cell that writes the
+/// plan (`cell`) and its return (`plan`), each on one line: for a design (`D2`), its solution, where it changes, what it
+/// leaves out, its pitfalls and each of its acceptance conditions. Not what the plan claims of itself (why, its claims
+/// of the constitution and of the item's decisions): a claim is tried against the plan, never against a claim.
+fn plan_sections(cell: &str, plan: &Value) -> Vec<String> {
+    let places: &[&str] = match cell {
+        "D2" => &[
+            "/design/solution",
+            "/design/where",
+            "/design/excluded",
+            "/design/pitfalls",
+        ],
+        _ => &[],
+    };
+    let mut out: Vec<String> = places
+        .iter()
+        .filter_map(|p| plan.pointer(p).and_then(Value::as_str))
+        .map(flat)
+        .collect();
+    out.extend(
+        items(plan.get("acceptance"))
+            .iter()
+            .filter_map(|a| a["condition"].as_str())
+            .map(flat),
+    );
+    out
+}
+
+/// What a plan's sections are called, in a reason.
+const SECTIONS: &str = "the plan's own sections (a design's solution, where it changes, what it leaves out, its \
+                        pitfalls and its acceptance conditions; not why, nor its claims)";
+
+/// Whether a passage is found in a plan's sections as it stands, each run of white space one space.
+fn quoted_in(passage: &str, sections: &[String]) -> bool {
+    let p = flat(passage);
+    !p.is_empty() && sections.iter().any(|s| s.contains(&p))
+}
+
+/// What a plan answered of each decision of the item, by the line of the decision as its round was given it: the
+/// verdict of its row (`follows`, `departs` or `not_concerned`). A line is the key, since the numbers are the round's own
+/// and a decision recorded since moves those after it.
+fn plan_answers(plan: &Value, given: &[Value]) -> Vec<(String, String)> {
+    items(plan.get("item_decisions"))
+        .iter()
+        .filter_map(|row| {
+            let id = row["decision"].as_str()?.trim();
+            let line = given.iter().find(|g| g["decision"] == id)?["line"].as_str()?;
+            Some((line.to_string(), row["verdict"].as_str()?.to_string()))
+        })
+        .collect()
+}
+
+/// What is wrong with how a plan answers the decisions of its item (`rows`) against those the round was given
+/// (`listed`): a number that is none of them, one answered twice, one not answered, and a passage it quotes, to follow
+/// one or to depart from it, that is not found as it stands in the plan's sections (`sections`).
+fn decisions_problems(listed: &[Value], rows: &[Value], sections: &[String]) -> Problems {
+    let want: Vec<String> = listed
+        .iter()
+        .filter_map(|l| l["decision"].as_str().map(str::to_string))
+        .collect();
+    let given: Vec<String> = rows
+        .iter()
+        .map(|r| r["decision"].as_str().unwrap_or_default().trim().to_string())
+        .collect();
+    let misses = id_misses(&want, &given);
+    let mut problems = Problems::default();
+    problems.about(
+        &misses.unknown,
+        |x| format!("\"{x}\" is no decision of the item you were given: answer each by its number"),
+        |xs| format!("{xs} are no decisions of the item you were given: answer each by its number"),
+    );
+    problems.about(
+        &misses.twice,
+        |x| format!("decision {x} is answered twice"),
+        |xs| format!("decisions {xs} are answered twice"),
+    );
+    problems.about(
+        &misses.missing,
+        |x| format!("decision {x} of the item is not answered"),
+        |xs| format!("decisions {xs} of the item are not answered"),
+    );
+    for (row, id) in rows.iter().zip(&given) {
+        if !matches!(row["verdict"].as_str(), Some("follows" | "departs")) {
+            continue;
+        }
+        let passage = row["passage"].as_str().unwrap_or_default();
+        if !quoted_in(passage, sections) {
+            problems.push(format!(
+                "decision {id}: the passage it quotes, \"{passage}\", is not found as it stands in {SECTIONS}: quote it \
+                 letter for letter"
+            ));
+        }
+    }
+    problems
+}
+
+/// What a review of a plan tries its claims against: the plan's sections, its rows of the constitution (none for a plan
+/// that has no list of them), what it answered of each decision of the item by the decision's line, and the decisions
+/// the review's round was given.
+struct Claims {
+    sections: Vec<String>,
+    claimed: Option<Vec<Value>>,
+    answered: Vec<(String, String)>,
+    listed: Vec<Value>,
+}
+
+impl Claims {
+    /// What is wrong with how a review tries the plan's claims: its rows of the articles (`articles` of the
+    /// constitution, `rows` one each in its order) and of the decisions of the item (`decisions`, one each by its
+    /// number), each with the passage of the plan's sections most likely to refute the claim, found there as it stands;
+    /// none near only where the plan says it does not touch the article, or that the decision does not concern it.
+    fn problems(&self, articles: &[String], rows: &[Value], decisions: &[Value]) -> Problems {
+        let mut problems = constitution_problems(articles, rows);
+        // Which article a row is for is told by its place, which a table of the wrong length does not tell.
+        let placed = rows.len() == articles.len();
+        for (i, row) in rows.iter().enumerate() {
+            let n = i + 1;
+            let named = row["article"].as_str().unwrap_or_default();
+            match row["verdict"].as_str() {
+                Some("none_near") => {
+                    let claim = self
+                        .claimed
+                        .as_ref()
+                        .and_then(|c| c.get(i))
+                        .and_then(|c| c["verdict"].as_str());
+                    if placed && self.claimed.is_some() && claim != Some("untouched") {
+                        problems.push(format!(
+                            "article row {n} ({named}): the plan claims it keeps it, so a passage of its sections bears \
+                             on the claim: quote the one most likely to refute it, not none_near"
+                        ));
+                    }
+                }
+                _ => self.passage(&mut problems, &format!("article row {n} ({named})"), row),
+            }
+        }
+        let want: Vec<String> = self
+            .listed
+            .iter()
+            .filter_map(|l| l["decision"].as_str().map(str::to_string))
+            .collect();
+        let given: Vec<String> = decisions
+            .iter()
+            .map(|r| r["decision"].as_str().unwrap_or_default().trim().to_string())
+            .collect();
+        let misses = id_misses(&want, &given);
+        problems.about(
+            &misses.unknown,
+            |x| format!("\"{x}\" is no decision of the item you were given: answer each by its number"),
+            |xs| format!("{xs} are no decisions of the item you were given: answer each by its number"),
+        );
+        problems.about(
+            &misses.twice,
+            |x| format!("decision {x} is tried twice"),
+            |xs| format!("decisions {xs} are tried twice"),
+        );
+        problems.about(
+            &misses.missing,
+            |x| format!("decision {x} of the item is not tried"),
+            |xs| format!("decisions {xs} of the item are not tried"),
+        );
+        for (row, id) in decisions.iter().zip(&given) {
+            if row["verdict"] != "none_near" {
+                self.passage(&mut problems, &format!("decision {id}"), row);
+                continue;
+            }
+            let line = self
+                .listed
+                .iter()
+                .find(|l| l["decision"] == id.as_str())
+                .and_then(|l| l["line"].as_str());
+            let answer = line.and_then(|l| self.answered.iter().find(|(x, _)| x == l).map(|(_, v)| v.as_str()));
+            if let Some(a) = answer.filter(|a| *a != "not_concerned") {
+                problems.push(format!(
+                    "decision {id}: the plan says it {a} it, so a passage of its sections bears on the claim: quote the \
+                     one most likely to refute it, not none_near"
+                ));
+            }
+        }
+        problems
+    }
+
+    /// The passage a row of a review quotes, which must be found in the plan's sections as it stands.
+    fn passage(&self, problems: &mut Problems, what: &str, row: &Value) {
+        let passage = row["passage"].as_str().unwrap_or_default();
+        if !quoted_in(passage, &self.sections) {
+            problems.push(format!(
+                "{what}: the passage it quotes, \"{passage}\", is not found as it stands in {SECTIONS}: quote the plan, \
+                 letter for letter, not a claim about it"
+            ));
+        }
+    }
+}
+
+/// The claims a review found refuted, each as its row says it: an article the plan contradicts, a decision the plan's
+/// answer to is wrong.
+fn refuted(tried: &Value) -> Vec<String> {
+    let mut out: Vec<String> = items(tried.get("articles"))
+        .iter()
+        .filter(|r| r["verdict"] == "contradicted")
+        .map(|r| format!("the claim of {}", r["article"].as_str().unwrap_or("an article")))
+        .collect();
+    out.extend(
+        items(tried.get("decisions"))
+            .iter()
+            .filter(|r| r["verdict"] == "wrong")
+            .map(|r| format!("the answer to decision {}", r["decision"].as_str().unwrap_or("?"))),
+    );
+    out
+}
+
+/// What is wrong with a review's verdict (`verdict`, the better design's) beside the claims it found refuted: a claim
+/// refuted is where the plan must change, so the verdict says a better one is found.
+fn verdict_problems(refuted: &[String], verdict: Option<&str>) -> Problems {
+    let mut problems = Problems::default();
+    if !refuted.is_empty() && verdict != Some("found") {
+        problems.push(format!(
+            "{} is refuted, which is where the design must change: the verdict is found, with what must change",
+            refuted.join(", ")
+        ));
+    }
+    problems
 }
 
 /// What is wrong with the kinds of the tests in a table of new tests (`new`) or of guard tests: each test the engineer
@@ -1447,6 +1795,25 @@ fn acceptance_problems(report_answer: bool, unlocked: bool) -> Problems {
     problems
 }
 
+/// What is wrong with the route the research said, `given`, for a work that goes the light route (`light`) or not:
+/// only the item's route lightens a work, and its engineer only turns it heavier. A work goes the light route by its
+/// item's mark before its research first answers, and by its research's answer after, so the words name the work's
+/// route, not the item's mark, which may have changed since.
+fn route_problems(light: bool, given: Option<&Value>) -> Problems {
+    let mut problems = Problems::default();
+    match (light, given) {
+        (true, None) => problems.push(
+            "the work goes the light route: say in route whether it goes on the light route (light) or turns to the \
+             normal route (to_normal)",
+        ),
+        (false, Some(_)) => {
+            problems.push("the work goes the normal route, and only the item's route lightens a work: leave route out")
+        }
+        _ => {}
+    }
+    problems
+}
+
 /// What is wrong with a research round's changes: the worktree holds changes that are not committed, and the round
 /// changed files outside `research/` (`changed`, the files it changed); the two are independent.
 fn research_problems(clean: bool, changed: &[String]) -> Problems {
@@ -1717,6 +2084,171 @@ fn base_matches_run(name: &str, said: Option<&str>, ran: &Value) -> Problems {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn rows(v: Value) -> Vec<Value> {
+        v.as_array().cloned().unwrap_or_default()
+    }
+
+    // A design answers each decision of its item by its number, once each, and a passage it quotes to follow one or to
+    // depart from one is from the design's own sections, found as it stands but for runs of white space; every problem
+    // is said at once. A passage of why, which is a claim about the design and none of its sections, is not found.
+    #[test]
+    fn a_design_answers_each_decision_of_its_item_from_its_own_sections() {
+        let listed = crate::decisions::listed(
+            "Decisions:\n- Decision (2026-11-03, owner): One path.\nDecision (2026-11-03, owner): Two.\n\
+             Decision (2026-11-03, architect): Three.",
+        );
+        let plan = json!({
+            "why": "It keeps one path for every work.",
+            "design": { "solution": "Keep one path\nfor every work.", "where": "flow.json", "excluded": "None.", "pitfalls": "None." },
+            "acceptance": [{ "by": "test", "id": "A1", "condition": "The light way is its own path." }],
+        });
+        let sections = plan_sections("D2", &plan);
+        let fine = rows(json!([
+            { "decision": "L1", "verdict": "follows", "passage": "Keep one path  for every work." },
+            { "decision": "L2", "verdict": "departs", "passage": "The light way is its own path.", "instead": "Better." },
+            { "decision": "L3", "verdict": "not_concerned", "why": "It is about the page." },
+        ]));
+        assert!(decisions_problems(&listed, &fine, &sections).is_empty());
+        let wrong = rows(json!([
+            { "decision": "L1", "verdict": "follows", "passage": "It keeps one path for every work." },
+            { "decision": "L1", "verdict": "not_concerned", "why": "x" },
+            { "decision": "L4", "verdict": "not_concerned", "why": "x" },
+            { "decision": "L2", "verdict": "departs", "passage": "", "instead": "Better." },
+        ]));
+        let found = decisions_problems(&listed, &wrong, &sections);
+        let t = found.texts();
+        assert_eq!(t.len(), 5, "{t:?}");
+        assert!(t[0].starts_with("\"L4\" is no decision of the item"), "{t:?}");
+        assert!(t[1].starts_with("decision L1 is answered twice"), "{t:?}");
+        assert!(t[2].starts_with("decision L3 of the item is not answered"), "{t:?}");
+        assert!(
+            t[3].starts_with("decision L1: the passage it quotes, \"It keeps one path"),
+            "{t:?}"
+        );
+        assert!(t[4].starts_with("decision L2: the passage it quotes, \"\""), "{t:?}");
+        // An item with no decision is answered by an empty list, and by nothing else.
+        assert!(decisions_problems(&[], &[], &sections).is_empty());
+        let t = decisions_problems(&[], &fine[..1], &sections);
+        assert_eq!(t.texts().len(), 1, "{:?}", t.texts());
+    }
+
+    // The review of a design tries each claim against the passage of the design's own sections most likely to refute
+    // it. W268's design claimed that a project not configured goes on as before; its solution said so of `ci`, and also
+    // that `ci_before` refuses at once when no tests_input is configured. A review that leaves an article out, quotes the
+    // claim itself instead of the design, answers none near for an article the design says it keeps, or finds the claim
+    // contradicted and still says the present design is best, is sent back; one that quotes the passage on ci_before,
+    // says the claim is contradicted and finds a better design, is taken.
+    #[test]
+    fn a_review_tries_each_claim_of_a_design_against_its_own_sections() {
+        let articles = vec![
+            "Article 1. Independent".to_string(),
+            "Article 2. Information".to_string(),
+        ];
+        let ci = "`ci` stays as it was for a project that names no on_demand.";
+        let ci_before = "`ci_before`: with no tests_input configured it refuses at once and says why (this has \
+                         nothing to do with on_demand, and takes effect at once).";
+        let plan = json!({
+            "design": { "solution": format!("{ci}\n\n{ci_before}"), "where": "tools.rs", "excluded": "None.", "pitfalls": "None." },
+            "acceptance": [{ "by": "test", "id": "A2", "condition": "ci_before refuses with no tests_input." }],
+            "articles": [
+                { "article": "Article 1", "verdict": "keeps", "claim": "A project not configured goes on as before." },
+                { "article": "Article 2", "verdict": "untouched", "why": "It changes no input." },
+            ],
+            "item_decisions": [],
+        });
+        let claims = Claims {
+            sections: plan_sections("D2", &plan),
+            claimed: plan["articles"].as_array().cloned(),
+            answered: plan_answers(&plan, &[]),
+            listed: Vec::new(),
+        };
+        let left_out = rows(json!([{ "article": "Article 1", "verdict": "holds", "passage": ci, "why": "x" }]));
+        let p = claims.problems(&articles, &left_out, &[]);
+        assert_eq!(p.texts().len(), 1, "{:?}", p.texts());
+        assert!(p.texts()[0].contains("one row for each article"), "{:?}", p.texts());
+        let claim_quoted = rows(json!([
+            { "article": "Article 1", "verdict": "holds", "passage": "A project not configured goes on as before.", "why": "It says so." },
+            { "article": "Article 2", "verdict": "none_near", "why": "None." },
+        ]));
+        let p = claims.problems(&articles, &claim_quoted, &[]);
+        assert_eq!(p.texts().len(), 1, "{:?}", p.texts());
+        assert!(
+            p.texts()[0].starts_with("article row 1 (Article 1): the passage it quotes"),
+            "{:?}",
+            p.texts()
+        );
+        let near = rows(json!([
+            { "article": "Article 1", "verdict": "none_near", "why": "None." },
+            { "article": "Article 2", "verdict": "none_near", "why": "None." },
+        ]));
+        let p = claims.problems(&articles, &near, &[]);
+        assert_eq!(p.texts().len(), 1, "{:?}", p.texts());
+        assert!(
+            p.texts()[0].starts_with("article row 1 (Article 1): the plan claims it keeps it"),
+            "{:?}",
+            p.texts()
+        );
+        let contradicted = json!({
+            "articles": [
+                { "article": "Article 1", "verdict": "contradicted", "passage": ci_before, "why": "Unconfigured projects are refused." },
+                { "article": "Article 2", "verdict": "none_near", "why": "None." },
+            ],
+            "decisions": [],
+        });
+        assert!(
+            claims
+                .problems(&articles, &rows(contradicted["articles"].clone()), &[])
+                .is_empty()
+        );
+        let p = verdict_problems(&refuted(&contradicted), Some("present_best"));
+        assert_eq!(p.texts().len(), 1, "{:?}", p.texts());
+        assert!(
+            p.texts()[0].starts_with("the claim of Article 1 is refuted"),
+            "{:?}",
+            p.texts()
+        );
+        assert!(verdict_problems(&refuted(&contradicted), Some("found")).is_empty());
+        assert!(verdict_problems(&[], Some("present_best")).is_empty());
+    }
+
+    // A review tries the design's answer to each decision of the item by the decision's line, not its number: a
+    // decision recorded between the design and its review moves the numbers, and the design's answer stays with its
+    // line. None near is for a decision the design said does not concern it, or one it never answered; every decision
+    // the review's round was given is tried, once.
+    #[test]
+    fn a_review_reads_the_design_s_answers_by_the_line_of_each_decision() {
+        let (a, b) = ("Decision (2026-11-01, owner): A.", "Decision (2026-11-02, owner): B.");
+        let plan = json!({
+            "design": { "solution": "Do A.", "where": "x", "excluded": "x", "pitfalls": "x" },
+            "acceptance": [],
+            "item_decisions": [{ "decision": "L1", "verdict": "follows", "passage": "Do A." }],
+        });
+        let given = crate::decisions::listed(&format!("Decisions:\n{a}"));
+        let claims = Claims {
+            sections: plan_sections("D2", &plan),
+            claimed: Some(Vec::new()),
+            answered: plan_answers(&plan, &given),
+            listed: crate::decisions::listed(&format!("Decisions:\n{b}\n{a}")),
+        };
+        let tried = |l1: &str, l2: &str| {
+            rows(json!([
+                { "decision": "L1", "verdict": l1, "passage": "Do A.", "why": "x" },
+                { "decision": "L2", "verdict": l2, "passage": "Do A.", "why": "x" },
+            ]))
+        };
+        let p = claims.problems(&[], &[], &tried("none_near", "none_near"));
+        assert_eq!(
+            p.texts(),
+            [
+                "decision L2: the plan says it follows it, so a passage of its sections bears on the claim: quote the \
+              one most likely to refute it, not none_near"
+            ]
+        );
+        assert!(claims.problems(&[], &[], &tried("none_near", "holds")).is_empty());
+        let p = claims.problems(&[], &[], &tried("holds", "holds")[1..]);
+        assert_eq!(p.texts(), ["decision L1 of the item is not tried"]);
+    }
 
     fn problem(check: &str, field: Option<&str>, text: &str) -> Problem {
         Problem {
@@ -2981,6 +3513,28 @@ mod tests {
         );
         assert!(research_problems(true, &ids(&["research/a.md", "research/b/c.md"])).is_empty());
         assert!(research_problems(true, &[]).is_empty());
+    }
+
+    // A work on the light route says whether it goes that way, and a work on the normal route says nothing of the
+    // route: the engineer cannot lighten a work its item does not mark.
+    #[test]
+    fn the_research_says_the_route_only_on_the_light_route() {
+        let light = json!({ "verdict": "light", "why": "The root is in one function." });
+        let to_normal = json!({ "verdict": "to_normal", "why": "It changes an interface." });
+        assert!(route_problems(true, Some(&light)).is_empty());
+        assert!(route_problems(true, Some(&to_normal)).is_empty());
+        assert!(route_problems(false, None).is_empty());
+        assert_eq!(
+            said(route_problems(true, None)),
+            [
+                "the work goes the light route: say in route whether it goes on the light route (light) or turns to \
+                 the normal route (to_normal)"
+            ]
+        );
+        assert_eq!(
+            said(route_problems(false, Some(&light))),
+            ["the work goes the normal route, and only the item's route lightens a work: leave route out"]
+        );
     }
 
     #[test]

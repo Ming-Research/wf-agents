@@ -58,7 +58,71 @@
     "progress": "progress",
     "flow_feedback": "none"
    },
-   "given": {}
+   "given": {
+    "route_taken": "normal"
+   }
+  },
+  {
+   "row": "light",
+   "json": {
+    "outcome": {
+     "understanding": {
+      "problem": "outcome.understanding.problem",
+      "why": "outcome.understanding.why",
+      "cause": "outcome.understanding.cause",
+      "vs_item": "outcome.understanding.vs_item",
+      "grounds": [
+       {
+        "kind": "verified",
+        "claim": "outcome.understanding.grounds.claim",
+        "where": "outcome.understanding.grounds.where"
+       }
+      ]
+     },
+     "route": {
+      "verdict": "light",
+      "why": "outcome.route.why"
+     }
+    },
+    "side_reports": [],
+    "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "route_taken": "light"
+   }
+  },
+  {
+   "row": "to_normal",
+   "json": {
+    "outcome": {
+     "understanding": {
+      "problem": "outcome.understanding.problem",
+      "why": "outcome.understanding.why",
+      "cause": "outcome.understanding.cause",
+      "vs_item": "outcome.understanding.vs_item",
+      "grounds": [
+       {
+        "kind": "verified",
+        "claim": "outcome.understanding.grounds.claim",
+        "where": "outcome.understanding.grounds.where"
+       }
+      ]
+     },
+     "route": {
+      "verdict": "to_normal",
+      "why": "outcome.route.why"
+     }
+    },
+    "side_reports": [],
+    "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "route_taken": "light"
+   }
   },
   {
    "row": "ask_advisor",
@@ -80,6 +144,147 @@
     "flow_feedback": "none"
    },
    "given": {}
+  }
+ ],
+ "G4": [
+  {
+   "row": "done",
+   "json": {
+    "outcome": {
+     "brief": "outcome.brief"
+    },
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {}
+  }
+ ],
+ "F1": [
+  {
+   "row": "planned",
+   "json": {
+    "outcome": {
+     "plan": {
+      "verdict": "planned",
+      "cause": "outcome.plan.cause",
+      "change": "outcome.plan.change",
+      "tests": "outcome.plan.tests",
+      "acceptance": [
+       {
+        "by": "test",
+        "id": "A1",
+        "condition": "outcome.plan.acceptance.condition"
+       }
+      ]
+     }
+    },
+    "side_reports": [],
+    "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {}
+  },
+  {
+   "row": "to_normal",
+   "json": {
+    "outcome": {
+     "plan": {
+      "verdict": "to_normal",
+      "why": "outcome.plan.why"
+     }
+    },
+    "side_reports": [],
+    "tell_owner": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {}
+  }
+ ],
+ "F2": [
+  {
+   "row": "sound",
+   "json": {
+    "outcome": {
+     "review": {
+      "verdict": "sound",
+      "why": "outcome.review.why"
+     }
+    },
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "revisions_before": "fewer"
+   }
+  },
+  {
+   "row": "revise",
+   "json": {
+    "outcome": {
+     "review": {
+      "verdict": "revise",
+      "findings": [
+       {
+        "fid": "P1",
+        "where": "outcome.review.findings.where",
+        "what": "outcome.review.findings.what",
+        "fix": "outcome.review.findings.fix"
+       }
+      ]
+     }
+    },
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "revisions_before": "fewer"
+   }
+  },
+  {
+   "row": "revised_out",
+   "json": {
+    "outcome": {
+     "review": {
+      "verdict": "revise",
+      "findings": [
+       {
+        "fid": "P1",
+        "where": "outcome.review.findings.where",
+        "what": "outcome.review.findings.what",
+        "fix": "outcome.review.findings.fix"
+       }
+      ]
+     }
+    },
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "revisions_before": "two"
+   }
+  },
+  {
+   "row": "to_normal",
+   "json": {
+    "outcome": {
+     "review": {
+      "verdict": "to_normal",
+      "why": "outcome.review.why"
+     }
+    },
+    "side_reports": [],
+    "progress": "progress",
+    "flow_feedback": "none"
+   },
+   "given": {
+    "revisions_before": "fewer"
+   }
   }
  ],
  "R2": [
@@ -231,7 +436,20 @@
       }
      ],
      "estimate": "outcome.estimate",
-     "articles": "outcome.articles",
+     "articles": [
+      {
+       "article": "outcome.articles.article",
+       "verdict": "keeps",
+       "claim": "outcome.articles.claim"
+      }
+     ],
+     "item_decisions": [
+      {
+       "decision": "outcome.item_decisions.decision",
+       "verdict": "follows",
+       "passage": "outcome.item_decisions.passage"
+      }
+     ],
      "open_questions": [
       {
        "question": "outcome.open_questions.question",
@@ -286,6 +504,24 @@
        "outcome.better.considered"
       ],
       "why": "outcome.better.why"
+     },
+     "claims": {
+      "articles": [
+       {
+        "article": "outcome.claims.articles.article",
+        "verdict": "holds",
+        "passage": "outcome.claims.articles.passage",
+        "why": "outcome.claims.articles.why"
+       }
+      ],
+      "decisions": [
+       {
+        "decision": "outcome.claims.decisions.decision",
+        "verdict": "holds",
+        "passage": "outcome.claims.decisions.passage",
+        "why": "outcome.claims.decisions.why"
+       }
+      ]
      }
     }
    },
@@ -418,6 +654,16 @@
     "flow_feedback": "none"
    },
    "given": {}
+  }
+ ],
+ "D12": [
+  {
+   "row": "clear",
+   "json": {},
+   "given": {
+    "departures": "none",
+    "interjection": "no"
+   }
   }
  ],
  "I1": [

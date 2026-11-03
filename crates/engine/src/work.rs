@@ -47,6 +47,8 @@ pub struct Item {
     pub imported_from: Option<String>,
     pub imported_branch: Option<String>,
     pub imported_pr: Option<i64>,
+    /// The route its works go: normal, or bugfix or feature, which go the light route.
+    pub route: String,
 }
 
 pub use sessions::round::json_col;
@@ -153,7 +155,7 @@ impl Item {
     pub fn load(conn: &Connection, id: i64) -> Result<Item, String> {
         conn.query_row(
             "SELECT id, project, title, problem, why, approach, deliver, level, acceptance, acceptance_work,
-                    acceptance_round, cancelled, imported_from, imported_branch, imported_pr
+                    acceptance_round, cancelled, imported_from, imported_branch, imported_pr, route
              FROM items WHERE id = ?1",
             [id],
             |r| {
@@ -176,6 +178,7 @@ impl Item {
                     imported_from: r.get(12)?,
                     imported_branch: r.get(13)?,
                     imported_pr: r.get(14)?,
+                    route: r.get(15)?,
                 })
             },
         )
