@@ -14472,6 +14472,7 @@ fn a_merge_under_way_outruns_a_start_over() {
     s.merging.open();
     let log = done_after_watching_main(&mut e, work, &said);
     assert_eq!(works_of(&e, item).len(), 1, "{log}");
+    assert_eq!(ended_why(&e, work), None, "{log}");
     assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
     assert_eq!(notices(&e, "is not started over"), 1, "{log}");
     assert!(!transitions_at(&e, work, "L1").is_empty(), "{log}");
@@ -14501,6 +14502,7 @@ fn an_item_whose_merge_stands_on_main_is_not_cancelled() {
     );
     s.ci.open();
     let log = done_after_watching_main(&mut e, work, &said);
+    assert_eq!(ended_why(&e, work), None, "{log}");
     cancel(&mut e, item, "owner");
     assert_eq!(cancelled_why(&e, item), None, "{log}");
     assert_eq!(pr_states(&s), [PrState::Merged], "{log}");
