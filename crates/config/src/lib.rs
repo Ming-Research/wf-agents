@@ -2388,48 +2388,4 @@ asks = 9
         assert!(main_commit(&gone).unwrap_err().contains("origin/master"));
         let _ = std::fs::remove_dir_all(&root);
     }
-
-    // Item #217: a title is as wide as it is shown, the unit `items.title_max` is in. Spaces of any kind are not counted;
-    // an English letter counts 1, a Chinese character, a kana, a hangul syllable, a full-width letter and an emoji 2, a
-    // combining mark none. The letters of other languages are made from their numbers: the repository holds none, not
-    // even as an escape.
-    #[test]
-    fn a_title_is_as_wide_as_it_is_shown_and_spaces_are_not_counted() {
-        let made = |points: &[u32]| -> String { points.iter().filter_map(|p| char::from_u32(*p)).collect() };
-        assert_eq!(title_width(""), 0);
-        // Ordinary, em and no-break spaces, a tab, and the ideographic space of East Asian text: none counted.
-        assert_eq!(title_width("a b\u{2003}c\u{a0}d\te\u{3000}f"), 6);
-        assert_eq!(title_width(&made(&[0x4e2d; 12])), 24);
-        assert_eq!(title_width(&made(&[0x4e2d, 0x6587, 0x20, 0x4e2d, 0x6587])), 8);
-        // A hiragana, a katakana and a hangul syllable.
-        assert_eq!(title_width(&made(&[0x3042, 0x30a2, 0xac00])), 6);
-        // A full-width letter.
-        assert_eq!(title_width(&made(&[0xff21])), 2);
-        assert_eq!(title_width("\u{1f680}"), 2);
-        // An e and the combining acute accent over it show as one column.
-        assert_eq!(title_width("e\u{301}"), 1);
-        // A backtick and a digit are one each, as every other character a keyboard has.
-        assert_eq!(title_width("`lexer` 2"), 8);
-    }
-
-    // At the limit the owner sets (24), 12 Chinese characters and 24 letters of English fit, 13 and 25 do not, and what
-    // is said is how wide the title is; the limit is a parameter, not a number the code knows.
-    #[test]
-    fn a_title_fits_up_to_the_limit_and_is_refused_over_it_saying_how_wide_it_is() {
-        let chinese = |n: usize| char::from_u32(0x4e2d).unwrap().to_string().repeat(n);
-        assert_eq!(title_fits(&chinese(12), 24), Ok(()));
-        assert_eq!(title_fits(&"a".repeat(24), 24), Ok(()));
-        assert!(
-            title_fits(&chinese(13), 24)
-                .unwrap_err()
-                .starts_with("the title is 26 wide and a title is 24")
-        );
-        assert!(
-            title_fits(&"a".repeat(25), 24)
-                .unwrap_err()
-                .starts_with("the title is 25 wide and a title is 24")
-        );
-        assert_eq!(title_fits(&chinese(13), 26), Ok(()));
-        assert!(title_fits(&"a".repeat(21), 20).is_err());
-    }
 }

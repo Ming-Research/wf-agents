@@ -113,6 +113,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/0071.sql"),
     include_str!("../../../db/migrations/0072.sql"),
     include_str!("../../../db/migrations/0073.sql"),
+    include_str!("../../../db/migrations/0074.sql"),
 ];
 
 /// The version [`SCHEMA`] defines, kept in the database's `user_version`.
@@ -1550,6 +1551,46 @@ mod tests {
         old.create_schema(v1, &[]).unwrap();
         old.migrate(&MIGRATIONS[..version as usize - 1]).unwrap();
         old
+    }
+
+    // Item #217: the comment of an observation's title is part of the table's text, which an agent reads with
+    // `SELECT sql FROM sqlite_master`, and the shape comparison of a migrated and a new database does not look at it:
+    // a database from version 73 comes out with the comment of the new schema and its rows, and the index.
+    #[test]
+    fn observations_from_version_73_keep_their_rows_and_get_the_comment_of_the_new_schema() {
+        let mut old = at_version(73);
+        let sql = |db: &Db| -> String {
+            db.conn()
+                .query_row("SELECT sql FROM sqlite_master WHERE name = 'observations'", [], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        assert!(sql(&old).contains("in English of at most 20 characters"));
+        old.conn()
+            .execute(
+                "INSERT INTO observations (id, project, title, what, source) VALUES (7, 'p', 'Old title', 'w', 's')",
+                [],
+            )
+            .unwrap();
+        old.migrate(MIGRATIONS).unwrap();
+        assert!(sql(&old).contains("in the owner's language, at most `items.title_max` wide"));
+        assert!(!sql(&old).contains("in English of at most 20 characters"));
+        let row: (i64, String) = old
+            .conn()
+            .query_row("SELECT id, title FROM observations", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!(row, (7, "Old title".to_string()));
+        let index: i64 = old
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name = 'observations_by_project'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(index, 1);
+        assert_eq!(sql(&old), sql(&Db::in_memory().unwrap()));
     }
 
     // A database at version 50 that holds what the migrations after it change (an open setting of a policy with its

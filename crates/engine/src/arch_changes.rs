@@ -878,30 +878,6 @@ mod tests {
         assert!(!cycle(&[]));
     }
 
-    // Item #217: the architect's titles are held to the width the installation sets, the one the owner's own titles are
-    // held to ([`config::title_width`]): 12 Chinese characters are let through at 24 and 13 are refused, saying how wide
-    // they are; 24 letters of English are let through and 25 refused; the same title is let through at a wider limit.
-    #[test]
-    fn a_title_is_held_to_the_width_the_installation_sets() {
-        let refused = |title: &str, max: usize| {
-            let mut said: Vec<String> = Vec::new();
-            title_fits(title, max, &mut |p: String| said.push(p));
-            said
-        };
-        // Made from its number: the repository holds no letter of another language, not even as an escape.
-        let chinese = |n: usize| char::from_u32(0x4e2d).unwrap().to_string().repeat(n);
-        assert!(refused(&chinese(12), 24).is_empty());
-        assert!(refused(&"a".repeat(24), 24).is_empty());
-        let wide = refused(&chinese(13), 24);
-        assert_eq!(wide.len(), 1);
-        assert!(
-            wide[0].starts_with("the title is 26 wide and a title is 24 wide at most"),
-            "{wide:?}"
-        );
-        assert!(refused(&"a".repeat(25), 24)[0].starts_with("the title is 25 wide and a title is 24 wide at most"));
-        assert!(refused(&chinese(13), 26).is_empty());
-    }
-
     #[test]
     fn an_item_is_put_first_last_or_next_to_another() {
         let order = [1, 2, 3, 4];

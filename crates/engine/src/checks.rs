@@ -1079,24 +1079,22 @@ fn kind_problems(rows: &[Value], kinds: &[(String, String)], new: bool) -> Probl
 
 /// What is wrong with the results a table of new or guard tests gives on its own: each row that is red on the head, and
 /// each that does not fit its kind before the change (a new test that passes, a guard that does not pass), the three
-/// kinds of problem independent of each other and of the other rows.
+/// kinds of problem independent of each other and of the other rows. A result a row lacks is judged by nothing here:
+/// [`missing_results`] says it.
 fn result_problems(rows: &[Value], new: bool) -> Problems {
     let mut problems = Problems::default();
     for t in rows {
         let name = t["name"].as_str().unwrap_or_default();
-        let (head, base) = (
-            t["on_head"].as_str().unwrap_or_default(),
-            t["on_base"].as_str().unwrap_or_default(),
-        );
-        if head == "red" {
+        let (head, base) = (t["on_head"].as_str(), t["on_base"].as_str());
+        if head == Some("red") {
             problems.push(format!("{name} is red on the head: fix it in this round"));
         }
-        if new && base == "green" {
+        if new && base == Some("green") {
             problems.push(format!(
                 "{name} passes before the change: it does not test new behaviour; fix it in this round"
             ));
         }
-        if !new && !matches!(base, "green" | "not_run") {
+        if !new && base.is_some_and(|b| !matches!(b, "green" | "not_run")) {
             problems.push(format!(
                 "{name} does not pass before the change: it does not guard old behaviour; fix it in this round"
             ));
@@ -1449,8 +1447,9 @@ fn test_results_match_runs(c: &Ctx<'_>, rows: &[Value]) -> Result<Problems, Stri
     }))
 }
 
-/// What a test is told to do when the file it is in changed after the latest run of ci_before that reported it. The
-/// forms of implementing, fixing and adversarial testing say it in the same words.
+/// What a test is told to do when any of the files the latest run of ci_before that reported it put on the code before
+/// the change changed after it (the engine cannot tell which file a test is in, so a run lists only the files of the
+/// tests it is for). The forms of implementing, fixing and adversarial testing say it in the same words.
 const RUN_AGAIN: &str = "run ci_before again";
 
 /// A run of ci_before that ran, with what its request put on the code before the change.
@@ -2238,6 +2237,19 @@ mod tests {
         assert!(result_problems(&fine, false).is_empty());
     }
 
+    // Item #217: a result a row lacks is said once, by missing_results, and not also judged as a wrong one (a guard
+    // test with no result before the change "does not pass").
+    #[test]
+    fn a_test_row_with_no_result_before_the_change_is_not_told_it_does_not_pass() {
+        let rows = vec![
+            json!({ "name": "g", "by": "engineer", "on_head": "green" }),
+            json!({ "name": "n", "by": "engineer", "on_head": "green", "on_base": null }),
+        ];
+        assert!(result_problems(&rows, false).is_empty());
+        assert!(result_problems(&rows, true).is_empty());
+        assert_eq!(said(missing_results(&rows)).len(), 2);
+    }
+
     // Item #217, R241-28: a test is written once, in the test changes, and the results its row lacks are said, each: a
     // design with no adversarial testing has the engineer run what it adds or extends.
     #[test]
@@ -2263,7 +2275,7 @@ mod tests {
         assert!(missing_results(&[]).is_empty());
     }
 
-    // Item #217, R241-41: the forms say which run of ci_before counts and what to do when the test's file changed after
+    // Item #217, R241-41: the forms say which run of ci_before counts and what to do when a file of the run changed after
     // it in the words the engine's retry text uses, so that the two do not part.
     #[test]
     fn the_forms_and_the_retry_text_say_the_same_of_which_run_counts() {
@@ -2284,6 +2296,8 @@ mod tests {
         for (what, text) in texts {
             assert!(text.contains("latest run of ci_before that reported"), "{what}");
             assert!(text.contains(RUN_AGAIN), "{what}");
+            // The engine compares all the files the run put there, not the one file of the test, which it cannot tell.
+            assert!(text.contains("any of the files"), "{what}");
         }
     }
 

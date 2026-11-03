@@ -14,8 +14,10 @@ fn made(points: &[u32]) -> String {
 // ASCII" or by "is it above 255" gets wrong.
 #[test]
 fn each_character_is_counted_as_its_east_asian_width_class_says() {
-    let table: [(u32, usize, &str); 24] = [
+    let table: [(u32, usize, &str); 26] = [
         (0x0041, 1, "Latin A (Na)"),
+        (0x0060, 1, "grave accent, as the backticks of a name in a title (Na)"),
+        (0x0032, 1, "digit two (Na)"),
         (0x00e9, 1, "e with acute (A)"),
         (0x03b1, 1, "Greek alpha (A)"),
         (0x0416, 1, "Cyrillic zhe (A)"),
@@ -85,6 +87,17 @@ fn a_title_fits_exactly_the_limits_not_below_its_width() {
     assert_eq!(title_width(&mixed), title_width(&english) + title_width(&chinese));
     assert_eq!(title_width(&english), 8);
     assert_eq!(title_width(&chinese), 8);
+    // At the limit the owner's installation sets (24): 12 Chinese characters and 24 letters of English fit, 13 and 25
+    // do not, and the refusal says how wide the title is.
+    let twelve = made(&[0x4e2d; 12]);
+    assert_eq!(title_fits(&twelve, 24), Ok(()));
+    assert_eq!(title_fits(&"a".repeat(24), 24), Ok(()));
+    assert!(
+        title_fits(&format!("{twelve}{}", made(&[0x4e2d])), 24)
+            .unwrap_err()
+            .contains("26")
+    );
+    assert!(title_fits(&"a".repeat(25), 24).unwrap_err().contains("25"));
     // A refusal says the width, so that a title is shortened by as much as it is over.
     let why = title_fits(&mixed, 10).unwrap_err();
     assert!(why.contains("16"), "{why}");

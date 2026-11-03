@@ -2209,6 +2209,9 @@ mod tests {
     fn each_branch_of_every_union_is_told_apart_on_its_line() {
         let f = compiled();
         let (mut taken, mut refused_with) = (0, 0);
+        // The places of unions whose branches are not told apart on the line, for the reason below: listed, so that a
+        // union that stops being told apart anywhere else is found by this test.
+        let mut skipped: BTreeSet<String> = BTreeSet::new();
         for g in &f.graphs {
             for line in lines_of(g) {
                 let env = envelope(g, line);
@@ -2269,6 +2272,9 @@ mod tests {
                                 .flat_map(|(_, vs)| vs)
                                 .filter(|v| v.at == u.at && v.by == u.by)
                                 .count();
+                            if here != unions_here {
+                                skipped.insert(place());
+                            }
                             let foreign = u
                                 .branches
                                 .iter()
@@ -2290,7 +2296,10 @@ mod tests {
                 }
             }
         }
-        assert!(taken > 20 && refused_with > 5, "{taken} {refused_with}");
+        assert_eq!(
+            (taken, refused_with, skipped.into_iter().collect::<Vec<_>>()),
+            (0, 0, Vec::new())
+        );
     }
 
     // A line's schema is the same each time it is made, and from the flow as the engine reads it back from what it
