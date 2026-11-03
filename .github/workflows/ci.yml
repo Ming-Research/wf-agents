@@ -4,11 +4,13 @@ name: ci
 # the code before a change (its tool ci_before): the engine runs this workflow on one of those by hand, with the tests
 # to run, which then runs exactly them, each to its end, and skips the lint, so that each named test has a result of
 # its own on the code before the change instead of a run that stops at its first red test. The project's
-# configuration names the input (`tests_input`).
+# configuration names the input (`tests_input`). It leaves alone the engine's temporary refs of the code its tool measure
+# runs a measurement workflow on (measure.yml), which is run on one only as that tool asks.
 on:
   push:
     branches-ignore:
       - 'wf-agents-before/**'
+      - 'wf-agents-measure/**'
   workflow_dispatch:
     inputs:
       tests:

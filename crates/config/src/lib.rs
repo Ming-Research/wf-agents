@@ -581,6 +581,30 @@ pub struct Ci {
     /// work's worktree, for the engineer to commit; none when the CI uploads none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generated_artifact: Option<String>,
+    /// The workflows the measure tool may run, each with what it takes and gives; none when the project has no
+    /// measurement workflow, and the measure tool then refuses and says so. The tool runs a workflow on a temporary ref
+    /// under `wf-agents-measure/` and finds its run by the ref's commit and the workflow's name, so the project's
+    /// workflows that run on push, the fast CI and a measurement workflow itself among them, must ignore branches under
+    /// `wf-agents-measure/`; else the push starts the fast CI as well, and a push run of the measurement workflow could
+    /// be taken for the one dispatched. Left out of the settings an agent is shown when empty, which they read as
+    /// `none`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measure: Vec<MeasureWorkflow>,
+}
+
+/// A workflow of a project that the measure tool runs by hand on a temporary ref of the code to measure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MeasureWorkflow {
+    /// The workflow's file name, such as `measure.yml`.
+    pub workflow: String,
+    /// The names of the inputs it takes; the tool refuses an input not named here.
+    #[serde(default)]
+    pub inputs: Vec<String>,
+    /// The name of the artifact it uploads with what it measured, which the tool downloads beside the jobs' logs; none
+    /// when it uploads none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<String>,
 }
 
 /// The settings the flow reads from a project, as `{"config": name}` inputs name them.
@@ -2072,6 +2096,63 @@ asks = 9
                 ("project.oracles".to_string(), "none".to_string()),
             ]
         );
+    }
+
+    // A project lists the workflows its measure tool runs as `[[ci.measure]]` tables. One that lists none reads as
+    // `none` in the settings an agent is shown, one that lists some as the list; a table with a field the list does
+    // not know, or with no workflow, is refused.
+    #[test]
+    fn a_project_lists_the_workflows_the_measure_tool_runs() {
+        const MEASURING: &str = "extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n\
+            [[ci.measure]]\nworkflow = \"measure.yml\"\ninputs = [\"command\", \"base\"]\nartifact = \"measurement\"\n\
+            [[ci.measure]]\nworkflow = \"other.yml\"\n";
+        const SETTING: &str = "`project.ci.measure`";
+        let none = read(&files(&[])).unwrap();
+        assert!(none.projects["p"].ci.measure.is_empty());
+        assert_eq!(
+            none.named_settings("p", SETTING),
+            [("project.ci.measure".to_string(), "none".to_string())]
+        );
+        let c = read(&files(&[("projects/q.toml", MEASURING)])).unwrap();
+        assert_eq!(
+            c.projects["q"].ci.measure,
+            [
+                MeasureWorkflow {
+                    workflow: "measure.yml".to_string(),
+                    inputs: vec!["command".to_string(), "base".to_string()],
+                    artifact: Some("measurement".to_string()),
+                },
+                MeasureWorkflow {
+                    workflow: "other.yml".to_string(),
+                    inputs: Vec::new(),
+                    artifact: None,
+                },
+            ]
+        );
+        assert_eq!(
+            c.named_settings("q", SETTING),
+            [(
+                "project.ci.measure".to_string(),
+                "[{\"workflow\":\"measure.yml\",\"inputs\":[\"command\",\"base\"],\"artifact\":\"measurement\"},\
+                 {\"workflow\":\"other.yml\",\"inputs\":[]}]"
+                    .to_string()
+            )]
+        );
+        for (table, word) in [
+            ("workflow = \"m.yml\"\ncolour = \"red\"", "colour"),
+            ("inputs = [\"command\"]", "workflow"),
+        ] {
+            let project =
+                format!("extends = [\"common\"]\nrepo = \"o/q\"\ncheckout = \"/q\"\n[[ci.measure]]\n{table}\n");
+            let project: &'static str = Box::leak(project.into_boxed_str());
+            let e = read(&files(&[("projects/q.toml", project)])).unwrap_err();
+            assert!(
+                e.problems
+                    .iter()
+                    .any(|p| p.contains("projects/q.toml") && p.contains(word)),
+                "{e}"
+            );
+        }
     }
 
     // The engine reads the last commit; the working tree's changes count only once committed.

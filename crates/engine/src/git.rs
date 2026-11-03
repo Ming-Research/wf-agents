@@ -331,6 +331,18 @@ pub fn files_onto(dir: &Path, files: &[String], from: &str, base: &str) -> Resul
     result
 }
 
+/// A commit on top of `from` that has the same files, with the message given: a commit of its own, which no workflow
+/// has run on, so that a run found by its commit is the run made for it. Nothing changes in the worktree.
+pub fn commit_over(dir: &Path, from: &str, message: &str) -> Result<String, String> {
+    let tree = git(dir, &["rev-parse", &format!("{from}^{{tree}}")])?;
+    let who = ["-c", "user.name=wf-agents", "-c", "user.email=wf-agents@localhost"];
+    let made = git(
+        dir,
+        &[&who[..], &["commit-tree", tree.trim(), "-p", from, "-m", message]].concat(),
+    )?;
+    Ok(made.trim().to_string())
+}
+
 fn commit_with(
     run: &impl Fn(&[&str]) -> Result<String, String>,
     files: &[String],
@@ -362,6 +374,29 @@ mod tests {
         assert!(under("crates/db/tests/x.rs", &ps(&["crates/*/tests/"])));
         assert!(!under("crates/db/src/x.rs", &ps(&["crates/*/tests/"])));
         assert!(!under("crates/tests", &ps(&["crates/*/tests/"])));
+    }
+
+    // The commit made for a measurement has the head's files and the head as its parent, and is another commit each time
+    // its message is another, so that a run found by its commit is not an earlier one's.
+    #[test]
+    fn a_commit_over_a_head_has_its_files_and_is_its_own() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-commit-over-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q"]);
+        let head = commit(&dir, &[("src/x.txt", "x\n")], "Start");
+        let first = commit_over(&dir, &head, "Measurement 1").unwrap();
+        let again = commit_over(&dir, &head, "Measurement 2").unwrap();
+        assert_ne!(first, again);
+        assert_ne!(first, head);
+        assert_eq!(run(&dir, &["rev-parse", &format!("{first}^")]), head);
+        assert_eq!(
+            run(&dir, &["rev-parse", &format!("{first}^{{tree}}")]),
+            run(&dir, &["rev-parse", &format!("{head}^{{tree}}")])
+        );
+        assert_eq!(run(&dir, &["log", "-1", "--format=%s", &first]), "Measurement 1");
+        assert!(commit_over(&dir, "no-such-commit", "x").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn run(dir: &Path, args: &[&str]) -> String {
