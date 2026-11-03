@@ -5,6 +5,7 @@
 
 use std::cell::Cell;
 use std::path::Path;
+use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use db::Actor;
@@ -577,6 +578,9 @@ pub fn asked(gathered: &[Gathered]) -> Vec<Value> {
         .unwrap_or_default()
 }
 
+/// What a tool gave, or how it failed with what each attempt gave.
+type Ran = Result<Value, (Failure, String)>;
+
 /// Runs the tools the calling cell asked for. Coming back from the architect, it runs only the tools that failed,
 /// and merges in what ran before. A work of an architect is on no item: it runs what reads.
 pub fn run_tools(
@@ -607,25 +611,87 @@ pub fn run_tools(
         }
     }
     let mut order: Vec<&Value> = asked.iter().collect();
-    // ci pushes first, so ci_before and the others can rely on the push.
+    // ci first, so that the numbers name the requests in the order they used to run in.
     order.sort_by_key(|r| r["tool"] != "ci");
-    let mut failed: Vec<Value> = Vec::new();
-    let pr = Cell::new(w.pr);
+    // Each request with its place in that order, which names its temporary branch and output file and orders its result.
+    let picked: Vec<(usize, &Value, String)> = order
+        .into_iter()
+        .enumerate()
+        .map(|(n, req)| (n, req, req["tool"].as_str().unwrap_or_default().to_string()))
+        .filter(|(_, _, tool)| !only.as_ref().is_some_and(|o| !o.contains(tool)))
+        .collect();
+    let mut got: Vec<(usize, String, Ran)> = Vec::new();
     let mut pushed = w.pushed_head.clone();
-    for (n, req) in order.into_iter().enumerate() {
-        let tool = req["tool"].as_str().unwrap_or_default().to_string();
-        if only.as_ref().is_some_and(|o| !o.contains(&tool)) {
-            continue;
+    let pushing = item.zip(project.as_ref());
+    if let Some((item, project)) = pushing {
+        // A tool starts once what it may depend on is there: ci_before on its head being pushed by ci, not on ci's run,
+        // so each runs on a thread of its own beside ci's wait for its CI; the others, which may read what both did,
+        // after both.
+        let befores: Vec<&(usize, &Value, String)> = picked.iter().filter(|(_, _, t)| t == "ci_before").collect();
+        let mut contexts = Vec::new();
+        for _ in &befores {
+            contexts.push(e.fork()?);
         }
-        let got = match (tool.as_str(), item.zip(project.as_ref())) {
-            ("ci", Some((item, project))) => ci(e, w, project, item, round, req, &mut pushed, &pr),
-            ("ci_before", Some((_, project))) => ci_before(e, w, project, round, n, req, pushed.as_deref()),
+        let start = pushed.clone();
+        std::thread::scope(|s| {
+            let (senders, receivers): (Vec<mpsc::Sender<String>>, Vec<Receiver<String>>) =
+                befores.iter().map(|_| mpsc::channel()).unzip();
+            let threads: Vec<_> = befores
+                .iter()
+                .zip(receivers)
+                .zip(contexts)
+                .map(|((&&(n, req, ref tool), told), mut ctx)| {
+                    let start = start.as_deref();
+                    let run = s.spawn(move || ci_before(&mut ctx, w, project, round, n, req, start, Some(&told)));
+                    (n, tool.clone(), run)
+                })
+                .collect();
+            let pr = Cell::new(w.pr);
+            let tell = |sha: &str| {
+                for s in &senders {
+                    let _ = s.send(sha.to_string());
+                }
+            };
+            for (n, req, tool) in picked.iter().filter(|(_, _, t)| t == "ci") {
+                got.push((
+                    *n,
+                    tool.clone(),
+                    ci(e, w, project, item, round, req, &mut pushed, &pr, &tell),
+                ));
+            }
+            // ci has pushed all it will: a ci_before still waiting for its head is refused.
+            drop(senders);
+            for (n, tool, run) in threads {
+                let ran = run.join().unwrap_or_else(|p| {
+                    let why = p
+                        .downcast_ref::<&str>()
+                        .map(|s| s.to_string())
+                        .or_else(|| p.downcast_ref::<String>().cloned())
+                        .unwrap_or_default();
+                    Err((
+                        Failure::other(format!("ci_before stopped: its thread panicked: {why}")),
+                        String::new(),
+                    ))
+                });
+                got.push((n, tool, ran));
+            }
+        });
+    }
+    for (n, req, tool) in &picked {
+        let n = *n;
+        let ran = match (tool.as_str(), pushing) {
+            ("ci" | "ci_before", Some(_)) => continue,
             ("measure", Some((_, project))) => measure(e, w, project, round, n, req, pushed.as_deref()),
             ("gh", _) => gh(e, w, project.as_ref(), round, n, req),
             ("query", _) => query(e, round, n, req),
             (other, _) => Ok(json!({ "error": format!("no such tool for this work: {other}") })),
         };
-        match got {
+        got.push((n, tool.clone(), ran));
+    }
+    got.sort_by_key(|(n, _, _)| *n);
+    let mut failed: Vec<Value> = Vec::new();
+    for (_, tool, ran) in got {
+        match ran {
             Ok(mut v) => {
                 if let Some(o) = v.as_object_mut() {
                     o.insert("tool".into(), Value::String(tool));
@@ -691,6 +757,8 @@ fn pr_fallback(item: &Item) -> (String, String) {
     )
 }
 
+/// Pushes the head and waits for its fast CI; `told` hears each head as soon as it is pushed, before the wait, so that a
+/// run of the code before the change can start meanwhile.
 #[allow(clippy::too_many_arguments)]
 fn ci(
     e: &mut Engine,
@@ -701,6 +769,7 @@ fn ci(
     req: &Value,
     pushed: &mut Option<String>,
     pr: &Cell<Option<i64>>,
+    told: &dyn Fn(&str),
 ) -> Result<Value, (Failure, String)> {
     let wt = w
         .worktree
@@ -725,6 +794,7 @@ fn ci(
         .unwrap_or_default();
     let got = attempts(e, round, "ci", req, |e| {
         hub::push(&wt, &sha, &format!("refs/heads/{branch}"), false)?;
+        told(&sha);
         let tb = title_body
             .clone()
             .or_else(|| pr.get().is_none().then(|| fallback.clone()));
@@ -837,6 +907,24 @@ fn recorded_request(req: &Value, sha: &str) -> Value {
     recorded
 }
 
+/// Whether a pushed head covers `sha`: the push recorded when the round began, or one the round's ci reports as it pushes
+/// (`told`), waited for until ci has pushed everything it will.
+fn pushed_covering(wt: &Path, sha: &str, pushed: Option<&str>, told: Option<&Receiver<String>>) -> bool {
+    if pushed.is_some_and(|p| git::is_ancestor(wt, sha, p)) {
+        return true;
+    }
+    let Some(told) = told else { return false };
+    while let Ok(p) = told.recv() {
+        if git::is_ancestor(wt, sha, &p) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Runs the tests named on the code before the change; `pushed` is the head pushed when the round began, and `told`
+/// hears the heads the round's ci pushes, so that this runs beside ci's wait for its own CI rather than after it.
+#[allow(clippy::too_many_arguments)]
 fn ci_before(
     e: &mut Engine,
     w: &Work,
@@ -845,6 +933,7 @@ fn ci_before(
     n: usize,
     req: &Value,
     pushed: Option<&str>,
+    told: Option<&Receiver<String>>,
 ) -> Result<Value, (Failure, String)> {
     let refused = |why: String| Ok(json!({ "ran": { "verdict": "refused", "why": why } }));
     let wt = w
@@ -855,7 +944,7 @@ fn ci_before(
     let Some(sha) = git::resolve(&wt, head) else {
         return refused(format!("There is no commit {head}"));
     };
-    if !pushed.is_some_and(|p| git::is_ancestor(&wt, &sha, p)) {
+    if !pushed_covering(&wt, &sha, pushed, told) {
         return refused(format!("The head {sha} is not pushed; hand it in together with ci"));
     }
     let files: Vec<String> = req["files"]
@@ -894,13 +983,14 @@ fn ci_before(
         );
     }
     let listed = tests.join(" ");
-    let branch = format!("{BEFORE}/{}-{}-{n}", round.work, round.n);
+    let tag = format!("{}-{}-{n}", round.work, round.n);
+    let branch = format!("{BEFORE}/{tag}");
     let refname = format!("refs/heads/{branch}");
     // The run is recorded with the commit the head resolved to now: a head written as `HEAD` or a branch name names
     // another commit later, and the check of which files changed since the run compares against this one.
     let recorded = recorded_request(req, &sha);
     attempts(e, round, "ci_before", &recorded, |e| {
-        let commit = git::files_onto(&wt, &files, &sha, &base).map_err(Failure::other)?;
+        let commit = git::files_onto(&wt, &files, &sha, &base, &tag).map_err(Failure::other)?;
         hub::push(&wt, &commit, &refname, true)?;
         let ran = before_checks(e.github(), project, &branch, &commit, named, &listed);
         // GitHub refused the request itself: trying again cannot help, and the engineer is told what GitHub said.
@@ -2012,18 +2102,20 @@ mod tests {
         }
     }
 
-    // The fast CI and the measurement workflow leave the engine's temporary refs alone on push: a ref the engine pushes
-    // to run a workflow on by hand must not start the fast CI as well, or the measurement's own push runs.
+    // The full CI and the measurement workflow leave the engine's temporary refs alone on push: a ref the engine pushes
+    // to run a workflow on by hand must not start the full CI as well, or the measurement's own push runs. The full CI
+    // runs on a push to main only; the measurement workflow ignores the refs by their prefixes.
     #[test]
     fn the_workflows_leave_the_engine_s_temporary_refs_alone_on_push() {
-        for (workflow, text) in [
-            ("ci.yml", include_str!("../../../.github/workflows/ci.yml")),
-            ("measure.yml", include_str!("../../../.github/workflows/measure.yml")),
-        ] {
-            for prefix in [BEFORE, MEASURE] {
-                let ignored = format!("      - '{prefix}/**'\n");
-                assert!(text.contains(&ignored), "{workflow} does not ignore {prefix}/**");
-            }
+        let ci = include_str!("../../../.github/workflows/ci.yml");
+        assert!(
+            ci.contains("on:\n  push:\n    branches:\n      - main\n  workflow_dispatch:\n"),
+            "ci.yml runs on more than a push to main"
+        );
+        let measure = include_str!("../../../.github/workflows/measure.yml");
+        for prefix in [BEFORE, MEASURE] {
+            let ignored = format!("      - '{prefix}/**'\n");
+            assert!(measure.contains(&ignored), "measure.yml does not ignore {prefix}/**");
         }
     }
 }
@@ -2635,7 +2727,7 @@ timeout_ms = 1000
             let round = RoundId { work: self.work, n: 1 };
             let req = json!({ "tool": "ci", "head": self.head, "tests": tests });
             let (mut pushed, pr) = (w.pushed_head.clone(), Cell::new(w.pr));
-            ci(&mut self.e, &w, &project, &item, round, &req, &mut pushed, &pr).unwrap()
+            ci(&mut self.e, &w, &project, &item, round, &req, &mut pushed, &pr, &|_| {}).unwrap()
         }
 
         /// The tool `ci_before` asked to run the tests on the code before the change.
@@ -2644,8 +2736,48 @@ timeout_ms = 1000
             let project = self.e.project_of(&w).unwrap();
             let round = RoundId { work: self.work, n: 1 };
             let req = json!({ "tool": "ci_before", "head": self.head, "files": [], "tests": tests });
-            ci_before(&mut self.e, &w, &project, round, 0, &req, Some(self.head.as_str())).unwrap()
+            ci_before(
+                &mut self.e,
+                &w,
+                &project,
+                round,
+                0,
+                &req,
+                Some(self.head.as_str()),
+                None,
+            )
+            .unwrap()
         }
+    }
+
+    // A head not yet pushed when the round began counts once ci tells it was pushed, and is refused once ci has pushed
+    // all it will without covering it.
+    #[test]
+    fn ci_before_waits_for_the_head_ci_pushes() {
+        let dir = std::env::temp_dir().join(format!("wf-agents-covering-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |args: &[&str]| crate::git::git(&dir, args).unwrap();
+        run(&["init", "-q"]);
+        let who = ["-c", "user.name=t", "-c", "user.email=t@t"];
+        run(&[&who[..], &["commit", "-q", "--allow-empty", "-m", "a"]].concat());
+        let a = run(&["rev-parse", "HEAD"]).trim().to_string();
+        run(&[&who[..], &["commit", "-q", "--allow-empty", "-m", "b"]].concat());
+        let b = run(&["rev-parse", "HEAD"]).trim().to_string();
+        // Pushed already when the round began: no wait.
+        assert!(pushed_covering(&dir, &a, Some(&b), None));
+        // Told by ci, from another thread, after the start: first a head that does not cover it, then one that does.
+        let (told, hears) = mpsc::channel();
+        let pushes = [a.clone(), b.clone()];
+        let teller = std::thread::spawn(move || pushes.into_iter().for_each(|p| told.send(p).unwrap()));
+        assert!(pushed_covering(&dir, &b, None, Some(&hears)));
+        teller.join().unwrap();
+        // ci pushed nothing that covers it, and is done: refused, not waited for forever.
+        let (told, hears) = mpsc::channel();
+        told.send(a.clone()).unwrap();
+        drop(told);
+        assert!(!pushed_covering(&dir, &b, Some(&a), Some(&hears)));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // The tool ci asks for the fast CI on the head with the tests named, and gives the run it made: its head and its

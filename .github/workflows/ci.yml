@@ -1,25 +1,14 @@
 name: ci
 
-# The full CI. Every pushed commit on every branch is checked, not only pull requests, but for the engine's temporary
-# branches of the code before a change (its tool ci_before): the engine runs the tests to run on one of those by hand,
-# which then runs exactly them, each to its end, and skips the lint, so that each named test has a result of its own
-# on the code before the change instead of a run that stops at its first red test. The project's configuration names
-# the workflow that does so (`fast`, which is fast.yml where it is set up so, and this one where it is not) and the
-# input that takes the tests (`tests_input`), which both workflows have. It leaves alone the engine's temporary refs of
-# the code its tool measure runs a measurement workflow on (measure.yml), which is run on one only as that tool asks.
-# Item 244 makes this workflow run on pushes to main only and drops its input and its named-tests path, which fast.yml
-# has.
+# The full CI: every test, and the lint. It runs on each push to main, and on a work's branch only when the engine runs
+# it by hand: its full CI before the review and the merge (the project's configuration sets `on_demand`). While a work's
+# code is being written, the engine runs fast.yml instead, with the tests named (`fast`, `tests_input`). A push to any
+# other branch runs nothing.
 on:
   push:
-    branches-ignore:
-      - 'wf-agents-before/**'
-      - 'wf-agents-measure/**'
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      tests:
-        description: The tests to run, by their names separated by spaces, each to its end; empty for the whole CI
-        required: false
-        default: ''
 
 permissions:
   contents: read
@@ -35,7 +24,6 @@ concurrency:
 # job `check` is red whenever any of them is, which is the check the projects' configuration waits for to merge.
 jobs:
   lint:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.tests == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -65,6 +53,15 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ matrix.shard == 1 }}
+      # The workspace's own crates are compiled incrementally, from what the last run on main kept of them, so that a
+      # run recompiles only what changed since: rust-cache turns incremental compiling off and deletes its state, so the
+      # state is kept apart, whole, and restored after it. Main saves it below; every run restores the newest.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/ci
+          key: target-ci-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: target-ci-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
+      - run: echo "CARGO_INCREMENTAL=1" >> "$GITHUB_ENV"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.21.0
@@ -78,25 +75,19 @@ jobs:
           npm run build
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test
       # at 60 s; each job runs a third of every test binary's tests, and stops at its first red test, which keeps a
-      # red run short. Given tests to run, it runs those only, a test named by its name or the end of its path, and
-      # each to its end.
+      # red run short.
       - name: Test
         env:
-          TESTS: ${{ inputs.tests }}
           SHARD: ${{ matrix.shard }}
-        run: |
-          if [ -z "$TESTS" ]; then
-            exec cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition "count:$SHARD/3"
-          fi
-          set -f
-          filter=""
-          for t in $TESTS; do
-            name=$(printf '%s' "$t" | sed 's/[][\\.^$*+?(){}|]/\\&/g')
-            filter="${filter:+$filter | }test(/(^|::)${name}\$/)"
-          done
-          exec cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition "count:$SHARD/3" \
-            --no-fail-fast --no-tests=pass -E "$filter"
+        run: cargo nextest run --workspace --locked --cargo-profile ci --profile ci --partition "count:$SHARD/3"
+      # Main keeps the incremental state for the next runs.
+      - if: ${{ matrix.shard == 1 && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/ci
+          key: target-ci-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
 
+  # The check a merge waits for: every job ran, and passed.
   check:
     needs: [lint, test]
     if: always()
@@ -106,7 +97,6 @@ jobs:
       - name: Every other job passed
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
-        # The lint is skipped only on a run of the tests named.
         run: |
           echo "lint and test: $RESULTS"
-          for r in $RESULTS; do [ "$r" = success ] || [ "$r" = skipped ] || exit 1; done
+          for r in $RESULTS; do [ "$r" = success ] || exit 1; done
