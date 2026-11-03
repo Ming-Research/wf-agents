@@ -3013,14 +3013,25 @@ mod tests {
                 "{view} scans a table of rounds:\n{text}"
             );
         }
+        // How asks are counted reads rounds in that one way and no other.
         let steps = plan("SELECT * FROM work_asking WHERE work = 1");
+        let rounds: Vec<&String> = steps.iter().filter(|s| s.contains(" r ")).collect();
         assert!(
-            steps
-                .iter()
-                .filter(|s| s.contains(" r "))
-                .all(|s| s.contains("COVERING INDEX rounds_counts")),
+            rounds.len() == 1 && rounds[0].contains("COVERING INDEX rounds_counts (work=? AND counts=?)"),
             "work_asking reads rounds other than by rounds_counts:\n{}",
             steps.join("\n")
         );
+        // The counters read rounds by the work only: the counted rounds through their index, and the total time
+        // through the primary key.
+        let steps = plan("SELECT * FROM work_counters WHERE work = 1");
+        for s in steps.iter().filter(|s| s.contains(" r ")) {
+            assert!(
+                s.starts_with("SEARCH r USING")
+                    && (s.contains("COVERING INDEX rounds_counts (work=?")
+                        || s.contains("INDEX sqlite_autoindex_rounds_1 (work=?)")),
+                "work_counters reads rounds other than by the work:\n{}",
+                steps.join("\n")
+            );
+        }
     }
 }
