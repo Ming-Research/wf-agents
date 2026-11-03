@@ -415,7 +415,7 @@ impl Ctx<'_> {
         let rounds = work::rounds_at(self.e.db.conn(), self.w.id, &self.cell.id)?;
         Ok(rounds
             .iter()
-            .filter(|r| r.ended_at.is_some())
+            .filter(|r| r.ended_at.is_some() && !crate::failed::was_step(r))
             .take_while(|r| r.rejected.is_some())
             .last()
             .and_then(|r| r.input["engine"]["head"].as_str().map(str::to_string)))

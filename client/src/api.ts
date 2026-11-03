@@ -2729,9 +2729,14 @@ waits?: boolean, };
 
 export type SentBack = { desc: string,
 /**
- * How many returns of one cell in a row may be sent back before the engine pauses the work.
+ * How many returns in a row may be sent back before the engine pauses the work: the work's returns since it last
+ * took a row from outside the engine, whichever cells they were at.
  */
-pauseAfter: number, pause: string, };
+pauseAfter: number, pause: string,
+/**
+ * The counter that counts each return sent back, one of the flow's counters.
+ */
+counts?: string | null, };
 
 export type Failed = { desc: string, kinds: Array<Failure>, };
 
@@ -2742,19 +2747,57 @@ export type Failure = { name: string,
 /**
  * What the command line reports when this happens.
  */
-when: string, handle: Handle, desc: string, };
+when: string, handle: Handle, desc: string,
+/**
+ * A kind handled by running again: how many of its runs in a row end the running again. Every such kind has one,
+ * and `then`.
+ */
+inRow?: number | null,
+/**
+ * What the engine does once the kind has been taken `inRow` times in a row.
+ */
+then?: Then | null,
+/**
+ * The counter that counts each time the engine takes the kind's row, one of the flow's counters.
+ */
+counts?: string | null, };
 
 export type Handle = "wait" | "retry" | "pause" | "fresh" | "repair";
 
 /**
  * A way a round ends that is the engine's, not the agent's: a round cut off, a step it cannot take, a message it does
- * not send, a work that ended meanwhile.
+ * not send, a work that ended meanwhile, a step of the engine's before the round that reached the network and could
+ * not.
  */
 export type EngineCase = { name: string, when: string, desc: string,
 /**
  * The work pauses, and the owner is told: a blocker the owner holds at the cell.
  */
-pauses?: boolean, };
+pauses?: boolean,
+/**
+ * A case the engine takes by running its step again, as `step_network` does: how many of its runs in a row end
+ * the running again. `backoff` and `then` go with it.
+ */
+inRow?: number | null,
+/**
+ * The seconds the step waits before it runs again, after its first failure, its second and so on; the last holds
+ * for every failure after.
+ */
+backoff?: Array<number>,
+/**
+ * What the engine does once the case has been taken `inRow` times in a row.
+ */
+then?: Then | null,
+/**
+ * The counter that counts each time the engine takes the case, one of the flow's counters.
+ */
+counts?: string | null, };
+
+/**
+ * What the engine does once a row that runs a round or a step again has been taken so many times in a row as its
+ * bound says.
+ */
+export type Then = "pause";
 
 /**
  * The run guard's rule: how a running round is compared with the rounds before it. The lines themselves are not here:

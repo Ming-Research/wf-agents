@@ -99,17 +99,20 @@ fn recorded_inputs(gathered: &[Gathered]) -> Value {
 /// it: for a cell on a project's architect's line, by the fetch that brings the architect's worktree to main
 /// ([`architect::ready`]), so that the worktree the architect reads files in and the inputs the round is given are of
 /// one commit, though main moves on between two fetches; for any other cell by the fetch of `pin_main`. Where the
-/// worktree cannot be brought to main, the step stops: the work waits, while the network is down, for it to be up
-/// again, and otherwise is paused, with why.
+/// worktree cannot be brought to main, the step stops as a step of the engine's before a round does
+/// ([`failed::networked`]): a failure of the network that passes by itself is waited out and the step taken again, the
+/// work waits while the network is down for it to be up again, and any other failure pauses the work, with why.
 fn pin_round(
     e: &mut Engine,
     w: &Work,
     g: &CompiledGraph,
     cell: &CompiledCell,
     item: Option<&Item>,
+    section: &flow::format::Rounds,
+    took: &[failed::Took],
 ) -> Result<Result<inputs::Pin, Advance>, String> {
     if item.is_none() {
-        match architect::ready(e, w, g, cell) {
+        match failed::networked(e, w, cell, section, took, |e| architect::ready(e, w, g, cell))? {
             Ok(Some(commit)) => {
                 let commit = inputs::reads_main(cell).then_some(commit);
                 return Ok(Ok(inputs::Pin {
@@ -118,14 +121,7 @@ fn pin_round(
                 }));
             }
             Ok(None) => {}
-            Err(why) => {
-                let why = format!("cell {}: {why}", cell.id);
-                return Ok(Err(if e.network_down() {
-                    e.wait_offline(w.id, &why)?
-                } else {
-                    failed::pause(e, w, &why)?
-                }));
-            }
+            Err(stop) => return Ok(Err(stop)),
         }
     }
     inputs::pin_main(e, w, cell, item, true).map(Ok)
@@ -187,10 +183,14 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     // left, and its record says why. A cell with no such input does not read main, and fetches only where it is an
     // architect's on a line, whose worktree is brought to main.
     let mut pinned: Option<inputs::Pin> = None;
+    let section = failed::section(e, g)?;
+    // What the work took since it last took a row from outside the engine, or since the owner last let it go on after
+    // it paused: every row that runs again is counted in these, and a run waits after the one before.
+    let took = failed::since_outside(e, w, g)?;
     // A table the cell must answer that has no row leaves its round nothing to answer: no round runs, and the engine
     // takes the cell's row for it, recorded with why.
     if let Some(row) = crate::row(cell, flow::format::NOTHING_TO_ANSWER).cloned() {
-        let pin = match pin_round(e, w, g, cell, item.as_ref())? {
+        let pin = match pin_round(e, w, g, cell, item.as_ref(), &section, &took)? {
             Ok(pin) => pin,
             Err(stop) => return Ok(stop),
         };
@@ -226,34 +226,36 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
             );
         }
     }
-    let section = failed::section(e, g)?;
+    // The cell's rounds and when the owner last let the work go on, as the run guard judges the round by them.
     let at_cell = work::rounds_at(e.db.conn(), w.id, &cell.id)?;
-    // A round the engine itself cut off and a run that ended without a return are not returns sent back, and a work
-    // the owner let go on after it paused counts afresh.
     let resumed = work::resumed_at(e.db.conn(), w.id)?;
-    if let Some(why) = failed::waiting(e.retry_wait, &at_cell, resumed, &section) {
+    if let Some(why) = failed::waiting(e.retry_wait, e.backoff_unit, &took, &section) {
         return Ok(Advance::Waits(why));
     }
-    let sent_back = failed::sent_back(&at_cell, resumed);
+    let sent_back = took
+        .iter()
+        .filter(|t| t.row.as_deref() == Some("sent_back"))
+        .collect::<Vec<_>>();
     let pause_after = section.sent_back.pause_after as usize;
     if sent_back.len() >= pause_after {
         let reason = sent_back
             .first()
-            .map(|r| r.rejected.clone().unwrap_or_default().to_string())
+            .map(|t| failed::sent_back_reason(e, t.round))
             .unwrap_or_default();
         let why = format!(
-            "{} returns of cell {} in a row were sent back; the last: {reason}",
+            "{} returns in a row were sent back, the last at cell {}: {reason}",
             sent_back.len(),
             cell.id
         );
         return failed::pause(e, w, &why);
     }
     // A round of a project's architect reads the project at the latest main: for a cell on its line, its graph's worktree
-    // is brought there first, by the one fetch the round makes. Where it cannot be, the work waits for the owner, with
-    // why; or, while the network is down, every work waits for it.
+    // is brought there first, by the one fetch the round makes. A failure of the network that passes by itself is
+    // waited out and the step taken again, up to the bound of the flow's `step_network`; while the network is down,
+    // every work waits for it; any other failure waits for the owner, with why.
     let pin = match pinned {
         Some(pin) => pin,
-        None => match pin_round(e, w, g, cell, item.as_ref())? {
+        None => match pin_round(e, w, g, cell, item.as_ref(), &section, &took)? {
             Ok(pin) => pin,
             Err(stop) => return Ok(stop),
         },
@@ -687,6 +689,7 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     let Some(output) = reply.output.clone() else {
         let f = Failed {
             w,
+            g,
             cell,
             round,
             section: &section,
@@ -720,6 +723,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
         Err(why) => {
             return reject(
                 e,
+                w,
+                &section,
                 round,
                 Ended {
                     output: Some(output),
@@ -748,6 +753,8 @@ pub fn agent(e: &mut Engine, w: &Work, g: &CompiledGraph, cell: &CompiledCell) -
     if let Err(why) = checks::run(&ctx) {
         return reject(
             e,
+            w,
+            &section,
             round,
             Ended {
                 output: Some(output),
@@ -903,7 +910,11 @@ fn compose(
     let mut plan = e
         .sessions()
         .plan(e.db.conn(), w.id, architect, cell, limit, runs.on(), now)?;
-    let work_rounds = work::rounds(e.db.conn(), w.id)?;
+    // The rounds the agent ran or was told of: a step of the engine's before one that failed in passing is neither.
+    let work_rounds: Vec<Round> = work::rounds(e.db.conn(), w.id)?
+        .into_iter()
+        .filter(|r| !failed::was_step(r))
+        .collect();
     let number = work::next_round(e.db.conn(), w.id)?;
     let (line_rounds, held) = match &mut plan {
         Plan::Going { rounds, held, .. } => (std::mem::take(rounds), *std::mem::take(held)),
@@ -1008,7 +1019,16 @@ pub fn next_message(e: &mut Engine, work: i64) -> Result<message::Message, Strin
     Ok(compose(e, &w, &g, &cell, item.as_ref(), pin.commit.as_deref(), db::now())?.msg)
 }
 
-fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Advance, String> {
+/// Ends a round whose return is sent back, and tells the owner once if the work passes the limit its project sets on
+/// the counter that counts the returns sent back.
+fn reject(
+    e: &mut Engine,
+    w: &Work,
+    section: &flow::format::Rounds,
+    round: RoundId,
+    ended: Ended,
+    why: Value,
+) -> Result<Advance, String> {
     e.say(&format!("{round} sent back: {why}"));
     let ended = Ended {
         rejected: Some(why),
@@ -1019,6 +1039,9 @@ fn reject(e: &mut Engine, round: RoundId, ended: Ended, why: Value) -> Result<Ad
         work::finish_round(tx, round, &ended).map_err(db::Error::Abort)
     })
     .map_err(sql)?;
+    if let Some(counter) = &section.sent_back.counts {
+        crate::limits::tell_past(e, w, counter)?;
+    }
     Ok(Advance::Moved)
 }
 
