@@ -66,10 +66,7 @@ fn row<'a>(g: &'a CompiledGraph, cell: &str, name: &str) -> &'a CompiledRow {
 // of an older flow version that the graph no longer has are passed over; with no agent on the stack, the line of the
 // graph's agents, the engineer's. The lines are those of the flow: cell `T1` is on the adversarial line, `T6` and the
 // merge's cells on the engineer's.
-#[test]
-fn the_line_a_work_stands_on_is_the_nearest_agent_cell_on_its_stack() {
-    let f = compiled();
-    let g = engineers(&f);
+fn the_nearest_agent_cell_on_the_stack_gives_the_line(g: &CompiledGraph) {
     let line = |at: &str, callers: &[&str]| standing_line(g, &work_at(stack(at, callers)));
     // The question's cell, with the asker below it.
     assert_eq!(line("A2", &["T1"]), "adversarial");
@@ -96,11 +93,13 @@ fn the_line_a_work_stands_on_is_the_nearest_agent_cell_on_its_stack() {
 // takes the work back to the asker by its row `@asker`, or to the cell that receives answers when that is on the
 // asker's line. The two are compared over every agent cell of the engineer's graph that can ask, directly and through
 // the tools cell, with the work taken to the question's cell and back by the flow's own `step`, and both are compared
-// with the line the flow gives the asker.
+// with the line the flow gives the asker. Stacks written by hand, with the nearest agent cell the line, come first, on
+// the one compiled flow, which is most of the time the test takes.
 #[test]
 fn the_line_a_work_stands_on_at_its_question_is_the_line_its_answer_goes_back_to() {
     let f = compiled();
     let g = engineers(&f);
+    the_nearest_agent_cell_on_the_stack_gives_the_line(g);
     let answered = row(g, "A2", "answered");
     let mut asked_by = Vec::new();
     for c in g.cells.iter().filter(|c| c.kind == "agent") {
